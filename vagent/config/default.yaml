@@ -1,0 +1,61 @@
+
+model_type: openai
+openai:
+  model_name: Qwen/Qwen3-32B
+  openai_api_key: "EMPTY_API_KEY"
+  openai_api_base: "http://127.0.0.1:8000/v1"
+  model_kwargs:
+    stop: ["."]
+
+stage:
+  task_init:
+    tips: ""
+    success: "Initialization complete."
+    retry: "Retrying initialization"
+    fail: "Initialization failed."
+    next_stage:
+      sucess: task_understand
+      fail: exit
+  task_understand:
+    tips: "What is your task?"
+    success: "Task understood."
+    retry: "Retrying task understanding"
+    fail: "Task understanding failed."
+    next_stage:
+      success: task_plan
+      fail: exit
+  task_plan:
+    tips: "Planning the task."
+    success: "Task planned."
+    retry: "Retrying task planning"
+    fail: "Task planning failed."
+    next_stage:
+      success: task_execute
+      fail: exit
+  task_execute:
+    tips: "Executing the task."
+    success: "Task executed successfully."
+    retry: "Retrying task execution"
+    fail: "Task execution failed."
+    next_stage:
+      success: task_review
+      fail: exit
+  task_review:
+    tips: "Reviewing the task."
+    success: "Task reviewed successfully."
+    retry: "Retrying task review"
+    fail: "Task review failed."
+    next_stage:
+      success: task_done
+      fail: exit
+      condition:
+        - "If the task is not satisfactory, return to task_understand"
+        - "If the task is satisfactory, proceed to task_done"
+  task_done:
+    tips: "Task completed."
+    success: "Task done successfully."
+    retry: "Retrying task completion"
+    fail: "Task completion failed."
+    next_stage:
+      success: exit
+      fail: exit

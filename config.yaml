@@ -1,0 +1,3 @@
+
+openai:
+  openai_api_base: "http://10.156.154.242:8000/v1"
