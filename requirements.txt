@@ -1,0 +1,5 @@
+langchain>=0.3.25
+langchain_community>=0.3.24
+openai>=1.82.0
+langgraph>=0.4.7
+langchain_openai>=0.3.18
