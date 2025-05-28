@@ -26,6 +26,7 @@ def get_args():
             overrides[key.strip()] = value
         return overrides
     parser = argparse.ArgumentParser(description="Verify Agent")
+    parser.add_argument("workspace", type=str, default=os.getcwd(), help="Workspace directory to run the agent in")
     parser.add_argument("--config", type=str, default=None, help="Path to the configuration file")
     parser.add_argument("--override", type=get_override_dict, default=None, help="Override configuration settings in the format A.B.C=value")
     return parser.parse_args()
@@ -34,6 +35,7 @@ def get_args():
 def run():
     args = get_args()
     agent = VerifyAgent(
+        workspace=args.workspace,
         config_file=args.config,
         cfg_override=args.override,
     )
