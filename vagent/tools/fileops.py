@@ -118,7 +118,7 @@ class ReadFile(BaseTool):
     # custom variables
     workspace: str = Field(
         default=".",  # Default to current directory
-        description="the workspace directory to list files from")
+        description="the workspace directory to read files from")
 
     def _run(self,
              path: str, start: int, end:int, run_manager: Optional[CallbackManagerForToolRun] = None
@@ -155,3 +155,56 @@ class ReadFile(BaseTool):
         info(f"ReadFile tool initialized with workspace: {self.workspace}")
 
 
+class TextFilePath(BaseModel):
+    path: str = Field(
+        default=None,
+        description="file path to read, relative to the workspace")
+    start: int = Field(
+        default=0,
+        description="start line to read, default is 0, meaning from the beginning of the file")
+    count: int = Field(
+        default=-1,
+        description="number of lines to read, default is -1, meaning read to the end of the file")
+
+
+class ReadTextFile(BaseTool):
+    name: str = "ReadTextFile"
+    description: str = "used to read the content of a text file in the workspace. If you context is limited, "+\
+                       "you can specify the start line and count of lines to read a part of the file. "
+    args_schema: Optional[ArgsSchema] = TextFilePath
+    return_direct: bool = False
+
+    # custom variables
+    workspace: str = Field(
+        default=".",  # Default to current directory
+        description="the workspace directory to read files from")
+
+    def _run(self, path: str, start: int = 0, count: int = -1,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Read the content of a text file in the workspace."""
+        real_path = os.path.abspath(os.path.join(self.workspace, path))
+        if real_path.startswith(self.workspace) is False:
+            return f"File '{path}' is not within the workspace."
+        if not os.path.exists(real_path):
+            return f"File {path} does not exist in workspace."
+        if not is_text_file(real_path):
+            return f"File {path} is not a text file."
+        info(f"Reading text file {real_path} from line {start} with count {count}")
+        if count == 0:
+            return f"Count is 0, no lines to read from file {path}."
+        with open(real_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            lines_count = len(lines)
+            if start < 0 or start >= len(lines):
+                return f"Start line {start} is out of range(0-{lines_count}) for file {path}."
+            if count == -1 or start + count > len(lines):
+                count = len(lines) - start
+            content = ''.join(lines[start:start + count])
+            return f"Read {count} lines ({start} to {start + count}, remian {lines_count - count - start} tail lines) from file {path}:\n{content}"
+
+    def __init__(self, workspace: str, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+        self.workspace = os.path.abspath(workspace)
+        info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
