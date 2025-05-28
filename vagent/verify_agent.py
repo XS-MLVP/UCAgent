@@ -4,7 +4,7 @@ from .util.config import get_config
 from .util.log import info
 from .util.functions import fmt_time_deta
 
-from .tools.fileops import ListPath, ReadFile
+from .tools.fileops import ListPath, ReadFile, ReadTextFile
 
 import time
 import random
@@ -38,7 +38,10 @@ class VerifyAgent(object):
                                     model=self.cfg.openai.model_name,
                                     )
         self.workspace = workspace
-        self.test_tools = [ListPath(workspace), ReadFile(workspace)]
+        self.test_tools = [ListPath(workspace),
+                           #ReadFile(workspace),
+                           ReadTextFile(workspace),
+                           ]
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools + (ex_tools if ex_tools is not None else []),
