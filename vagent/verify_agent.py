@@ -4,7 +4,7 @@ from .util.config import get_config
 from .util.log import info
 from .util.functions import fmt_time_deta
 
-from .tools.fileops import ListPath, ReadFile, ReadTextFile
+from .tools.fileops import ListPath, ReadFile, ReadTextFile, ReplaceTextFileLines, WriteToFile
 
 import time
 import random
@@ -41,6 +41,8 @@ class VerifyAgent(object):
         self.test_tools = [ListPath(workspace),
                            #ReadFile(workspace),
                            ReadTextFile(workspace),
+                           ReplaceTextFileLines(workspace),
+                           WriteToFile(workspace),
                            ]
         self.agent = create_react_agent(
             model=self.model,
@@ -65,11 +67,18 @@ class VerifyAgent(object):
     def get_current_tips(self):
         messages = [SystemMessage("You are a very smart verification agent.")]
         if self._tip_index == 0:
-            messages.append(HumanMessage("how many files you can find?"))
+            messages.append(HumanMessage("find all the verilog files in the workspace, and analyze their contents to fix its bug (need edit the file)."))
         elif self._tip_index == 1:
-            messages.append(HumanMessage("which is the largest file? Analyze its contents"))
+            messages.append(HumanMessage("检查你的修改，是否正确，不正确继续修改直到完成"))
+        elif self._tip_index == 2:
+            messages.append(HumanMessage("which is the largest file? Analyze its contents, write it to a file named 'largest_file_analysis.txt'"))
         if self._tip_index >= 1:
-            self.exit()
+            target_file = f"{self.workspace}/largest_file_analysis.txt"
+            import os
+            if os.path.exists(target_file):
+                self.exit()
+            else:
+                messages.append(HumanMessage(f"the file '{target_file}' does not exist, please check the previous steps."))
         self._tip_index += 1
         return {"messages": messages}
 

@@ -27,5 +27,10 @@ def test_read_file():
     result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
     print("result:\n%s"%result)
 
+def test_read_text_file():
+    tool = ReadTextFile(workspace=os.path.join(current_dir, "../vagent"))
+    result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
+    print("result:\n%s"%result)
+
 if __name__ == "__main__":
-    test_read_file()
+    test_read_text_file()
