@@ -380,7 +380,7 @@ class TextFileReplaceLines(BaseTool, BaseReadWrite):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        self.init_write(workspace, write_dirs, un_write_dirs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
 class ArgTextFileMultiLinesEdit(BaseModel):
@@ -496,7 +496,7 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        self.init_write(workspace, write_dirs, un_write_dirs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 class ArgWriteToFile(BaseModel):
     path: str = Field(
@@ -539,7 +539,7 @@ class WriteToFile(BaseTool, BaseReadWrite):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        self.init_write(workspace, write_dirs, un_write_dirs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
 class AppendToFile(BaseTool, BaseReadWrite):
@@ -572,4 +572,4 @@ class AppendToFile(BaseTool, BaseReadWrite):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        self.init_write(workspace, write_dirs, un_write_dirs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
