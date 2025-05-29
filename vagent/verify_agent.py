@@ -4,7 +4,7 @@ from .util.config import get_config
 from .util.log import info
 from .util.functions import fmt_time_deta
 
-from .tools.fileops import PathList, NormReadFile, TextFileRead, TextFileReplaceLines, WriteToFile, TextFileMultiLinesEdit
+from .tools.fileops import *
 
 import time
 import random
@@ -41,12 +41,13 @@ class VerifyAgent(object):
         self.test_tools = [# file operations
                            # read:
                            PathList(workspace),
-                           NormReadFile(workspace),
-                           TextFileRead(workspace),
+                           ReadBinFile(workspace),
+                           ReadTextFile(workspace),
                            # write:
                            TextFileReplaceLines(workspace),
-                           WriteToFile(workspace),
                            TextFileMultiLinesEdit(workspace),
+                           WriteToFile(workspace),
+                           AppendToFile(workspace),
                            # test tools
                            # ...
                            ]

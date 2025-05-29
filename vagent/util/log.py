@@ -35,3 +35,7 @@ def str_error(msg: str):
 def str_return(msg: str):
     """Inserts a string into a return message format."""
     return f"[RETURN]\n{msg}"
+
+def str_data(msg: str, key="DATA"):
+    """Inserts a string into a return message format."""
+    return f"[{key}]\n{msg}"
