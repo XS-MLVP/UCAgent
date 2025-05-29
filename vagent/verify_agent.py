@@ -4,7 +4,7 @@ from .util.config import get_config
 from .util.log import info
 from .util.functions import fmt_time_deta
 
-from .tools.fileops import ListPath, ReadFile, ReadTextFile, ReplaceTextFileLines, WriteToFile
+from .tools.fileops import PathList, NormReadFile, TextFileRead, TextFileReplaceLines, WriteToFile, TextFileMultiLinesEdit
 
 import time
 import random
@@ -38,11 +38,17 @@ class VerifyAgent(object):
                                     model=self.cfg.openai.model_name,
                                     )
         self.workspace = workspace
-        self.test_tools = [ListPath(workspace),
-                           #ReadFile(workspace),
-                           ReadTextFile(workspace),
-                           ReplaceTextFileLines(workspace),
+        self.test_tools = [# file operations
+                           # read:
+                           PathList(workspace),
+                           NormReadFile(workspace),
+                           TextFileRead(workspace),
+                           # write:
+                           TextFileReplaceLines(workspace),
                            WriteToFile(workspace),
+                           TextFileMultiLinesEdit(workspace),
+                           # test tools
+                           # ...
                            ]
         self.agent = create_react_agent(
             model=self.model,
