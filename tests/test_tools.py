@@ -23,22 +23,24 @@ def test_list_path():
     print_tool_info(tool)
     print("result:\n%s"%result)
 
-
 def test_read_file():
     print("============== test_read_file ==============")
-    tool = NormReadFile(workspace=os.path.join(current_dir, "../vagent"))
+    tool = ReadBinFile(workspace=os.path.join(current_dir, "../vagent"))
+    print_tool_info(tool)
     result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
     print("result:\n%s"%result)
 
 def test_read_text_file():
     print("============== test_read_text_file ==============")
-    tool = TextFileRead(workspace=os.path.join(current_dir, "../vagent"))
+    tool = ReadTextFile(workspace=os.path.join(current_dir, "../vagent"))
+    print_tool_info(tool)
     result = tool.invoke({"path": "config/default.yaml", "start": 2, "end": 100})
     print("result:\n%s"%result)
 
 def test_edit_multil_line():
     print("============== test_edit_multiline ==============")
     tool = TextFileMultiLinesEdit(workspace=os.path.join(current_dir, "../examples"))
+    print_tool_info(tool)
     result = tool.invoke({"path": "Adder/Adder.v", "values": [(-1, f"// This is a test comment: {time.time()}", 0)]})
     print("result:\n%s"%result)
 

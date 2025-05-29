@@ -1,7 +1,7 @@
 #coding=utf-8
 
 from typing import Optional, List, Tuple
-from vagent.util.log import info, str_info, str_return, str_error, str_warning
+from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data
 from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
 
 from langchain_core.callbacks import (
@@ -35,6 +35,85 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
     return True, "Not implemented yet."
 
 
+class BaseReadWrite:
+    """Base class for write operations."""
+
+    # custom variables
+    workspace: str = Field(
+        default=".",
+        description="Workspace directory to modify files in."
+    )
+    max_read_size: int = Field(
+        default=30720,
+        description="Maximum file size to read (in bytes)."
+    )
+    write_able_dirs: List[str] = Field(
+        default=None,
+        description="List of directories where files can be modified. If empty, all directories are writable."
+    )
+    un_write_able_dirs: List[str] = Field(
+        default=None,
+        description="List of directories where files cannot be modified. If empty, no directories are restricted."
+    )
+    create_file: bool = Field(
+        default=False,
+        description="If True, creates the file if it does not exist. If False, raises an error if the file does not exist."
+    )
+
+    def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 30720):
+        """Initialize the base write tool."""
+        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+        self.workspace = os.path.abspath(workspace)
+        self.write_able_dirs = write_dirs
+        self.un_write_able_dirs = un_write_dirs
+        self.max_read_size = max_read_size
+        if write_dirs is not None:
+            if len(write_dirs) == 0:
+                self.description += "\n\nNote: All directories are read only."
+            else:
+                self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
+        if un_write_dirs is not None:
+            if len(un_write_dirs) == 0:
+                self.description += "\n\nNote: No directories are restricted."
+            else:
+                self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
+        info(f"ReplaceTextLines tool initialized with workspace: {self.workspace}")
+
+    def check_file(self, path: str) -> Tuple[bool, str]:
+        """Check if the file is writable."""
+        if path.endswith('/'):
+            return False, f"Path '{path}' should not end with a slash. Please provide a file path, not a directory.", ""
+        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
+        if not write_able:
+            return False, msg, ""
+        real_path = os.path.abspath(os.path.join(self.workspace, path))
+        if real_path.startswith(self.workspace) is False:
+            return False, f"File '{path}' is not within the workspace.", ""
+        if not os.path.exists(real_path):
+            if self.create_file:
+                info(f"File {real_path} does not exist, creating it.")
+                base_dir = os.path.dirname(real_path)
+                if not os.path.exists(base_dir):
+                    info(f"Base directory {base_dir} does not exist, creating it.")
+                    os.makedirs(base_dir, exist_ok=True)
+                with open(real_path, 'w', encoding='utf-8') as f:
+                    pass
+            else:
+                return False, f"File {path} does not exist in workspace. Please create it first.", ""
+        return True, "", real_path
+
+    def check_dir(self, path: str) -> Tuple[bool, str]:
+        """Check if the directory is exist."""
+        real_path = os.path.abspath(os.path.join(self.workspace, path))
+        if real_path.startswith(self.workspace) is False:
+            return False, str_error(f"Path '{path}' is not within the workspace."), ""
+        if not os.path.exists(real_path):
+            return False, str_error(f"Path {path} does not exist in workspace."), ""
+        if not os.path.isdir(real_path):
+            return False, str_error(f"Path {path} is not a directory in workspace."), ""
+        return True, "", real_path
+
+
 class ArgPathList(BaseModel):
     path: str = Field(
         default=".",
@@ -45,7 +124,7 @@ class ArgPathList(BaseModel):
     )
 
 
-class PathList(BaseTool):
+class PathList(BaseTool, BaseReadWrite):
     """List all files and directories in a workspace directory, recursively."""
     name: str = "PathList"
     description: str = (
@@ -56,11 +135,6 @@ class PathList(BaseTool):
     return_direct: bool = False
 
     # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to list files from."
-    )
-
     ignore_pattern: list = Field(
         default=["*__pycache__*"],
         description="Patterns to ignore files/directories, e.g., '*.tmp'."
@@ -75,14 +149,10 @@ class PathList(BaseTool):
         self, path: str, depth: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None
     ) -> str:
         """List all files in a directory of the workspace, including subdirectories."""
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"Path '{path}' is not within the workspace.")
+        success, msg, real_path = self.check_dir(path)
+        if not success:
+            return str_error(msg)
         info(f"Listing files in {real_path} with depth {depth}")
-        if not os.path.exists(real_path):
-            return str_error(f"Path {path} does not exist in workspace.")
-        if not os.path.isdir(real_path):
-            return str_error(f"Path {path} is not a directory in workspace.")
         if depth < 0:
             depth = float('inf')
         result = []
@@ -128,16 +198,14 @@ class PathList(BaseTool):
     def __init__(self, workspace: str, ignore_pattern=None, ignore_dirs_files=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
+        self.init_base_rw(workspace)
         if ignore_pattern is not None:
             self.ignore_pattern += ignore_pattern
         if ignore_dirs_files is not None:
             self.ignore_dirs_files = ignore_dirs_files
-        info(f"ListPath tool initialized with workspace: {self.workspace}")
 
 
-class ArgNormReadFile(BaseModel):
+class ArgReadBinFile(BaseModel):
     path: str = Field(
         default=None,
         description="File path to read, relative to the workspace.")
@@ -151,40 +219,27 @@ class ArgNormReadFile(BaseModel):
     )
 
 
-class NormReadFile(BaseTool):
-    """Read content of a file in the workspace."""
-    name: str = "NormReadFile"
+class ReadBinFile(BaseTool, BaseReadWrite):
+    """Read binary content of a file in the workspace."""
+    name: str = "ReadBinFile"
     description: str = (
-        "Read content of a file in the workspace. Supports partial reads via bytes postion start/end. "
-        "If file is text and you also need line index, suggests to use tool 'ReadTextFile'. "
-        "Max read size is %d bytes. If not text, returns bytes as python str."
+        "Read binary content of a file in the workspace. Supports partial reads via bytes postion start/end. "
+        "If file is text type, suggests to use tool 'ReadTextFile'. "
+        "Max read size is %d bytes. If not text, returns python bytes format: eg b'\\x00\\x01\\x02...'. "
+        "Note: The file content in return data is after prifix '[BIN_DATA]\\n'."
     )
-    args_schema: Optional[ArgsSchema] = ArgNormReadFile
+    args_schema: Optional[ArgsSchema] = ArgReadBinFile
     return_direct: bool = False
-
-    # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to read files from."
-    )
-
-    max_read_size: int = Field(
-        default=30720,
-        description="Maximum file size to read (in bytes)."
-    )
 
     def _run(self,
              path: str, start: int, end:int, run_manager: Optional[CallbackManagerForToolRun] = None
             ) -> str:
         """Read the content of a file in the workspace."""
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"File '{path}' is not within the workspace.")
-        if not os.path.exists(real_path):
-            return str_error(f"File {path} does not exist in workspace.")
+        success, msg, real_path = self.check_file(path)
+        if not success:
+            return str_error(msg)
         info(f"Reading file {real_path} from position {start} to {end}")
         file_bytes = get_file_size(real_path)
-        is_text = is_text_file(real_path)
         with open(real_path, 'rb') as f:
             f.seek(start)
             content = f.read(end - start) if (end != -1) else f.read()
@@ -192,29 +247,22 @@ class NormReadFile(BaseTool):
             remm_bytes = file_bytes - start - read_bytes
             if not content:
                 return str_error(f"File {path} is empty or the specified range is invalid.")
-            if is_text:
-                content = content.decode('utf-8', errors='ignore')
-            else:
-                content = str(content)
             tex_size = len(content)
             if tex_size > self.max_read_size:
                 return str_error(f"\nRead size {tex_size} characters exceeds the maximum read size of {self.max_read_size} characters. "
                                  f"You need to specify a smaller range. current range is (start={start}, end={end}). "
                                   "If the file type is not text, the size of characters will be more then the raw bytes after python convert." if not is_text else "")
             ret_head = str_info(f"\nRead {read_bytes}/{file_bytes} bytes with (start={start}, end={end}), {remm_bytes} bytes remain after the read position.\n\n")
-            return ret_head + str_return(content)
+            return ret_head + str_data(content, "BIN_DATA")
 
     def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
-        self.max_read_size = max_read_size
+        self.init_base_rw(workspace, max_read_size=max_read_size)
         self.description = self.description % self.max_read_size
-        info(f"ReadFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgTextFileRead(BaseModel):
+class ArgReadTextFile(BaseModel):
     path: str = Field(
         default=None,
         description="Text file path to read, relative to the workspace.")
@@ -228,37 +276,28 @@ class ArgTextFileRead(BaseModel):
     )
 
 
-class TextFileRead(BaseTool):
+class ReadTextFile(BaseTool, BaseReadWrite):
     """Read lines from a text file in the workspace."""
-    name: str = "TextFileRead"
+    name: str = "ReadTextFile"
     description: str = (
         "Read lines from a text file in the workspace. Supports start line and line count. "
         "Max read size is %d characters. Each line is prefixed with its index."
+        "Note: The file content in return data is after prifix '[TXT_DATA]\\n' and each line has prefix '<index>: '.\n"
+        "For example, the raw data in file is:\n"
+        "line 1\nline 2\nline 3\n"
+        "while the returned file content is:\n"
+        "0: line 1\n1: line 2\n2: line 3\n"
+        "The line index starts from 0. "
     )
-    args_schema: Optional[ArgsSchema] = ArgTextFileRead
+    args_schema: Optional[ArgsSchema] = ArgReadTextFile
     return_direct: bool = False
-
-    # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to read files from."
-    )
-
-    max_read_size: int = Field(
-        default=30720,
-        description="Maximum number of characters to read."
-    )
 
     def _run(self, path: str, start: int = 0, count: int = -1,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Read the content of a text file in the workspace."""
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"File '{path}' is not within the workspace.")
-        if not os.path.exists(real_path):
-            return str_error(f"File {path} does not exist in workspace.")
-        if not is_text_file(real_path):
-            return str_error(f"File {path} is not a text file.")
+        success, msg, real_path = self.check_file(path)
+        if not success:
+            return str_error(msg)
         info(f"Reading text file {real_path} from line {start} with count {count}")
         if count == 0:
             return str_error(f"Count is 0, no lines to read from file {path}.")
@@ -275,14 +314,12 @@ class TextFileRead(BaseTool):
                 return str_error(f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
                                  f"You need to specify a smaller range. current range is ({start}, +{str(count) if count >=0 else 'MAX'}).")
             ret_head = str_info(f"\nRead {r_count}/{lines_count} lines with args (start={start}, count={count}), {lines_count - r_count - start} lines remain after the read position.\n\n")
-            return ret_head + str_return(content)
+            return ret_head + str_data(content, "TXT_DATA")
 
     def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
-        self.max_read_size = max_read_size
+        self.init_base_rw(workspace, max_read_size=max_read_size)
         self.description = self.description % self.max_read_size
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
@@ -293,7 +330,7 @@ class ArgTextFileReplaceLines(BaseModel):
         description="Text file path to modify, relative to the workspace.")
     start: int = Field(
         default=0,
-        description="Start line index to replace (0-based)."
+        description="Start line index to replace. Need >= 0"
     )
     count: int = Field(
         default=-1,
@@ -301,11 +338,11 @@ class ArgTextFileReplaceLines(BaseModel):
     )
     data: str = Field(
         default=None,
-        description="String data to replace target lines. Use '\\n' for multiple lines. If not set, lines are removed."
+        description="New lines data to replace target lines. If None, target lines are removed."
     )
 
 
-class TextFileReplaceLines(BaseTool):
+class TextFileReplaceLines(BaseTool, BaseReadWrite):
     """Replace or insert lines in a text file in the workspace."""
     name: str = "TextFileReplaceLines"
     description: str = (
@@ -315,44 +352,14 @@ class TextFileReplaceLines(BaseTool):
     args_schema: Optional[ArgsSchema] = ArgTextFileReplaceLines
     return_direct: bool = False
 
-    # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to modify files in."
-    )
-    write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files can be modified. If empty, all directories are writable."
-    )
-    un_write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files cannot be modified. If empty, no directories are restricted."
-    )
-
     def _run(self, path: str, start: int = 0, count: int = -1, data: str = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace the content of a text file in the workspace."""
         if start < 0:
             return str_error(f"Start line {start} need be zero or positive.")
-        if path.endswith('/'):
-            return str_error(f"Path '{path}' should not end with a slash. Please provide a file path, not a directory.")
-        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
+        success, msg, real_path = self.check_file(path)
+        if not success:
             return str_error(msg)
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"File '{path}' is not within the workspace.")
-        base_dir = os.path.dirname(real_path)
-        if not os.path.exists(base_dir):
-            info(f"Base directory {base_dir} does not exist, creating it.")
-            os.makedirs(base_dir, exist_ok=True)
-        if not os.path.exists(real_path):
-            # create an empty file
-            info(f"File {real_path} does not exist, creating an empty file.")
-            with open(real_path, 'w', encoding='utf-8') as f:
-                pass
-        if not is_text_file(real_path):
-            return str_error(f"File {path} is not a text file.")
         info(f"Replacing text file {real_path} from line {start} with count {count}")
         with open(real_path, 'r+', encoding='utf-8') as f:
             lines = f.readlines()
@@ -373,21 +380,7 @@ class TextFileReplaceLines(BaseTool):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
-        self.write_able_dirs = write_dirs
-        self.un_write_able_dirs = un_write_dirs
-        if write_dirs is not None:
-            if len(write_dirs) == 0:
-                self.description += "\n\nNote: All directories are read only."
-            else:
-                self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
-        if un_write_dirs is not None:
-            if len(un_write_dirs) == 0:
-                self.description += "\n\nNote: No directories are restricted."
-            else:
-                self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
-        info(f"ReplaceTextLines tool initialized with workspace: {self.workspace}")
+        self.init_write(workspace, write_dirs, un_write_dirs)
 
 
 class ArgTextFileMultiLinesEdit(BaseModel):
@@ -407,7 +400,7 @@ class ArgTextFileMultiLinesEdit(BaseModel):
     )
 
 
-class TextFileMultiLinesEdit(BaseTool):
+class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
     """Edit multiple lines in a text file in the workspace. The file must exist."""
     name: str = "TextFileMultiLinesEdit"
     description: str = (
@@ -424,40 +417,17 @@ class TextFileMultiLinesEdit(BaseTool):
     args_schema: Optional[ArgsSchema] = ArgTextFileMultiLinesEdit
     return_direct: bool = False
 
-    # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to modify files in."
-    )
-    write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files can be modified. If empty, all directories are writable."
-    )
-    un_write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files cannot be modified. If empty, no directories are restricted."
-    )
-
     def _run(self, path: str, values: List[Tuple[int, str, int]],
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Edit multiple lines in a text file in the workspace.
-        - Each tuple: (line_index, new_data, edit_type)
-        - line_index < 0: insert at head; >=len(lines): append at end; in range: replace or delete.
-        - new_data is None: delete line at line_index.
-        - edit_type: 0=direct replace, nonzero=preserve indentation.
+            - Each tuple: (line_index, new_data, edit_type)
+            - line_index < 0: insert at head; >=len(lines): append at end; in range: replace or delete.
+            - new_data is None: delete line at line_index.
+            - edit_type: 0=direct replace, nonzero=preserve indentation.
         """
-        if path.endswith('/'):
-            return str_error(f"Path '{path}' should not end with a slash. Please provide a file path, not a directory.")
-        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
+        success, msg, real_path = self.check_file(path)
+        if not success:
             return str_error(msg)
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"File '{path}' is not within the workspace.")
-        if not os.path.exists(real_path):
-            return str_error(f"File {path} does not exist in workspace. Please create it first.")
-        if not is_text_file(real_path):
-            return str_error(f"File {path} is not a text file.")
         info(f"Editing text file {real_path} with values {values}")
         ret_warn = str_warning("\n")
         delete_lines = []
@@ -515,7 +485,6 @@ class TextFileMultiLinesEdit(BaseTool):
         if insert_lines:
             new_lines = insert_lines + new_lines
         # write the new content
-        print(new_lines)
         with open(real_path, 'w', encoding='utf-8') as f:
             f.writelines(new_lines)
             f.flush()
@@ -527,22 +496,7 @@ class TextFileMultiLinesEdit(BaseTool):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
-        self.write_able_dirs = write_dirs
-        self.un_write_able_dirs = un_write_dirs
-        if write_dirs is not None:
-            if len(write_dirs) == 0:
-                self.description += "\n\nNote: All directories are read only."
-            else:
-                self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
-        if un_write_dirs is not None:
-            if len(un_write_dirs) == 0:
-                self.description += "\n\nNote: No directories are restricted."
-            else:
-                self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
-        info(f"MultiLinesEdit tool initialized with workspace: {self.workspace}")
-
+        self.init_write(workspace, write_dirs, un_write_dirs)
 
 class ArgWriteToFile(BaseModel):
     path: str = Field(
@@ -555,7 +509,7 @@ class ArgWriteToFile(BaseModel):
     )
 
 
-class WriteToFile(BaseTool):
+class WriteToFile(BaseTool, BaseReadWrite):
     """Write string data to a file in the workspace."""
     name: str = "WriteToFile"
     description: str = (
@@ -565,35 +519,13 @@ class WriteToFile(BaseTool):
     args_schema: Optional[ArgsSchema] = ArgWriteToFile
     return_direct: bool = False
 
-    # custom variables
-    workspace: str = Field(
-        default=".",
-        description="Workspace directory to write files to."
-    )
-    write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files can be modified. If empty, all directories are writable."
-    )
-    un_write_able_dirs: List[str] = Field(
-        default=None,
-        description="List of directories where files cannot be modified. If empty, no directories are restricted."
-    )
-
     def _run(self, path: str, data: str = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Write data to a file in the workspace."""
-        if path.endswith('/'):
-            return str_error(f"Path '{path}' should not end with a slash. Please specify a file path.")
-        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
+        self.create_file = True  # ensure file is created if not exists
+        success, msg, real_path = self.check_file(path)
+        if not success:
             return str_error(msg)
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
-            return str_error(f"File '{path}' is not within the workspace.")
-        base_dir = os.path.dirname(real_path)
-        if not os.path.exists(base_dir):
-            info(f"Base directory {base_dir} does not exist, creating it.")
-            os.makedirs(base_dir, exist_ok=True)
         with open(real_path, 'w', encoding='utf-8') as f:
             if data is None:
                 info(f"Clearing file {real_path}.")
@@ -607,18 +539,37 @@ class WriteToFile(BaseTool):
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
-        assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-        self.workspace = os.path.abspath(workspace)
-        self.write_able_dirs = write_dirs
-        self.un_write_able_dirs = un_write_dirs
-        if write_dirs is not None:
-            if len(write_dirs) == 0:
-                self.description += "\n\nNote: All directories are read only."
+        self.init_write(workspace, write_dirs, un_write_dirs)
+
+
+class AppendToFile(BaseTool, BaseReadWrite):
+    """Append string data to a file in the workspace."""
+    name: str = "AppendToFile"
+    description: str = (
+        "Append string data to a file in the workspace. Creates file if it does not exist."
+        "If data is None, clears the file content."
+    )
+    args_schema: Optional[ArgsSchema] = ArgWriteToFile
+    return_direct: bool = False
+
+    def _run(self, path: str, data: str = None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Append data to a file in the workspace."""
+        self.create_file = True  # ensure file is created if not exists
+        success, msg, real_path = self.check_file(path)
+        if not success:
+            return str_error(msg)
+        with open(real_path, 'a', encoding='utf-8') as f:
+            if data is None:
+                info(f"Clearing file {real_path}.")
+                f.truncate(0)
             else:
-                self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
-        if un_write_dirs is not None:
-            if len(un_write_dirs) == 0:
-                self.description += "\n\nNote: No directories are restricted."
-            else:
-                self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
-        info(f"WriteToFile tool initialized with workspace: {self.workspace}")
+                info(f"Appending data to file {real_path}.")
+                f.write(data)
+            f.flush()
+            return str_info(f"Append {len(data)} characters complete." if data else f"File({path}) cleared.")
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_write(workspace, write_dirs, un_write_dirs)
