@@ -58,3 +58,54 @@ def bytes_to_human_readable(size):
         return f"{size / (1024 ** 2):.2f} MB"
     else:
         return f"{size / (1024 ** 3):.2f} GB"
+
+
+def get_sub_str(text, start_str, end_str):
+    """
+    Extract a substring from text between two delimiters.
+    :param text: The input text.
+    :param start_str: The starting delimiter.
+    :param end_str: The ending delimiter.
+    :return: The extracted substring or None if not found.
+    """
+    start_index = text.find(start_str)
+    if start_index == -1:
+        return None
+    start_index += len(start_str)
+    
+    end_index = text.find(end_str, start_index)
+    if end_index == -1:
+        return None
+    
+    return start_str + text[start_index:end_index].strip() + end_str
+
+
+def str_has_blank(text: str) -> bool:
+    """
+    Check if a string contains any whitespace characters.
+    :param text: The input string.
+    :return: True if the string contains whitespace, False otherwise.
+    """
+    return any(char.isspace() for char in text)
+
+
+def str_remove_blank(text: str) -> str:
+    """
+    Remove all whitespace characters from a string.
+    :param text: The input string.
+    :return: The string with all whitespace characters removed.
+    """
+    return ''.join(text.split())
+
+
+def str_replace_to(text: str, old: list, new: str) -> str:
+    """
+    Replace all occurrences of any string in a list with a new string.
+    :param text: The input string.
+    :param old: List of strings to be replaced.
+    :param new: The string to replace with.
+    :return: The modified string.
+    """
+    for o in old:
+        text = text.replace(o, new)
+    return text
