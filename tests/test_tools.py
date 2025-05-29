@@ -5,6 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
+import time
 
 from vagent.tools.fileops import *
 
@@ -16,21 +17,33 @@ def print_tool_info(tool):
     print("Args         :", tool.args)
 
 def test_list_path():
-    tool = ListPath(workspace=os.path.join(current_dir, "../vagent"))
+    print("============== test_list_path ==============")
+    tool = PathList(workspace=os.path.join(current_dir, "../vagent"))
     result = tool.invoke({"path": ".", "depth":-1})
     print_tool_info(tool)
     print("result:\n%s"%result)
 
 
 def test_read_file():
-    tool = ReadFile(workspace=os.path.join(current_dir, "../vagent"))
+    print("============== test_read_file ==============")
+    tool = NormReadFile(workspace=os.path.join(current_dir, "../vagent"))
     result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
     print("result:\n%s"%result)
 
 def test_read_text_file():
-    tool = ReadTextFile(workspace=os.path.join(current_dir, "../vagent"))
-    result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
+    print("============== test_read_text_file ==============")
+    tool = TextFileRead(workspace=os.path.join(current_dir, "../vagent"))
+    result = tool.invoke({"path": "config/default.yaml", "start": 2, "end": 100})
+    print("result:\n%s"%result)
+
+def test_edit_multil_line():
+    print("============== test_edit_multiline ==============")
+    tool = TextFileMultiLinesEdit(workspace=os.path.join(current_dir, "../examples"))
+    result = tool.invoke({"path": "Adder/Adder.v", "values": [(-1, f"// This is a test comment: {time.time()}", 0)]})
     print("result:\n%s"%result)
 
 if __name__ == "__main__":
     test_read_text_file()
+    test_list_path()
+    test_read_file()
+    #test_edit_multil_line()
