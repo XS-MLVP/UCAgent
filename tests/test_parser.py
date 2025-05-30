@@ -5,7 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.tools.testops import parse_nested_keys
+from vagent.util.functions import parse_nested_keys
 
 
 def test_func_check_points():
@@ -32,6 +32,18 @@ def test_func_check_points():
     parse()
     function_list_file = os.path.join(current_dir, "../examples/template/bug_func_and_checks.md")
     parse()
+
+
+def test_load_json():
+    """Test loading JSON data from a file."""
+    import json
+    json_file = os.path.join(current_dir, "../examples/template/toffee_report.json")
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+        print("Loaded JSON data from:", json_file)
+        print("Data keys:", list(data.keys()))
+        print("Data content:", data)
+
 
 if __name__ == "__main__":
     test_func_check_points()
