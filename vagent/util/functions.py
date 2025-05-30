@@ -1,6 +1,9 @@
 #coding=utf-8
 
 import os
+from typing import List
+import json
+
 
 def fmt_time_deta(sec):
     """
@@ -109,3 +112,81 @@ def str_replace_to(text: str, old: list, new: str) -> str:
     for o in old:
         text = text.replace(o, new)
     return text
+
+
+def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: List[str], subfix_list: List[str],
+                      ignore_chars: List[str] = ["/", "<", ">"]) -> dict:
+    """Parse the function points and checkpoints from a file."""
+    assert os.path.exists(target_file), f"File {target_file} does not exist. You need to provide a valid file path."
+    assert len(keyname_list) > 0, "Prefix must be provided."
+    assert len(prefix_list) == len(subfix_list), "Prefix and subfix lists must have the same length."
+    assert len(prefix_list) == len(keyname_list), "Prefix and keyname lists must have the same length."
+    pre_values = [None] * len(prefix_list)
+    key_dict = {}
+    def get_pod_next_key(i: int):
+        nkey = keyname_list[i+1] if i < len(keyname_list) - 1 else None
+        if i == 0:
+            return key_dict, nkey
+        return pre_values[i - 1][keyname_list[i]], nkey
+    with open(target_file, 'r') as f:
+        index = 0
+        lines = f.readlines()
+        for line in lines:
+            line = str_remove_blank(line.strip())
+            for i, key in enumerate(keyname_list):
+                prefix = prefix_list[i]
+                subfix = subfix_list[i]
+                pre_key = keyname_list[i - 1] if i > 0 else None
+                pre_prf = prefix_list[i - 1] if i > 0 else None
+                if not prefix in line:
+                    continue
+                assert line.count(prefix) == 1, f"at line ({index}): '{line}' should contain exactly one {key} '{prefix}'"
+                current_key = str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, "")
+                pod, next_key = get_pod_next_key(i)
+                assert pod is not None, f"at line ({index}): contain {key} '{prefix}' but it do not find its parent {pre_key} '{pre_prf}' in previous lines."
+                assert next_key != "line", f"at line ({index}): '{line}' should not contain 'line' as a key, it is reserved for line numbers."
+                assert current_key not in pod, f"{key} '{prefix}' is defined multiple times. find it in line {index} again."
+                pod[current_key] = {"line": index}
+                if next_key is not None:
+                    pod[current_key][next_key] = {}
+                pre_values[i] = pod[current_key]
+            index += 1
+    return key_dict
+
+
+def load_json_file(path: str):
+    """
+    Load a JSON file from the specified path.
+    :param path: Path to the JSON file.
+    :return: Parsed JSON data.
+    """
+    assert os.path.exists(path), f"JSON file {path} does not exist."
+    json_file = os.path.join(path)
+    with open(json_file, 'r', encoding='utf-8') as f:
+        try:
+            data = json.load(f)
+            return data
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Error decoding JSON from file {json_file}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error while loading JSON file {json_file}: {e}")
+
+
+def get_toffee_json_test_case(workspace:str, item: dict) -> str:
+    """
+    Get the test case file and word from a toffee JSON item.
+    :param workspace: The workspace directory where the test case files are located.
+    :param item: A dictionary representing a test case item from the toffee JSON report.
+    :return: A tuple containing the relative path to the test case file and the status word.
+    """
+    case_word = item["status"]["word"]
+    case_name = item["phases"][0]["report"].split("'")[1]
+    case_file = case_name.split("::")[0]
+    case_func = case_name.split("::")[1]
+    if not case_file.startswith("/"):
+        case_file = os.path.abspath(os.path.join(os.path.abspath(os.getcwd()), case_file))
+        assert os.path.exists(case_file), f"Test case file {case_file} does not exist. check your test env."
+    case_file = case_file.replace(os.path.abspath(workspace), "")
+    if case_file.startswith("/"):
+        case_file = case_file[1:]
+    return case_file+"::"+case_func, case_word

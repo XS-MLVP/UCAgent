@@ -1,0 +1,1358 @@
+{
+    "config": "<_pytest.config.Config object at 0x7f258d01dbd0>",
+    "tests": [
+        {
+            "item": "<Function test_fake_pass>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_pass' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_pass' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_pass' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2105088,
+            "ended": 1748602084.2116852,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_fake_fail>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_fail' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' excinfo=<ExceptionInfo AssertionError('This is a fake test that intentionally fails to demonstrate failure handling.\\nassert False') tblen=29>>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_fail' when='call' outcome='failed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "failed",
+                        "letter": "F",
+                        "word": "FAILED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_fake_fail' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2118256,
+            "ended": 1748602084.215065,
+            "status": {
+                "category": "failed",
+                "letter": "F",
+                "word": "FAILED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_add_normal>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_add_normal' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_add_normal' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/sub_test/test_fake.py::test_add_normal' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2151604,
+            "ended": 1748602084.2156742,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_add_normal>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_normal' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_normal' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_normal' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2159283,
+            "ended": 1748602084.2170181,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_add_overflow>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_overflow' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_overflow' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_overflow' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2171686,
+            "ended": 1748602084.218048,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_add_cin_norm>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_norm' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_norm' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_norm' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.218133,
+            "ended": 1748602084.2187288,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_add_cin_overflow>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_overflow' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' excinfo=<ExceptionInfo AssertionError('assert 0 == 1') tblen=29>>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_overflow' when='call' outcome='failed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "failed",
+                        "letter": "F",
+                        "word": "FAILED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_add_cin_overflow' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2188616,
+            "ended": 1748602084.223538,
+            "status": {
+                "category": "failed",
+                "letter": "F",
+                "word": "FAILED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_sub_norm>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_norm' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_norm' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_norm' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.223694,
+            "ended": 1748602084.2244322,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_sub_borrow>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_borrow' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_borrow' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_borrow' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2245305,
+            "ended": 1748602084.2252266,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_sub_cin_norm>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_norm' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_norm' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_norm' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2253041,
+            "ended": 1748602084.2259288,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_sub_cin_borrow>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_borrow' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_borrow' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_sub_cin_borrow' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2260268,
+            "ended": 1748602084.226638,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_mul_norm>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_norm' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_norm' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_norm' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2267394,
+            "ended": 1748602084.227463,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_mul_overflow>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_overflow' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_overflow' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_overflow' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2275407,
+            "ended": 1748602084.2281835,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_mul_signed>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_signed' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_signed' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_signed' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2282588,
+            "ended": 1748602084.2288506,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_mul_unsigned>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_unsigned' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_unsigned' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_mul_unsigned' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.228975,
+            "ended": 1748602084.2300327,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_and>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_and' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_and' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_and' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2301152,
+            "ended": 1748602084.2307305,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_or>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_or' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_or' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_or' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.230805,
+            "ended": 1748602084.2313805,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_xor>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_xor' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_xor' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_xor' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2314785,
+            "ended": 1748602084.2324302,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_not>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_not' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_not' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_not' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2325149,
+            "ended": 1748602084.2330635,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_shl>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shl' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' excinfo=<ExceptionInfo AssertionError('assert 0 == 8') tblen=29>>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shl' when='call' outcome='failed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "failed",
+                        "letter": "F",
+                        "word": "FAILED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shl' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2331345,
+            "ended": 1748602084.236444,
+            "status": {
+                "category": "failed",
+                "letter": "F",
+                "word": "FAILED",
+                "style": {}
+            }
+        },
+        {
+            "item": "<Function test_shr>",
+            "phases": [
+                {
+                    "call": "<CallInfo when='setup' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shr' when='setup' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='call' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shr' when='call' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "passed",
+                        "letter": ".",
+                        "word": "PASSED",
+                        "style": {}
+                    }
+                },
+                {
+                    "call": "<CallInfo when='teardown' result: None>",
+                    "report": "<TestReport 'examples/template/unity_tests/test_alu.py::test_shr' when='teardown' outcome='passed'>",
+                    "log_records": [],
+                    "sections": [],
+                    "status": {
+                        "category": "",
+                        "letter": "",
+                        "word": "",
+                        "style": {}
+                    }
+                }
+            ],
+            "started": 1748602084.2365499,
+            "ended": 1748602084.2371793,
+            "status": {
+                "category": "passed",
+                "letter": ".",
+                "word": "PASSED",
+                "style": {}
+            }
+        }
+    ],
+    "warnings": [],
+    "session": "<Session  exitstatus=<ExitCode.TESTS_FAILED: 1> testsfailed=3 testscollected=21>",
+    "started": 1748602084.149232,
+    "items": {
+        "examples/template/unity_tests/sub_test/test_fake.py::test_fake_pass": "<Function test_fake_pass>",
+        "examples/template/unity_tests/sub_test/test_fake.py::test_fake_fail": "<Function test_fake_fail>",
+        "examples/template/unity_tests/sub_test/test_fake.py::test_add_normal": "<Function test_add_normal>",
+        "examples/template/unity_tests/test_alu.py::test_add_normal": "<Function test_add_normal>",
+        "examples/template/unity_tests/test_alu.py::test_add_overflow": "<Function test_add_overflow>",
+        "examples/template/unity_tests/test_alu.py::test_add_cin_norm": "<Function test_add_cin_norm>",
+        "examples/template/unity_tests/test_alu.py::test_add_cin_overflow": "<Function test_add_cin_overflow>",
+        "examples/template/unity_tests/test_alu.py::test_sub_norm": "<Function test_sub_norm>",
+        "examples/template/unity_tests/test_alu.py::test_sub_borrow": "<Function test_sub_borrow>",
+        "examples/template/unity_tests/test_alu.py::test_sub_cin_norm": "<Function test_sub_cin_norm>",
+        "examples/template/unity_tests/test_alu.py::test_sub_cin_borrow": "<Function test_sub_cin_borrow>",
+        "examples/template/unity_tests/test_alu.py::test_mul_norm": "<Function test_mul_norm>",
+        "examples/template/unity_tests/test_alu.py::test_mul_overflow": "<Function test_mul_overflow>",
+        "examples/template/unity_tests/test_alu.py::test_mul_signed": "<Function test_mul_signed>",
+        "examples/template/unity_tests/test_alu.py::test_mul_unsigned": "<Function test_mul_unsigned>",
+        "examples/template/unity_tests/test_alu.py::test_and": "<Function test_and>",
+        "examples/template/unity_tests/test_alu.py::test_or": "<Function test_or>",
+        "examples/template/unity_tests/test_alu.py::test_xor": "<Function test_xor>",
+        "examples/template/unity_tests/test_alu.py::test_not": "<Function test_not>",
+        "examples/template/unity_tests/test_alu.py::test_shl": "<Function test_shl>",
+        "examples/template/unity_tests/test_alu.py::test_shr": "<Function test_shr>"
+    },
+    "ended": 1748602084.2372785,
+    "colors": {
+        "passed": [
+            "#43A047",
+            "#FFFFFF"
+        ],
+        "failed": [
+            "#F44336",
+            "#FFFFFF"
+        ],
+        "error": [
+            "#B71C1C",
+            "#FFFFFF"
+        ],
+        "xfailed": [
+            "#EF9A9A",
+            "#222222"
+        ],
+        "xpassed": [
+            "#A5D6A7",
+            "#222222"
+        ],
+        "skipped": [
+            "#9E9E9E",
+            "#FFFFFF"
+        ],
+        "notrun": [
+            "#9E9E9E",
+            "#FFFFFF"
+        ],
+        "rerun": [
+            "#FBC02D",
+            "#222222"
+        ],
+        "warning": [
+            "#FBC02D",
+            "#222222"
+        ],
+        "green": [
+            "#43A047",
+            "#FFFFFF"
+        ],
+        "red": [
+            "#E53935",
+            "#FFFFFF"
+        ],
+        "yellow": [
+            "#FBC02D",
+            "#222222"
+        ]
+    },
+    "time_format": "%Y-%m-%d %H:%M:%S",
+    "metadata": {
+        "Python": "3.11.6",
+        "Platform": "Linux-6.6.87.1-microsoft-standard-WSL2-x86_64-with-glibc2.35"
+    },
+    "user": {
+        "name": "Tofee",
+        "email": "-"
+    },
+    "title": "Toffee Test Report",
+    "coverages": {
+        "line": null,
+        "functional": {
+            "groups": [
+                {
+                    "points": [
+                        {
+                            "once": true,
+                            "hinted": false,
+                            "bins": [
+                                {
+                                    "name": "CK-NORM",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-OVERFLOW",
+                                    "hints": 4
+                                },
+                                {
+                                    "name": "CK-CIN-NORM",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-CIN-OVERFLOW",
+                                    "hints": 0
+                                }
+                            ],
+                            "name": "FC-ADD",
+                            "functions": {
+                                "CK-NORM": [
+                                    "test_alu.test_add_normal"
+                                ],
+                                "CK-OVERFLOW": [
+                                    "test_alu.test_add_overflow"
+                                ],
+                                "CK-CIN-NORM": [
+                                    "test_alu.test_add_cin_norm"
+                                ],
+                                "CK-CIN-OVERFLOW": [
+                                    "test_alu.test_add_cin_overflow"
+                                ]
+                            },
+                            "dynamic_bin": false
+                        },
+                        {
+                            "once": true,
+                            "hinted": true,
+                            "bins": [
+                                {
+                                    "name": "CK-NORM",
+                                    "hints": 2
+                                },
+                                {
+                                    "name": "CK-BORROW",
+                                    "hints": 4
+                                },
+                                {
+                                    "name": "CK-CIN-NORM",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-CIN-BORROW",
+                                    "hints": 1
+                                }
+                            ],
+                            "name": "FC-SUB",
+                            "functions": {
+                                "CK-NORM": [
+                                    "test_alu.test_sub_norm"
+                                ],
+                                "CK-BORROW": [
+                                    "test_alu.test_sub_borrow"
+                                ],
+                                "CK-CIN-NORM": [
+                                    "test_alu.test_sub_cin_norm"
+                                ],
+                                "CK-CIN-BORROW": [
+                                    "test_alu.test_sub_cin_borrow"
+                                ]
+                            },
+                            "dynamic_bin": false
+                        }
+                    ],
+                    "name": "FG-SIMPLE",
+                    "hinted": false,
+                    "bin_num_total": 8,
+                    "bin_num_hints": 7,
+                    "point_num_total": 2,
+                    "point_num_hints": 1,
+                    "has_once": true,
+                    "__filename__": "/home/yaozhicheng/workspace/UCAgent/examples/template/unity_tests/test_alu.py",
+                    "__lineno__": 9,
+                    "__disable_sample_when_point_hinted__": true,
+                    "__sample_count__": 1,
+                    "__sample_calln__": 1,
+                    "__stop_sample__": false,
+                    "point_functions": [
+                        "test_alu.test_sub_norm",
+                        "test_alu.test_add_normal",
+                        "test_alu.test_add_overflow",
+                        "test_alu.test_sub_cin_norm",
+                        "test_alu.test_sub_cin_borrow",
+                        "test_alu.test_add_cin_overflow",
+                        "test_alu.test_sub_borrow",
+                        "test_alu.test_add_cin_norm"
+                    ]
+                },
+                {
+                    "points": [
+                        {
+                            "once": true,
+                            "hinted": true,
+                            "bins": [
+                                {
+                                    "name": "CK-NORM",
+                                    "hints": 5
+                                },
+                                {
+                                    "name": "CK-OVERFLOW",
+                                    "hints": 2
+                                },
+                                {
+                                    "name": "CK-SIGNED",
+                                    "hints": 5
+                                },
+                                {
+                                    "name": "CK-UNSIGNED",
+                                    "hints": 5
+                                }
+                            ],
+                            "name": "FC-MUL",
+                            "functions": {
+                                "CK-NORM": [
+                                    "test_alu.test_mul_norm"
+                                ],
+                                "CK-OVERFLOW": [
+                                    "test_alu.test_mul_overflow"
+                                ],
+                                "CK-SIGNED": [
+                                    "test_alu.test_mul_signed"
+                                ],
+                                "CK-UNSIGNED": [
+                                    "test_alu.test_mul_unsigned"
+                                ]
+                            },
+                            "dynamic_bin": false
+                        },
+                        {
+                            "once": true,
+                            "hinted": false,
+                            "bins": [
+                                {
+                                    "name": "CK-AND",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-OR",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-XOR",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-NOT",
+                                    "hints": 1
+                                },
+                                {
+                                    "name": "CK-SHL",
+                                    "hints": 0
+                                },
+                                {
+                                    "name": "CK-SHR",
+                                    "hints": 1
+                                }
+                            ],
+                            "name": "FC-BITOP",
+                            "functions": {
+                                "CK-AND": [
+                                    "test_alu.test_and"
+                                ],
+                                "CK-OR": [
+                                    "test_alu.test_or"
+                                ],
+                                "CK-XOR": [
+                                    "test_alu.test_xor"
+                                ],
+                                "CK-NOT": [
+                                    "test_alu.test_not"
+                                ],
+                                "CK-SHL": [
+                                    "test_alu.test_shl"
+                                ],
+                                "CK-SHR": [
+                                    "test_alu.test_shr"
+                                ]
+                            },
+                            "dynamic_bin": false
+                        }
+                    ],
+                    "name": "FG-HARD",
+                    "hinted": false,
+                    "bin_num_total": 10,
+                    "bin_num_hints": 9,
+                    "point_num_total": 2,
+                    "point_num_hints": 1,
+                    "has_once": true,
+                    "__filename__": "/home/yaozhicheng/workspace/UCAgent/examples/template/unity_tests/test_alu.py",
+                    "__lineno__": 10,
+                    "__disable_sample_when_point_hinted__": true,
+                    "__sample_count__": 1,
+                    "__sample_calln__": 1,
+                    "__stop_sample__": false,
+                    "point_functions": [
+                        "test_alu.test_and",
+                        "test_alu.test_or",
+                        "test_alu.test_mul_signed",
+                        "test_alu.test_shl",
+                        "test_alu.test_xor",
+                        "test_alu.test_mul_norm",
+                        "test_alu.test_mul_unsigned",
+                        "test_alu.test_not",
+                        "test_alu.test_mul_overflow",
+                        "test_alu.test_shr"
+                    ]
+                }
+            ],
+            "group_num_total": 2,
+            "group_num_hints": 0,
+            "point_num_total": 4,
+            "point_num_hints": 2,
+            "bin_num_total": 18,
+            "bin_num_hints": 16,
+            "grate": 100,
+            "has_once": true
+        }
+    }
+}
