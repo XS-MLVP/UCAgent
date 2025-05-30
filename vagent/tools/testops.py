@@ -34,11 +34,14 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
             for i, key in enumerate(keyname_list):
                 prefix = prefix_list[i]
                 subfix = subfix_list[i]
+                pre_key = keyname_list[i - 1] if i > 0 else None
+                pre_prf = prefix_list[i - 1] if i > 0 else None
                 if not prefix in line:
                     continue
                 assert line.count(prefix) == 1, f"at line ({index}): '{line}' should contain exactly one {key} '{prefix}'"
                 current_key = str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, "")
                 pod, next_key = get_pod_next_key(i)
+                assert pod is not None, f"at line ({index}): contain {key} '{prefix}' but it do not find its parent {pre_key} '{pre_prf}' in previous lines."
                 assert next_key != "line", f"at line ({index}): '{line}' should not contain 'line' as a key, it is reserved for line numbers."
                 assert current_key not in pod, f"{key} '{prefix}' is defined multiple times. find it in line {index} again."
                 pod[current_key] = {"line": index}
