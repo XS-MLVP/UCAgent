@@ -8,46 +8,45 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
 import os
-
+from typing import List
 from vagent.util.functions import get_sub_str, str_remove_blank, str_replace_to
 
 
-def parse_function_points_and_checkpoints(function_list_file: str,
-                                          func_prefix: str,
-                                          func_subfix: str,
-                                          check_prefix: str,
-                                          check_subfix: str,
-                                          ignore_chars: list = ["/", "<", ">"]
-                                          ) -> dict:
+def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: List[str], subfix_list: List[str],
+                      ignore_chars: List[str] = ["/", "<", ">"]) -> dict:
     """Parse the function points and checkpoints from a file."""
-    assert os.path.exists(function_list_file), f"Function list file {function_list_file} does not exist. You need to provide a valid file path."
-    assert func_prefix, "Function prefix must be provided."
-    assert check_prefix, "Checkpoint prefix must be provided."
-    function_points = {}
-    with open(function_list_file, 'r') as f:
+    assert os.path.exists(target_file), f"File {target_file} does not exist. You need to provide a valid file path."
+    assert len(keyname_list) > 0, "Prefix must be provided."
+    assert len(prefix_list) == len(subfix_list), "Prefix and subfix lists must have the same length."
+    assert len(prefix_list) == len(keyname_list), "Prefix and keyname lists must have the same length."
+    pre_values = [None] * len(prefix_list)
+    key_dict = {}
+    def get_pod_next_key(i: int):
+        nkey = keyname_list[i+1] if i < len(keyname_list) - 1 else None
+        if i == 0:
+            return key_dict, nkey
+        return pre_values[i - 1][keyname_list[i]], nkey
+    with open(target_file, 'r') as f:
         index = 0
         lines = f.readlines()
-        current_function = None
         for line in lines:
             line = str_remove_blank(line.strip())
-            if func_prefix in line:
-                # New function point
-                assert not check_prefix in line, f"Function point line ({index}): '{line}' should not contain check point prefix: '{check_prefix}'"
-                assert line.count(func_prefix) == 1, f"Function point line ({index}): '{line}' should contain exactly one '{func_prefix}'"
-                current_function = str_replace_to(get_sub_str(line, func_prefix, func_subfix), ignore_chars, "")
-                assert current_function not in function_points, f"Function point '{current_function}' is defined multiple times. find it in line {index} again."
-                function_points[current_function] = {"line": index,
-                                                     "checkpoints": {}}
-            elif check_prefix in line:
-                # Checkpoint for the current function point
-                assert current_function is not None, f"Checkpoint line ({index}): '{line}' should be after a function point line."
-                assert line.count(check_prefix) == 1, f"Checkpoint line ({index}): '{line}' should contain exactly one '{check_prefix}'"
-                check_point = str_replace_to(get_sub_str(line, check_prefix, check_subfix), ignore_chars, "")
-                assert check_point not in function_points[current_function]["checkpoints"], f"Checkpoint '{check_point}' "+\
-                                                   f"is defined multiple times for function point '{current_function}'."
-                function_points[current_function]["checkpoints"][check_point] = index
+            for i, key in enumerate(keyname_list):
+                prefix = prefix_list[i]
+                subfix = subfix_list[i]
+                if not prefix in line:
+                    continue
+                assert line.count(prefix) == 1, f"at line ({index}): '{line}' should contain exactly one {key} '{prefix}'"
+                current_key = str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, "")
+                pod, next_key = get_pod_next_key(i)
+                assert next_key != "line", f"at line ({index}): '{line}' should not contain 'line' as a key, it is reserved for line numbers."
+                assert current_key not in pod, f"{key} '{prefix}' is defined multiple times. find it in line {index} again."
+                pod[current_key] = {"line": index}
+                if next_key is not None:
+                    pod[current_key][next_key] = {}
+                pre_values[i] = pod[current_key]
             index += 1
-    return function_points
+    return key_dict
 
 
 class ArgRunPyTest(BaseModel):
