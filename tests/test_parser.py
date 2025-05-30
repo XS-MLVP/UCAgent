@@ -11,9 +11,9 @@ from vagent.tools.testops import parse_nested_keys
 def test_func_check_points():
     """Test the function points and checkpoints parsing."""
     function_list_file = os.path.join(current_dir, "../examples/template/functions_and_checks.md")
-    keynames = ["function", "checkpoint", "bug_rate"]
-    prefix = ["<FC-", "<CK-", "<BUG-RATE-"]
-    subfix = [">", ">", ">"]
+    keynames = ["group", "function", "checkpoint", "bug_rate"]
+    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"]
+    subfix   = [">"]* len(prefix)
     # Parse the function points and checkpoints
     def parse():
         keydata = parse_nested_keys(
