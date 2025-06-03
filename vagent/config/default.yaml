@@ -7,8 +7,11 @@ openai:
   model_kwargs:
     stop: ["."]
 
+mission:
+  name: "{DUT} 验证"
+
 stage:
-  - name: job_list_functions_and_checks
+  - name: list_dut_functions_and_checks
     desc: "列出所有功能点与检测点"
     task:
       - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
@@ -23,9 +26,9 @@ stage:
           min_functions: 10
           min_checks: 12
         fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确。"
-        success_msg: "功能点与检测点检查成功，你做的很好！"
+        pass_msg: "功能点与检测点检查成功，你做的很好！"
         max_try: 10
-  - name: job_wrapper_dut
+  - name: wrapper_dut_apis
     desc: "{DUT}接口封装"
     task:
       - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
@@ -40,9 +43,9 @@ stage:
           api_file: "{OUT}/{DUT}_api.py"
           min_apis: 2
         fail_msg: "接口封装检查失败，请检查生成的代码内容是否完整、准确。"
-        success_msg: "接口封装检查成功，你做的很好！"
+        pass_msg: "接口封装检查成功，你做的很好！"
         max_try: 10
-  - name: job_gen_cover_group
+  - name: generate_function_coverage_defines
     desc: "生成功能覆盖分组"
     task:
       - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
@@ -55,9 +58,9 @@ stage:
           doc_file: "{OUT}/{DUT}_function_coverage_def.py"
           min_groups: 1
         fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。"
-        success_msg: "覆盖组检查成功，你做的很好！"
+        pass_msg: "覆盖组检查成功，你做的很好！"
         max_try: 10
-  - name: job_gen_test_and_run
+  - name: generate_test_cases_and_run
     desc: "生成测试用例并运行"
     task:
       - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
@@ -76,5 +79,5 @@ stage:
           test_dir: "{OUT}/tests"
           min_tests: 1
         fail_msg: "测试用例检查失败，请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。"
-        success_msg: "测试用例检查成功，你做的很好！"
+        pass_msg: "测试用例检查成功，你做的很好！"
         max_try: -1
