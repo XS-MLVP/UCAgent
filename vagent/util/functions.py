@@ -179,14 +179,24 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     :param item: A dictionary representing a test case item from the toffee JSON report.
     :return: A tuple containing the relative path to the test case file and the status word.
     """
-    case_word = item["status"]["word"]
-    case_name = item["phases"][0]["report"].split("'")[1]
-    case_file = case_name.split("::")[0]
-    case_func = case_name.split("::")[1]
-    if not case_file.startswith("/"):
-        case_file = os.path.abspath(os.path.join(os.path.abspath(os.getcwd()), case_file))
-        assert os.path.exists(case_file), f"Test case file {case_file} does not exist. check your test env."
-    case_file = case_file.replace(os.path.abspath(workspace), "")
-    if case_file.startswith("/"):
-        case_file = case_file[1:]
-    return case_file+"::"+case_func, case_word
+    ret = []
+    for k, v in item.items():
+        key = k.replace(os.path.abspath(workspace), "")
+        if key.startswith(os.sep):
+            key = key[1:]
+        ret.append((key, v))
+    return ret
+
+
+def rm_workspace_prefix(workspace: str, path:str) -> dict:
+    """
+    Remove the workspace prefix from the keys in a dictionary.
+    :param workspace: The workspace directory to be removed from the keys.
+    :param path: The path to the file or directory.
+    :return: A path with the workspace prefix removed.
+    """
+    workspace = os.path.abspath(workspace)
+    path = path.replace(os.path.abspath(workspace), "")
+    if path.startswith(os.sep):
+        path = path[1:]
+    return path if path else "."

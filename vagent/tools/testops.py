@@ -8,7 +8,7 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
 
-from vagent.util.functions import load_json_file, str_replace_to
+from vagent.util.functions import load_json_file, rm_workspace_prefix
 from vagent.util.functions import get_toffee_json_test_case
 import os
 import shutil
@@ -124,15 +124,10 @@ class RunUnityChipTest(RunPyTest):
 
     name: str = "RunUnityChipTest"
     description: str = ("Run tests in a specified directory or a test file. "
-                        "This tool is specifically designed for Unity chip tests, "
-                        "which are typically run using the Unity test framework.\n"
+                        "This tool is specifically designed for UnityChip tests.\n"
                         "Afert running the tests, it will return:\n"
-                        "- The terminal output of the test run.\n"
-                        "- How many function points and its checkpoints are captured.\n"
-                        "- The functional coverage of the tests.\n"
-                        "- The code coverage of the tests.\n"
-                        "- If the tests pass or fail.\n"
-                        "By default only return the test json report.\n"
+                        "- The stdout/stderr output of the test run (default off).\n"
+                        "- a json test report, include how many tests passed/failed, an overview of the functional coverage/un-coverage data.\n"
                         "If arg `return_stdout` is True, it will return the standard output of the test run.\n"
                         "If arg `return_stderr` is True, it will return the standard error of the test run.\n"
                         )
@@ -164,20 +159,21 @@ class RunUnityChipTest(RunPyTest):
                                           return_stderr,
                                           run_manager)
         ret_data = {
-            "is_all_pass": all_pass,
+            "all_test_pass": all_pass,
         }
         result_json_path = os.path.join(self.result_dir, self.result_json_path)
         if os.path.exists(result_json_path):
             data = load_json_file(result_json_path)
             # Extract relevant information from the JSON data
             # test
-            tests = [get_toffee_json_test_case(self.workspace, t) for t in data.get("tests", [])]
+            tests = get_toffee_json_test_case(self.workspace, data.get("test_abstract_info", {}))
             fails =  [k[0] for k in tests if k[1] == "FAILED"]
             ret_data["tests"] = {
                 "total": len(tests),
                 "fails": len(fails),
-                "fails_list": fails,
             }
+            if len(fails) > 0:
+                ret_data["tests"]["fails_list"] = fails,
             # coverages
             # functional coverage
             fc_data = data.get("coverages", {}).get("functional", {})
@@ -187,19 +183,39 @@ class RunUnityChipTest(RunPyTest):
             ret_data["faild_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
             # failed bins:
             # groups->points->bins
-            bins_pass = []
             bins_fail = []
+            bins_uncovered = []
+            bins_funcs = {}
             for g in fc_data.get("groups", []):
                 for p in g.get("points", []):
+                    cv_funcs = p.get("functions", {})
                     for b in p.get("bins", []):
                         bin_full_name = "%s/%s/%s" % (g["name"], p["name"], b["name"])
                         bin_is_fail = b["hints"] == 0
                         if bin_is_fail:
                             bins_fail.append(bin_full_name)
+                        test_funcs =cv_funcs.get(b["name"], [])
+                        if len(test_funcs) < 1:
+                            bins_uncovered.append(bin_full_name)
                         else:
-                            bins_pass.append(bin_full_name)
-            ret_data["check_point_pass"] = bins_pass
-            ret_data["check_point_fail"] = bins_fail
+                            for tf in test_funcs:
+                                func_key = rm_workspace_prefix(self.workspace, tf)
+                                if func_key not in bins_funcs:
+                                    bins_funcs[func_key] = []
+                                bins_funcs[func_key].append(bin_full_name)
+            if len(bins_fail) > 0:
+                ret_data["faild_check_point_list"] = bins_fail
+            ret_data["uncovered_check_points"] = len(bins_uncovered)
+            if len(bins_uncovered) > 0:
+                ret_data["uncovered_check_points_list"] = bins_uncovered
+            # functions with no check points
+            test_fc_no_check_points = []
+            for f, _ in tests:
+                if f not in bins_funcs:
+                    test_fc_no_check_points.append(f)
+            ret_data["test_function_with_no_check_point"] = len(test_fc_no_check_points)
+            if len(test_fc_no_check_points) > 0:
+                ret_data["test_function_with_no_check_point_list"] = test_fc_no_check_points
             # FIXME: more data
         return ret_data, pyt_out, pyt_err
 
@@ -215,15 +231,14 @@ class RunUnityChipTest(RunPyTest):
             return_stderr,
             run_manager
         )
-        ret_str = "Unity Chip Test Pass" if data["is_all_pass"] else "Unity Chip Test Fail\n"
-        ret_str += "Test Report:\n" + json.dumps(data, indent=2) + "\n"
+        ret_str = "[Test Report]:\n" + json.dumps(data, indent=2) + "\n"
         if return_stdout:
-            ret_str += f"Stdout:\n{pyt_out}\n"
+            ret_str += f"[Stdout]:\n{pyt_out}\n"
         if return_stderr:
-            ret_str += f"Stderr:\n{pyt_err}\n"
+            ret_str += f"[Stderr]:\n{pyt_err}\n"
         return ret_str
 
-    def __init__(self, workspace:str, report_dir: str, **kwargs):
+    def __init__(self, workspace:str, report_dir: str = "uc_test_report", **kwargs):
         """Initialize the tool with custom arguments."""
         super().__init__(**kwargs)
         self.workspace = os.path.abspath(workspace)
