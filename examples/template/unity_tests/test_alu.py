@@ -29,7 +29,8 @@ def init_coverage_group_simple(g, dut):
             "CK-NORM": lambda x: x.a.value - x.b.value - x.cin.value == x.out.value,
             "CK-BORROW": lambda x: x.cout.value == 1,
             "CK-CIN-NORM": lambda x: x.cin.value == 1 and (x.a.value - x.b.value - x.cin.value) == x.out.value,
-            "CK-CIN-BORROW": lambda x: x.cin.value == 1 and x.cout.value == 1
+            "CK-CIN-BORROW": lambda x: x.cin.value == 1 and x.cout.value == 1,
+            "CK-UN-COVERED": lambda x: True
         },
         name="FC-SUB"
     )

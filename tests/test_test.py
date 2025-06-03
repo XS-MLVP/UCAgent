@@ -9,8 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 def test_run_unity_tests():
     """Test running Unity tests."""
     from vagent.tools.testops import RunUnityChipTest
-    tool = RunUnityChipTest(workspace=os.path.join(current_dir, "../examples/template"),
-                            report_dir="report")
+    tool = RunUnityChipTest(workspace=os.path.join(current_dir, "../examples/template"))
     print("Tool Name    :", tool.name)
     print("Description  :", tool.description)
     print("Args Schema  :", tool.args_schema)
