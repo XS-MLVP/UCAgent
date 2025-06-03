@@ -38,21 +38,21 @@ class VerifyAgent(object):
                                     openai_api_base=self.cfg.openai.openai_api_base,
                                     model=self.cfg.openai.model_name,
                                     )
-        self.workspace = workspace
+        self.workspace = os.path.abspath(workspace)
+        self.stage_manager = StageManager(self.workspace, self.cfg, self)
         self.test_tools = [# file operations
                            # read:
-                           PathList(workspace),
-                           ReadBinFile(workspace),
-                           ReadTextFile(workspace),
+                           PathList(self.workspace),
+                           ReadBinFile(self.workspace),
+                           ReadTextFile(self.workspace),
                            # write:
-                           TextFileReplaceLines(workspace),
-                           TextFileMultiLinesEdit(workspace),
-                           WriteToFile(workspace),
-                           AppendToFile(workspace),
-                           # test tools
+                           TextFileReplaceLines(self.workspace),
+                           TextFileMultiLinesEdit(self.workspace),
+                           WriteToFile(self.workspace),
+                           AppendToFile(self.workspace),
+                           # test:
                            # ...
-                           ]
-        self.stage_manager = StageManager(self.cfg, self)
+                           ] + self.stage_manager.get_tools()
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools + (ex_tools if ex_tools is not None else []),
@@ -81,8 +81,9 @@ class VerifyAgent(object):
         while not self.is_exit():
             tips = self.get_current_tips()
             info("Tips: " + str(tips))
+            if self.is_exit():
+                break
             self.do_work(tips, self.get_work_config())
-            self.stage_next()
         time_end = time.time()
         info("Verify Agent finished at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_end)))
         info(f"Total time taken: {fmt_time_deta(time_end - time_start)}")

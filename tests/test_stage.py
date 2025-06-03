@@ -11,13 +11,15 @@ from vagent.stage.vstage import StageManager
 
 def test_run_stage():
     cfg = get_config()
+    cfg.un_freeze()
     cfg.update_template({
         "OUT": "output",
         "DUT": "DualPort"
     })
-    print(cfg.dump_str())
-    manager = StageManager(cfg, None)
-    print(manager)
+    cfg.freeze()
+    manager = StageManager(None, cfg, None)
+    print(manager.tool_status())
+    print(manager.get_current_tips())
 
 
 if __name__ == "__main__":

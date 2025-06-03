@@ -106,6 +106,10 @@ class Config(object):
         for _, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.freeze()
+            elif isinstance(value, list):
+                for v in value:
+                    if isinstance(v, Config):
+                        v.freeze()
         self._freeze = True
         return self
 
@@ -117,6 +121,10 @@ class Config(object):
         for _, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.un_freeze()
+            elif isinstance(value, list):
+                for v in value:
+                    if isinstance(v, Config):
+                        v.un_freeze()
         self._freeze = False
         return self
 
@@ -128,8 +136,9 @@ class Config(object):
         :param value: Value to set.
         :return: None
         """
-        if getattr(self, "_freeze", False):
-            raise RuntimeError("Configuration is frozen, cannot modify.")
+        if name != "_freeze":
+            if getattr(self, "_freeze", False):
+                raise RuntimeError("Configuration is frozen, cannot modify.")
         super().__setattr__(name, value)
 
 
