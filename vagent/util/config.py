@@ -2,6 +2,7 @@
 
 import os
 import yaml
+import re
 
 class Config(object):
 
@@ -20,6 +21,9 @@ class Config(object):
         for key, value in data.items():
             if isinstance(value, dict):
                 setattr(self, key, Config(value))
+            elif isinstance(value, list):
+                # If the value is a list, convert each item to Config if it's a dict
+                setattr(self, key, [Config(item) if isinstance(item, dict) else item for item in value])
             else:
                 setattr(self, key, value)
 
@@ -34,9 +38,55 @@ class Config(object):
                 continue
             if isinstance(value, Config):
                 result[key] = value.as_dict()
+            elif isinstance(value, list):
+                # If the value is a list, convert each item to dict if it's a Config
+                result[key] = [item.as_dict() if isinstance(item, Config) else item for item in value]
             else:
                 result[key] = value
         return result
+
+    def update_template(self, template_dict):
+        """
+        Update the configuration with a template.
+        :param template (dict): Template to update the configuration with.
+        :return: self
+        eg:
+        template = {
+            "OUT": "my_path_to_output",
+        }
+        """
+        def replace_value(value):
+            find_tmp = False
+            tvalue = value.strip()
+            if (tvalue.count("{") == tvalue.count("}") == 1) and \
+               (tvalue.startswith("{") and tvalue.endswith("}")):
+                target = template_dict.get(tvalue.replace("}", "").replace("{", "").strip())
+                if target is not None:
+                    return True, target
+            else:
+                for k in re.findall(r"\{[^{}]*\}", value):
+                    target = str(k).replace("}", "").replace("{", "").strip()
+                    tvalue = template_dict.get(target, None)
+                    if tvalue is not None:
+                        value = value.replace(k, str(tvalue))
+                        find_tmp = True
+            return find_tmp, value
+        for key, value in self.__dict__.items():
+            if isinstance(value, Config):
+                value.update_template(template_dict)
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    if isinstance(item, Config):
+                        item.update_template(template_dict)
+                    elif isinstance(item, str):
+                        fd, nval = replace_value(item)
+                        if fd:
+                            value[i] = nval
+            elif isinstance(value, str):
+                fd, value = replace_value(value)
+                if fd:
+                    setattr(self, key, value)
+        return self
 
     def dump_str(self, indent=2):
         """
