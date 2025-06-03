@@ -5,6 +5,7 @@ from .util.log import info
 from .util.functions import fmt_time_deta
 
 from .tools.fileops import *
+from .stage.stage_manager import StageManager
 
 import time
 import random
@@ -51,6 +52,7 @@ class VerifyAgent(object):
                            # test tools
                            # ...
                            ]
+        self.stage_manager = StageManager(self.cfg, self)
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools + (ex_tools if ex_tools is not None else []),
@@ -59,33 +61,8 @@ class VerifyAgent(object):
         self._is_exit = False
         self._tip_index = 0
 
-    def get_tool_list(self):
-        pass
-
-    def get_stage_list(self):
-        pass
-
-    def get_stage_current(self):
-        pass
-
-    def stage_next(self):
-        pass
-
     def get_current_tips(self):
-        messages = [SystemMessage("You are a very smart verification agent.")]
-        if self._tip_index == 0:
-            messages.append(HumanMessage("find all the verilog files in the workspace, and analyze their contents to fix its bug (need edit the file)."))
-        elif self._tip_index == 1:
-            messages.append(HumanMessage("检查你的修改，是否正确，不正确继续修改直到完成"))
-        elif self._tip_index == 2:
-            messages.append(HumanMessage("which is the largest file? Analyze its contents, write it to a file named 'largest_file_analysis.txt'"))
-        if self._tip_index >= 1:
-            target_file = f"{self.workspace}/largest_file_analysis.txt"
-            import os
-            if os.path.exists(target_file):
-                self.exit()
-            else:
-                messages.append(HumanMessage(f"the file '{target_file}' does not exist, please check the previous steps."))
+        messages = self.stage_manager.get_current_tips()
         self._tip_index += 1
         return {"messages": messages}
 

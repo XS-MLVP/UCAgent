@@ -3,6 +3,7 @@
 import os
 from typing import List
 import json
+import importlib
 
 
 def fmt_time_deta(sec):
@@ -200,3 +201,17 @@ def rm_workspace_prefix(workspace: str, path:str) -> dict:
     if path.startswith(os.sep):
         path = path[1:]
     return path if path else "."
+
+
+
+def import_class_from_str(class_path: str, modue: None = None):
+    """
+    Import a class from a string like 'module.submodule.ClassName'
+    """
+    if "." not in class_path:
+        assert modue is not None, "Module must be provided if class_path does not contain a dot."
+        return getattr(modue, class_path)
+    module_path, class_name = class_path.rsplit('.', 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
+
