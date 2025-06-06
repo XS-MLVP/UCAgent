@@ -5,7 +5,7 @@ from .util.log import info
 from .util.functions import fmt_time_deta
 
 from .tools.fileops import *
-from .stage.stage_manager import StageManager
+from .stage.vstage import StageManager
 
 import time
 import random
@@ -19,7 +19,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 class VerifyAgent(object):
 
-    def __init__(self, workspace, config_file=None, cfg_override=None, model=None, ex_tools=None, thread_id=None):
+    def __init__(self, workspace, dut_name, output,
+                 config_file=None,
+                 cfg_override=None,
+                 model=None,
+                 ex_tools=None,
+                 thread_id=None):
         """Initialize the Verify Agent with configuration and an optional agent.
 
         Args:
@@ -30,6 +35,10 @@ class VerifyAgent(object):
         """
         #set_debug(True)
         self.cfg = get_config(config_file, cfg_override)
+        self.cfg.update_template({
+            "OUT": output,
+            "DUT": dut_name
+        })
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         if model is not None:
             self.model = model
@@ -52,7 +61,7 @@ class VerifyAgent(object):
                            AppendToFile(self.workspace),
                            # test:
                            # ...
-                           ] + self.stage_manager.get_tools()
+                           ] + self.stage_manager.new_tools()
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools + (ex_tools if ex_tools is not None else []),

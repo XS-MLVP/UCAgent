@@ -27,7 +27,9 @@ def get_args():
         return overrides
     parser = argparse.ArgumentParser(description="Verify Agent")
     parser.add_argument("workspace", type=str, default=os.getcwd(), help="Workspace directory to run the agent in")
+    parser.add_argument("dut", type=str, help="a sub-directory name in worspace, e.g., DualPort, Adder, ALU")
     parser.add_argument("--config", type=str, default=None, help="Path to the configuration file")
+    parser.add_argument("--output", type=str, default="unity_test", help="Path to the configuration file")
     parser.add_argument("--override", type=get_override_dict, default=None, help="Override configuration settings in the format A.B.C=value")
     return parser.parse_args()
 
@@ -36,6 +38,8 @@ def run():
     args = get_args()
     agent = VerifyAgent(
         workspace=args.workspace,
+        dut_name=args.dut,
+        output=args.output,
         config_file=args.config,
         cfg_override=args.override,
     )

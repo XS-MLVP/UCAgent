@@ -55,6 +55,7 @@ ALU 的主要功能点及其对应的检测点如下：
 - <CK-BORROW> a < b 或有 cin 输入时，cout 是否正确反映借位
 - <CK-CIN-NORM> 有 cin 输入时，减法结果是否正确
 - <CK-CIN-BORROW> 有 cin 输入且发生借位时，cout 是否正确
+- <CK-UN-COVERED> 测试数据，用于检测不覆盖情况
 
 ---
 

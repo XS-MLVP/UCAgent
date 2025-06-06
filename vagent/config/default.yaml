@@ -14,15 +14,15 @@ stage:
   - name: list_dut_functions_and_checks
     desc: "列出所有功能点与检测点"
     task:
-      - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
-      - "生成文档`{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md`，其中内容包括：{DUT}的所有功能，以及每个功能的检测点。一个功能点至少有1个以上的检测点。"
-      - "请确保生成的文档内容完整、准确，并且格式清晰。具体格式要求参考文档：Guide_Doc/function_and_checker.md。"
-      - "如果`{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md`已经存在，请检测是否需要完善其中的内容。"
+      - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
+      - "生成文档`{OUT}/{DUT}_functions_and_checks.md`，其中内容包括：{DUT}的所有功能，以及每个功能的检测点。一个功能点至少有1个以上的检测点。"
+      - "请确保生成的文档内容完整、准确，并且格式清晰。具体格式要求参考文档：Guide_Doc/dut_functions_and_checks.md。"
+      - "如果`{OUT}/{DUT}_functions_and_checks.md`已经存在，请检测是否需要完善其中的内容。"
     checker:
       - name: doc_heck
         clss: "UnityChipCheckerFunctionsAndChecks"
         args:
-          doc_file: "{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md"
+          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
           min_functions: 10
           min_checks: 12
         fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确。"
@@ -31,9 +31,9 @@ stage:
   - name: wrapper_dut_apis
     desc: "{DUT}接口封装"
     task:
-      - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
-      - "阅读你生成的文档`{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md`，理解{DUT}的功能点和检测点。"
-      - "生成Python文件`{OUT}/{DUT}_api.py`，其中内容包括：{DUT}的接口封装。所有接口函数以`api_`开头。"
+      - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
+      - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
+      - "生成Python文件`{OUT}/tests/{DUT}_api.py`，其中内容包括：{DUT}的接口封装。所有接口函数以`api_`开头。"
       - "通过PyTest的fixture机制，实现创建dut的fixture，实例与格式参考`Guide_Doc/dut_fixture.md`。"
       - "如果`{OUT}/{DUT}_api.py`已经存在，请检测是否需要完善其中的内容。"
     checker:
@@ -48,14 +48,15 @@ stage:
   - name: generate_function_coverage_defines
     desc: "生成功能覆盖分组"
     task:
-      - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
-      - "阅读你生成的文档`{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md`，理解{DUT}的功能点和检测点。"
-      - "生成Python文件`{OUT}/{DUT}_function_coverage_def.py`，其中内容包括：{DUT}的覆盖组。具体格式要求参考文档：Guide_Doc/function_coverage_def.md。"
+      - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
+      - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
+      - "生成Python文件`{OUT}/tests/{DUT}_function_coverage_def.py`，其中内容包括：{DUT}的覆盖组。具体格式要求参考文档：Guide_Doc/dut_function_coverage_def.md。"
     checker:
       - name: cover_check
         clss: "UnityChipCheckerCoverGroup"
         args:
-          group_file: "{OUT}/{DUT}_function_coverage_def.py"
+          test_path: "{OUT}/tests"
+          group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
           min_groups: 1
         fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。"
         pass_msg: "覆盖组检查成功，你做的很好！"
@@ -63,19 +64,18 @@ stage:
   - name: generate_test_cases_and_run
     desc: "生成测试用例并运行"
     task:
-      - "请阅读目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
-      - "阅读你生成的文档`{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md`，理解{DUT}的功能点和检测点。"
-      - "阅读你生成的文件`{OUT}/{DUT}_api.py`，理解{DUT}的接口封装。"
-      - "阅读你生成的文件`{OUT}/{DUT}_function_coverage_def.py`，理解{DUT}的覆盖组。"
-      - "生成Python文件`{OUT}/tests/comm.py`，用于初始化测试环境。具体格式要求参考文档：Guide_Doc/test_comm.md。"
-      - "生成Python文件`{OUT}/tests/test_<name>.py`，其中内容包括：{DUT}的测试用例。具体格式要求参考文档：Guide_Doc/test_case.md。"
-      - "生成缺陷分析文件`{OUT}/{DUT}_bug_analysis.md`，其中内容包括：{DUT}的缺陷分析。具体格式要求参考文档：Guide_Doc/bug_analysis.md。"
+      - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
+      - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
+      - "阅读你生成的文件`{OUT}/tests/{DUT}_api.py`，理解{DUT}的接口封装。"
+      - "阅读你生成的文件`{OUT}/tests/{DUT}_function_coverage_def.py`，理解{DUT}的覆盖组。"
+      - "根据功能点个数和分类，生成一个或者多个Python测试文件`{OUT}/tests/test_<name1>_<name2>.py`，其中内容包括：{DUT}的测试用例。具体格式要求参考文档：Guide_Doc/dut_test_case.md。"
+      - "生成缺陷分析文件`{OUT}/{DUT}_bug_analysis.md`，其中内容包括：{DUT}的缺陷分析。具体格式要求参考文档：Guide_Doc/dut_bug_analysis.md。"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
         args:
-          func_check: "{OUT}/{DUT}_FUNCTIONS_AND_CHECKS.md"
-          bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           min_tests: 1
         fail_msg: "测试用例检查失败，请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。"

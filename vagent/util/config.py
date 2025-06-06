@@ -55,6 +55,7 @@ class Config(object):
             "OUT": "my_path_to_output",
         }
         """
+        self.un_freeze()  # Ensure the configuration is mutable
         for key, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.update_template(template_dict)
@@ -70,6 +71,7 @@ class Config(object):
                 nval = render_template(value, template_dict)
                 if nval != value:
                     setattr(self, key, nval)
+        self.freeze()  # Freeze the configuration after updating
         return self
 
     def dump_str(self, indent=2):

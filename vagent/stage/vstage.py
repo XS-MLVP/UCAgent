@@ -9,7 +9,7 @@ import time
 
 class VerifyStage(object):
 
-    def __init__(self, name, description, task, checker):
+    def __init__(self, workspace, name, description, task, checker):
         """
         Initialize the VerifyStage with a name, description, task, checker, and checker arguments.
         Args:
@@ -23,7 +23,7 @@ class VerifyStage(object):
         self.task = task
         self._checker = checker
         self.checker = [
-            import_class_from_str(c.clss, checkers)(**c.args.as_dict()) for c in self._checker
+            import_class_from_str(c.clss, checkers)(**c.args.as_dict()).set_workspace(workspace) for c in self._checker
         ]
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
@@ -39,7 +39,7 @@ class VerifyStage(object):
             ck_pass, ck_msg = c.do_check()
             if self.check_info[i] is None:
                 self.check_info[i] = {
-                    "name": c.name,
+                    "name": c.__class__.__name__,
                     "pass": 0,
                     "fail": 0,
                     "check_count": 0,
@@ -79,6 +79,7 @@ from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 from langchain_core.tools import BaseTool
+from langchain_core.tools.base import ArgsSchema
 from typing import Optional, Callable
 from collections import OrderedDict
 from pydantic import BaseModel, Field
@@ -148,7 +149,7 @@ class ToolGoToStage(ManagerTool):
         "This tool is used when you want refine your previous work, or want to go back to a previous stage. \n"
         "Returns the result of the operation."
     )
-    args_schema: ArgToolGoToStage = ArgToolGoToStage()
+    args_schema: Optional[ArgsSchema] = ArgToolGoToStage
 
     def _run(self, index:int, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function(index)
@@ -162,6 +163,7 @@ class StageManager(object):
         self.workspace = workspace
         self.stages = [
             VerifyStage(
+                workspace=workspace,
                 name=f.name,
                 description=f.desc,
                 task=f.task,
