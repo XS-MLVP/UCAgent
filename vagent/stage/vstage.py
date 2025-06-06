@@ -103,6 +103,13 @@ class ToolStatus(ManagerTool):
         "Returns the current status of your mission."
     )
 
+class ToolDetail(ManagerTool):
+    """Get current missoin detials."""
+    name: str = "Detail"
+    description: str = (
+        "Returns the detail info of your mission, including all stages and their details. \n"
+    )
+
 
 class ToolDoCheck(ManagerTool):
     """Check your stage's mertrics are matched with the requirements or not."""
@@ -192,6 +199,24 @@ class StageManager(object):
                   f"Your task detail: \n{task}\n"
                   )
         return ret
+
+    def tool_detail(self):
+        """
+        Get the details of the current mission, including all stages and their details.
+        """
+        ret = OrderedDict()
+        ret["mission"] = self.mission.name
+        ret["stage_list"] = OrderedDict()
+        for i, stage in enumerate(self.stages):
+            ret["stage_list"][stage.name] = {
+                "index": i,
+                "desc": stage.description,
+                "task": stage.task,
+                "checker": [str(c) for c in stage.checker],
+                "reached": stage.is_reached(),
+                "check_pass": stage.check_pass,
+            }
+        return json.dumps(ret, indent=2, ensure_ascii=False)
 
     def tool_status(self):
         ret = OrderedDict()

@@ -17,9 +17,10 @@ def test_run_stage():
         "DUT": "DualPort"
     })
     cfg.freeze()
-    manager = StageManager(None, cfg, None)
-    print(manager.tool_status())
-    print(manager.get_current_tips())
+    manager = StageManager(current_dir, cfg, None)
+    #print(manager.tool_status())
+    #print(manager.get_current_tips())
+    print(manager.tool_detail())
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 import os
 import yaml
-import re
+from .functions import render_template
 
 class Config(object):
 
@@ -55,22 +55,6 @@ class Config(object):
             "OUT": "my_path_to_output",
         }
         """
-        def replace_value(value):
-            find_tmp = False
-            tvalue = value.strip()
-            if (tvalue.count("{") == tvalue.count("}") == 1) and \
-               (tvalue.startswith("{") and tvalue.endswith("}")):
-                target = template_dict.get(tvalue.replace("}", "").replace("{", "").strip())
-                if target is not None:
-                    return True, target
-            else:
-                for k in re.findall(r"\{[^{}]*\}", value):
-                    target = str(k).replace("}", "").replace("{", "").strip()
-                    tvalue = template_dict.get(target, None)
-                    if tvalue is not None:
-                        value = value.replace(k, str(tvalue))
-                        find_tmp = True
-            return find_tmp, value
         for key, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.update_template(template_dict)
@@ -79,13 +63,13 @@ class Config(object):
                     if isinstance(item, Config):
                         item.update_template(template_dict)
                     elif isinstance(item, str):
-                        fd, nval = replace_value(item)
-                        if fd:
+                        nval = render_template(item, template_dict)
+                        if nval != item:
                             value[i] = nval
             elif isinstance(value, str):
-                fd, value = replace_value(value)
-                if fd:
-                    setattr(self, key, value)
+                nval = render_template(value, template_dict)
+                if nval != value:
+                    setattr(self, key, nval)
         return self
 
     def dump_str(self, indent=2):
