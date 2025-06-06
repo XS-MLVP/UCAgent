@@ -23,6 +23,10 @@ class ArgRunPyTest(BaseModel):
         ...,
         description="The directory or file containing the Python tests to run."
     )
+    pytest_ex_args: str = Field(
+        default="",
+        description="Additional arguments to pass to pytest, e.g., '-v --capture=no'."
+    )
     return_stdout: bool = Field(
         default=False,
         description="Whether to return the standard output of the test run."
@@ -53,6 +57,7 @@ class RunPyTest(BaseTool):
 
     def do(self,
              test_dir_or_file: str,
+             pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
              run_manager: CallbackManagerForToolRun = None) -> Tuple[int, str, str]:
@@ -62,7 +67,7 @@ class RunPyTest(BaseTool):
         ret_stdout, ret_stderr = None, None
         try:
             result = subprocess.run(
-                ["pytest", os.path.abspath(test_dir_or_file), *self.get_pytest_args()],
+                ["pytest", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args],
                 capture_output=True,
                 text=True,
                 check=True
@@ -85,12 +90,14 @@ class RunPyTest(BaseTool):
 
     def _run(self,
              test_dir_or_file: str,
+             pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Python tests and return the output."""
         all_pass, pyt_out, pyt_err = self.do(
             test_dir_or_file,
+            pytest_ex_args,
             return_stdout,
             return_stderr,
             run_manager
@@ -148,6 +155,7 @@ class RunUnityChipTest(RunPyTest):
 
     def do(self,
              test_dir_or_file: str,
+             pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
              run_manager: CallbackManagerForToolRun = None) -> dict:
@@ -155,6 +163,7 @@ class RunUnityChipTest(RunPyTest):
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
                                           os.path.join(self.workspace, test_dir_or_file),
+                                          pytest_ex_args,
                                           return_stdout,
                                           return_stderr,
                                           run_manager)
@@ -221,12 +230,14 @@ class RunUnityChipTest(RunPyTest):
 
     def _run(self,
              test_dir_or_file: str,
+             pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Unity chip tests and return the output."""
         data, pyt_out, pyt_err = self.do(
             test_dir_or_file,
+            pytest_ex_args,
             return_stdout,
             return_stderr,
             run_manager
@@ -238,14 +249,23 @@ class RunUnityChipTest(RunPyTest):
             ret_str += f"[Stderr]:\n{pyt_err}\n"
         return ret_str
 
-    def __init__(self, workspace:str, report_dir: str = "uc_test_report", **kwargs):
+    def __init__(self, workspace:str=None, report_dir: str = "uc_test_report", **kwargs):
         """Initialize the tool with custom arguments."""
         super().__init__(**kwargs)
-        self.workspace = os.path.abspath(workspace)
-        self.result_dir = os.path.join(self.workspace, report_dir)
         self.set_pytest_args({
             "toffee-report": True,
             "report-dump-json": True,
             "report-name": "index.html",
+        })
+        if workspace is None:
+            return
+        self.set_workspace(workspace)
+
+    def set_workspace(self, workspace: str):
+        """Set the workspace directory."""
+        self.workspace = os.path.abspath(workspace)
+        self.result_dir = os.path.join(self.workspace, self.result_dir)
+        self.set_pytest_args({
             "report-dir": self.result_dir
         })
+        return self

@@ -55,7 +55,7 @@ stage:
       - name: cover_check
         clss: "UnityChipCheckerCoverGroup"
         args:
-          doc_file: "{OUT}/{DUT}_function_coverage_def.py"
+          group_file: "{OUT}/{DUT}_function_coverage_def.py"
           min_groups: 1
         fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。"
         pass_msg: "覆盖组检查成功，你做的很好！"

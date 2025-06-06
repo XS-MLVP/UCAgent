@@ -16,7 +16,9 @@ def test_run_unity_tests():
     print("Return Direct:", tool.return_direct)
     
     # Invoke the tool with a test directory
-    data = tool.invoke({"test_dir_or_file": "unity_tests"})
+    data = tool.invoke({"test_dir_or_file": "unity_tests",
+                        "return_stdout": True,
+                        "return_stderr": True,})
     print(data)
 
 

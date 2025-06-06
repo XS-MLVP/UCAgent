@@ -4,6 +4,7 @@ import os
 from typing import List
 import json
 import importlib
+import re
 
 
 def fmt_time_deta(sec):
@@ -189,6 +190,44 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     return ret
 
 
+def get_unity_chip_doc_marks(path: str) -> dict:
+    """
+    Get the Unity chip documentation marks from a file.
+    :param path: Path to the file containing Unity chip documentation.
+    :return: A dictionary with the marks found in the file.
+    """
+    assert os.path.exists(path), f"File {path} does not exist."
+    keynames = ["group", "function", "checkpoint", "bug_rate"]
+    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"]
+    subfix   = [">"]* len(prefix)
+    data = parse_nested_keys(path, keynames, prefix, subfix)
+    count_group = 0
+    count_function = 0
+    count_checkpoint = 0
+    count_bug_rate = 0
+    mark_list = []
+    for k_g, d_g in data.items():
+        count_group += 1
+        function = d_g.get("function", {})
+        assert function, f"Group '{k_g}' does not contain any functions. Please check the documentation."
+        for k_f, d_f in function.items():
+            count_function += 1
+            checkpoint = d_f.get("checkpoint", {})
+            assert checkpoint, f"Function '{k_f}' in group '{k_g}' does not contain any checkpoints. Please check the documentation."
+            for k_c, d_c in checkpoint.items():
+                count_checkpoint += 1
+                if "bug_rate" in d_c:
+                    count_bug_rate += 1
+                mark_list.append(f"{k_g}/{k_f}/{k_c}")
+    return {
+        "count_group": count_group,
+        "count_function": count_function,
+        "count_checkpoint": count_checkpoint,
+        "count_bug_rate": count_bug_rate,
+        "marks": mark_list
+    }
+
+
 def rm_workspace_prefix(workspace: str, path:str) -> dict:
     """
     Remove the workspace prefix from the keys in a dictionary.
@@ -215,3 +254,53 @@ def import_class_from_str(class_path: str, modue: None = None):
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
+
+def import_python_file(file_path: str, py_path:str = None):
+    """
+    Import a Python file as a module.
+    :param file_path: Path to the Python file to be imported.
+    :return: The imported module.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File {file_path} does not exist.")
+    module_name = os.path.splitext(os.path.basename(file_path))[0]
+    if py_path is not None:
+        import sys
+        if not os.path.exists(py_path):
+            raise FileNotFoundError(f"Path {py_path} does not exist.")
+        if py_path not in sys.path:
+            sys.path.append(py_path)
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def render_template(template: str, kwargs) -> str:
+    """
+    Render a template string with the provided keyword arguments.
+    :param template: The template string to be rendered.
+    :param kwargs: Keyword arguments to be used in the template.
+    :return: The rendered string.
+    """
+    tvalue = template.strip()
+    if (tvalue.count("{") == tvalue.count("}") == 1) and \
+       (tvalue.startswith("{") and tvalue.endswith("}")):
+        key = tvalue.replace("}", "").replace("{", "").strip()
+        if isinstance(kwargs, dict):
+            target = kwargs.get(key)
+        else:
+            target = getattr(kwargs, key, None)
+        if target is not None:
+            return target
+        return template
+    else:
+        for k in re.findall(r"\{[^{}]*\}", template):
+            key = str(k).replace("}", "").replace("{", "").strip()
+            if isinstance(kwargs, dict):
+                target = kwargs.get(key)
+            else:
+                target = getattr(kwargs, key, None)
+            if target is not None:
+                template = template.replace(k, str(target))
+        return template
