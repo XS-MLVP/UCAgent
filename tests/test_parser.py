@@ -5,7 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.functions import parse_nested_keys
+from vagent.util.functions import parse_nested_keys, get_unity_chip_doc_marks
 
 
 def test_func_check_points():
@@ -29,6 +29,7 @@ def test_func_check_points():
                 else:
                     print(" " * indent + f"{key}: {value}")
         print_dict(keydata)
+        print(get_unity_chip_doc_marks(function_list_file))
     parse()
     function_list_file = os.path.join(current_dir, "../examples/template/bug_func_and_checks.md")
     parse()

@@ -216,9 +216,13 @@ def get_unity_chip_doc_marks(path: str) -> dict:
             assert checkpoint, f"Function '{k_f}' in group '{k_g}' does not contain any checkpoints. Please check the documentation."
             for k_c, d_c in checkpoint.items():
                 count_checkpoint += 1
-                if "bug_rate" in d_c:
+                bug_rate = d_c.get("bug_rate", {})
+                if len(bug_rate) > 0:
+                    assert len(bug_rate) == 1, "one checkpoint mash hould only have one bug rate."
                     count_bug_rate += 1
-                mark_list.append(f"{k_g}/{k_f}/{k_c}")
+                    mark_list.append(f"{k_g}/{k_f}/{k_c}/{[_ for _ in bug_rate.keys()][0]}")
+                else:
+                    mark_list.append(f"{k_g}/{k_f}/{k_c}")
     return {
         "count_group": count_group,
         "count_function": count_function,
@@ -255,7 +259,7 @@ def import_class_from_str(class_path: str, modue: None = None):
     return getattr(module, class_name)
 
 
-def import_python_file(file_path: str, py_path:str = None):
+def import_python_file(file_path: str, py_path:list = []):
     """
     Import a Python file as a module.
     :param file_path: Path to the Python file to be imported.
@@ -264,12 +268,13 @@ def import_python_file(file_path: str, py_path:str = None):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {file_path} does not exist.")
     module_name = os.path.splitext(os.path.basename(file_path))[0]
-    if py_path is not None:
+    if py_path:
         import sys
-        if not os.path.exists(py_path):
-            raise FileNotFoundError(f"Path {py_path} does not exist.")
-        if py_path not in sys.path:
-            sys.path.append(py_path)
+        for p in py_path:
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"Path {p} does not exist.")
+            if p not in sys.path:
+                sys.path.append(p)
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

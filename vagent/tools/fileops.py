@@ -77,7 +77,7 @@ class BaseReadWrite:
                 self.description += "\n\nNote: No directories are restricted."
             else:
                 self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
-        info(f"ReplaceTextLines tool initialized with workspace: {self.workspace}")
+        info(f"{self.__class__.__name__} tool initialized with workspace: {self.workspace}")
 
     def check_file(self, path: str) -> Tuple[bool, str]:
         """Check if the file is writable."""

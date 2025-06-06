@@ -6,6 +6,9 @@
 #### 加法 <FC-ADD>
 - <CK-CIN-OVERFLOW> CK-CIN-OVERFLOW：在溢出时，未考虑CIN，Bug置信度 98% <BUG-RATE-98>
 
+#### 减法  <FC-SUB>
+- <CK-UN-COVERED> 忽略该检查点 <BUG-RATE-0>
+
 <FG-HARD>
 
 #### 位操作功能 <FC-BITOP>

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from vagent.util.functions import load_json_file, rm_workspace_prefix
 from vagent.util.functions import get_toffee_json_test_case
+from vagent.util.log import debug
 import os
 import shutil
 from typing import Tuple
@@ -60,17 +61,27 @@ class RunPyTest(BaseTool):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
-             run_manager: CallbackManagerForToolRun = None) -> Tuple[int, str, str]:
+             run_manager: CallbackManagerForToolRun = None, python_paths: list = None) -> Tuple[int, str, str]:
         """Run the Python tests."""
         assert os.path.exists(test_dir_or_file), \
             f"Test directory or file does not exist: {test_dir_or_file}"
         ret_stdout, ret_stderr = None, None
+        env = os.environ.copy()
+        pythonpath = env.get("PYTHONPATH", "")
+        python_path_str = os.path.abspath(os.getcwd())
+        if python_paths is not None:
+            for p in python_paths:
+                if os.path.exists(p):
+                    python_path_str += ":" + os.path.abspath(p)
+                    debug(f"Add python path: {p}")
+        env["PYTHONPATH"] = python_path_str + (":" + pythonpath if pythonpath else "")
         try:
             result = subprocess.run(
                 ["pytest", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                env=env,
             )
             if return_stdout:
                 ret_stdout = result.stdout
@@ -158,7 +169,7 @@ class RunUnityChipTest(RunPyTest):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
-             run_manager: CallbackManagerForToolRun = None) -> dict:
+             run_manager: CallbackManagerForToolRun = None, return_all_checks=False) -> dict:
         """Run the Unity chip tests."""
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
@@ -166,7 +177,8 @@ class RunUnityChipTest(RunPyTest):
                                           pytest_ex_args,
                                           return_stdout,
                                           return_stderr,
-                                          run_manager)
+                                          run_manager,
+                                          python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
         ret_data = {
             "all_test_pass": all_pass,
         }
@@ -193,8 +205,9 @@ class RunUnityChipTest(RunPyTest):
             # failed bins:
             # groups->points->bins
             bins_fail = []
-            bins_uncovered = []
+            bins_unmarked = []
             bins_funcs = {}
+            bins_all = []
             for g in fc_data.get("groups", []):
                 for p in g.get("points", []):
                     cv_funcs = p.get("functions", {})
@@ -205,26 +218,30 @@ class RunUnityChipTest(RunPyTest):
                             bins_fail.append(bin_full_name)
                         test_funcs =cv_funcs.get(b["name"], [])
                         if len(test_funcs) < 1:
-                            bins_uncovered.append(bin_full_name)
+                            bins_unmarked.append(bin_full_name)
                         else:
                             for tf in test_funcs:
                                 func_key = rm_workspace_prefix(self.workspace, tf)
                                 if func_key not in bins_funcs:
                                     bins_funcs[func_key] = []
                                 bins_funcs[func_key].append(bin_full_name)
+                        # all bins
+                        bins_all.append(bin_full_name)
+            if return_all_checks:
+                ret_data["bins_all"] = bins_all
             if len(bins_fail) > 0:
                 ret_data["faild_check_point_list"] = bins_fail
-            ret_data["uncovered_check_points"] = len(bins_uncovered)
-            if len(bins_uncovered) > 0:
-                ret_data["uncovered_check_points_list"] = bins_uncovered
+            ret_data["unmarked_check_points"] = len(bins_unmarked)
+            if len(bins_unmarked) > 0:
+                ret_data["unmarked_check_points_list"] = bins_unmarked
             # functions with no check points
             test_fc_no_check_points = []
             for f, _ in tests:
                 if f not in bins_funcs:
                     test_fc_no_check_points.append(f)
-            ret_data["test_function_with_no_check_point"] = len(test_fc_no_check_points)
+            ret_data["test_function_with_no_check_point_mark"] = len(test_fc_no_check_points)
             if len(test_fc_no_check_points) > 0:
-                ret_data["test_function_with_no_check_point_list"] = test_fc_no_check_points
+                ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
             # FIXME: more data
         return ret_data, pyt_out, pyt_err
 
