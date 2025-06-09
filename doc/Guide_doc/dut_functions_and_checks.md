@@ -28,6 +28,7 @@ DUT即Design Under Test的缩写，请以下列格式进行DUT的功能点和对
 
 **重点：checker方法是通过 `<FG-{group-name}>`，`<FC-{function-name}>`，`<CK-{check-point-name}>`进行规范检测的**
 
+注意：上述TEST、FUNC1、NAME1、NAME2 等都是举例，具体需要你根据任务进行自行命名，例如减法功能、减法功能、换成功能、<FG-ADD>、<FG-CACHE>、<FC-OVERFLOW>、<CK-NORM>等等）
 
 以简单ALU为例，其“功能点描述与对应检测点描述”举例如下：
 

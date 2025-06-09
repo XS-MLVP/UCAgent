@@ -59,16 +59,16 @@ class VerifyStage(object):
             if self.check_info[i] is None:
                 self.check_info[i] = {
                     "name": c.__class__.__name__,
-                    "pass": 0,
-                    "fail": 0,
-                    "check_count": 0,
+                    "count_pass": 0,
+                    "count_fail": 0,
+                    "count_check": 0,
                     "last_msg": "",
                 }
             count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
-            self.check_info[i]["pass"] += count_pass
-            self.check_info[i]["fail"] += count_fail
+            self.check_info[i]["count_pass"] += count_pass
+            self.check_info[i]["count_fail"] += count_fail
             self.check_info[i]["last_msg"] = ck_msg
-            self.check_info[i]["check_count"] += 1
+            self.check_info[i]["count_check"] += 1
             if not ck_pass:
                 self.check_pass = False
         return self.check_pass, self.check_info

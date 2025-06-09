@@ -1,0 +1,22 @@
+
+## {{DUT}} 缺陷分析
+
+<!--
+
+学习任务中给出的参考文档：Guide_Doc/dut_bug_analysis.md，用 <FG-*>、 <FC-*>、<CK-*> 和 <BUG-RATE-*> 标签，对{{DUT}}测试中不通过功能检测点的原因和确定为bug的概率进行分析。
+
+举例：
+
+### A类功能：
+
+<FG-FUNCTYPE-A>
+
+#### 功能A1：<FC-A1>
+- <CK-NAME1> 检测点1：由于什么原因导致该检测点不通过，为{{DUT}}设计bug概率的为 80% <BUG-RATE-80> 
+....
+
+-->
+
+<!--
+Your bug analysis here
+-->

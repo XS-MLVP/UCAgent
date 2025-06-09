@@ -378,3 +378,54 @@ def dump_as_json(data):
     Convert a dictionary to a JSON string with pretty formatting.
     """
     return json.dumps(data, indent=4, ensure_ascii=False).replace("\\n", "\n")
+
+
+
+def render_template_dir(workspace, template_dir, kwargs):
+    """
+    Render all template files in a directory with the provided keyword arguments.
+    :param workspace: The workspace directory where the templates are located.
+    :param template_dir: The directory containing the template files.
+    :param kwargs: Keyword arguments to be used in the templates.
+    :return: A dictionary mapping file names to rendered content.
+    """
+    assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+    assert os.path.exists(template_dir), f"Template directory {template_dir} does not exist."
+    import jinja2
+    import shutil
+    dst_dir = os.path.join(workspace, os.path.basename(template_dir))
+    if os.path.exists(dst_dir):
+        shutil.rmtree(dst_dir)
+    shutil.copytree(template_dir, dst_dir)
+    rendered_files = []
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(dst_dir), keep_trailing_newline=True)
+    for root, _, files in os.walk(dst_dir):
+        for fname in files:
+            abs_path = os.path.join(root, fname)
+            new_fname = jinja2.Template(fname).render(**kwargs)
+            new_abs_path = os.path.join(root, new_fname)
+            if new_fname != fname:
+                os.rename(abs_path, new_abs_path)
+                abs_path = new_abs_path
+            with open(abs_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            template = env.from_string(content)
+            rendered_content = template.render(**kwargs)
+            with open(abs_path, "w", encoding="utf-8") as f:
+                f.write(rendered_content)
+            rendered_files.append(os.path.relpath(abs_path, workspace))
+    return rendered_files
+
+
+def get_template_path(template_name: str) -> str:
+    """
+    Get the absolute path to a template file.
+    :param template_name: The name of the template file.
+    :return: The absolute path to the template file.
+    """
+    if template_name is None:
+        return None
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    template_path = os.path.join(current_dir, "../template", template_name)
+    assert os.path.exists(template_path), f"Template {template_name} does not exist at {template_path}."
+    return template_path

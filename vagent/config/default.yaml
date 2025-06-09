@@ -10,6 +10,8 @@ openai:
 mission:
   name: "{DUT} 验证"
 
+template: unity_test
+
 stage:
   - name: list_dut_functions_and_checks
     desc: "列出所有功能点与检测点"
@@ -17,7 +19,7 @@ stage:
       - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
       - "生成文档`{OUT}/{DUT}_functions_and_checks.md`，其中内容包括：{DUT}的所有功能，以及每个功能的检测点。一个功能点至少有1个以上的检测点。"
       - "请确保生成的文档内容完整、准确，并且格式清晰。具体格式要求参考文档：Guide_Doc/dut_functions_and_checks.md。"
-      - "如果`{OUT}/{DUT}_functions_and_checks.md`已经存在，请检测是否需要完善其中的内容。"
+      - "如果`{OUT}/{DUT}_functions_and_checks.md`已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释中完成任务）。"
     checker:
       - name: doc_heck
         clss: "UnityChipCheckerFunctionsAndChecks"
@@ -26,7 +28,7 @@ stage:
           min_functions: 3
           min_checks: 3
         extra_args:
-          fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确。注意学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。"
+          fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确。注意：好好阅读参考文档，学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。"
           pass_msg: "功能点与检测点检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -40,7 +42,7 @@ stage:
       - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
       - "生成Python文件`{OUT}/tests/{DUT}_api.py`，其中内容包括：{DUT}的接口封装。所有接口函数以`api_`开头。"
       - "通过PyTest的fixture机制，实现创建dut的fixture。API和fixture的例子与格式请参考`Guide_Doc/dut_fixture_and_api.md`。"
-      - "如果`{OUT}/tests/{DUT}_api.py`已经存在，请检测是否需要完善其中的内容。"
+      - "如果`{OUT}/tests/{DUT}_api.py`已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释中完成任务）。"
     checker:
       - name: api_check
         clss: "UnityChipCheckerDutApi"
@@ -48,7 +50,7 @@ stage:
           api_file: "{OUT}/tests/{DUT}_api.py"
           min_apis: 1
         extra_args:
-          fail_msg: "接口封装检查失败，请检查生成的代码内容是否完整、准确。注意，api函数必须以`api_`开头。"
+          fail_msg: "接口封装检查失败，请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，api函数必须以`api_`开头。"
           pass_msg: "接口封装检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -59,6 +61,7 @@ stage:
       - "请阅读`当前目录`以及目录`{DUT}/`中的文档、代码和注释，理解待验证目标。"
       - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
       - "生成Python文件`{OUT}/tests/{DUT}_function_coverage_def.py`，其中内容包括：{DUT}的覆盖组。具体格式要求参考文档：Guide_Doc/dut_function_coverage_def.md。"
+      - "如果`{OUT}/tests/{DUT}_function_coverage_def.py`已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释中完成任务）。"
     checker:
       - name: cover_check
         clss: "UnityChipCheckerCoverGroup"
@@ -67,7 +70,7 @@ stage:
           group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
           min_groups: 1
         extra_args:
-          fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。注意需要实现`get_coverage_groups(dut=None)->List[CovGroup]`函数。"
+          fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，且需要基于toffee库实现`get_coverage_groups(dut=None)->List[toffee.funcov.CovGroup]`函数。"
           pass_msg: "覆盖组检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -81,6 +84,7 @@ stage:
       - "阅读你生成的文件`{OUT}/tests/{DUT}_function_coverage_def.py`，理解{DUT}的覆盖组。"
       - "根据功能点个数和分类，生成一个或者多个Python测试文件`{OUT}/tests/test_<name1>_<name2>.py`，其中内容包括：{DUT}的测试用例。具体格式要求参考文档：Guide_Doc/dut_test_case.md。"
       - "生成缺陷分析文件`{OUT}/{DUT}_bug_analysis.md`，其中内容包括：{DUT}的缺陷分析。具体格式要求参考文档：Guide_Doc/dut_bug_analysis.md。"
+      - "如果文件已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释中完成任务）。"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -90,7 +94,7 @@ stage:
           test_dir: "{OUT}/tests"
           min_tests: 1
         extra_args:
-          fail_msg: "测试用例检查失败，请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。"
+          fail_msg: "测试用例检查失败，请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。注意：好好阅读参考文档，且需要使用toffee.funcov.CovGroup进行功能覆盖率的统计。"
           pass_msg: "测试用例检查成功，你做的很好！"
           max_try: -1
     reference_files:

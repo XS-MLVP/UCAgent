@@ -127,6 +127,15 @@ class Config(object):
                 raise RuntimeError("Configuration is frozen, cannot modify.")
         super().__setattr__(name, value)
 
+    def __getattr__(self, name):
+        """
+        Get an attribute of the configuration.
+        :param name: Name of the attribute.
+        :return: Value of the attribute.
+        """
+        if name in self.__dict__:
+            return self.__dict__[name]
+        return None
 
     def merge_from(self, other):
         """
