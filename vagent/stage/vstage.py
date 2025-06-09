@@ -1,7 +1,7 @@
 #coding=utf-8
 
 
-from vagent.util.functions import import_class_from_str
+from vagent.util.functions import import_class_from_str, find_files_by_pattern, dump_as_json
 from vagent.util.log import info
 import vagent.stage.checkers as checkers
 import time
@@ -9,7 +9,7 @@ import time
 
 class VerifyStage(object):
 
-    def __init__(self, workspace, name, description, task, checker):
+    def __init__(self, workspace, name, description, task, checker, reference_files, tool_read_text):
         """
         Initialize the VerifyStage with a name, description, task, checker, and checker arguments.
         Args:
@@ -23,20 +23,39 @@ class VerifyStage(object):
         self.task = task
         self._checker = checker
         self.checker = [
-            import_class_from_str(c.clss, checkers)(**c.args.as_dict()).set_workspace(workspace) for c in self._checker
+            import_class_from_str(c.clss, checkers)(**c.args.as_dict()).set_extra(
+                **c.extra_args.as_dict()
+            ).set_workspace(workspace) for c in self._checker
         ]
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
         self.check_pass = False
+        self.reference_files = {
+            k:False for k in find_files_by_pattern(workspace, reference_files)
+        }
+        self.tool_read_text = tool_read_text
+        self.tool_read_text.append_callback(self.on_file_read)
+
+    def on_file_read(self, success, file_path, content):
+        if not success:
+            return
+        if file_path in self.reference_files:
+            self.reference_files[file_path] = True
+            info(f"[{self.__class__.__name__}] Reference file {file_path} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description}, "+\
                f"checker={'.'.join([n.name for n in self._checker])}, checker_cls={'.'.join([n.clss for n in self._checker])})"
 
     def do_check(self):
+        if not all(c[1] for c in self.reference_files.items()):
+            emsg = "You need read and understand all the reference files:\n"
+            for k, v in self.reference_files.items():
+                emsg += f"  - {k} ({'Read Pass'if v else 'Not Read'})\n"
+            return False, emsg
         self.check_pass = True
         for i, c in enumerate(self.checker):
-            ck_pass, ck_msg = c.do_check()
+            ck_pass, ck_msg = c.check()
             if self.check_info[i] is None:
                 self.check_info[i] = {
                     "name": c.__class__.__name__,
@@ -156,7 +175,7 @@ class ToolGoToStage(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent):
+    def __init__(self, workspace, cfg, agent, tool_read_text):
         """
         Initialize the StageManager with an empty list of stages.
         """
@@ -167,7 +186,9 @@ class StageManager(object):
                 name=f.name,
                 description=f.desc,
                 task=f.task,
-                checker=f.checker
+                checker=f.checker,
+                reference_files=getattr(f, "reference_files", []),
+                tool_read_text = tool_read_text,
             ) for f in cfg.stage
         ]
         assert len(cfg.stage) == len(set([f.name for f in cfg.stage])), "Stage names must be unique."
@@ -179,6 +200,7 @@ class StageManager(object):
             info(f"  - {stage.name}: {stage.description}")
         self.stage_index = 0
         self.last_check_info = None
+        self.tool_read_text = tool_read_text
 
     def new_tools(self):
         """
@@ -193,13 +215,23 @@ class StageManager(object):
         return tools
 
     def get_current_tips(self):
-        task = '\n - '.join(self.stages[self.stage_index].task)
+        cstage = self.stages[self.stage_index]
+        task = '\n - '.join(cstage.task)
         ret = str(f"You mission: {self.mission.name}\n"
-                  f"Current stage: {self.stages[self.stage_index].name} - "
-                  f"{self.stages[self.stage_index].description}\n"
+                  f"Current stage: {cstage.name} - "
+                  f"{cstage.description}\n"
                   f"Passed/Total stages: {self.stage_index}/{len(self.stages)}\n"
                   f"Your task detail: \n{task}\n"
                   )
+        ref_files = []
+        for k, v in cstage.reference_files.items():
+            if v:
+                continue
+            ref_files.append(k)
+        if ref_files:
+            ret += f"\nYou need read (use tool: {self.tool_read_text.name}) and understand the following reference files:\n"
+            for f in ref_files:
+                ret += f"  - {f}\n"
         return ret
 
     def tool_detail(self):
@@ -218,7 +250,7 @@ class StageManager(object):
                 "reached": stage.is_reached(),
                 "check_pass": stage.check_pass,
             }
-        return json.dumps(ret, indent=2, ensure_ascii=False)
+        return dump_as_json(ret)
 
     def tool_status(self):
         ret = OrderedDict()
@@ -234,7 +266,7 @@ class StageManager(object):
         ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
         if self.last_check_info:
             ret["last_check_info"] = self.last_check_info
-        return json.dumps(ret, indent=2, ensure_ascii=False)
+        return dump_as_json(ret)
 
     def tool_go_to_stage(self, index):
         """
@@ -257,17 +289,17 @@ class StageManager(object):
             "check_info": ck_info,
             "check_pass": ck_pass,
         }
-        return {
+        return dump_as_json({
             "check_pass": ck_pass,
             "check_info": ck_info,
-        }
+        })
 
     def tool_complete(self):
         if self.stage_index >= len(self.stages):
-            return {
+            return dump_as_json({
                 "do_complete": False,
                 "message": "No more stages to complete.",
-            }
+            })
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
             "check_at": time.time(),
@@ -280,10 +312,12 @@ class StageManager(object):
             if self.stage_index >= len(self.stages):
                 message = "All stages completed successfully."
                 self.agent.exit()  # Exit the agent if all stages are completed
+            message += f"\nCurrent stage index is now {self.stage_index}."
+            message += f"\nNext task:\n {self.get_current_tips()}"
         else:
             message = f"Stage {self.stage_index} not completed. Please check the requirements.\n" + \
                       f"Last check info: \n {json.dumps(ck_info, indent=2, ensure_ascii=False)}"
-        return {
+        return dump_as_json({
             "do_complete": ck_pass,
             "message": message,
-        }
+        })

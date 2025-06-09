@@ -309,3 +309,72 @@ def render_template(template: str, kwargs) -> str:
             if target is not None:
                 template = template.replace(k, str(target))
         return template
+
+
+def find_files_by_regex(workspace, pattern):
+    """
+    Find files in a workspace that match a given regex pattern.
+    """
+    matched_files = []
+    assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+    abs_workspace = os.path.abspath(workspace)
+    def __find(p):
+        regex = re.compile(p)
+        for root, dirs, files in os.walk(abs_workspace):
+            for filename in files:
+                if regex.search(filename):
+                    f = os.path.abspath(os.path.join(root, filename))
+                    matched_files.append(
+                        f.removeprefix(abs_workspace + os.sep)
+                    )
+    if isinstance(pattern, str):
+        pattern = [pattern]
+    for p in pattern:
+        __find(p)
+    return list(set(matched_files))
+
+
+def find_files_by_glob(workspace, pattern):
+    """Find files in a workspace that match a given glob pattern.
+    """
+    import glob
+    assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+    if isinstance(pattern, str):
+        pattern = [pattern]
+    abs_workspace = os.path.abspath(workspace)
+    ret = set()
+    def __find(p):
+        for f in glob.glob(os.path.join(abs_workspace, "**", p), recursive=True):
+            ret.add(
+            f.removeprefix(abs_workspace + os.sep)
+        )
+    for p in pattern:
+        __find(p)
+    return list(ret)
+
+
+def find_files_by_pattern(workspace, pattern):
+    """Find files in a workspace that match a given pattern, which can be either a glob or regex.
+    """
+    def is_regex_pattern(s: str) -> bool:
+        try:
+            re.compile(s)
+            return True
+        except re.error:
+            return False
+    if isinstance(pattern, str):
+        pattern = [pattern]
+    ret = []
+    for p in pattern:
+        if not is_regex_pattern(p):
+            ret += find_files_by_glob(workspace, p)
+        else:
+            ret += find_files_by_regex(workspace, p)
+    return list(set(ret))
+
+
+def dump_as_json(data):
+    """
+    Convert a dictionary to a JSON string with pretty formatting.
+    """
+    return json.dumps(data, indent=4, ensure_ascii=False).replace("\\n", "\n")

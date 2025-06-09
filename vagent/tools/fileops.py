@@ -59,6 +59,28 @@ class BaseReadWrite:
         default=False,
         description="If True, creates the file if it does not exist. If False, raises an error if the file does not exist."
     )
+    call_backs: List = Field(
+        default=[],
+        description="List of callbacks to use for tool run management."
+    )
+
+    def append_callback(self, callback):
+        """Append a callback to the tool run callbacks."""
+        if callback not in self.call_backs:
+            self.call_backs.append(callback)
+            info(f"Callback {callback} added to {self.__class__.__name__} tool.")
+
+    def remove_callback(self, callback):
+        """Remove a callback from the tool run callbacks."""
+        if callback in self.call_backs:
+            self.call_backs.remove(callback)
+            info(f"Callback {callback} removed from {self.__class__.__name__} tool.")
+
+    def do_callback(self, *args, **kwargs):
+        """Run all callbacks with the provided arguments."""
+        for cb in self.call_backs:
+            # func(success, path, msg)
+            cb(*args, **kwargs)
 
     def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 30720):
         """Initialize the base write tool."""
@@ -151,6 +173,7 @@ class PathList(BaseTool, BaseReadWrite):
         """List all files in a directory of the workspace, including subdirectories."""
         success, msg, real_path = self.check_dir(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         info(f"Listing files in {real_path} with depth {depth}")
         if depth < 0:
@@ -192,7 +215,9 @@ class PathList(BaseTool, BaseReadWrite):
         if result:
             ret_head = str_info(f"\nFound {count_directories} directories and {count_files} files in workspace.\n\n")
             result.insert(0, f"Index\tName\t(Type, Size, Bytes)")
+            self.do_callback(True, path, result)
             return ret_head + str_return("\n".join(result))
+        self.do_callback(False, path, None)
         return str_error(f"No files found in the specified directory({path}).")
 
     def __init__(self, workspace: str, ignore_pattern=None, ignore_dirs_files=None, **kwargs):
@@ -237,6 +262,7 @@ class ReadBinFile(BaseTool, BaseReadWrite):
         """Read the content of a file in the workspace."""
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         info(f"Reading file {real_path} from position {start} to {end}")
         file_bytes = get_file_size(real_path)
@@ -246,13 +272,16 @@ class ReadBinFile(BaseTool, BaseReadWrite):
             read_bytes = len(content)
             remm_bytes = file_bytes - start - read_bytes
             if not content:
+                self.do_callback(False, path, None)
                 return str_error(f"File {path} is empty or the specified range is invalid.")
             tex_size = len(content)
             if tex_size > self.max_read_size:
+                self.do_callback(False, path, f"read size {tex_size} characters exceeds the maximum read size of {self.max_read_size} characters. ")
                 return str_error(f"\nRead size {tex_size} characters exceeds the maximum read size of {self.max_read_size} characters. "
                                  f"You need to specify a smaller range. current range is (start={start}, end={end}). "
                                   "If the file type is not text, the size of characters will be more then the raw bytes after python convert." if not is_text else "")
             ret_head = str_info(f"\nRead {read_bytes}/{file_bytes} bytes with (start={start}, end={end}), {remm_bytes} bytes remain after the read position.\n\n")
+            self.do_callback(True, path, content)
             return ret_head + str_data(content, "BIN_DATA")
 
     def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
@@ -297,23 +326,30 @@ class ReadTextFile(BaseTool, BaseReadWrite):
         """Read the content of a text file in the workspace."""
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         info(f"Reading text file {real_path} from line {start} with count {count}")
         if count == 0:
+            self.do_callback(False, path, None)
             return str_error(f"Count is 0, no lines to read from file {path}.")
         with open(real_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             lines_count = len(lines)
             if start < 0 or start >= len(lines):
-                return str_error(f"Start line {start} is out of range(0-{lines_count}) for file {path}.")
+                emsg = f"Start line {start} is out of range(0-{lines_count}) for file {path}."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
             r_count = count
             if r_count == -1 or start + r_count > len(lines):
                 r_count = len(lines) - start
             content = ''.join(["%d: %s" % (i + start, l) for i, l in enumerate(lines[start:start + r_count])])
             if len(content) > self.max_read_size:
-                return str_error(f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
-                                 f"You need to specify a smaller range. current range is ({start}, +{str(count) if count >=0 else 'MAX'}).")
+                emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
+                                 f"You need to specify a smaller range. current range is ({start}, +{str(count) if count >=0 else 'MAX'})."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
             ret_head = str_info(f"\nRead {r_count}/{lines_count} lines with args (start={start}, count={count}), {lines_count - r_count - start} lines remain after the read position.\n\n")
+            self.do_callback(True, path, content)
             return ret_head + str_data(content, "TXT_DATA")
 
     def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
@@ -356,9 +392,12 @@ class TextFileReplaceLines(BaseTool, BaseReadWrite):
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace the content of a text file in the workspace."""
         if start < 0:
-            return str_error(f"Start line {start} need be zero or positive.")
+            emsg = f"Start line {start} need be zero or positive."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         info(f"Replacing text file {real_path} from line {start} with count {count}")
         with open(real_path, 'r+', encoding='utf-8') as f:
@@ -375,6 +414,7 @@ class TextFileReplaceLines(BaseTool, BaseReadWrite):
             f.truncate(0)
             f.writelines(lines_pred + lines_insert + lines_after)
             f.flush()
+            self.do_callback(True, path, {"start": start, "count": count, "data": data})
             return str_info(f"Write {len(data)+1} characters complete.")
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
@@ -427,6 +467,7 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
         """
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         info(f"Editing text file {real_path} with values {values}")
         ret_warn = str_warning("\n")
@@ -444,7 +485,9 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
             # check for duplicate line indices
             if len(duplicate_index) != len(set(duplicate_index)):
                 duplicate_indexs = ["index %d find %d times."%(x, duplicate_index.count(x)) for x in duplicate_index if duplicate_index.count(x) > 1]
-                return str_error(f"Duplicate line indices found: {', '.join(duplicate_indexs)}. Please provide unique line indices.")
+                emsg = f"Duplicate line indices found: {', '.join(duplicate_indexs)}. Please provide unique line indices."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
             for line_index, new_data, edit_type in values:
                 if new_data is None:
                     if line_index < 0 or line_index >= len(lines):
@@ -491,6 +534,7 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
         ret_info = str_info(f"Total lines {lines_count_old} -> {len(new_lines)} after edit: "
                             f"delete: {len(delete_lines)}, insert: {len(insert_lines)}, append: {len(append_lines)}, edit: {edit_count}."
                             )
+        self.do_callback(True, path, ret_info)
         return ret_info
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
@@ -525,6 +569,7 @@ class WriteToFile(BaseTool, BaseReadWrite):
         self.create_file = True  # ensure file is created if not exists
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         with open(real_path, 'w', encoding='utf-8') as f:
             if data is None:
@@ -534,6 +579,7 @@ class WriteToFile(BaseTool, BaseReadWrite):
                 info(f"Writing data to file {real_path}.")
                 f.write(data)
             f.flush()
+            self.do_callback(True, path, data)
             return str_info(f"Write {len(data)} characters complete." if data else f"File({path}) cleared.")
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
@@ -558,6 +604,7 @@ class AppendToFile(BaseTool, BaseReadWrite):
         self.create_file = True  # ensure file is created if not exists
         success, msg, real_path = self.check_file(path)
         if not success:
+            self.do_callback(False, path, msg)
             return str_error(msg)
         with open(real_path, 'a', encoding='utf-8') as f:
             if data is None:
@@ -567,7 +614,61 @@ class AppendToFile(BaseTool, BaseReadWrite):
                 info(f"Appending data to file {real_path}.")
                 f.write(data)
             f.flush()
+            self.do_callback(True, path, data)
             return str_info(f"Append {len(data)} characters complete." if data else f"File({path}) cleared.")
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgDeleteFile(BaseModel):
+    path: str = Field(
+        default=None,
+        description="File path to write, relative to the workspace. Created if not exists."
+    )
+    is_dir: bool = Field(
+        default=False,
+        description="If True, means path is a directory to delete, otherwise a file."
+    )
+
+
+class DeleteFile(BaseTool, BaseReadWrite):
+    """Delete a file in the workspace."""
+    name: str = "DeleteFile"
+    description: str = (
+        "Delete a file in the workspace. "
+        "If file does not exist, returns an error message. "
+    )
+    args_schema: Optional[ArgsSchema] = ArgDeleteFile
+    return_direct: bool = False
+
+    def _run(self, path: str, is_dir: bool = False,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Delete a file in the workspace."""
+        target_path = os.path.abspath(os.path.join(self.workspace, path))
+        if not os.path.exists(target_path):
+            emsg = f"File {path} does not exist in workspace"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        if os.path.isdir(target_path):
+            if not is_dir:
+                emsg = f"Path {path} is a directory, but 'is_dir' is False. Please set 'is_dir' to True to delete directories."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+            info(f"Deleting directory {target_path}.")
+            os.rmdir(target_path)
+            self.do_callback(True, path, f"Directory {path} deleted.")
+        else:
+            if is_dir:
+                emsg = f"Path {path} is a file, but 'is_dir' is True. Please set 'is_dir' to False to delete files."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+            info(f"Deleting file {target_path}.")
+            os.remove(target_path)
+            self.do_callback(True, path, f"File {path} deleted.")
+        return str_info(f"File {path} deleted successfully." if not is_dir else f"Directory {path} deleted successfully.")
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""

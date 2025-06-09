@@ -48,12 +48,14 @@ class VerifyAgent(object):
                                     model=self.cfg.openai.model_name,
                                     )
         self.workspace = os.path.abspath(workspace)
-        self.stage_manager = StageManager(self.workspace, self.cfg, self)
+        self.tool_read_text = ReadTextFile(self.workspace)
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
         self.test_tools = [# file operations
                            # read:
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
-                           ReadTextFile(self.workspace),
+                           DeleteFile(self.workspace),
+                           self.tool_read_text,
                            # write:
                            TextFileReplaceLines(self.workspace),
                            TextFileMultiLinesEdit(self.workspace),
@@ -82,7 +84,9 @@ class VerifyAgent(object):
         self._is_exit = True
 
     def get_work_config(self):
-        return {"configurable": {"thread_id": f"{self.thread_id}"}}
+        return {"configurable": {"thread_id": f"{self.thread_id}"},
+                "recursion_limit": 100,
+                }
 
     def run(self):
         time_start = time.time()

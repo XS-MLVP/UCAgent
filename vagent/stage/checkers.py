@@ -13,6 +13,37 @@ class Checker(object):
 
     workspace = None
 
+    def set_extra(self, **kwargs):
+        """
+        Set extra parameters for the checker.
+        This method can be overridden in subclasses to handle additional parameters.
+
+        :param kwargs: Additional parameters to be set.
+        """
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                raise ValueError(f"Cannot overwrite existing attribute '{key}' in {self.__class__.__name__}.")
+            setattr(self, key, value)
+        return self
+
+    def check(self) -> Tuple[bool, str]:
+        p, m = self.do_check()
+        if p:
+            p_msg = self.get_default_message_pass()
+            if p_msg:
+                m += "\n\n" + p_msg
+        else:
+            f_msg = self.get_default_message_fail()
+            if f_msg:
+                m += "\n\n" + f_msg
+        return p, render_template(m, self)
+
+    def get_default_message_fail(self) -> str:
+        return getattr(self, "fail_msg", None)
+
+    def get_default_message_pass(self) -> str:
+        return getattr(self, "pass_msg", None)
+
     def do_check(self) -> Tuple[bool, str]:
         """
         Base method for performing checks.
