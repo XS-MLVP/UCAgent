@@ -2,7 +2,7 @@
 
 from .util.config import get_config
 from .util.log import info
-from .util.functions import fmt_time_deta
+from .util.functions import fmt_time_deta, get_template_path, render_template_dir
 
 from .tools.fileops import *
 from .stage.vstage import StageManager
@@ -48,6 +48,9 @@ class VerifyAgent(object):
                                     model=self.cfg.openai.model_name,
                                     )
         self.workspace = os.path.abspath(workspace)
+        template = get_template_path(self.cfg.template)
+        if template is not None:
+            render_template_dir(self.workspace, template, {"DUT": dut_name})
         self.tool_read_text = ReadTextFile(self.workspace)
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
         self.test_tools = [# file operations

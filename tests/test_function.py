@@ -5,7 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern
+from vagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir
 
 
 
@@ -69,7 +69,27 @@ def test_find_files_by_pattern():
     print("------------------------")
 
 
+def test_render_template_dir():
+    """Test the render_template_dir function."""
+    # Define the directory and context
+    workspace = os.path.join(current_dir, "../output")
+    if not os.path.exists(workspace):
+        os.makedirs(workspace)
+    template = os.path.join(current_dir, "../vagent/template/unity_test")
+    context = {"DUT": "alu"}
+
+    # Call the function to render templates
+    rendered_files = render_template_dir(workspace, template, context)
+
+    # Print the rendered files
+    print("Rendered files:")
+    for file in rendered_files:
+        print(file)
+    print("------------------------")
+
+
 if __name__ == "__main__":
-    test_find_files_by_glob()
-    test_find_files_by_regex()
-    test_find_files_by_pattern()
+    #test_find_files_by_glob()
+    #test_find_files_by_regex()
+    #test_find_files_by_pattern()
+    test_render_template_dir()

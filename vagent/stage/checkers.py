@@ -3,10 +3,9 @@
 
 from typing import Tuple
 from vagent.util.functions import render_template, get_unity_chip_doc_marks
-from vagent.util.functions import import_python_file
+from vagent.util.functions import import_python_file, dump_as_json
 from vagent.tools.testops import RunUnityChipTest
 import os
-import json
 
 
 class Checker(object):
@@ -255,7 +254,7 @@ class UnityChipCheckerTestCase(Checker):
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
             del report["bins_all"]
-        info_report = "\n\n[TEST_REPORT]:\n" + json.dumps(report, indent=4)
+        info_report = "\n\n[TEST_REPORT]:\n" + dump_as_json(report)
         info_runtest = info_report + "\n[STDOUT]:\n" + str_out + "\n[STDERR]:\n" + str_err
         if report.get("tests") is None:
             return False, "No test cases found in the report. " +\

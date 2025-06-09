@@ -6,10 +6,14 @@ init:
 
 dut:
 	rm output -rf
-	mkdir -p output/ALU
-	cp -r examples/ALU/alu output/ALU/
-	cp -r doc/* output/ALU/
+	mkdir -p output
 
-test:
-	python3 verify.py output/ALU  alu --config config.yaml
+test_adder: dut
+	@if [ ! -d output/Adder ]; then \
+        picker export examples/Adder/adder.v --rw 1 --tdir output/; \
+    fi
+	cp examples/Adder/*.md output/Adder/
+	python3 verify.py output/ Adder --config config.yaml
 
+clean:
+	rm -rf output
