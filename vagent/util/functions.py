@@ -377,7 +377,7 @@ def dump_as_json(data):
     """
     Convert a dictionary to a JSON string with pretty formatting.
     """
-    return json.dumps(data, indent=4, ensure_ascii=False).replace("\\n", "\n")
+    return json.dumps(data, indent=4, ensure_ascii=False).replace("\\n", "\n").replace("\\", "")
 
 
 
@@ -417,15 +417,19 @@ def render_template_dir(workspace, template_dir, kwargs):
     return rendered_files
 
 
-def get_template_path(template_name: str) -> str:
+def get_template_path(template_name: str, template_path:str=None) -> str:
     """
     Get the absolute path to a template file.
     :param template_name: The name of the template file.
     :return: The absolute path to the template file.
     """
-    if template_name is None:
+    if not template_name:
         return None
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    template_path = os.path.join(current_dir, "../template", template_name)
-    assert os.path.exists(template_path), f"Template {template_name} does not exist at {template_path}."
-    return template_path
+    if not template_path:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.abspath(os.path.join(current_dir, "../template"))
+    else:
+        assert os.path.exists(template_path), f"Template path {template_path} does not exist."
+    tmp = os.path.join(template_path, template_name)
+    assert os.path.exists(tmp), f"Template {template_name} does not exist at {template_path}."
+    return tmp

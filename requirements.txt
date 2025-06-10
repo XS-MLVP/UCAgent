@@ -3,5 +3,6 @@ langchain_community>=0.3.24
 openai>=1.82.0
 langgraph>=0.4.7
 langchain_openai>=0.3.18
+langmem>=0.0.27
 pytoffee@git+https://github.com/XS-MLVP/toffee@master
 toffee-test@git+https://github.com/XS-MLVP/toffee-test@master

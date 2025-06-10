@@ -5,7 +5,7 @@ from {{DUT}}_function_coverage_def import get_coverage_groups
 from toffee_test.reporter import set_func_coverage
 
 # import your dut module here
-import {{DUT}}  # Replace with the actual DUT class import
+from {{DUT}} import DUT{{DUT}}  # Replace with the actual DUT class import
 
 
 def create_dut():
@@ -16,7 +16,7 @@ def create_dut():
         dut_instance: An instance of the {{DUT}} class.
     """
     # Replace with the actual instantiation and initialization of your DUT
-    return {{DUT}}()
+    return DUT{{DUT}}()
 
 
 @pytest.fixture()
@@ -42,4 +42,9 @@ def dut(request):
 #    api description and parameters
 #    ...
 #    """
+#    dut.some_input.value = value
+#    dut.Step()
+#    return dut.some_output.value
 #    # Replace with the actual API function for your DUT
+#    ...
+#

@@ -1,7 +1,7 @@
 #coding=utf-8
 
 from typing import Optional, List, Tuple
-from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data
+from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data, warning
 from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
 
 from langchain_core.callbacks import (
@@ -94,11 +94,19 @@ class BaseReadWrite:
                 self.description += "\n\nNote: All directories are read only."
             else:
                 self.description += f"\n\nNote: Only directories in {write_dirs} are writable."
+            for d in write_dirs:
+                if not os.path.exists(os.path.join(self.workspace, d)):
+                    warning(f"Writable directory {d} does not exist in workspace {workspace}.")
+                assert isinstance(d, str)
         if un_write_dirs is not None:
             if len(un_write_dirs) == 0:
                 self.description += "\n\nNote: No directories are restricted."
             else:
                 self.description += f"\n\nNote: Directories in {un_write_dirs} are not writable."
+            for d in un_write_dirs:
+                if not os.path.exists(os.path.join(self.workspace, d)):
+                    warning(f"Unwritable directory {d} does not exist in workspace {workspace}.")
+                assert isinstance(d, str)
         info(f"{self.__class__.__name__} tool initialized with workspace: {self.workspace}")
 
     def check_file(self, path: str) -> Tuple[bool, str]:
