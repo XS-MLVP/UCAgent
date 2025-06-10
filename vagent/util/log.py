@@ -1,4 +1,9 @@
 
+RESET = "\033[0m"
+GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
+
 
 def debug(msg: str):
     """Prints a debug message."""
@@ -7,17 +12,17 @@ def debug(msg: str):
 
 def info(msg: str):
     """Prints an info message."""
-    print(f"[INFO] {msg}")
+    print(f"{GREEN}[INFO] %s{RESET}" % msg, flush=True)
 
 
 def warning(msg: str):
     """Prints a warning message."""
-    print(f"[WARNING] {msg}")
+    print(f"{YELLOW}[WARN] %s{RESET}" % msg, flush=True)
 
 
 def error(msg: str):
     """Prints an error message."""
-    print(f"[ERROR] {msg}")
+    print(f"{RED}[ERROR] %s{RESET}" % msg, flush=True)
 
 
 def str_info(msg: str):

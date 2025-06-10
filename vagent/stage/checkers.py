@@ -123,8 +123,11 @@ class UnityChipCheckerFunctionsAndChecks(Checker):
         try:
             data = get_unity_chip_doc_marks(self.get_path(self.doc_file))
         except Exception as e:
-            return False, f"Failed to parse the documentation file {self.doc_file}: {str(e)}\n" + \
-                           "Review your task requirements and the file format."
+            emsg = f"Failed to parse the documentation file {self.doc_file}: {str(e)}\n" + \
+                    "Review your task requirements and the file format."
+            if "\\n" in str(e):
+                emsg += "\nIt seems like the line contains viewable '\\n' characters, which may indicate a formatting issue. "
+            return False, emsg
         check_list = data.get("marks", [])
         check_info = "\n\n[Current_Checks]:\n" + "\n".join(check_list)
         count_function = data["count_function"]

@@ -26,8 +26,8 @@ def dut(request):
     dut.StepRis(lambda _: [g.sample()
                            for g in
                            func_coverage_group])         # 上升沿采样
-    setattr(dut, "coverage_groups",
-            {g.name:g for g in func_coverage_group})     # 保存覆盖组到DUT
+    setattr(dut, "fc_cover",
+            {g.name:g for g in func_coverage_group})     # 以属性名称fc_cover保存覆盖组到DUT
     yield dut
     # 测试后处理
     set_func_coverage(request, func_coverage_group)      # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*

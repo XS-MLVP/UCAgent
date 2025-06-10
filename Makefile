@@ -7,8 +7,11 @@ init:
 dut:
 	rm output -rf
 	mkdir -p output
+	cp -r examples output/
 
-test_adder:
+test_adder: dut
+	rm output/examples/Adder -rf
+	rm output/examples/DualPort -rf
 	@if [ ! -d output/Adder ]; then \
         picker export examples/Adder/adder.v --rw 1 --tdir output/; \
     fi
