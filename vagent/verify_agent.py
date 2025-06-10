@@ -73,13 +73,13 @@ class VerifyAgent(object):
                            # read:
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
-                           DeleteFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
+                           DeleteFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            self.tool_read_text,
                            # write:
-                           TextFileReplaceLines(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
-                           TextFileMultiLinesEdit(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
-                           WriteToFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
-                           AppendToFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
+                           TextFileReplaceLines(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           TextFileMultiLinesEdit(self.workspace, write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            # test:
                            # ...
                            # HumanHelp(),
@@ -88,8 +88,8 @@ class VerifyAgent(object):
         summarization_node = SummarizationNode( 
             token_counter=count_tokens_approximately,
             model=self.model,
-            max_tokens=40960,
-            max_summary_tokens=1024,
+            max_tokens=40000,
+            max_summary_tokens=1000,
             output_messages_key="llm_input_messages",
         )
 

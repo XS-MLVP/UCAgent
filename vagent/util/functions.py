@@ -377,7 +377,7 @@ def dump_as_json(data):
     """
     Convert a dictionary to a JSON string with pretty formatting.
     """
-    return json.dumps(data, indent=4, ensure_ascii=False).replace("\\n", "\n").replace("\\", "")
+    return json.dumps(data, indent=4, ensure_ascii=False) #.replace("\\n", "\n").replace("\\", "")
 
 
 
