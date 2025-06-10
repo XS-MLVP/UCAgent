@@ -6,7 +6,7 @@ class XData:
         self.width = width  # 数据宽度
         self.value = v
 
-class ALU:
+class DUTALU:
     def __init__(self):
         self.a    = XData(64, 0)
         self.b    = XData(64, 0)
@@ -24,13 +24,7 @@ class ALU:
         cin = cin & 0x1
         out = 0
         cout = 0
-        if op == 0:  # 加法
-            result = a + b + cin
-            out = result & mask
-            cout = 1 if result >> 64 else 0
-            # Bug 1: 溢出判断时未考虑cin
-            cout = 1 if (a + b) >> 64 else 0  # 故意忽略cin
-        elif op == 1:  # 减法
+        if op == 1:  # 减法
             result = a - b - cin
             out = result & mask
             cout = 1 if (a < b + cin) else 0  # 借位

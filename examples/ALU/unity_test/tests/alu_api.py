@@ -2,7 +2,7 @@
 
 
 import pytest
-from alu import ALU
+from alu import DUTALU
 from alu_function_coverage_def import get_coverage_groups
 from toffee_test.reporter import set_func_coverage
 
@@ -14,7 +14,7 @@ def create_dut():
     Returns:
         ALU: An instance of the ALU class.
     """
-    return ALU()
+    return DUTALU()
 
 
 def api_alu_operation(dut, op, a, b, c=0):

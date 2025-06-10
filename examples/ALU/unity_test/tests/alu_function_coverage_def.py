@@ -8,17 +8,6 @@ funcov_group = [funcov_FG_SIMPLE, funcov_FG_HARD]
 
 
 def init_coverage_group_simple(g, dut):
-    def check_cin_overflow(x):
-        return x.cin.value == 1 and x.cout.value == 1 and \
-               (x.a.value + x.b.value + x.cin.value) & ((1 << 64) - 1) == x.out.value
-    g.add_watch_point(dut,
-        {
-            "CK-NORM": lambda x: x.a.value + x.b.value == x.out.value,
-            "CK-OVERFLOW": lambda x: x.cout.value == 1,
-            "CK-CIN-NORM": lambda x: x.cin.value == 1 and x.a.value + x.b.value + x.cin.value == x.out.value,
-            "CK-CIN-OVERFLOW": check_cin_overflow
-         },
-        name="FC-ADD")
     g.add_watch_point(dut,
         {
             "CK-NORM": lambda x: x.a.value - x.b.value - x.cin.value == x.out.value,
