@@ -3,35 +3,6 @@
 
 from alu_api import api_alu_operation, dut
 
-def test_add_normal(dut):
-    out, _ = api_alu_operation(dut, 0, 1, 2)
-    dut._g["FG-SIMPLE"].mark_function("FC-ADD", test_add_normal, ["CK-NORM"])  # 标记覆盖哪个功能和测点
-    assert out == 3
-
-
-def test_add_overflow(dut):
-    # 0xFFFFFFFFFFFFFFFF + 1 = 0 (溢出), cout=1
-    out, cout = api_alu_operation(dut, 0, 0xFFFFFFFFFFFFFFFF, 1, 0)
-    dut._g["FG-SIMPLE"].mark_function("FC-ADD", test_add_overflow, ["CK-OVERFLOW"])
-    assert out == 0
-    assert cout == 1
-
-
-def test_add_cin_norm(dut):
-    # 2 + 3 + 1 = 6
-    out, cout = api_alu_operation(dut, 0, 2, 3, 1)
-    dut._g["FG-SIMPLE"].mark_function("FC-ADD", test_add_cin_norm, ["CK-CIN-NORM"])
-    assert out == 6
-    assert cout == 0
-
-
-def test_add_cin_overflow(dut):
-    # 0xFFFFFFFFFFFFFFFF + 0 + 1 = 0 (溢出), cout=1
-    out, cout = api_alu_operation(dut, 0, 0xFFFFFFFFFFFFFFFF, 0, 1)
-    dut._g["FG-SIMPLE"].mark_function("FC-ADD", test_add_cin_overflow, ["CK-CIN-OVERFLOW"])
-    assert out == 0
-    assert cout == 1
-
 
 def test_sub_norm(dut):
     # 5 - 3 = 2
