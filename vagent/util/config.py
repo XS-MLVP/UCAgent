@@ -135,7 +135,7 @@ class Config(object):
         """
         if name in self.__dict__:
             return self.__dict__[name]
-        return None
+        return Config()  # Return an empty Config object if the attribute does not exist
 
     def merge_from(self, other):
         """
@@ -188,6 +188,21 @@ class Config(object):
             current = getattr(current, k)
         setattr(current, keys[-1], value)
         return self
+
+    def get_value(self, key, default=None):
+        """
+        Get a value from the configuration.
+        :param key: Key of the value to get. eg a.b.c
+        :param default: Default value to return if the key does not exist.
+        :return: Value of the key if it exists, otherwise default.
+        """
+        keys = key.split('.')
+        current = self
+        for k in keys[:-1]:
+            if not hasattr(current, k):
+                raise AttributeError(f"Configuration does not have attribute '{k}'")
+            current = getattr(current, k)
+        return getattr(current, keys[-1], default)
 
     def set_values(self, values):
         """

@@ -5,16 +5,28 @@ from .util.log import info
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir
 
 from .tools.fileops import *
+from .tools.human import *
 from .stage.vstage import StageManager
 
 import time
 import random
+import signal
 
 from langchain.globals import set_debug
 from langchain_openai import ChatOpenAI
+from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage
+from langmem.short_term import SummarizationNode
+from langgraph.prebuilt.chat_agent_executor import AgentState
+from typing import Any, Dict
+
+
+class State(AgentState):
+    # NOTE: we're adding this key to keep track of previous summary information
+    # to make sure we're not summarizing on every LLM call
+    context: dict[str, Any] 
 
 
 class VerifyAgent(object):
@@ -22,6 +34,8 @@ class VerifyAgent(object):
     def __init__(self, workspace, dut_name, output,
                  config_file=None,
                  cfg_override=None,
+                 tmp_overwrite=False,
+                 template_dir=None,
                  model=None,
                  ex_tools=None,
                  thread_id=None):
@@ -48,34 +62,76 @@ class VerifyAgent(object):
                                     model=self.cfg.openai.model_name,
                                     )
         self.workspace = os.path.abspath(workspace)
-        template = get_template_path(self.cfg.template)
+        template = get_template_path(self.cfg.template, template_dir)
         if template is not None:
-            render_template_dir(self.workspace, template, {"DUT": dut_name})
+            tmep_dir = os.path.join(self.workspace, os.path.basename(template))
+            if not os.path.exists(tmep_dir) or tmp_overwrite:
+                render_template_dir(self.workspace, template, {"DUT": dut_name})
         self.tool_read_text = ReadTextFile(self.workspace)
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
         self.test_tools = [# file operations
                            # read:
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
-                           DeleteFile(self.workspace),
+                           DeleteFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
                            self.tool_read_text,
                            # write:
-                           TextFileReplaceLines(self.workspace),
-                           TextFileMultiLinesEdit(self.workspace),
-                           WriteToFile(self.workspace),
-                           AppendToFile(self.workspace),
+                           TextFileReplaceLines(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
+                           TextFileMultiLinesEdit(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
+                           WriteToFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
+                           AppendToFile(self.workspace, un_write_dirs=self.cfg.un_write_dirs),
                            # test:
                            # ...
+                           # HumanHelp(),
                            ] + self.stage_manager.new_tools()
+
+        summarization_node = SummarizationNode( 
+            token_counter=count_tokens_approximately,
+            model=self.model,
+            max_tokens=40960,
+            max_summary_tokens=1024,
+            output_messages_key="llm_input_messages",
+        )
+
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools + (ex_tools if ex_tools is not None else []),
-            checkpointer=MemorySaver()
+            checkpointer=MemorySaver(),
+            pre_model_hook=summarization_node, 
+            state_schema=State,
         )
         self._is_exit = False
         self._tip_index = 0
+        self._need_human_input = False
+
+        self.original_sigint = signal.getsignal(signal.SIGINT)
+        self._sigint_count = 0
+        def _sigint_handler(s, f):
+            self._sigint_count += 1
+            if self._sigint_count > 3:
+                info("SIGINT received again, exiting...")
+                self.exit()
+                return
+            if self.original_sigint > 1:
+                self.original_sigint(s, f)
+                return
+            info("SIGINT received, entering human input mode")
+            self.human_input()
+        signal.signal(signal.SIGINT, _sigint_handler)
+
+    def human_input(self):
+        self._need_human_input = True
 
     def get_current_tips(self):
+        if self._need_human_input:
+            self._need_human_input = False
+            print("Waiting for human input...")
+            text = input(">")
+            self._sigint_count = 0
+            if text.strip().lower() in ["exit", "quit"]:
+                self.exit()
+                return {"messages": [SystemMessage(content="Exiting the agent...")]}
+            return {"messages": [HumanMessage(content=text)]}
         messages = self.stage_manager.get_current_tips()
         self._tip_index += 1
         return {"messages": messages}
@@ -88,7 +144,7 @@ class VerifyAgent(object):
 
     def get_work_config(self):
         return {"configurable": {"thread_id": f"{self.thread_id}"},
-                "recursion_limit": 100,
+                "recursion_limit": 100000,
                 }
 
     def run(self):

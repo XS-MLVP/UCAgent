@@ -11,8 +11,20 @@ mission:
   name: "{DUT} 验证"
 
 template: unity_test
+un_write_dirs:
+  - "{DUT}"
+  - "Guide_Doc"
 
 stage:
+  - name: misson_description
+    desc: "理解任务需求"
+    task:
+      - "阅读{DUT}/README.md，理解验证目标与任务。"
+    checker:
+      - name: understand_mission
+        clss: NopChecker
+    reference_files:
+      - "{DUT}/README.md"
   - name: list_dut_functions_and_checks
     desc: "列出所有功能点与检测点"
     task:
@@ -34,7 +46,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
-      - "{DUT}/*.py"
+      - "{DUT}/__init__.py"
   - name: wrapper_dut_apis
     desc: "{DUT}接口封装"
     task:

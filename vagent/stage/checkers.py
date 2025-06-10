@@ -79,6 +79,21 @@ class Checker(object):
         return os.path.join(self.workspace, path)
 
 
+class NopChecker(Checker):
+    def __init__(self, *a, **kw):
+        super().__init__()
+
+    def do_check(self) -> Tuple[bool, str]:
+        """
+        Perform a no-operation check.
+
+        Returns:
+            Tuple[bool, str]: A tuple where the first element is True indicating success,
+                              and the second element is a message string.
+        """
+        return True, "Nop check pass"
+
+
 class UnityChipCheckerFunctionsAndChecks(Checker):
     """
     Checker for Unity chip functions and checks.
@@ -202,9 +217,15 @@ class UnityChipCheckerCoverGroup(Checker):
             return False, f"Coverage group file {self.group_file} does not define 'coverage_groups'. " +\
                            "Please ensure the file contains the required coverage group definitions."
         try:
-            if len(get_coverage_groups()) < self.min_groups:
+            groups = get_coverage_groups()
+            if len(groups) < self.min_groups:
                 return False, f"Insufficient coverage groups defined: " +\
-                               f"{len(get_coverage_groups())} found, minimum required is {self.min_groups}."
+                               f"{len(groups)} found, minimum required is {self.min_groups}."
+            import toffee.funcov as fc
+            for g in groups:
+                if not isinstance(g, fc.CovGroup):
+                    return False, f"Coverage group {g} in {self.group_file} is not a valid 'toffee.funcov.CovGroup' instance. " +\
+                                   "Please ensure that all coverage groups are defined correctly."
         except Exception as e:
             return False, f"Error while checking coverage groups: {str(e)}\n" + \
                            "Please ensure the coverage group definitions are correct."
