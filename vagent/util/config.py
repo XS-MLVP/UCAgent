@@ -27,6 +27,9 @@ class Config(object):
             else:
                 setattr(self, key, value)
 
+    def empty(self):
+        return len(self.as_dict()) <= 1
+
     def as_dict(self):
         """
         Convert the configuration to a dictionary.
@@ -123,7 +126,7 @@ class Config(object):
         :return: None
         """
         if name != "_freeze":
-            if getattr(self, "_freeze", False):
+            if getattr(self, "_freeze", False) == True:
                 raise RuntimeError("Configuration is frozen, cannot modify.")
         super().__setattr__(name, value)
 
@@ -137,6 +140,9 @@ class Config(object):
             return self.__dict__[name]
         return Config()  # Return an empty Config object if the attribute does not exist
 
+    def has_attr(self, name):
+        return name in self.__dict__
+
     def merge_from(self, other):
         """
         Merge another Config object into this one.
@@ -147,7 +153,7 @@ class Config(object):
             raise TypeError("Can only merge from another Config instance.")
         for key, value in other.__dict__.items():
             if isinstance(value, Config):
-                if hasattr(self, key) and isinstance(getattr(self, key), Config):
+                if self.has_attr(key) and isinstance(getattr(self, key), Config):
                     getattr(self, key).merge_from(value)
                 else:
                     setattr(self, key, value)
@@ -165,7 +171,7 @@ class Config(object):
             raise TypeError("Can only merge from a dictionary.")
         for key, value in data.items():
             if isinstance(value, dict):
-                if hasattr(self, key) and isinstance(getattr(self, key), Config):
+                if self.has_attr(key) and isinstance(getattr(self, key), Config):
                     getattr(self, key).merge_from_dict(value)
                 else:
                     setattr(self, key, Config(value))
@@ -183,7 +189,7 @@ class Config(object):
         keys = key.split('.')
         current = self
         for k in keys[:-1]:
-            if not hasattr(current, k):
+            if not self.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
         setattr(current, keys[-1], value)
@@ -199,9 +205,11 @@ class Config(object):
         keys = key.split('.')
         current = self
         for k in keys[:-1]:
-            if not hasattr(current, k):
+            if not self.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
+        if not self.has_attr(keys[-1]):
+            return default
         return getattr(current, keys[-1], default)
 
     def set_values(self, values):
