@@ -17,7 +17,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any, Dict
@@ -100,41 +100,62 @@ class VerifyAgent(object):
             pre_model_hook=summarization_node, 
             state_schema=State,
         )
+        # flags
+        self.invoke_round = 0
         self._is_exit = False
         self._tip_index = 0
         self._need_human_input = False
-
+        self._evnt_human_input = False
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
+        self.handle_sigint()
+
+    def handle_sigint(self):
         def _sigint_handler(s, f):
             self._sigint_count += 1
             if self._sigint_count > 3:
                 info("SIGINT received again, exiting...")
                 self.exit()
                 return
-            if self.original_sigint > 1:
-                self.original_sigint(s, f)
+            if self._sigint_count > 1:
+                #self.original_sigint(s, f)
+                info("SIGINT received again, more times will exit directly")
                 return
             info("SIGINT received, entering human input mode")
-            self.human_input()
+            self.set_human_input()
         signal.signal(signal.SIGINT, _sigint_handler)
 
-    def human_input(self):
+    def set_human_input(self):
         self._need_human_input = True
+
+    def get_human_input(self):
+        self._need_human_input = False
+        self._evnt_human_input = True
+        text = ""
+        while True:
+            text = input()
+            try:
+                text = text.strip().encode("utf-8")
+            except UnicodeEncodeError:
+                warning("Input contains non-UTF-8 characters, please re-enter.")
+                continue
+            if len(text) == 0:
+                warning("Input is empty, please re-enter.")
+                continue
+            break
+        self._sigint_count = 0
+        if text.strip().lower() in ["exit", "quit"]:
+            self.exit()
+            return {"messages": [SystemMessage(content="Exiting the agent...")]}
+        return {"messages": [HumanMessage(content=text)]}
 
     def get_current_tips(self):
         if self._need_human_input:
-            self._need_human_input = False
-            print("Waiting for human input...")
-            text = input(">")
-            self._sigint_count = 0
-            if text.strip().lower() in ["exit", "quit"]:
-                self.exit()
-                return {"messages": [SystemMessage(content="Exiting the agent...")]}
-            return {"messages": [HumanMessage(content=text)]}
+            return self.get_human_input()
         messages = self.stage_manager.get_current_tips()
         self._tip_index += 1
-        return {"messages": messages}
+        assert isinstance(messages, str), "StageManager should return a str type messages"
+        return {"messages": HumanMessage(content=messages)}
 
     def is_exit(self):
         return self._is_exit
@@ -144,7 +165,7 @@ class VerifyAgent(object):
 
     def get_work_config(self):
         return {"configurable": {"thread_id": f"{self.thread_id}"},
-                "recursion_limit": 100000,
+                "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
                 }
 
     def run(self):
@@ -162,6 +183,30 @@ class VerifyAgent(object):
 
     def do_work(self, instructions, config):
         """Perform the work using the agent."""
-        stream = self.agent.stream(instructions, config, stream_mode="values")
-        for step in stream:
-            step["messages"][-1].pretty_print()
+        stream = self.agent.stream(instructions, config, stream_mode=["values", "messages"])
+        last_msg_index = None
+        last_value_output = True
+        for data in stream:
+            mtype, mdata = data
+            if mtype == "messages":
+                chunk, cfg = mdata
+                if last_value_output:
+                    print("\n ================================= AI Message =================================== ", flush=True)
+                last_value_output = False
+                print(chunk.content, end="", flush=True)
+                if self._need_human_input:
+                    self._evnt_human_input = False
+                    print("\n\n[Human Input ]:", end="", flush=True)
+                    break
+            else:
+                last_value_output = True
+                msg_index = len(mdata["messages"])
+                if last_msg_index == msg_index:
+                    continue
+                last_msg_index = msg_index
+                msg = mdata["messages"][-1]
+                if not isinstance(msg, AIMessage):
+                    print(f"\n\n[MIndex: {msg_index} start]\n",
+                          msg.pretty_repr(),
+                          f"\n[MIndex: {msg_index} end]\n\n", flush=True)
+        self.invoke_round += 1
