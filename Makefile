@@ -21,3 +21,7 @@ test_adder: dut
 
 clean:
 	rm -rf output
+
+
+continue:
+	python3 verify.py output/ ${DUT} --config config.yaml ${ARGS}
