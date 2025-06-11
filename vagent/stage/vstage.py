@@ -170,7 +170,7 @@ class ToolGoToStage(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgToolGoToStage
 
-    def _run(self, index:int, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, index:int=-1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function(index)
 
 

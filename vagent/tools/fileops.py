@@ -176,7 +176,7 @@ class PathList(BaseTool, BaseReadWrite):
     )
 
     def _run(
-        self, path: str, depth: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None
+        self, path: str = ".", depth: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None
     ) -> str:
         """List all files in a directory of the workspace, including subdirectories."""
         success, msg, real_path = self.check_dir(path)

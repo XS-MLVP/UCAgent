@@ -5,6 +5,7 @@ from typing import List
 import json
 import importlib
 import re
+import time
 
 
 def fmt_time_deta(sec):
@@ -433,3 +434,8 @@ def get_template_path(template_name: str, template_path:str=None) -> str:
     tmp = os.path.join(template_path, template_name)
     assert os.path.exists(tmp), f"Template {template_name} does not exist at {template_path}."
     return tmp
+
+
+def append_time_str(data:str):
+    time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    return data + "\nNow time: " + time_str
