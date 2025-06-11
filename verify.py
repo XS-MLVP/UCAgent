@@ -33,6 +33,7 @@ def get_args():
     parser.add_argument("--template-overwrite", action="store_true", default=False, help="Overwrite existing templates in the workspace")
     parser.add_argument("--output", type=str, default="unity_test", help="Path to the configuration file")
     parser.add_argument("--override", type=get_override_dict, default=None, help="Override configuration settings in the format A.B.C=value")
+    parser.add_argument("--stream-output", "-s", action="store_true", default=False, help="Stream output to the console")
     return parser.parse_args()
 
 
@@ -46,6 +47,7 @@ def run():
         cfg_override=args.override,
         tmp_overwrite=args.template_overwrite,
         template_dir=args.template_dir,
+        stream_output = args.stream_output,
     )
     agent.run()
 
