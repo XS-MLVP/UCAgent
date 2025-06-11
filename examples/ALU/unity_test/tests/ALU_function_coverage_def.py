@@ -55,7 +55,6 @@ def init_function_coverage(dut, cover_group):
 
 
 def get_coverage_groups(dut=None):
-    if dut:
-        init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
+    init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
     return funcov_group
 

@@ -40,6 +40,7 @@ funcov_A = fc.CovGroup("FG-A")
 funcov_B = fc.CovGroup("FG-B")
 funcov_group = [funcov_A, funcov_B]
 
+
 def init_coverage_group_A(g, dut):
     g.add_watch_point(dut,
         {
@@ -59,9 +60,9 @@ def init_function_coverage(dut, cover_group):
     init_coverage_group_A(cover_group[0], dut)
     init_coverage_group_B(cover_group[1], dut)
 
+
 def get_coverage_groups(dut=None):                    # 需要支持dut为None
-    if dut:
-        init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
+    init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
     return funcov_group
 ```
 

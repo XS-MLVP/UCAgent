@@ -12,7 +12,7 @@ def dut(request):
     dut.StepRis(lambda _: [g.sample()
                            for g in
                            func_coverage_group])         # 上升沿采样
-    setattr(dut, "_g",
+    setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 保存覆盖组到DUT
     yield dut
     # 测试后处理
