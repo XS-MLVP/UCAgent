@@ -336,6 +336,10 @@ class ReadTextFile(BaseTool, BaseReadWrite):
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
+        if not is_text_file(real_path):
+            emsg = f"File {path} is not a text file. Please use 'ReadBinFile' to read binary files."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         info(f"Reading text file {real_path} from line {start} with count {count}")
         if count == 0:
             self.do_callback(False, path, None)
@@ -407,6 +411,10 @@ class TextFileReplaceLines(BaseTool, BaseReadWrite):
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
+        if not is_text_file(real_path):
+            emsg = f"File {path} is not a text file. Please use 'ReadBinFile' to read binary files."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         info(f"Replacing text file {real_path} from line {start} with count {count}")
         with open(real_path, 'r+', encoding='utf-8') as f:
             lines = f.readlines()
@@ -477,6 +485,10 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
+        if not is_text_file(real_path):
+            emsg = f"File {path} is not a text file. Please use 'ReadBinFile' to read binary files."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         info(f"Editing text file {real_path} with values {values}")
         ret_warn = str_warning("\n")
         delete_lines = []
