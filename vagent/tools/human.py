@@ -35,4 +35,4 @@ class HumanHelp(BaseTool):
             f"Human help requested with message: {message}\n"
             "Please provide your input and press Enter to continue:\n"
         )
-        return f"Human help requested with : {text}\n"
+        return f"Human response: {text}"
