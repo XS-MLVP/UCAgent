@@ -33,9 +33,7 @@ def get_coverage_groups(dut=None):
     #  ret.append(fc.CovGroup("FG-A"))
     #  ret.append(fc.CovGroup("FG-B"))
     #  ....
-    if dut:
-        # 根据DUT的功能需要，为每个分组创建功能点对应的检测点，例如：
-        # create_check_points_for_group_A(ret[0], dut)
-        # ....
-        pass
+    # 根据DUT的功能需要，为每个分组创建功能点对应的检测点，例如：
+    # create_check_points_for_group_A(ret[0], dut)
+    # ....
     return ret

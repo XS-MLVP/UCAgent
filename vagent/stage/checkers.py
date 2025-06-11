@@ -229,6 +229,11 @@ class UnityChipCheckerCoverGroup(Checker):
                 if not isinstance(g, fc.CovGroup):
                     return False, f"Coverage group {g} in {self.group_file} is not a valid 'toffee.funcov.CovGroup' instance. " +\
                                    "Please ensure that all coverage groups are defined correctly."
+                g_data = g.as_dict()
+                if g_data.get("bin_num_total", 0) < 1:
+                    return False, str(f"Coverage group {g.name} in {self.group_file} has no defined bins (aka check points). "
+                                      "Please ensure that the coverage group contains at least one bin and understands how to use 'toffee.funcov.Coverage.add_watch_point' to add bins.\n"
+                                      "eg: `Coverage.add_watch_point(dut, {'CK-NORMAL': lambda x: x.a.value + x.b.value == x.sum.value}, name='FC-ADD')`")
         except Exception as e:
             return False, f"Error while checking coverage groups: {str(e)}\n" + \
                            "Please ensure the coverage group definitions are correct."
