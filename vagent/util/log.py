@@ -5,6 +5,11 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 
 
+def message(msg: str, end: str = "\n"):
+    """Prints a message."""
+    print(msg, flush=True, end=end)
+
+
 def debug(msg: str):
     """Prints a debug message."""
     print(f"[DEBUG] {msg}")
