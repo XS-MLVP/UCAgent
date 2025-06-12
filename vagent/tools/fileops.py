@@ -450,7 +450,7 @@ class ArgTextFileMultiLinesEdit(BaseModel):
             "List of edits: [(line_index, new_data, edit_type), ...].\n"
             "- line_index: int, target line (0-based). <0: insert at head; >=len(lines): append at end.\n"
             "- new_data: str or None. If None, delete the line at line_index.\n"
-            "- edit_type: 0 for direct replace; nonzero for preserve indentation.\n"
+            "- edit_type: 0 for direct replace; nonzero for preserve indentation replace.\n"
             "Each line_index in file must be unique. If out of range and new_data is None, ignored."
         )
     )
@@ -466,8 +466,9 @@ class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
         "  * line_index < 0: insert at file head.\n"
         "  * line_index >= file max lines: append at file end.\n"
         "  * line_index in range: replace or delete (if new_data is None).\n"
-        "  * edit_type: 0=direct replace, nonzero=preserve indentation.\n"
-        "Supports direct replacement or preserving original line indentation. "
+        "  * edit_type: 0=direct replace, nonzero=preserve indentation replace.\n"
+        "Supports direct replacement or preserving original line indentation. \n"
+        "If you just write text to file, you should use 'WriteToFile' tool instead.\n"
         "See 'values' for edit format."
     )
     args_schema: Optional[ArgsSchema] = ArgTextFileMultiLinesEdit

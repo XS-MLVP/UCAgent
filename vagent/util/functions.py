@@ -439,3 +439,52 @@ def get_template_path(template_name: str, template_path:str=None) -> str:
 def append_time_str(data:str):
     time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
     return data + "\nNow time: " + time_str
+
+
+def fill_dlist_none(data, value, keys=None):
+    if keys is not None:
+        if isinstance(keys, str):
+            keys = [keys]
+    if data is None:
+        return value
+    if not isinstance(data, (dict, list)):
+        return data
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if v is None:
+                if keys is not None and k not in keys:
+                    continue
+            data[k] = fill_dlist_none(v, value, keys)
+    elif isinstance(data, list):
+        for i, v in enumerate(data):
+            data[i] = fill_dlist_none(v, value, keys)
+    return data
+
+
+def get_ai_message_tool_call(msg):
+    lines = []
+    def _format_tool_args(tc) -> list[str]:
+        lines = [
+            f"  {tc.get('name', 'Tool')} ({tc.get('id')})",
+            f" Call ID: {tc.get('id')}",
+        ]
+        if tc.get("error"):
+            lines.append(f"  Error: {tc.get('error')}")
+        lines.append("  Args:")
+        args = tc.get("args")
+        if isinstance(args, str):
+            lines.append(f"    {args}")
+        elif isinstance(args, dict):
+            for arg, value in args.items():
+                lines.append(f"    {arg}: {value}")
+        return lines
+    if msg.tool_calls:
+        lines.append("Tool Calls:")
+        for tc in msg.tool_calls:
+            lines.extend(_format_tool_args(tc))
+    if msg.invalid_tool_calls:
+        lines.append("Invalid Tool Calls:")
+        for itc in msg.invalid_tool_calls:
+            lines.extend(_format_tool_args(itc))
+    return "\n".join(lines) if lines else None
+
