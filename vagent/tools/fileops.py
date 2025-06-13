@@ -259,7 +259,7 @@ class ReadBinFile(BaseTool, BaseReadWrite):
         "Read binary content of a file in the workspace. Supports partial reads via bytes postion start/end. "
         "If file is text type, suggests to use tool 'ReadTextFile'. "
         "Max read size is %d bytes. If not text, returns python bytes format: eg b'\\x00\\x01\\x02...'. "
-        "Note: The file content in return data is after prifix '[BIN_DATA]\\n'."
+        "Note: The file content in return data is after prefix '[BIN_DATA]\\n'."
     )
     args_schema: Optional[ArgsSchema] = ArgReadBinFile
     return_direct: bool = False
@@ -274,6 +274,7 @@ class ReadBinFile(BaseTool, BaseReadWrite):
             return str_error(msg)
         info(f"Reading file {real_path} from position {start} to {end}")
         file_bytes = get_file_size(real_path)
+        is_text = is_text_file(real_path)
         with open(real_path, 'rb') as f:
             f.seek(start)
             content = f.read(end - start) if (end != -1) else f.read()
@@ -319,10 +320,11 @@ class ReadTextFile(BaseTool, BaseReadWrite):
     description: str = (
         "Read lines from a text file in the workspace. Supports start line and line count. "
         "Max read size is %d characters. Each line is prefixed with its index."
-        "Note: The file content in return data is after prifix '[TXT_DATA]\\n' and each line has prefix '<index>: '.\n"
+        "Note: The file content in return data is after prefix '[TXT_DATA]\\n' and each line has prefix '<index>: '.\n"
         "For example, the raw data in file is:\n"
         "line 1\nline 2\nline 3\n"
         "while the returned file content is:\n"
+        "[TXT_DATA]\n"
         "0: line 1\n1: line 2\n2: line 3\n"
         "The line index starts from 0. "
     )
