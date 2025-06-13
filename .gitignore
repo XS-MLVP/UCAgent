@@ -1,6 +1,7 @@
 examples/template/report/
 examples/template/uc_test_report/
 output/
+.history/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
