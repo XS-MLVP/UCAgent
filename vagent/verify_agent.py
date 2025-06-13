@@ -104,8 +104,8 @@ class VerifyAgent(object):
         summarization_node = SummarizationAndIgnoreNoneNode(
             token_counter=count_tokens_approximately,
             model=self.model,
-            max_tokens=40000,
-            max_summary_tokens=1000,
+            max_tokens=self.cfg.get_value("max_tokens", 3000),
+            max_summary_tokens=self.cfg.get_value("max_summary_tokens", 1000),
             output_messages_key="llm_input_messages",
         )
 
