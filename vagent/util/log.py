@@ -14,6 +14,9 @@ def debug(msg: str):
     """Prints a debug message."""
     print(f"[DEBUG] {msg}")
 
+def echo(msg: str):
+    """Prints a message without any formatting."""
+    print(msg, flush=True)
 
 def echo_g(msg: str):
     """Prints an info message green."""

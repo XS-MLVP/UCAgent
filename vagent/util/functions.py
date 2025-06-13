@@ -378,8 +378,9 @@ def dump_as_json(data):
     """
     Convert a dictionary to a JSON string with pretty formatting.
     """
+    if isinstance(data, str):
+        return data
     return json.dumps(data, indent=4, ensure_ascii=False) #.replace("\\n", "\n").replace("\\", "")
-
 
 
 def render_template_dir(workspace, template_dir, kwargs):
