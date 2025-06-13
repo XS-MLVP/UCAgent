@@ -34,6 +34,7 @@ def get_args():
     parser.add_argument("--output", type=str, default="unity_test", help="Path to the configuration file")
     parser.add_argument("--override", type=get_override_dict, default=None, help="Override configuration settings in the format A.B.C=value")
     parser.add_argument("--stream-output", "-s", action="store_true", default=False, help="Stream output to the console")
+    parser.add_argument("--human", "-hm", action="store_true", default=False, help="Enable human input mode in the beginning of the run")
     return parser.parse_args()
 
 
@@ -49,6 +50,8 @@ def run():
         template_dir=args.template_dir,
         stream_output = args.stream_output,
     )
+    if args.human:
+        agent.set_human_input(True)
     agent.run()
 
 
