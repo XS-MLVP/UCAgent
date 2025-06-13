@@ -15,6 +15,21 @@ def debug(msg: str):
     print(f"[DEBUG] {msg}")
 
 
+def echo_g(msg: str):
+    """Prints an info message green."""
+    print(f"{GREEN}%s{RESET}" % msg, flush=True)
+
+
+def echo_r(msg: str):
+    """Prints an error message red."""
+    print(f"{RED}%s{RESET}" % msg, flush=True)
+
+
+def echo_y(msg: str):
+    """Prints a warning message yellow."""
+    print(f"{YELLOW}%s{RESET}" % msg, flush=True)
+
+
 def info(msg: str):
     """Prints an info message."""
     print(f"{GREEN}[INFO] %s{RESET}" % msg, flush=True)

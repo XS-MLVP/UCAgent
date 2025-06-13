@@ -8,6 +8,7 @@ from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_c
 from .tools.fileops import *
 from .tools.human import *
 from .stage.vstage import StageManager
+from .verify_pdb import VerifyPDB
 
 import time
 import random
@@ -123,10 +124,12 @@ class VerifyAgent(object):
         self._is_exit = False
         self._tip_index = 0
         self._need_human_input = False
-        self._evnt_human_input = False
+        self._force_trace = False
+        self._continue_msg = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self.handle_sigint()
+        self.pdb = VerifyPDB(self)
 
     def handle_sigint(self):
         def _sigint_handler(s, f):
@@ -142,49 +145,45 @@ class VerifyAgent(object):
                 info("SIGINT received again, more times will exit directly")
                 return
             info("SIGINT received, entering human input mode")
-            self.set_human_input()
+            self.set_human_input(True)
         signal.signal(signal.SIGINT, _sigint_handler)
 
-    def set_human_input(self):
-        self._need_human_input = True
+    def set_force_trace(self, value):
+        self._force_trace = value
 
-    def get_human_input(self):
-        self._need_human_input = False
-        self._evnt_human_input = True
-        text = ""
-        while True:
-            try:
-                text = input()
-            except KeyboardInterrupt:
-                print("\nSIGINT received during input, exiting agent...")
-                self.exit()
-                return {"messages": [SystemMessage(content="Exit")]}
-            try:
-                text = text.strip().encode("utf-8").decode("utf-8")
-            except UnicodeEncodeError:
-                warning("Input contains non-UTF-8 characters, please re-enter.")
-                continue
-            if len(text) == 0:
-                warning("Input is empty, please re-enter.")
-                continue
-            break
-        self._sigint_count = 0
-        if text.strip().lower() in ["exit", "quit"]:
-            self.exit()
-            msg = SystemMessage(content="Exiting the agent")
-        else:
-            msg = HumanMessage(content=append_time_str(text))
-        return {"messages": [msg]}
+    def check_pdb_trace(self):
+        if self._force_trace:
+            self.pdb.set_trace()
+        elif self.is_human_input():
+            self.pdb.set_trace()
+
+    def set_human_input(self, value=True):
+        self._need_human_input = value
+
+    def is_human_input(self):
+        return self._need_human_input
 
     def get_current_tips(self):
         if self._tool__call_error:
             return {"messages": copy.deepcopy(self._tool__call_error)}
-        if self._need_human_input:
-            return self.get_human_input()
-        messages = self.stage_manager.get_current_tips()
+        messages = self._continue_msg
+        if self._continue_msg is None:
+            messages = self.stage_manager.get_current_tips()
+        else:
+            self._continue_msg = None
         self._tip_index += 1
         assert isinstance(messages, str), "StageManager should return a str type messages"
         return {"messages": [HumanMessage(content=append_time_str(messages))]}
+
+    def set_continue_msg(self, msg: str):
+        """Set the continue message for the agent."""
+        if not isinstance(msg, str):
+            raise ValueError("Continue message must be a string")
+        try:
+            msg.encode("utf-8").decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("Continue message must be a valid UTF-8 string")
+        self._continue_msg = msg
 
     def is_exit(self):
         return self._is_exit
@@ -200,11 +199,13 @@ class VerifyAgent(object):
     def run(self):
         time_start = time.time()
         info("Verify Agent started at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_start)))
+        self.check_pdb_trace()
         while not self.is_exit():
             tips = self.get_current_tips()
             if self.is_exit():
                 break
             self.do_work(tips, self.get_work_config())
+            self.check_pdb_trace()
         time_end = time.time()
         info("Verify Agent finished at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_end)))
         info(f"Total time taken: {fmt_time_deta(time_end - time_start)}")
@@ -228,8 +229,6 @@ class VerifyAgent(object):
             self.check_tool_call_error(msg)
             message(msg.pretty_repr())
             if self._need_human_input:
-                self._evnt_human_input = False
-                message("\n\n[Human Input ]:", end="")
                 break
 
     def do_work_stream(self, instructions, config):
@@ -243,8 +242,6 @@ class VerifyAgent(object):
                 msg = data[0]
                 message(msg.content, end="")
                 if self._need_human_input:
-                    self._evnt_human_input = False
-                    message("\n\n[Human Input ]:", end="")
                     break
             else:
                 index = len(data["messages"])
