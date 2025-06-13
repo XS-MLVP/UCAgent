@@ -3,7 +3,7 @@
 from pdb import Pdb
 import os
 from vagent.util.log import echo_g, echo_y, echo_r, echo
-from vagent.util.functions import dump_as_json
+from vagent.util.functions import dump_as_json, get_func_arg_list
 
 
 class VerifyPDB(Pdb):
@@ -78,13 +78,13 @@ class VerifyPDB(Pdb):
             echo_y(f"Path '{file_name}' does not exist.")
             return
         if not os.path.isdir(full_path):
-            echo_g(file_name)
+            echo(file_name)
             return
         for file in os.listdir(full_path):
             if os.path.isdir(os.path.join(full_path, file)):
-                echo_g(f"{file}/")
+                echo(f"{file}/")
             else:
-                echo_g(file)
+                echo(file)
 
     def complete_ls(self, text, line, begidx, endidx):
         """
@@ -141,17 +141,18 @@ class VerifyPDB(Pdb):
         tool_name = arg.strip()
         if not tool_name:
             tnames = [tool.name for tool in self.agent.test_tools]
-            echo_g(f"Available tools ({len(tnames)}):\n{', '.join(tnames)}")
+            echo_g(f"Available tools ({len(tnames)}):")
+            echo(f"{', '.join(tnames)}")
             return
         tool = [tool for tool in self.agent.test_tools if tool.name == tool_name]
         if not tool:
             echo_y(f"Tool '{tool_name}' not found.")
             return
         tool = tool[0]
-        echo_g(f"[Name]: {tool.name}")
-        echo_g(f"[Description]:\n{tool.description}")
+        echo(f"[Name]: {tool.name}")
+        echo(f"[Description]:\n{tool.description}")
         if tool.args:
-            echo_g(f"[Args]:\n{dump_as_json(tool.args)}")
+            echo(f"[Args]:\n{dump_as_json(tool.args)}")
 
     def complete_tool_list(self, text, line, begidx, endidx):
         """
@@ -181,7 +182,9 @@ class VerifyPDB(Pdb):
         input_a = " ".join(args[1:])
         try:
             a, k = self.api_parse_args(input_a)
-            k = tool.tool_call_schema.model_construct(a, **k)  # Validate arguments against the tool's schema
+            for (x, y) in zip(get_func_arg_list(tool._run), a):
+                k[x] = y
+            k = tool.tool_call_schema(**k)  # Validate arguments against the tool's schema
         except Exception as e:
             echo_r(f"Error parsing arguments: {e}")
             return

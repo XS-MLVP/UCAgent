@@ -6,6 +6,7 @@ import json
 import importlib
 import re
 import time
+import inspect
 
 
 def fmt_time_deta(sec):
@@ -489,3 +490,16 @@ def get_ai_message_tool_call(msg):
             lines.extend(_format_tool_args(itc))
     return "\n".join(lines) if lines else None
 
+
+def get_func_arg_list(func):
+    """
+    Get the argument names of a function.
+    :param func: The function to inspect.
+    :return: A list of argument names.
+    """
+    if not callable(func):
+        raise ValueError("Provided object is not callable.")
+    sig = inspect.signature(func)
+    return [param.name for param in sig.parameters.values() \
+            if param.kind in (inspect.Parameter.POSITIONAL_ONLY,
+                              inspect.Parameter.POSITIONAL_OR_KEYWORD)]
