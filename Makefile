@@ -9,7 +9,7 @@ dut:
 	mkdir -p output
 	cp -r examples output/
 
-test_adder: dut
+test_adder:
 	rm output/examples/Adder -rf
 	rm output/examples/DualPort -rf
 	@if [ ! -d output/Adder ]; then \
@@ -22,6 +22,8 @@ test_adder: dut
 clean:
 	rm -rf output
 
+clean_test:
+	rm -rf output/unity_test
 
 continue:
 	python3 verify.py output/ ${DUT} --config config.yaml ${ARGS}

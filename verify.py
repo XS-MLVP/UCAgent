@@ -35,6 +35,7 @@ def get_args():
     parser.add_argument("--override", type=get_override_dict, default=None, help="Override configuration settings in the format A.B.C=value")
     parser.add_argument("--stream-output", "-s", action="store_true", default=False, help="Stream output to the console")
     parser.add_argument("--human", "-hm", action="store_true", default=False, help="Enable human input mode in the beginning of the run")
+    parser.add_argument("--seed", type=int, default=None, help="Seed for random number generation, if applicable")
     return parser.parse_args()
 
 
@@ -49,6 +50,7 @@ def run():
         tmp_overwrite=args.template_overwrite,
         template_dir=args.template_dir,
         stream_output = args.stream_output,
+        seed=args.seed,
     )
     if args.human:
         agent.set_human_input(True)

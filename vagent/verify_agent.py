@@ -19,13 +19,13 @@ import copy
 from langchain.globals import set_debug
 from langchain_openai import ChatOpenAI
 from langchain_core.messages.utils import count_tokens_approximately
-from langchain_core.callbacks import BaseCallbackHandler
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any, Dict
+
 
 class SummarizationAndIgnoreNoneNode(SummarizationNode):
     def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
@@ -53,6 +53,7 @@ class VerifyAgent(object):
                  tmp_overwrite=False,
                  template_dir=None,
                  stream_output=False,
+                 seed = None,
                  model=None,
                  ex_tools=None,
                  thread_id=None):
@@ -71,12 +72,14 @@ class VerifyAgent(object):
             "DUT": dut_name
         })
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
+        self.seed = seed if seed is not None else random.randint(1, 999999)
         if model is not None:
             self.model = model
         else:
             self.model = ChatOpenAI(openai_api_key=self.cfg.openai.openai_api_key,
                                     openai_api_base=self.cfg.openai.openai_api_base,
                                     model=self.cfg.openai.model_name,
+                                    seed=42,
                                     )
         self.workspace = os.path.abspath(workspace)
         template = get_template_path(self.cfg.template, template_dir)
@@ -117,6 +120,11 @@ class VerifyAgent(object):
             pre_model_hook=summarization_node,
             state_schema=State,
         )
+        # state
+        self._system_message = ""
+        self._stat_msg_count_ai = 0
+        self._stat_msg_count_tool = 0
+        self._stat_msg_count_system = 0
         # flags
         self.stream_output = stream_output
         self.invoke_round = 0
@@ -166,14 +174,18 @@ class VerifyAgent(object):
     def get_current_tips(self):
         if self._tool__call_error:
             return {"messages": copy.deepcopy(self._tool__call_error)}
-        messages = self._continue_msg
+        tips = self._continue_msg
         if self._continue_msg is None:
-            messages = self.stage_manager.get_current_tips()
+            tips = self.stage_manager.get_current_tips()
         else:
             self._continue_msg = None
         self._tip_index += 1
-        assert isinstance(messages, str), "StageManager should return a str type messages"
-        return {"messages": [HumanMessage(content=append_time_str(messages))]}
+        assert isinstance(tips, str), "StageManager should return a str type tips"
+        msg = []
+        if self._system_message:
+            msg.append(SystemMessage(content=self._system_message))
+        msg.append(HumanMessage(content=tips))
+        return {"messages": msg}
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""
@@ -199,6 +211,7 @@ class VerifyAgent(object):
     def run(self):
         time_start = time.time()
         info("Verify Agent started at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_start)))
+        info("Seed: " + str(self.seed))
         self.check_pdb_trace()
         while not self.is_exit():
             tips = self.get_current_tips()
@@ -218,6 +231,14 @@ class VerifyAgent(object):
         else:
             self.do_work_values(instructions, config)
 
+    def state_record_mesg(self, msg):
+        if isinstance(msg, AIMessage):
+            self._stat_msg_count_ai += 1
+        elif isinstance(msg, ToolMessage):
+            self._stat_msg_count_tool += 1
+        elif isinstance(msg, SystemMessage):
+            self._stat_msg_count_system += 1
+
     def do_work_values(self, instructions, config):
         last_msg_index = None
         for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
@@ -227,6 +248,7 @@ class VerifyAgent(object):
             last_msg_index = index
             msg = step["messages"][-1]
             self.check_tool_call_error(msg)
+            self.state_record_mesg(msg)
             message(msg.pretty_repr())
             if self._need_human_input:
                 break
@@ -249,6 +271,7 @@ class VerifyAgent(object):
                     continue
                 last_msg_index = index
                 msg = data["messages"][-1]
+                self.state_record_mesg(msg)
                 if isinstance(msg, AIMessage):
                     message(get_ai_message_tool_call(msg))
                     self.check_tool_call_error(msg)

@@ -4,7 +4,6 @@
 from vagent.util.functions import import_class_from_str, find_files_by_pattern, dump_as_json
 from vagent.util.log import info
 import vagent.stage.checkers as checkers
-import time
 
 
 class VerifyStage(object):
@@ -234,7 +233,7 @@ class StageManager(object):
                 ret += f"  - {f}\n"
         return ret
 
-    def tool_detail(self):
+    def detail(self):
         """
         Get the details of the current mission, including all stages and their details.
         """
@@ -250,9 +249,15 @@ class StageManager(object):
                 "reached": stage.is_reached(),
                 "check_pass": stage.check_pass,
             }
-        return dump_as_json(ret)
+        return ret
 
-    def tool_status(self):
+    def tool_detail(self):
+        """
+        Get the details of the current mission, including all stages and their details.
+        """
+        return dump_as_json(self.detail())
+
+    def status(self):
         ret = OrderedDict()
         ret["stage_list"] = OrderedDict()
         for i, stage in enumerate(self.stages):
@@ -266,9 +271,15 @@ class StageManager(object):
         ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
         if self.last_check_info:
             ret["last_check_info"] = self.last_check_info
-        return dump_as_json(ret)
+        return ret
+
+    def tool_status(self):
+        return dump_as_json(self.status())
 
     def tool_go_to_stage(self, index):
+        return self.go_to_stage(index)
+
+    def go_to_stage(self, index):
         """
         Go to a specific stage by index.
         """
@@ -282,19 +293,21 @@ class StageManager(object):
         else:
             return f"Invalid stage index: {index}. No change made."
 
-    def tool_check(self):
+    def check(self):
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
-            "check_at": time.time(),
             "check_info": ck_info,
             "check_pass": ck_pass,
         }
-        return dump_as_json({
+        return {
             "check_pass": ck_pass,
             "check_info": ck_info,
-        })
+        }
 
-    def tool_complete(self):
+    def tool_check(self):
+        return dump_as_json(self.check())
+
+    def complete(self):
         if self.stage_index >= len(self.stages):
             return dump_as_json({
                 "do_complete": False,
@@ -302,7 +315,6 @@ class StageManager(object):
             })
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
-            "check_at": time.time(),
             "check_info": ck_info,
             "check_pass": ck_pass,
         }
@@ -317,7 +329,11 @@ class StageManager(object):
         else:
             message = f"Stage {self.stage_index} not completed. Please check the requirements.\n" + \
                       f"Last check info: \n {json.dumps(ck_info, indent=2, ensure_ascii=False)}"
-        return dump_as_json({
+        return {
             "do_complete": ck_pass,
             "message": message,
-        })
+        }
+
+    def tool_complete(self):
+        return dump_as_json(self.complete())
+
