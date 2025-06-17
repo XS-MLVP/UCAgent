@@ -2,7 +2,7 @@
 
 import os
 import yaml
-from .functions import render_template
+from .functions import render_template, dump_as_json
 
 class Config(object):
 
@@ -47,6 +47,9 @@ class Config(object):
             else:
                 result[key] = value
         return result
+
+    def __str__(self):
+        return dump_as_json(self.as_dict())
 
     def update_template(self, template_dict):
         """
@@ -208,7 +211,7 @@ class Config(object):
             if not self.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
-        if not self.has_attr(keys[-1]):
+        if not current.has_attr(keys[-1]):
             return default
         return getattr(current, keys[-1], default)
 

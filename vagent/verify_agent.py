@@ -53,7 +53,8 @@ class VerifyAgent(object):
                  tmp_overwrite=False,
                  template_dir=None,
                  stream_output=False,
-                 seed = None,
+                 init_cmd=None,
+                 seed=None,
                  model=None,
                  ex_tools=None,
                  thread_id=None):
@@ -82,6 +83,7 @@ class VerifyAgent(object):
                                     seed=42,
                                     )
         self.workspace = os.path.abspath(workspace)
+        self.output_dir = os.path.join(self.workspace, output)
         template = get_template_path(self.cfg.template, template_dir)
         if template is not None:
             tmep_dir = os.path.join(self.workspace, os.path.basename(template))
@@ -120,6 +122,10 @@ class VerifyAgent(object):
             pre_model_hook=summarization_node,
             state_schema=State,
         )
+        self.message_echo_handler = None
+        self.update_handler = None
+        self._time_start = time.time()
+        self._time_end = None
         # state
         self._system_message = ""
         self._stat_msg_count_ai = 0
@@ -131,13 +137,30 @@ class VerifyAgent(object):
         self._tool__call_error = []
         self._is_exit = False
         self._tip_index = 0
-        self._need_human_input = False
+        self._need_break = False
         self._force_trace = False
         self._continue_msg = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self.handle_sigint()
-        self.pdb = VerifyPDB(self)
+        self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def set_message_echo_handler(self, handler):
+        """Set a custom message echo handler to process messages."""
+        if not callable(handler):
+            raise ValueError("Message echo handler must be callable")
+        self.message_echo_handler = handler
+
+    def unset_message_echo_handler(self):
+        """Unset the custom message echo handler."""
+        self.message_echo_handler = None
+
+    def message_echo(self, msg, end="\n"):
+        """Echo a message using the custom message echo handler if set."""
+        if self.message_echo_handler is not None:
+            self.message_echo_handler(msg, end)
+        else:
+            message(msg, end=end)
 
     def handle_sigint(self):
         def _sigint_handler(s, f):
@@ -152,8 +175,8 @@ class VerifyAgent(object):
                 #self.original_sigint(s, f)
                 info("SIGINT received again, more times will exit directly")
                 return
-            info("SIGINT received, entering human input mode")
-            self.set_human_input(True)
+            info("SIGINT received")
+            self.set_break(True)
         signal.signal(signal.SIGINT, _sigint_handler)
 
     def set_force_trace(self, value):
@@ -162,14 +185,14 @@ class VerifyAgent(object):
     def check_pdb_trace(self):
         if self._force_trace:
             self.pdb.set_trace()
-        elif self.is_human_input():
+        elif self.is_break():
             self.pdb.set_trace()
 
-    def set_human_input(self, value=True):
-        self._need_human_input = value
+    def set_break(self, value=True):
+        self._need_break = value
 
-    def is_human_input(self):
-        return self._need_human_input
+    def is_break(self):
+        return self._need_break
 
     def get_current_tips(self):
         if self._tool__call_error:
@@ -186,6 +209,9 @@ class VerifyAgent(object):
             msg.append(SystemMessage(content=self._system_message))
         msg.append(HumanMessage(content=tips))
         return {"messages": msg}
+
+    def set_system_message(self, msg: str):
+        self._system_message = msg
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""
@@ -209,19 +235,47 @@ class VerifyAgent(object):
                 }
 
     def run(self):
-        time_start = time.time()
+        self.pre_run()
+        self.run_loop()
+
+    def pre_run(self):
+        time_start = self._time_start = time.time()
         info("Verify Agent started at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_start)))
         info("Seed: " + str(self.seed))
         self.check_pdb_trace()
+        return self
+
+    def run_loop(self, with_break=False, msg=None):
+        if msg:
+            self.set_continue_msg(msg)
         while not self.is_exit():
-            tips = self.get_current_tips()
+            self.one_loop()
             if self.is_exit():
                 break
-            self.do_work(tips, self.get_work_config())
+            if with_break:
+                if self.is_break():
+                    info("Break at loop: " + str(self.invoke_round))
+                    return
             self.check_pdb_trace()
-        time_end = time.time()
+        time_end = self._time_end = time.time()
         info("Verify Agent finished at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_end)))
-        info(f"Total time taken: {fmt_time_deta(time_end - time_start)}")
+        info(f"Total time taken: {fmt_time_deta(time_end - self._time_start)}")
+        return self
+
+    def one_loop(self, msg=None):
+        if msg:
+            self.set_continue_msg(msg)
+        while True:
+            tips = self.get_current_tips()
+            if self.is_exit():
+                return
+            self.do_work(tips, self.get_work_config())
+            if not self._tool__call_error:
+                break
+            if self.is_break():
+                return
+        self.invoke_round += 1
+        return self
 
     def do_work(self, instructions, config):
         """Perform the work using the agent."""
@@ -242,6 +296,8 @@ class VerifyAgent(object):
     def do_work_values(self, instructions, config):
         last_msg_index = None
         for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
+            if self._need_break:
+                break
             index = len(step["messages"])
             if index == last_msg_index:
                 continue
@@ -249,22 +305,20 @@ class VerifyAgent(object):
             msg = step["messages"][-1]
             self.check_tool_call_error(msg)
             self.state_record_mesg(msg)
-            message(msg.pretty_repr())
-            if self._need_human_input:
-                break
+            self.message_echo(msg.pretty_repr())
 
     def do_work_stream(self, instructions, config):
         last_msg_index = None
         fist_ai_message = True
         for v, data in self.agent.stream(instructions, config, stream_mode=["values", "messages"]):
+            if self._need_break:
+                    break
             if v == "messages":
                 if fist_ai_message:
                     fist_ai_message = False
-                    message("\n\n================================== AI Message ==================================")
+                    self.message_echo("\n\n================================== AI Message ==================================")
                 msg = data[0]
-                message(msg.content, end="")
-                if self._need_human_input:
-                    break
+                self.message_echo(msg.content, end="")
             else:
                 index = len(data["messages"])
                 if index == last_msg_index:
@@ -273,10 +327,10 @@ class VerifyAgent(object):
                 msg = data["messages"][-1]
                 self.state_record_mesg(msg)
                 if isinstance(msg, AIMessage):
-                    message(get_ai_message_tool_call(msg))
+                    self.message_echo(get_ai_message_tool_call(msg))
                     self.check_tool_call_error(msg)
                     continue
-                message(msg.pretty_repr())
+                self.message_echo(msg.pretty_repr())
 
     def check_tool_call_error(self, msg):
         if not isinstance(msg, AIMessage):

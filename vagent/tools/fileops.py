@@ -3,11 +3,11 @@
 from typing import Optional, List, Tuple
 from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data, warning
 from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
+from .uctool import UCTool
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
@@ -154,7 +154,7 @@ class ArgPathList(BaseModel):
     )
 
 
-class PathList(BaseTool, BaseReadWrite):
+class PathList(UCTool, BaseReadWrite):
     """List all files and directories in a workspace directory, recursively."""
     name: str = "PathList"
     description: str = (
@@ -252,7 +252,7 @@ class ArgReadBinFile(BaseModel):
     )
 
 
-class ReadBinFile(BaseTool, BaseReadWrite):
+class ReadBinFile(UCTool, BaseReadWrite):
     """Read binary content of a file in the workspace."""
     name: str = "ReadBinFile"
     description: str = (
@@ -314,7 +314,7 @@ class ArgReadTextFile(BaseModel):
     )
 
 
-class ReadTextFile(BaseTool, BaseReadWrite):
+class ReadTextFile(UCTool, BaseReadWrite):
     """Read lines from a text file in the workspace."""
     name: str = "ReadTextFile"
     description: str = (
@@ -392,7 +392,7 @@ class ArgTextFileReplaceLines(BaseModel):
     )
 
 
-class TextFileReplaceLines(BaseTool, BaseReadWrite):
+class TextFileReplaceLines(UCTool, BaseReadWrite):
     """Replace or insert lines in a text file in the workspace."""
     name: str = "TextFileReplaceLines"
     description: str = (
@@ -458,7 +458,7 @@ class ArgTextFileMultiLinesEdit(BaseModel):
     )
 
 
-class TextFileMultiLinesEdit(BaseTool, BaseReadWrite):
+class TextFileMultiLinesEdit(UCTool, BaseReadWrite):
     """Edit multiple lines in a text file in the workspace. The file must exist."""
     name: str = "TextFileMultiLinesEdit"
     description: str = (
@@ -576,7 +576,7 @@ class ArgWriteToFile(BaseModel):
     )
 
 
-class WriteToFile(BaseTool, BaseReadWrite):
+class WriteToFile(UCTool, BaseReadWrite):
     """Write string data to a file in the workspace."""
     name: str = "WriteToFile"
     description: str = (
@@ -611,7 +611,7 @@ class WriteToFile(BaseTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class AppendToFile(BaseTool, BaseReadWrite):
+class AppendToFile(UCTool, BaseReadWrite):
     """Append string data to a file in the workspace."""
     name: str = "AppendToFile"
     description: str = (
@@ -657,7 +657,7 @@ class ArgDeleteFile(BaseModel):
     )
 
 
-class DeleteFile(BaseTool, BaseReadWrite):
+class DeleteFile(UCTool, BaseReadWrite):
     """Delete a file in the workspace."""
     name: str = "DeleteFile"
     description: str = (

@@ -36,6 +36,7 @@ def get_args():
     parser.add_argument("--stream-output", "-s", action="store_true", default=False, help="Stream output to the console")
     parser.add_argument("--human", "-hm", action="store_true", default=False, help="Enable human input mode in the beginning of the run")
     parser.add_argument("--seed", type=int, default=None, help="Seed for random number generation, if applicable")
+    parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
     return parser.parse_args()
 
 
@@ -51,9 +52,10 @@ def run():
         template_dir=args.template_dir,
         stream_output = args.stream_output,
         seed=args.seed,
+        init_cmd=["tui", "loop"] if args.tui else None
     )
-    if args.human:
-        agent.set_human_input(True)
+    if args.human or args.tui:
+        agent.set_break(True)
     agent.run()
 
 
