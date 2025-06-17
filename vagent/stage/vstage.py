@@ -28,6 +28,8 @@ class VerifyStage(object):
         ]
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
+        self.fail_count = 0
+        self.succ_count = 0
         self.check_pass = False
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
@@ -70,6 +72,9 @@ class VerifyStage(object):
             self.check_info[i]["count_check"] += 1
             if not ck_pass:
                 self.check_pass = False
+                self.fail_count += 1
+            else:
+                self.succ_count += 1
         return self.check_pass, self.check_info
 
     def is_reached(self):
@@ -96,7 +101,7 @@ class VerifyStage(object):
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from langchain_core.tools import BaseTool
+from vagent.tools.uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from typing import Optional, Callable
 from collections import OrderedDict
@@ -104,7 +109,7 @@ from pydantic import BaseModel, Field
 import json
 
 
-class ManagerTool(BaseTool):
+class ManagerTool(UCTool):
     # custom vars
     function: Callable = None
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -248,6 +253,7 @@ class StageManager(object):
                 "checker": [str(c) for c in stage.checker],
                 "reached": stage.is_reached(),
                 "check_pass": stage.check_pass,
+                "fail_count": stage.fail_count,
             }
         return ret
 
@@ -259,14 +265,15 @@ class StageManager(object):
 
     def status(self):
         ret = OrderedDict()
-        ret["stage_list"] = OrderedDict()
+        ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"][stage.name] = {
+            ret["stage_list"].append((stage.name, {
                 "index": i,
                 "desc":stage.description,
                 "reached": stage.is_reached(),
                 "check_pass": stage.check_pass,
-            }
+                "fail_count": stage.fail_count,
+            }))
         ret["current_stage_index"] = self.stage_index
         ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
         if self.last_check_info:

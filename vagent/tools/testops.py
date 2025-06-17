@@ -3,7 +3,7 @@
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from langchain_core.tools import BaseTool
+from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
@@ -38,7 +38,7 @@ class ArgRunPyTest(BaseModel):
     )
 
 
-class RunPyTest(BaseTool):
+class RunPyTest(UCTool):
     """Tool to run pytest tests in a specified directory or a test file."""
 
     name: str = "RunPyTest"

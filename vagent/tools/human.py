@@ -3,7 +3,7 @@
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from langchain_core.tools import BaseTool
+from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -16,7 +16,7 @@ class ArgHumanHelp(BaseModel):
     )
 
 
-class HumanHelp(BaseTool):
+class HumanHelp(UCTool):
     """Tool for human help."""
 
     name: str = "HumanHelp"

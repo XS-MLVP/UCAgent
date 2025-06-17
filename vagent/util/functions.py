@@ -7,20 +7,52 @@ import importlib
 import re
 import time
 import inspect
+import fnmatch
+from pathlib import Path
 
 
-def fmt_time_deta(sec):
+def fmt_time_deta(sec, abbr=False):
     """
     Format time duration in seconds to a human-readable string.
     :param sec: Time duration in seconds.
     :return: Formatted string representing the time duration.
     """
+    if sec is None:
+        return "N/A"
+    if isinstance(sec, str):
+        if sec.isdigit():
+            sec = int(sec)
+        else:
+            return sec
     sec = int(sec)
     s = sec % 60
     m = (sec // 60) % 60
     h = (sec // 3600) % 24
     deta_time = f"{h:02d}:{m:02d}:{s:02d}"
+    if abbr:
+        if h > 0:
+            deta_time = f"{h}h {m:02d}m {s:02d}s"
+        elif m > 0:
+            deta_time = f"{m}m {s:02d}s"
+        else:
+            deta_time = f"{s}s"
     return deta_time
+
+
+def fmt_time_stamp(sec, fmt="%Y-%m-%d %H:%M:%S"):
+    """
+    Format a time duration in seconds to a string.
+    :param sec: Time duration in seconds.
+    :param fmt: Format string (default is "%Y-%m-%d %H:%M:%S").
+    :return: Formatted time string.
+    """
+    if sec is None:
+        return "N/A"
+    if isinstance(sec, str):
+        return sec
+    if isinstance(sec, (int, float)):
+        return time.strftime(fmt, time.localtime(sec))
+    raise ValueError(f"Unsupported type for sec: {type(sec)}. Expected int or float.")
 
 
 def is_text_file(file_path):
@@ -503,3 +535,32 @@ def get_func_arg_list(func):
     return [param.name for param in sig.parameters.values() \
             if param.kind in (inspect.Parameter.POSITIONAL_ONLY,
                               inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+
+
+def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="*.pyc,*.log,*.tmp"):
+    """列出目录中的文件并按修改时间倒序排列"""
+    ntime = time.time()
+    def find_f(source_dir, workspace):
+        files = []
+        for file_path in Path(source_dir).rglob('*'):
+            if file_path.is_file():
+                mtime = os.path.getmtime(file_path)
+                file_path = os.path.abspath(str(file_path)).replace(workspace + os.sep, "")
+                if any(fnmatch.fnmatch(file_path, pattern) for pattern in ignore_patterns.split(',')):
+                    continue
+                files.append((ntime - mtime, mtime, file_path))
+        return files
+    directory = os.path.abspath(directory)
+    files = []
+    if subdir is None:
+        files = find_f(directory, directory)
+    else:
+        for sub in subdir:
+            sub_path = os.path.join(directory, sub)
+            if not os.path.exists(sub_path):
+                continue
+            if not os.path.isdir(sub_path):
+                continue
+            files += find_f(sub_path, directory)
+    files.sort(key=lambda x: x[0])
+    return files[:max_files]

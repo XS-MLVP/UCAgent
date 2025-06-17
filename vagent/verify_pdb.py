@@ -3,7 +3,9 @@
 from pdb import Pdb
 import os
 from vagent.util.log import echo_g, echo_y, echo_r, echo
-from vagent.util.functions import dump_as_json, get_func_arg_list
+from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime
+import time
+import signal
 
 
 class VerifyPDB(Pdb):
@@ -12,10 +14,34 @@ class VerifyPDB(Pdb):
     to ensure that the PDB file is valid and contains the expected structure.
     """
 
-    def __init__(self, agent, prompt = "(UnityChip) "):
+    def __init__(self, agent, prompt = "(UnityChip) ", init_cmd=None):
         super().__init__()
         self.agent = agent
         self.prompt = prompt
+        self.original_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, self._sigint_handler)
+        self.init_cmd = init_cmd
+        if init_cmd is not None:
+            if isinstance(init_cmd, str):
+                self.init_cmd = [init_cmd]
+
+    def interaction(self, frame, traceback):
+        if self.init_cmd:
+            cmd = self.init_cmd.pop(0)
+            self.onecmd(cmd)
+        super().interaction(frame, traceback)
+
+    def _sigint_handler(self, signum, frame):
+        """
+        Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
+        """
+        self.agent.set_break(True)
+        self.agent.message_echo("SIGINT received. Stopping execution ...")
+        if self.agent.is_break():
+            echo_y("PDB interrupted. Use 'continue' to resume execution.")
+        else:
+            echo_r("SIGINT received. Exiting PDB.")
+            raise KeyboardInterrupt
 
     def api_complite_workspace_file(self, text):
         """Auto-complete workspace files
@@ -96,7 +122,7 @@ class VerifyPDB(Pdb):
         """
         Continue execution without a breakpoint.
         """
-        self.agent.set_human_input(False)
+        self.agent.set_break(False)
         self.agent.set_force_trace(False)
         return super().do_continue(arg)
 
@@ -115,22 +141,28 @@ class VerifyPDB(Pdb):
         """
         Continue execution to the next round.
         """
-        self.agent.set_human_input(False)
-        self.agent.set_force_trace(True)
-        return super().do_continue(arg)
+        self.agent.set_break(False)
+        self.agent.one_loop()
     do_nr = do_next_round
 
     def do_next_round_with_message(self, arg):
         """
         Continue execution to the next round with a message.
         """
-        try:
-            self.agent.set_continue_msg(arg.strip())
-        except Exception as e:
-            echo_r(f"Error setting continue message: {e}")
-            return
-        return self.do_next_round("")
+        msg = arg.strip()
+        if not msg:
+            print("Message cannot be empty, usage: next_round_with_message <message>")
+        self.agent.set_break(False)
+        self.agent.one_loop(msg)
     do_nrm = do_next_round_with_message
+
+    def do_loop(self, arg):
+        """
+        Continue execution in a loop.
+        """
+        self.agent.set_break(False)
+        self.agent.set_force_trace(False)
+        self.agent.run_loop(True, arg.strip())
 
     def do_tool_list(self, arg):
         """
@@ -140,7 +172,7 @@ class VerifyPDB(Pdb):
         """
         tool_name = arg.strip()
         if not tool_name:
-            tnames = [tool.name for tool in self.agent.test_tools]
+            tnames = [f"{tool.name}({tool.call_count})" for tool in self.agent.test_tools]
             echo_g(f"Available tools ({len(tnames)}):")
             echo(f"{', '.join(tnames)}")
             return
@@ -151,6 +183,7 @@ class VerifyPDB(Pdb):
         tool = tool[0]
         echo(f"[Name]: {tool.name}")
         echo(f"[Description]:\n{tool.description}")
+        echo(f"[Call Count]: {tool.call_count}")
         if tool.args:
             echo(f"[Args]:\n{dump_as_json(tool.args)}")
 
@@ -200,26 +233,75 @@ class VerifyPDB(Pdb):
         """
         return self.complete_tool_list(text, line, begidx, endidx)
 
-    def do_status(self, arg):
+    def api_status(self):
         """
         Display the current status of the agent.
+        eg:
+          LLM: Qwen3-32B Temperature: 0.8 Stream: False Seed: 123 AI-Message Count: 0 Tool-Message Count: 0
+          Tools: ListPath(2) READFile(1) ...
+          Start Time: 2023-10-01 12:00:00 Run Time: 00:00:01
         """
-        pass
+        g = self.agent
+        m = g.model
+        delta_time = time.time() - g._time_start
+        stats= f"LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  " + \
+               f"AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
+               f"System Tip: {g._system_message}\n" + \
+               f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}"
+        return stats
+
+    def api_tool_status(self):
+        ignore_tools = ["Status", "Check", "Complete", "GoToStage"]
+        return [(tool.name, tool.call_count) for tool in self.agent.test_tools if tool.name not in ignore_tools]
+
+    def api_task_list(self):
+        """
+        List all tasks in the current workspace.
+        Returns:
+            list: List of task names.
+        """
+        mission_name = self.agent.cfg.get_value("mission.name", "None")
+        task_index = self.agent.stage_manager.stage_index
+        task_list = self.agent.stage_manager.status()
+        return {
+            "mission_name": mission_name,
+            "task_index": task_index,
+            "task_list": task_list
+        }
+
+    def api_changed_files(self, count=10):
+        """
+        List all changed files in the current workspace.
+        Returns:
+            list: List of changed file names.
+        """
+        return list_files_by_mtime(self.agent.output_dir, count)
+
+    def do_status(self, arg):
+        echo(self.api_status())
 
     def do_task_list(self, arg):
         """
         List all tasks in the current workspace.
         """
-        pass
+        print(dump_as_json(self.api_task_list()))
 
     def do_get_sys_tips(self, arg):
         """
         Get system tips.
         """
-        pass
+        print(self.agent._system_message)
 
     def do_set_sys_tips(self, arg):
         """
         Set system tips.
         """
-        pass
+        self.agent.set_system_message(arg.strip())
+
+    def do_tui(self, arg):
+        """
+        Enter TUI mode.
+        """
+        from vagent.verify_ui import enter_simple_tui
+        enter_simple_tui(self)
+        print("Exited TUI mode. Returning to PDB.")
