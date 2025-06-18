@@ -37,6 +37,7 @@ def get_args():
     parser.add_argument("--human", "-hm", action="store_true", default=False, help="Enable human input mode in the beginning of the run")
     parser.add_argument("--seed", type=int, default=None, help="Seed for random number generation, if applicable")
     parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
+    parser.add_argument("--sys-tips", type=str, default="", help="Set of system tips to be used in the agent")
     return parser.parse_args()
 
 
@@ -52,7 +53,8 @@ def run():
         template_dir=args.template_dir,
         stream_output = args.stream_output,
         seed=args.seed,
-        init_cmd=["tui", "loop"] if args.tui else None
+        init_cmd=["tui", "loop"] if args.tui else None,
+        sys_tips=args.sys_tips,
     )
     if args.human or args.tui:
         agent.set_break(True)

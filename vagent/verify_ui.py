@@ -8,6 +8,7 @@ import io
 import traceback
 import signal
 import time
+import threading
 
 from vagent.util.functions import fmt_time_stamp, fmt_time_deta
 from vagent.util.log import YELLOW, RESET
@@ -32,13 +33,14 @@ class VerifyUI:
         self.console_input = urwid.Edit(self.console_input_cap)
         self.console_input_busy = ["(wait.  )", "(wait.. )", "(wait...)"]
         self.console_input_busy_index = -1
-        self.console_max_height = 4
+        self.console_max_height = 15
         self.console_default_txt = "\n" * (self.console_max_height - 1)
         self.console_outbuffer = self.console_default_txt
         self.console_output = ANSIText(self.console_outbuffer)
         self.console_page_cache = None
         self.console_page_cache_index = 0
         self.content_task_fix_width = 40
+        self.task_box_maxfiles = 5
         self.last_cmd = None
         self.last_key = None
         self.last_line = ""
@@ -49,6 +51,7 @@ class VerifyUI:
         self._pdio = io.StringIO()
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self.gap_time = gap_time
+        self.is_cmd_busy = False
         self.int_layout()
         self._handle_stdout_error()
 
@@ -131,7 +134,7 @@ class VerifyUI:
             self.content_task.append(utxt)
         # changed files
         self.content_task.append(urwid.Text(f"\nChanged Files\n", align='center'))
-        for d, t, f in self.vpdb.api_changed_files():
+        for d, t, f in self.vpdb.api_changed_files()[:self.task_box_maxfiles]:
             color = None
             mtime = fmt_time_stamp(t)
             if d < 180:
@@ -153,9 +156,10 @@ class VerifyUI:
             if i== 0 and last_text is not None:
                 last_text.original_widget.set_text(last_text.original_widget.get_text()[0] + line)
             else:
-                self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, 'yellow'))
+                self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
         if len(self.content_msgs) > self.content_msgs_maxln:
             self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
+            self.content_msgs[-2].set_attr_map({None: 'body'})
         msg_count = len(self.content_msgs)
         self.content_msgs_focus = msg_count - 1
         self.update_messages_focus()
@@ -288,19 +292,41 @@ class VerifyUI:
         self.cmd_history_set(cmd)
         self.console_input_busy_index = 0
 
-        original_sigint = signal.getsignal(signal.SIGINT)
+        self.original_sigint = signal.getsignal(signal.SIGINT)
         def _sigint_handler(s, f):
             self.vpdb._sigint_handler(s, f)
         signal.signal(signal.SIGINT, _sigint_handler)
         self.root.focus_part = None
-        try:
-            self.vpdb.onecmd(cmd)
-        except Exception as e:
-            self.console_output.set_text(self._get_output(f"{YELLOW}Command Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
+        self._execute_cmd_in_thread(cmd, scrowl_ret)
+
+    def _execute_cmd_in_thread(self, cmd, scrowl_ret):
+        """
+        Execute a command in a separate thread to avoid blocking the main loop.
+        """
+        self.is_cmd_busy = True
+        def run_cmd():
+            try:
+                self.vpdb.onecmd(cmd)
+            except Exception as e:
+                self.console_output.set_text(self._get_output(f"{YELLOW}Command Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
+            self.loop.set_alarm_in(0.1, self._on_cmd_complete, scrowl_ret)
+        thread = threading.Thread(target=run_cmd)
+        thread.start()
+
+    def _on_cmd_complete(self, loop, scrowl_ret):
+        self.is_cmd_busy = False
         self.console_input_busy_index = -1
-        self.update_console_ouput(scrowl_ret)
-        signal.signal(signal.SIGINT, original_sigint)
+        signal.signal(signal.SIGINT, self.original_sigint)
         self.root.focus_part = 'footer'
+        self.update_console_ouput(scrowl_ret)
+
+    def _auto_update_ui(self, loop, user_data=None):
+        """
+        Automatically update the UI at regular intervals.
+        This is useful for refreshing the display without user input.
+        """
+        self.update_console_ouput(True)
+        loop.set_alarm_in(1.0, self._auto_update_ui)
 
     def _process_batch_cmd(self):
         p_count = 0
@@ -461,6 +487,7 @@ def enter_simple_tui(pdb):
         loop.set_alarm_in(0.0, app.exit)
     signal.signal(signal.SIGINT, _sigint_handler)
     loop.set_alarm_in(0.1, app.check_exec_batch_cmds)
+    loop.set_alarm_in(1.0, app._auto_update_ui)
     loop.run()
     signal.signal(signal.SIGINT, original_sigint)
 

@@ -8,6 +8,7 @@ import re
 import time
 import inspect
 import fnmatch
+import ast
 from pathlib import Path
 
 
@@ -475,10 +476,24 @@ def append_time_str(data:str):
     return data + "\nNow time: " + time_str
 
 
-def fill_dlist_none(data, value, keys=None):
+def fill_dlist_none(data, value, keys=None, json_keys=[]):
+    def _conver_json(v):
+        assert isinstance(v, str)
+        if not v:
+            return value
+        v = fix_json_string(v)
+        try:
+            json.loads(v)
+            return v
+        except json.JSONDecodeError as e:
+            from .log import warning
+            v = f"Find Invalid JSON string: {repr(v)} - {e}, set as empty JSON object."
+            warning(v)
+            return json.dumps({"error": v})
+    _keys = keys
     if keys is not None:
         if isinstance(keys, str):
-            keys = [keys]
+            _keys = [keys]
     if data is None:
         return value
     if not isinstance(data, (dict, list)):
@@ -486,12 +501,15 @@ def fill_dlist_none(data, value, keys=None):
     if isinstance(data, dict):
         for k, v in data.items():
             if v is None:
-                if keys is not None and k not in keys:
+                if _keys is not None and k not in _keys:
                     continue
-            data[k] = fill_dlist_none(v, value, keys)
+            if k in json_keys and isinstance(v, str):
+                data[k] = _conver_json(v)
+            else:
+                data[k] = fill_dlist_none(v, value, _keys, json_keys)
     elif isinstance(data, list):
         for i, v in enumerate(data):
-            data[i] = fill_dlist_none(v, value, keys)
+            data[i] = fill_dlist_none(v, value, _keys, json_keys)
     return data
 
 
@@ -564,3 +582,45 @@ def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="
             files += find_f(sub_path, directory)
     files.sort(key=lambda x: x[0])
     return files[:max_files]
+
+
+
+def fix_json_string(json_str):
+    try:
+        json.loads(json_str)
+        return json_str
+    except json.JSONDecodeError:
+        pass
+    try:
+        py_obj = ast.literal_eval(json_str)
+        return json.dumps(py_obj)
+    except (SyntaxError, ValueError):
+        pass
+    fixed = json_str
+    in_string = False
+    quote_char = None
+    i = 0
+    result = []
+    while i < len(fixed):
+        char = fixed[i]
+        if char in ["'", '"']:
+            if not in_string:
+                in_string = True
+                quote_char = char
+                result.append('"')
+            elif char == quote_char and (i == 0 or fixed[i-1] != '\\'):
+                in_string = False
+                result.append('"')
+            else:
+                result.append(char)
+        else:
+            result.append(char)
+        i += 1
+    fixed = ''.join(result)
+    fixed = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', fixed)
+    fixed = re.sub(r',\s*([}\]])', r'\1', fixed)
+    try:
+        json.loads(fixed)
+        return fixed
+    except json.JSONDecodeError:
+        return json_str

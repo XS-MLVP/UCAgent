@@ -27,8 +27,10 @@ class VerifyPDB(Pdb):
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
-            cmd = self.init_cmd.pop(0)
-            self.onecmd(cmd)
+            self.setup(frame, traceback)
+            while self.init_cmd:
+                cmd = self.init_cmd.pop(0)
+                self.onecmd(cmd)
         super().interaction(frame, traceback)
 
     def _sigint_handler(self, signum, frame):
@@ -305,3 +307,54 @@ class VerifyPDB(Pdb):
         from vagent.verify_ui import enter_simple_tui
         enter_simple_tui(self)
         print("Exited TUI mode. Returning to PDB.")
+
+    def do_export_agent(self, arg):
+        """
+        Export the current agent state to a file.
+        """
+        if self.curframe is None:
+            print("No active frame available. Make sure you're in an active debugging session.")
+            return
+        name = arg.strip()
+        if not name:
+            echo_y("export name cannot be empty. Usage: export_agent <name>")
+        self.curframe.f_locals[name] = self.agent
+
+    def do_print_last_msg(self, arg):
+        """
+        Print the last message sent by the agent.
+        """
+        try:
+            index = int(arg.strip()) if arg.strip() else -1
+        except ValueError:
+            echo_r("Invalid index. Please provide a valid integer index. Usage: print_last_msg [index]")
+            return
+        msgs = self.agent.get_messages()
+        if not msgs:
+            echo_y("No messages found.")
+            return
+        inde_pos = index if index >= 0 else len(msgs) + index
+        if inde_pos < 0 or inde_pos >= len(msgs):
+            echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
+            return
+        msg = msgs[index]
+        print(msg.__class__.__name__, msg)
+
+    def do_delete_last_msg(self, arg):
+        """
+        Delete the last message sent by the agent.
+        """
+        try:
+            index = int(arg.strip()) if arg.strip() else -1
+        except ValueError:
+            echo_r("Invalid index. Please provide a valid integer index. Usage: delete_last_msg [index]")
+            return
+        msgs = self.agent.get_messages()
+        if not msgs:
+            echo_y("No messages found.")
+            return
+        inde_pos = index if index >= 0 else len(msgs) + index
+        if inde_pos < 0 or inde_pos >= len(msgs):
+            echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
+            return
+        self.agent.pop_message(inde_pos)

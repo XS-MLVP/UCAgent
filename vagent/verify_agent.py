@@ -6,6 +6,7 @@ from .util.functions import fmt_time_deta, get_template_path, render_template_di
 from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
 
 from .tools.fileops import *
+from .tools.extool import *
 from .tools.human import *
 from .stage.vstage import StageManager
 from .verify_pdb import VerifyPDB
@@ -24,18 +25,18 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
-from typing import Any, Dict
+from typing import Any
 
 
-class SummarizationAndIgnoreNoneNode(SummarizationNode):
+class SummarizationAndFixToolCall(SummarizationNode):
     def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
         for msg in input["messages"][-4:]:
             if not isinstance(msg, AIMessage):
                 continue
             if hasattr(msg, "additional_kwargs"):
-                msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments")
+                msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments", ["arguments"])
             if hasattr(msg, "invalid_tool_calls"):
-                msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args")
+                msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
         return super()._func(input)
 
 
@@ -55,6 +56,7 @@ class VerifyAgent(object):
                  stream_output=False,
                  init_cmd=None,
                  seed=None,
+                 sys_tips="",
                  model=None,
                  ex_tools=None,
                  thread_id=None):
@@ -105,9 +107,10 @@ class VerifyAgent(object):
                            # test:
                            # ...
                            # HumanHelp(),
+                           SqThinking(),
                            ] + self.stage_manager.new_tools() + (ex_tools if ex_tools is not None else [])
 
-        summarization_node = SummarizationAndIgnoreNoneNode(
+        summarization_node = SummarizationAndFixToolCall(
             token_counter=count_tokens_approximately,
             model=self.model,
             max_tokens=self.cfg.get_value("max_tokens", 3000),
@@ -127,7 +130,7 @@ class VerifyAgent(object):
         self._time_start = time.time()
         self._time_end = None
         # state
-        self._system_message = ""
+        self._system_message = sys_tips
         self._stat_msg_count_ai = 0
         self._stat_msg_count_tool = 0
         self._stat_msg_count_system = 0
@@ -292,6 +295,20 @@ class VerifyAgent(object):
             self._stat_msg_count_tool += 1
         elif isinstance(msg, SystemMessage):
             self._stat_msg_count_system += 1
+
+    def get_messages(self):
+        """Get the messages from the agent's state."""
+        values = self.agent.get_state(self.get_work_config()).values
+        return values.get("messages", []) if values else []
+
+    def pop_message(self, index):
+        # FIXME
+        values = self.agent.get_state(self.get_work_config()).values
+        if "messages" not in values or index < 0 or index >= len(values["messages"]):
+            warning(f"Invalid index {index} for messages, cannot pop message")
+            return
+        values["messages"].pop(index)
+        info(f"Popped message at index {index}, remaining messages: {len(values['messages'])}")
 
     def do_work_values(self, instructions, config):
         last_msg_index = None
