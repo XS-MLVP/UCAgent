@@ -17,7 +17,7 @@ test_adder:
     fi
 	cp examples/Adder/*.md output/Adder/
 	cp doc/* output/ -r
-	python3 verify.py output/ Adder --config config.yaml
+	python3 verify.py output/ Adder --config config.yaml -s -hm --tui
 
 clean:
 	rm -rf output
