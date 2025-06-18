@@ -9,7 +9,7 @@ import traceback
 import signal
 import time
 
-from vagent.util.functions import fmt_time_stamp
+from vagent.util.functions import fmt_time_stamp, fmt_time_deta
 from vagent.util.log import YELLOW, RESET
 
 class VerifyUI:
@@ -133,9 +133,11 @@ class VerifyUI:
         self.content_task.append(urwid.Text(f"\nChanged Files\n", align='center'))
         for d, t, f in self.vpdb.api_changed_files():
             color = None
+            mtime = fmt_time_stamp(t)
             if d < 180:
                 color = "success_green"
-            self.content_task.append(urwid.Text((color, f"{fmt_time_stamp(t)}:\n {f}"), align='left'))
+                mtime += f" ({fmt_time_deta(d)})"
+            self.content_task.append(urwid.Text((color, f"{mtime}:\n {f}"), align='left'))
         # Tools
         self.content_task.append(urwid.Text(f"\nTools Call\n", align='center'))
         tool_info = " ".join([f"{t[0]}({t[1]})" for t in self.vpdb.api_tool_status()])
@@ -149,11 +151,11 @@ class VerifyUI:
         last_text = self.content_msgs[-1] if len(self.content_msgs) > 0 else None
         for i, line in enumerate((msg + end).split("\n")):
             if i== 0 and last_text is not None:
-                last_text.set_text(last_text.get_text()[0] + line)
+                last_text.original_widget.set_text(last_text.original_widget.get_text()[0] + line)
             else:
-                self.content_msgs.append(ANSIText(line, align='left'))
+                self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, 'yellow'))
         if len(self.content_msgs) > self.content_msgs_maxln:
-            self.content_msgs = self.content_msgs[-self.content_msgs_maxln:]
+            self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
         msg_count = len(self.content_msgs)
         self.content_msgs_focus = msg_count - 1
         self.update_messages_focus()
@@ -162,7 +164,9 @@ class VerifyUI:
         msg_count = len(self.content_msgs)
         if msg_count < 1:
             return
+        self.content_msgs.get_focus()[0].set_attr_map({None: 'body'})
         self.content_msgs.set_focus(self.content_msgs_focus)
+        self.content_msgs.get_focus()[0].set_attr_map({None: 'yellow'})
         self.u_messages_box.set_title(f"Messages ({self.content_msgs_focus}/{msg_count})")
 
     def set_messages_focus(self, delta):
