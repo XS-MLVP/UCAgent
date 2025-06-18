@@ -7,6 +7,7 @@ import sys
 import io
 import traceback
 import signal
+import time
 
 from vagent.util.functions import fmt_time_stamp
 from vagent.util.log import YELLOW, RESET
@@ -17,7 +18,7 @@ class VerifyUI:
     It includes methods for verifying the existence of UI elements and their properties.
     """
 
-    def __init__(self, vpdb, max_messages=1000, prompt="(UnityChip) "):
+    def __init__(self, vpdb, max_messages=1000, prompt="(UnityChip) ", gap_time=0.5):
         self.vpdb = vpdb
         self.console_input_cap = prompt
         self.content_task = urwid.SimpleListWalker([])
@@ -47,6 +48,7 @@ class VerifyUI:
         self.cmd_history_index = readline.get_current_history_length() + 1
         self._pdio = io.StringIO()
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
+        self.gap_time = gap_time
         self.int_layout()
         self._handle_stdout_error()
 
@@ -296,6 +298,24 @@ class VerifyUI:
         signal.signal(signal.SIGINT, original_sigint)
         self.root.focus_part = 'footer'
 
+    def _process_batch_cmd(self):
+        p_count = 0
+        while len(self.vpdb.init_cmd) > 0:
+            cmd = self.vpdb.init_cmd.pop(0)
+            if cmd.startswith("tui"):
+                continue
+            self.console_input.set_edit_text(cmd)
+            time.sleep(self.gap_time)
+            self.console_input.set_edit_text("")
+            self.process_command(cmd)
+            if self.vpdb.agent.is_break():
+                break
+            p_count += 1
+        self.console_output.set_text(self._get_output(f"\n\n{YELLOW}Processed {p_count} commands in batch mode.{RESET}\n"))
+
+    def check_exec_batch_cmds(self, loop, user_data=None):
+        self._process_batch_cmd()
+
     def complete_cmd(self, line):
         if self.last_key == "tab" and self.last_line == line:
             end_text = ""
@@ -436,6 +456,7 @@ def enter_simple_tui(pdb):
     def _sigint_handler(s, f):
         loop.set_alarm_in(0.0, app.exit)
     signal.signal(signal.SIGINT, _sigint_handler)
+    loop.set_alarm_in(0.1, app.check_exec_batch_cmds)
     loop.run()
     signal.signal(signal.SIGINT, original_sigint)
 
