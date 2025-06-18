@@ -5,5 +5,6 @@ langgraph>=0.4.7
 langchain_openai>=0.3.18
 langmem>=0.0.27
 urwid>=3.0.2
+langchain-sequential-thinking-tool>=0.1.1
 pytoffee@git+https://github.com/XS-MLVP/toffee@master
 toffee-test@git+https://github.com/XS-MLVP/toffee-test@master
