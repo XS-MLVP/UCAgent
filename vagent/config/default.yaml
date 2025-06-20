@@ -18,15 +18,14 @@ write_dirs:
   - "{OUT}"
 
 stage:
-  - name: misson_description
+  - name: misson_understanding
     desc: "理解任务需求"
     task:
       - "阅读{DUT}/README.md，理解验证目标与任务。"
-      - "如果有工具 sequential_thinking_tool，请使用该工具来帮助你理解并计划任务。"
       - "你需要用工具Check、 Complete推进任务，用工具Status、Detail查看任务状态和细节。"
-      - "如果需要切换任务，请使用GoToStage工具。"
+      - "如果需要任务回退，请使用GoToStage工具。"
     checker:
-      - name: understand_mission
+      - name: do_not_need_check
         clss: NopChecker
     reference_files:
       - "{DUT}/README.md"

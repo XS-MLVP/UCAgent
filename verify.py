@@ -25,6 +25,10 @@ def get_args():
                 value = eval(value)  # Evaluate the value to convert it to the appropriate type
             overrides[key.strip()] = value
         return overrides
+    def get_list_from_str(list_str):
+        if list_str is None:
+            return []
+        return [item.strip() for item in list_str.split(",") if item.strip()]
     parser = argparse.ArgumentParser(description="Verify Agent")
     parser.add_argument("workspace", type=str, default=os.getcwd(), help="Workspace directory to run the agent in")
     parser.add_argument("dut", type=str, help="a sub-directory name in worspace, e.g., DualPort, Adder, ALU")
@@ -38,6 +42,7 @@ def get_args():
     parser.add_argument("--seed", type=int, default=None, help="Seed for random number generation, if applicable")
     parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
     parser.add_argument("--sys-tips", type=str, default="", help="Set of system tips to be used in the agent")
+    parser.add_argument("--ex-tools", type=get_list_from_str, default=None, help="List of external tools class to be used by the agent, eg --ex-tools SqThink")
     return parser.parse_args()
 
 
@@ -55,6 +60,7 @@ def run():
         seed=args.seed,
         init_cmd=["tui", "loop"] if args.tui else None,
         sys_tips=args.sys_tips,
+        ex_tools=args.ex_tools,
     )
     if args.human or args.tui:
         agent.set_break(True)
