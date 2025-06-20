@@ -2,19 +2,17 @@
 
 from .util.config import get_config
 from .util.log import info, message, warning, error
-from .util.functions import fmt_time_deta, get_template_path, render_template_dir, append_time_str
-from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
+from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
+from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, convert_tools
 
-from .tools.fileops import *
-from .tools.extool import *
-from .tools.human import *
+import vagent.tools
+from .tools import *
 from .stage.vstage import StageManager
 from .verify_pdb import VerifyPDB
 
 import time
 import random
 import signal
-import openai
 import copy
 
 from langchain.globals import set_debug
@@ -59,16 +57,35 @@ class VerifyAgent(object):
                  sys_tips="",
                  model=None,
                  ex_tools=None,
-                 thread_id=None):
+                 thread_id=None,
+                 debug=False,
+                 ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
         Args:
-            config_file (str): Path to the configuration file.
-            cfg_override (dict): Dictionary to override configuration settings.
-            agent (VLLMOpenAI, optional): An instance of VLLMOpenAI. If not provided, a new instance will be created using the configuration.
-            ex_tools (list, optional): Extern list of tools to be used by the agent. 
+            workspace (str): The workspace directory where the agent will operate.
+            dut_name (str): The name of the device under test (DUT).
+            output (str): The output directory for the agent's results.
+            config_file (str, optional): Path to the configuration file. Defaults to None.
+            cfg_override (dict, optional): Dictionary to override configuration settings. Defaults to None.
+            tmp_overwrite (bool, optional): Whether to overwrite existing templates in the workspace. Defaults to False.
+            template_dir (str, optional): Path to the template directory. Defaults to None.
+            stream_output (bool, optional): Whether to stream output to the console. Defaults to False.
+            init_cmd (list, optional): Initial commands to run in the agent. Defaults to None.
+            seed (int, optional): Seed for random number generation. Defaults to None.
+            sys_tips (str, optional): Set of system tips to be used in the agent.
+                                      Defaults to an empty string.
+            model (ChatOpenAI, optional): An instance of ChatOpenAI to use as the agent model.
+                                          If None, a default model will be created using the configuration.
+                                          Defaults to None.
+            ex_tools (list, optional): List of external tools class to be used by the agent, e.g., `--ex-tools SqThink`.
+                                       Defaults to None.
+            thread_id (int, optional): Thread ID for the agent. If None, a random ID will be generated.
+                                       Defaults to None.
+            debug (bool, optional): Whether to enable debug mode. Defaults to False.
         """
-        #set_debug(True)
+        if debug:
+            set_debug(True)
         self.cfg = get_config(config_file, cfg_override)
         self.cfg.update_template({
             "OUT": output,
@@ -82,7 +99,7 @@ class VerifyAgent(object):
             self.model = ChatOpenAI(openai_api_key=self.cfg.openai.openai_api_key,
                                     openai_api_base=self.cfg.openai.openai_api_base,
                                     model=self.cfg.openai.model_name,
-                                    seed=42,
+                                    seed=self.seed,
                                     )
         self.workspace = os.path.abspath(workspace)
         self.output_dir = os.path.join(self.workspace, output)
@@ -106,9 +123,9 @@ class VerifyAgent(object):
                            AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            # test:
                            # ...
-                           # HumanHelp(),
-                           SqThinking(),
-                           ] + self.stage_manager.new_tools() + (ex_tools if ex_tools is not None else [])
+                           ] + self.stage_manager.new_tools()\
+                             + import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools)\
+                             + import_and_instance_tools(ex_tools, vagent.tools)
 
         summarization_node = SummarizationAndFixToolCall(
             token_counter=count_tokens_approximately,

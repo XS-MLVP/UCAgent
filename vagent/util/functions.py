@@ -624,3 +624,56 @@ def fix_json_string(json_str):
         return fixed
     except json.JSONDecodeError:
         return json_str
+
+
+
+def import_and_instance_tools(class_list: List[str], module=None):
+    """
+    Import a list of classes from their string representations.
+    :param class_list: List of class strings in the format 'module.ClassName'.
+    :param module: Optional module to import from if class_list does not contain a dot.
+    :return: A list of imported classes.
+    """
+    if not class_list:
+        return []
+    def _attach_call_count(instance):
+        if hasattr(instance, 'call_count'):
+            return instance
+        print(dir(instance))
+        instance.__dict__['call_count'] = 0
+        def get_new_invoke(old_inv):
+            def new_invoke(self, input, config=None, **kwargs):
+                self.call_count += 1
+                return old_inv(input, config, **kwargs)
+            return new_invoke
+        def get_new_ainvoke(old_ainv):
+            def new_ainvoke(self, input, config=None, **kwargs):
+                self.call_count += 1
+                return old_ainv(input, config, **kwargs)
+            return new_ainvoke
+        object.__setattr__(instance, 'invoke', get_new_invoke(object.__getattribute__(instance, "invoke")))
+        object.__setattr__(instance, 'ainvoke', get_new_ainvoke(object.__getattribute__(instance, "ainvoke")))
+        return instance
+    tools = []
+    for cls in class_list:
+        if "." not in cls:
+            assert module is not None, "Module must be provided if class does not contain a dot."
+            tools.append(_attach_call_count(getattr(module, cls)()))
+        else:
+            module_path, class_name = cls.rsplit('.', 1)
+            mod = importlib.import_module(module_path)
+            tools.append(_attach_call_count(getattr(mod, class_name)()))
+    return tools
+
+
+def convert_tools(tools):
+    from langgraph.prebuilt.tool_node import ToolNode
+    llm_builtin_tools: list[dict] = []
+    if isinstance(tools, ToolNode):
+        tool_classes = list(tools.tools_by_name.values())
+        tool_node = tools
+    else:
+        llm_builtin_tools = [t for t in tools if isinstance(t, dict)]
+        tool_node = ToolNode([t for t in tools if not isinstance(t, dict)])
+        tool_classes = list(tool_node.tools_by_name.values())
+    return llm_builtin_tools + tool_classes

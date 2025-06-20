@@ -160,6 +160,7 @@ class VerifyUI:
         if len(self.content_msgs) > self.content_msgs_maxln:
             self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
             self.content_msgs[-2].set_attr_map({None: 'body'})
+            self.content_msgs[-1].set_attr_map({None: 'body'})
         msg_count = len(self.content_msgs)
         self.content_msgs_focus = msg_count - 1
         self.update_messages_focus()
