@@ -17,6 +17,12 @@ un_write_dirs:
 write_dirs:
   - "{OUT}"
 
+embed:
+  model: "Qwen/Qwen3-Embedding-8B"
+  openai_base_url: http://10.156.154.242:8001/v1
+  api_key: "EMPTY_API_KEY"
+  dims: 4096
+
 stage:
   - name: misson_understanding
     desc: "理解任务需求"

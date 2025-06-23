@@ -45,8 +45,13 @@ def test_edit_multil_line():
     print("result:\n%s"%result)
 
 def test_ref_mem():
-    tool = ReferenceDoc(workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
-    print(tool.invoke({"query": "test", "limit": 3}))
+    config= {
+        "openai_base_url": "http://10.156.154.242:8001/v1",
+        "api_key": "your_openai_api_key",
+        "dims": 4096,
+    }
+    tool = ReferenceDoc(config, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
+    print(tool.invoke({"query": "import", "limit": 3}))
 
 if __name__ == "__main__":
     test_read_text_file()
