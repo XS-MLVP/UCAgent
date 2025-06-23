@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 import time
 
-from vagent.tools.fileops import *
+from vagent.tools import *
 
 def print_tool_info(tool):
     print("Tool Name    :", tool.name)
@@ -44,8 +44,13 @@ def test_edit_multil_line():
     result = tool.invoke({"path": "Adder/Adder.v", "values": [(-1, f"// This is a test comment: {time.time()}", 0)]})
     print("result:\n%s"%result)
 
+def test_ref_mem():
+    tool = ReferenceDoc(workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
+    print(tool.invoke({"query": "test", "limit": 3}))
+
 if __name__ == "__main__":
     test_read_text_file()
     test_list_path()
     test_read_file()
     #test_edit_multil_line()
+    test_ref_mem()
