@@ -191,7 +191,7 @@ class StageManager(object):
                 description=f.desc,
                 task=f.task,
                 checker=f.checker,
-                reference_files=getattr(f, "reference_files", []),
+                reference_files=f.get_value("reference_files", []),
                 tool_read_text = tool_read_text,
             ) for f in cfg.stage
         ]
@@ -211,6 +211,7 @@ class StageManager(object):
         Create and return a list of tools for the current stage.
         """
         tools = [
+            ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
             ToolDoCheck().set_function(self.tool_check),
             ToolDoComplete().set_function(self.tool_complete),
@@ -276,6 +277,9 @@ class StageManager(object):
             }))
         ret["current_stage_index"] = self.stage_index
         ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
+        cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
+        if cstage:
+            ret["reference_files_to_read"] = [f for f, v in cstage.reference_files.items() if not v]
         if self.last_check_info:
             ret["last_check_info"] = self.last_check_info
         return ret
