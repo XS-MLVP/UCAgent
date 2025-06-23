@@ -109,8 +109,14 @@ class VerifyAgent(object):
             if not os.path.exists(tmep_dir) or tmp_overwrite:
                 render_template_dir(self.workspace, template, {"DUT": dut_name})
         self.tool_read_text = ReadTextFile(self.workspace)
+        self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
+        self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
+        self.tool_memory_get = MemoryGet().set_store(store=self.tool_memory_put.get_store())
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
         self.test_tools = [# file operations
+                           self.tool_reference,
+                           self.tool_memory_put,
+                           self.tool_memory_get,
                            # read:
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),

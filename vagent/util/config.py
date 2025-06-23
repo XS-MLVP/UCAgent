@@ -215,6 +215,17 @@ class Config(object):
             return default
         return getattr(current, keys[-1], default)
 
+    def __getitem__(self, key):
+        """
+        Get a value from the configuration using dictionary-like access.
+        :param key: Key of the value to get. eg a.b.c
+        :return: Value of the key if it exists, otherwise raises KeyError.
+        """
+        if not isinstance(key, str):
+            raise TypeError("Key must be a string.")
+        assert self.has_attr(key), f"Configuration does not have attribute '{key}'"
+        return self.get_value(key)
+
     def set_values(self, values):
         """
         Set multiple values in the configuration.
