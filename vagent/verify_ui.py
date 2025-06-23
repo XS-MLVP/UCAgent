@@ -159,8 +159,6 @@ class VerifyUI:
                 self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
         if len(self.content_msgs) > self.content_msgs_maxln:
             self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
-            self.content_msgs[-2].set_attr_map({None: 'body'})
-            self.content_msgs[-1].set_attr_map({None: 'body'})
         msg_count = len(self.content_msgs)
         self.content_msgs_focus = msg_count - 1
         self.update_messages_focus()
@@ -169,7 +167,10 @@ class VerifyUI:
         msg_count = len(self.content_msgs)
         if msg_count < 1:
             return
-        self.content_msgs.get_focus()[0].set_attr_map({None: 'body'})
+        for i in range(self.content_msgs_focus - 5, self.content_msgs_focus + 5):
+            if i < 0 or i >= msg_count:
+                continue
+            self.content_msgs[i].set_attr_map({None: 'body'})
         self.content_msgs.set_focus(self.content_msgs_focus)
         self.content_msgs.get_focus()[0].set_attr_map({None: 'yellow'})
         self.u_messages_box.set_title(f"Messages ({self.content_msgs_focus}/{msg_count})")
