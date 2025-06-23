@@ -401,6 +401,9 @@ def find_files_by_pattern(workspace, pattern):
         pattern = [pattern]
     ret = []
     for p in pattern:
+        if os.path.isfile(os.path.join(workspace, p)):
+            ret.append(p)
+            continue
         if not is_regex_pattern(p):
             ret += find_files_by_glob(workspace, p)
         else:
