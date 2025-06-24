@@ -50,7 +50,7 @@ stage:
           min_functions: 3
           min_checks: 3
         extra_args:
-          fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确。注意：好好阅读参考文档，学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。可以参考 examples 中的例子。"
+          fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确、功能点个数是否达标等。注意：好好阅读参考文档，学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。可以参考 examples 中的例子。"
           pass_msg: "功能点与检测点检查成功，你做的很好！"
           max_try: 10
     reference_files:
