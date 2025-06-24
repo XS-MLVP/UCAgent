@@ -439,7 +439,7 @@ class TextFileReplace(UCTool, BaseReadWrite):
             lines_insert = []
             if data is not None:
                 if preserve_indent:
-                    lines_insert = ["\n".join(copy_indent_from(lines[start:start + count], data.split("\n"))) + "\n"]
+                    lines_insert = ["\n".join(copy_indent_from(lines[start:start + max(1, count)], data.split("\n"))) + "\n"]
                 else:
                     lines_insert = [data + "\n"]
             # write the new content
@@ -537,21 +537,23 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
             for index, count, data, preserve_indent in values:
                 if index < 0:
                     if data is not None:
-                        final_data.append(data + "\n")
+                        final_data.append([data + "\n"])
                     continue
                 final_data.append(lines[end_index: index])
                 insert_lines = []
                 if data is not None:
                     if preserve_indent:
-                        insert_lines = ["\n".join(copy_indent_from(lines[index:index + count], data.split("\n"))) + "\n"]
+                        src_lines = lines[index:index + max(1, count)]
+                        insert_lines = ["\n".join(copy_indent_from(src_lines, data.split("\n"))) + "\n"]
                     else:
                         insert_lines = [data + "\n"]
                 end_index = index + count
                 final_data.append(insert_lines)
             final_data.append(lines[end_index:])
         # write the new content
+        data = [i for sublist in final_data for i in sublist]  # flatten the list
         with open(real_path, 'w', encoding='utf-8') as f:
-            f.writelines(final_data)
+            f.writelines(data)
             f.flush()
         ret_info = str_info(f"MultiReplace complete.")
         self.do_callback(True, path, ret_info)

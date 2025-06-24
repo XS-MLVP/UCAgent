@@ -39,18 +39,18 @@ def test_read_text_file():
 
 def test_edit_multil_line():
     print("============== test_edit_multiline ==============")
-    tool = TextFileMultiLinesEdit(workspace=os.path.join(current_dir, "../examples"))
+    tool = TextFileMultiReplace(workspace=os.path.join(current_dir, "../examples"))
     print_tool_info(tool)
-    result = tool.invoke({"path": "Adder/Adder.v", "values": [(-1, f"// This is a test comment: {time.time()}", 0)]})
+    result = tool.invoke({"path": "Adder/adder.v", "values": [
+        (-1, 0, f"// This is a test comment: {time.time()}", False),
+         (9, 0, f"// This is a test comment:\n// {time.time()}", True),
+        ]})
     print("result:\n%s"%result)
 
 def test_ref_mem():
-    config= {
-        "openai_base_url": "http://10.156.154.242:8001/v1",
-        "api_key": "your_openai_api_key",
-        "dims": 4096,
-    }
-    tool = ReferenceDoc(config, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
+    from vagent.util.config import get_config
+    cfg = get_config(os.path.join(current_dir, "../config.yaml"))
+    tool = SearchInGuidDoc(cfg.embed, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
     print(tool.invoke({"query": "import", "limit": 3}))
 
 if __name__ == "__main__":
