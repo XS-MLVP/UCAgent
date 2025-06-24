@@ -126,7 +126,7 @@ class MemoryPut(MemoryTool):
         """Save the content to the memory store."""
         key = str(time.time_ns())
         self.store.put(
-            utils.NamespaceTemplate(scope),
+            utils.NamespaceTemplate(scope)(),
             key=key,  # Use a unique key based on the current time
             value={"content": data}
         )
@@ -147,7 +147,7 @@ class MemoryGet(MemoryTool):
     def _run(self, scope: str, query: str, limit: int = 3, run_manager = None) -> str:
         """Search for content in the memory store."""
         memories = self.store.search(
-            utils.NamespaceTemplate(scope),
+            utils.NamespaceTemplate(scope)(),
             query=query,
             filter=None,
             limit=limit,
