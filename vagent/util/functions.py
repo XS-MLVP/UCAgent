@@ -680,3 +680,27 @@ def convert_tools(tools):
         tool_node = ToolNode([t for t in tools if not isinstance(t, dict)])
         tool_classes = list(tool_node.tools_by_name.values())
     return llm_builtin_tools + tool_classes
+
+
+
+def copy_indent_from(src: list, dst: list):
+    """
+    Copy the indentation from the source string to the destination string.
+    :param src: The source string from which to copy the indentation.
+    :param dst: The destination string to which the indentation will be applied.
+    :return: The destination string with the copied indentation.
+    """
+    if not src or not dst:
+        return dst
+    ret = []
+    indent = 0
+    for s, d in zip(src, dst):
+        if not s or not d:
+            ret.append(d)
+            continue
+        indent = len(s) - len(s.lstrip())
+        ret.append(' ' * indent + d.lstrip())
+    if len(src) < len(dst):
+        for d in dst[len(src):]:
+            ret.append(' ' * indent + d)
+    return ret

@@ -2,7 +2,7 @@
 
 from typing import Optional, List, Tuple
 from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data, warning
-from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
+from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from
 from .uctool import UCTool
 
 from langchain_core.callbacks import (
@@ -380,7 +380,7 @@ class ArgTextFileReplace(BaseModel):
         description="Text file path to modify, relative to the workspace.")
     start: int = Field(
         default=0,
-        description="Start line index to replace. If index<0 insert at head, if index >= file lines append at end."
+        description="Start line index (form 0 to file lines - 1) to replace. If index < 0 insert at head, if index >= file lines append at end."
     )
     count: int = Field(
         default=-1,
@@ -418,7 +418,7 @@ class TextFileReplace(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgTextFileReplace
     return_direct: bool = False
 
-    def _run(self, path: str, start: int = 0, count: int = -1, data: str = None,
+    def _run(self, path: str, start: int = 0, count: int = -1, data: str = None, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace the content of a text file in the workspace."""
         success, msg, real_path = self.check_file(path)
@@ -438,7 +438,10 @@ class TextFileReplace(UCTool, BaseReadWrite):
                 lines_after = lines[max(0, start) + count:]
             lines_insert = []
             if data is not None:
-                lines_insert = [data + "\n"]
+                if preserve_indent:
+                    lines_insert = ["\n".join(copy_indent_from(lines[start:start + count], data.split("\n"))) + "\n"]
+                else:
+                    lines_insert = [data + "\n"]
             # write the new content
             f.seek(0)
             f.truncate(0)
@@ -466,12 +469,12 @@ class ArgTextFileMultiReplace(BaseModel):
         default=[],
         description=(
             "List of edits: [(index, count, data, preserve_indent), ...].\n"
-            "- index: int, If index<0 insert at head, if index >= file lines append at end.\n"
-            "- count: int, number of lines to replace. 0: insert, -1: to end of file.\n"
+            "- index: int, form 0 to file lines - 1. If index < 0 insert at head, if index >= file lines append at end.\n"
+            "- count: int, number of lines to replace. 0: insert. `count` must be positive value.\n"
             "- data: str, the new data to replace or insert. If None, delete the `count` lines start from `index`.\n"
             "- preserve_indent: bool, False for direct replace; True for replace with the same indentation as the original line, "
             "if the new data lines is more than the target lines, the extra lines will preserved the indentation of the last target line.\n"
-            "Each index in file must be unique. More than one edit with the same index will cause an error.\n"
+            "Each target block (index, index+count) must be unique, with no intersections.\n"
         )
     )
 
@@ -487,7 +490,7 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
         "line 1\n"
         "    line 2\n"
         "line 3\n"
-        "the multi-replace operation with values=[(1, 1, 'new line a\\n  new lineb', False), (2, 0, 'inserted line c', True)] will result in:\n"
+        "the multi-replace operation with values=[(1, 1, 'new line a\\n  new line b', False), (2, 0, 'inserted line c', True)] will result in:\n"
         "line 1\n"
         "new line a\n"
         "  new line b\n"
@@ -499,13 +502,10 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgTextFileMultiReplace
     return_direct: bool = False
 
-    def _run(self, path: str, values: List[Tuple[int, str, int]],
+    def _run(self, path: str, values: List[Tuple[int, int, str, int]],
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace or insert multiple blocks of lines in a text file at target positions.
-            - Each tuple: (line_index, new_data, edit_type)
-            - line_index < 0: insert at head; >=len(lines): append at end; in range: replace or delete.
-            - new_data is None: delete line at line_index.
-            - edit_type: 0=direct replace, nonzero=preserve indentation.
+        The values should be a list of tuples: (index, count, data, preserve_indent).
         """
         success, msg, real_path = self.check_file(path)
         if not success:
@@ -516,70 +516,44 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
             self.do_callback(False, path, emsg)
             return str_error(emsg)
         info(f"Editing text file {real_path} with values {values}")
-        ret_warn = str_warning("\n")
-        delete_lines = []
-        append_lines = []
-        insert_lines = []
-        edit_count = 0
-        lines_count_old = 0
+        final_data = []
         with open(real_path, 'r+', encoding='utf-8') as f:
             lines = f.readlines()
-            lines_count_old = len(lines)
-            # sort the values by line index
+            # check overlaped target sections
             values = sorted(values, key=lambda x: x[0])
-            duplicate_index = [v[0] for v in values if v[0] >=0]
-            # check for duplicate line indices
-            if len(duplicate_index) != len(set(duplicate_index)):
-                duplicate_indexs = ["index %d find %d times."%(x, duplicate_index.count(x)) for x in duplicate_index if duplicate_index.count(x) > 1]
-                emsg = f"Duplicate line indices found: {', '.join(duplicate_indexs)}. Please provide unique line indices."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-            for line_index, new_data, edit_type in values:
-                if new_data is None:
-                    if line_index < 0 or line_index >= len(lines):
-                        # insert mode, insert a new line
-                        ret_warn += f"Line index {line_index} is out of range(0-{len(lines) - 1}) with empt data, ignore.\n"
-                        continue
-                    # delete the line
-                    delete_lines.append(line_index)
+            for i, (index, count, _, _) in enumerate(values):
+                if count < 0:
+                    emsg = f"`count` in block-{i} must be postive or zero"
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                if i == 0:
                     continue
-                if line_index < 0:
-                    insert_lines.append(new_data + "\n")
+                p_index, p_count = values[i - 1][0], values[i - 1][1]
+                if not (index >= (p_index + p_count)):
+                    emsg = f"Target block-{i} ({index}:{index+count}) is overlaped with previous target block-{i-1} ({p_index}:{p_index+p_count}). Please provide unique line indices in ascending order."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+            end_index = 0
+            for index, count, data, preserve_indent in values:
+                if index < 0:
+                    if data is not None:
+                        final_data.append(data + "\n")
                     continue
-                if line_index >= len(lines):
-                    append_lines.append(new_data + "\n")
-                    continue
-                # replace the line
-                # direct mode
-                data = new_data
-                if edit_type != 0: # com_indent mode
-                    # preserve original line indentation
-                    original_line = lines[line_index]
-                    indent = len(original_line) - len(original_line.lstrip())
-                    data = original_line[:indent] + new_data.lstrip()
-                # replace the line
-                lines[line_index] = data + "\n"
-                edit_count += 1
-        # delete the lines
-        new_lines = []
-        if delete_lines:
-            for i, line in enumerate(lines):
-                if i not in delete_lines:
-                    new_lines.append(line)
-        else:
-            new_lines = lines[:]
-        # append the new lines
-        if append_lines:
-            new_lines.extend(append_lines)
-        if insert_lines:
-            new_lines = insert_lines + new_lines
+                final_data.append(lines[end_index: index])
+                insert_lines = []
+                if data is not None:
+                    if preserve_indent:
+                        insert_lines = ["\n".join(copy_indent_from(lines[index:index + count], data.split("\n"))) + "\n"]
+                    else:
+                        insert_lines = [data + "\n"]
+                end_index = index + count
+                final_data.append(insert_lines)
+            final_data.append(lines[end_index:])
         # write the new content
         with open(real_path, 'w', encoding='utf-8') as f:
-            f.writelines(new_lines)
+            f.writelines(final_data)
             f.flush()
-        ret_info = str_info(f"Total lines {lines_count_old} -> {len(new_lines)} after edit: "
-                            f"delete: {len(delete_lines)}, insert: {len(insert_lines)}, append: {len(append_lines)}, edit: {edit_count}."
-                            )
+        ret_info = str_info(f"MultiReplace complete.")
         self.do_callback(True, path, ret_info)
         return ret_info
 
