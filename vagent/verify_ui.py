@@ -26,6 +26,7 @@ class VerifyUI:
         self.content_stat = urwid.SimpleListWalker([])
         self.content_msgs = urwid.SimpleListWalker([])
         self.content_msgs_focus = 0
+        self.content_msgs_scroll = False
         self.content_msgs_maxln = max_messages
         self.box_task = urwid.ListBox(self.content_task)
         self.box_stat = urwid.ListBox(self.content_stat)
@@ -159,8 +160,8 @@ class VerifyUI:
                 self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
         if len(self.content_msgs) > self.content_msgs_maxln:
             self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
-        msg_count = len(self.content_msgs)
-        self.content_msgs_focus = msg_count - 1
+        if not self.content_msgs_scroll:
+            self.content_msgs_focus = len(self.content_msgs) - 1
         self.update_messages_focus()
 
     def update_messages_focus(self):
@@ -180,6 +181,7 @@ class VerifyUI:
         Set the focus of the messages list.
         :param delta: The change in focus, can be positive or negative.
         """
+        self.content_msgs_scroll = True
         self.content_msgs_focus += delta
         self.content_msgs_focus = max(0, min(self.content_msgs_focus, len(self.content_msgs) - 1))
         self.update_messages_focus()
@@ -204,9 +206,13 @@ class VerifyUI:
         """
         cmd = self.console_input.get_edit_text().lstrip()
         if key == 'esc':
+            if self.content_msgs_scroll:
+                self.content_msgs_scroll = False
+                self.content_msgs_focus = len(self.content_msgs) - 1
+                self.update_messages_focus()
+                return
             if self.console_output_page_scroll("exit_page"):
                 return
-            self.exit(None)
         elif key == 'enter':
             self.console_input.set_edit_text("")
             if cmd in ("q", "Q", "exit", "quit"):

@@ -370,7 +370,7 @@ class VerifyAgent(object):
                     self.message_echo(get_ai_message_tool_call(msg))
                     self.check_tool_call_error(msg)
                     continue
-                self.message_echo(msg.pretty_repr())
+                self.message_echo("\n"+msg.pretty_repr())
 
     def check_tool_call_error(self, msg):
         if not isinstance(msg, AIMessage):
