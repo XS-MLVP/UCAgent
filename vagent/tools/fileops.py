@@ -374,41 +374,53 @@ class ReadTextFile(UCTool, BaseReadWrite):
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgTextFileReplaceLines(BaseModel):
+class ArgTextFileReplace(BaseModel):
     path: str = Field(
         default=None,
         description="Text file path to modify, relative to the workspace.")
     start: int = Field(
         default=0,
-        description="Start line index to replace. Need >= 0"
+        description="Start line index to replace. If index<0 insert at head, if index >= file lines append at end."
     )
     count: int = Field(
         default=-1,
-        description="Number of lines to replace. 0: insert, -1: to end of file."
+        description="Number of lines to replace. 0: means insert, -1: means to end of file."
     )
     data: str = Field(
         default=None,
-        description="New lines data to replace target lines. If None, target lines are removed."
+        description="New lines of data to replace the target lines. If None, target `count` of lines from `start` are removed."
+    )
+    preserve_indent: bool = Field(
+        default=False,
+        description= "If True, preserve the indentation of the original lines when replacing, "
+        "if the new data lines is more than the target lines, the extra lines will preserved the indentation of the last target line."
     )
 
 
-class TextFileReplaceLines(UCTool, BaseReadWrite):
-    """Replace or insert lines in a text file in the workspace."""
-    name: str = "TextFileReplaceLines"
+class TextFileReplace(UCTool, BaseReadWrite):
+    """Replace or insert a block of lines in a text file at the target position"""
+    name: str = "TextFileReplace"
     description: str = (
-        "Replace or insert lines in a text file in the workspace. "
+        "Replace or insert a block of lines in a text file at the target position. "
         "If file does not exist, creates it. Line index starts from 0."
+        "eg:\n "
+        "the original file content is:\n"
+        "line 1\n" \
+        "line 2\n" \
+        "line 3\n" \
+        "the replace operation with (start=1, count=1, data='new line', preserve_indent=False) will result in:\n"
+        "line 1\n" \
+        "new line\n" \
+        "line 3\n"
+        "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
+        "If you want to replace multiple blocks of lines, use 'TextFileMultiReplace' tool instead.\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgTextFileReplaceLines
+    args_schema: Optional[ArgsSchema] = ArgTextFileReplace
     return_direct: bool = False
 
     def _run(self, path: str, start: int = 0, count: int = -1, data: str = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace the content of a text file in the workspace."""
-        if start < 0:
-            emsg = f"Start line {start} need be zero or positive."
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
         success, msg, real_path = self.check_file(path)
         if not success:
             self.do_callback(False, path, msg)
@@ -420,10 +432,10 @@ class TextFileReplaceLines(UCTool, BaseReadWrite):
         info(f"Replacing text file {real_path} from line {start} with count {count}")
         with open(real_path, 'r+', encoding='utf-8') as f:
             lines = f.readlines()
-            lines_pred = lines[:start]
+            lines_pred = lines[:max(0, start)]
             lines_after = []
             if count >= 0:
-                lines_after = lines[start + count:]
+                lines_after = lines[max(0, start) + count:]
             lines_insert = []
             if data is not None:
                 lines_insert = [data + "\n"]
@@ -433,7 +445,11 @@ class TextFileReplaceLines(UCTool, BaseReadWrite):
             f.writelines(lines_pred + lines_insert + lines_after)
             f.flush()
             self.do_callback(True, path, {"start": start, "count": count, "data": data})
-            return str_info(f"Write {len(data)+1} characters complete.")
+            if data is None:
+                ret_info = str_info(f"Removed {count} lines starting from line {start} complete.")
+            else:
+                ret_info = str_info(f"Replaced {count} lines starting from line {start} with new data complete.")
+            return str_info(ret_info)
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
@@ -441,44 +457,51 @@ class TextFileReplaceLines(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgTextFileMultiLinesEdit(BaseModel):
+class ArgTextFileMultiReplace(BaseModel):
     path: str = Field(
         default=None,
-        description="File path to edit, relative to the workspace."
+        description="File path to multi-replace, relative to the workspace."
     )
-    values: List[Tuple[int, str, int]] = Field(
+    values: List[Tuple[int, int, str, bool]] = Field(
         default=[],
         description=(
-            "List of edits: [(line_index, new_data, edit_type), ...].\n"
-            "- line_index: int, target line (0-based). <0: insert at head; >=len(lines): append at end.\n"
-            "- new_data: str or None. If None, delete the line at line_index.\n"
-            "- edit_type: 0 for direct replace; nonzero for preserve indentation replace.\n"
-            "Each line_index in file must be unique. If out of range and new_data is None, ignored."
+            "List of edits: [(index, count, data, preserve_indent), ...].\n"
+            "- index: int, If index<0 insert at head, if index >= file lines append at end.\n"
+            "- count: int, number of lines to replace. 0: insert, -1: to end of file.\n"
+            "- data: str, the new data to replace or insert. If None, delete the `count` lines start from `index`.\n"
+            "- preserve_indent: bool, False for direct replace; True for replace with the same indentation as the original line, "
+            "if the new data lines is more than the target lines, the extra lines will preserved the indentation of the last target line.\n"
+            "Each index in file must be unique. More than one edit with the same index will cause an error.\n"
         )
     )
 
 
-class TextFileMultiLinesEdit(UCTool, BaseReadWrite):
-    """Edit multiple lines in a text file in the workspace. The file must exist."""
-    name: str = "TextFileMultiLinesEdit"
+class TextFileMultiReplace(UCTool, BaseReadWrite):
+    """Replace or insert multiple blocks of lines in a text file at target positions"""
+    name: str = "TextFileMultiReplace"
     description: str = (
-        "Edit multiple lines in a text file in the workspace. The file must exist. \n"
+        "Replace or insert multiple blocks of lines in a text file at target positions. The file must exist. \n"
         "Supports direct replacement or preserving original line indentation.\n"
-        "- For each edit:\n"
-        "  * line_index < 0: insert at file head.\n"
-        "  * line_index >= file max lines: append at file end.\n"
-        "  * line_index in range: replace or delete (if new_data is None).\n"
-        "  * edit_type: 0=direct replace, nonzero=preserve indentation replace.\n"
-        "Supports direct replacement or preserving original line indentation. \n"
-        "If you just write text to file, you should use 'WriteToFile' tool instead.\n"
-        "See 'values' for edit format."
+        "eg:\n"
+        "the original file content is:\n"
+        "line 1\n"
+        "    line 2\n"
+        "line 3\n"
+        "the multi-replace operation with values=[(1, 1, 'new line a\\n  new lineb', False), (2, 0, 'inserted line c', True)] will result in:\n"
+        "line 1\n"
+        "new line a\n"
+        "  new line b\n"
+        "inserted line c\n"
+        "line 3\n"
+        "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
+        "If you want to replace just one block of lines, use 'TextFileReplace' tool instead.\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgTextFileMultiLinesEdit
+    args_schema: Optional[ArgsSchema] = ArgTextFileMultiReplace
     return_direct: bool = False
 
     def _run(self, path: str, values: List[Tuple[int, str, int]],
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Edit multiple lines in a text file in the workspace.
+        """Replace or insert multiple blocks of lines in a text file at target positions.
             - Each tuple: (line_index, new_data, edit_type)
             - line_index < 0: insert at head; >=len(lines): append at end; in range: replace or delete.
             - new_data is None: delete line at line_index.
