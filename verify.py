@@ -8,7 +8,7 @@ sys.path.append(os.path.join(current_dir))
 
 import argparse
 from vagent.verify_agent import VerifyAgent
-
+from vagent.util.log import init_log_logger, init_msg_logger
 
 def get_args():
     def get_override_dict(override_str):
@@ -43,11 +43,23 @@ def get_args():
     parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
     parser.add_argument("--sys-tips", type=str, default="", help="Set of system tips to be used in the agent")
     parser.add_argument("--ex-tools", type=get_list_from_str, default=None, help="List of external tools class to be used by the agent, eg --ex-tools SqThink")
+    parser.add_argument("--log", action="store_true", default=False, help="Enable logging")
+    parser.add_argument("--log-file", type=str, default=None, help="Path to the log file")
+    parser.add_argument("--msg-file", type=str, default=None, help="Path to the msg file")
     return parser.parse_args()
 
 
 def run():
     args = get_args()
+    if args.log_file or args.msg_file or args.log:
+        if args.log_file:
+            init_log_logger(log_file=args.log_file)
+        else:
+            init_log_logger()
+        if args.msg_file:
+            init_msg_logger(log_file=args.msg_file)
+        else:
+            init_msg_logger()
     agent = VerifyAgent(
         workspace=args.workspace,
         dut_name=args.dut,

@@ -1,7 +1,7 @@
 #coding=utf-8
 
 from .util.config import get_config
-from .util.log import info, message, warning, error
+from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
 from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, convert_tools
 
@@ -153,6 +153,7 @@ class VerifyAgent(object):
         self._time_start = time.time()
         self._time_end = None
         # state
+        self._msg_buffer = ""
         self._system_message = sys_tips
         self._stat_msg_count_ai = 0
         self._stat_msg_count_tool = 0
@@ -185,6 +186,11 @@ class VerifyAgent(object):
         """Echo a message using the custom message echo handler if set."""
         if self.message_echo_handler is not None:
             self.message_echo_handler(msg, end)
+            if msg:
+                self._msg_buffer = self._msg_buffer + msg + end
+            if end == "\n":
+                msg_msg(self._msg_buffer)
+                self._msg_buffer = ""
         else:
             message(msg, end=end)
 

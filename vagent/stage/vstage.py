@@ -237,6 +237,7 @@ class StageManager(object):
             ret += f"\nYou need read (use tool: {self.tool_read_text.name}) and understand the following reference files:\n"
             for f in ref_files:
                 ret += f"  - {f}\n"
+        info("Tips: " + ret)
         return ret
 
     def detail(self):
@@ -288,7 +289,9 @@ class StageManager(object):
         return dump_as_json(self.status())
 
     def tool_go_to_stage(self, index):
-        return self.go_to_stage(index)
+        ret = self.go_to_stage(index)
+        info("ToolGoToStage: " + ret)
+        return ret
 
     def go_to_stage(self, index):
         """
@@ -316,7 +319,9 @@ class StageManager(object):
         }
 
     def tool_check(self):
-        return dump_as_json(self.check())
+        ret = dump_as_json(self.check())
+        info("ToolCheck: " + ret)
+        return ret
 
     def complete(self):
         if self.stage_index >= len(self.stages):
@@ -346,5 +351,7 @@ class StageManager(object):
         }
 
     def tool_complete(self):
-        return dump_as_json(self.complete())
+        ret = dump_as_json(self.complete())
+        info("ToolComplete: " + ret)
+        return ret
 
