@@ -53,6 +53,7 @@ class VerifyUI:
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self.gap_time = gap_time
         self.is_cmd_busy = False
+        self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
         self.int_layout()
         self._handle_stdout_error()
 
@@ -61,6 +62,7 @@ class VerifyUI:
         Exit the application gracefully.
         """
         self.vpdb.agent.unset_message_echo_handler()
+        self.vpdb.agent._mcps_logger = None
         self._clear_stdout_error()
         raise urwid.ExitMainLoop()
 
@@ -597,3 +599,41 @@ class ANSIText(urwid.Text):
         if fg_color:
             return fg_color
         return None
+
+
+
+import sys
+import traceback
+import logging
+
+class UIMsgLogger(logging.Logger):
+    
+    def __init__(self, ui, level=logging.getLevelName("INFO")):
+        super().__init__(name="UIMsgLogger", level=level)
+        self.ui = ui
+
+    def log(self, level, msg, *args, **kwargs):
+        self.ui.message_echo(f"[{logging.getLevelName(level)}] {msg % args if args else msg}")
+
+    def debug(self, msg, *args, **kwargs):
+        self.log(logging.DEBUG, msg, *args, **kwargs)
+
+    def info(self, msg, *args, **kwargs):
+        self.log(logging.INFO, msg, *args, **kwargs)
+    
+    def warning(self, msg, *args, **kwargs):
+        self.log(logging.WARNING, msg, *args, **kwargs)
+
+    def warn(self, msg, *args, **kwargs):
+        self.warning(msg, *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        self.log(logging.ERROR, msg, *args, **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        self.log(logging.CRITICAL, msg, *args, **kwargs)
+
+    def exception(self, msg, *args, exc_info=True, **kwargs):
+        self.error(msg, *args, **kwargs)
+        if exc_info:
+            traceback.print_exc(file=self.stream)

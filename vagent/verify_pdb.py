@@ -25,6 +25,7 @@ class VerifyPDB(Pdb):
             if isinstance(init_cmd, str):
                 self.init_cmd = [init_cmd]
             info(f"VerifyPDB initialized with {len(self.init_cmd)} initial commands.")
+        self._in_tui = False
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -305,8 +306,13 @@ class VerifyPDB(Pdb):
         """
         Enter TUI mode.
         """
+        if self._in_tui:
+            echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
+            return
         from vagent.verify_ui import enter_simple_tui
+        self._in_tui = True
         enter_simple_tui(self)
+        self._in_tui = False
         print("Exited TUI mode. Returning to PDB.")
 
     def do_export_agent(self, arg):
