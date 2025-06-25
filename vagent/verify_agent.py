@@ -3,7 +3,8 @@
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
-from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, start_verify_mcps
+from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
+from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps
 
 import vagent.tools
 from .tools import *
@@ -167,6 +168,8 @@ class VerifyAgent(object):
         self._need_break = False
         self._force_trace = False
         self._continue_msg = None
+        self._mcps = None
+        self._mcps_logger = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self.handle_sigint()
@@ -176,7 +179,13 @@ class VerifyAgent(object):
         tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
         if not no_file_ops:
             tools += self.tool_list_file
-        start_verify_mcps(tools, host=host, port=port)
+        self._mcps, glogger = create_verify_mcps(tools, host=host, port=port, logger=self._mcps_logger)
+        start_verify_mcps(self._mcps, glogger)
+        self._mcps = None
+
+    def stop_mcps(self):
+        """Stop the MCPs server if it is running."""
+        stop_verify_mcps(self._mcps)
 
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""
@@ -228,6 +237,8 @@ class VerifyAgent(object):
 
     def set_break(self, value=True):
         self._need_break = value
+        if value:
+            self.stop_mcps()
 
     def is_break(self):
         return self._need_break
