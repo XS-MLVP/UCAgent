@@ -139,6 +139,8 @@ class BaseReadWrite:
             return False, str_error(f"Path '{path}' is not within the workspace."), ""
         if not os.path.exists(real_path):
             return False, str_error(f"Path {path} does not exist in workspace."), ""
+        if os.path.isfile(real_path):
+            return False, str_error(f"Path {path} is a file, need directory.")
         if not os.path.isdir(real_path):
             return False, str_error(f"Path {path} is not a directory in workspace."), ""
         return True, "", real_path
@@ -159,7 +161,7 @@ class PathList(UCTool, BaseReadWrite):
     name: str = "PathList"
     description: str = (
         "List all files and directories in a workspace directory, including subdirectories. "
-        "Returns a list with index, name, type, and size."
+        "Returns a list with: Index    Name    (Type, Size, Bytes)."
     )
     args_schema: Optional[ArgsSchema] = ArgPathList
     return_direct: bool = False
