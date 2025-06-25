@@ -43,9 +43,15 @@ def get_args():
     parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
     parser.add_argument("--sys-tips", type=str, default="", help="Set of system tips to be used in the agent")
     parser.add_argument("--ex-tools", type=get_list_from_str, default=None, help="List of external tools class to be used by the agent, eg --ex-tools SqThink")
+    parser.add_argument("--loop", "-l", action="store_true", default=False, help="Start the agent loop imimediately")
+    parser.add_argument("--loop-msg", type=str, default="", help="Message to be sent to the agent at the start of the loop")
     parser.add_argument("--log", action="store_true", default=False, help="Enable logging")
     parser.add_argument("--log-file", type=str, default=None, help="Path to the log file")
     parser.add_argument("--msg-file", type=str, default=None, help="Path to the msg file")
+    parser.add_argument("--mcp-server", action="store_true", default=None, help="Run the MCP server")
+    parser.add_argument("--mcp-server-no-file-tools", action="store_true", default=False, help="Run the MCP server without file operations")
+    parser.add_argument("--mcp-server-host", type=str, default="127.0.0.1", help="Host for the MCP server")
+    parser.add_argument("--mcp-server-port", type=int, default=5000, help="Port for the MCP server")
     return parser.parse_args()
 
 
@@ -60,6 +66,16 @@ def run():
             init_msg_logger(log_file=args.msg_file)
         else:
             init_msg_logger()
+    init_cmds = []
+    if args.tui:
+        init_cmds += ["tui"]
+    if args.mcp_server:
+        cmd = "start_mcp_server"
+        if args.mcp_server_no_file_tools:
+            cmd = "start_mcp_server_no_file_ops"
+        init_cmds += [f"{cmd} {args.mcp_server_host} {args.mcp_server_port}"]
+    if args.loop:
+        init_cmds += ["loop " + args.loop_msg]
     agent = VerifyAgent(
         workspace=args.workspace,
         dut_name=args.dut,
@@ -70,7 +86,7 @@ def run():
         template_dir=args.template_dir,
         stream_output = args.stream_output,
         seed=args.seed,
-        init_cmd=["tui", "loop"] if args.tui else None,
+        init_cmd=init_cmds,
         sys_tips=args.sys_tips,
         ex_tools=args.ex_tools,
     )

@@ -2,7 +2,7 @@
 
 from pdb import Pdb
 import os
-from vagent.util.log import echo_g, echo_y, echo_r, echo
+from vagent.util.log import echo_g, echo_y, echo_r, echo, info
 from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime
 import time
 import signal
@@ -24,6 +24,7 @@ class VerifyPDB(Pdb):
         if init_cmd is not None:
             if isinstance(init_cmd, str):
                 self.init_cmd = [init_cmd]
+            info(f"VerifyPDB initialized with {len(self.init_cmd)} initial commands.")
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
