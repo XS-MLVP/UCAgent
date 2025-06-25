@@ -109,9 +109,15 @@ from pydantic import BaseModel, Field
 import json
 
 
+class EmptyArgs(BaseModel):
+    """Empty arguments for tools that do not require any input."""
+    pass
+
+
 class ManagerTool(UCTool):
     # custom vars
     function: Callable = None
+    args_schema: Optional[ArgsSchema] = EmptyArgs
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function()
 
@@ -126,6 +132,15 @@ class ToolStatus(ManagerTool):
     description: str = (
         "Returns the current status of your mission."
     )
+
+
+class ToolCurrentTips(ManagerTool):
+    """Get tips for the current task."""
+    name: str = "CurrentTips"
+    description: str = (
+        "Returns the tips for the current task."
+    )
+
 
 class ToolDetail(ManagerTool):
     """Get current missoin detials."""
@@ -211,6 +226,7 @@ class StageManager(object):
         Create and return a list of tools for the current stage.
         """
         tools = [
+            ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
             ToolDoCheck().set_function(self.tool_check),
@@ -239,6 +255,13 @@ class StageManager(object):
                 ret += f"  - {f}\n"
         info("Tips: " + ret)
         return ret
+
+    def tool_current_tips(self):
+        """
+        Get the tips for the current task.
+        This is used to provide guidance to the user on what to do next.
+        """
+        return self.get_current_tips()
 
     def detail(self):
         """

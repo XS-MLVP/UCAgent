@@ -704,3 +704,21 @@ def copy_indent_from(src: list, dst: list):
         for d in dst[len(src):]:
             ret.append(' ' * indent + d)
     return ret
+
+
+def start_verify_mcps(mcp_tools: list, host: str, port: int):
+    from langchain_mcp_adapters.tools import to_fastmcp
+    from mcp.server.fastmcp import FastMCP
+    from vagent.util.log import info
+    fastmcp_tools = []
+    for tool in mcp_tools:
+        info(f"Registering tool: {tool.name} ({tool.__class__.__name__})")
+        fastmcp_tools.append(to_fastmcp(tool))
+    # Start the FastMCP server
+    mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
+    info(f"FastMCP server started at {host}:{port} with tools: {[tool.name for tool in mcp_tools]}")
+    try:
+        mcp.run(transport="streamable-http")
+    except Exception as e:
+        info(f"FastMCP server exit with: {e}")
+    info("FastMCP server stopped.")

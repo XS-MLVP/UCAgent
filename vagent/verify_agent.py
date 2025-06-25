@@ -3,7 +3,7 @@
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
-from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, convert_tools
+from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, start_verify_mcps
 
 import vagent.tools
 from .tools import *
@@ -113,25 +113,25 @@ class VerifyAgent(object):
         self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
         self.tool_memory_get = MemoryGet().set_store(store=self.tool_memory_put.get_store())
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
-        self.test_tools = [# file operations
-                           self.tool_reference,
-                           self.tool_memory_put,
-                           self.tool_memory_get,
-                           # read:
+        self.tool_list_base = [
+            self.tool_reference,
+            self.tool_memory_put,
+            self.tool_memory_get,
+        ]
+        self.tool_list_file = [
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
                            DeleteFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            self.tool_read_text,
-                           # write:
                            TextFileReplace(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            TextFileMultiReplace(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           # test:
-                           # ...
-                           ] + self.stage_manager.new_tools()\
-                             + import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools)\
-                             + import_and_instance_tools(ex_tools, vagent.tools)
+        ]
+        self.tool_list_task = self.stage_manager.new_tools()
+        self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
+                           + import_and_instance_tools(ex_tools, vagent.tools)
+        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext
 
         summarization_node = SummarizationAndFixToolCall(
             token_counter=count_tokens_approximately,
@@ -171,6 +171,12 @@ class VerifyAgent(object):
         self._sigint_count = 0
         self.handle_sigint()
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def start_mcps(self, no_file_ops=False, host="127.0.0.1", port=5000):
+        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
+        if not no_file_ops:
+            tools += self.tool_list_file
+        start_verify_mcps(tools, host=host, port=port)
 
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""

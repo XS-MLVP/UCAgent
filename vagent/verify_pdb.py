@@ -253,7 +253,7 @@ class VerifyPDB(Pdb):
         return stats
 
     def api_tool_status(self):
-        ignore_tools = ["Status", "Check", "Complete", "GoToStage"]
+        ignore_tools = ["Status", "Check", "Complete", "GoToStage", "CurrentTips", "Detail"]
         return [(tool.name, tool.call_count) for tool in self.agent.test_tools if tool.name not in ignore_tools]
 
     def api_task_list(self):
@@ -358,3 +358,25 @@ class VerifyPDB(Pdb):
             echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
             return
         self.agent.pop_message(inde_pos)
+
+    def do_start_mcp_server(self, arg, kwargs={"no_file_ops": False}):
+        """
+        Start the MCP server:
+        usage: start_mcp_server [host] [port]
+        """
+        args = arg.strip().split()
+        if len(args) > 0:
+            kwargs["host"] = args[0]
+        if len(args) > 1:
+            try:
+                kwargs["port"] = int(args[1])
+            except ValueError:
+                echo_r(f"Invalid port number: {args[1]}. Port must be an integer.\n Usage: start_mcp_server [host] [port]")
+                return
+        self.agent.start_mcps(**kwargs)
+
+    def do_start_mcp_server_no_file_ops(self, arg):
+        """
+        Start the MCP server without file operations.
+        """
+        return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
