@@ -21,7 +21,7 @@ Your dut description here
 
 举例：
 
-### A类功能：（注意，A、NAME1等都是举例，具体需要你根据任务进行自行命名，例如减法功能、减法功能、换成功能、<FG-ADD>、<FG-CACHE>、<FC-OVERFLOW>、<CK-NORM>等等）
+### A类功能：（注意，A、NAME1等都是举例，具体需要你根据任务进行自行命名，例如加法功能组、缓存功能组、溢出功能点、普通功能点对应<FG-ADD>、<FG-CACHE>、<FC-OVERFLOW>、<CK-NORM>等等）
 
 <FG-FUNCTYPE-A>
 

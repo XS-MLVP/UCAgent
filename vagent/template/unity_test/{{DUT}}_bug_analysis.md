@@ -3,7 +3,7 @@
 
 <!--
 
-学习任务中给出的参考文档：Guide_Doc/dut_bug_analysis.md，用 <FG-*>、 <FC-*>、<CK-*> 和 <BUG-RATE-*> 标签，对{{DUT}}测试中不通过功能检测点的原因和确定为bug的概率进行分析。
+学习任务中给出的参考文档：Guide_Doc/dut_bug_analysis.md，用 <FG-*>、 <FC-*>、<CK-*> 和 <BUG-RATE-*> 标签，对{{DUT}}测试中功能的检测点不通过的原因和确定为bug的概率进行分析。
 
 举例：
 
