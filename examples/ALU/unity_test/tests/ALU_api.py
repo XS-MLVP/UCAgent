@@ -43,10 +43,10 @@ def api_alu_operation(dut, op, a, b, c=0):
 def dut(request):
     dut = create_dut()                                   # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
-    dut.InitClock("clock")                               # 初始化时钟
+    # 该ALU的实现为组合电路，不需要 InitClock
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样
+                           func_coverage_group])         # 上升沿采样，虽然Fake ALU为组合电路，但也可以通过Step接口推进
     setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 以属性名称fc_cover保存覆盖组到DUT
     yield dut

@@ -50,7 +50,7 @@ stage:
           min_functions: 3
           min_checks: 3
         extra_args:
-          fail_msg: "功能点与检测点检查失败，请检查生成的文档内容是否完整、准确、功能点个数是否达标等。注意：好好阅读参考文档，学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。可以参考 examples 中的例子。"
+          fail_msg: "功能点与检测点检查失败，按错误提示进行修正，同时请检查生成的文档内容是否完整、准确、功能点个数是否达标等。注意：好好阅读参考文档，学习参考文档中<FG-*>、<FC-*>、<CK-*>的用法。可以参考 examples 中的例子。"
           pass_msg: "功能点与检测点检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -72,7 +72,7 @@ stage:
           api_file: "{OUT}/tests/{DUT}_api.py"
           min_apis: 1
         extra_args:
-          fail_msg: "接口封装检查失败，请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，api函数必须以`api_`开头。可以参考 examples 中的例子。"
+          fail_msg: "接口封装检查失败，按错误提示进行修正，同时请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，api函数必须以`api_`开头。可以参考 examples 中的例子。"
           pass_msg: "接口封装检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -92,7 +92,7 @@ stage:
           group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
           min_groups: 1
         extra_args:
-          fail_msg: "覆盖组检查失败，请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，且需要基于toffee库实现`get_coverage_groups(dut=None)->List[toffee.funcov.CovGroup]`函数。可以参考 examples 中的例子。"
+          fail_msg: "覆盖组检查失败，按错误提示进行修正，同时请检查生成的代码内容是否完整、准确。注意：好好阅读参考文档，且需要基于toffee库实现`get_coverage_groups(dut=None)->List[toffee.funcov.CovGroup]`函数。可以参考 examples 中的例子。"
           pass_msg: "覆盖组检查成功，你做的很好！"
           max_try: 10
     reference_files:
@@ -116,7 +116,7 @@ stage:
           test_dir: "{OUT}/tests"
           min_tests: 1
         extra_args:
-          fail_msg: "测试用例检查失败，请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。注意：好好阅读参考文档，且需要使用toffee.funcov.CovGroup进行功能覆盖率的统计。可以参考 examples 中的例子。"
+          fail_msg: "测试用例检查失败，按错误提示进行修正，同时请检查生成的代码内容是否完整、准确。如果是之前步骤不对，你可以回到之前的步骤进行修改或者重新生成。注意：好好阅读参考文档，且需要使用toffee.funcov.CovGroup进行功能覆盖率的统计。可以参考 examples 中的例子。"
           pass_msg: "测试用例检查成功，你做的很好！"
           max_try: -1
     reference_files:
