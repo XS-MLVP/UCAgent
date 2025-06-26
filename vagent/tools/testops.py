@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from vagent.util.functions import load_json_file, rm_workspace_prefix
 from vagent.util.functions import get_toffee_json_test_case
-from vagent.util.log import debug
+from vagent.util.log import debug, info
 import os
 import shutil
 from typing import Tuple
@@ -75,9 +75,11 @@ class RunPyTest(UCTool):
                     python_path_str += ":" + os.path.abspath(p)
                     debug(f"Add python path: {p}")
         env["PYTHONPATH"] = python_path_str + (":" + pythonpath if pythonpath else "")
+        cmd = ["pytest", "-s", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args]
+        info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)}\n")
         try:
             result = subprocess.run(
-                ["pytest", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
@@ -97,7 +99,7 @@ class RunPyTest(UCTool):
         except Exception as e:
             if return_stderr:
                 ret_stderr = str(e)
-            return False, "Test Fail", return_stderr
+            return False, "Test Fail", ret_stderr
 
     def _run(self,
              test_dir_or_file: str,
