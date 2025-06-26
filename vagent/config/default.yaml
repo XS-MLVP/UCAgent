@@ -64,7 +64,7 @@ stage:
       - "阅读你生成的文档`{OUT}/{DUT}_functions_and_checks.md`，理解{DUT}的功能点和检测点。"
       - "生成Python文件`{OUT}/tests/{DUT}_api.py`，其中内容包括：{DUT}的接口封装。所有接口函数以`api_`开头。"
       - "通过PyTest的fixture机制，实现创建dut的fixture。API和fixture的例子与格式请参考`Guide_Doc/dut_fixture_and_api.md`。"
-      - "如果`{OUT}/tests/{DUT}_api.py`已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释中完成任务）。"
+      - "如果`{OUT}/tests/{DUT}_api.py`已经存在，请检测是否需要完善其中的内容（已经存在的文件可能是模板，你需要根据模板中的注释完成任务）。"
     checker:
       - name: api_check
         clss: "UnityChipCheckerDutApi"
