@@ -116,12 +116,12 @@ class VerifyAgent(object):
             self.tool_reference,
             self.tool_memory_put,
             self.tool_memory_get,
+            self.tool_read_text,
         ]
         self.tool_list_file = [
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
                            DeleteFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           self.tool_read_text,
                            TextFileReplace(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            TextFileMultiReplace(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
