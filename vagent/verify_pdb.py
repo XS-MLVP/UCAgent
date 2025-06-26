@@ -387,3 +387,9 @@ class VerifyPDB(Pdb):
         Start the MCP server without file operations.
         """
         return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
+
+    def do_list_demo_cmds(self, arg):
+        """
+        List all available demo commands.
+        """
+        echo_y("this cmd is only available in TUI mode.")
