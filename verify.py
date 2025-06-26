@@ -73,7 +73,7 @@ def run():
         cmd = "start_mcp_server"
         if args.mcp_server_no_file_tools:
             cmd = "start_mcp_server_no_file_ops"
-        init_cmds += [f"{cmd} {args.mcp_server_host} {args.mcp_server_port}"]
+        init_cmds += [f"{cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
     if args.loop:
         init_cmds += ["loop " + args.loop_msg]
     agent = VerifyAgent(
