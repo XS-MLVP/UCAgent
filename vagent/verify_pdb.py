@@ -2,7 +2,7 @@
 
 from pdb import Pdb
 import os
-from vagent.util.log import echo_g, echo_y, echo_r, echo
+from vagent.util.log import echo_g, echo_y, echo_r, echo, info
 from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime
 import time
 import signal
@@ -24,6 +24,8 @@ class VerifyPDB(Pdb):
         if init_cmd is not None:
             if isinstance(init_cmd, str):
                 self.init_cmd = [init_cmd]
+            info(f"VerifyPDB initialized with {len(self.init_cmd)} initial commands.")
+        self._in_tui = False
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -304,8 +306,13 @@ class VerifyPDB(Pdb):
         """
         Enter TUI mode.
         """
+        if self._in_tui:
+            echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
+            return
         from vagent.verify_ui import enter_simple_tui
+        self._in_tui = True
         enter_simple_tui(self)
+        self._in_tui = False
         print("Exited TUI mode. Returning to PDB.")
 
     def do_export_agent(self, arg):
@@ -380,3 +387,17 @@ class VerifyPDB(Pdb):
         Start the MCP server without file operations.
         """
         return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
+
+    def do_list_demo_cmds(self, arg):
+        """
+        List all available demo commands.
+        """
+        echo_y("this cmd is only available in TUI mode.")
+
+    def do_render_template(self, arg):
+        """
+        Render a template with the current agent state.
+        Usage: render_template <force>
+        """
+        force = arg.strip().lower() == "force"
+        self.agent.render_template(tmp_overwrite=force)
