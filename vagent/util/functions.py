@@ -10,6 +10,9 @@ import inspect
 import fnmatch
 import ast
 from pathlib import Path
+from mcp.server.fastmcp import FastMCP
+import uvicorn.config
+import uvicorn.server
 
 
 def fmt_time_deta(sec, abbr=False):
@@ -706,19 +709,52 @@ def copy_indent_from(src: list, dst: list):
     return ret
 
 
-def start_verify_mcps(mcp_tools: list, host: str, port: int):
+def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
+    import logging
+    __old_getLogger = logging.getLogger
+    def __getLogger(name):
+        return logger
+    if logger:
+        logging.getLogger = __getLogger
     from langchain_mcp_adapters.tools import to_fastmcp
-    from mcp.server.fastmcp import FastMCP
     from vagent.util.log import info
     fastmcp_tools = []
     for tool in mcp_tools:
-        info(f"Registering tool: {tool.name} ({tool.__class__.__name__})")
         fastmcp_tools.append(to_fastmcp(tool))
     # Start the FastMCP server
+    info(f"create FastMCP server with tools: {[tool.name for tool in fastmcp_tools]}")
     mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
-    info(f"FastMCP server started at {host}:{port} with tools: {[tool.name for tool in mcp_tools]}")
+    s = mcp.settings
+    info(f"FastMCP server started at {s.host}:{s.port}")
+    starlette_app = mcp.streamable_http_app()
+    import uvicorn
+    config = uvicorn.Config(
+        starlette_app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )
+    return uvicorn.Server(config), __old_getLogger
+
+
+def start_verify_mcps(server, old_getLogger):
+    import logging
+    from vagent.util.log import info
+    import anyio
+    async def _run():
+        await server.serve()
     try:
-        mcp.run(transport="streamable-http")
+        anyio.run(_run)
     except Exception as e:
         info(f"FastMCP server exit with: {e}")
     info("FastMCP server stopped.")
+    logging.getLogger = old_getLogger
+
+
+def stop_verify_mcps(server):
+    from vagent.util.log import info
+    if server is not None:
+        info("Stopping FastMCP server...")
+        server.should_exit = True
+    else:
+        info("FastMCP server is not running.")
