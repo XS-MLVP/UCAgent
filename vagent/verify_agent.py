@@ -93,6 +93,7 @@ class VerifyAgent(object):
             "DUT": dut_name
         })
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
+        self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
         if model is not None:
             self.model = model
@@ -104,11 +105,8 @@ class VerifyAgent(object):
                                     )
         self.workspace = os.path.abspath(workspace)
         self.output_dir = os.path.join(self.workspace, output)
-        template = get_template_path(self.cfg.template, template_dir)
-        if template is not None:
-            tmep_dir = os.path.join(self.workspace, os.path.basename(template))
-            if not os.path.exists(tmep_dir) or tmp_overwrite:
-                render_template_dir(self.workspace, template, {"DUT": dut_name})
+        self.template = get_template_path(self.cfg.template, template_dir)
+        self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
         self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
@@ -174,6 +172,12 @@ class VerifyAgent(object):
         self._sigint_count = 0
         self.handle_sigint()
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def render_template(self, tmp_overwrite=False):
+        if self.template is not None:
+            tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
+            if not os.path.exists(tmp_dir) or tmp_overwrite:
+                render_template_dir(self.workspace, self.template, {"DUT": self.dut_name})
 
     def start_mcps(self, no_file_ops=False, host="127.0.0.1", port=5000):
         tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext

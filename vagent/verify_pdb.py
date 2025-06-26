@@ -393,3 +393,11 @@ class VerifyPDB(Pdb):
         List all available demo commands.
         """
         echo_y("this cmd is only available in TUI mode.")
+
+    def do_render_template(self, arg):
+        """
+        Render a template with the current agent state.
+        Usage: render_template <force>
+        """
+        force = arg.strip().lower() == "force"
+        self.agent.render_template(tmp_overwrite=force)
