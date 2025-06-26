@@ -69,11 +69,13 @@ def run():
     init_cmds = []
     if args.tui:
         init_cmds += ["tui"]
+    mcp_cmd = None
     if args.mcp_server:
-        cmd = "start_mcp_server"
-        if args.mcp_server_no_file_tools:
-            cmd = "start_mcp_server_no_file_ops"
-        init_cmds += [f"{cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+        mcp_cmd = "start_mcp_server"
+    if args.mcp_server_no_file_tools:
+        mcp_cmd = "start_mcp_server_no_file_ops"
+    if mcp_cmd is not None:
+        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
     if args.loop:
         init_cmds += ["loop " + args.loop_msg]
     agent = VerifyAgent(
