@@ -41,7 +41,7 @@ make test_adder
 
 测试结果位于`./output`目录。
 
-### 主要目录结构：
+### 主要目录结构
 
 ```bash
 UCAgent/
@@ -80,3 +80,103 @@ UCAgent/
 3. 接口封装
 4. 生成功能覆盖分组"
 5. 生成测试用例并运行"
+
+### 运行参数介绍
+
+所有参数列表如下：
+```bash
+python3 verify.py --help
+usage: verify.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
+                 [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human] [--seed SEED]
+                 [--tui] [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--loop] [--loop-msg LOOP_MSG]
+                 [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE] [--mcp-server]
+                 [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
+                 [--mcp-server-port MCP_SERVER_PORT]
+                 workspace dut
+
+Verify Agent
+
+positional arguments:
+  workspace             Workspace directory to run the agent in
+  dut                   a sub-directory name in worspace, e.g., DualPort, Adder, ALU
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG       Path to the configuration file
+  --template-dir TEMPLATE_DIR
+                        Path to the template directory
+  --template-overwrite  Overwrite existing templates in the workspace
+  --output OUTPUT       Path to the configuration file
+  --override OVERRIDE   Override configuration settings in the format A.B.C=value
+  --stream-output, -s   Stream output to the console
+  --human, -hm          Enable human input mode in the beginning of the run
+  --seed SEED           Seed for random number generation, if applicable
+  --tui                 Run in TUI mode
+  --sys-tips SYS_TIPS   Set of system tips to be used in the agent
+  --ex-tools EX_TOOLS   List of external tools class to be used by the agent, eg --ex-tools SqThink
+  --loop, -l            Start the agent loop imimediately
+  --loop-msg LOOP_MSG   Message to be sent to the agent at the start of the loop
+  --log                 Enable logging
+  --log-file LOG_FILE   Path to the log file
+  --msg-file MSG_FILE   Path to the msg file
+  --mcp-server          Run the MCP server
+  --mcp-server-no-file-tools
+                        Run the MCP server without file operations
+  --mcp-server-host MCP_SERVER_HOST
+                        Host for the MCP server
+  --mcp-server-port MCP_SERVER_PORT
+                        Port for the MCP serve
+```
+
+
+常用参数解释：
+
+1. --config 指定自定义配置文件，在该文件中可以对Agent进行参数配置，例如API_KEY等
+1. --stream-output 是否以流模式运行 agent
+1. --tui 开启字符界面
+
+
+### 工具协同
+
+默认情况下使用 UCAgent自己执行验证任务，如果需要使用其他agent执行任务，可通过UCAgent提供的 MCP-Server功能。
+
+#### 通用Agent
+
+例如以`cherry studio`类没法进行本地文件的通用Agent为例：
+```bash
+python3 verify.py output/ Adder -s -hm --tui --mcp-server
+```
+
+上述命令会以MCP-Server的形式导出 UCAgent 中的:
+- `SearchInGuidDoc` 搜索参考文档
+- `MemoryPut` 长记忆保存
+- `MemoryGet` 长记忆搜索
+- `CurrentTips` 当前提示
+- `Detail` 任务详情
+- `Status` 当前状态
+- `Check` 检测是否通过当前阶段
+- `Complete` 完成本阶段进入下一个阶段
+- `GoToStage` 直接跳转到指定阶段（必须是已经完成的阶段）
+- `ReadTextFile` 读取text文件
+- `TextFileReplace` text文件内容替换（单块替换）
+- `TextFileMultiReplace` text文件内容替换（多块替换）
+- `WriteToFile` 写文件
+- `AppendToFile` 追加文件
+
+任务开始提示词可以为：
+
+>请用工具 'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile', 'TextFileReplace', 'TextFileMultiReplace', 'WriteToFile', 'AppendToFile' 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读文件，否则我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+
+
+#### 编程Agent
+
+针对编码的Agent (如openhands、cursor、gemini-cli等)，他们都提供了写操作，因此UCAgent不需要提供文件写入类工具，例如`WriteToFile`等。使用参数`--mcp-server-no-file-tools`:
+
+```bash
+python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
+```
+
+任务开始提示词可以为：
+
+>请用工具 'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile' 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+`

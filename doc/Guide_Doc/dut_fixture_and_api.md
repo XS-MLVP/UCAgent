@@ -8,10 +8,10 @@
 def dut(request):
     dut = create_dut()                                   # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
-    dut.InitClock("clock")                               # 初始化时钟
+    dut.InitClock("clock")                               # 初始化时钟，确保dut有clock引脚。如果dut没有时钟则不需要InitClock
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样
+                           func_coverage_group])         # 上升沿采样，组合电路也可以用Step接口进行推进
     setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 保存覆盖组到DUT
     yield dut
@@ -27,7 +27,7 @@ def create_dut():
 
 ```
 
-对于所有测试，上述代码除了 `dut.InitClock("clock")`可能有区别外，其他部分基本相同。
+对于所有测试，上述代码除了 `dut.InitClock("clock")`可能有区别外，其他部分基本相同。因为时钟引脚可能是其他名字例如`clk`，或者dut为组合电路没有时钟。对于时序电路，时钟的具体引脚名称，可以在 `{DUT}/__init__.py` 文件中查找。
 
 ### DUT 的 API定义
 
@@ -39,7 +39,7 @@ def api_cache_read(dut, address) -> int:
     dut.in_addr.value = address   # 引脚赋值
     dut.in_valid.value = 1
     while dut.out_valid != 1:     # 等待返回值
-        dut.Step(1)               # 推进时钟
+        dut.Step(1)               # 推进时钟（组合电路也可以通过Step接口进行推进，或者使用RefreshComb推进组合电路）
     return dut.out_data.value     # 返回有效值
 ```
 
