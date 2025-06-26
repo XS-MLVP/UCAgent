@@ -371,6 +371,7 @@ class VerifyUI:
         Automatically update the UI at regular intervals.
         This is useful for refreshing the display without user input.
         """
+        self.update_info()
         self.update_console_ouput(True)
         loop.set_alarm_in(1.0, self._auto_update_ui)
 
