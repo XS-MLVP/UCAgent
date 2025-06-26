@@ -1,7 +1,7 @@
 
 ### DUT fixture 创建
 
-在所有test函数中，都需要通过参数`dut`获取DUT的实例，因此需要提供对应的fixture。由于需要通过request参数保存测试结果，因此在dut对应的fixture中，需要参数 request，其定义如下：
+在所有test函数中，都需要通过参数`dut`获取DUT的实例，因此需要提供对应的fixture。由于需要通过`request`参数保存测试结果，因此在dut对应的fixture中，需要参数`request`，其定义如下：
 
 ```python
 @pytest.fixture()
@@ -27,11 +27,11 @@ def create_dut():
 
 ```
 
-对应所有测试，上述代码除了 `dut.InitClock("clock")`可能有区别外，其他部分基本相同。
+对于所有测试，上述代码除了 `dut.InitClock("clock")`可能有区别外，其他部分基本相同。
 
 ### DUT 的 API定义
 
-在测试DUT时，需要对DUT的功能进行封装，并且保持其接口稳定，这样在DUT的实现发生变化时，只需要修改对应api的实现，不用修改测试用例。通常情况下api内部包含了时许，时许对外不可见，例如以cache为例，其api可以为：
+在测试DUT时，需要对DUT的功能进行封装，并且保持其接口稳定，这样在DUT的实现发生变化时，只需要修改对应api的实现，不用修改测试用例。通常情况下api内部包含了时序，时序对外不可见，例如以cache为例，其api可以为：
 
 ```python
 

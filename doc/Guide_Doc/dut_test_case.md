@@ -1,7 +1,7 @@
 
 # 测试用例
 
-在测试用例中，仅仅之需要`import` DUT 提供的API，一般情况下，不需要依赖其他模块，例如
+一般情况下，在测试用例中，只需要`import` DUT 提供的API，而不需要依赖其他模块，例如
 
 ```python
 
@@ -19,7 +19,7 @@ def test_function_A(dut):
 
 def test_function_A(dut):
     # ...
-    # 利用 mark_function 函数标记函数 test_function_A 覆盖了 组FG-A中功能点FC-A1中的检查点CK-1和CK-3
+    # 利用 mark_function 函数标记函数 test_function_A 覆盖了功能组"FG-A"中的功能点"FC-A1"中的检查点"CK-1"和"CK-3"
     dut._g["FG-A"].mark_function("FC-A1", test_add_overflow, ["CK-1", "CK-3"])
     # ...
 ```
