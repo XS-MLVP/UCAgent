@@ -12,6 +12,7 @@ import threading
 
 from vagent.util.functions import fmt_time_stamp, fmt_time_deta
 from vagent.util.log import YELLOW, RESET
+from collections import OrderedDict
 
 class VerifyUI:
     """
@@ -54,6 +55,7 @@ class VerifyUI:
         self.gap_time = gap_time
         self.is_cmd_busy = False
         self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
+        self.demo_cmds = OrderedDict()
         self.int_layout()
         self._handle_stdout_error()
 
@@ -148,6 +150,12 @@ class VerifyUI:
         self.content_task.append(urwid.Text(f"\nTools Call\n", align='center'))
         tool_info = " ".join([f"{t[0]}({t[1]})" for t in self.vpdb.api_tool_status()])
         self.content_task.append(urwid.Text(tool_info, align='left'))
+        # Demo Commands
+        if self.demo_cmds:
+            self.content_task.append(urwid.Text(f"\nDemo Commands\n", align='center'))
+            ntime = time.time()
+            self.content_task.append(urwid.Text("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.demo_cmds.items()]),
+                                                align='left'))
 
     def message_echo(self, msg, end="\n"):
         self.update_info()
@@ -292,14 +300,17 @@ class VerifyUI:
         self.cmd_history_index = readline.get_current_history_length() + 1
 
     def process_command(self, cmd):
+        self.cmd_history_set(cmd)
         if cmd == "clear":
             self.console_output.set_text(self._get_output(self.console_default_txt, clear=True))
+            return
+        if cmd == "list_demo_cmds":
+            self.console_output.set_text(self._get_output(self.cmd_list_demo_cmds()))
             return
         scrowl_ret = False
         if cmd.startswith("!"):
             cmd  = cmd[1:]
             scrowl_ret = True
-        self.cmd_history_set(cmd)
         self.console_input_busy_index = 0
 
         self.original_sigint = signal.getsignal(signal.SIGINT)
@@ -309,19 +320,44 @@ class VerifyUI:
         self.root.focus_part = None
         self._execute_cmd_in_thread(cmd, scrowl_ret)
 
+    def cmd_list_demo_cmds(self):
+        """
+        List all demo commands that are currently running.
+        """
+        if not self.demo_cmds:
+            return "No demo commands running."
+        ntime = time.time()
+        output = "\n".join([f"{fmt_time_stamp(key)}: {cmd}  {fmt_time_deta(ntime - key)}" for key, cmd in self.demo_cmds.items()])
+        return f"Running demo commands:\n{output}"
+
     def _execute_cmd_in_thread(self, cmd, scrowl_ret):
         """
         Execute a command in a separate thread to avoid blocking the main loop.
         """
         self.is_cmd_busy = True
-        def run_cmd():
+        cmd = cmd.rstrip()
+        is_demo_cmd = cmd.endswith("&")
+        key = None
+        if is_demo_cmd:
+            cmd = cmd[:-1].strip()
+            key = time.time()
+            self.demo_cmds[key] = cmd
+        def run_cmd(demo_key, rcmd, need_scrowl):
             try:
-                self.vpdb.onecmd(cmd)
+                self.vpdb.onecmd(rcmd)
             except Exception as e:
                 self.console_output.set_text(self._get_output(f"{YELLOW}Command Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
-            self.loop.set_alarm_in(0.1, self._on_cmd_complete, scrowl_ret)
-        thread = threading.Thread(target=run_cmd)
+            if demo_key is not None:
+                if demo_key in self.demo_cmds:
+                    del self.demo_cmds[demo_key]
+                self.console_output.set_text(self._get_output(f"\n\n{YELLOW}Demo command {demo_key} completed.{RESET}\n", clear=True))
+            else:
+                self.loop.set_alarm_in(0.1, self._on_cmd_complete, need_scrowl)
+        thread = threading.Thread(target=run_cmd, args=(key, cmd, scrowl_ret))
+        thread.daemon = True
         thread.start()
+        if key is not None:
+            self._on_cmd_complete(self.loop, False)
 
     def _on_cmd_complete(self, loop, scrowl_ret):
         self.is_cmd_busy = False
