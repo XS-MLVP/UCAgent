@@ -28,7 +28,7 @@ DUT即Design Under Test的缩写，请以下列格式进行DUT的功能点和对
 
 **重点：checker方法是通过 `<FG-{group-name}>`，`<FC-{function-name}>`，`<CK-{check-point-name}>`进行规范检测的**
 
-注意：上述TEST、FUNC1、NAME1、NAME2 等都是举例，具体需要你根据任务进行自行命名，例如加法功能组、缓存功能组、溢出功能点、普通功能点对应<FG-ADD>、<FG-CACHE>、<FC-OVERFLOW>、<CK-NORM>等等）
+注意：上述TEST、FUNC1、NAME1、NAME2 等都是举例，具体需要你根据任务进行自行命名，例如加法功能组、缓存功能组、溢出功能点、普通功能点对应<FG-ADD>、<FG-CACHE>、<FC-OVERFLOW>、<CK-NORM>等等）。另外在放置这些标签时，需要注意位置和美观，不要影响markdown的正常显示。例如上述的举例中，如果 `<FC-FUNC1>` 与 `### 具体功能1` 中间没有换行分隔，则标签 `<FC-FUNC1>` 将会在预览时可见，影响美观。
 
 以简单ALU为例，其“功能点描述与对应检测点描述”举例如下：
 
