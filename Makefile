@@ -9,7 +9,7 @@ dut:
 	mkdir -p output
 	cp -r examples output/
 
-test_adder:
+init_adder:
 	rm output/examples/Adder -rf
 	rm output/examples/DualPort -rf
 	@if [ ! -d output/Adder ]; then \
@@ -17,7 +17,12 @@ test_adder:
     fi
 	cp examples/Adder/*.md output/Adder/
 	cp doc/* output/ -r
+
+test_adder: init_adder
 	python3 verify.py output/ Adder --config config.yaml -s -hm --tui -l
+
+mcp_adder: init_adder
+	python3 verify.py output/ Adder --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 
 clean:
 	rm -rf output

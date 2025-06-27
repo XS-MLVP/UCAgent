@@ -1,11 +1,11 @@
 # UCAgent
 UnityChip Verification Agent
 
-基于大模型进行自动化的UT验证。
+基于大模型进行自动化UT验证AI 代理
 
 ### 快速开始
 
-安装[picker](https://github.com/XS-MLVP/picker)
+安装picker，具体参考[该安装文档](https://github.com/XS-MLVP/picker)
 
 安装Python依赖
 ```bash
@@ -43,24 +43,18 @@ UCAgent/
 ├── Makefile                  # 测试 Makefile 入口
 ├── README.md
 ├── config.yaml               # 配置文件，用于覆盖默认配置文件
-├── doc                       # 给AI进行参考的文档
-├── examples                  # 用于进行AI测试的案例
+├── doc/                      # 给AI进行参考的文档
+├── examples/                 # 用于进行AI测试的案例
 ├── requirements.txt          # python依赖
-├── tests                     # 单元测试
+├── tests/                    # 单元测试
 ├── vagent                    # Agent主代码
 │   ├── config
 │   │   └── default.yaml      # 默认配置文件，全量
-│   ├── stage                 # Agent流程定义
+│   ├── stage/                # Agent流程定义
 │   ├── template
 │   │   └── unity_test        # 模板文件
-│   ├── tools                 # 工具实现
-│   │   ├── extool.py
-│   │   ├── fileops.py
-│   │   ├── human.py
-│   │   ├── memory.py
-│   │   ├── testops.py
-│   │   └── uctool.py
-│   ├── util                  # 公用函数
+│   ├── tools/                # 工具实现
+│   ├── util/                 # 公用函数
 │   ├── verify_agent.py       # 主Agent逻辑
 │   ├── verify_pdb.py         # 基于PDB的交互逻辑
 │   └── verify_ui.py          # 交互UI
@@ -185,3 +179,42 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-emb
 ```
 
 >请用工具 `'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+
+#### Example
+
+以`gemini-cli`为例，首先通过以下命令启动 MCP-Server，具体调用参数可以查看Make的实现。
+
+```bash
+make dut
+make mcp_adder
+```
+
+正常执行完成上述命令后，会有提示：
+```bash
+INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
+```
+
+编辑`~/.gemini/settings.json`配置文件，添加MCP信息，具体内容如下：
+```json
+{
+  "mcpServers": {
+    "unitytest": {
+      "httpUrl": "http://localhost:5000/mcp",
+      "timeout": 5000
+    }
+  }
+}
+```
+
+完成MCP配置后，进入ouput目录执行gemini目录进入交互：
+
+```bash
+cd output
+gemini
+```
+
+输入以下内容：
+
+>请用工具 `'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用`'Check'`工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。`
+
+在`gemini-cli`运行过程中，可以通过UCAgent的字符界面观察进度和状态。
