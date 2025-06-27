@@ -236,6 +236,8 @@ class StageManager(object):
         return tools
 
     def get_current_tips(self):
+        if self.stage_index >= len(self.stages):
+            return "Your mission is completed. No more stages available. Or you can use `GoToStage` tool to go to a specific stage."
         cstage = self.stages[self.stage_index]
         task = '\n - '.join(cstage.task)
         ret = str(f"You mission: {self.mission.name}\n"
@@ -363,8 +365,9 @@ class StageManager(object):
             if self.stage_index >= len(self.stages):
                 message = "All stages completed successfully."
                 self.agent.exit()  # Exit the agent if all stages are completed
-            message += f"\nCurrent stage index is now {self.stage_index}."
-            message += f"\nNext task:\n {self.get_current_tips()}"
+            else:
+                message += f"\nCurrent stage index is now {self.stage_index}."
+                message += f"\nNext task:\n {self.get_current_tips()}"
         else:
             message = f"Stage {self.stage_index} not completed. Please check the requirements.\n" + \
                       f"Last check info: \n {json.dumps(ck_info, indent=2, ensure_ascii=False)}"
