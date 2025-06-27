@@ -43,6 +43,7 @@ def get_args():
     parser.add_argument("--tui", action="store_true", default=False, help="Run in TUI mode")
     parser.add_argument("--sys-tips", type=str, default="", help="Set of system tips to be used in the agent")
     parser.add_argument("--ex-tools", type=get_list_from_str, default=None, help="List of external tools class to be used by the agent, eg --ex-tools SqThink")
+    parser.add_argument("--no-embed-tools", action="store_true", default=False, help="Disable embedded tools in the agent")
     parser.add_argument("--loop", "-l", action="store_true", default=False, help="Start the agent loop imimediately")
     parser.add_argument("--loop-msg", type=str, default="", help="Message to be sent to the agent at the start of the loop")
     parser.add_argument("--log", action="store_true", default=False, help="Enable logging")
@@ -91,6 +92,7 @@ def run():
         init_cmd=init_cmds,
         sys_tips=args.sys_tips,
         ex_tools=args.ex_tools,
+        no_embed_tools=args.no_embed_tools,
     )
     if args.human or args.tui:
         agent.set_break(True)
