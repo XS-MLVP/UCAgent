@@ -190,6 +190,7 @@ class RunUnityChipTest(RunPyTest):
             # Extract relevant information from the JSON data
             # test
             tests = get_toffee_json_test_case(self.workspace, data.get("test_abstract_info", {}))
+            tests_map = {k[0]: k[1] for k in tests}
             fails =  [k[0] for k in tests if k[1] == "FAILED"]
             ret_data["tests"] = {
                 "total": len(tests),
@@ -209,6 +210,7 @@ class RunUnityChipTest(RunPyTest):
             bins_fail = []
             bins_unmarked = []
             bins_funcs = {}
+            bins_funcs_reverse = {}
             bins_all = []
             for g in fc_data.get("groups", []):
                 for p in g.get("points", []):
@@ -227,12 +229,22 @@ class RunUnityChipTest(RunPyTest):
                                 if func_key not in bins_funcs:
                                     bins_funcs[func_key] = []
                                 bins_funcs[func_key].append(bin_full_name)
+                                if bin_full_name not in bins_funcs_reverse:
+                                    bins_funcs_reverse[bin_full_name] = []
+                                bins_funcs_reverse[bin_full_name].append([
+                                    func_key, tests_map.get(func_key, "Unknown")])
                         # all bins
                         bins_all.append(bin_full_name)
             if return_all_checks:
                 ret_data["bins_all"] = bins_all
             if len(bins_fail) > 0:
                 ret_data["faild_check_point_list"] = bins_fail
+                bins_fail_funcs = {}
+                for b in bins_fail:
+                    passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
+                    if passed_func:
+                        bins_fail_funcs[b] = passed_func
+                ret_data["faild_check_point_passed_funcs"] = bins_fail_funcs
             ret_data["unmarked_check_points"] = len(bins_unmarked)
             if len(bins_unmarked) > 0:
                 ret_data["unmarked_check_points_list"] = bins_unmarked

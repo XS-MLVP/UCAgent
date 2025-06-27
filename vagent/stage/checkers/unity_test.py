@@ -232,7 +232,9 @@ class UnityChipCheckerTestCase(Checker):
                            "Please ensure that all check points defined in the documentation are also in the test cases.\n" + \
                            "Review your task requirements and the test cases.\n" + info_runtest
         failed_check = report.get('faild_check_point_list', [])
+        failed_check_passed_funcs = report.get('faild_check_point_passed_funcs', {})
         fails_with_no_mark = []
+        fails_with_passed_funcs = []
         marked_checks = []
         if failed_check:
             if os.path.exists(self.get_path(self.doc_bug_analysis)):
@@ -252,12 +254,21 @@ class UnityChipCheckerTestCase(Checker):
                 for fail_check in failed_check:
                     if fail_check not in marked_checks:
                         fails_with_no_mark.append(fail_check)
-        else:
-            fails_with_no_mark = failed_check
+                    if fail_check in failed_check_passed_funcs:
+                        fails_with_passed_funcs.append([fail_check, failed_check_passed_funcs[fail_check]])
+            else:
+                fails_with_no_mark = failed_check
         if len(fails_with_no_mark) > 0:
             return False, f"Find Failed check points: {', '.join(fails_with_no_mark)}." + \
                            "Correct test cases should pass all check points. Or if you find a bug, please ensure that all failed check points are marked with confidence in the bug analysis documentation.\n" + \
                            "If you have not defined any bug analysis documentation, please do so to ensure proper tracking of issues.\n" + \
+                           "Review your task requirements and the test cases.\n" + info_runtest
+        if len(fails_with_passed_funcs) > 0:
+            fails_with_passed_funcs_str = []
+            for f in fails_with_passed_funcs:
+                fails_with_passed_funcs_str.append(f"{f[0]} (passed funcs: {', '.join(f[1])})")
+            return False, f"Find Failed check points with passed functions: {', '.join(fails_with_passed_funcs_str)}.\n" + \
+                           "If the check point fail, the related test case functions must be fail, now passed. Please check your test cases.\n" + \
                            "Review your task requirements and the test cases.\n" + info_runtest
         if report['unmarked_check_points'] > 0:
             unmark_check_points = []
