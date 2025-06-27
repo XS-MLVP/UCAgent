@@ -66,3 +66,4 @@ def get_coverage_groups(dut=None):                    # 需要支持dut为None
     return funcov_group
 ```
 
+注意：CovGroup需要调用其sample方法才会进行采样判断，对于时序电路可以通过`dut.StepRis`设置上升沿回调函数，在回调函数中进行采样。也可以在test case 或者 api中进行显示 sample采样。

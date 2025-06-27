@@ -35,7 +35,8 @@ def api_alu_operation(dut, op, a, b, c=0):
     dut.b.value = b
     dut.cin.value = c
     dut.op.value = op
-    dut.Step(1)  # Simulate a clock step
+    dut.Step(1)  # Simulate a clock step， 如果在该处使用RefreshComb推进组合电路，则可以在这里手动调用所有CovGroup的sample方法进行功能覆盖采样
+                 # dut.Step 方法会自动调用dut.StepRis设置的回调函数
     return dut.out.value, dut.cout.value
 
 
@@ -46,7 +47,8 @@ def dut(request):
     # 该ALU的实现为组合电路，不需要 InitClock
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样，虽然Fake ALU为组合电路，但也可以通过Step接口推进
+                           func_coverage_group])         # 在上升沿回调函数中进行CovGroup的采样，虽然Fake ALU为组合电路，但也可以通过Step接口推进和覆盖率采样
+                                                         # 如果不在这里进行sample，需要在其他合理的地方进行sample，不然无法获取覆统计数据
     setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 以属性名称fc_cover保存覆盖组到DUT
     yield dut
