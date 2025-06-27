@@ -245,6 +245,7 @@ class RunUnityChipTest(RunPyTest):
             if len(test_fc_no_check_points) > 0:
                 ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
             # FIXME: more data
+        info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 
     def _run(self,

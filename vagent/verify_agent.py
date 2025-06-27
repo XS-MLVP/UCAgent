@@ -281,6 +281,8 @@ class VerifyAgent(object):
         self._continue_msg = msg
 
     def is_exit(self):
+        if self._is_exit:
+            info("Verify Agent is exited.")
         return self._is_exit
 
     def exit(self):
