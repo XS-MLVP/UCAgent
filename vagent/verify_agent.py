@@ -60,6 +60,7 @@ class VerifyAgent(object):
                  ex_tools=None,
                  thread_id=None,
                  debug=False,
+                 no_embed_tools=False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -108,16 +109,19 @@ class VerifyAgent(object):
         self.template = get_template_path(self.cfg.template, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
-        self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
-        self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
-        self.tool_memory_get = MemoryGet().set_store(store=self.tool_memory_put.get_store())
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
         self.tool_list_base = [
-            self.tool_reference,
-            self.tool_memory_put,
-            self.tool_memory_get,
-            self.tool_read_text,
+            self.tool_read_text
         ]
+        if not no_embed_tools:
+            self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
+            self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
+            self.tool_memory_get = MemoryGet().set_store(store=self.tool_memory_put.get_store())
+            self.tool_list_base += [
+                self.tool_reference,
+                self.tool_memory_put,
+                self.tool_memory_get,
+            ]
         self.tool_list_file = [
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
@@ -241,7 +245,7 @@ class VerifyAgent(object):
 
     def set_break(self, value=True):
         self._need_break = value
-        if value:
+        if value and self._mcps is not None:
             self.stop_mcps()
 
     def is_break(self):
