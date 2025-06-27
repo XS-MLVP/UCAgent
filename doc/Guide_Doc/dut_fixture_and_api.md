@@ -11,7 +11,8 @@ def dut(request):
     dut.InitClock("clock")                               # 初始化时钟，确保dut有clock引脚。如果dut没有时钟则不需要InitClock
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样，组合电路也可以用Step接口进行推进
+                           func_coverage_group])         # 在上升沿回调函数中进行CovGroup的采样，组合电路也可以用Step接口进行推进和覆盖率采样
+                                                         # 如果不在这里进行CovGroup.sample，需要在其他合理的地方进行sample，不然无法获取覆统计数据
     setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 保存覆盖组到DUT
     yield dut
