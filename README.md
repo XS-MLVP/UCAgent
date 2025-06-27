@@ -1,18 +1,13 @@
 # UCAgent
 UnityChip Verification Agent
 
-
-通过大模型进行自动化的UT验证，完成以下工作：
-
-- 生成功能列表和检测点列表
-- 生成DUT通用API接口
-- 生成功能覆盖定义
-- 生成测试用例
-- 生成bug分析文档
+基于大模型进行自动化的UT验证。
 
 ### 快速开始
 
-安装依赖
+安装[picker](https://github.com/XS-MLVP/picker)
+
+安装Python依赖
 ```bash
 pip install -r requirements.txt
 ```
@@ -32,8 +27,7 @@ embed:
   dims: <your_embed_model_dims>
 ```
 
-
-安装picker依赖， 然后运行测试：
+测试运行：
 ```bash
 make dut
 make test_adder
@@ -78,8 +72,8 @@ UCAgent/
 1. 理解任务需求
 2. 列出所有功能点与检测点
 3. 接口封装
-4. 生成功能覆盖分组"
-5. 生成测试用例并运行"
+4. 生成功能覆盖分组
+5. 生成测试用例并运行
 
 ### 运行参数介绍
 
@@ -135,14 +129,15 @@ options:
 1. --stream-output 是否以流模式运行 agent
 1. --tui 开启字符界面
 
+在Agent执行过程中可通过`Ctrl+C`进行中断，进入交互模式。在交互模式中，可通过`help`列出所有命令，用`help cmd`查看`cmd`的帮助信息。
 
 ### 工具协同
 
-默认情况下使用 UCAgent自己执行验证任务，如果需要使用其他agent执行任务，可通过UCAgent提供的 MCP-Server功能。
+默认情况下使用 UCAgent自己执行验证任务，如果需要使用其他agent执行任务，可通过UCAgent提供的`MCP-Server`功能。
 
-#### 通用Agent
+#### LLM客户端
 
-例如以`cherry studio`类没法进行本地文件的通用Agent为例：
+例如以`cherry studio`等没法进行本地文件编辑的LLM客户端为例：
 ```bash
 python3 verify.py output/ Adder -s -hm --tui --mcp-server
 ```
@@ -163,10 +158,13 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server
 - `WriteToFile` 写文件
 - `AppendToFile` 追加文件
 
+默认导出地址为：`http://127.0.0.1:5000/mcp`
+
 任务开始提示词可以为：
 
->请用工具 'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile', 'TextFileReplace', 'TextFileMultiReplace', 'WriteToFile', 'AppendToFile' 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读文件，否则我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+>请用工具 `'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile', 'TextFileReplace', 'TextFileMultiReplace', 'WriteToFile', 'AppendToFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读文件，否则我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
 
+注：如果没有配置`embed`模型地址，可以通过参数`--no-embed-tools`取消对应工具的创建（如`'SearchInGuidDoc', 'MemoryPut', 'MemoryGet'`）
 
 #### 编程Agent
 
@@ -178,5 +176,4 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 
 任务开始提示词可以为：
 
->请用工具 'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile' 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
-`
+>请用工具 `'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
