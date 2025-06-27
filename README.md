@@ -177,3 +177,11 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 任务开始提示词可以为：
 
 >请用工具 `'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+
+使用参数`--no-embed-tools`：
+
+```bash
+python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+```
+
+>请用工具 `'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'` 完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
