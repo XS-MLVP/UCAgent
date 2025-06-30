@@ -77,14 +77,12 @@ def api_DUTSimpleBus_send_rec_seq(dut, data, timeout_steps=100):
         # 接收逻辑
         if dut.recv_valid_out.value and dut.recv_ready_in.value:
             return_data.append(dut.recv_data_out.value)
-            print(f"recv {dut.recv_data_out.value} at cycle {cycle}")
         dut.recv_ready_in.value = random.randint(0, 1)  # 随机设置 recv 是否 ready
         # 发送逻辑
         if dut.send_ready_out.value:
             if len(in_data) > 0:
                 dut.send_data_in.value = in_data.pop(0)
                 dut.send_valid_in.value = 1
-                print(f"send {dut.send_data_in.value} at cycle {cycle}")
             else:
                 dut.send_valid_in.value = 0
         if len(return_data) == len(data):
@@ -116,13 +114,11 @@ def api_DUTSimpleBus_send_rec_callback(dut, data, timeout_steps=100):
             if len(in_data) > 0:
                 dut.send_data_in.value = in_data.pop(0)
                 dut.send_valid_in.value = 1
-                print(f"send {dut.send_data_in.value} at cycle {cycle}")
             else:
                 dut.send_valid_in.value = 0
     def recv_data(cycle):
         if dut.recv_valid_out.value and dut.recv_ready_in.value:
             return_data.append(dut.recv_data_out.value)
-            print(f"recv {dut.recv_data_out.value} at cycle {cycle}")
         dut.recv_ready_in.value = random.randint(0, 1)
     dut.StepRis(send_data)
     dut.StepRis(recv_data)
@@ -149,26 +145,39 @@ def test_simple_bus_callback(dut):
 import asyncio
 
 async def sender(dut, data_to_send):
-    for data in data_to_send:
-        dut.send_valid_in.value = 0
-        await dut.xclock.ACondition(lambda: dut.send_ready_out.value == 1)
+    for data in data_to_send:        
+        await dut.AStep(1) # 等待一个时钟周期
+        if not dut.send_ready_out.value == 1:
+            dut.send_valid_in.value = 0 # 如果发送不准备好，则不发送数据
+            continue
         dut.send_data_in.value = data
-        dut.send_valid_in.value = 1
+        dut.send_valid_in.value = 1     # 发送数据
+    # 发送完后清零
+    await dut.AStep(1)
+    dut.send_valid_in.value = 0
 
 async def receiver(dut, num_items_to_receive):
     received_data = []
     while len(received_data) < num_items_to_receive:
-        await dut.xclock.ACondition(lambda: dut.recv_valid_out.value and dut.recv_ready_in.value)
-        received_data.append(dut.recv_data_out.value)
-        dut.recv_ready_in.value = random.randint(0, 1)
+        dut.recv_ready_in.value = 1 # allways ready to receive
+        await dut.AStep(1)  # 等待一个时钟周期
+        if dut.recv_valid_out.value:
+            received_data.append(dut.recv_data_out.value)
+            print(f"recv {dut.recv_data_out.value} at cycle {dut.xclock.clk}")
     return received_data
 
-async def api_DUTSimpleBus_send_rec_async(dut, data, timeout_steps=100):
-    api_DUTSimpleBus_reset(dut)
-    sender_task = asyncio.create_task(sender(dut, data))
+async def api_DUTSimpleBus_send_rec_async(dut, data, timeout_steps=1000):
+    api_DUTSimpleBus_reset(dut)                                       # reset dut
+    # 创建并启动发送和接收两个并发任务
     receiver_task = asyncio.create_task(receiver(dut, len(data)))
-    await asyncio.gather(sender_task, receiver_task)
-    return receiver_task.result()
+    asyncio.create_task(sender(dut, data))
+    while not receiver_task.done() and timeout_steps > 0:
+        dut.Step(1) # 推进电路
+        await asyncio.sleep(0) # 让出控制权，允许其他协程运行
+        timeout_steps -= 1
+    if timeout_steps <= 0:
+        raise TimeoutError("Timeout while waiting for receiver to finish")
+    return receiver_task.result()  # 返回接收任务的结果
 
 @pytest.mark.asyncio
 async def test_simple_bus_async(dut):
