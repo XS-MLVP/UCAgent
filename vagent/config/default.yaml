@@ -30,6 +30,7 @@ stage:
       - "阅读{DUT}/README.md，理解验证目标与任务。"
       - "你需要用工具Check、 Complete推进任务，用工具Status、Detail查看任务状态和细节。"
       - "如果需要任务回退，请使用GoToStage工具。"
+      - "注意：{DUT}中可能存在多个bug，你需要在后续的任务中逐步发现和分析这些bug。因此当你写的测试用例不通过诗，请确保是因为{DUT}存在bug，而不是测试用例本身的问题。"
     checker:
       - name: do_not_need_check
         clss: NopChecker
