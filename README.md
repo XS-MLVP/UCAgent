@@ -206,7 +206,7 @@ INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 }
 ```
 
-完成MCP配置后，进入ouput目录执行gemini目录进入交互：
+完成MCP配置后，新开一个终端，进入`UCAGENT/ouput`目录执行gemini目录进入交互：
 
 ```bash
 cd output
