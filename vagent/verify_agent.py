@@ -187,7 +187,11 @@ class VerifyAgent(object):
         tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
         if not no_file_ops:
             tools += self.tool_list_file
+        self.cfg.update_template({
+            "TOOLS": ", ".join([t.name for t in tools]),
+        })
         self._mcps, glogger = create_verify_mcps(tools, host=host, port=port, logger=self._mcps_logger)
+        info("Init Prompt:\n" + self.cfg.mcp_server.init_prompt)
         start_verify_mcps(self._mcps, glogger)
         self._mcps = None
 
