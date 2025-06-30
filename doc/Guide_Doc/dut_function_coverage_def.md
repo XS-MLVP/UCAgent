@@ -25,10 +25,10 @@
   - `request`：pytest中的request fixture*
   - `g`: 需要传递给toff_test的单个CovGroup，或者CovGroup组数
 
-- `CovGroup.mark_function(watch_point_name: str, test_function_name_or_list, bins=[])`
+- `CovGroup.mark_function(watch_point_name: str, test_function_or_list, bins=[])`
   关联测试用例与检查点：
     - `watch_point_name`：检查点名称
-    - `test_function_name_or_list`：需标记的测试用例（可为单个或列表）
+    - `test_function_or_list`：需标记的测试用例函数（可为单个或列表），直接写函数，例如 `test_func_add`
     - `bins`：需标记的具体检查函数
 
 **举例如下**
