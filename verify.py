@@ -100,4 +100,9 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import bdb
+    try:
+        run()
+    except bdb.BdbQuit:
+        pass
+    print("UCAgent is exited.")
