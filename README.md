@@ -30,7 +30,7 @@ embed:
 测试运行：
 ```bash
 make dut
-make test_adder
+make test_Adder
 ```
 
 测试结果位于`./output`目录。
@@ -186,7 +186,7 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-emb
 
 ```bash
 make dut
-make mcp_adder
+make mcp_Adder
 ```
 
 正常执行完成上述命令后，会有提示：

@@ -1,4 +1,4 @@
-module dual_port_stack (
+module DualPort (
     input clk,
     input rst,
 
