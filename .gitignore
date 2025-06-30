@@ -3,6 +3,9 @@ examples/template/uc_test_report/
 output/
 .history/
 *.log
+*.fst
+*.vcd
+*.dat
 log/
 # Byte-compiled / optimized / DLL files
 __pycache__/
