@@ -13,7 +13,7 @@ init_adder:
 	rm output/examples/Adder -rf
 	rm output/examples/DualPort -rf
 	@if [ ! -d output/Adder ]; then \
-        picker export examples/Adder/adder.v --rw 1 --tdir output/ -c add.fst; \
+        picker export examples/Adder/adder.v --rw 1 --tdir output/ -c -w add.fst; \
     fi
 	cp examples/Adder/*.md output/Adder/
 	cp doc/* output/ -r
