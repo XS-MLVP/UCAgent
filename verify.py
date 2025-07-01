@@ -53,6 +53,7 @@ def get_args():
     parser.add_argument("--mcp-server-no-file-tools", action="store_true", default=False, help="Run the MCP server without file operations")
     parser.add_argument("--mcp-server-host", type=str, default="127.0.0.1", help="Host for the MCP server")
     parser.add_argument("--mcp-server-port", type=int, default=5000, help="Port for the MCP server")
+    parser.add_argument("--force-stage-index", type=int, default=0, help="Force the stage index to start from a specific stage")
     return parser.parse_args()
 
 
@@ -93,6 +94,7 @@ def run():
         sys_tips=args.sys_tips,
         ex_tools=args.ex_tools,
         no_embed_tools=args.no_embed_tools,
+        force_stage_index=args.force_stage_index,
     )
     if args.human or args.tui:
         agent.set_break(True)

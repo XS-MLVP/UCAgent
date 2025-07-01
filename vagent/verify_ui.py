@@ -55,7 +55,7 @@ class VerifyUI:
         self.gap_time = gap_time
         self.is_cmd_busy = False
         self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
-        self.demo_cmds = OrderedDict()
+        self.deamon_cmds = OrderedDict()
         self.int_layout()
         self._handle_stdout_error()
 
@@ -150,11 +150,11 @@ class VerifyUI:
         self.content_task.append(urwid.Text(f"\nTools Call\n", align='center'))
         tool_info = " ".join([f"{t[0]}({t[1]})" for t in self.vpdb.api_tool_status()])
         self.content_task.append(urwid.Text(tool_info, align='left'))
-        # Demo Commands
-        if self.demo_cmds:
-            self.content_task.append(urwid.Text(f"\nDemo Commands\n", align='center'))
+        # Deamon Commands
+        if self.deamon_cmds:
+            self.content_task.append(urwid.Text(f"\Deamon Commands\n", align='center'))
             ntime = time.time()
-            self.content_task.append(urwid.Text("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.demo_cmds.items()]),
+            self.content_task.append(urwid.Text("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.deamon_cmds.items()]),
                                                 align='left'))
 
     def message_echo(self, msg, end="\n"):
@@ -324,10 +324,10 @@ class VerifyUI:
         """
         List all demo commands that are currently running.
         """
-        if not self.demo_cmds:
+        if not self.deamon_cmds:
             return "No demo commands running."
         ntime = time.time()
-        output = "\n".join([f"{fmt_time_stamp(key)}: {cmd}  {fmt_time_deta(ntime - key)}" for key, cmd in self.demo_cmds.items()])
+        output = "\n".join([f"{fmt_time_stamp(key)}: {cmd}  {fmt_time_deta(ntime - key)}" for key, cmd in self.deamon_cmds.items()])
         return f"Running demo commands:\n{output}"
 
     def _execute_cmd_in_thread(self, cmd, scrowl_ret):
@@ -341,15 +341,15 @@ class VerifyUI:
         if is_demo_cmd:
             cmd = cmd[:-1].strip()
             key = time.time()
-            self.demo_cmds[key] = cmd
+            self.deamon_cmds[key] = cmd
         def run_cmd(demo_key, rcmd, need_scrowl):
             try:
                 self.vpdb.onecmd(rcmd)
             except Exception as e:
                 self.console_output.set_text(self._get_output(f"{YELLOW}Command Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
             if demo_key is not None:
-                if demo_key in self.demo_cmds:
-                    del self.demo_cmds[demo_key]
+                if demo_key in self.deamon_cmds:
+                    del self.deamon_cmds[demo_key]
                 self.console_output.set_text(self._get_output(f"\n\n{YELLOW}Demo command {demo_key} completed.{RESET}\n", clear=True))
             else:
                 self.loop.set_alarm_in(0.1, self._on_cmd_complete, need_scrowl)

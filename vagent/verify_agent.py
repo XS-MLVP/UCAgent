@@ -61,6 +61,7 @@ class VerifyAgent(object):
                  thread_id=None,
                  debug=False,
                  no_embed_tools=False,
+                 force_stage_index=0,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -109,7 +110,7 @@ class VerifyAgent(object):
         self.template = get_template_path(self.cfg.template, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text)
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index)
         self.tool_list_base = [
             self.tool_read_text
         ]

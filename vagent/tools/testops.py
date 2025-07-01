@@ -36,6 +36,10 @@ class ArgRunPyTest(BaseModel):
         default=False,
         description="Whether to return the standard error of the test run."
     )
+    timeout: int = Field(
+        default=600,
+        description="Timeout for the test run in seconds. Default is 600 seconds (10 minutes)."
+    )
 
 
 class RunPyTest(UCTool):
@@ -61,11 +65,12 @@ class RunPyTest(UCTool):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
+             timeout: int = 600,
              run_manager: CallbackManagerForToolRun = None, python_paths: list = None) -> Tuple[int, str, str]:
         """Run the Python tests."""
         assert os.path.exists(test_dir_or_file), \
             f"Test directory or file does not exist: {test_dir_or_file}"
-        ret_stdout, ret_stderr = None, None
+        ret_stdout, ret_stderr = "", ""
         env = os.environ.copy()
         pythonpath = env.get("PYTHONPATH", "")
         python_path_str = os.path.abspath(os.getcwd())
@@ -78,34 +83,38 @@ class RunPyTest(UCTool):
         cmd = ["pytest", "-s", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)}\n")
         try:
-            result = subprocess.run(
+            worker = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE if return_stdout else None,
+                stderr=subprocess.PIPE if return_stderr else None,
                 text=True,
-                check=True,
                 env=env,
+                bufsize=10,
             )
-            if return_stdout:
-                ret_stdout = result.stdout
-            if return_stderr:
-                ret_stderr = result.stderr
+            self.pre_call(worker)
+            ret_stdout, ret_stderr = worker.communicate(timeout=timeout)  # Set a timeout for the test run
+            if not return_stdout:
+                ret_stdout = ""
+            if not return_stderr:
+                ret_stderr = ""
             return True, ret_stdout, ret_stderr
+        except subprocess.TimeoutExpired as e:
+            return False, ret_stdout, ret_stderr + f"\nTest run timed out after {e.timeout} seconds."
         except subprocess.CalledProcessError as e:
             if return_stdout:
-                ret_stdout = e.stdout
+                ret_stdout += e.stdout
             if return_stderr:
-                ret_stderr = e.stderr
-            return False, ret_stdout, ret_stderr
+                ret_stderr += e.stderr
+            return False, ret_stdout, ret_stderr + f"\nCalledProcessError: {e}"
         except Exception as e:
-            if return_stderr:
-                ret_stderr = str(e)
-            return False, "Test Fail", ret_stderr
+            return False, "Test Fail", ret_stderr + f"\Exception: {e}"
 
     def _run(self,
              test_dir_or_file: str,
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
+             timeout: int = 600,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Python tests and return the output."""
         all_pass, pyt_out, pyt_err = self.do(
@@ -113,6 +122,7 @@ class RunPyTest(UCTool):
             pytest_ex_args,
             return_stdout,
             return_stderr,
+            timeout,
             run_manager
         )
         ret_str = "Test Pass" if all_pass else "Test Fail\n"
@@ -171,6 +181,7 @@ class RunUnityChipTest(RunPyTest):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
+             timeout: int = 600,
              run_manager: CallbackManagerForToolRun = None, return_all_checks=False) -> dict:
         """Run the Unity chip tests."""
         shutil.rmtree(self.result_dir, ignore_errors=True)
@@ -179,6 +190,7 @@ class RunUnityChipTest(RunPyTest):
                                           pytest_ex_args,
                                           return_stdout,
                                           return_stderr,
+                                          timeout,
                                           run_manager,
                                           python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
         ret_data = {
@@ -265,6 +277,7 @@ class RunUnityChipTest(RunPyTest):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
+             timeout: int = 600,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Unity chip tests and return the output."""
         data, pyt_out, pyt_err = self.do(
@@ -272,6 +285,7 @@ class RunUnityChipTest(RunPyTest):
             pytest_ex_args,
             return_stdout,
             return_stderr,
+            timeout,
             run_manager
         )
         ret_str = "[Test Report]:\n" + json.dumps(data, indent=2) + "\n"

@@ -165,11 +165,12 @@ class UnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, doc_bug_analysis, test_dir, min_tests):
+    def __init__(self, doc_func_check, doc_bug_analysis, test_dir, min_tests, timeout=600):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
         self.min_tests = min_tests
+        self.timeout = timeout
         self.run_test = RunUnityChipTest()
 
     def set_workspace(self, workspace: str):
@@ -193,8 +194,11 @@ class UnityChipCheckerTestCase(Checker):
         if not os.path.exists(self.get_path(self.doc_func_check)):
             return False, f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "+\
                            "Please provide a valid file path. Review your task details."
+        self.run_test.set_pre_call_back(
+            lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
+        )
         report, str_out, str_err = self.run_test.do(
-            self.test_dir, return_stdout=True, return_stderr=True, return_all_checks=True,
+            self.test_dir, return_stdout=True, return_stderr=True, return_all_checks=True, timeout=self.timeout
         )
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
