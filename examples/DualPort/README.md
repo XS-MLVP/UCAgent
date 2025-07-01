@@ -29,15 +29,4 @@
 
 对双端口栈的压栈，和弹栈功能进行验证，考虑边界条件，例如栈满等情况。不要验证其他功能，例如波形，接口等。
 
-注意：双端口栈是时序电路，请用正确的分方式驱动电路。另外，建议用回调的方式编写测试用例依赖的API。
-
-api 建议如下：
-
-```
-def api_DualPort_push_and_pop(dut, data1: list, data2: list):
-    """每个cycle都从data1，data2中分别pop(0)得到数据进行对应端口的push 或者 pop操作，如果取出的数据值为None，跳过该cycle, 如果
-       为值数字则进行push操作，如果值为 str 类型的 "POP" 则进行pop操作，把pop出来的值放入 pop_list 进行返回
-    """
-    ....
-    return pop_list
-```
+注意： 已经在本目录下的文件`DualPort_api.py`中实现了`api_DualPort_push_and_pop`，你需要基于它编写测试用例(如果有错误，需要你修正)，如果功能不能满足你的需要，你可以增加新的API。
