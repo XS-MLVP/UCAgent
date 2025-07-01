@@ -9,6 +9,11 @@ dut:
 	mkdir -p output
 	cp -r examples output/
 
+reset_%:
+	rm output/unity_test -rf
+	cp examples/$*/*.md output/$*/
+	cp doc/* output/ -r
+
 init_%:
 	rm output/examples/$* -rf
 	@if [ ! -d output/$* ]; then \
@@ -20,10 +25,10 @@ init_%:
 	cp doc/* output/ -r
 
 test_%: init_%
-	python3 verify.py output/ $* --config config.yaml -s -hm --tui -l
+	python3 verify.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
 
 mcp_%: init_%
-	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
 clean:
 	rm -rf output

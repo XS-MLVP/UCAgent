@@ -3,11 +3,17 @@
 import os
 from typing import Tuple
 from vagent.util.functions import render_template
+from vagent.util.log import info, error
+import time
 
 
 class Checker(object):
 
     workspace = None
+    time_start = None
+    is_in_check = False
+    _timeout = None
+    _process = None
 
     def set_extra(self, **kwargs):
         """
@@ -22,7 +28,51 @@ class Checker(object):
             setattr(self, key, value)
         return self
 
+    def set_check_process(self, process, timeout):
+        """
+        Set the process that is being checked.
+        This method can be overridden in subclasses to handle specific process logic.
+
+        :param process: The process to be set for checking.
+        """
+        self._timeout = timeout
+        self._process = process
+        return self
+
+    def kill(self):
+        """
+        Kill the current check process.
+        This method can be overridden in subclasses to handle cleanup or termination logic.
+        """
+        if not self.is_in_check or self._process is None:
+            return "No check process find"
+        error_str = "kill success"
+        try:
+            info(f"Killing process {self._process.pid} for checker {self.__class__.__name__}")
+            self._process.kill()
+        except Exception as e:
+            error(f"Error terminating process: {e}")
+            error_str = e
+        self.is_in_check = False
+        self.time_start = None
+        return error_str
+
+    def check_std(self, lines):
+        if self._process is None:
+            return f"No {self.__class__.__name__} is running, or get stdout/erro is not applicable for {self.__class__.__name__}."
+        return "STDOUT:\n" + "\n".join(self._process.stdout.readlines()[:lines])  + \
+               "STDERR:\n" + "\n".join(self._process.stderr.readlines()[:lines])
+
     def check(self) -> Tuple[bool, str]:
+        if self.is_in_check:
+            deta_time = "N/A"
+            if self._timeout is not None:
+                deta_time = max(0, self._timeout - (time.time() - self.time_start))
+            return False, f"Previous check is still running, please wait, ({deta_time}) seconds remain." + \
+                          f"You can use tool 'KillCheck' to stop the previous check," + \
+                          f"and use tool 'StdCheck' to get the stdout and stderr data"
+        self.is_in_check = True
+        self.time_start = time.time()
         p, m = self.do_check()
         if p:
             p_msg = self.get_default_message_pass()
@@ -32,6 +82,8 @@ class Checker(object):
             f_msg = self.get_default_message_fail()
             if f_msg:
                 m += "\n\n" + f_msg
+        self.is_in_check = False
+        self.set_check_process(None, None) # Reset the process and timeout after check
         return p, render_template(m, self)
 
     def get_default_message_fail(self) -> str:

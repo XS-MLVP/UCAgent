@@ -255,8 +255,7 @@ class VerifyPDB(Pdb):
         return stats
 
     def api_tool_status(self):
-        ignore_tools = ["Status", "Check", "Complete", "GoToStage", "CurrentTips", "Detail"]
-        return [(tool.name, tool.call_count) for tool in self.agent.test_tools if tool.name not in ignore_tools]
+        return [(tool.name, tool.call_count) for tool in self.agent.test_tools]
 
     def api_task_list(self):
         """

@@ -48,6 +48,27 @@ class VerifyStage(object):
         return f"VerifyStage(name={self.name}, description={self.description}, "+\
                f"checker={'.'.join([n.name for n in self._checker])}, checker_cls={'.'.join([n.clss for n in self._checker])})"
 
+    def do_kill(self):
+        """
+        Kill the current check process.
+        This is used when the tool 'Check' is long time running or get stuck.
+        """
+        ret = []
+        for c in self.checker:
+            ret.append(f"{c.__class__.__name__}: {c.kill()}")
+        return "\n".join(ret)
+
+    def do_std(self, lines=-1):
+        """
+        Get the standard output of the current check process.
+        This tool is only used to get the output of the running tool 'Check'.
+        You can specify the number of lines to read, -1 means read all lines.
+        """
+        ret = []
+        for c in self.checker:
+            ret.append(f"{c.__class__.__name__}:\n{c.check_std(lines)}")
+        return "\n".join(ret)
+
     def do_check(self):
         if not all(c[1] for c in self.reference_files.items()):
             emsg = "You need read and understand all the reference files:\n"
@@ -150,6 +171,35 @@ class ToolDetail(ManagerTool):
     )
 
 
+class ToolKillCheck(ManagerTool):
+    """Kill the current check process."""
+    name: str = "KillCheck"
+    description: str = (
+        "Kill the current check process. \n"
+        "This tool is only used when the tool 'Check' is long time running or get stuck. \n"
+    )
+
+
+class ArgStdCheck(BaseModel):
+    lines: int = Field(
+        default=-1,
+        description="lines to read, -1 means read all"
+    )
+
+
+class ToolStdCheck(ManagerTool):
+    """get the standard output of the current check process."""
+    name: str = "StdCheck"
+    description: str = (
+        "Get the standard output of the current check process. \n"
+        "This tool is only used to get the output of the runnig tool 'Check'. \n"
+        "You can specify the number of lines to read, -1 means read all lines. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStdCheck
+    def _run(self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(lines)
+
+
 class ToolDoCheck(ManagerTool):
     """Check your stage's mertrics are matched with the requirements or not."""
     name: str = "Check"
@@ -194,7 +244,7 @@ class ToolGoToStage(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text):
+    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0):
         """
         Initialize the StageManager with an empty list of stages.
         """
@@ -217,7 +267,7 @@ class StageManager(object):
         info("Stages:")
         for stage in self.stages:
             info(f"  - {stage.name}: {stage.description}")
-        self.stage_index = 0
+        self.stage_index = force_stage_index
         self.last_check_info = None
         self.tool_read_text = tool_read_text
 
@@ -230,6 +280,8 @@ class StageManager(object):
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
             ToolDoCheck().set_function(self.tool_check),
+            ToolKillCheck().set_function(self.tool_kill_check),
+            ToolStdCheck().set_function(self.tool_std_check),
             ToolDoComplete().set_function(self.tool_complete),
             ToolGoToStage().set_function(self.tool_go_to_stage)
         ]
@@ -257,6 +309,25 @@ class StageManager(object):
                 ret += f"  - {f}\n"
         info("Tips: " + ret)
         return ret
+
+    def tool_kill_check(self):
+        """
+        Kill the current check process.
+        This is used when the tool 'Check' is long time running or get stuck.
+        """
+        assert self.stage_index < len(self.stages), "Stage index out of range."
+        stage = self.stages[self.stage_index]
+        return stage.do_kill()
+
+    def tool_std_check(self, lines=-1):
+        """
+        Get the standard output of the current check process.
+        This tool is only used to get the output of the running tool 'Check'.
+        You can specify the number of lines to read, -1 means read all lines.
+        """
+        assert self.stage_index < len(self.stages), "Stage index out of range."
+        stage = self.stages[self.stage_index]
+        return stage.do_std(lines)
 
     def tool_current_tips(self):
         """
@@ -333,6 +404,7 @@ class StageManager(object):
             return f"Invalid stage index: {index}. No change made."
 
     def check(self):
+        assert self.stage_index < len(self.stages), "Stage index out of range."
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
             "check_info": ck_info,
