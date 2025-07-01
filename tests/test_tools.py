@@ -41,7 +41,7 @@ def test_edit_multil_line():
     print("============== test_edit_multiline ==============")
     tool = TextFileMultiReplace(workspace=os.path.join(current_dir, "../examples"))
     print_tool_info(tool)
-    result = tool.invoke({"path": "Adder/adder.v", "values": [
+    result = tool.invoke({"path": "Adder/Adder.v", "values": [
         (-1, 0, f"// This is a test comment: {time.time()}", False),
          (9, 0, f"// This is a test comment:\n// {time.time()}", True),
         ]})
