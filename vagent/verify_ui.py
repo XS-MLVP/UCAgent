@@ -152,7 +152,7 @@ class VerifyUI:
         self.content_task.append(urwid.Text(tool_info, align='left'))
         # Deamon Commands
         if self.deamon_cmds:
-            self.content_task.append(urwid.Text(f"\Deamon Commands\n", align='center'))
+            self.content_task.append(urwid.Text(f"\nDeamon Commands\n", align='center'))
             ntime = time.time()
             self.content_task.append(urwid.Text("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.deamon_cmds.items()]),
                                                 align='left'))

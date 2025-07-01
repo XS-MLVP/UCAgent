@@ -12,6 +12,7 @@ dut:
 reset_%:
 	rm output/unity_test -rf
 	cp examples/$*/*.md output/$*/
+	cp examples/$*/*.py output/$*/
 	cp doc/* output/ -r
 
 init_%:
@@ -22,6 +23,7 @@ init_%:
 		fi; \
     fi
 	cp examples/$*/*.md output/$*/
+	cp examples/$*/*.py output/$*/
 	cp doc/* output/ -r
 
 test_%: init_%
