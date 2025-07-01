@@ -1,8 +1,9 @@
 #coding=utf-8
 
 from typing import Optional, List, Tuple
-from vagent.util.log import info, str_info, str_return, str_error, str_warning, str_data, warning
+from vagent.util.log import info, str_info, str_return, str_error, str_data, warning
 from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from
+from vagent.util.functions import get_diff
 from .uctool import UCTool
 
 from langchain_core.callbacks import (
@@ -358,7 +359,8 @@ class ReadTextFile(UCTool, BaseReadWrite):
             r_count = count
             if r_count == -1 or start + r_count > len(lines):
                 r_count = len(lines) - start
-            content = ''.join(["%d: %s" % (i + start, l) for i, l in enumerate(lines[start:start + r_count])])
+            fmt_index = f"%{len(str(max(0, start + r_count - 1)))}d: %s"  # format for line index
+            content = ''.join([fmt_index % (i + start, l) for i, l in enumerate(lines[start:start + r_count])])
             if len(content) > self.max_read_size:
                 emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
                                  f"You need to specify a smaller range. current range is ({start}, +{str(count) if count >=0 else 'MAX'})."
@@ -445,16 +447,17 @@ class TextFileReplace(UCTool, BaseReadWrite):
                 else:
                     lines_insert = [data + "\n"]
             # write the new content
+            lines_new = lines_pred + lines_insert + lines_after
             f.seek(0)
             f.truncate(0)
-            f.writelines(lines_pred + lines_insert + lines_after)
+            f.writelines(lines_new)
             f.flush()
             self.do_callback(True, path, {"start": start, "count": count, "data": data})
             if data is None:
                 ret_info = str_info(f"Removed {count} lines starting from line {start} complete.")
             else:
                 ret_info = str_info(f"Replaced {count} lines starting from line {start} with new data complete.")
-            return str_info(ret_info)
+            return str_info(ret_info) + get_diff(lines, lines_new, path)
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
@@ -557,7 +560,7 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
         with open(real_path, 'w', encoding='utf-8') as f:
             f.writelines(data)
             f.flush()
-        ret_info = str_info(f"MultiReplace complete.")
+        ret_info = str_info(f"MultiReplace complete.") + get_diff(lines, data, path)
         self.do_callback(True, path, ret_info)
         return ret_info
 

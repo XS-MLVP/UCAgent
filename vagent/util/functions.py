@@ -758,3 +758,15 @@ def stop_verify_mcps(server):
         server.should_exit = True
     else:
         info("FastMCP server is not running.")
+
+
+def get_diff(old_lines, new_lines, file_name):
+    import difflib
+    diff = difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile=file_name + "(old)",
+        tofile=file_name + "(new)",
+    )
+    if not diff:
+        return "\n[DIFF]\nNo changes detected."
+    return "\n[DIFF]\n" + ''.join(diff)
