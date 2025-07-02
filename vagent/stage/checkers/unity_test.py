@@ -136,7 +136,8 @@ class UnityChipCheckerCoverGroup(Checker):
             return False, f"Coverage group file {self.group_file} does not define 'coverage_groups'. " +\
                            "Please ensure the file contains the required coverage group definitions."
         try:
-            groups = get_coverage_groups()
+            fake_dut = self
+            groups = get_coverage_groups(fake_dut)
             if len(groups) < self.min_groups:
                 return False, f"Insufficient coverage groups defined: " +\
                                f"{len(groups)} found, minimum required is {self.min_groups}."
