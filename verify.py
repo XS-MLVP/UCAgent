@@ -54,6 +54,7 @@ def get_args():
     parser.add_argument("--mcp-server-host", type=str, default="127.0.0.1", help="Host for the MCP server")
     parser.add_argument("--mcp-server-port", type=int, default=5000, help="Port for the MCP server")
     parser.add_argument("--force-stage-index", type=int, default=0, help="Force the stage index to start from a specific stage")
+    parser.add_argument("--no-write", "--nw", type=str, nargs="+", default=None, help="List of file or directories cannot be written to during the run")
     return parser.parse_args()
 
 
@@ -95,10 +96,14 @@ def run():
         ex_tools=args.ex_tools,
         no_embed_tools=args.no_embed_tools,
         force_stage_index=args.force_stage_index,
+        no_write_targets=args.no_write,
     )
     if args.human or args.tui:
         agent.set_break(True)
-    agent.run()
+    try:
+        agent.run()
+    except AssertionError as e:
+        print(f"Fail: {e}")
 
 
 if __name__ == "__main__":

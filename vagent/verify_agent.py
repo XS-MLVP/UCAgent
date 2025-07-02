@@ -4,7 +4,7 @@ from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
 from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
-from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps
+from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 
 import vagent.tools
 from .tools import *
@@ -62,6 +62,7 @@ class VerifyAgent(object):
                  debug=False,
                  no_embed_tools=False,
                  force_stage_index=0,
+                 no_write_targets=None
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -123,6 +124,14 @@ class VerifyAgent(object):
                 self.tool_memory_put,
                 self.tool_memory_get,
             ]
+        if no_write_targets is not None:
+            assert isinstance(no_write_targets, list), "no_write_targets must be a list of directories or files"
+            for f in no_write_targets:
+                abs_f = os.path.abspath(f)
+                assert os.path.exists(abs_f), f"Specified no-write target {abs_f} does not exist"
+                assert abs_f.startswith(os.path.abspath(self.workspace)), \
+                    f"Specified no-write target {abs_f} must be under the workspace {self.workspace}"
+                self.cfg.un_write_dirs.append(rm_workspace_prefix(self.workspace, abs_f))
         self.tool_list_file = [
                            PathList(self.workspace),
                            ReadBinFile(self.workspace),
