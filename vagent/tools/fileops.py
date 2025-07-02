@@ -146,6 +146,161 @@ class BaseReadWrite:
             return False, str_error(f"Path {path} is not a directory in workspace."), ""
         return True, "", real_path
 
+class ArgSearchText(BaseModel):
+    pattern: str = Field(
+        default="",
+        description="Text pattern to search for in the files. eg 'class My*' to search for class definitions"
+    )
+    directory: str = Field(
+        default="",
+        description="Subdirectory path to search in, relative to the workspace. If empty, searches in the entire workspace."
+                    "If it is a text file, it will search in the file only. "
+    )
+    max_match_lines: int = Field(
+        default= 20,
+        description="Maximum number of matching lines to return per file. "
+    )
+    max_match_files: int = Field(
+        default= 10,
+        description="Maximum number of matching files to return. "
+    )
+
+class SearchText(UCTool, BaseReadWrite):
+    """Search for text in files within the workspace directory."""
+    name: str = "SearchText"
+    description: str = (
+        "Search for text in files within the workspace directory. "
+        "Returns a list of matching files with line numbers and content."
+    )
+    args_schema: Optional[ArgsSchema] = ArgSearchText
+    return_direct: bool = False
+
+    def _run(self, pattern: str, directory: str = "", max_match_lines = 20, max_match_files = 10,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Search for text in files within a workspace directory."""
+        if not pattern:
+            self.do_callback(False, directory, "No text pattern provided for search.")
+            return str_error("No text pattern provided for search.")
+        result = []
+        count_files = 0
+        count_lines = 0
+        def search_in_file(txt, sfile, fname):
+            nonlocal count_lines, result
+            _find = False
+            if not is_text_file(sfile):
+                return
+            with open(sfile, 'r', encoding='utf-8') as f:
+              lines = f.readlines()
+              for i, line in enumerate(lines):
+                  if txt in line or fnmatch.fnmatchcase(line, txt):
+                      result.append(f"{fname}: Line {i + 1}: {line.strip()}")
+                      count_lines += 1
+                      _find = True
+                      if count_lines >= max_match_lines:
+                          result.append(f"... (truncated to {max_match_lines} lines)")
+                          break
+            return _find
+        real_path = os.path.join(self.workspace, directory)
+        if os.path.isfile(real_path):
+            search_in_file(pattern, os.path.join(self.workspace, directory), directory)
+            if len(result) > 0:
+                ret_head = str_info(f"\nFound {len(result)} matching lines in file {directory}.\n\n")
+                self.do_callback(True, directory, result)
+                return ret_head + str_return("\n".join(result))
+        else:
+            success, msg, real_path = self.check_dir(directory)
+            if not success:
+                self.do_callback(False, directory, msg)
+                return str_error(msg)
+            info(f"Searching for text '{pattern}' in {real_path}")
+            for root, _, files in os.walk(real_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    if not is_text_file(file_path):
+                        continue
+                    if search_in_file(pattern, file_path, os.path.relpath(file_path, self.workspace)):
+                        count_files += 1
+                    if count_files >= max_match_files:
+                        result.append(f"... (truncated to {max_match_files} files)")
+                        break
+                if count_files >= max_match_files:
+                    break
+            if result:
+                ret_head = str_info(f"\nFound {count_files} files with {count_lines} matching lines.\n\n")
+                self.do_callback(True, directory, result)
+                return ret_head + str_return("\n".join(result))
+            self.do_callback(False, directory, None)
+        return str_error(f"No matches found for '{pattern}' in the specified directory({directory if directory else '.'}).")
+
+    def __init__(self, workspace: str, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace)
+        info(f"SearchText tool initialized with workspace: {self.workspace}")
+
+
+class ArgFindFiles(BaseModel):
+    pattern: str = Field(
+        default="",
+        description="File name pattern to search for in the directory. "
+    )
+    directory: str = Field(
+        default="",
+        description="Subdirectory path to search in, relative to the workspace. If empty, searches in the entire workspace."
+    )
+    max_match_files: int = Field(
+        default= 10,
+        description="Maximum number of matching files to return. "
+    )
+
+
+class FindFiles(UCTool, BaseReadWrite):
+    """Find files in a workspace directory matching a specific pattern."""
+    name: str = "FindFiles"
+    description: str = (
+        "Find files in a workspace directory matching a specific pattern. "
+        "Returns a list of matching file paths."
+    )
+    args_schema: Optional[ArgsSchema] = ArgFindFiles
+    return_direct: bool = False
+
+    def _run(self, pattern: str, directory: str = "", max_match_files: int = 10,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Find files in a directory of the workspace."""
+        if not pattern:
+            self.do_callback(False, directory, "No file pattern provided for search.")
+            return str_error("No file pattern provided for search.")
+        success, msg, real_path = self.check_dir(directory)
+        if not success:
+            self.do_callback(False, directory, msg)
+            return str_error(msg)
+        result = []
+        count_files = 0
+        info(f"Finding files with pattern '{pattern}' in {real_path}")
+        for root, _, files in os.walk(real_path):
+            for file in files:
+                if fnmatch.fnmatch(file, pattern):
+                    file_path = os.path.join(root, file)
+                    result.append(os.path.relpath(file_path, self.workspace))
+                    count_files += 1
+                    if count_files >= max_match_files:
+                        result.append(f"... (truncated to {max_match_files} files)")
+                        break
+            if count_files >= max_match_files:
+                break
+        if result:
+            ret_head = str_info(f"\nFound {count_files} matching files.\n\n")
+            self.do_callback(True, directory, result)
+            return ret_head + str_return("\n".join(result))
+        self.do_callback(False, directory, None)
+        return str_error(f"No matches found for '{pattern}' in the specified directory({directory}).")
+
+    def __init__(self, workspace: str, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace)
+        info(f"FindFiles tool initialized with workspace: {self.workspace}")
+
 
 class ArgPathList(BaseModel):
     path: str = Field(
