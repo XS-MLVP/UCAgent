@@ -21,18 +21,19 @@ def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None
         path = path[1:]  # remove leading slash for relative check
     if un_write_dirs is None and write_dirs is None:
         return True, "No write restrictions defined."
-    if write_dirs is not None:
-        assert isinstance(write_dirs, list), "write_dirs must be a list."
-        for d in write_dirs:
-            if path.startswith(d):
-                return True, f"Path '{path}' is allowed to write in directory '{d}'."
-        return False, f"Path '{path}' is not allowed to write in any of the specified directories: {write_dirs}."
     if un_write_dirs is not None:
         assert isinstance(un_write_dirs, list), "un_write_dirs must be a list."
         for d in un_write_dirs:
             if path.startswith(d):
-                return False, f"Path '{path}' is not allowed to write in directory '{d}'."
-        return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
+                return False, f"Path '{path}' is not allowed to write."
+        if write_dirs is None or len(write_dirs) == 0:
+            return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
+    if write_dirs is not None:
+        assert isinstance(write_dirs, list), "write_dirs must be a list."
+        for d in write_dirs:
+            if path.startswith(d):
+                return True, f"Path '{path}' is allowed to write."
+        return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
     return True, "Not implemented yet."
 
 
@@ -832,6 +833,10 @@ class DeleteFile(UCTool, BaseReadWrite):
         target_path = os.path.abspath(os.path.join(self.workspace, path))
         if not os.path.exists(target_path):
             emsg = f"File {path} does not exist in workspace"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        ok, emsg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
+        if not ok:
             self.do_callback(False, path, emsg)
             return str_error(emsg)
         if os.path.isdir(target_path):
