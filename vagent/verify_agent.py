@@ -140,6 +140,8 @@ class VerifyAgent(object):
                            TextFileMultiReplace(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           SearchText(self.workspace),
+                           FindFiles(self.workspace),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
