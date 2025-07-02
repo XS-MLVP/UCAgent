@@ -36,6 +36,7 @@ class VerifyStage(object):
         }
         self.tool_read_text = tool_read_text
         self.tool_read_text.append_callback(self.on_file_read)
+        self._is_reached = False
 
     def on_file_read(self, success, file_path, content):
         if not success:
@@ -70,6 +71,7 @@ class VerifyStage(object):
         return "\n".join(ret)
 
     def do_check(self):
+        self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
             emsg = "You need read and understand all the reference files:\n"
             for k, v in self.reference_files.items():
@@ -99,23 +101,12 @@ class VerifyStage(object):
         return self.check_pass, self.check_info
 
     def is_reached(self):
-        """
-        Check if the stage is reached.
-        This can be implemented based on specific conditions or checks.
-        """
-        # Placeholder for actual implementation
-        reached = True
-        for c in self.checker:
-            if c is None:
-                reached = False
-                break
-        return reached
+        return self._is_reached
+
+    def set_reached(self, reached: bool):
+        self._is_reached = reached
 
     def clear(self):
-        """
-        Clear the stage's checker information.
-        This can be useful for resetting the stage state.
-        """
         self.check_info = [None] * self.check_size
 
 
@@ -243,6 +234,16 @@ class ToolGoToStage(ManagerTool):
         return self.function(index)
 
 
+class ToolDoExit(ManagerTool):
+    """Exit the agent and end the mission after all stages are completed."""
+    name: str = "Exit"
+    description: str = (
+        "Exit the agent and end the mission after all stages are completed. \n"
+        "This tool is used when you have completed all stages and want to exit the agent. \n"
+        "Returns a message indicating the exit status."
+    )
+
+
 class StageManager(object):
     def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0):
         """
@@ -267,9 +268,12 @@ class StageManager(object):
         info("Stages:")
         for stage in self.stages:
             info(f"  - {stage.name}: {stage.description}")
-        self.stage_index = force_stage_index
+        self.stage_index = min(max(0, force_stage_index), len(self.stages) - 1)
+        for i in range(self.stage_index):
+            self.stages[i].set_reached(True)
         self.last_check_info = None
         self.tool_read_text = tool_read_text
+        self.all_completed = False
 
     def new_tools(self):
         """
@@ -283,7 +287,8 @@ class StageManager(object):
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),
             ToolDoComplete().set_function(self.tool_complete),
-            ToolGoToStage().set_function(self.tool_go_to_stage)
+            ToolGoToStage().set_function(self.tool_go_to_stage),
+            ToolDoExit().set_function(self.tool_exit),
         ]
         return tools
 
@@ -424,7 +429,9 @@ class StageManager(object):
         if self.stage_index >= len(self.stages):
             return dump_as_json({
                 "do_complete": False,
-                "message": "No more stages to complete.",
+                "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed."
+                            "Or you can use the `Exit` tool to exit the mission."
+                            )
             })
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
@@ -435,8 +442,11 @@ class StageManager(object):
             self.stage_index += 1
             message = f"Stage {self.stage_index - 1} completed successfully."
             if self.stage_index >= len(self.stages):
-                message = "All stages completed successfully."
-                self.agent.exit()  # Exit the agent if all stages are completed
+                message = ("All stages completed successfully."
+                           "Now you should review your work to check if everything is correct and all the users needs are matched. \n"
+                           "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission."
+                           )
+                self.all_completed = True
             else:
                 message += f"\nCurrent stage index is now {self.stage_index}."
                 message += f"\nNext task:\n {self.get_current_tips()}"
@@ -447,6 +457,26 @@ class StageManager(object):
             "do_complete": ck_pass,
             "message": message,
         }
+
+    def exit(self):
+        """
+        Exit the agent and end the mission after all stages are completed.
+        """
+        if self.all_completed:
+            self.agent.exit()  # Exit the agent if all stages are completed
+            return {
+                "exit": True,
+                "message": "All stages completed. Exiting the mission."
+            }
+        return {
+            "exit": False,
+            "message": "Not all stages are completed yet. Please complete all stages before exiting."
+        }
+
+    def tool_exit(self):
+        ret = dump_as_json(self.exit())
+        info("ToolExit: " + ret)
+        return ret
 
     def tool_complete(self):
         ret = dump_as_json(self.complete())
