@@ -19,11 +19,11 @@ init_%:
 	rm output/examples/$* -rf
 	@if [ ! -d output/$* ]; then \
 		if [ -f examples/$*/$*.v ]; then \
-	        picker export examples/$*/$*.v --rw 1 --tdir output/ -c -w $*.fst; \
+	        picker export examples/$*/$*.v --rw 1 --tdir output/ -c -w output/$*/$*.fst; \
 		fi; \
     fi
 	cp examples/$*/*.md output/$*/
-	cp examples/$*/*.py output/$*/
+	- cp examples/$*/*.py output/$*/
 	cp doc/* output/ -r
 
 test_%: init_%
