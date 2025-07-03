@@ -182,7 +182,9 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-emb
 
 #### Example
 
-以`gemini-cli`为例，首先通过以下命令启动 MCP-Server，具体调用参数可以查看Make的实现。
+以`gemini-cli`为例：
+首先，启动 MCP-Server。
+使用如下命令就可以启动本地的MCP服务端。（具体调用参数可以查看Makefile的实现。）
 
 ```bash
 make dut
@@ -194,7 +196,8 @@ make mcp_Adder
 INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 ```
 
-编辑`~/.gemini/settings.json`配置文件，添加MCP信息，具体内容如下：
+然后，添加MCP信息。
+编辑`~/.gemini/settings.json`配置文件，完成MCP配置。具体内容如下：
 ```json
 {
   "mcpServers": {
@@ -206,7 +209,8 @@ INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 }
 ```
 
-完成MCP配置后，新开一个终端，进入`UCAGENT/ouput`目录执行gemini目录进入交互：
+最后，和gemini交互。
+新开一个终端，进入`UCAGENT/ouput`目录，执行`gemini`目录进入交互：
 
 ```bash
 cd UCAGENT/output
