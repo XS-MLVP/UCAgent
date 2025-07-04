@@ -10,10 +10,10 @@ dut:
 	cp -r examples output/
 
 reset_%:
-	rm output/unity_test -rf
-	cp examples/$*/*.md output/$*/
-	cp examples/$*/*.py output/$*/
-	cp doc/* output/ -r
+	rm output/unity_test -rf  | true
+	cp examples/$*/*.md output/$*/ | true
+	cp examples/$*/*.py output/$*/ | true
+	cp doc/* output/ -r  | true
 
 init_%:
 	rm output/examples/$* -rf
@@ -22,9 +22,9 @@ init_%:
 	        picker export examples/$*/$*.v --rw 1 --tdir output/ -c -w output/$*/$*.fst; \
 		fi; \
     fi
-	cp examples/$*/*.md output/$*/
-	- cp examples/$*/*.py output/$*/
-	cp doc/* output/ -r
+	cp examples/$*/*.md output/$*/  | true
+	cp examples/$*/*.py output/$*/  | true
+	cp doc/* output/ -r  | true
 
 test_%: init_%
 	python3 verify.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
