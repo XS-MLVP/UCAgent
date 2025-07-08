@@ -189,6 +189,9 @@ python3 verify.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-emb
 ```bash
 make dut
 make mcp_Adder
+#或者: make mcp_all_tools_Adder ARGS="--override openai.model_name=\'agentica-org/DeepSWE-Preview\'"
+# make mcp_all_tools_<DUT> 会导出所有工具，包括文件操作，Mem操作等。
+# 可通过 ARGS 传递参数，例如修改模型名称
 ```
 
 正常执行完成上述命令后，会有提示：

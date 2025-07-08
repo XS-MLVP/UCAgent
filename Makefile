@@ -32,6 +32,9 @@ test_%: init_%
 mcp_%: init_%
 	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
+mcp_all_tools_%: init_%
+	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
+
 clean:
 	rm -rf output
 
