@@ -315,7 +315,8 @@ class StageManager(object):
         Kill the current check process.
         This is used when the tool 'Check' is long time running or get stuck.
         """
-        assert self.stage_index < len(self.stages), "Stage index out of range."
+        if not self.stage_index < len(self.stages):
+            return f"Stage index({self.stage_index}) out of range. (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
         stage = self.stages[self.stage_index]
         return stage.do_kill()
 
@@ -325,7 +326,8 @@ class StageManager(object):
         This tool is only used to get the output of the running tool 'Check'.
         You can specify the number of lines to read, -1 means read all lines.
         """
-        assert self.stage_index < len(self.stages), "Stage index out of range."
+        if not self.stage_index < len(self.stages):
+            return f"Stage index({self.stage_index}) out of range. (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
         stage = self.stages[self.stage_index]
         return stage.do_std(lines)
 
@@ -372,10 +374,11 @@ class StageManager(object):
                 "check_pass": stage.check_pass,
                 "fail_count": stage.fail_count,
             }))
-        ret["current_stage_index"] = self.stage_index
-        ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
+        ret["current_task"] = "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
         if cstage:
+            ret["current_stage_index"] = self.stage_index
+            ret["current_task"] = self.stages[self.stage_index].task if self.stages else "No stages available"
             ret["reference_files_to_read"] = [f for f, v in cstage.reference_files.items() if not v]
         if self.last_check_info:
             ret["last_check_info"] = self.last_check_info
@@ -404,7 +407,8 @@ class StageManager(object):
             return f"Invalid stage index: {index}. No change made."
 
     def check(self):
-        assert self.stage_index < len(self.stages), "Stage index out of range."
+        if not self.stage_index < len(self.stages):
+            return f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
         self.last_check_info = {
             "check_info": ck_info,

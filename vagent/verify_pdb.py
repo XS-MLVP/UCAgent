@@ -226,7 +226,7 @@ class VerifyPDB(Pdb):
             echo_r(f"Error parsing arguments: {e}")
             return
         try:
-            echo(dump_as_json(tool._run(**k.model_dump())))
+            echo(dump_as_json(tool.invoke(k.model_dump())))
         except Exception as e:
             echo_r(f"Error invoking tool '{tool_name}': {e}")
             return
