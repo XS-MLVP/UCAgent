@@ -2,7 +2,7 @@
 
 from pdb import Pdb
 import os
-from vagent.util.log import echo_g, echo_y, echo_r, echo, info
+from vagent.util.log import echo_g, echo_y, echo_r, echo, info, message
 from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime
 import time
 import signal
@@ -33,7 +33,7 @@ class VerifyPDB(Pdb):
             while self.init_cmd:
                 cmd = self.init_cmd.pop(0)
                 self.onecmd(cmd)
-        super().interaction(frame, traceback)
+        return super().interaction(frame, traceback)
 
     def _sigint_handler(self, signum, frame):
         """
@@ -155,7 +155,7 @@ class VerifyPDB(Pdb):
         """
         msg = arg.strip()
         if not msg:
-            print("Message cannot be empty, usage: next_round_with_message <message>")
+            message("Message cannot be empty, usage: next_round_with_message <message>")
         self.agent.set_break(False)
         self.agent.one_loop(msg)
     do_nrm = do_next_round_with_message
@@ -286,13 +286,13 @@ class VerifyPDB(Pdb):
         """
         List all tasks in the current workspace.
         """
-        print(dump_as_json(self.api_task_list()))
+        message(dump_as_json(self.api_task_list()))
 
     def do_get_sys_tips(self, arg):
         """
         Get system tips.
         """
-        print(self.agent._system_message)
+        message(self.agent._system_message)
 
     def do_set_sys_tips(self, arg):
         """
@@ -309,16 +309,20 @@ class VerifyPDB(Pdb):
             return
         from vagent.verify_ui import enter_simple_tui
         self._in_tui = True
-        enter_simple_tui(self)
+        try:
+            enter_simple_tui(self)
+        except Exception as e:
+            import traceback
+            echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())
         self._in_tui = False
-        print("Exited TUI mode. Returning to PDB.")
+        message("Exited TUI mode. Returning to PDB.")
 
     def do_export_agent(self, arg):
         """
         Export the current agent state to a file.
         """
         if self.curframe is None:
-            print("No active frame available. Make sure you're in an active debugging session.")
+            message("No active frame available. Make sure you're in an active debugging session.")
             return
         name = arg.strip()
         if not name:
@@ -343,7 +347,7 @@ class VerifyPDB(Pdb):
             echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
             return
         msg = msgs[index]
-        print(msg.__class__.__name__, msg)
+        message(msg.__class__.__name__, msg)
 
     def do_delete_last_msg(self, arg):
         """
