@@ -770,3 +770,9 @@ def get_diff(old_lines, new_lines, file_name):
     if not diff:
         return "\n[DIFF]\nNo changes detected."
     return "\n[DIFF]\n" + ''.join(diff)
+
+
+def max_str(str_data, max_size=10):
+    if len(str_data) <= max_size:
+        return str_data
+    return str_data[:max_size] + "..."

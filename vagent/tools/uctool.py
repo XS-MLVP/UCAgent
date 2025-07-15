@@ -2,7 +2,14 @@
 
 
 from langchain_core.tools import BaseTool
-from pydantic import Field
+from langchain_core.tools.base import ArgsSchema
+from pydantic import Field, BaseModel
+from typing import Callable, Optional
+
+
+class EmptyArgs(BaseModel):
+    """Empty arguments for tools that do not require any input."""
+    pass
 
 
 class UCTool(BaseTool):
@@ -31,3 +38,26 @@ class UCTool(BaseTool):
     def set_pre_call_back(self, func):
         self.pre_call_back = func
         return self
+
+
+class RoleInfo(UCTool):
+    """A tool to provide role information."""
+    args_schema: Optional[ArgsSchema] = EmptyArgs
+    name: str = "RoleInfo"
+    description: str = (
+        "Returns the role information of you. "
+    )
+
+    # custom info
+    role_info: str = Field(
+        default="You are an expert AI software/hardware engineering agent.",
+        description="The role information to be returned by the tool."
+    )
+
+    def _run(self, *args, **kwargs):
+        return self.role_info
+
+    def __init__(self, role_info: str = None, **kwargs):
+        super().__init__(**kwargs)
+        if role_info:
+            self.role_info = role_info

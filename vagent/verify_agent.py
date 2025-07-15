@@ -111,8 +111,10 @@ class VerifyAgent(object):
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index)
+        self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
-            self.tool_read_text
+            self.tool_read_text,
+            RoleInfo(self._default_system_prompt)
         ]
         if not no_embed_tools:
             self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
@@ -168,7 +170,7 @@ class VerifyAgent(object):
         self._time_end = None
         # state
         self._msg_buffer = ""
-        self._system_message = sys_tips
+        self._system_message = self._default_system_prompt
         self._stat_msg_count_ai = 0
         self._stat_msg_count_tool = 0
         self._stat_msg_count_system = 0
@@ -278,12 +280,17 @@ class VerifyAgent(object):
         assert isinstance(tips, str), "StageManager should return a str type tips"
         msg = []
         if self._system_message:
-            msg.append(SystemMessage(content=self._system_message))
+            msg.append(SystemMessage(content=copy.copy(self._system_message)))
+            self._system_message = None
         msg.append(HumanMessage(content=tips))
         return {"messages": msg}
 
     def set_system_message(self, msg: str):
         self._system_message = msg
+
+    def get_default_system_prompt(self):
+        """Get the default system prompt for the agent."""
+        return self.cfg.mission.prompt.get_value("system", "").strip()
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""

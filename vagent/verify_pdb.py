@@ -248,9 +248,8 @@ class VerifyPDB(Pdb):
         g = self.agent
         m = g.model
         delta_time = time.time() - g._time_start
-        stats= f"LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  " + \
+        stats= f"LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  \n" + \
                f"AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
-               f"System Tip: {g._system_message}\n" + \
                f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}"
         return stats
 

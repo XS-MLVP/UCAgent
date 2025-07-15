@@ -113,17 +113,12 @@ class VerifyStage(object):
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from vagent.tools.uctool import UCTool
+from vagent.tools.uctool import UCTool, EmptyArgs
 from langchain_core.tools.base import ArgsSchema
 from typing import Optional, Callable
 from collections import OrderedDict
 from pydantic import BaseModel, Field
 import json
-
-
-class EmptyArgs(BaseModel):
-    """Empty arguments for tools that do not require any input."""
-    pass
 
 
 class ManagerTool(UCTool):
