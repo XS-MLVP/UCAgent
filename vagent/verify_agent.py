@@ -5,6 +5,7 @@ from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
 from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
+from .util.models import get_chat_model
 
 import vagent.tools
 from .tools import *
@@ -17,7 +18,6 @@ import signal
 import copy
 
 from langchain.globals import set_debug
-from langchain_openai import ChatOpenAI
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
@@ -95,17 +95,16 @@ class VerifyAgent(object):
             "OUT": output,
             "DUT": dut_name
         })
+        self.cfg.un_freeze()
+        self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
+        self.cfg.freeze()
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
         if model is not None:
             self.model = model
         else:
-            self.model = ChatOpenAI(openai_api_key=self.cfg.openai.openai_api_key,
-                                    openai_api_base=self.cfg.openai.openai_api_base,
-                                    model=self.cfg.openai.model_name,
-                                    seed=self.seed,
-                                    )
+            self.model = get_chat_model(self.cfg)
         self.workspace = os.path.abspath(workspace)
         self.output_dir = os.path.join(self.workspace, output)
         self.template = get_template_path(self.cfg.template, template_dir)
