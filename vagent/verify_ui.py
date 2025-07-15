@@ -528,6 +528,7 @@ def enter_simple_tui(pdb):
         unhandled_input=app.handle_input,
         handle_mouse=False
     )
+    setattr(pdb, "__verify_ui__", app)
     app.loop = loop
     original_sigint = signal.getsignal(signal.SIGINT)
     def _sigint_handler(s, f):
