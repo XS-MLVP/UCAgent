@@ -207,8 +207,8 @@ class VerifyUI:
                 self.console_outbuffer = self.console_outbuffer[:-1] + buffer
             else:
                 self.console_outbuffer = buffer
-            self.console_outbuffer = "\n".join(self.console_outbuffer.split("\n")[-self.console_max_height:])
-        return self.console_outbuffer
+        lines = self.console_outbuffer.split("\n")
+        return "\n".join(lines[-self.console_max_height:])        
 
     def handle_input(self, key):
         """
