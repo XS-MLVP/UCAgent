@@ -20,7 +20,7 @@ def test_function_A(dut):
 def test_function_A(dut):
     # ...
     # 利用 mark_function 函数标记函数 test_function_A 覆盖了功能组"FG-A"中的功能点"FC-A1"中的检查点"CK-1"和"CK-3"
-    dut._g["FG-A"].mark_function("FC-A1", test_add_overflow, ["CK-1", "CK-3"])
+    dut.fc_cover["FG-A"].mark_function("FC-A1", test_add_overflow, ["CK-1", "CK-3"])
     # ...
 ```
 
