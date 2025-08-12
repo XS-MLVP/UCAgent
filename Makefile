@@ -27,13 +27,13 @@ init_%:
 	cp doc/* output/ -r  | true
 
 test_%: init_%
-	python3 verify.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
+	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
 
 mcp_%: init_%
-	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
+	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
 mcp_all_tools_%: init_%
-	python3 verify.py output/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
+	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
 
 clean:
 	rm -rf output
@@ -42,4 +42,4 @@ clean_test:
 	rm -rf output/unity_test
 
 continue:
-	python3 verify.py output/ ${DUT} --config config.yaml ${ARGS}
+	python3 ucagent.py output/ ${DUT} --config config.yaml ${ARGS}

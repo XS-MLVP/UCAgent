@@ -134,15 +134,24 @@ class VerifyAgent(object):
                     f"Specified no-write target {abs_f} must be under the workspace {self.workspace}"
                 self.cfg.un_write_dirs.append(rm_workspace_prefix(self.workspace, abs_f))
         self.tool_list_file = [
+                           # Directory and file listing tools
                            PathList(self.workspace),
+                           GetFileInfo(self.workspace),
+                           # File reading tools
                            ReadBinFile(self.workspace),
+                           # File searching tools
+                           SearchText(self.workspace),
+                           FindFiles(self.workspace),
+                           # File writing and editing tools (require permissions)
                            DeleteFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            TextFileReplace(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            TextFileMultiReplace(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           SearchText(self.workspace),
-                           FindFiles(self.workspace),
+                           # File management tools (require permissions)
+                           CopyFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           MoveFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           CreateDirectory(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
