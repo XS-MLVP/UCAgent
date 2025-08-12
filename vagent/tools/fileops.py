@@ -832,7 +832,7 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgTextFileMultiReplace
     return_direct: bool = False
 
-    def _run(self, path: str, values: List[Tuple[int, int, str, int]],
+    def _run(self, path: str, values: List[Tuple[int, int, str, bool]],
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace or insert multiple blocks of lines in a text file at target positions.
         The values should be a list of tuples: (index, count, data, preserve_indent).

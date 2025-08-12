@@ -1,0 +1,16 @@
+include README.md
+include LICENSE
+include requirements.txt
+include Makefile
+include pytest.ini
+include config.yaml
+recursive-include vagent/config *.yaml
+recursive-include vagent/template *
+recursive-include doc *
+recursive-include examples *
+exclude output/*
+exclude .git*
+exclude .history*
+exclude .pytest_cache*
+global-exclude *.pyc
+global-exclude __pycache__/*
