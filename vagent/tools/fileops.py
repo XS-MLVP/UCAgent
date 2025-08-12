@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 
 import os
 import fnmatch
+import re
+import shutil
 
 
 def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None) -> Tuple[bool, str]:
@@ -134,15 +136,19 @@ class BaseReadWrite:
                 return False, f"File {path} does not exist in workspace. Please create it first.", ""
         return True, "", real_path
 
-    def check_dir(self, path: str) -> Tuple[bool, str]:
-        """Check if the directory is exist."""
+    def check_dir(self, path: str) -> Tuple[bool, str, str]:
+        """Check if the directory exists and is accessible."""
+        # Handle empty path (current directory)
+        if not path or path == ".":
+            path = "."
+        
         real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if real_path.startswith(self.workspace) is False:
+        if not real_path.startswith(self.workspace):
             return False, str_error(f"Path '{path}' is not within the workspace."), ""
         if not os.path.exists(real_path):
             return False, str_error(f"Path {path} does not exist in workspace."), ""
         if os.path.isfile(real_path):
-            return False, str_error(f"Path {path} is a file, need directory.")
+            return False, str_error(f"Path {path} is a file, need directory."), ""
         if not os.path.isdir(real_path):
             return False, str_error(f"Path {path} is not a directory in workspace."), ""
         return True, "", real_path
@@ -150,56 +156,109 @@ class BaseReadWrite:
 class ArgSearchText(BaseModel):
     pattern: str = Field(
         default="",
-        description="Text pattern to search for in the files. eg 'class My*' to search for class definitions"
+        description="Text pattern to search for in the files. Supports plain text, wildcards (*?), and regex patterns. "
+                   "Examples: 'class My*' (wildcard), 'def .*function.*:' (regex), or plain text 'hello world'."
     )
     directory: str = Field(
         default="",
-        description="Subdirectory path to search in, relative to the workspace. If empty, searches in the entire workspace."
-                    "If it is a text file, it will search in the file only. "
+        description="Subdirectory path to search in, relative to the workspace. If empty, searches in the entire workspace. "
+                   "If it is a text file, it will search in the file only."
     )
     max_match_lines: int = Field(
-        default= 20,
-        description="Maximum number of matching lines to return per file. "
+        default=20,
+        description="Maximum number of matching lines to return per file."
     )
     max_match_files: int = Field(
-        default= 10,
-        description="Maximum number of matching files to return. "
+        default=10,
+        description="Maximum number of matching files to return."
+    )
+    use_regex: bool = Field(
+        default=False,
+        description="If True, treat pattern as regular expression. If False, use wildcard/plain text matching."
+    )
+    case_sensitive: bool = Field(
+        default=False,
+        description="If True, perform case-sensitive search. If False, ignore case."
+    )
+    include_line_numbers: bool = Field(
+        default=True,
+        description="If True, include line numbers in results. If False, show only the matching content."
     )
 
 class SearchText(UCTool, BaseReadWrite):
-    """Search for text in files within the workspace directory."""
+    """Search for text in files within the workspace directory with advanced pattern matching."""
     name: str = "SearchText"
     description: str = (
-        "Search for text in files within the workspace directory. "
-        "Returns a list of matching files with line numbers and content."
+        "Search for text in files within the workspace directory with support for plain text, wildcards, and regex patterns. "
+        "Returns a list of matching files with line numbers and content. Supports case-sensitive/insensitive search."
     )
     args_schema: Optional[ArgsSchema] = ArgSearchText
     return_direct: bool = False
 
-    def _run(self, pattern: str, directory: str = "", max_match_lines = 20, max_match_files = 10,
+    def _run(self, pattern: str, directory: str = "", max_match_lines: int = 20, max_match_files: int = 10,
+             use_regex: bool = False, case_sensitive: bool = False, include_line_numbers: bool = True,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Search for text in files within a workspace directory."""
         if not pattern:
             self.do_callback(False, directory, "No text pattern provided for search.")
             return str_error("No text pattern provided for search.")
+        
         result = []
         count_files = 0
         count_lines = 0
+        
+        # Compile regex pattern if needed
+        regex_pattern = None
+        if use_regex:
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                regex_pattern = re.compile(pattern, flags)
+            except re.error as e:
+                error_msg = f"Invalid regex pattern '{pattern}': {str(e)}"
+                self.do_callback(False, directory, error_msg)
+                return str_error(error_msg)
+        
         def search_in_file(txt, sfile, fname):
             nonlocal count_lines, result
             _find = False
             if not is_text_file(sfile):
-                return
-            with open(sfile, 'r', encoding='utf-8') as f:
-              lines = f.readlines()
-              for i, line in enumerate(lines):
-                  if txt in line or fnmatch.fnmatchcase(line, txt):
-                      result.append(f"{fname}: Line {i + 1}: {line.strip()}")
-                      count_lines += 1
-                      _find = True
-                      if count_lines >= max_match_lines:
-                          result.append(f"... (truncated to {max_match_lines} lines)")
-                          break
+                return False
+            
+            try:
+                with open(sfile, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for i, line in enumerate(lines):
+                        line_matches = False
+                        
+                        if use_regex and regex_pattern:
+                            line_matches = regex_pattern.search(line) is not None
+                        else:
+                            # Use wildcard or plain text matching
+                            if case_sensitive:
+                                if '*' in txt or '?' in txt:
+                                    line_matches = fnmatch.fnmatchcase(line, txt)
+                                else:
+                                    line_matches = txt in line
+                            else:
+                                if '*' in txt or '?' in txt:
+                                    line_matches = fnmatch.fnmatch(line.lower(), txt.lower())
+                                else:
+                                    line_matches = txt.lower() in line.lower()
+                        
+                        if line_matches:
+                            if include_line_numbers:
+                                result.append(f"{fname}: Line {i + 1}: {line.strip()}")
+                            else:
+                                result.append(f"{fname}: {line.strip()}")
+                            count_lines += 1
+                            _find = True
+                            if count_lines >= max_match_lines:
+                                result.append(f"... (truncated to {max_match_lines} lines)")
+                                break
+            except (UnicodeDecodeError, IOError) as e:
+                info(f"Could not read file {sfile}: {str(e)}")
+                return False
+            
             return _find
         real_path = os.path.join(self.workspace, directory)
         if os.path.isfile(real_path):
@@ -505,26 +564,65 @@ class ReadTextFile(UCTool, BaseReadWrite):
         if count == 0:
             self.do_callback(False, path, None)
             return str_error(f"Count is 0, no lines to read from file {path}.")
-        with open(real_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            lines_count = len(lines)
-            if start < 0 or start >= len(lines):
-                emsg = f"Start line {start} is out of range(0-{lines_count}) for file {path}."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-            r_count = count
-            if r_count == -1 or start + r_count > len(lines):
-                r_count = len(lines) - start
-            fmt_index = f"%{len(str(max(0, start + r_count - 1)))}d: %s"  # format for line index
-            content = ''.join([fmt_index % (i + start, l) for i, l in enumerate(lines[start:start + r_count])])
-            if len(content) > self.max_read_size:
-                emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
-                                 f"You need to specify a smaller range. current range is ({start}, +{str(count) if count >=0 else 'MAX'})."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-            ret_head = str_info(f"\nRead {r_count}/{lines_count} lines with args (start={start}, count={count}), {lines_count - r_count - start} lines remain after the read position.\n\n")
-            self.do_callback(True, path, content)
-            return ret_head + str_data(content, "TXT_DATA")
+        
+        try:
+            with open(real_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                lines_count = len(lines)
+                
+                # Handle empty file
+                if lines_count == 0:
+                    self.do_callback(True, path, "")
+                    return str_info(f"\nFile {path} is empty (0 lines).\n\n") + str_data("", "TXT_DATA")
+                
+                # Validate start parameter
+                if start < 0:
+                    start = max(0, lines_count + start)  # Allow negative indexing like Python lists
+                
+                if start >= lines_count:
+                    emsg = f"Start line {start} is out of range (file has {lines_count} lines, valid range: 0-{lines_count-1})."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                
+                r_count = count
+                if r_count == -1 or start + r_count > lines_count:
+                    r_count = lines_count - start
+                
+                # Ensure we don't read negative count
+                r_count = max(0, r_count)
+                
+                if r_count == 0:
+                    self.do_callback(True, path, "")
+                    return str_info(f"\nNo lines to read from position {start} in file {path}.\n\n") + str_data("", "TXT_DATA")
+                
+                # Format line numbers with appropriate padding
+                max_line_num = start + r_count - 1
+                line_num_width = len(str(max_line_num))
+                fmt_index = f"%{line_num_width}d: %s"
+                
+                content = ''.join([fmt_index % (i + start, line) for i, line in enumerate(lines[start:start + r_count])])
+                
+                # Check size limit
+                if len(content) > self.max_read_size:
+                    emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
+                                     f"You need to specify a smaller range. Current range is (start={start}, count={count if count >= 0 else 'ALL'})."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                
+                remaining_lines = lines_count - start - r_count
+                ret_head = str_info(f"\nRead {r_count}/{lines_count} lines from '{path}' (lines {start}-{start + r_count - 1}), "
+                                   f"{remaining_lines} lines remain after the read position.\n\n")
+                self.do_callback(True, path, content)
+                return ret_head + str_data(content, "TXT_DATA")
+                
+        except UnicodeDecodeError as e:
+            emsg = f"Failed to decode file {path} as UTF-8: {str(e)}. File might be binary or use different encoding."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        except IOError as e:
+            emsg = f"Failed to read file {path}: {str(e)}"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
 
     def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
         """Initialize the tool."""
@@ -585,35 +683,106 @@ class TextFileReplace(UCTool, BaseReadWrite):
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
-        if not is_text_file(real_path):
-            emsg = f"File {path} is not a text file. Please use 'ReadBinFile' to read binary files."
+        
+        # Check if it's a text file (only if file exists)
+        if os.path.exists(real_path) and not is_text_file(real_path):
+            emsg = f"File {path} is not a text file."
             self.do_callback(False, path, emsg)
             return str_error(emsg)
+        
         info(f"Replacing text file {real_path} from line {start} with count {count}")
-        with open(real_path, 'r+', encoding='utf-8') as f:
-            lines = f.readlines()
-            lines_pred = lines[:max(0, start)]
+        
+        # Validate count parameter
+        if count < -1:
+            emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        
+        try:
+            # Read existing content or create empty if file doesn't exist
+            if os.path.exists(real_path):
+                with open(real_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+            else:
+                lines = []
+                info(f"File {real_path} doesn't exist, creating new file.")
+            
+            lines_count = len(lines)
+            
+            # Handle negative start (insert at beginning if start < 0)
+            if start < 0:
+                start = 0
+            
+            # Prepare replacement data
+            lines_pred = lines[:min(start, lines_count)]
             lines_after = []
-            if count >= 0:
-                lines_after = lines[max(0, start) + count:]
+            
+            if count == -1:
+                # Replace from start to end of file
+                lines_after = []
+            elif count == 0:
+                # Insert mode - don't remove any lines
+                lines_after = lines[min(start, lines_count):]
+            else:
+                # Replace 'count' lines starting from 'start'
+                end_pos = min(start + count, lines_count)
+                lines_after = lines[end_pos:]
+            
+            # Prepare new content
             lines_insert = []
             if data is not None:
-                if preserve_indent:
-                    lines_insert = ["\n".join(copy_indent_from(lines[start:start + max(1, count)], data.split("\n"))) + "\n"]
+                if preserve_indent and start < lines_count:
+                    # Use existing lines for indentation reference
+                    ref_lines = lines[start:min(start + max(1, count if count > 0 else 1), lines_count)]
+                    if ref_lines:
+                        indented_content = copy_indent_from(ref_lines, data.split("\n"))
+                        lines_insert = ["\n".join(indented_content)]
+                        if not lines_insert[0].endswith('\n'):
+                            lines_insert[0] += '\n'
+                    else:
+                        lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
                 else:
-                    lines_insert = [data + "\n"]
-            # write the new content
+                    lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
+            
+            # Construct new file content
             lines_new = lines_pred + lines_insert + lines_after
-            f.seek(0)
-            f.truncate(0)
-            f.writelines(lines_new)
-            f.flush()
-            self.do_callback(True, path, {"start": start, "count": count, "data": data})
-            if data is None:
-                ret_info = str_info(f"Removed {count} lines starting from line {start} complete.")
+            
+            # Write the new content
+            with open(real_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines_new)
+                f.flush()
+            
+            # Prepare result message
+            operation_desc = ""
+            if count == 0:
+                operation_desc = f"Inserted new content at line {start}"
+            elif count == -1:
+                operation_desc = f"Replaced content from line {start} to end of file"
+            elif data is None:
+                operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start}"
             else:
-                ret_info = str_info(f"Replaced {count} lines starting from line {start} with new data complete.")
-            return str_info(ret_info) + get_diff(lines, lines_new, path)
+                actual_replaced = min(count, max(0, lines_count - start))
+                operation_desc = f"Replaced {actual_replaced} lines starting from line {start}"
+            
+            if data is not None:
+                data_lines = len(data.split('\n'))
+                operation_desc += f" with {data_lines} new line(s)"
+            
+            self.do_callback(True, path, {"start": start, "count": count, "data": data})
+            
+            # Generate diff for better understanding
+            diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
+            
+            return str_info(f"{operation_desc}.") + diff_result
+            
+        except UnicodeDecodeError as e:
+            emsg = f"Failed to decode file {path} as UTF-8: {str(e)}"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        except IOError as e:
+            emsg = f"Failed to modify file {path}: {str(e)}"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
@@ -806,58 +975,469 @@ class AppendToFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgDeleteFile(BaseModel):
-    path: str = Field(
+class ArgCopyFile(BaseModel):
+    source_path: str = Field(
         default=None,
-        description="File path to write, relative to the workspace. Created if not exists."
+        description="Source file path to copy from, relative to the workspace."
     )
-    is_dir: bool = Field(
+    dest_path: str = Field(
+        default=None,
+        description="Destination file path to copy to, relative to the workspace. Created if not exists."
+    )
+    overwrite: bool = Field(
         default=False,
-        description="If True, means path is a directory to delete, otherwise a file."
+        description="If True, overwrite destination file if it exists. If False, return error if destination exists."
     )
 
 
-class DeleteFile(UCTool, BaseReadWrite):
-    """Delete a file in the workspace."""
-    name: str = "DeleteFile"
+class CopyFile(UCTool, BaseReadWrite):
+    """Copy a file from source to destination within the workspace."""
+    name: str = "CopyFile"
     description: str = (
-        "Delete a file in the workspace. "
-        "If file does not exist, returns an error message. "
+        "Copy a file from source to destination within the workspace. "
+        "Creates destination directory if it doesn't exist. Optionally overwrites existing files."
     )
-    args_schema: Optional[ArgsSchema] = ArgDeleteFile
+    args_schema: Optional[ArgsSchema] = ArgCopyFile
     return_direct: bool = False
 
-    def _run(self, path: str, is_dir: bool = False,
+    def _run(self, source_path: str, dest_path: str, overwrite: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Delete a file in the workspace."""
-        target_path = os.path.abspath(os.path.join(self.workspace, path))
-        if not os.path.exists(target_path):
-            emsg = f"File {path} does not exist in workspace"
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        ok, emsg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not ok:
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        if os.path.isdir(target_path):
-            if not is_dir:
-                emsg = f"Path {path} is a directory, but 'is_dir' is False. Please set 'is_dir' to True to delete directories."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-            info(f"Deleting directory {target_path}.")
-            os.rmdir(target_path)
-            self.do_callback(True, path, f"Directory {path} deleted.")
-        else:
-            if is_dir:
-                emsg = f"Path {path} is a file, but 'is_dir' is True. Please set 'is_dir' to False to delete files."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-            info(f"Deleting file {target_path}.")
-            os.remove(target_path)
-            self.do_callback(True, path, f"File {path} deleted.")
-        return str_info(f"File {path} deleted successfully." if not is_dir else f"Directory {path} deleted successfully.")
+        """Copy a file from source to destination."""
+        # Check source file
+        success, msg, real_source_path = self.check_file(source_path)
+        if not success:
+            self.do_callback(False, source_path, msg)
+            return str_error(f"Source file error: {msg}")
+        
+        # Check if source file exists
+        if not os.path.exists(real_source_path):
+            error_msg = f"Source file {source_path} does not exist."
+            self.do_callback(False, source_path, error_msg)
+            return str_error(error_msg)
+        
+        # Check destination path
+        dest_real_path = os.path.abspath(os.path.join(self.workspace, dest_path))
+        if not dest_real_path.startswith(self.workspace):
+            error_msg = f"Destination path '{dest_path}' is not within the workspace."
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
+        
+        # Check write permissions for destination
+        write_able, msg = is_file_writeable(dest_path, self.un_write_able_dirs, self.write_able_dirs)
+        if not write_able:
+            self.do_callback(False, dest_path, msg)
+            return str_error(f"Destination file error: {msg}")
+        
+        # Check if destination exists
+        if os.path.exists(dest_real_path) and not overwrite:
+            error_msg = f"Destination file {dest_path} already exists. Use overwrite=True to replace it."
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
+        
+        try:
+            # Create destination directory if needed
+            dest_dir = os.path.dirname(dest_real_path)
+            if not os.path.exists(dest_dir):
+                os.makedirs(dest_dir, exist_ok=True)
+                info(f"Created destination directory: {dest_dir}")
+            
+            # Copy the file
+            shutil.copy2(real_source_path, dest_real_path)
+            info(f"Copied file from {real_source_path} to {dest_real_path}")
+            
+            # Get file sizes for confirmation
+            source_size = get_file_size(real_source_path)
+            dest_size = get_file_size(dest_real_path)
+            
+            self.do_callback(True, dest_path, f"File copied successfully: {source_size} bytes")
+            return str_info(f"File copied successfully from '{source_path}' to '{dest_path}' ({bytes_to_human_readable(source_size)})")
+            
+        except (IOError, OSError) as e:
+            error_msg = f"Failed to copy file: {str(e)}"
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgMoveFile(BaseModel):
+    source_path: str = Field(
+        default=None,
+        description="Source file path to move from, relative to the workspace."
+    )
+    dest_path: str = Field(
+        default=None,
+        description="Destination file path to move to, relative to the workspace."
+    )
+    overwrite: bool = Field(
+        default=False,
+        description="If True, overwrite destination file if it exists. If False, return error if destination exists."
+    )
+
+
+class MoveFile(UCTool, BaseReadWrite):
+    """Move/rename a file from source to destination within the workspace."""
+    name: str = "MoveFile"
+    description: str = (
+        "Move or rename a file from source to destination within the workspace. "
+        "Creates destination directory if it doesn't exist. Optionally overwrites existing files."
+    )
+    args_schema: Optional[ArgsSchema] = ArgMoveFile
+    return_direct: bool = False
+
+    def _run(self, source_path: str, dest_path: str, overwrite: bool = False,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Move a file from source to destination."""
+        # Check source file
+        success, msg, real_source_path = self.check_file(source_path)
+        if not success:
+            self.do_callback(False, source_path, msg)
+            return str_error(f"Source file error: {msg}")
+        
+        # Check if source file exists
+        if not os.path.exists(real_source_path):
+            error_msg = f"Source file {source_path} does not exist."
+            self.do_callback(False, source_path, error_msg)
+            return str_error(error_msg)
+        
+        # Check destination path
+        dest_real_path = os.path.abspath(os.path.join(self.workspace, dest_path))
+        if not dest_real_path.startswith(self.workspace):
+            error_msg = f"Destination path '{dest_path}' is not within the workspace."
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
+        
+        # Check write permissions for both source and destination
+        write_able_src, msg_src = is_file_writeable(source_path, self.un_write_able_dirs, self.write_able_dirs)
+        if not write_able_src:
+            self.do_callback(False, source_path, msg_src)
+            return str_error(f"Source file error: {msg_src}")
+            
+        write_able_dest, msg_dest = is_file_writeable(dest_path, self.un_write_able_dirs, self.write_able_dirs)
+        if not write_able_dest:
+            self.do_callback(False, dest_path, msg_dest)
+            return str_error(f"Destination file error: {msg_dest}")
+        
+        # Check if destination exists
+        if os.path.exists(dest_real_path) and not overwrite:
+            error_msg = f"Destination file {dest_path} already exists. Use overwrite=True to replace it."
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
+        
+        try:
+            # Create destination directory if needed
+            dest_dir = os.path.dirname(dest_real_path)
+            if not os.path.exists(dest_dir):
+                os.makedirs(dest_dir, exist_ok=True)
+                info(f"Created destination directory: {dest_dir}")
+            
+            # Move the file
+            shutil.move(real_source_path, dest_real_path)
+            info(f"Moved file from {real_source_path} to {dest_real_path}")
+            
+            # Get file size for confirmation
+            dest_size = get_file_size(dest_real_path)
+            
+            self.do_callback(True, dest_path, f"File moved successfully: {dest_size} bytes")
+            return str_info(f"File moved successfully from '{source_path}' to '{dest_path}' ({bytes_to_human_readable(dest_size)})")
+            
+        except (IOError, OSError) as e:
+            error_msg = f"Failed to move file: {str(e)}"
+            self.do_callback(False, dest_path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgDeleteFile(BaseModel):
+    path: str = Field(
+        default=None,
+        description="File path to delete, relative to the workspace."
+    )
+    is_dir: bool = Field(
+        default=False,
+        description="If True, means path is a directory to delete, otherwise a file."
+    )
+    recursive: bool = Field(
+        default=False,
+        description="If True and is_dir is True, recursively delete directory and all its contents. Use with caution!"
+    )
+
+
+class DeleteFile(UCTool, BaseReadWrite):
+    """Delete a file or directory in the workspace with optional recursive deletion."""
+    name: str = "DeleteFile"
+    description: str = (
+        "Delete a file or directory in the workspace. "
+        "Supports recursive deletion for directories with all their contents. "
+        "If file/directory does not exist, returns an error message."
+    )
+    args_schema: Optional[ArgsSchema] = ArgDeleteFile
+    return_direct: bool = False
+
+    def _run(self, path: str, is_dir: bool = False, recursive: bool = False,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Delete a file or directory in the workspace."""
+        target_path = os.path.abspath(os.path.join(self.workspace, path))
+        if not os.path.exists(target_path):
+            emsg = f"Path {path} does not exist in workspace"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        
+        ok, emsg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
+        if not ok:
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        
+        try:
+            if os.path.isdir(target_path):
+                if not is_dir:
+                    emsg = f"Path {path} is a directory, but 'is_dir' is False. Please set 'is_dir' to True to delete directories."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                
+                # Check if directory is empty (unless recursive is True)
+                if not recursive and os.listdir(target_path):
+                    emsg = f"Directory {path} is not empty. Use 'recursive=True' to delete non-empty directories."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                
+                if recursive:
+                    info(f"Recursively deleting directory {target_path} and all its contents.")
+                    shutil.rmtree(target_path)
+                    self.do_callback(True, path, f"Directory {path} and all contents deleted recursively.")
+                    return str_info(f"Directory {path} and all its contents deleted successfully.")
+                else:
+                    info(f"Deleting empty directory {target_path}.")
+                    os.rmdir(target_path)
+                    self.do_callback(True, path, f"Empty directory {path} deleted.")
+                    return str_info(f"Empty directory {path} deleted successfully.")
+            else:
+                if is_dir:
+                    emsg = f"Path {path} is a file, but 'is_dir' is True. Please set 'is_dir' to False to delete files."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                
+                info(f"Deleting file {target_path}.")
+                os.remove(target_path)
+                self.do_callback(True, path, f"File {path} deleted.")
+                return str_info(f"File {path} deleted successfully.")
+        
+        except (IOError, OSError) as e:
+            error_msg = f"Failed to delete {path}: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgCreateDirectory(BaseModel):
+    path: str = Field(
+        default=None,
+        description="Directory path to create, relative to the workspace."
+    )
+    parents: bool = Field(
+        default=True,
+        description="If True, create parent directories as needed. If False, fail if parent doesn't exist."
+    )
+    exist_ok: bool = Field(
+        default=True,
+        description="If True, don't raise an error if directory already exists. If False, fail if directory exists."
+    )
+
+
+class CreateDirectory(UCTool, BaseReadWrite):
+    """Create a directory in the workspace with optional parent directory creation."""
+    name: str = "CreateDirectory"
+    description: str = (
+        "Create a directory in the workspace. "
+        "Optionally creates parent directories and handles existing directories gracefully."
+    )
+    args_schema: Optional[ArgsSchema] = ArgCreateDirectory
+    return_direct: bool = False
+
+    def _run(self, path: str, parents: bool = True, exist_ok: bool = True,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Create a directory in the workspace."""
+        target_path = os.path.abspath(os.path.join(self.workspace, path))
+        
+        # Check if path is within workspace
+        if not target_path.startswith(self.workspace):
+            error_msg = f"Directory path '{path}' is not within the workspace."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        # Check write permissions
+        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
+        if not write_able:
+            self.do_callback(False, path, msg)
+            return str_error(f"Directory creation error: {msg}")
+        
+        # Check if directory already exists
+        if os.path.exists(target_path):
+            if os.path.isfile(target_path):
+                error_msg = f"Path {path} already exists as a file, cannot create directory."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            elif os.path.isdir(target_path):
+                if exist_ok:
+                    self.do_callback(True, path, f"Directory {path} already exists.")
+                    return str_info(f"Directory {path} already exists.")
+                else:
+                    error_msg = f"Directory {path} already exists. Use exist_ok=True to ignore this error."
+                    self.do_callback(False, path, error_msg)
+                    return str_error(error_msg)
+        
+        try:
+            # Create the directory
+            if parents:
+                os.makedirs(target_path, exist_ok=exist_ok)
+                info(f"Created directory {target_path} with parents.")
+            else:
+                os.mkdir(target_path)
+                info(f"Created directory {target_path}.")
+            
+            self.do_callback(True, path, f"Directory {path} created successfully.")
+            return str_info(f"Directory {path} created successfully.")
+        
+        except FileExistsError:
+            error_msg = f"Directory {path} already exists."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        except FileNotFoundError:
+            error_msg = f"Parent directory does not exist for {path}. Use parents=True to create parent directories."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        except (IOError, OSError) as e:
+            error_msg = f"Failed to create directory {path}: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgGetFileInfo(BaseModel):
+    path: str = Field(
+        default=None,
+        description="File or directory path to get information about, relative to the workspace."
+    )
+    include_stats: bool = Field(
+        default=True,
+        description="If True, include detailed file statistics (size, modification time, permissions, etc.)."
+    )
+
+
+class GetFileInfo(UCTool, BaseReadWrite):
+    """Get detailed information about a file or directory in the workspace."""
+    name: str = "GetFileInfo"
+    description: str = (
+        "Get detailed information about a file or directory including size, type, "
+        "modification time, permissions, and other metadata."
+    )
+    args_schema: Optional[ArgsSchema] = ArgGetFileInfo
+    return_direct: bool = False
+
+    def _run(self, path: str, include_stats: bool = True,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Get information about a file or directory."""
+        target_path = os.path.abspath(os.path.join(self.workspace, path))
+        
+        # Check if path is within workspace
+        if not target_path.startswith(self.workspace):
+            error_msg = f"Path '{path}' is not within the workspace."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        # Check if path exists
+        if not os.path.exists(target_path):
+            error_msg = f"Path {path} does not exist in workspace."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        try:
+            info_lines = []
+            info_lines.append(f"Path: {path}")
+            info_lines.append(f"Absolute path: {target_path}")
+            
+            if os.path.isfile(target_path):
+                info_lines.append("Type: File")
+                
+                # File size
+                file_size = get_file_size(target_path)
+                info_lines.append(f"Size: {bytes_to_human_readable(file_size)} ({file_size} bytes)")
+                
+                # File type detection
+                is_text = is_text_file(target_path)
+                info_lines.append(f"File type: {'Text' if is_text else 'Binary'}")
+                
+                if is_text:
+                    # Line count for text files
+                    try:
+                        with open(target_path, 'r', encoding='utf-8') as f:
+                            line_count = sum(1 for _ in f)
+                        info_lines.append(f"Line count: {line_count}")
+                    except (UnicodeDecodeError, IOError):
+                        info_lines.append("Line count: Unable to determine (encoding error)")
+                
+            elif os.path.isdir(target_path):
+                info_lines.append("Type: Directory")
+                
+                # Count contents
+                try:
+                    contents = os.listdir(target_path)
+                    file_count = sum(1 for item in contents if os.path.isfile(os.path.join(target_path, item)))
+                    dir_count = sum(1 for item in contents if os.path.isdir(os.path.join(target_path, item)))
+                    info_lines.append(f"Contains: {file_count} files, {dir_count} directories")
+                except (IOError, OSError):
+                    info_lines.append("Contents: Unable to list (permission error)")
+            
+            if include_stats:
+                import stat
+                import time
+                
+                stat_info = os.stat(target_path)
+                
+                # Permissions
+                mode = stat_info.st_mode
+                permissions = stat.filemode(mode)
+                info_lines.append(f"Permissions: {permissions}")
+                
+                # Timestamps
+                mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_info.st_mtime))
+                access_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_info.st_atime))
+                create_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat_info.st_ctime))
+                
+                info_lines.append(f"Modified: {mod_time}")
+                info_lines.append(f"Accessed: {access_time}")
+                info_lines.append(f"Created/Changed: {create_time}")
+                
+                # Owner and group (on Unix-like systems)
+                if hasattr(stat_info, 'st_uid') and hasattr(stat_info, 'st_gid'):
+                    info_lines.append(f"Owner UID: {stat_info.st_uid}")
+                    info_lines.append(f"Group GID: {stat_info.st_gid}")
+            
+            result = "\n".join(info_lines)
+            self.do_callback(True, path, result)
+            return str_info(f"\nFile information for '{path}':\n\n") + str_return(result)
+            
+        except (IOError, OSError) as e:
+            error_msg = f"Failed to get file information for {path}: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace)

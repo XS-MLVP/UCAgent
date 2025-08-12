@@ -4,6 +4,7 @@
 from vagent.util.functions import import_class_from_str, find_files_by_pattern, dump_as_json
 from vagent.util.log import info
 import vagent.stage.checkers as checkers
+import inspect
 
 
 class VerifyStage(object):
@@ -185,16 +186,67 @@ class ToolStdCheck(ManagerTool):
     def _run(self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function(lines)
 
-
-class ToolDoCheck(ManagerTool):
-    """Check your stage's mertrics are matched with the requirements or not."""
-    name: str = "Check"
-    description: str = (
-        "Check your stage's metrics are matched with the requirements or not. \n"
-        "When each you have do some work, you should call this tool to check your work is correct. \n"
-        "Returns the result of the check."
+class ArgCheck(BaseModel):
+    target: str = Field(
+        default="",
+        description=(
+            "Target test cases to run, supports pytest-style arguments for precise test selection. "
+            "Examples:\n"
+            "• '' (empty): Run all test cases in the test directory\n"
+            "• 'test_file.py': Run all tests in a specific file\n"
+            "• 'test_file.py::test_function': Run a specific test function\n"
+            "• 'test_file.py::TestClass::test_method': Run a specific test method in a class\n"
+            "• '-k pattern': Run tests matching the given pattern\n"
+            "• '-m marker': Run tests with specific markers\n"
+            "Only applicable in stage 'comprehensive_verification_execution' for focused testing. "
+            "In other stages, this parameter is ignored and all configured checks are performed."
+        )
     )
 
+    class Config:
+        """Pydantic model configuration."""
+        # Add validation examples for better documentation
+        schema_extra = {
+            "examples": [
+                {"target": ""},
+                {"target": "test_adder.py"},
+                {"target": "test_adder.py::test_basic_addition"},
+                {"target": "test_adder.py::TestAdder::test_overflow"},
+                {"target": "-k overflow"},
+                {"target": "-m slow"}
+            ]
+        }
+
+
+class ToolDoCheck(ManagerTool):
+    """Advanced validation tool for stage requirements and implementation quality."""
+    name: str = "Check"
+    description: str = (
+        "Perform comprehensive validation of your current stage's implementation against requirements.\n"
+        "The tool provides detailed feedback. Call this tool frequently during development to ensure continuous quality validation."
+    )
+    args_schema: Optional[ArgsSchema] = ArgCheck
+
+    def _run(self, target: str = "", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """
+        Execute stage validation with enhanced error handling and reporting.
+        
+        Args:
+            target: Test target specification (pytest format)
+            run_manager: Callback manager for tool execution
+            
+        Returns:
+            str: Comprehensive validation report in JSON format
+        """
+        try:
+            return self.function(target)
+        except Exception as e:
+            error_msg = f"Validation failed: {str(e)}"
+            info(error_msg)
+            return dump_as_json({
+                "check_pass": False,
+                "check_info": error_msg
+            })
 
 class ToolDoComplete(ManagerTool):
     """Tell the manager that you have completed the current stage."""
@@ -406,10 +458,15 @@ class StageManager(object):
         else:
             return f"Invalid stage index: {index}. No change made."
 
-    def check(self):
+    def check(self, target: str):
         if not self.stage_index < len(self.stages):
             return f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
-        ck_pass, ck_info = self.stages[self.stage_index].do_check()
+        func_check = self.stages[self.stage_index].do_check
+        args = []
+        if len(inspect.signature(func_check).parameters) > 1:
+            args = [target]
+        info(f"Running check for stage {self.stage_index} with args: {args}")
+        ck_pass, ck_info = func_check(*args)
         self.last_check_info = {
             "check_info": ck_info,
             "check_pass": ck_pass,
@@ -419,8 +476,8 @@ class StageManager(object):
             "check_info": ck_info,
         }
 
-    def tool_check(self):
-        ret = dump_as_json(self.check())
+    def tool_check(self, target):
+        ret = dump_as_json(self.check(target))
         info("ToolCheck: " + ret)
         return ret
 

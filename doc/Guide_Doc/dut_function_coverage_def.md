@@ -1,69 +1,321 @@
 
-## 功能覆盖率
+# DUT 功能覆盖率定义指南
 
-需要通过函数 `get_coverage_groups(dut=None) -> List[CovGroup]` 提供功能覆盖率。
+## 概述
 
-功能点和检查点反标需使用 `toffee` 和 `toffee_test` 库。
+功能覆盖率（Functional Coverage）是验证过程中的重要指标，用于衡量测试用例对设计功能的覆盖程度。本文档介绍如何使用 `toffee` 和 `toffee_test` 库定义和实现功能覆盖率。
 
+## 核心概念
 
-**常用功能覆盖接口：**
+### 覆盖率层次结构
+- **覆盖组（CovGroup）**：对应功能分组 `<FG-*>`，包含相关功能点的集合
+- **功能点（Watch Point）**：对应功能点 `<FC-*>`，包含具体的检查点集合  
+- **检查点（Bins）**：对应检查点 `<CK-*>`，具体的功能检查条件
 
-- `toffee.funcov.CovGroup(name: str)`
-  创建功能覆盖组，参数为组名。
+### 工作流程
+1. **定义覆盖组**：为每个功能分组创建CovGroup
+2. **添加检查点**：为每个功能点定义具体的检查条件
+3. **关联测试用例**：将测试函数与检查点建立关联
+4. **采样统计**：在测试执行过程中进行覆盖率采样
+5. **结果报告**：生成覆盖率统计报告
 
-- `CovGroup.add_watch_point(target, bins: dict, name: str)`
-  添加功能检查点：
-    - `target`：检查函数的输入参数。注意该参数不要传递值类型参数，例如dut.a.value（int类型）, 值传递方法会导致其值在dut变化后不更新，建议直接传递dut或者dut.a *
-    - `bins`：dict类型，key为名称，value为检查函数 `func(target): bool`
-    - `name`：检查点名称，需有明确意义
+## 必需的接口函数
 
-- `CovGroup.sample()`
-  采样，调用所有检查点的检查函数，统计功能覆盖率。
+### 主接口函数
 
-- `toffee_test.reporter.set_func_coverage(request, g: CovGroup or list[CovGroup])`
-  测试结束时，将CovGroup传递给toffee_test生成测试结果：
-  - `request`：pytest中的request fixture*
-  - `g`: 需要传递给toff_test的单个CovGroup，或者CovGroup组数
+```python
+def get_coverage_groups(dut=None) -> List[CovGroup]:
+    """获取所有功能覆盖组
+    
+    Args:
+        dut: DUT实例，可为None（用于获取覆盖组结构）
+        
+    Returns:
+        List[CovGroup]: 功能覆盖组列表
+    """
+```
 
-- `CovGroup.mark_function(watch_point_name: str, test_function_or_list, bins=[])`
-  关联测试用例与检查点：
-    - `watch_point_name`：检查点名称
-    - `test_function_or_list`：需标记的测试用例函数（可为单个或列表），直接写函数，例如 `test_func_add`
-    - `bins`：需标记的具体检查函数
+**注意**：此函数必须支持 `dut=None` 的调用，用于框架获取覆盖率结构信息。
 
-**举例如下**
+## 常用功能覆盖接口
+
+### 1. 创建覆盖组
 
 ```python
 import toffee.funcov as fc
 
-funcov_A = fc.CovGroup("FG-A")
-funcov_B = fc.CovGroup("FG-B")
-funcov_group = [funcov_A, funcov_B]
+# 创建功能覆盖组，名称对应功能描述文档中的<FG-*>标签
+funcov_arithmetic = fc.CovGroup("FG-ARITHMETIC")
+funcov_logic = fc.CovGroup("FG-LOGIC") 
+funcov_control = fc.CovGroup("FG-CONTROL")
+```
 
+### 2. 添加检查点
 
-def init_coverage_group_A(g, dut):
+```python
+CovGroup.add_watch_point(target, bins: dict, name: str)
+```
+
+**参数说明：**
+- `target`：检查函数的输入参数
+  - ⚠️ **注意**：不要传递值类型参数（如 `dut.a.value`），会导致值固化
+  - ✅ **推荐**：传递引用类型参数（如 `dut` 或 `dut.a`）
+- `bins`：字典类型，key为检查点名称，value为检查函数 `func(target) -> bool`
+- `name`：功能点名称，对应 `<FC-*>` 标签
+
+### 3. 采样和统计
+
+```python
+# 手动采样
+covgroup.sample()
+
+# 自动采样（推荐在fixture中设置）
+dut.StepRis(lambda _: [g.sample() for g in coverage_groups])
+```
+
+### 4. 关联测试用例
+
+```python
+CovGroup.mark_function(watch_point_name: str, test_function_or_list, bins=[])
+```
+
+**参数说明：**
+- `watch_point_name`：功能点名称（如 "FC-ADD"）
+- `test_function_or_list`：测试函数或函数列表  
+- `bins`：指定的检查点列表（可选）
+
+### 5. 生成测试报告
+
+```python
+from toffee_test.reporter import set_func_coverage
+
+# 在fixture的teardown阶段调用
+set_func_coverage(request, coverage_groups)
+```
+
+## 完整实现示例
+
+### 基础示例
+
+```python
+import toffee.funcov as fc
+
+# 1. 创建覆盖组
+funcov_arithmetic = fc.CovGroup("FG-ARITHMETIC")
+funcov_logic = fc.CovGroup("FG-LOGIC")
+funcov_group = [funcov_arithmetic, funcov_logic]
+
+def init_coverage_group_arithmetic(g, dut):
+    """初始化算术运算覆盖组"""
+    # 加法功能点
     g.add_watch_point(dut,
         {
-            "CK-1": lambda x: x.a.value + x.b.value == x.out.value,
-            "CK-2": lambda x: x.cout.value == 1,
-         },
-        name="FC-A1") # 为dut中的功能点FC-A1添加检查点CK-1 和 CK-2
-    # other check point
-    # ....
+            "CK-BASIC": lambda x: x.a.value + x.b.value == x.sum.value,
+            "CK-OVERFLOW": lambda x: x.cout.value == 1,
+            "CK-ZERO": lambda x: (x.a.value == 0) and (x.b.value == 0) and (x.sum.value == 0),
+            "CK-CIN": lambda x: x.cin.value == 1 and (x.a.value + x.b.value + 1) & 0xFFFFFFFF == x.sum.value,
+        },
+        name="FC-ADD")
+    
+    # 减法功能点
+    g.add_watch_point(dut,
+        {
+            "CK-BASIC": lambda x: (x.a.value - x.b.value) & 0xFFFFFFFF == x.result.value,
+            "CK-BORROW": lambda x: x.borrow_out.value == 1,
+            "CK-UNDERFLOW": lambda x: x.a.value < x.b.value and x.underflow.value == 1,
+        },
+        name="FC-SUB")
 
-def init_coverage_group_B(g, dut):
-    # check points for B
-    # ....
-
+def init_coverage_group_logic(g, dut):
+    """初始化逻辑运算覆盖组"""
+    g.add_watch_point(dut,
+        {
+            "CK-AND": lambda x: (x.a.value & x.b.value) == x.result.value,
+            "CK-OR": lambda x: (x.a.value | x.b.value) == x.result.value, 
+            "CK-XOR": lambda x: (x.a.value ^ x.b.value) == x.result.value,
+            "CK-NOT": lambda x: (~x.a.value & 0xFFFFFFFF) == x.result.value,
+        },
+        name="FC-BITWISE")
 
 def init_function_coverage(dut, cover_group):
-    init_coverage_group_A(cover_group[0], dut)
-    init_coverage_group_B(cover_group[1], dut)
+    """初始化所有功能覆盖"""
+    coverage_init_map = {
+        "FG-ARITHMETIC": init_coverage_group_arithmetic,
+        "FG-LOGIC": init_coverage_group_logic,
+    }
+    
+    for g in cover_group:
+        init_func = coverage_init_map.get(g.name)
+        if init_func:
+            init_func(g, dut)
+        else:
+            print(f"警告：未找到覆盖组 {g.name} 的初始化函数")
 
-
-def get_coverage_groups(dut=None):                    # 需要支持dut为None
-    init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
+def get_coverage_groups(dut=None):
+    """获取功能覆盖组列表"""
+    if dut is not None:
+        init_function_coverage(dut, funcov_group)
     return funcov_group
 ```
 
-注意：CovGroup需要调用其sample方法才会进行采样判断，对于时序电路可以通过`dut.StepRis`设置上升沿回调函数，在回调函数中进行采样。也可以在test case 或者 api中进行显示 sample采样。
+### 高级示例：复杂检查条件
+
+```python
+def init_coverage_group_memory(g, dut):
+    """内存操作覆盖组"""
+    
+    def check_cache_hit(x):
+        """检查缓存命中"""
+        return x.cache_hit.value == 1 and x.mem_ready.value == 1
+        
+    def check_cache_miss(x):
+        """检查缓存缺失"""
+        return x.cache_hit.value == 0 and x.mem_access.value == 1
+        
+    def check_write_through(x):
+        """检查写穿模式"""
+        return (x.write_enable.value == 1 and 
+                x.cache_write.value == 1 and 
+                x.mem_write.value == 1)
+    
+    g.add_watch_point(dut,
+        {
+            "CK-READ-HIT": check_cache_hit,
+            "CK-READ-MISS": check_cache_miss,
+            "CK-WRITE-THROUGH": check_write_through,
+            "CK-WRITE-BACK": lambda x: x.dirty.value == 1 and x.evict.value == 1,
+        },
+        name="FC-CACHE")
+```
+
+### 边界条件覆盖示例
+
+```python
+def init_coverage_group_boundary(g, dut):
+    """边界条件覆盖"""
+    
+    # 数值边界
+    MAX_VAL = (1 << 32) - 1
+    MIN_VAL = 0
+    
+    g.add_watch_point(dut,
+        {
+            "CK-MAX-A": lambda x: x.a.value == MAX_VAL,
+            "CK-MAX-B": lambda x: x.b.value == MAX_VAL,
+            "CK-MAX-BOTH": lambda x: x.a.value == MAX_VAL and x.b.value == MAX_VAL,
+            "CK-MIN-A": lambda x: x.a.value == MIN_VAL,
+            "CK-MIN-B": lambda x: x.b.value == MIN_VAL,
+            "CK-MIN-BOTH": lambda x: x.a.value == MIN_VAL and x.b.value == MIN_VAL,
+        },
+        name="FC-BOUNDARY")
+```
+
+## 最佳实践
+
+### 1. 参数传递注意事项
+
+```python
+# ❌ 错误：传递值类型，会导致值固化
+g.add_watch_point(dut.a.value,  # 这是一个int值，不会更新
+    {"CK-TEST": lambda x: x == 5}, 
+    name="FC-BAD")
+
+# ✅ 正确：传递引用类型
+g.add_watch_point(dut,  # 传递整个dut对象
+    {"CK-TEST": lambda x: x.a.value == 5}, 
+    name="FC-GOOD")
+
+# ✅ 正确：传递信号引用
+g.add_watch_point(dut.a,  # 传递信号对象
+    {"CK-TEST": lambda x: x.value == 5}, 
+    name="FC-BETTER")
+```
+
+### 2. 采样策略
+
+#### 自动采样（推荐）
+```python
+# 在fixture中设置，适用于大多数情况
+dut.StepRis(lambda _: [g.sample() for g in func_coverage_group])
+```
+
+#### 手动采样
+```python
+# 在API函数中采样，适用于特定操作
+def api_complex_operation(dut, ...):
+    # 执行操作
+    result = perform_operation(dut, ...)
+    
+    # 手动采样
+    for g in get_coverage_groups():
+        g.sample()
+    
+    return result
+```
+
+### 3. 覆盖组组织
+
+```python
+# 按功能模块组织
+funcov_cpu_core = fc.CovGroup("FG-CPU-CORE")
+funcov_memory_subsystem = fc.CovGroup("FG-MEMORY") 
+funcov_io_controller = fc.CovGroup("FG-IO")
+
+# 按抽象层次组织
+funcov_instruction_level = fc.CovGroup("FG-ISA")
+funcov_microarch_level = fc.CovGroup("FG-MICROARCH")
+funcov_physical_level = fc.CovGroup("FG-PHYSICAL")
+```
+
+### 4. 错误处理
+
+```python
+def init_function_coverage(dut, cover_group):
+    """带错误处理的覆盖率初始化"""
+    for g in cover_group:
+        try:
+            init_func_name = f"init_coverage_group_{g.name.lower().replace('-', '_')}"
+            init_func = globals().get(init_func_name)
+            if init_func:
+                init_func(g, dut)
+            else:
+                print(f"警告：未找到 {g.name} 的初始化函数")
+        except Exception as e:
+            print(f"错误：初始化覆盖组 {g.name} 失败 - {e}")
+            # 可以选择继续或抛出异常
+            continue
+```
+
+### 5. 调试和验证
+
+```python
+def debug_coverage_groups():
+    """调试覆盖组定义"""
+    groups = get_coverage_groups()
+    
+    for g in groups:
+        print(f"覆盖组: {g.name}")
+        print(f"检查点数量: {len(g.cov_points)}")
+        
+        for point_name, point in g.cov_points.items():
+            print(f"  功能点: {point_name}")
+            print(f"    检查数量: {len(point.bins)}")
+            for bin_name in point.bins.keys():
+                print(f"      检查点: {bin_name}")
+```
+
+## 注意事项
+
+### 性能考虑
+- 覆盖率采样会影响仿真性能，在性能敏感场景下考虑降低采样频率
+- 复杂的检查函数会增加采样开销，适当优化检查逻辑
+
+### 调试建议
+- 使用 `print` 或日志记录调试覆盖率采样
+- 定期检查覆盖率统计，确保采样正常工作
+- 使用简单的检查条件验证覆盖率框架工作正常
+
+### 维护性
+- 保持检查点命名的一致性和可读性
+- 定期回顾和更新覆盖率定义
+- 文档化复杂的检查逻辑和边界条件
