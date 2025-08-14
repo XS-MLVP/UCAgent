@@ -1,23 +1,32 @@
-# UCAgent
-UnityChip Verification Agent
+# UCAgent（UnityChip Verification Agent）
 
-基于大模型进行自动化UT验证AI 代理
+基于大模型进行自动化UT验证AI 代理（
+
 
 ## 项目简介
 
-UCAgent 是一个基于大语言模型的自动化硬件验证AI代理，专注于芯片设计的单元测试(Unit Test)验证工作。该项目通过AI技术自动分析硬件设计，生成测试用例，并执行验证任务，大大提高了硬件验证的效```bash
-# 基本使用
+UCAgent 是一个基于大语言模型的自动化硬件验证AI代理，专注于芯片设计的单元测试(Unit Test)验证工作。该项目通过AI技术自动分析硬件设计，生成测试用例，并执行验证任务，大大提高了硬件验证的效。
+
+**基本使用**
+```bash
 python3 verify.py <workspace> <dut_name> --config config.yaml
+```
 
-# 流模式 + TUI界面 + 人工交互
+**流模式 + TUI界面 + 人工交互**
+```bash
 python3 verify.py <workspace> <dut_name> --config config.yaml --tui --human
+```
 
-# 指定输出目录
+**指定输出目录**
+```bash
 python3 verify.py <workspace> <dut_name> --config config.yaml --output <output_dir>
+```
 
-# 启动MCP服务器模式
+**启动MCP服务器模式**
+```bash
 python3 verify.py <workspace> <dut_name> --config config.yaml --mcp-server
 ```
+
 - 🤖 **智能验证流程**: 基于6阶段验证流程，自动完成从需求分析到缺陷分析的全过程
 - 🛠️ **丰富的工具集**: 内置完整的文件操作、搜索、编辑等工具，支持复杂的验证任务
 - 🔄 **MCP协议支持**: 支持Model Context Protocol，可与多种AI客户端集成
@@ -517,19 +526,19 @@ UCAgent 提供了三个完整的验证示例：
 
 ## 常见问题 (FAQ)
 
-### Q: 如何配置不同的AI模型？
+**Q: 如何配置不同的AI模型？**
 **A:** 在 `config.yaml` 中修改 `openai.model_name` 字段，支持任何OpenAI兼容的API。
 
-### Q: 验证过程中出现错误怎么办？
+**Q: 验证过程中出现错误怎么办？**
 **A:** 使用 `Ctrl+C` 进入交互模式，通过 `status` 查看当前状态，使用 `help` 获取调试命令。
 
-### Q: 可以自定义验证阶段吗？
+**Q: 可以自定义验证阶段吗？**
 **A:** 可以通过修改 `vagent/config/default.yaml` 中的 `stage` 配置来自定义验证流程。
 
-### Q: 如何添加自定义工具？
+**Q: 如何添加自定义工具？**
 **A:** 在 `vagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。
 
-### Q: MCP服务器无法连接？
+**Q: MCP服务器无法连接？**
 **A:** 检查端口是否被占用，确认防火墙设置，可以通过 `--mcp-server-port` 指定其他端口。
 
 ## 贡献指南
