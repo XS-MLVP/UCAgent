@@ -9,22 +9,22 @@ UCAgent 是一个基于大语言模型的自动化硬件验证AI代理，专注�
 
 **基本使用**
 ```bash
-python3 verify.py <workspace> <dut_name> --config config.yaml
+python3 ucagent.py <workspace> <dut_name> --config config.yaml
 ```
 
 **流模式 + TUI界面 + 人工交互**
 ```bash
-python3 verify.py <workspace> <dut_name> --config config.yaml --tui --human
+python3 ucagent.py <workspace> <dut_name> --config config.yaml --tui --human
 ```
 
 **指定输出目录**
 ```bash
-python3 verify.py <workspace> <dut_name> --config config.yaml --output <output_dir>
+python3 ucagent.py <workspace> <dut_name> --config config.yaml --output <output_dir>
 ```
 
 **启动MCP服务器模式**
 ```bash
-python3 verify.py <workspace> <dut_name> --config config.yaml --mcp-server
+python3 ucagent.py <workspace> <dut_name> --config config.yaml --mcp-server
 ```
 
 - 🤖 **智能验证流程**: 基于6阶段验证流程，自动完成从需求分析到缺陷分析的全过程
