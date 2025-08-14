@@ -12,7 +12,7 @@ mission:
   prompt:
     system: >
       你是一位资深的芯片验证工程师和AI测试专家，专门从事数字电路的功能验证工作。
-      你具备深厚的硬件设计理解能力、软件测试方法论知识，以及基于现代验证框架的实践经验。
+      你具备深厚的硬件设计理解能力，还具有软件测试方法论知识，以及基于现代验证框架的实践经验。
       
       **核心任务目标：**
       完成`{DUT}`数字电路的全面功能验证，确保设计的正确性、鲁棒性和可靠性。
@@ -21,40 +21,30 @@ mission:
       验证任务采用分阶段渐进式方法，每个阶段都有明确的交付物和质量标准。
       使用工具`CurrentTips`获取当前阶段的详细任务指导，严格按照验证流程执行。
       
-      **标准工作流程：**
-      1. **需求理解与分析阶段**
-         - 深入研读设计规格文档，理解功能需求、接口定义和性能指标
-         - 识别关键验证点、潜在风险点和设计复杂度
-         - 利用工具`PathList`浏览参考资料，`SearchInGuidDoc`检索关键信息
-         - 建立完整的验证计划和功能覆盖模型
+      **标准流程：**
+      验证分为7个阶段，每个阶段都有具体任务：
+      1. **需求分析** - 理解验证要求，制定验证计划
+      2. **功能理解** - 深入了解芯片功能和接口定义
+      3. **功能分析** - 把复杂功能拆成可测试的小块
+      4. **设计接口** - 创建测试API，让测试更简单
+      5. **建立覆盖率** - 跟踪哪些功能已经测试了
+      6. **创建模板** - 准备测试框架
+      7. **执行测试** - 写真实测试，找出bug并分析
       
-      2. **设计与实现阶段**
-         - 基于验证方法学设计测试架构和API接口
-         - 实现可复用、可维护的验证组件和测试用例
-         - 遵循编码规范，确保代码质量和文档完整性
-         - 严格按照模板和示例进行开发，避免重复造轮子
+      **工作原则：**
+      - 按步骤有序进行，每步完成后用`Check`工具验证
+      - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
+      - 发现bug要详细分析：什么问题、为什么出现、如何修复
+      - 写清楚、简单易懂的代码和文档
       
-      3. **验证与调试阶段**
-         - 使用`Check`工具进行自动化质量检查
-         - 深入分析检查结果，识别问题根因
-         - 采用系统性调试方法定位和修复缺陷
-         - 确保每个阶段的交付质量达到标准要求
+      **必须使用的工具：**
+      - `CurrentTips`: 获取当前步骤的具体指导
+      - `Check`: 检查当前步骤是否完成
+      - `Complete`: 完成当前步骤，进入下一步
+      - `ReadTextFile`: 读取文件内容
+      - 其他文件操作和搜索工具按需使用
       
-      4. **问题解决与优化阶段**
-         - 对Check失败进行根因分析，制定精确的修复策略
-         - 实施最小化、高质量的代码变更
-         - 验证修复效果，确保不引入新的问题
-         - 持续优化验证流程和工具链
-      
-      5. **总结与交付阶段**
-         - 使用`Complete`工具标记阶段完成
-         - 提供清晰的工作总结和质量报告
-         - 对发现的设计缺陷进行详细分析，包括缺陷本质、验证逻辑、修复建议
-         - 确保所有交付物符合工业级验证标准
-      
-      **核心原则：**
-      秉承"质量第一、安全至上"的理念，采用测试驱动开发方法，追求高覆盖率、高质量的验证结果。
-      像资深硬件验证工程师一样思考和行动，注重细节、系统性思维、持续改进。
+      现在开始你的验证工作！
 
 template: unity_test
 un_write_dirs:
@@ -72,141 +62,230 @@ embed:
 mcp_server:
   init_prompt: >
     欢迎使用UCAgent芯片验证平台！
-    
-    **角色确认与初始化：**
-    首先请调用`RoleInfo`工具获取你的详细角色信息和当前验证任务的具体配置。
-    
-    **可用工具概览：**
-    你拥有以下专业验证工具：{TOOLS}
-    这些工具涵盖了从需求分析、文档编写、代码实现到质量检查的完整验证流程。
-    
-    **任务执行指南：**
-    1. **获取任务指导**：使用`CurrentTips`工具获取当前阶段的详细任务要求和执行指导
-    2. **文档操作规范**：必须使用`ReadTextFile`工具读取文本文件，确保信息获取的完整性和准确性
-    3. **文件写入灵活性**：可以根据你的专业判断选择最适合的工具进行文件创建和编辑操作
-    4. **质量保证机制**：每个阶段完成后必须使用`Check`工具进行自动化验证，包括pytest测试执行、代码规范检查等
-    5. **缺陷分析要求**：如果测试发现设计缺陷，需要进行深入的根因分析，包括：
-       - 缺陷现象描述和复现条件
-       - 设计逻辑分析和问题定位  
-       - 影响范围评估和风险分析
-       - 具体的修复建议和验证方案
-    
-    **验证流程原则：**
-    - 系统性：按阶段有序推进，确保每个环节的质量
-    - 专业性：运用硬件验证领域的最佳实践和方法论
-    - 严谨性：对每个deliverable进行充分的检查和验证
-    - 实用性：生成高质量、可维护、可复用的验证代码和文档
-    
-    请开始你的芯片验证工作，期待你的专业表现！
+
+    **你的角色：**
+    你是专业的芯片验证AI助手，负责测试数字电路功能。
+
+    **开始工作：**
+    1. 先调用`RoleInfo`工具了解你的角色和当前任务
+    2. 使用`CurrentTips`工具获取当前阶段的具体任务
+    3. 用其他工具完成文件读写、搜索等操作
+
+    **工作流程：**
+    验证分7个阶段：需求分析 → 功能理解 → 功能分析 → API设计 → 覆盖率模型 → 测试模板 → 执行测试
+
+    **重要工具：**
+    - `CurrentTips`: 获取当前阶段任务指导
+    - `Check`: 检查阶段是否完成(会自动运行pytest等)
+    - `Complete`: 完成当前阶段进入下一阶段
+    - `ReadTextFile`: 读取文件(必须用这个，否则我不知道你读了什么)
+    - 文件写入：你可以选择合适的工具
+
+    **质量保证：**
+    - 每个阶段完成后必须用`Check`工具验证
+    - 如果测试发现bug，要详细分析原因和修复方案
+    - 包括：问题描述、根本原因、影响范围、修复建议
+
+    **核心原则：**
+    - 按阶段有序推进
+    - 注重代码和文档质量
+    - 深入分析发现的问题
+    - 生成实用、可维护的验证代码
+
+    现在开始你的芯片验证工作！
 
 stage:
   - name: requirement_analysis_and_planning
     desc: "需求分析与验证规划"
     task:
-      - "请仔细阅读{DUT}/README.md文档，深入理解待验证目标的功能规格、接口定义、性能指标和预期行为。"
-      - "分析DUT的整体架构，包括输入输出端口、控制信号、时序关系等关键信息。"
-      - "理解验证的目标和范围：需要验证哪些功能，验证的深度和广度如何。"
-      - "识别可能存在的设计复杂点和潜在风险点，为后续测试用例设计做准备。"
-      - "使用工具Check、Complete推进任务，用工具Status、Detail查看任务状态和细节。如果需要任务回退，请使用GoToStage工具。"
-      - "重要提醒：{DUT}中可能存在多个隐藏bug，这些bug将在测试执行过程中逐步暴露。当测试用例不通过时，请优先分析是否为DUT设计缺陷，而不是简单地修改测试用例来适应错误行为。"
-    checker:
-      - name: do_not_need_check
-        clss: NopChecker
+      - "第1步：读取{DUT}/README.md，理解用户的验证要求"
+      - "第2步：确定验证目标 - 需要测试哪些功能？输入输出是什么？"
+      - "第3步：识别风险点 - 哪些地方容易出错？边界条件有哪些？"
+      - "第4步：制定验证计划 - 如何系统地测试所有功能？"
+      - "第5步：写入验证规划文档到{OUT}/{DUT}_verification_needs_and_plan.md"
+      - "注意：{DUT}中可能有隐藏bug，测试失败时请分析是否为设计缺陷"
+      - "完成后使用Check工具检测，通过后用Complete进入下一阶段"
     reference_files:
       - "{DUT}/README.md"
+    output_files:
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+
+  - name: dut_function_understanding
+    desc: "{DUT}功能理解"
+    task:
+      - "第1步：读取{DUT}/README.md，了解芯片基本信息"
+      - "第2步：读取{DUT}/__init__.py，理解代码接口定义"
+      - "第3步：分析输入输出端口 - 每个端口的作用是什么？"
+      - "第4步：确定芯片类型 - 是时序电路(需要时钟)还是组合电路？"
+      - "第5步：整理基本信息，写入{OUT}/{DUT}_basic_info.md"
+      - "目标：为后续阶段提供清晰的芯片基础信息"
+    reference_files:
+      - "{DUT}/README.md"
+      - "{DUT}/__init__.py"
+    output_files:
+      - "{OUT}/{DUT}_basic_info.md"
+
   - name: functional_specification_analysis
     desc: "功能规格分析与测试点定义"
     task:
-      - "深入研读`当前目录`以及`{DUT}/`中的所有文档、代码文件和注释，全面理解待验证目标的功能规格。"
-      - "按照功能分组-功能点-检测点的层次结构，系统性地分析{DUT}的所有功能模块。"
-      - "生成详细的功能分析文档`{OUT}/{DUT}_functions_and_checks.md`，内容必须包括：DUT整体功能描述、端口接口说明、功能分组（使用<FG-*>标签）、具体功能点（使用<FC-*>标签）以及对应的检测点（使用<CK-*>标签）。"
-      - "确保每个功能分组至少包含1个功能点，每个功能点至少包含1个检测点。检测点应覆盖正常情况、边界条件、异常情况等多种场景。"
-      - "严格遵循文档格式规范：标签独立成行，与标题用空行分隔，确保标签格式正确（<FG-GROUP-NAME>、<FC-FUNCTION-NAME>、<CK-CHECK-NAME>）。"
-      - "检测点命名应具有明确含义，如CK-BASIC（基本功能）、CK-OVERFLOW（溢出处理）、CK-BOUNDARY（边界条件）、CK-ERROR（错误处理）等。"
-      - "如果目标文档已存在，请根据模板注释完善内容，确保文档完整性和准确性。"
-    checker:
-      - name: doc_heck
-        clss: "UnityChipCheckerFunctionsAndChecks"
-        args:
-          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
-          min_functions: 3
-          min_checks: 3
-        extra_args:
-          fail_msg: "功能点与检测点文档不符合规范要求。请检查：1）是否包含足够数量的功能点（≥3个）和检测点（≥3个）；2）标签格式是否正确（<FG-*>、<FC-*>、<CK-*>）；3）文档结构是否完整；4）功能描述是否清晰准确。请参考Guide_Doc/dut_functions_and_checks.md了解正确格式，并查看examples中的示例实现。"
-          pass_msg: "功能点与检测点文档生成成功！文档结构清晰，标签格式正确，功能点和检测点覆盖充分。"
-          max_try: 10
+      - "目标：将芯片功能拆解成可测试的小块，为后续测试做准备"
+      - "第1步：阅读所有相关文档，理解芯片完整功能"
+      - "第2步：按功能模块分组，每组用<FG-名称>标记"
+      - "第3步：每组内定义具体功能点，用<FC-名称>标记"
+      - "第4步：每个功能点设计检测点，用<CK-名称>标记"
+      - "第5步：写入{OUT}/{DUT}_functions_and_checks.md"
+      - "重要：标签格式必须正确，这是后续自动化测试的基础"
+      - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
       - "{DUT}/__init__.py"
+      - "{OUT}/{DUT}_basic_info.md"
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+    output_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    stage:
+      - name: functional_grouping
+        desc: "功能分组与层次划分"
+        task:
+          - "基于{DUT}功能，将相关功能归类成组"
+          - "为每组定义<FG-组名>标签，组名要有意义"
+          - "创建文档框架，先完成分组部分"
+          - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等"
+        checker:
+          - name: group_structure_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "FG"
+              min_groups: 1
+      - name: function_point_definition
+        desc: "具体功能点识别与定义"
+        task:
+          - "在每个功能分组内，定义具体的功能点"
+          - "用<FC-功能名>标签标记每个功能"
+          - "确保覆盖该组的所有重要功能"
+          - "例如：基础运算组可包含<FC-ADD>加法，<FC-ZERO>零值处理等"
+        checker:
+          - name: function_point_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "FC"
+              min_groups: 1
+      - name: check_point_design
+        desc: "检测点设计与定义"
+        task:
+          - "为每个功能点设计具体的检测点"
+          - "用<CK-检测名>标签标记，如<CK-BASIC>基本功能，<CK-BOUNDARY>边界条件"
+          - "检测点要包含：正常情况、边界条件、异常情况"
+          - "标签独立成行，与标题用空行分隔"
+          - "完成完整的功能分析文档"
+        checker:
+          - name: check_point_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "CK"
+              min_groups: 1
+
   - name: testbench_infrastructure_design
     desc: "测试平台基础架构设计"
     task:
-      - "深入分析`当前目录`和`{DUT}/`中的文档、代码实现，理解DUT的底层接口和工作机制。"
-      - "参考已生成的功能分析文档`{OUT}/{DUT}_functions_and_checks.md`，明确需要封装的接口功能。"
-      - "设计并实现高级API接口文件`{OUT}/tests/{DUT}_api.py`，包含以下关键组件："
-      - "  1）DUT创建工厂函数：实现create_dut()函数，负责DUT实例化和基本初始化。"
-      - "  2）pytest fixture：实现dut fixture，包含覆盖率设置、时钟初始化、测试清理等完整生命周期管理。"
-      - "  3）API接口函数：所有API函数必须以'api_'开头，提供高级操作接口，隐藏底层时序细节。"
-      - "API设计原则：遵循封装性（隐藏实现细节）、稳定性（接口变更不影响测试）、通用性（覆盖主要功能）、一致性（统一命名风格）。"
-      - "时钟配置指导：根据DUT类型正确配置时钟 - 时序电路使用dut.InitClock('clk_name')，组合电路无需InitClock。"
-      - "错误处理：API函数应包含适当的参数验证、超时处理和异常抛出机制。"
-      - "如果目标文件已存在，请根据模板注释完善API实现，确保接口完整性和功能正确性。"
-    checker:
-      - name: api_check
-        clss: "UnityChipCheckerDutApi"
-        args:
-          api_file: "{OUT}/tests/{DUT}_api.py"
-          min_apis: 1
-        extra_args:
-          fail_msg: "DUT接口封装不符合规范要求。请检查：1）是否包含足够数量的API函数（≥1个）且以'api_'开头；2）是否正确实现了dut fixture和create_dut()函数；3）API函数是否包含适当的错误处理；4）时钟配置是否正确。请参考Guide_Doc/dut_fixture_and_api.md了解正确实现方式，并查看examples中的示例代码。"
-          pass_msg: "DUT接口封装实现成功！API设计合理，fixture配置正确，错误处理完善。"
-          max_try: 10
-    reference_files:
-      - "Guide_Doc/dut_fixture_and_api.md"
+      - "目标：创建测试API接口，让后续测试更简单"
+      - "第1步：分析{DUT}的底层接口和工作方式"
+      - "第2步：设计create_dut()函数 - 负责创建和初始化芯片实例"
+      - "第3步：配置时钟(时序电路需要，组合电路不需要)"
+      - "第4步：实现dut fixture - 管理测试的完整生命周期"
+      - "第5步：创建API函数 - 以'api_'开头，封装常用操作"
+      - "第6步：写入{OUT}/tests/{DUT}_api.py"
+      - "原则：让测试人员使用简单的API，而不是复杂的底层信号"
+      - "参考Guide_Doc/dut_fixture_and_api.md了解标准写法"
+    stage:
+     - name: dut_creation_implementation
+       desc: "DUT创建函数实现"
+       task:
+         - "实现create_dut()函数，完成芯片的基础创建"
+         - "根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
+         - "确保创建函数能正常工作"
+       checker:
+         - name: dut_creation_check
+           clss: "UnityChipCheckerDutCreation"
+           args:
+             api_file: "{OUT}/tests/{DUT}_api.py"
+       reference_files:
+         - "Guide_Doc/dut_fixture_and_api.md"
+     - name: pytest_fixture_implementation
+       desc: "pytest fixture和基础API实现"
+       task:
+         - "实现dut fixture，包含完整的生命周期管理"
+         - "至少实现1个基础API函数(以api_开头)"
+         - "确保fixture能正确初始化和清理芯片"
+       checker:
+         - name: fixture_check
+           clss: "UnityChipCheckerDutApi"
+           args:
+             api_file: "{OUT}/tests/{DUT}_api.py"
+             min_apis: 1
+       reference_files:
+         - "Guide_Doc/dut_fixture_and_api.md"
+
   - name: coverage_model_implementation
     desc: "功能覆盖率模型实现"
     task:
-      - "深入研读`当前目录`、`{DUT}/`目录中的设计文档和代码实现，理解DUT的详细功能规格。"
-      - "基于已生成的功能分析文档`{OUT}/{DUT}_functions_and_checks.md`，理解所有功能分组、功能点和检测点的定义。"
-      - "实现功能覆盖率定义文件`{OUT}/tests/{DUT}_function_coverage_def.py`，包含以下核心组件："
-      - "  1）覆盖组创建：为每个功能分组(<FG-*>)创建对应的CovGroup对象。"
-      - "  2）检查点实现：为每个功能点(<FC-*>)添加watch_point，包含对应的检查点(<CK-*>)和检查函数。"
-      - "  3）主接口函数：必须实现get_coverage_groups(dut=None)函数，支持dut=None调用以获取覆盖率结构。"
-      - "检查函数设计要点：使用lambda函数实现检查逻辑，传递引用类型参数（如dut对象）而非值类型参数（如dut.a.value），确保动态采样。"
-      - "覆盖点命名规范：CovGroup名称对应<FG-*>标签，watch_point名称对应<FC-*>标签，bins字典key对应<CK-*>标签。"
-      - "采样机制：覆盖率采样将在fixture中通过dut.StepRis()回调机制自动执行，无需在此文件中实现采样逻辑。"
-      - "错误处理：添加适当的异常处理，确保覆盖率初始化失败时能给出清晰的错误信息。"
-      - "如果目标文件已存在，请根据模板注释完善覆盖率定义，确保所有功能点和检测点都有对应的覆盖实现。"
-    checker:
-      - name: cover_check
-        clss: "UnityChipCheckerCoverGroup"
-        args:
-          test_path: "{OUT}/tests"
-          group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
-          min_groups: 1
-        extra_args:
-          fail_msg: "功能覆盖率定义不符合规范要求。请检查：1）是否正确实现了get_coverage_groups(dut=None)函数；2）是否创建了足够数量的覆盖组（≥1个）；3）检查函数是否使用引用类型参数而非值类型；4）覆盖点命名是否与功能文档一致。请基于toffee库的CovGroup API实现，参考Guide_Doc/dut_function_coverage_def.md了解正确实现方式，并查看examples中的示例代码。"
-          pass_msg: "功能覆盖率定义实现成功！覆盖组结构合理，检查点覆盖全面，采样机制设计正确。"
-          max_try: 10
-    reference_files:
-      - "Guide_Doc/dut_function_coverage_def.md"
+      - "目标：创建覆盖率统计系统，跟踪哪些功能已测试"
+      - "第1步：读取功能分析文档{OUT}/{DUT}_functions_and_checks.md"
+      - "第2步：为每个功能分组<FG-*>创建CovGroup覆盖组"
+      - "第3步：为每个功能点<FC-*>添加watch_point监测点"
+      - "第4步：为每个检测点<CK-*>实现检查函数(用lambda)"
+      - "第5步：实现get_coverage_groups(dut=None)主函数"
+      - "第6步：写入{OUT}/tests/{DUT}_function_coverage_def.py"
+      - "关键：检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
+      - "参考Guide_Doc/dut_function_coverage_def.md了解实现方法"
+    stage:
+      - name: coverage_group_creation
+        desc: "功能覆盖组创建"
+        task:
+          - "为每个功能分组<FG-*>创建对应的CovGroup对象"
+          - "实现get_coverage_groups(dut=None)基础框架"
+          - "确保覆盖组可以正常创建和访问"
+        checker:
+          - name: coverage_group_check
+            clss: "UnityChipCheckerCoverageGroups"
+            args:
+              group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              min_groups: 1
+        reference_files:
+          - "Guide_Doc/dut_function_coverage_def.md"
+
+      - name: coverage_check_implementation
+        desc: "覆盖率检查点实现"
+        task:
+          - "为每个功能点添加watch_point和检查函数"
+          - "用lambda函数实现检查逻辑，传递引用参数(dut对象)"
+          - "完成完整的覆盖率定义"
+        checker:
+          - name: coverage_implementation_check
+            clss: "UnityChipCheckerCoverGroup"
+            args:
+              test_path: "{OUT}/tests"
+              group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              min_groups: 1
+        reference_files:
+          - "Guide_Doc/dut_function_coverage_def.md"
+
   - name: test_framework_scaffolding
     desc: "测试框架脚手架构建"
     task:
-      - "深入分析`当前目录`和`{DUT}/`中的设计文档，理解DUT的具体功能需求和验证要点。"
-      - "基于已生成的功能分析文档`{OUT}/{DUT}_functions_and_checks.md`，识别所有需要测试的功能点和检测点。"
-      - "创建测试用例模板文件`{OUT}/tests/test_<name>.py`，文件命名应与DUT功能相关，能够清晰表达测试内容（如test_arithmetic.py、test_memory.py等）。"
-      - "测试模板必须包含以下标准组件："
-      - "  1）标准导入：from {DUT}_api import * 和 import pytest。"
-      - "  2）测试函数框架：函数名以test_开头，参数为dut（pytest fixture）。"
-      - "  3）功能覆盖标记：使用dut.fc_cover[功能组].mark_function()进行覆盖率反标。"
-      - "  4）详细TODO注释：说明需要实现的具体测试逻辑和验证点。"
-      - "  5）强制失败断言：assert False, 'Not implemented' 确保模板不会意外通过。"
-      - "覆盖率反标格式：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_function, ['CK-ZZZ', ...])。"
-      - "确保测试用例覆盖完整性：每个功能点(<FC-*>)至少对应一个测试用例，每个检测点(<CK-*>)至少被一个测试用例标记。"
-      - "测试用例分类建议：按功能模块、测试类型（基础功能/边界条件/错误处理）或复杂度进行分类组织。"
-      - "如果目标文件已存在，请根据模板注释完善测试框架结构，确保覆盖率标记的完整性和正确性。"
+      - "目标：创建测试用例模板，为实际测试做准备"
+      - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
+      - "第2步：创建测试文件test_<名称>.py，文件名要有意义"
+      - "第3步：每个测试函数以test_开头，参数为dut(pytest fixture)"
+      - "第4步：添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
+      - "第5步：加入详细的TODO注释说明要测什么"
+      - "第6步：添加assert False, 'Not implemented'防止意外通过"
+      - "确保：每个功能点<FC-*>至少有一个测试用例"
+      - "参考Guide_Doc/dut_test_template.md了解模板格式"
     checker:
       - name: template_check
         clss: "UnityChipCheckerTestTemplate"
@@ -216,29 +295,28 @@ stage:
           test_dir: "{OUT}/tests"
           min_tests: 1
         extra_args:
-          fail_msg: "测试模板创建不符合规范要求。请检查：1）测试文件名是否以'test_'开头且命名合理；2）是否正确导入API模块和pytest；3）测试函数是否包含覆盖率标记；4）是否包含详细的TODO注释说明；5）是否有强制失败断言防止意外通过。请参考Guide_Doc/dut_test_template.md了解正确格式，并查看examples中的模板示例。"
-          pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整，模板注释详细。"
+          fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
+          pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
           max_try: 10
     reference_files:
       - "Guide_Doc/dut_test_template.md"
+
   - name: comprehensive_verification_execution
     desc: "全面验证执行与缺陷分析"
     task:
-      - "全面理解验证目标：研读`当前目录`、`{DUT}/`中的所有文档和代码，深入掌握DUT的功能规格和预期行为。"
-      - "整合前期成果：详细分析已生成的功能文档`{OUT}/{DUT}_functions_and_checks.md`、API接口`{OUT}/tests/{DUT}_api.py`和覆盖率定义`{OUT}/tests/{DUT}_function_coverage_def.py`。"
-      - "实现完整测试逻辑：将空测试用例模板填充为可执行的测试代码，每个测试用例都应："
-      - "  1）使用API接口调用DUT功能，避免直接操作底层信号。"
-      - "  2）设计充分的测试数据，包括典型值、边界值、特殊值。"
-      - "  3）实施全面的结果验证，使用断言检查输出的正确性。"
-      - "  4）保持覆盖率标记与功能文档的一致性。"
-      - "测试策略规划：设计多样化的测试场景 - 基础功能验证、边界条件测试、异常情况处理、性能压力测试等。"
-      - "渐进式验证方法：每完成一个测试用例立即执行Check('{path_to_test}.py::{target_test_function}')验证，确认测试结果符合预期（Pass）或发现设计缺陷（Fail但属于预期的bug发现）。"
-      - "缺陷发现与分析：当测试失败时，仔细分析失败原因："
-      - "  - 如果是DUT设计缺陷，在`{OUT}/{DUT}_bug_analysis.md`中记录详细的根因分析。"
-      - "  - 如果是测试用例问题，修正测试逻辑并重新验证。"
-      - "  - 确保失败的测试用例能够准确暴露真实的设计问题。"
-      - "缺陷分析要求：对于发现的每个bug，提供详尽分析包括缺陷描述、影响范围、根本原因、修复建议和验证方法。"
-      - "如果相关文件已存在，请基于模板注释逐步完善实现，确保测试逻辑的正确性和覆盖率的完整性。"
+      - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
+      - "第1步：理解芯片完整功能和预期行为"
+      - "第2步：将空的测试模板填充为可执行代码"
+      - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
+      - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
+      - "第5步：添加断言检查输出是否正确"
+      - "第6步：每完成一个测试立即用Check验证"
+      - "第7步：分析测试结果："
+      - "  - 如果Pass：测试正确，继续下一个"
+      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md"
+      - "  - 如果Fail不合理：修正测试逻辑"
+      - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试"
+      - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -248,8 +326,8 @@ stage:
           test_dir: "{OUT}/tests"
           min_tests: 1
         extra_args:
-          fail_msg: "测试用例实现不符合验证要求。请检查以下方面：1）测试逻辑是否正确实现了功能验证；2）是否使用API接口而非直接信号操作；3）测试数据是否充分覆盖各种场景；4）断言验证是否准确有效；5）覆盖率标记是否与功能文档一致；6）发现的bug是否进行了详细分析。如果是前序阶段的问题，可以回到对应阶段进行修改。请参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解正确实现方式，并查看examples中的完整示例。"
-          pass_msg: "测试用例实现成功！测试逻辑正确，验证全面，bug分析详尽，覆盖率达标。"
+          fail_msg: "测试实现不符合要求。检查：1)测试逻辑是否正确 2)是否使用API而非直接信号操作 3)测试数据是否充分 4)断言是否有效 5)覆盖率标记是否正确 6)发现的bug是否详细分析。参考Guide_Doc/dut_test_case.md和examples了解正确方法。"
+          pass_msg: "测试实现成功！测试逻辑正确，验证全面，bug分析详尽。"
           max_try: -1
     reference_files:
       - "Guide_Doc/dut_test_case.md"
