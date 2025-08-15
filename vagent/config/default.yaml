@@ -13,16 +13,16 @@ mission:
     system: >
       你是一位资深的芯片验证工程师和AI测试专家，专门从事数字电路的功能验证工作。
       你具备深厚的硬件设计理解能力，还具有软件测试方法论知识，以及基于现代验证框架的实践经验。
-      
+
       **核心任务目标：**
       完成`{DUT}`数字电路的全面功能验证，确保设计的正确性、鲁棒性和可靠性。
-      
+
       **工作框架：**
       验证任务采用分阶段渐进式方法，每个阶段都有明确的交付物和质量标准。
       使用工具`CurrentTips`获取当前阶段的详细任务指导，严格按照验证流程执行。
-      
+
       **标准流程：**
-      验证分为7个阶段，每个阶段都有具体任务：
+      验证分为8个阶段，每个阶段都有具体任务：
       1. **需求分析** - 理解验证要求，制定验证计划
       2. **功能理解** - 深入了解芯片功能和接口定义
       3. **功能分析** - 把复杂功能拆成可测试的小块
@@ -30,20 +30,21 @@ mission:
       5. **建立覆盖率** - 跟踪哪些功能已经测试了
       6. **创建模板** - 准备测试框架
       7. **执行测试** - 写真实测试，找出bug并分析
-      
+      8. **审查总结** - 回顾验证过程，提炼经验教训
+
       **工作原则：**
       - 按步骤有序进行，每步完成后用`Check`工具验证
       - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
       - 发现bug要详细分析：什么问题、为什么出现、如何修复
       - 写清楚、简单易懂的代码和文档
-      
+
       **必须使用的工具：**
       - `CurrentTips`: 获取当前步骤的具体指导
       - `Check`: 检查当前步骤是否完成
       - `Complete`: 完成当前步骤，进入下一步
-      - `ReadTextFile`: 读取文件内容
+      - `ReadTextFile`: 读取文件内容（让agent知晓你阅读了哪些文件）
       - 其他文件操作和搜索工具按需使用
-      
+
       现在开始你的验证工作！
 
 template: unity_test
@@ -72,7 +73,7 @@ mcp_server:
     3. 用其他工具完成文件读写、搜索等操作
 
     **工作流程：**
-    验证分7个阶段：需求分析 → 功能理解 → 功能分析 → API设计 → 覆盖率模型 → 测试模板 → 执行测试
+    验证分为8个阶段：需求分析 → 功能理解 → 功能分析 → API设计 → 覆盖率模型 → 测试模板 → 执行测试 → 验证审查与总结
 
     **重要工具：**
     - `CurrentTips`: 获取当前阶段任务指导
@@ -104,7 +105,6 @@ stage:
       - "第4步：制定验证计划 - 如何系统地测试所有功能？"
       - "第5步：写入验证规划文档到{OUT}/{DUT}_verification_needs_and_plan.md"
       - "注意：{DUT}中可能有隐藏bug，测试失败时请分析是否为设计缺陷"
-      - "完成后使用Check工具检测，通过后用Complete进入下一阶段"
     reference_files:
       - "{DUT}/README.md"
     output_files:
@@ -117,7 +117,8 @@ stage:
       - "第2步：读取{DUT}/__init__.py，理解代码接口定义"
       - "第3步：分析输入输出端口 - 每个端口的作用是什么？"
       - "第4步：确定芯片类型 - 是时序电路(需要时钟)还是组合电路？"
-      - "第5步：整理基本信息，写入{OUT}/{DUT}_basic_info.md"
+      - "第5步：分析{DUT}的功能有哪几大类，大约有多少个功能点？"
+      - "第6步：整理基本信息，写入{OUT}/{DUT}_basic_info.md"
       - "目标：为后续阶段提供清晰的芯片基础信息"
     reference_files:
       - "{DUT}/README.md"
@@ -129,8 +130,8 @@ stage:
     desc: "功能规格分析与测试点定义"
     task:
       - "目标：将芯片功能拆解成可测试的小块，为后续测试做准备"
-      - "第1步：阅读所有相关文档，理解芯片完整功能"
-      - "第2步：按功能模块分组，每组用<FG-名称>标记"
+      - "第1步：阅读{DUT}/下的所有相关文档，理解芯片完整待验证功能"
+      - "第2步：对待验证功能点按功能模块分组，每组用<FG-名称>标记"
       - "第3步：每组内定义具体功能点，用<FC-名称>标记"
       - "第4步：每个功能点设计检测点，用<CK-名称>标记"
       - "第5步：写入{OUT}/{DUT}_functions_and_checks.md"
@@ -151,7 +152,7 @@ stage:
           - "基于{DUT}功能，将相关功能归类成组"
           - "为每组定义<FG-组名>标签，组名要有意义"
           - "创建文档框架，先完成分组部分"
-          - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等"
+          - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等，栈结构可以有<FG-PUSH>、<FG-POP>、<FG-POP-PUSH>等"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"
@@ -164,7 +165,7 @@ stage:
         task:
           - "在每个功能分组内，定义具体的功能点"
           - "用<FC-功能名>标签标记每个功能"
-          - "确保覆盖该组的所有重要功能"
+          - "确保覆盖该组的所有功能"
           - "例如：基础运算组可包含<FC-ADD>加法，<FC-ZERO>零值处理等"
         checker:
           - name: function_point_check
@@ -205,8 +206,9 @@ stage:
      - name: dut_creation_implementation
        desc: "DUT创建函数实现"
        task:
-         - "实现create_dut()函数，完成芯片的基础创建"
-         - "根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
+         - "在文件{OUT}/tests/{DUT}_api.py实现create_dut()函数，完成芯片的基础创建"
+         - "在该函数中根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
+         - "根据验证需要，确定是否需要在该函数中开启波形导出、代码行覆盖率等"
          - "确保创建函数能正常工作"
        checker:
          - name: dut_creation_check
@@ -216,16 +218,32 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
      - name: pytest_fixture_implementation
-       desc: "pytest fixture和基础API实现"
+       desc: "pytest fixture实现"
        task:
          - "实现dut fixture，包含完整的生命周期管理"
-         - "至少实现1个基础API函数(以api_开头)"
          - "确保fixture能正确初始化和清理芯片"
        checker:
          - name: fixture_check
            clss: "UnityChipCheckerDutApi"
            args:
              api_file: "{OUT}/tests/{DUT}_api.py"
+             type: fixture
+             min_apis: 1
+       reference_files:
+         - "Guide_Doc/dut_fixture_and_api.md"
+     - name: basic_api_implementation
+       desc: "基础API实现"
+       task:
+         - "至少实现1个基础API函数(以api_开头)"
+         - "确保API函数能正确调用底层接口"
+         - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
+         - "例如对于ALU：需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层接口"
+       checker:
+         - name: api_check
+           clss: "UnityChipCheckerDutApi"
+           args:
+             api_file: "{OUT}/tests/{DUT}_api.py"
+             type: api
              min_apis: 1
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
@@ -237,9 +255,9 @@ stage:
       - "第1步：读取功能分析文档{OUT}/{DUT}_functions_and_checks.md"
       - "第2步：为每个功能分组<FG-*>创建CovGroup覆盖组"
       - "第3步：为每个功能点<FC-*>添加watch_point监测点"
-      - "第4步：为每个检测点<CK-*>实现检查函数(用lambda)"
+      - "第4步：为每个检测点<CK-*>实现检查函数(尽可能的用lambda函数)"
       - "第5步：实现get_coverage_groups(dut=None)主函数"
-      - "第6步：写入{OUT}/tests/{DUT}_function_coverage_def.py"
+      - "第6步：结果写入{OUT}/tests/{DUT}_function_coverage_def.py"
       - "关键：检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
       - "参考Guide_Doc/dut_function_coverage_def.md了解实现方法"
     stage:
@@ -263,7 +281,9 @@ stage:
         task:
           - "为每个功能点添加watch_point和检查函数"
           - "用lambda函数实现检查逻辑，传递引用参数(dut对象)"
-          - "完成完整的覆盖率定义"
+          - "如果检查函数过于复杂，lambda函数可以用普通函数替代"
+          - "如果多个检查函数有公共检查部分，也可以把公共部分实现为普通函数"
+          - "完成完整的覆盖率定义，代码需要有注释，可读性强"
         checker:
           - name: coverage_implementation_check
             clss: "UnityChipCheckerCoverGroup"
@@ -279,11 +299,12 @@ stage:
     task:
       - "目标：创建测试用例模板，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
-      - "第2步：创建测试文件test_<名称>.py，文件名要有意义"
-      - "第3步：每个测试函数以test_开头，参数为dut(pytest fixture)"
-      - "第4步：添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
-      - "第5步：加入详细的TODO注释说明要测什么"
-      - "第6步：添加assert False, 'Not implemented'防止意外通过"
+      - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
+      - "第3步：在测试文件中按以下顺序创建测试函数："
+      - "  - 1) 每个测试函数以test_开头，第一个参数为dut(pytest fixture)，可以根据需要添加其他参数"
+      - "  - 2) 每个测试函数的最开始添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
+      - "  - 3) 添加详细的TODO注释说明要测什么"
+      - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "确保：每个功能点<FC-*>至少有一个测试用例"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
     checker:
@@ -310,13 +331,14 @@ stage:
       - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
       - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
       - "第5步：添加断言检查输出是否正确"
-      - "第6步：每完成一个测试立即用Check验证"
+      - "第6步：每完成一个测试立即用Check('target_test_file.py::target_case')检查运行结果"
       - "第7步：分析测试结果："
-      - "  - 如果Pass：测试正确，继续下一个"
+      - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
       - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md"
       - "  - 如果Fail不合理：修正测试逻辑"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
+      - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -332,3 +354,18 @@ stage:
     reference_files:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
+
+  - name: verification_review_and_summary
+    desc: "验证审查与总结"
+    task:
+      - "目标：对测试过程进行回顾，提炼经验教训"
+      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对于的描述"
+      - "第2步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
+      - "第3步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
+      - "第4步：根据需要判断是否进行验证补充，或者调整验证规划"
+      - "第5步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
+    reference_files:
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_summary.md"
+    output_files:
+      - "{OUT}/{DUT}_test_summary.md"
