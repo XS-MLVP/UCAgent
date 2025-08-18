@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from vagent.util.config import get_config
-from vagent.stage.vstage import StageManager
+from vagent.stage import StageManager
 from vagent.tools import ReadTextFile
 
 def test_run_stage():
@@ -25,11 +25,25 @@ def test_run_stage():
     #print(manager.tool_status())
     #print(manager.get_current_tips())
     #print(manager.tool_detail())
-    for stage in manager.stages:
-        print(stage.name)
+    print("")
+    for f in [manager.tool_current_tips,
+             manager.tool_detail,
+             manager.tool_status,
+             manager.tool_check,
+             manager.tool_kill_check,
+             manager.tool_std_check,
+             manager.tool_complete,
+             manager.tool_go_to_stage,
+             manager.tool_exit]:
+        print(f.__name__, ":")
+        if f == manager.tool_check:
+            f("")
+        elif f == manager.tool_go_to_stage:
+            f(0)
+            f(1)
+        else:
+            f()
 
-    s_run_test = manager.stages[-1]
-    print(s_run_test.do_check())
 
 if __name__ == "__main__":
     test_run_stage()

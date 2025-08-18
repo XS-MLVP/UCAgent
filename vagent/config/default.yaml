@@ -159,7 +159,6 @@ stage:
             args:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FG"
-              min_groups: 1
       - name: function_point_definition
         desc: "具体功能点识别与定义"
         task:
@@ -173,7 +172,6 @@ stage:
             args:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FC"
-              min_groups: 1
       - name: check_point_design
         desc: "检测点设计与定义"
         task:
@@ -188,7 +186,6 @@ stage:
             args:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "CK"
-              min_groups: 1
 
   - name: testbench_infrastructure_design
     desc: "测试平台基础架构设计"
@@ -212,9 +209,10 @@ stage:
          - "确保创建函数能正常工作"
        checker:
          - name: dut_creation_check
-           clss: "UnityChipCheckerDutCreation"
+           clss: "UnityChipCheckerFuncCheck"
            args:
              api_file: "{OUT}/tests/{DUT}_api.py"
+             func_name: create_dut
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
      - name: pytest_fixture_implementation
@@ -224,11 +222,9 @@ stage:
          - "确保fixture能正确初始化和清理芯片"
        checker:
          - name: fixture_check
-           clss: "UnityChipCheckerDutApi"
+           clss: "UnityChipCheckerDutFixture"
            args:
              api_file: "{OUT}/tests/{DUT}_api.py"
-             type: fixture
-             min_apis: 1
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
      - name: basic_api_implementation
@@ -240,11 +236,10 @@ stage:
          - "例如对于ALU：需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层接口"
        checker:
          - name: api_check
-           clss: "UnityChipCheckerDutApi"
+           clss: "UnityChipCheckerFuncCheck"
            args:
              api_file: "{OUT}/tests/{DUT}_api.py"
-             type: api
-             min_apis: 1
+             func_name: api_*(dut, *)
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
 
@@ -269,10 +264,10 @@ stage:
           - "确保覆盖组可以正常创建和访问"
         checker:
           - name: coverage_group_check
-            clss: "UnityChipCheckerCoverageGroups"
+            clss: "UnityChipCheckerCoverageGroup"
             args:
+              test_path: "{OUT}/tests"
               group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
-              min_groups: 1
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 
@@ -286,11 +281,10 @@ stage:
           - "完成完整的覆盖率定义，代码需要有注释，可读性强"
         checker:
           - name: coverage_implementation_check
-            clss: "UnityChipCheckerCoverGroup"
+            clss: "UnityChipCheckerCoverageCheckpoint"
             args:
               test_path: "{OUT}/tests"
               group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
-              min_groups: 1
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 
@@ -314,11 +308,9 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          min_tests: 1
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
           pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
-          max_try: 10
     reference_files:
       - "Guide_Doc/dut_test_template.md"
 
@@ -346,7 +338,6 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          min_tests: 1
         extra_args:
           fail_msg: "测试实现不符合要求。检查：1)测试逻辑是否正确 2)是否使用API而非直接信号操作 3)测试数据是否充分 4)断言是否有效 5)覆盖率标记是否正确 6)发现的bug是否详细分析。参考Guide_Doc/dut_test_case.md和examples了解正确方法。"
           pass_msg: "测试实现成功！测试逻辑正确，验证全面，bug分析详尽。"

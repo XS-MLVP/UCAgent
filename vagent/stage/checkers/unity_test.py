@@ -10,6 +10,23 @@ import os
 from vagent.stage.checkers.base import Checker
 
 
+class UnityChipCheckerLabelStructure(Checker):
+    def __init__(self, *a, **kw):
+        pass
+
+class UnityChipCheckerDutCreation(Checker):
+    def __init__(self, *a, **kw):
+        pass
+
+class UnityChipCheckerFuncCheck(Checker):
+    def __init__(self, *a, **kw):
+        pass
+
+class UnityChipCheckerDutFixture(Checker):
+    def __init__(self, *a, **kw):
+        pass
+
+
 class UnityChipCheckerFunctionsAndChecks(Checker):
     """
     Checker for Unity chip functions and checks documentation validation.
@@ -170,7 +187,7 @@ class UnityChipCheckerDutApi(Checker):
     proper naming conventions and architectural patterns.
     """
 
-    def __init__(self, api_file, min_apis):
+    def __init__(self, api_file, min_apis, type="api"):
         self.api_file = api_file
         self.min_apis = min_apis
 
@@ -324,8 +341,12 @@ class UnityChipCheckerDutApi(Checker):
         
         return summary
 
+class UnityChipCheckerCoverageCheckpoint(Checker):
+    def __init__(self, *a, **k):
+        pass
 
-class UnityChipCheckerCoverGroup(Checker):
+
+class UnityChipCheckerCoverageGroup(Checker):
     """
     Checker for Unity chip functional coverage groups validation.
 
@@ -334,7 +355,7 @@ class UnityChipCheckerCoverGroup(Checker):
     and watch points for comprehensive DUT verification coverage.
     """
 
-    def __init__(self, test_path, group_file, min_groups):
+    def __init__(self, test_path, group_file, min_groups=1):
         self.test_path = test_path
         self.group_file = group_file
         self.min_groups = min_groups
@@ -548,7 +569,7 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, doc_bug_analysis, test_dir, min_tests, timeout=600):
+    def __init__(self, doc_func_check, doc_bug_analysis, test_dir, min_tests=1, timeout=600):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -574,8 +595,8 @@ class BaseUnityChipCheckerTestCase(Checker):
             report, str_out, str_err: A tuple where the first element is a boolean indicating success or failure,
         """
         if not os.path.exists(self.get_path(self.doc_func_check)):
-            return False, f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "+\
-                           "Please provide a valid file path. Review your task details."
+            return {}, "", f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "+\
+                            "Please provide a valid file path. Review your task details."
         self.run_test.set_pre_call_back(
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )

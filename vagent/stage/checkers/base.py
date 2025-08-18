@@ -39,6 +39,12 @@ class Checker(object):
         self._process = process
         return self
 
+    def is_processing(self):
+        """
+        Check if the current checker is processing a check.
+        """
+        return self.is_in_check and self._process is not None
+
     def kill(self):
         """
         Kill the current check process.
@@ -52,7 +58,7 @@ class Checker(object):
             self._process.kill()
         except Exception as e:
             error(f"Error terminating process: {e}")
-            error_str = e
+            error_str = f"kill fail: {e}"
         self.is_in_check = False
         self.time_start = None
         return error_str
