@@ -11,8 +11,7 @@ import fnmatch
 import ast
 from pathlib import Path
 from mcp.server.fastmcp import FastMCP
-import uvicorn.config
-import uvicorn.server
+import yaml
 
 
 def fmt_time_deta(sec, abbr=False):
@@ -776,3 +775,16 @@ def max_str(str_data, max_size=10):
     if len(str_data) <= max_size:
         return str_data
     return str_data[:max_size] + "..."
+
+
+from collections import OrderedDict
+def ordered_dict_representer(dumper, data):
+    return dumper.represent_dict(data.items())
+yaml.add_representer(OrderedDict, ordered_dict_representer)
+
+
+def yam_str(data: dict) -> str:
+    """
+    Convert a dictionary to a YAML-formatted string.
+    """
+    return yaml.dump(data, allow_unicode=True, default_flow_style=False, indent=2)

@@ -9,7 +9,7 @@ from .util.models import get_chat_model
 
 import vagent.tools
 from .tools import *
-from .stage.vstage import StageManager
+from .stage import StageManager
 from .verify_pdb import VerifyPDB
 
 import time
