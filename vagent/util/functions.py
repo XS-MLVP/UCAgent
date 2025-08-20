@@ -227,15 +227,20 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     return ret
 
 
-def get_unity_chip_doc_marks(path: str) -> dict:
+def get_unity_chip_doc_marks(path: str, leaf_node:str = "BUG-RATE", mini_leaf_count:int = 1) -> dict:
     """
     Get the Unity chip documentation marks from a file.
     :param path: Path to the file containing Unity chip documentation.
+    :param leaf_node: The leaf node type to consider in the documentation hierarchy.
+    :param mini_leaf_count: The minimum number of leaf nodes required.
     :return: A dictionary with the marks found in the file.
     """
+    node_type = ["FG", "FC", "CK", "BUG-RATE"]
     assert os.path.exists(path), f"File {path} does not exist."
-    keynames = ["group", "function", "checkpoint", "bug_rate"]
-    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"]
+    assert leaf_node in node_type, f"Invalid leaf_node '{leaf_node}'. Must be one of {node_type}."
+    pos = node_type.index(leaf_node) + 1
+    keynames = ["group", "function", "checkpoint", "bug_rate"][:pos]
+    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"][:pos]
     subfix   = [">"]* len(prefix)
     data = parse_nested_keys(path, keynames, prefix, subfix)
     count_group = 0
@@ -246,20 +251,36 @@ def get_unity_chip_doc_marks(path: str) -> dict:
     for k_g, d_g in data.items():
         count_group += 1
         function = d_g.get("function", {})
-        assert function, f"Group '{k_g}' does not contain any functions. Please check the documentation."
+        if leaf_node == "FG":
+            assert not function, f"Group '{k_g}' should not contain any functions when leaf_node is 'FG'."
+            mark_list.append(k_g)
+        else:
+            assert function, f"Group '{k_g}' must contain functions."
+        if leaf_node == "FC":
+            assert len(function) >= mini_leaf_count, f"At least {mini_leaf_count} functions are required in group '{k_g}', found {len(function)}."
         for k_f, d_f in function.items():
             count_function += 1
             checkpoint = d_f.get("checkpoint", {})
-            assert checkpoint, f"Function '{k_f}' in group '{k_g}' does not contain any checkpoints. Please check the documentation."
+            if leaf_node == "FC":
+                assert not checkpoint, f"Function '{k_f}' should not contain any checkpoints when leaf_node is 'FC'."
+                mark_list.append(f"{k_g}/{k_f}")
+            else:
+                assert checkpoint, f"Function '{k_f}' must contain checkpoints."
+            if leaf_node == "CK":
+                assert len(checkpoint) >= mini_leaf_count, f"At least {mini_leaf_count} checkpoints are required in function '{k_g}/{k_f}', found {len(checkpoint)}."
             for k_c, d_c in checkpoint.items():
                 count_checkpoint += 1
                 bug_rate = d_c.get("bug_rate", {})
-                if len(bug_rate) > 0:
-                    assert len(bug_rate) == 1, "one checkpoint mash hould only have one bug rate."
+                if leaf_node == "CK":
+                    assert not bug_rate, f"Checkpoint '{k_c}' should not contain any bug rates when leaf_node is 'CK'."
+                    mark_list.append(f"{k_g}/{k_f}/{k_c}")
+                    continue
+                if leaf_node == "BUG-RATE":
+                    assert len(bug_rate) > 0, f"Checkpoint '{k_c}' must contain one bug rate when leaf_node is 'BUG-RATE'."
                     count_bug_rate += 1
                     mark_list.append(f"{k_g}/{k_f}/{k_c}/{[_ for _ in bug_rate.keys()][0]}")
-                else:
-                    mark_list.append(f"{k_g}/{k_f}/{k_c}")
+    if leaf_node == "FG":
+        assert count_group >= mini_leaf_count, f"At least {mini_leaf_count} groups are required, found {count_group}."
     return {
         "count_group": count_group,
         "count_function": count_function,
@@ -558,6 +579,108 @@ def get_func_arg_list(func):
     return [param.name for param in sig.parameters.values() \
             if param.kind in (inspect.Parameter.POSITIONAL_ONLY,
                               inspect.Parameter.POSITIONAL_OR_KEYWORD)]
+
+
+def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="FUNC"):
+    """
+    Import target file and get objects (functions, classes, or all) that match the given pattern.
+    :param target_file: Path to the Python file to import.
+    :param func_pattern: Pattern to match object names. Can be:
+                        - Exact string: "func_A1" or "ClassA"
+                        - Glob pattern: "func_A*" or "Class*"
+                        - Regex pattern: r"func_[A-Z]\d+" or r"Class[A-Z]+"
+    :param ex_python_path: Additional Python paths to add to sys.path for import.
+    :param dtype: Type of objects to retrieve. Options:
+                - "FUNC": Only functions
+                - "CLASS": Only classes
+                - "ALL": All objects (functions, classes, variables, etc.)
+    :return: List of objects that match the pattern and type criteria.
+    """
+    import sys
+    import importlib.util
+    import fnmatch
+    import re
+    import types
+    # Validate input parameters
+    valid_dtypes = ["FUNC", "CLASS", "ALL"]
+    if dtype not in valid_dtypes:
+        raise ValueError(f"Invalid dtype '{dtype}'. Must be one of {valid_dtypes}.")
+    # Validate target file exists
+    if not os.path.exists(target_file):
+        raise FileNotFoundError(f"Target file {target_file} does not exist.")
+    # Add extra Python paths if provided
+    original_path = sys.path.copy()
+    if isinstance(ex_python_path, str):
+        ex_python_path = [ex_python_path]
+    elif not isinstance(ex_python_path, list):
+        ex_python_path = list(ex_python_path)
+    ex_python_path.append(os.path.dirname(target_file))  # Ensure the target file's directory is included
+    for path in ex_python_path:
+        if os.path.exists(path) and path not in sys.path:
+            sys.path.insert(0, path)
+    try:
+        # Import the target file as a module
+        module_name = os.path.splitext(os.path.basename(target_file))[0]
+        spec = importlib.util.spec_from_file_location(module_name, target_file)
+        if spec is None:
+            raise ImportError(f"Could not create module spec for {target_file}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # Helper function to check object type
+        def is_target_type(obj, target_dtype):
+            if target_dtype == "FUNC":
+                return (callable(obj) and
+                        isinstance(obj, types.FunctionType))
+            elif target_dtype == "CLASS":
+                return (isinstance(obj, type) and
+                        not isinstance(obj, types.ModuleType))
+            elif target_dtype == "ALL":
+                return True
+            return False
+        # Get all objects from the module based on type
+        all_objects = []
+        for name in dir(module):
+            obj = getattr(module, name)
+            # Skip private/protected members and built-ins
+            if name.startswith('_'):
+                continue
+            # Check if object is defined in this module (not imported)
+            if hasattr(obj, '__module__') and obj.__module__ != module_name:
+                continue
+            # For classes, also check if they're defined in this file
+            if isinstance(obj, type):
+                if not hasattr(obj, '__module__') or obj.__module__ != module_name:
+                    continue
+            # Check if object matches the target dtype
+            if is_target_type(obj, dtype):
+                all_objects.append((name, obj))
+        # Filter objects based on pattern
+        matched_objects = []
+        # Determine if pattern is regex or glob
+        def is_regex_pattern(pattern):
+            """Check if pattern contains regex special characters"""
+            regex_chars = set('[]()+?^${}\\|.')
+            return any(char in pattern for char in regex_chars)
+        if is_regex_pattern(func_pattern):
+            # Treat as regex pattern
+            try:
+                regex = re.compile(func_pattern)
+                for name, obj in all_objects:
+                    if regex.match(name):
+                        matched_objects.append(obj)
+            except re.error as e:
+                raise ValueError(f"Invalid regex pattern '{func_pattern}': {e}")
+        else:
+            # Treat as glob pattern or exact string
+            for name, obj in all_objects:
+                if fnmatch.fnmatch(name, func_pattern):
+                    matched_objects.append(obj)
+        return matched_objects
+    except Exception as e:
+        raise ImportError(f"Failed to import and process {target_file}: {e}")
+    finally:
+        # Restore original sys.path
+        sys.path = original_path
 
 
 def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="*.pyc,*.log,*.tmp"):

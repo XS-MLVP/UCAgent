@@ -209,10 +209,9 @@ stage:
          - "确保创建函数能正常工作"
        checker:
          - name: dut_creation_check
-           clss: "UnityChipCheckerFuncCheck"
+           clss: "UnityChipCheckerDutCreation"
            args:
-             api_file: "{OUT}/tests/{DUT}_api.py"
-             func_name: create_dut
+             target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
      - name: pytest_fixture_implementation
@@ -236,10 +235,9 @@ stage:
          - "例如对于ALU：需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层接口"
        checker:
          - name: api_check
-           clss: "UnityChipCheckerFuncCheck"
+           clss: "UnityChipCheckerDutApi"
            args:
-             api_file: "{OUT}/tests/{DUT}_api.py"
-             func_name: api_*(dut, *)
+             target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
 
