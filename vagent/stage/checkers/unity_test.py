@@ -2,8 +2,7 @@
 
 
 from typing import Tuple
-from vagent.util.functions import get_unity_chip_doc_marks
-from vagent.util.functions import import_python_file, dump_as_json
+import vagent.util.functions as fc
 from vagent.tools.testops import RunUnityChipTest
 import os
 
@@ -11,335 +10,125 @@ from vagent.stage.checkers.base import Checker
 
 
 class UnityChipCheckerLabelStructure(Checker):
-    def __init__(self, *a, **kw):
-        pass
-
-class UnityChipCheckerDutCreation(Checker):
-    def __init__(self, *a, **kw):
-        pass
-
-class UnityChipCheckerFuncCheck(Checker):
-    def __init__(self, *a, **kw):
-        pass
-
-class UnityChipCheckerDutFixture(Checker):
-    def __init__(self, *a, **kw):
-        pass
-
-
-class UnityChipCheckerFunctionsAndChecks(Checker):
-    """
-    Checker for Unity chip functions and checks documentation validation.
-    
-    This class validates functional specification documents to ensure they contain
-    adequate coverage of DUT functionality through properly structured function
-    groups, functions, and check points following the required documentation format.
-    """
-
-    def __init__(self, doc_file, min_functions, min_checks):
+    def __init__(self, doc_file, leaf_node, min_count=1):
+        """
+        Initialize the checker with the documentation file, the specific label (leaf node) to check,
+        and the minimum count required for that label.
+        """
         self.doc_file = doc_file
-        self.min_functions = min_functions
-        self.min_checks = min_checks
+        self.leaf_node = leaf_node
+        self.min_count = min_count
 
-    def do_check(self) -> Tuple[bool, str]:
-        """
-        Perform comprehensive validation of function and check coverage documentation.
-        
-        Validates:
-        1. Document existence and parseability
-        2. Proper tag structure (<FG-*>, <FC-*>, <CK-*>)
-        3. Minimum coverage requirements
-        4. Documentation completeness and consistency
-        
-        Returns:
-            Tuple[bool, str]: Success status and detailed diagnostic message
-        """
-        # File existence validation
+    def do_check(self) -> Tuple[bool, object]:
+        msg = f"{self.__class__.__name__} check {self.leaf_node} pass."
         if not os.path.exists(self.get_path(self.doc_file)):
-            return False, f"Documentation file '{self.doc_file}' not found in workspace.\n" +\
-                           "Expected location: {}\n".format(self.get_path(self.doc_file)) +\
-                           "Action required:\n" +\
-                           "1. Create the functional specification document\n" +\
-                           "2. Ensure the file path matches the configuration\n" +\
-                           "3. Verify workspace structure and file permissions\n" +\
-                           "Please refer to Guide_Doc/dut_functions_and_checks.md for format requirements."
-        
-        # Document parsing and structure validation
+            return False, {"error": f"Documentation file '{self.doc_file}' does not exist."}
         try:
-            data = get_unity_chip_doc_marks(self.get_path(self.doc_file))
+            data = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), self.leaf_node, self.min_count)
         except Exception as e:
             error_details = str(e)
-            emsg = f"Documentation parsing failed for file '{self.doc_file}': {error_details}\n" + \
-                    "Common issues and solutions:\n"
-            
+            emsg = [f"Documentation parsing failed for file '{self.doc_file}': {error_details}."]
             if "\\n" in error_details:
-                emsg += "• Literal '\\n' characters detected - use actual line breaks instead of escaped characters\n"
-            
-            emsg += "• Malformed tags: Ensure proper format <FG-NAME>, <FC-NAME>, <CK-NAME>\n" + \
-                    "• Invalid characters: Use only alphanumeric and hyphen in tag names\n" + \
-                    "• Missing tag closure: All tags must be properly closed\n" + \
-                    "• Encoding issues: Ensure file is saved in UTF-8 format\n" + \
-                    "Please review the document format and fix syntax errors.\n" + \
-                    "Reference: Guide_Doc/dut_functions_and_checks.md"
-            return False, emsg
-        
-        # Extract coverage information
-        check_list = data.get("marks", [])
-        count_function = data["count_function"]
-        count_check = data["count_checkpoint"]
-        
-        # Generate detailed diagnostic information
-        coverage_summary = self._generate_coverage_summary(data, check_list)
-        
-        # Validate minimum coverage requirements
-        coverage_validation = self._validate_coverage_requirements(count_function, count_check, coverage_summary)
-        if not coverage_validation[0]:
-            return False, coverage_validation[1]
-        
-        # Success: All validations passed
-        success_msg = "Functional specification validation successful!\n" + \
-                      f"✓ Document structure is well-formed and parseable\n" + \
-                      f"✓ Coverage requirements met: {count_function} functions (≥{self.min_functions}), " + \
-                      f"{count_check} check points (≥{self.min_checks})\n" + \
-                      f"✓ Documentation follows proper tagging conventions\n" + \
-                      "Your functional specification provides adequate coverage for verification!" + coverage_summary
+                emsg.append("Literal '\\n' characters detected - use actual line breaks instead of escaped characters")
+            emsg.append({"check_list": [
+                "Malformed tags: Ensure proper format. e.g., <FG-NAME>, <FC-NAME>, <CK-NAME>",
+                "Invalid characters: Use only alphanumeric and hyphen in tag names",
+                "Missing tag closure: All tags must be properly closed",
+                "Encoding issues: Ensure file is saved in UTF-8 format",
+            ]})
+            return False, {"error": emsg}
+        return True, {"message": msg, f"{self.leaf_node}_count": len(data["marks"])}
 
-        return True, success_msg
 
-    def _generate_coverage_summary(self, data, check_list) -> str:
-        """
-        Generate detailed coverage summary for diagnostic purposes.
-        
-        Args:
-            data: Parsed document data
-            check_list: List of all check marks
-            
-        Returns:
-            str: Formatted coverage summary
-        """
-        coverage_info = "\n\n[COVERAGE_ANALYSIS]:\n"
-        coverage_info += f"Function Groups: {data.get('count_group', 0)}\n"
-        coverage_info += f"Functions: {data['count_function']}\n"
-        coverage_info += f"Check Points: {data['count_checkpoint']}\n"
-        
-        if check_list:
-            coverage_info += "\n[DOCUMENTED_CHECK_POINTS]:\n"
-            # Group check points by function group for better organization
-            grouped_checks = {}
-            for check in check_list:
-                parts = check.split('/')
-                if len(parts) >= 2:
-                    group = parts[0]
-                    if group not in grouped_checks:
-                        grouped_checks[group] = []
-                    grouped_checks[group].append(check)
-            
-            for group, checks in grouped_checks.items():
-                coverage_info += f"\n{group}:\n"
-                for check in checks[:5]:  # Limit to first 5 to avoid excessive output
-                    coverage_info += f"  • {check}\n"
-                if len(checks) > 5:
-                    coverage_info += f"  ... and {len(checks) - 5} more\n"
-        
-        return coverage_info
+class UnityChipCheckerDutCreation(Checker):
+    def __init__(self, target_file):
+        self.target_file = target_file
 
-    def _validate_coverage_requirements(self, count_function, count_check, coverage_summary) -> Tuple[bool, str]:
-        """
-        Validate that coverage meets minimum requirements.
-        
-        Args:
-            count_function: Number of functions found
-            count_check: Number of check points found
-            coverage_summary: Coverage analysis summary
+    def do_check(self) -> Tuple[bool, object]:
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"file '{self.target_file}' does not exist."}
+        func_list = fc.get_target_from_file(self.get_path(self.target_file), "create_dut",
+                                            ex_python_path=self.workspace,
+                                            dtype="FUNC")
+        if not func_list:
+            return False, {"error": f"No 'create_dut' functions found in '{self.target_file}'."}
+        assert len(func_list) == 1, f"Multiple 'create_dut' functions found in '{self.target_file}'. Expected only one."
+        dut = func_list[0]()
+        for need_func in ["Step", "StepRis"]:
+            assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
+        # Additional checks can be implemented here
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
+
+class UnityChipCheckerDutFixture(Checker):
+    def __init__(self, target_file):
+        self.target_file = target_file
+
+    def do_check(self) -> Tuple[bool, object]:
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"DUT fixture file '{self.target_file}' does not exist."}
+        dut_func = fc.get_target_from_file(self.get_path(self.target_file), "dut",
+                                           ex_python_path=self.workspace,
+                                           dtype="FUNC")
+        if not dut_func:
+            return False, {"error": f"No 'dut' fixture found in '{self.target_file}'."}
+        assert len(dut_func) == 1, f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."
+        dut_func = dut_func[0]
+        # check @pytest.fixture()
+        if not hasattr(dut_func, '_pytestfixturefunction'):
+            return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+        # check yield - first check if it's a generator function
+        import inspect
+        import ast
+        try:
+            source_lines = inspect.getsourcelines(dut_func)[0]
+            source_code = ''.join(source_lines)
+            tree = ast.parse(source_code)
             
-        Returns:
-            Tuple[bool, str]: Validation result and message
-        """
-        if count_function < self.min_functions:
-            return False, f"Insufficient functional coverage: {count_function} functions found, " +\
-                           f"minimum required is {self.min_functions}.\n" +\
-                           "Action required:\n" +\
-                           "1. Analyze DUT functionality more comprehensively\n" +\
-                           "2. Add more function groups (<FG-*>) for different operational areas\n" +\
-                           "3. Define specific functions (<FC-*>) within each group\n" +\
-                           "4. Ensure all major DUT capabilities are covered\n" +\
-                           "Each function should represent a distinct testable behavior or operation." + coverage_summary
-        
-        if count_check < self.min_checks:
-            return False, f"Insufficient verification coverage: {count_check} check points found, " +\
-                           f"minimum required is {self.min_checks}.\n" +\
-                           "Action required:\n" +\
-                           "1. Add more check points (<CK-*>) for comprehensive validation\n" +\
-                           "2. Include normal operation, boundary conditions, and error scenarios\n" +\
-                           "3. Consider different input combinations and edge cases\n" +\
-                           "4. Ensure each function has adequate validation points\n" +\
-                           "Check points should cover positive, negative, and boundary test cases." + coverage_summary
-        
-        return True, ""
+            has_yield = False
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Yield) or isinstance(node, ast.YieldFrom):
+                    has_yield = True
+                    break
+            if not has_yield:
+                return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
+        except Exception as e:
+            # If we can't parse the source code, fall back to the generator function check
+            # which should be sufficient in most cases
+            pass
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
 class UnityChipCheckerDutApi(Checker):
-    """
-    Checker for Unity chip DUT API implementation validation.
-
-    This class validates DUT API files to ensure they provide adequate
-    high-level interface functions for test case implementation, following
-    proper naming conventions and architectural patterns.
-    """
-
-    def __init__(self, api_file, min_apis, type="api"):
-        self.api_file = api_file
+    def __init__(self, target_file, min_apis):
+        self.target_file = target_file
         self.min_apis = min_apis
 
-    def do_check(self) -> Tuple[bool, str]:
-        """
-        Perform comprehensive validation of DUT API implementation.
-        
-        Validates:
-        1. API file existence and accessibility  
-        2. Proper API function definitions with 'api_' prefix
-        3. Minimum API coverage requirements
-        4. Code structure and import statements
-        
-        Returns:
-            Tuple[bool, str]: Success status and detailed diagnostic message
-        """
-        # File existence validation
-        if not os.path.exists(self.get_path(self.api_file)):
-            return False, f"DUT API file '{self.api_file}' not found in workspace.\n" +\
-                           "Expected location: {}\n".format(self.get_path(self.api_file)) +\
-                           "Action required:\n" +\
-                           "1. Create the DUT API implementation file\n" +\
-                           "2. Implement required API functions with 'api_' prefix\n" +\
-                           "3. Include proper imports and DUT fixture setup\n" +\
-                           "4. Verify file path matches the test configuration\n" +\
-                           "Please refer to Guide_Doc/dut_fixture_and_api.md for implementation guidance."
-        
-        # Parse and analyze API file
-        api_analysis_result = self._analyze_api_file()
-        if not api_analysis_result[0]:
-            return False, api_analysis_result[1]
-        
-        api_count, api_list, file_issues = api_analysis_result[1:]
-        
-        # Generate detailed API information
-        api_summary = self._generate_api_summary(api_count, api_list, file_issues)
-        
-        # Validate minimum API requirements
-        if api_count < self.min_apis:
-            return False, f"Insufficient DUT API coverage: {api_count} API functions found, " +\
-                           f"minimum required is {self.min_apis}.\n" +\
-                           "Action required:\n" +\
-                           "1. Implement additional 'api_' prefixed functions for key DUT operations\n" +\
-                           "2. Cover major functional areas (initialization, operation, cleanup)\n" +\
-                           "3. Provide high-level abstractions that hide timing and signal details\n" +\
-                           "4. Ensure APIs are reusable across different test scenarios\n" +\
-                           "Each API function should encapsulate a meaningful DUT operation." + api_summary
-        
-        # Success: All validations passed
-        success_msg = "DUT API validation successful!\n" + \
-                      f"✓ API file is accessible and well-structured\n" + \
-                      f"✓ API coverage meets requirements: {api_count} functions (≥{self.min_apis})\n" + \
-                      f"✓ All API functions follow proper naming conventions\n" + \
-                      "Your DUT API provides adequate abstraction for test implementation!" + api_summary
+    def do_check(self) -> Tuple[bool, object]:
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
+        func_list = fc.get_target_from_file(self.get_path(self.target_file), "api_*",
+                                         ex_python_path=self.workspace,
+                                         dtype="FUNC")
+        failed_apis = []
+        for func in func_list:
+            args = fc.get_func_arg_list(func)
+            if not args or len(args) < 1:
+                failed_apis.append(func)
+                continue
+            if args[0] != "dut":
+                failed_apis.append(func)
+        if len(failed_apis) > 0:
+            return False, {
+                "error": f"The following API functions have invalid or missing arguments. The first arg must be 'dut'",
+                "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
+            }
+        if len(func_list) < self.min_apis:
+            return False, {
+                "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}."
+            }
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
-        return True, success_msg
-
-    def _analyze_api_file(self) -> Tuple[bool, int, list, list]:
-        """
-        Analyze the API file for structure, functions, and potential issues.
-        
-        Returns:
-            Tuple: (success, api_count, api_list, file_issues)
-        """
-        api_count = 0
-        api_list = []
-        file_issues = []
-        
-        try:
-            with open(self.get_path(self.api_file), 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-        except UnicodeDecodeError:
-            return False, "API file encoding error: Unable to read file with UTF-8 encoding.\n" + \
-                          "Action required:\n" + \
-                          "1. Save the file with UTF-8 encoding\n" + \
-                          "2. Remove any non-ASCII characters or properly escape them\n" + \
-                          "3. Verify file integrity and format", 0, [], []
-        except Exception as e:
-            return False, f"API file access error: {str(e)}\n" + \
-                          "Please check file permissions and path correctness.", 0, [], []
-        
-        # Analyze file content
-        has_imports = False
-        has_fixture = False
-        has_create_dut = False
-        
-        for i, line in enumerate(lines, 1):
-            line_stripped = line.strip()
-            
-            # Check for proper imports
-            if line_stripped.startswith("import ") or line_stripped.startswith("from "):
-                has_imports = True
-            
-            # Check for pytest fixture
-            if "@pytest.fixture" in line_stripped or "def dut(" in line_stripped:
-                has_fixture = True
-            
-            # Check for DUT creation function
-            if line_stripped.startswith("def create_dut("):
-                has_create_dut = True
-            
-            # Look for API functions
-            if line_stripped.startswith("def "):
-                func_declaration = line_stripped[4:].strip()
-                func_name = func_declaration.split('(')[0] if '(' in func_declaration else func_declaration
-                
-                if func_name.startswith("api_"):
-                    api_count += 1
-                    # Extract function signature for documentation
-                    if '(' in func_declaration:
-                        signature = func_declaration[:func_declaration.find(')')+1]
-                    else:
-                        signature = func_name + "()"
-                    api_list.append(f"Line {i}: def {signature}")
-        
-        # Check for common structural issues
-        if not has_imports:
-            file_issues.append("Missing import statements - ensure proper module imports")
-        if not has_fixture:
-            file_issues.append("Missing pytest fixture 'dut' - required for test integration")
-        if not has_create_dut:
-            file_issues.append("Missing 'create_dut()' function - required for DUT initialization")
-        
-        return True, api_count, api_list, file_issues
-
-    def _generate_api_summary(self, api_count, api_list, file_issues) -> str:
-        """
-        Generate detailed API analysis summary.
-        
-        Args:
-            api_count: Number of API functions found
-            api_list: List of API function definitions
-            file_issues: List of structural issues
-            
-        Returns:
-            str: Formatted API summary
-        """
-        summary = "\n\n[API_ANALYSIS]:\n"
-        summary += f"API Functions Found: {api_count}\n"
-        
-        if api_list:
-            summary += "\n[IMPLEMENTED_APIS]:\n"
-            for api_def in api_list:
-                summary += f"  • {api_def}\n"
-        
-        if file_issues:
-            summary += "\n[STRUCTURAL_RECOMMENDATIONS]:\n"
-            for issue in file_issues:
-                summary += f"  ⚠ {issue}\n"
-            summary += "\nNote: These are recommendations for best practices, not strict requirements.\n"
-        
-        return summary
 
 class UnityChipCheckerCoverageCheckpoint(Checker):
     def __init__(self, *a, **k):
@@ -427,7 +216,7 @@ class UnityChipCheckerCoverageGroup(Checker):
             Tuple: (success, module_or_error_message)
         """
         try:
-            module = import_python_file(self.get_path(self.group_file),
+            module = fc.import_python_file(self.get_path(self.group_file),
                                       [self.workspace, self.get_path(self.test_path)])
             return True, module
         except ImportError as e:
@@ -621,7 +410,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
             del report["bins_all"]
-        info_report = "\n\n[TEST_REPORT]:\n" + dump_as_json(report)
+        info_report = "\n\n[TEST_REPORT]:\n" + fc.dump_as_json(report)
         info_runtest = info_report + "\n[STDOUT]:\n" + str_out + "\n[STDERR]:\n" + str_err
         if report.get("tests") is None:
             return False, "No test cases found in the report. " +\
@@ -633,7 +422,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                            "Please ensure that the test cases are defined in the correct format and location.\n"+ \
                             info_runtest
         try:
-            all_bins_docs = get_unity_chip_doc_marks(self.get_path(self.doc_func_check))["marks"]
+            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check))["marks"]
         except Exception as e:
             return False, f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}\n" + \
                            "Review your task requirements and the file format to fix your documentation file.\n" + info_report
@@ -743,7 +532,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             del report["bins_all"]
         
         # Prepare diagnostic information
-        info_report = "\n\n[TEST_EXECUTION_REPORT]:\n" + dump_as_json(report)
+        info_report = "\n\n[TEST_EXECUTION_REPORT]:\n" + fc.dump_as_json(report)
         info_runtest = info_report + "\n[STDOUT]:\n" + str_out + "\n[STDERR]:\n" + str_err
         
         # Basic validation: Check if tests exist
@@ -768,7 +557,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         
         # Parse documentation marks for validation
         try:
-            all_bins_docs = get_unity_chip_doc_marks(self.get_path(self.doc_func_check))["marks"]
+            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check))["marks"]
         except Exception as e:
             return False, f"Documentation parsing failed for file '{self.doc_func_check}': {str(e)}\n" + \
                            "Common issues:\n" + \
@@ -881,7 +670,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         
         if os.path.exists(self.get_path(self.doc_bug_analysis)):
             try:
-                marked_bugs = get_unity_chip_doc_marks(self.get_path(self.doc_bug_analysis))
+                marked_bugs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_bug_analysis))
             except Exception as e:
                 return False, f"Bug analysis documentation parsing failed for file '{self.doc_bug_analysis}': {str(e)}\n" + \
                                "Common issues:\n" + \
