@@ -75,7 +75,7 @@ class UnityChipCheckerDutFixture(Checker):
         assert len(dut_func) == 1, f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."
         dut_func = dut_func[0]
         # check @pytest.fixture()
-        if not hasattr(dut_func, '_pytestfixturefunction'):
+        if not (hasattr(dut_func, '_pytestfixturefunction') or "pytest_fixture" in str(dut_func)):
             return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
         # check yield - first check if it's a generator function
         import inspect
