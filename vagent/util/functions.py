@@ -629,8 +629,7 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
         # Helper function to check object type
         def is_target_type(obj, target_dtype):
             if target_dtype == "FUNC":
-                return (callable(obj) and
-                        isinstance(obj, types.FunctionType))
+                return callable(obj)
             elif target_dtype == "CLASS":
                 return (isinstance(obj, type) and
                         not isinstance(obj, types.ModuleType))
