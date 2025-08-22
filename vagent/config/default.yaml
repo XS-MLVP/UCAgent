@@ -223,7 +223,7 @@ stage:
          - name: fixture_check
            clss: "UnityChipCheckerDutFixture"
            args:
-             api_file: "{OUT}/tests/{DUT}_api.py"
+             target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
      - name: basic_api_implementation
@@ -264,12 +264,14 @@ stage:
           - name: coverage_group_check
             clss: "UnityChipCheckerCoverageGroup"
             args:
-              test_path: "{OUT}/tests"
-              group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              test_dir: "{OUT}/tests"
+              cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              check_types: "FG"
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 
-      - name: coverage_check_implementation
+      - name: coverage_point_implementation
         desc: "覆盖率检查点实现"
         task:
           - "为每个功能点添加watch_point和检查函数"
@@ -279,10 +281,12 @@ stage:
           - "完成完整的覆盖率定义，代码需要有注释，可读性强"
         checker:
           - name: coverage_implementation_check
-            clss: "UnityChipCheckerCoverageCheckpoint"
+            clss: "UnityChipCheckerCoverageGroup"
             args:
-              test_path: "{OUT}/tests"
-              group_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              test_dir: "{OUT}/tests"
+              cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              check_types: ["FC","CK"]
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 

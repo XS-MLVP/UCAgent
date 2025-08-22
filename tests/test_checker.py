@@ -36,6 +36,28 @@ def test_checker_dut_api():
     print(yam_str(m_fixture))
 
 
+def test_coverage():
+    workspace = os.path.join(current_dir, "../examples/ALU")
+    checker = UnityChipCheckerCoverageGroup("unity_test/tests",
+                                            "unity_test/tests/ALU_function_coverage_def.py",
+                                            "unity_test/ALU_functions_and_checks.md", "FG").set_workspace(workspace)
+    p, m = checker.do_check()
+    print(p)
+    print(yam_str(m))
+    checker = UnityChipCheckerCoverageGroup("unity_test/tests",
+                                            "unity_test/tests/ALU_function_coverage_def.py",
+                                            "unity_test/ALU_functions_and_checks.md", "FC").set_workspace(workspace)
+    p, m = checker.do_check()
+    print(p)
+    print(yam_str(m))
+    checker = UnityChipCheckerCoverageGroup("unity_test/tests",
+                                            "unity_test/tests/ALU_function_coverage_def.py",
+                                            "unity_test/ALU_functions_and_checks.md", ["FC", "CK"]).set_workspace(workspace)
+    p, m = checker.do_check()
+    print(p)
+    print(yam_str(m))
+
+
 def test_checker_test_case():
     """Test the UnityChipCheckerTestCase class."""
     workspace = os.path.join(current_dir, "../examples/ALU")
@@ -47,5 +69,6 @@ def test_checker_test_case():
 
 if __name__ == "__main__":
     #test_checker_functions_and_checks()
-    test_checker_dut_api()
+    #test_checker_dut_api()
+    test_coverage()
     #test_checker_test_case()
