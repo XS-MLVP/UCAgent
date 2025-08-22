@@ -3,6 +3,7 @@
 
 from typing import Tuple
 import vagent.util.functions as fc
+from vagent.util.log import info
 from vagent.tools.testops import RunUnityChipTest
 import os
 
@@ -20,6 +21,7 @@ class UnityChipCheckerLabelStructure(Checker):
         self.min_count = min_count
 
     def do_check(self) -> Tuple[bool, object]:
+        """Check the label structure in the documentation file."""
         msg = f"{self.__class__.__name__} check {self.leaf_node} pass."
         if not os.path.exists(self.get_path(self.doc_file)):
             return False, {"error": f"Documentation file '{self.doc_file}' does not exist."}
@@ -45,6 +47,7 @@ class UnityChipCheckerDutCreation(Checker):
         self.target_file = target_file
 
     def do_check(self) -> Tuple[bool, object]:
+        """Check the DUT creation function for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"file '{self.target_file}' does not exist."}
         func_list = fc.get_target_from_file(self.get_path(self.target_file), "create_dut",
@@ -65,6 +68,7 @@ class UnityChipCheckerDutFixture(Checker):
         self.target_file = target_file
 
     def do_check(self) -> Tuple[bool, object]:
+        """Check the DUT fixture implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT fixture file '{self.target_file}' does not exist."}
         dut_func = fc.get_target_from_file(self.get_path(self.target_file), "dut",
@@ -72,11 +76,16 @@ class UnityChipCheckerDutFixture(Checker):
                                            dtype="FUNC")
         if not dut_func:
             return False, {"error": f"No 'dut' fixture found in '{self.target_file}'."}
-        assert len(dut_func) == 1, f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."
+        if not len(dut_func) == 1:
+            return False, {"error": f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."}
         dut_func = dut_func[0]
         # check @pytest.fixture()
         if not (hasattr(dut_func, '_pytestfixturefunction') or "pytest_fixture" in str(dut_func)):
             return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+        # check args
+        args = fc.get_func_arg_list(dut_func)
+        if len(args) != 1 or args[0] != "request":
+            return False, {"error": f"The 'dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
         # check yield - first check if it's a generator function
         import inspect
         import ast
@@ -100,11 +109,12 @@ class UnityChipCheckerDutFixture(Checker):
 
 
 class UnityChipCheckerDutApi(Checker):
-    def __init__(self, target_file, min_apis):
+    def __init__(self, target_file, min_apis=1):
         self.target_file = target_file
         self.min_apis = min_apis
 
     def do_check(self) -> Tuple[bool, object]:
+        """Check the DUT API implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
         func_list = fc.get_target_from_file(self.get_path(self.target_file), "api_*",
@@ -130,11 +140,6 @@ class UnityChipCheckerDutApi(Checker):
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
-class UnityChipCheckerCoverageCheckpoint(Checker):
-    def __init__(self, *a, **k):
-        pass
-
-
 class UnityChipCheckerCoverageGroup(Checker):
     """
     Checker for Unity chip functional coverage groups validation.
@@ -144,210 +149,91 @@ class UnityChipCheckerCoverageGroup(Checker):
     and watch points for comprehensive DUT verification coverage.
     """
 
-    def __init__(self, test_path, group_file, min_groups=1):
-        self.test_path = test_path
-        self.group_file = group_file
-        self.min_groups = min_groups
+    def __init__(self, test_dir, cov_file, doc_file, check_types):
+        self.test_dir = test_dir
+        self.cov_file = cov_file
+        self.doc_file = doc_file
+        self.check_types = check_types if isinstance(check_types, list) else [check_types]
+        for ct in self.check_types:
+            if ct not in ["FG", "FC", "CK"]:
+                raise ValueError(f"Invalid check type '{ct}'. Must be one of 'FG', 'FC', or 'CK'.")
 
     def do_check(self) -> Tuple[bool, str]:
-        """
-        Perform comprehensive validation of functional coverage groups.
-        
-        Validates:
-        1. Coverage file existence and importability
-        2. Proper get_coverage_groups() function implementation
-        3. Valid CovGroup instances with adequate bins
-        4. Correct integration with toffee framework
-        
-        Returns:
-            Tuple[bool, str]: Success status and detailed diagnostic message
-        """
+        """Check the functional coverage groups against the documentation."""
         # File existence validation
-        if not os.path.exists(self.get_path(self.group_file)):
-            return False, f"Functional coverage file '{self.group_file}' not found in workspace.\n" +\
-                           "Expected location: {}\n".format(self.get_path(self.group_file)) +\
-                           "Action required:\n" +\
-                           "1. Create the functional coverage definition file\n" +\
-                           "2. Implement get_coverage_groups(dut=None) function\n" +\
-                           "3. Define coverage groups using toffee.funcov.CovGroup\n" +\
-                           "4. Add appropriate watch points and bins\n" +\
-                           "Please refer to Guide_Doc/dut_function_coverage_def.md for implementation guidance."
-        
+        if not os.path.exists(self.get_path(self.cov_file)):
+            return False, {"error": f"Functional coverage file '{self.cov_file}' not found in workspace."}
         # Module import validation
-        module_import_result = self._import_coverage_module()
-        if not module_import_result[0]:
-            return False, module_import_result[1]
-        
-        module = module_import_result[1]
-        
-        # Function existence validation
-        get_coverage_groups = getattr(module, "get_coverage_groups", None)
-        if get_coverage_groups is None:
-            return False, f"Coverage interface error: Function 'get_coverage_groups' not found in '{self.group_file}'.\n" +\
-                           "Action required:\n" +\
-                           "1. Implement the required function: def get_coverage_groups(dut=None):\n" +\
-                           "2. Function should return a list of toffee.funcov.CovGroup instances\n" +\
-                           "3. Support dut=None parameter for structure validation\n" +\
-                           "4. Ensure function is properly defined at module level\n" +\
-                           "This function is the main interface for coverage group access."
-        
-        # Coverage groups validation
-        coverage_validation_result = self._validate_coverage_groups(get_coverage_groups)
-        if not coverage_validation_result[0]:
-            return False, coverage_validation_result[1]
-        
-        groups, coverage_summary = coverage_validation_result[1:]
-        
-        # Success: All validations passed
-        success_msg = "Functional coverage validation successful!\n" + \
-                      f"✓ Coverage module is properly structured and importable\n" + \
-                      f"✓ Coverage requirements met: {len(groups)} groups (≥{self.min_groups})\n" + \
-                      f"✓ All coverage groups are valid CovGroup instances with adequate bins\n" + \
-                      f"✓ Integration with toffee framework is correct\n" + \
-                      "Your functional coverage provides comprehensive verification coverage!" + coverage_summary
+        funcs = fc.get_target_from_file(self.get_path(self.cov_file), "get_coverage_groups",
+                                        ex_python_path=self.workspace,
+                                        dtype="FUNC")
+        if not funcs:
+            return False, {"error": f"No 'get_coverage_groups' functions found in '{self.cov_file}'."}
+        if len(funcs) != 1:
+            return False, {"error": f"Multiple 'get_coverage_groups' functions found in '{self.cov_file}'. Only one is allowed."}
+        get_coverage_groups = funcs[0]
+        args = fc.get_func_arg_list(get_coverage_groups)
+        if len(args) != 1 or args[0] != "dut":
+            return False, {"error": f"The 'get_coverage_groups' function must have one argument named 'dut', but got ({', '.join(args)})."}
+        class fake_dut:
+            def __getattribute__(self, name):
+                return self
+        groups = get_coverage_groups(fake_dut())
+        if not groups:
+            return False, {"error": f"The 'get_coverage_groups' function returned no groups."}
+        if not isinstance(groups, list):
+            return False, {"error": f"The 'get_coverage_groups' function must return a list of coverage groups, but got {type(groups)}."}
+        from toffee.funcov import CovGroup
+        if not all(isinstance(g, CovGroup) for g in groups):
+            return False, {"error": f"All items returned by 'get_coverage_groups' must be instances of 'toffee.funcov.CovGroup', but got {type(groups[0])}."}
+        # checks
+        for ctype in self.check_types:
+            doc_groups = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), ctype, 1)
+            ck_pass, ck_message = self._com_check_func(groups, doc_groups, ctype)
+            if not ck_pass:
+                return ck_pass, ck_message
+        return True, f"All coverage checks [{','.join(self.check_types)}] passed."
 
-        return True, success_msg
+    def _groups_as_marks(self, func_groups, ctype):
+        marks = []
+        def append_v(v):
+            assert v not in marks, f"Duplicate mark '{v}' found in {ctype} groups."
+            marks.append(v)
+        for g in func_groups:
+            data = g.as_dict()
+            if ctype == "FG":
+                v = data["name"]
+                append_v(v)
+                continue
+            if ctype == "FC":
+                for p in data["points"]:
+                    append_v(f"{data['name']}/{p['name']}")
+                continue
+            if ctype == "CK":
+                for p in data["points"]:
+                    for c in p["bins"]:
+                        append_v(f"{data['name']}/{p['name']}/{c['name']}")
+        return marks
 
-    def _import_coverage_module(self) -> Tuple[bool, any]:
-        """
-        Import and validate the coverage module.
-        
-        Returns:
-            Tuple: (success, module_or_error_message)
-        """
-        try:
-            module = fc.import_python_file(self.get_path(self.group_file),
-                                      [self.workspace, self.get_path(self.test_path)])
-            return True, module
-        except ImportError as e:
-            return False, f"Coverage module import failed for '{self.group_file}': {str(e)}\n" + \
-                          "Common import issues:\n" + \
-                          "1. Missing dependencies - ensure toffee is installed\n" + \
-                          "2. Python path issues - verify module location\n" + \
-                          "3. Circular import dependencies\n" + \
-                          "4. Syntax errors in the coverage file\n" + \
-                          "Please fix import errors and ensure all dependencies are available."
-        except SyntaxError as e:
-            return False, f"Coverage file syntax error in '{self.group_file}': {str(e)}\n" + \
-                          "Action required:\n" + \
-                          "1. Fix Python syntax errors in the file\n" + \
-                          "2. Ensure proper indentation and structure\n" + \
-                          "3. Validate function definitions and class usage\n" + \
-                          "4. Check for missing imports or typos"
-        except Exception as e:
-            return False, f"Coverage module loading failed for '{self.group_file}': {str(e)}\n" + \
-                          "Possible causes:\n" + \
-                          "1. File permission issues\n" + \
-                          "2. Invalid file format or encoding\n" + \
-                          "3. Runtime errors in module initialization\n" + \
-                          "Please review the file structure and fix any issues."
+    def _compare_marks(self, ga, gb):
+        unmatched_in_a = []
+        unmatched_in_b = []
+        for a in ga:
+            if a not in gb:
+                unmatched_in_a.append(a)
+        for b in gb:
+            if b not in ga:
+                unmatched_in_b.append(b)
+        return unmatched_in_a, unmatched_in_b
 
-    def _validate_coverage_groups(self, get_coverage_groups) -> Tuple[bool, list, str]:
-        """
-        Validate the coverage groups implementation.
-        
-        Args:
-            get_coverage_groups: The coverage groups function to validate
-            
-        Returns:
-            Tuple: (success, groups, coverage_summary)
-        """
-        try:
-            # Create a mock DUT for testing - this should work with dut=None
-            fake_dut = self
-            groups = get_coverage_groups(fake_dut)
-            
-            # Validate group count
-            if len(groups) < self.min_groups:
-                return False, f"Insufficient coverage groups: {len(groups)} groups found, " +\
-                               f"minimum required is {self.min_groups}.\n" +\
-                               "Action required:\n" +\
-                               "1. Analyze DUT functionality to identify more coverage areas\n" +\
-                               "2. Create additional CovGroup instances for different functional areas\n" +\
-                               "3. Ensure each major DUT operation has corresponding coverage\n" +\
-                               "4. Consider different operational modes and scenarios\n" +\
-                               "Each coverage group should represent a distinct functional area.", [], ""
-            
-            # Import toffee framework for validation
-            try:
-                import toffee.funcov as fc
-            except ImportError:
-                return False, "Toffee framework not available: Cannot validate coverage groups.\n" + \
-                              "Action required:\n" + \
-                              "1. Install toffee framework: pip install toffee\n" + \
-                              "2. Ensure proper environment setup\n" + \
-                              "3. Verify framework compatibility\n" + \
-                              "Toffee is required for functional coverage implementation.", [], ""
-            
-            # Validate each coverage group
-            group_details = []
-            for i, g in enumerate(groups):
-                if not isinstance(g, fc.CovGroup):
-                    return False, f"Invalid coverage group type: Group {i} in '{self.group_file}' is not a valid 'toffee.funcov.CovGroup' instance.\n" + \
-                                   f"Found type: {type(g)}\n" + \
-                                   "Action required:\n" + \
-                                   "1. Ensure all returned objects are CovGroup instances\n" + \
-                                   "2. Use proper toffee.funcov.CovGroup constructor\n" + \
-                                   "3. Check import statements and object creation\n" + \
-                                   "4. Validate coverage group initialization parameters", [], ""
-                
-                try:
-                    g_data = g.as_dict()
-                    bin_count = g_data.get("bin_num_total", 0)
-                    
-                    if bin_count < 1:
-                        return False, f"Empty coverage group: Group '{g.name}' in '{self.group_file}' has no defined bins.\n" + \
-                                       "Coverage groups must contain at least one bin (check point).\n" + \
-                                       "Action required:\n" + \
-                                       "1. Add watch points using Coverage.add_watch_point()\n" + \
-                                       "2. Define bins with meaningful check conditions\n" + \
-                                       "3. Example: Coverage.add_watch_point(dut, {'CK-NORMAL': lambda x: x.a.value + x.b.value == x.sum.value}, name='FC-ADD')\n" + \
-                                       "4. Ensure each functional behavior has corresponding coverage bins", [], ""
-                    
-                    group_details.append(f"{g.name}: {bin_count} bins")
-                    
-                except Exception as e:
-                    return False, f"Coverage group analysis failed for '{g.name}': {str(e)}\n" + \
-                                   "This may indicate issues with coverage group structure or configuration.\n" + \
-                                   "Please review the coverage group implementation.", [], ""
-            
-            # Generate coverage summary
-            coverage_summary = self._generate_coverage_summary(groups, group_details)
-            
-            return True, groups, coverage_summary
-            
-        except Exception as e:
-            return False, f"Coverage groups execution failed: {str(e)}\n" + \
-                           "Common issues:\n" + \
-                           "1. Runtime errors in coverage group initialization\n" + \
-                           "2. Invalid DUT references or parameter issues\n" + \
-                           "3. Incorrect toffee framework usage\n" + \
-                           "4. Missing or invalid dependencies\n" + \
-                           "Please debug the coverage group implementation and fix any runtime issues.", [], ""
-
-    def _generate_coverage_summary(self, groups, group_details) -> str:
-        """
-        Generate detailed coverage analysis summary.
-        
-        Args:
-            groups: List of coverage groups
-            group_details: List of group detail strings
-            
-        Returns:
-            str: Formatted coverage summary
-        """
-        summary = "\n\n[COVERAGE_ANALYSIS]:\n"
-        summary += f"Coverage Groups: {len(groups)}\n"
-        
-        if group_details:
-            summary += "\n[COVERAGE_GROUPS_DETAIL]:\n"
-            for detail in group_details:
-                summary += f"  • {detail}\n"
-        
-        total_bins = sum(int(detail.split(': ')[1].split(' bins')[0]) for detail in group_details if ': ' in detail)
-        summary += f"\nTotal Coverage Bins: {total_bins}\n"
-        
-        return summary
+    def _com_check_func(self, func_groups, doc_groups, ctype):
+        a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups["marks"])
+        if len(a) > 0:
+            return False, f"Coverage groups check failed: {len(a)} {ctype} groups in '{self.cov_file}' not found in '{self.doc_file}': {', '.join(a)}."
+        if len(b) > 0:
+            return False, f"Coverage groups check failed: {len(b)} {ctype} groups in '{self.doc_file}' not found in '{self.cov_file}': {', '.join(b)}."
+        info(f"{ctype} coverage {len(doc_groups['marks'])} marks check passed")
+        return True, "Coverage groups check passed."
 
 
 class BaseUnityChipCheckerTestCase(Checker):
