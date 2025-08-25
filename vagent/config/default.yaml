@@ -107,8 +107,12 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试失败时请分析是否为设计缺陷"
     reference_files:
       - "{DUT}/README.md"
-    output_files:
-      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+    checker:
+          - name: markdown_file_check
+            clss: "UnityChipCheckerMarkdownFileFormat"
+            args:
+              markdown_file_list: "{OUT}/{DUT}_verification_needs_and_plan.md"
+              no_line_break: true
 
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
@@ -123,8 +127,12 @@ stage:
     reference_files:
       - "{DUT}/README.md"
       - "{DUT}/__init__.py"
-    output_files:
-      - "{OUT}/{DUT}_basic_info.md"
+    checker:
+          - name: markdown_file_check
+            clss: "UnityChipCheckerMarkdownFileFormat"
+            args:
+              markdown_file_list: "{OUT}/{DUT}_basic_info.md"
+              no_line_break: true
 
   - name: functional_specification_analysis
     desc: "功能规格分析与测试点定义"
@@ -249,7 +257,7 @@ stage:
       - "第2步：为每个功能分组<FG-*>创建CovGroup覆盖组"
       - "第3步：为每个功能点<FC-*>添加watch_point监测点"
       - "第4步：为每个检测点<CK-*>实现检查函数(尽可能的用lambda函数)"
-      - "第5步：实现get_coverage_groups(dut=None)主函数"
+      - "第5步：实现get_coverage_groups(dut)主函数"
       - "第6步：结果写入{OUT}/tests/{DUT}_function_coverage_def.py"
       - "关键：检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
       - "参考Guide_Doc/dut_function_coverage_def.md了解实现方法"
@@ -258,7 +266,7 @@ stage:
         desc: "功能覆盖组创建"
         task:
           - "为每个功能分组<FG-*>创建对应的CovGroup对象"
-          - "实现get_coverage_groups(dut=None)基础框架"
+          - "实现get_coverage_groups(dut)基础框架"
           - "确保覆盖组可以正常创建和访问"
         checker:
           - name: coverage_group_check
@@ -308,7 +316,6 @@ stage:
         clss: "UnityChipCheckerTestTemplate"
         args:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
-          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
@@ -325,14 +332,15 @@ stage:
       - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
       - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
       - "第5步：添加断言检查输出是否正确"
-      - "第6步：每完成一个测试立即用Check('target_test_file.py::target_case')检查运行结果"
+      - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
       - "第7步：分析测试结果："
       - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
       - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md"
       - "  - 如果Fail不合理：修正测试逻辑"
-      - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试"
+      - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
       - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
+      - "注意：工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"

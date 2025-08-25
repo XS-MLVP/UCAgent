@@ -123,15 +123,15 @@ class VerifyUI:
         task_data = self.vpdb.api_task_list()
         self.content_task.append(urwid.Text(f"\n{task_data['mission_name']}\n", align='center'))
         current_index = task_data['task_index']
-        for i, (task_name, task) in enumerate(task_data['task_list']["stage_list"]):
-            task_desc = task["desc"]
-            fail_count = task["fail_count"]
+        for i, stage in enumerate(task_data['task_list']["stage_list"]):
+            task_title = stage["title"]
+            fail_count = stage["fail_count"]
             color = None
             if i < current_index:
                 color = "success_green"
             elif i == current_index:
                 color = "norm_red"
-            text = f"{i}: {task_name}\n  {task_desc} ({fail_count} fails)"
+            text = f"{i:2d} {task_title} ({fail_count} fails)"
             if color:
                 utxt = urwid.Text((color, text), align='left')
             else:

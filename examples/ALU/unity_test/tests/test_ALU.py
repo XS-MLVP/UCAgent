@@ -7,7 +7,7 @@ from ALU_api import api_alu_operation, dut
 def test_sub_norm(dut):
     # 5 - 3 = 2
     out, cout = api_alu_operation(dut, 1, 5, 3, 0)
-    dut.fc_cover["FG-SIMPLE"].mark_function("FC-SUB", test_sub_norm, ["CK-NORM"])
+    dut.fc_cover["FG-SIMPLE"].mark_function("FC-SUB", test_sub_norm, ["CK-NORM", "CK-UN-COVERED"])
     assert out == 2
     assert cout == 0
 

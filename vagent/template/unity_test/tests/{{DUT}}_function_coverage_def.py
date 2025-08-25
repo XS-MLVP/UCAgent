@@ -27,7 +27,7 @@ import toffee.funcov as fc
 #    )
 
 
-def get_coverage_groups(dut=None):
+def get_coverage_groups(dut):
     ret = []
     # 在这里创建你需要的功能覆盖组， 例如：
     #  ret.append(fc.CovGroup("FG-A"))

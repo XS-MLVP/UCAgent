@@ -83,14 +83,38 @@ class Checker(object):
         if p:
             p_msg = self.get_default_message_pass()
             if p_msg:
-                m += "\n\n" + p_msg
+                self.append_msg(m, p_msg, "Pass_Message")
         else:
             f_msg = self.get_default_message_fail()
             if f_msg:
-                m += "\n\n" + f_msg
+                self.append_msg(m, f_msg, "Fail_Message")
         self.is_in_check = False
         self.set_check_process(None, None) # Reset the process and timeout after check
-        return p, render_template(m, self)
+        return p, self.rec_render(m, self)
+
+    def append_msg(self, data, value, key=""):
+        if isinstance(data, str):
+            return data + "\n" + value
+        if isinstance(data, list):
+            data.append(value)
+            return data
+        if isinstance(data, dict):
+            data[key] = value
+            return data
+        assert False, f"Cannot append message to data of type {type(data)}"
+
+    def rec_render(self, data, context):
+        if isinstance(data, str):
+            return render_template(data, context)
+        if isinstance(data, list):
+            for i in range(len(data)):
+                data[i] = self.rec_render(data[i], context)
+            return data
+        if isinstance(data, dict):
+            for k, v in data.items():
+                data[k] = self.rec_render(v, context)
+            return data
+        return data
 
     def get_default_message_fail(self) -> str:
         return getattr(self, "fail_msg", None)

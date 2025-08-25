@@ -5,7 +5,7 @@ import inspect
 from vagent.util.functions import yam_str
 from vagent.util.log import info
 from collections import OrderedDict
-import json
+import traceback
 
 
 from langchain_core.callbacks import (
@@ -16,6 +16,7 @@ from langchain_core.tools.base import ArgsSchema
 from typing import Optional, Callable
 from pydantic import BaseModel, Field
 from vagent.stage.vstage import get_root_stage
+from vagent.stage.checkers import UnityChipCheckerTestFree
 
 
 class ManagerTool(UCTool):
@@ -95,8 +96,6 @@ class ArgCheck(BaseModel):
             "• 'test_file.py::TestClass::test_method': Run a specific test method in a class\n"
             "• '-k pattern': Run tests matching the given pattern\n"
             "• '-m marker': Run tests with specific markers\n"
-            "Only applicable in stage 'comprehensive_verification_execution' for focused testing. "
-            "In other stages, this parameter is ignored and all configured checks are performed."
         )
     )
 
@@ -115,16 +114,33 @@ class ArgCheck(BaseModel):
         }
 
 
+class ToolRunTestCases(ManagerTool):
+    """Run test cases in current workspace."""
+    name: str = "RunTestCases"
+    description: str = (
+        "This tool is used to execute the test cases in the workspace."
+        "Returns the result of the test execution. You should call this tool after you have implemented or modified the DUT or test cases."
+    )
+    args_schema: Optional[ArgsSchema] = ArgCheck
+
+    def _run(self, target=""):
+        try:
+            return self.function(target)
+        except Exception as e:
+            traceback.print_exc()
+            error_msg = f"Test execution failed: {str(e)}"
+            info(error_msg)
+            return  error_msg
+
+
 class ToolDoCheck(ManagerTool):
     """Advanced validation tool for stage requirements and implementation quality."""
     name: str = "Check"
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
-        "The tool provides detailed feedback. Call this tool frequently during development to ensure continuous quality validation."
+        "The tool provides detailed feedback. Call this tool frequently to ensure continuous quality validation."
     )
-    args_schema: Optional[ArgsSchema] = ArgCheck
-
-    def _run(self, target: str = "", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
         
@@ -136,8 +152,9 @@ class ToolDoCheck(ManagerTool):
             str: Comprehensive validation report in JSON format
         """
         try:
-            return self.function(target)
+            return self.function()
         except Exception as e:
+            traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
             info(error_msg)
             return yam_str({
@@ -207,6 +224,7 @@ class StageManager(object):
         self.last_check_info = None
         self.tool_read_text = tool_read_text
         self.all_completed = False
+        self.free_pytest_run = UnityChipCheckerTestFree("", "", "").set_workspace(workspace)
 
     def new_tools(self):
         """
@@ -216,6 +234,7 @@ class StageManager(object):
             ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
+            ToolRunTestCases().set_function(self.tool_run_test_cases),
             ToolDoCheck().set_function(self.tool_check),
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),
@@ -267,6 +286,7 @@ class StageManager(object):
                 "index": i, 
                 "title": stage.title() + ("<Your are working here>" if i == self.stage_index else ""),
                 "reached": stage.is_reached(),
+                "fail_count": stage.fail_count,
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
@@ -297,7 +317,7 @@ class StageManager(object):
             msg = f"Invalid stage index: {index}. No change made."
         return {"message": msg, "success": success}
 
-    def check(self, target: str):
+    def check(self, target: str=""):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
@@ -323,7 +343,7 @@ class StageManager(object):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
-                "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed."
+                "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed. "
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
@@ -336,13 +356,13 @@ class StageManager(object):
             self.stage_index += 1
             message = f"Stage {self.stage_index - 1} completed successfully."
             if self.stage_index >= len(self.stages):
-                message = ("All stages completed successfully."
-                           "Now you should review your work to check if everything is correct and all the users needs are matched."
-                           "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission."
+                message = ("All stages completed successfully. "
+                           "Now you should review your work to check if everything is correct and all the users needs are matched. "
+                           "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
                 self.all_completed = True
             else:
-                message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task."
+                message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
         return {
@@ -384,8 +404,8 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return ret
 
-    def tool_check(self, target):
-        ret = yam_str(self.check(target))
+    def tool_check(self):
+        ret = yam_str(self.check())
         info("ToolCheck:\n" + ret)
         return ret
 
@@ -432,3 +452,12 @@ class StageManager(object):
         tips = yam_str(self.get_current_tips())
         info("Tips:\n" + tips)
         return tips
+
+    def tool_run_test_cases(self, pytest_args=""):
+        """
+        Run test cases.
+        This tool is used to execute the test cases in the workspace.
+        """
+        ret = yam_str(self.free_pytest_run.do_check(pytest_args)[1])
+        info("RunTestCases:\n" + ret)
+        return ret

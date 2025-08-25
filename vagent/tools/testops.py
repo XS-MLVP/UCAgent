@@ -80,8 +80,19 @@ class RunPyTest(UCTool):
                     python_path_str += ":" + os.path.abspath(p)
                     debug(f"Add python path: {p}")
         env["PYTHONPATH"] = python_path_str + (":" + pythonpath if pythonpath else "")
-        cmd = ["pytest", "-s", os.path.abspath(test_dir_or_file), *self.get_pytest_args(), pytest_ex_args]
-        info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)}\n")
+        # Determine the correct working directory and test target
+        abs_test_path = os.path.abspath(test_dir_or_file)
+        if os.path.isdir(abs_test_path):
+            # If it's a directory, set cwd to the directory itself and use relative path
+            work_dir = abs_test_path
+            test_target = "." if pytest_ex_args == "" else pytest_ex_args
+        else:
+            # If it's a file, set cwd to the directory containing the file
+            work_dir = os.path.dirname(abs_test_path)
+            test_target = os.path.basename(abs_test_path) + " " + pytest_ex_args
+
+        cmd = ["pytest", "-s", *self.get_pytest_args(), test_target]
+        info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(
                 cmd,
@@ -90,6 +101,7 @@ class RunPyTest(UCTool):
                 text=True,
                 env=env,
                 bufsize=10,
+                cwd=work_dir
             )
             self.pre_call(worker)
             ret_stdout, ret_stderr = worker.communicate(timeout=timeout)  # Set a timeout for the test run
@@ -194,7 +206,7 @@ class RunUnityChipTest(RunPyTest):
                                           run_manager,
                                           python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
         ret_data = {
-            "all_test_pass": all_pass,
+            "run_test_success": all_pass,
         }
         result_json_path = os.path.join(self.result_dir, self.result_json_path)
         if os.path.exists(result_json_path):

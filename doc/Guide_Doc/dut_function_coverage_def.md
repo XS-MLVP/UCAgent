@@ -24,7 +24,7 @@
 ### 主接口函数
 
 ```python
-def get_coverage_groups(dut=None) -> List[CovGroup]:
+def get_coverage_groups(dut) -> List[CovGroup]:
     """获取所有功能覆盖组
     
     Args:
@@ -35,7 +35,7 @@ def get_coverage_groups(dut=None) -> List[CovGroup]:
     """
 ```
 
-**注意**：此函数必须支持 `dut=None` 的调用，用于框架获取覆盖率结构信息。
+**注意**：CovGroup类型为 toffee.funcov.CovGroup
 
 ## 常用功能覆盖接口
 
@@ -151,10 +151,9 @@ def init_function_coverage(dut, cover_group):
         else:
             print(f"警告：未找到覆盖组 {g.name} 的初始化函数")
 
-def get_coverage_groups(dut=None):
+def get_coverage_groups(dut):
     """获取功能覆盖组列表"""
-    if dut is not None:
-        init_function_coverage(dut, funcov_group)
+    init_function_coverage(dut, funcov_group)
     return funcov_group
 ```
 

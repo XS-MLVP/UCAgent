@@ -10,6 +10,16 @@ from vagent.stage.checkers import *
 from vagent.util.functions import yam_str
 
 
+def test_markdown_checker():
+    workspace = os.path.join(current_dir, "../examples/ALU")
+    checker = UnityChipCheckerMarkdownFileFormat(
+        markdown_file_list=["unity_test/ALU_functions_and_checks.md"]
+    ).set_workspace(workspace)
+    p, m = checker.do_check()
+    print(p)
+    print(yam_str(m))
+
+
 def test_checker_functions_and_checks():
     """Test the UnityChipCheckerFunctionsAndChecks class."""
     workspace = os.path.join(current_dir, "../examples/ALU")
@@ -61,14 +71,21 @@ def test_coverage():
 def test_checker_test_case():
     """Test the UnityChipCheckerTestCase class."""
     workspace = os.path.join(current_dir, "../examples/ALU")
-    checker = UnityChipCheckerTestCase("unity_test/alu_functions_and_checks.md", "unity_test/alu_bug_analysis.md", "unity_test/tests", 2).set_workspace(workspace)
-    p, m = checker.do_check()
-    print(p)
-    print(m)
+
+    for cls in [UnityChipCheckerTestTemplate, UnityChipCheckerTestFree, UnityChipCheckerTestCase]:
+        print("cls:", cls.__name__)
+        checker = cls("unity_test/ALU_functions_and_checks.md",
+                      "unity_test/tests",
+                      "unity_test/ALU_bug_analysis.md"
+                      ).set_workspace(workspace)
+        p, m = checker.do_check()
+        print(p)
+        print(yam_str(m))
 
 
 if __name__ == "__main__":
+    test_markdown_checker()
     #test_checker_functions_and_checks()
     #test_checker_dut_api()
-    test_coverage()
-    #test_checker_test_case()
+    #test_coverage()
+    test_checker_test_case()
