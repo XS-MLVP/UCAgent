@@ -20,8 +20,9 @@ def test_basic_addition(dut):
     """测试基本加法功能"""
     dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
 
-    # TODO: 实现基本加法测试逻辑
-    # 测试 1 + 2 = 3, 0 + 0 = 0, 带进位等基础场景
+    # TASK: 实现基本加法测试逻辑
+    # Step:
+    # - 测试 1 + 2 = 3, 0 + 0 = 0, 带进位等基础场景
 
     assert False, "Not implemented"
 ```
@@ -32,7 +33,8 @@ def test_basic_addition(dut):
 def test_overflow_scenarios(dut):
     """测试溢出场景"""
     dut.fc_cover["FG-ADD"].mark_function("FC-OVERFLOW", test_overflow_scenarios, ["CK-OVERFLOW_NO_CIN", "CK-OVERFLOW_WITH_CIN"])
-    # TODO: 实现溢出测试逻辑
+    # TASK: 实现溢出测试逻辑
+    # Step:
     # 1. 测试最大值 + 1 的溢出情况
     # 2. 测试带进位的溢出情况
     # 3. 验证溢出标志位的正确性
@@ -58,7 +60,7 @@ def test_func_a(dut):              # ✗ 命名不明确
 ### 2. 用例注释
 
 - **docstring**：使用三引号字符串描述测试目的
-- **TODO注释**：详细说明需要实现的测试逻辑
+- **TASK注释**：详细说明需要实现的测试逻辑
 - **测试场景**：列出具体需要验证的测试场景
 
 ```python
@@ -70,7 +72,7 @@ def test_edge_cases(dut):
     2. 输入为最小值时的行为  
     3. 输入为零时的特殊处理
     """
-    # TODO: 实现边界测试逻辑
+    # TASK: 实现边界测试逻辑
 ```
 
 ### 3. 测试点反标

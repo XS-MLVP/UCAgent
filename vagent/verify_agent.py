@@ -3,7 +3,7 @@
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
-from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call
+from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 from .util.models import get_chat_model
 
@@ -282,7 +282,7 @@ class VerifyAgent(object):
             return {"messages": copy.deepcopy(self._tool__call_error)}
         tips = self._continue_msg
         if self._continue_msg is None:
-            tips = self.stage_manager.get_current_tips()
+            tips = yam_str(self.stage_manager.get_current_tips())
         else:
             self._continue_msg = None
         self._tip_index += 1

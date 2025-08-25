@@ -89,10 +89,10 @@ class VerifyStage(object):
     def do_check(self):
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
-            emsg = OrderedDict({"error": "You need read and understand all the reference files", "files_need_read": []})
+            emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
             for k, v in self.reference_files.items():
                 if not v:
-                    emsg["files_need_read"].append(k)
+                    emsg["files_need_read"].append(k + f"(Not readed, need ReadTextFile('{k}'))")
             self.fail_count += 1
             return False, emsg
         self.check_pass = True

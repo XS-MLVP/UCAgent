@@ -909,4 +909,6 @@ def yam_str(data: dict) -> str:
     """
     Convert a dictionary to a YAML-formatted string.
     """
-    return yaml.dump(data, allow_unicode=True, default_flow_style=False, indent=2)
+    return yaml.dump(data, allow_unicode=True, default_flow_style=False,
+                     default_style='"',
+                     indent=2)

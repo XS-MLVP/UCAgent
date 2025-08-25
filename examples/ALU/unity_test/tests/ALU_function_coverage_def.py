@@ -54,7 +54,7 @@ def init_function_coverage(dut, cover_group):
         }.get(g.name, lambda x, y: None)(g, dut)
 
 
-def get_coverage_groups(dut=None):
+def get_coverage_groups(dut):
     init_function_coverage(dut, funcov_group)     # 初始化功能覆盖
     return funcov_group
 

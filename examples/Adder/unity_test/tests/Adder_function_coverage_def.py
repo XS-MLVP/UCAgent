@@ -33,7 +33,6 @@ def init_coverage_group_add(g, dut):
 def init_function_coverage(dut, cover_group):
     init_coverage_group_add(cover_group[0], dut)
 
-def get_coverage_groups(dut=None):
-    if dut:
-        init_function_coverage(dut, funcov_group)
+def get_coverage_groups(dut):
+    init_function_coverage(dut, funcov_group)
     return funcov_group
