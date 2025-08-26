@@ -17,7 +17,7 @@ def create_dut():
     return DUTALU()
 
 
-def api_alu_operation(dut, op, a, b, c=0):
+def api_ALU_operation(dut, op, a, b, c=0):
     """
     Perform operations on the ALU.
 
