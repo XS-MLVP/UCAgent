@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 
-from vagent.stage.checkers import *
+from vagent.checkers import *
 from vagent.util.functions import yam_str
 
 
@@ -83,9 +83,20 @@ def test_checker_test_case():
         print(yam_str(m))
 
 
+def test_checker_api_test():
+    workspace = os.path.join(current_dir, "../examples/ALU")
+    Checker = UnityChipCheckerDutApiTest(
+        "api_ALU_", "unity_test/tests/ALU_api.py", "unity_test/tests/test_ALU_api*.py", "unity_test/ALU_functions_and_checks.md", "unity_test/ALU_bug_analysis.md"
+    ).set_workspace(workspace)
+    p, m = Checker.do_check()
+    print(p)
+    print(yam_str(m))
+
+
 if __name__ == "__main__":
-    test_markdown_checker()
+    #test_markdown_checker()
     #test_checker_functions_and_checks()
     #test_checker_dut_api()
     #test_coverage()
-    test_checker_test_case()
+    #test_checker_test_case()
+    test_checker_api_test()
