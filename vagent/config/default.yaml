@@ -237,14 +237,17 @@ stage:
      - name: basic_api_implementation
        desc: "基础API实现"
        task:
-         - "至少实现1个基础API函数(以api_开头)"
+         - "请参考文档：Guide_Doc/dut_fixture_and_api.md创建API"
+         - "至少实现1个基础API函数(以api_{DUT}_开头)"
          - "确保API函数能正确调用底层接口"
+         - "每个API函数都必须要有对应的注释（位于函数__doc__）对功能进行详细描述，包括功能、输入参数、返回值等"
          - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
-         - "例如对于ALU：需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层接口"
+         - "例如：对于ALU，需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层API接口"
        checker:
          - name: api_check
            clss: "UnityChipCheckerDutApi"
            args:
+             api_prefix: "api_{DUT}_"
              target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
@@ -298,10 +301,43 @@ stage:
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 
+  - name: basic_api_function_test
+    desc: "基础API功能正确性测试"
+    task:
+      - "目标: 验证已实现的API函数功能是否正确，确保API接口质量"
+      - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_fixture_and_api.md，重点关注'API测试'部分"
+      - "第2步：分析测试需求 - 查看{OUT}/{DUT}_functions_and_checks.md，了解需要测试的API功能点"
+      - "第3步：创建API测试文件 - 在{OUT}/tests/目录下创建test_{DUT}_api_*.py测试文件"
+      - "第4步：编写测试函数，每个测试函数需要："
+      - "  - 函数名格式：test_<api_name>[_<test_scenario>]"
+      - "  - 第一个参数：dut (pytest fixture)"
+      - "  - 添加覆盖率标记：dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-XXX'])"
+      - "  - 包含详细的docstring：测试目标、流程、预期结果"
+      - "  - 实现测试逻辑：设置输入、调用API、验证输出"
+      - "第5步：测试内容包括："
+      - "  - 基础功能测试：验证API核心功能正确性"
+      - "  - 边界条件测试：测试边界值和特殊值处理"
+      - "  - 错误处理测试：验证异常情况的处理机制"
+      - "  - 参数验证测试：检查输入参数的合法性验证"
+      - "第6步：验证测试结果 - 使用RunTestCases('{OUT}/tests/test_{DUT}_api[_name].py::your_test_function')运行并检查结果"
+      - "要求：每个API函数至少有一个基础功能测试用例"
+      - "完成所有API对应测试用例后，请用Check工具进行阶段检查"
+    checker:
+      - name: api_test_check
+        clss: "UnityChipCheckerDutApiTest"
+        args:
+          api_prefix: "api_{DUT}_"
+          target_file_api: "{OUT}/tests/{DUT}_api.py"
+          target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+    reference_files:
+      - "Guide_Doc/dut_fixture_and_api.md"
+
   - name: test_framework_scaffolding
     desc: "测试框架脚手架构建"
     task:
-      - "目标：创建测试用例模板，为实际测试做准备"
+      - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："

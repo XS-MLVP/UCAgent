@@ -10,7 +10,6 @@ import inspect
 import fnmatch
 import ast
 from pathlib import Path
-from mcp.server.fastmcp import FastMCP
 import yaml
 
 
@@ -837,6 +836,7 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
         return logger
     if logger:
         logging.getLogger = __getLogger
+    from mcp.server.fastmcp import FastMCP
     from langchain_mcp_adapters.tools import to_fastmcp
     from vagent.util.log import info
     fastmcp_tools = []

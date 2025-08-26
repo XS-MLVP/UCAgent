@@ -6,8 +6,9 @@ import vagent.util.functions as fc
 from vagent.util.log import info
 from vagent.tools.testops import RunUnityChipTest
 import os
+import glob
 
-from vagent.stage.checkers.base import Checker
+from vagent.checkers.base import Checker
 from collections import OrderedDict
 
 class UnityChipCheckerMarkdownFileFormat(Checker):
@@ -135,7 +136,8 @@ class UnityChipCheckerDutFixture(Checker):
 
 
 class UnityChipCheckerDutApi(Checker):
-    def __init__(self, target_file, min_apis=1):
+    def __init__(self, api_prefix, target_file, min_apis=1):
+        self.api_prefix = api_prefix
         self.target_file = target_file
         self.min_apis = min_apis
 
@@ -143,7 +145,7 @@ class UnityChipCheckerDutApi(Checker):
         """Check the DUT API implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
-        func_list = fc.get_target_from_file(self.get_path(self.target_file), "api_*",
+        func_list = fc.get_target_from_file(self.get_path(self.target_file), f"{self.api_prefix}*",
                                          ex_python_path=self.workspace,
                                          dtype="FUNC")
         failed_apis = []
@@ -163,6 +165,16 @@ class UnityChipCheckerDutApi(Checker):
             return False, {
                 "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}."
             }
+        for func in func_list:
+            if not func.__doc__ or len(func.__doc__.strip()) == 0:
+                return False, {
+                    "error": f"The API function '{func.__name__}' is missing a docstring. Please provide a clear description of its purpose and usage."
+                }
+            for doc_key in ["Args:", "Returns:"]:
+                if doc_key not in func.__doc__:
+                    return False, {
+                        "error": f"The API function '{func.__name__}' is missing the '{doc_key}' section in its docstring."
+                    }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
@@ -270,7 +282,7 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=600):
+    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6000):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -383,7 +395,6 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         if report['unmarked_check_points'] > 0:
-            print(all_bins_docs)
             unmark_check_points = report['unmarked_check_points_list']
             if len(unmark_check_points) > 0:
                 info_runtest["error"] = f"Test template validation failed: Found {len(unmark_check_points)} unmarked check points: {', '.join(unmark_check_points)} " + \
@@ -448,6 +459,30 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         
         return True, "Template structure validation passed."
 
+
+class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
+    
+    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=6000):
+        super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout)
+        self.api_prefix = api_prefix
+        self.target_file_api = target_file_api
+        self.target_file_tests = target_file_tests
+
+    def do_check(self) -> tuple[bool, object]:
+        test_files = [fc.rm_workspace_prefix(self.workspace, f) for f in glob.glob(os.path.join(self.workspace, self.target_file_tests))]
+        if len(test_files) == 0:
+            return False, {"error": f"No test files matching '{self.target_file_tests}' found in workspace."}
+        # call pytest
+        targets = " ".join(test_files)
+        report, str_out, str_err = self.run_test.do(
+            "", 
+            pytest_ex_args=targets,
+            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=self.timeout
+        )
+        print("report:\n", report)
+        print("str_out:\n", str_out)
+        print("str_err:\n", str_err)
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
 
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):

@@ -16,7 +16,7 @@ from langchain_core.tools.base import ArgsSchema
 from typing import Optional, Callable
 from pydantic import BaseModel, Field
 from vagent.stage.vstage import get_root_stage
-from vagent.stage.checkers import UnityChipCheckerTestFree
+from vagent.checkers import UnityChipCheckerTestFree
 
 
 class ManagerTool(UCTool):

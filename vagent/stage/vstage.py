@@ -3,7 +3,7 @@
 
 from vagent.util.functions import import_class_from_str, find_files_by_pattern
 from vagent.util.log import info
-import vagent.stage.checkers as checkers
+import vagent.checkers as checkers
 from collections import OrderedDict
 
 
