@@ -220,20 +220,20 @@ class RunUnityChipTest(RunPyTest):
                 "total": len(tests),
                 "fails": len(fails),
             }
-            if len(fails) > 0:
-                ret_data["tests"]["fails_list"] = fails,
+            ret_data["tests"]["test_cases"] = tests_map
             # coverages
             # functional coverage
             fc_data = data.get("coverages", {}).get("functional", {})
             ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
             ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
-            ret_data["faild_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
-            ret_data["faild_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
+            ret_data["failed_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
+            ret_data["failed_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
             # failed bins:
             # groups->points->bins
             bins_fail = []
             bins_unmarked = []
             bins_funcs = {}
+            funcs_bins = {}
             bins_funcs_reverse = {}
             bins_all = []
             for g in fc_data.get("groups", []):
@@ -252,6 +252,10 @@ class RunUnityChipTest(RunPyTest):
                                 func_key = rm_workspace_prefix(self.workspace, tf)
                                 if func_key not in bins_funcs:
                                     bins_funcs[func_key] = []
+                                if func_key in fails:
+                                    if func_key not in funcs_bins:
+                                        funcs_bins[func_key] = []
+                                    funcs_bins[func_key].append(bin_full_name)
                                 bins_funcs[func_key].append(bin_full_name)
                                 if bin_full_name not in bins_funcs_reverse:
                                     bins_funcs_reverse[bin_full_name] = []
@@ -259,16 +263,17 @@ class RunUnityChipTest(RunPyTest):
                                     func_key, tests_map.get(func_key, "Unknown")])
                         # all bins
                         bins_all.append(bin_full_name)
+            ret_data["failed_funcs_bins"] = funcs_bins
             if return_all_checks:
                 ret_data["bins_all"] = bins_all
             if len(bins_fail) > 0:
-                ret_data["faild_check_point_list"] = bins_fail
+                ret_data["failed_check_point_list"] = bins_fail
                 bins_fail_funcs = {}
                 for b in bins_fail:
                     passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
                     if passed_func:
                         bins_fail_funcs[b] = passed_func
-                ret_data["faild_check_point_passed_funcs"] = bins_fail_funcs
+                ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
             ret_data["unmarked_check_points"] = len(bins_unmarked)
             if len(bins_unmarked) > 0:
                 ret_data["unmarked_check_points_list"] = bins_unmarked

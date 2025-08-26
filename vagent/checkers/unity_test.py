@@ -9,6 +9,7 @@ import os
 import glob
 
 from vagent.checkers.base import Checker
+from vagent.checkers.toffee_report import check_report
 from collections import OrderedDict
 
 class UnityChipCheckerMarkdownFileFormat(Checker):
@@ -331,9 +332,9 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
             "tests": report.get("tests", {}),
         })
         marked_bins = []
-        faild_check_point_list = report.get("faild_check_point_list", [])
+        failed_check_point_list = report.get("failed_check_point_list", [])
         for b in report.get("bins_all", []):
-            if b not in faild_check_point_list:
+            if b not in failed_check_point_list:
                 marked_bins.append(b)
                 continue
         free_report["marked_bins"] = marked_bins
@@ -472,17 +473,45 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         test_files = [fc.rm_workspace_prefix(self.workspace, f) for f in glob.glob(os.path.join(self.workspace, self.target_file_tests))]
         if len(test_files) == 0:
             return False, {"error": f"No test files matching '{self.target_file_tests}' found in workspace."}
+        if not os.path.exists(self.get_path(self.doc_func_check)):
+            return False, {"error": f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "}
+        if not os.path.exists(self.get_path(self.target_file_api)):
+            return False, {"error": f"DUT API file '{self.target_file_api}' does not exist in workspace."}
         # call pytest
         targets = " ".join(test_files)
         report, str_out, str_err = self.run_test.do(
             "", 
             pytest_ex_args=targets,
-            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=self.timeout
+            return_stdout=True, return_stderr=True, return_all_checks=True, return_all_functions=True, timeout=self.timeout
         )
-        print("report:\n", report)
-        print("str_out:\n", str_out)
-        print("str_err:\n", str_err)
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
+        func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
+                                         ex_python_path=self.workspace,
+                                         dtype="FUNC")
+        if len(func_list) == 0:
+            return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'."}
+        test_cases = report.get("tests", {}).get("test_cases", {})
+        test_keys = test_cases.keys()
+        test_functions = []
+        api_un_tested = []
+        for func in func_list:
+            func_name = func.__name__
+            for k in test_keys:
+                if func_name in k:
+                    test_functions.append(func_name)
+                    break
+            if func_name not in test_functions:
+                api_un_tested.append(func_name)
+        def get_emsg(m):
+            return {"error": m, "STDOUT": str_out, "STDERR": str_err}
+        if api_un_tested:
+            return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by tests.")
+        if report["test_function_with_no_check_point_mark"] > 0:
+            return False, get_emsg(f"Some test functions do not have check point marks: {', '.join(report['test_function_with_no_check_point_mark_list'])}")
+
+        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
+        if not ret:
+            return ret, get_emsg(msg)
+        return True, {"success": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
 
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
@@ -500,14 +529,16 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         Returns:
             Tuple[bool, str]: Success status and detailed message
         """
+        import copy
         # Execute tests and get comprehensive report
         report, str_out, str_err = super().do_check()
+        abs_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
-            del report["bins_all"]
-        
+            del abs_report["bins_all"]
+
         # Prepare diagnostic information
-        info_report = OrderedDict({"TEST_EXECUTION_REPORT":report})
+        info_report = OrderedDict({"TEST_EXECUTION_REPORT":abs_report})
         info_runtest = OrderedDict({"STDOUT": str_out, "STDERR": str_err})
         
         # Basic validation: Check if tests exist
@@ -529,196 +560,17 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
         
         # Parse documentation marks for validation
-        try:
-            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")["marks"]
-        except Exception as e:
-           info_report["error"] = [f"Documentation parsing failed for file '{self.doc_func_check}': {str(e)}. Common issues:",
-                                    "1. Malformed tags (ensure proper <FG-*>, <FC-*>, <CK-*> format).",
-                                    "2. Encoding issues or special characters.",
-                                    "3. Invalid document structure.",
-                                    "Please review your documentation format and fix any syntax errors."]
-           return False, info_report
-
-        # Cross-validation: Check consistency between documentation and test implementation
-        bins_not_in_docs = []
-        bins_not_in_test = []
-        
-        for b in all_bins_test:
-            if b not in all_bins_docs:
-                bins_not_in_docs.append(b)
-        
-        for b in all_bins_docs:
-            if b not in all_bins_test:
-                bins_not_in_test.append(b)
-        
-        if len(bins_not_in_docs) > 0:
-            info_runtest["error"] = [f"Documentation inconsistency: Test implementation contains undocumented check points: {', '.join(bins_not_in_docs)}. " + \
-                                      "These check points are used in tests but not defined in documentation file '{}'. ".format(self.doc_func_check) + \
-                                      "Action required:",
-                                      "1. Add missing check points to the documentation with proper <CK-*> tags.",
-                                      "2. Or remove unused check points from test implementation.",
-                                      "3. Ensure consistency between test logic and functional requirements."]
-            return False, info_runtest
-        
-        if len(bins_not_in_test) > 0:
-            info_runtest["error"] = [f"Test coverage gap: Documentation defines check points not implemented in tests: {', '.join(bins_not_in_test)} " + \
-                                      "These check points are documented but missing from test implementation. " + \
-                                      "Action required:",
-                                      "1. Implement test cases that cover these check points.",
-                                      "2. Use proper mark_function() calls to associate tests with check points.",
-                                      "3. Ensure complete functional coverage as specified in documentation."]
-            return False, info_runtest
-        
-        # Advanced analysis: Handle failed check points and bug analysis
-        failed_check = report.get('faild_check_point_list', [])
-        failed_check_passed_funcs = report.get('faild_check_point_passed_funcs', {})
-        fails_with_no_mark = []
-        fails_with_passed_funcs = []
-        marked_checks = []
-        
-        # Process failed check points if any exist
-        bug_analysis_result = self._process_bug_analysis(failed_check, failed_check_passed_funcs)
-        if not bug_analysis_result[0]:
-            info_runtest["error"] = bug_analysis_result[1]
-            return False, info_runtest
-        marked_checks = bug_analysis_result[2]
-        fails_with_no_mark = bug_analysis_result[3]
-        fails_with_passed_funcs = bug_analysis_result[4]
-
-        # Validate failed check points handling
-        if len(fails_with_no_mark) > 0:
-            info_runtest["error"] = [f"Unanalyzed test failures detected: {', '.join(fails_with_no_mark)}. " + \
-                                      "Test failures must be properly analyzed and documented. Options:",
-                                      "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(self.doc_bug_analysis),
-                                      "2. If these are test issues, fix the test logic to make them pass.",
-                                      "3. Review test implementation and DUT behavior to determine root cause.",
-                                      "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
-                                      ]
-            return False, info_runtest
-        
-        if len(fails_with_passed_funcs) > 0:
-            fails_with_passed_funcs_str = []
-            for f in fails_with_passed_funcs:
-                fails_with_passed_funcs_str.append(f"{f[0]} (passed funcs: {', '.join(f[1])})")
-            info_runtest["error"] = [f"Inconsistent test behavior: Check points failed but associated functions passed: {', '.join(fails_with_passed_funcs_str)}. " + \
-                                      "This indicates a logic error in test implementation:",
-                                      "1. When a check point fails, all related test functions should also fail.",
-                                      "2. Review the mark_function() associations to ensure correctness.",
-                                      "3. Check test assertions and validation logic."]
-            return False, info_runtest
-        
-        # Final coverage validation: Ensure all check points are properly marked
-        coverage_validation_result = self._validate_coverage_completeness(report, marked_checks)
-        if not coverage_validation_result[0]:
-            info_runtest["error"] = coverage_validation_result[1]
-            return False, info_runtest
+        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
+        if not ret:
+            info_report["error"] = msg
+            return ret, info_report
 
         # Success: All validations passed
         success_msg = ["Test case validation successful!",
                       f"✓ Executed {report['tests']['total']} test cases with comprehensive coverage.",
                       f"✓ All {len(all_bins_test)} check points are properly implemented and documented.",
-                      f"✓ Test-documentation consistency verified."]
+                      f"✓ Test-documentation consistency verified.",
+                      f"✓ Coverage mapping between tests and documentation is complete.",
+                      "Your test implementation successfully validates the DUT functionality!"]
 
-        if failed_check:
-            success_msg.append(f"✓ {len(failed_check)} failed check points properly analyzed and documented as potential DUT bugs.")
-        else:
-            success_msg.append("✓ All check points passed - no issues detected in DUT behavior.")
-
-        success_msg.append("✓ Coverage mapping between tests and documentation is complete.")
-        success_msg.append("Your test implementation successfully validates the DUT functionality!")
-        info_report["success"] = success_msg
         return True, success_msg
-
-    def _process_bug_analysis(self, failed_check, failed_check_passed_funcs):
-        """
-        Process and validate bug analysis documentation for failed check points.
-        
-        Args:
-            failed_check: List of failed check points
-            failed_check_passed_funcs: Dictionary of failed check points with passed functions
-            
-        Returns:
-            Tuple: (success, message, marked_checks, fails_with_no_mark, fails_with_passed_funcs)
-        """
-        marked_checks = []
-        fails_with_no_mark = []
-        fails_with_passed_funcs = []
-        
-        if os.path.exists(self.get_path(self.doc_bug_analysis)):
-            try:
-                marked_bugs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_bug_analysis), leaf_node="BUG-RATE")
-            except Exception as e:
-                return False, [f"Bug analysis documentation parsing failed for file '{self.doc_bug_analysis}': {str(e)}. " + \
-                                "Common issues:",
-                                "1. Malformed bug analysis tags.",
-                                "2. Invalid confidence rating format.",
-                                "3. Encoding or syntax errors.",
-                                "Please review and fix the bug analysis documentation format."], [], [], []
-            
-            # Validate bug analysis marks format
-            marks = marked_bugs["marks"]
-            if not failed_check and len(marks):
-                return False, f"Bug analysis documentation '{self.doc_bug_analysis}' contains marks ({','.join(marks)}) but no related test failures were detected. "
-            for c in marks:
-                labels = c.split("/")
-                if not labels[-1].startswith("BUG-RATE-"):
-                    return False, f"Invalid bug analysis format in '{self.doc_bug_analysis}': mark '{c}' missing 'BUG-RATE-' prefix. " + \
-                                   "Correct format: <FG-GROUP>/<FC-FUNCTION>/<CK-CHECK>/<BUG-RATE-XX>. " + \
-                                   "Example: <BUG-RATE-80> indicates 80% confidence that this is a DUT bug. " + \
-                                   "Please ensure all bug analysis marks follow this format.", [], [], []
-                
-                try:
-                    confidence = int(labels[-1].split("BUG-RATE-")[1])
-                    if not (0 <= confidence <= 100):
-                        raise ValueError("Confidence must be 0-100")
-                except (IndexError, ValueError):
-                    return False, f"Invalid confidence rating in '{self.doc_bug_analysis}': '{labels[-1]}'. " + \
-                                   "Confidence ratings must be integers between 0-100. " + \
-                                   "Example: <BUG-RATE-75> for 75% confidence.", [], [], []
-                marked_checks.append("/".join(labels[:-1]))
-
-            # Categorize failed check points
-            for fail_check in failed_check:
-                if fail_check not in marked_checks:
-                    fails_with_no_mark.append(fail_check)
-                if fail_check in failed_check_passed_funcs:
-                    fails_with_passed_funcs.append([fail_check, failed_check_passed_funcs[fail_check]])
-        else:
-            # No bug analysis file - all failures are unanalyzed
-            fails_with_no_mark = failed_check
-
-        return True, "", marked_checks, fails_with_no_mark, fails_with_passed_funcs
-
-    def _validate_coverage_completeness(self, report, marked_checks):
-        """
-        Validate that all check points and test functions are properly associated.
-        
-        Args:
-            report: Test execution report
-            marked_checks: List of check points marked in bug analysis
-            
-        Returns:
-            Tuple[bool, str]: Validation result and message
-        """
-        if report['unmarked_check_points'] > 0:
-            unmark_check_points = []
-            for m in report['unmarked_check_points_list']:
-                if m not in marked_checks:
-                    unmark_check_points.append(m)
-            
-            if len(unmark_check_points) > 0:
-                return False, [f"Coverage mapping incomplete: {len(unmark_check_points)} check points not associated with test functions: {', '.join(unmark_check_points)}. " + \
-                                "Action required:",
-                                "1. Use mark_function() calls to associate these check points with appropriate test functions",
-                                "2. Ensure every check point defined in documentation has corresponding test coverage",
-                                "3. Review test function organization and coverage mapping."]
-        
-        if report['test_function_with_no_check_point_mark'] > 0:
-            unmarked_functions = report['test_function_with_no_check_point_mark_list']
-            return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
-                            "Action required:",
-                            "1. Add mark_function() calls to associate these functions with appropriate check points.",
-                            "2. Ensure every test function validates specific documented functionality.",
-                            "3. Review test organization and ensure complete traceability."]
-        
-        return True, ""

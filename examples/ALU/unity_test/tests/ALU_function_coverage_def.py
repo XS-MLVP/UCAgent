@@ -1,10 +1,20 @@
 #coding=utf-8
 import toffee.funcov as fc
 
+funcov_FG_API = fc.CovGroup("FG-API")
 funcov_FG_SIMPLE = fc.CovGroup("FG-SIMPLE")
 funcov_FG_HARD = fc.CovGroup("FG-HARD")
 
-funcov_group = [funcov_FG_SIMPLE, funcov_FG_HARD]
+funcov_group = [funcov_FG_API, funcov_FG_SIMPLE, funcov_FG_HARD]
+
+
+def init_coverage_group_api(g, dut):
+    g.add_watch_point(dut, {
+        "CK-ADD": lambda x: True,
+        "CK-SUB": lambda x: True,
+        "CK-SUB": lambda x: True,
+    },
+    name="FC-OPERATION")
 
 
 def init_coverage_group_simple(g, dut):
@@ -49,6 +59,7 @@ def init_coverage_group_hard(g, dut):
 def init_function_coverage(dut, cover_group):
     for g in cover_group:
         {
+            "FG-API": init_coverage_group_api,
             "FG-SIMPLE": init_coverage_group_simple,
             "FG-HARD": init_coverage_group_hard
         }.get(g.name, lambda x, y: None)(g, dut)

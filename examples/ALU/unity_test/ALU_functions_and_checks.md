@@ -29,6 +29,15 @@ ALU 输入端口：
 - 位非操作仅对 a 取反，b 可忽略。
 - 若 op 超出定义范围，out 和 cout 输出为 0。
 
+## ALU需要的验证API
+
+<FG-API>
+
+### 1. operation 接口 <FC-OPERATION>
+- <CK-ADD> operation 接口支持加法操作
+- <CK-SUB> operation 接口支持减法操作
+
+
 ## ALU的功能说明与对应检查点
 
 ALU 的主要功能点及其对应的检测点如下：
