@@ -141,6 +141,127 @@ api_test_func(dut)                      # 命名不明确
 api_adder_do_something(dut)             # 功能描述模糊
 ```
 
+#### 详尽的注释
+
+在每个API函数中都需要通过函数 DOC 编写对应的注释，遵循Google风格的docstring规范。注释应该详细、准确、可维护。
+
+##### 注释格式要求
+
+```python
+def api_demo_op(dut, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
+    """对API的功能进行详细描述，说明其作用、适用场景和注意事项
+
+    详细描述API的工作原理、时序要求、边界条件等重要信息。
+    如果有特殊的使用注意事项或限制条件，也要在这里说明。
+
+    Args:
+        dut: DUT实例，必须是已初始化的{DUT_NAME}对象
+        a (int): 第一个操作数，取值范围[0, 2^32-1]，表示输入A的数值
+        b (int): 第二个操作数，取值范围[0, 2^32-1]，表示输入B的数值
+        mode (str, optional): 操作模式，可选值为"add"/"sub"/"mul"，默认为"add"
+
+    Returns:
+        Tuple[int, bool]: 包含两个元素的元组
+            - result (int): 运算结果，范围取决于操作模式
+            - overflow (bool): 溢出标志，True表示发生溢出
+
+    Raises:
+        ValueError: 当参数超出有效范围时抛出
+        RuntimeError: 当DUT硬件故障时抛出
+        TimeoutError: 当操作超时时抛出（适用于时序电路）
+
+    Example:
+        >>> result, overflow = api_demo_op(dut, 100, 200, "add")
+        >>> print(f"结果: {result}, 溢出: {overflow}")
+        结果: 300, 溢出: False
+
+    Note:
+        - 该API适用于同步时序电路，会自动处理时钟推进
+        - 对于组合电路，结果立即有效
+        - 连续调用时建议间隔至少1个时钟周期
+    """
+    # 参数验证
+    if not (0 <= a <= 0xFFFFFFFF):
+        raise ValueError(f"参数a超出范围: {a}")
+    if not (0 <= b <= 0xFFFFFFFF):
+        raise ValueError(f"参数b超出范围: {b}")
+    if mode not in ["add", "sub", "mul"]:
+        raise ValueError(f"无效的操作模式: {mode}")
+
+    # 设置输入信号
+    dut.input_a.value = a
+    dut.input_b.value = b
+    dut.operation_mode.value = {"add": 0, "sub": 1, "mul": 2}[mode]
+
+    # 推进时钟（时序电路需要）
+    dut.Step(1)
+
+    # 读取结果
+    result = dut.output_result.value
+    overflow = bool(dut.overflow_flag.value)
+
+    return result, overflow
+```
+
+##### 注释结构说明
+
+API函数的docstring应包含以下几个部分：
+
+1. **功能描述**：简洁明了地说明API的主要功能
+2. **详细说明**：补充重要的实现细节、使用场景、注意事项
+3. **Args**：详细描述每个参数的含义、类型、取值范围、默认值
+4. **Returns**：描述返回值的类型、含义、可能的取值
+5. **Raises**：列出可能抛出的异常及其触发条件
+6. **Example**：提供使用示例，帮助理解API用法
+7. **Note**：补充重要的使用注意事项
+
+##### 参数描述最佳实践
+
+```python
+def api_memory_access(dut, address: int, data: Optional[int] = None,
+                     read_enable: bool = True, timeout: float = 1.0) -> Union[int, None]:
+    """访问DUT内存接口，支持读写操作
+
+    Args:
+        dut: DUT实例，必须包含memory接口信号
+        address (int): 内存地址，范围[0x0000, 0xFFFF]，必须4字节对齐
+        data (Optional[int]): 写入数据，None表示读操作，其他值表示写操作
+                             写入时取值范围[0, 2^32-1]
+        read_enable (bool): 读使能信号，True表示读操作，False表示写操作
+                           当data不为None时，该参数被忽略
+        timeout (float): 操作超时时间，单位秒，范围[0.1, 10.0]
+
+    Returns:
+        Union[int, None]:
+            - 读操作时返回int类型的数据值
+            - 写操作时返回None
+    """
+    pass
+```
+
+##### 类型提示的使用
+
+```python
+from typing import Union, Optional, List, Dict, Tuple, Any
+
+def api_batch_operation(dut,
+                       operations: List[Dict[str, Any]],
+                       config: Optional[Dict[str, Union[int, str]]] = None) -> List[Tuple[bool, Any]]:
+    """批量执行多个操作
+
+    Args:
+        dut: DUT实例
+        operations (List[Dict[str, Any]]): 操作列表，每个元素为操作字典
+                                          字典格式: {"type": str, "params": Dict, "id": int}
+        config (Optional[Dict[str, Union[int, str]]]): 可选配置参数
+                                                      键为配置名，值为配置值
+
+    Returns:
+        List[Tuple[bool, Any]]: 结果列表，每个元素为(成功标志, 结果数据)的元组
+    """
+    pass
+```
+
 ### API 实现模式
 
 #### 1. 基础操作API
@@ -305,6 +426,179 @@ def api_memory_write(dut, address, data, verify=True):
     return True
 ```
 
+### API 测试
+
+完成API编写后，需要对其进行功能测试，检验其是否满足要求。API测试主要关注单个API函数的功能正确性。
+
+#### 测试文件组织
+
+需要创建`test_{DUT}_api_<category>.py`的测试文件进行测试，其中：
+- `{DUT}`: DUT名称，如adder、alu、cache等
+- `<category>`: 功能分类，如basic、advanced等
+
+```
+tests/
+├── test_adder_api_basic.py      # 基础功能测试
+├── test_adder_api_advanced.py   # 高级功能测试
+└── test_adder_api_edge_cases.py # 边界情况测试
+```
+
+#### 测试函数命名规范
+
+测试函数采用`test_<api_name>[_<test_scenario>]`的命名方式：
+
+```python
+# 基础功能测试
+def test_api_adder_add():
+    """测试加法API的基本功能"""
+    pass
+
+# 边界条件测试
+def test_api_adder_add_overflow():
+    """测试加法API的溢出处理"""
+    pass
+
+# 错误处理测试
+def test_api_adder_add_invalid_input():
+    """测试加法API的无效输入处理"""
+    pass
+```
+
+#### 测试用例编写规范
+
+每个测试用例需要包含详细的docstring，描述测试目标、流程和预期结果：
+
+```python
+import pytest
+from {dut_name}_api import *
+
+def test_api_adder_add_basic(dut):
+    """测试加法器API基础功能
+
+    测试目标:
+        验证api_adder_add函数能正确执行基本加法运算
+
+    测试流程:
+        1. 使用典型正数进行加法运算
+        2. 验证结果正确性
+        3. 检查进位输出
+
+    预期结果:
+        - 计算结果正确
+        - 进位标志符合预期
+        - 无异常抛出
+    """
+    # 测试典型情况
+    result, carry = api_adder_add(dut, 100, 200)
+    assert result == 300, f"预期结果300，实际{result}"
+    assert carry == 0, f"预期进位0，实际{carry}"
+
+    # 测试带进位情况
+    result, carry = api_adder_add(dut, 0xFFFFFFFF, 1)
+    assert result == 0, f"溢出时预期结果0，实际{result}"
+    assert carry == 1, f"溢出时预期进位1，实际{carry}"
+
+def test_api_adder_add_edge_cases(dut):
+    """测试加法器API边界情况
+
+    测试目标:
+        验证API在边界条件下的正确行为
+
+    测试流程:
+        1. 测试零值加法
+        2. 测试最大值加法
+        3. 测试单操作数为最大值的情况
+
+    预期结果:
+        - 边界值计算正确
+        - 溢出检测准确
+        - 特殊情况处理得当
+    """
+    # 零值测试
+    result, carry = api_adder_add(dut, 0, 0)
+    assert result == 0 and carry == 0
+
+    # 最大值测试
+    max_val = 0xFFFFFFFF
+    result, carry = api_adder_add(dut, max_val, max_val)
+    assert carry == 1, "最大值相加应产生进位"
+
+def test_api_adder_add_error_handling(dut):
+    """测试加法器API错误处理
+
+    测试目标:
+        验证API对无效输入的错误处理机制
+
+    测试流程:
+        1. 传入超出范围的参数
+        2. 传入错误类型的参数
+        3. 验证异常类型和错误信息
+
+    预期结果:
+        - 正确抛出预期异常
+        - 错误信息描述准确
+        - 不会导致程序崩溃
+    """
+    # 测试参数超出范围
+    with pytest.raises(ValueError, match="参数.*超出范围"):
+        api_adder_add(dut, -1, 100)
+
+    with pytest.raises(ValueError, match="参数.*超出范围"):
+        api_adder_add(dut, 100, 0x100000000)
+
+    # 测试参数类型错误
+    with pytest.raises(TypeError):
+        api_adder_add(dut, "100", 200)
+```
+
+#### 测试数据驱动
+
+使用pytest的参数化功能进行数据驱动测试：
+
+```python
+@pytest.mark.parametrize("a,b,expected_sum,expected_carry", [
+    (0, 0, 0, 0),
+    (1, 1, 2, 0),
+    (100, 200, 300, 0),
+    (0xFFFFFFFF, 1, 0, 1),
+    (0x80000000, 0x80000000, 0, 1),
+])
+def test_api_adder_add_parametrized(dut, a, b, expected_sum, expected_carry):
+    """参数化测试加法器API
+
+    测试目标:
+        使用多组测试数据验证API的正确性
+
+    测试数据:
+        覆盖典型值、边界值、特殊值等多种情况
+    """
+    result, carry = api_adder_add(dut, a, b)
+    assert result == expected_sum, f"输入({a}, {b}): 预期和{expected_sum}，实际{result}"
+    assert carry == expected_carry, f"输入({a}, {b}): 预期进位{expected_carry}，实际{carry}"
+
+@pytest.mark.parametrize("invalid_input", [
+    (-1, 100),      # 负数
+    (100, -1),      # 负数
+    (0x100000000, 0),  # 超出范围
+    (0, 0x100000000),  # 超出范围
+])
+def test_api_adder_add_invalid_inputs(dut, invalid_input):
+    """参数化测试无效输入处理"""
+    a, b = invalid_input
+    with pytest.raises(ValueError):
+        api_adder_add(dut, a, b)
+```
+
+#### 测试要求
+
+API测试应该覆盖以下几个方面：
+
+1. **基础功能**：验证API的核心功能是否正确
+2. **边界条件**：测试边界值和特殊值的处理
+3. **错误处理**：验证异常情况的处理机制
+4. **参数验证**：检查输入参数的合法性验证
+
+
 ## 最佳实践
 
 ### 1. 模块化组织
@@ -394,4 +688,244 @@ def api_dut_configure(dut, **kwargs):
 
 # 使用示例
 api_dut_configure(dut, enable_cache=True, debug_mode=False)
+```
+
+### 4. 代码质量保证
+
+#### 代码审查清单
+
+在提交API代码前，请检查以下项目：
+
+- [ ] **命名规范**：函数名遵循`api_{dut}_{function}`格式
+- [ ] **类型提示**：所有参数和返回值都有正确的类型标注
+- [ ] **文档完整**：docstring包含所有必需部分（功能、参数、返回值、异常）
+- [ ] **参数验证**：对输入参数进行合理的范围和类型检查
+- [ ] **错误处理**：适当的异常处理和有意义的错误信息
+- [ ] **测试覆盖**：所有API都有对应的测试用例
+- [ ] **性能考虑**：没有明显的性能瓶颈
+- [ ] **依赖最小**：避免不必要的外部依赖
+
+#### 代码风格规范
+
+```python
+# 良好的API示例
+def api_cache_invalidate(dut, address_range: Tuple[int, int],
+                        invalidate_type: str = "data") -> bool:
+    """使指定地址范围的缓存失效
+
+    Args:
+        dut: 缓存DUT实例
+        address_range: 地址范围元组(start_addr, end_addr)
+        invalidate_type: 失效类型，"data"或"instruction"
+
+    Returns:
+        bool: 操作是否成功
+
+    Raises:
+        ValueError: 地址范围无效或类型不支持
+    """
+    start_addr, end_addr = address_range
+
+    # 参数验证
+    if start_addr < 0 or end_addr < start_addr:
+        raise ValueError(f"无效的地址范围: [{start_addr:x}, {end_addr:x}]")
+
+    if invalidate_type not in ["data", "instruction"]:
+        raise ValueError(f"不支持的失效类型: {invalidate_type}")
+
+    # 执行操作
+    try:
+        dut.cache_invalidate_start.value = start_addr
+        dut.cache_invalidate_end.value = end_addr
+        dut.cache_invalidate_type.value = 0 if invalidate_type == "data" else 1
+        dut.cache_invalidate_enable.value = 1
+        dut.Step(1)
+        dut.cache_invalidate_enable.value = 0
+
+        # 等待操作完成
+        timeout = 100
+        while dut.cache_invalidate_busy.value and timeout > 0:
+            dut.Step(1)
+            timeout -= 1
+
+        if timeout == 0:
+            raise TimeoutError("缓存失效操作超时")
+
+        return not bool(dut.cache_invalidate_error.value)
+
+    except Exception as e:
+        raise RuntimeError(f"缓存失效操作失败: {e}")
+```
+
+### 5. 性能优化建议
+
+#### 时钟管理优化
+
+```python
+def api_bulk_memory_write(dut, data_dict: Dict[int, int]) -> int:
+    """批量写入内存，优化时钟推进
+
+    Args:
+        dut: DUT实例
+        data_dict: 地址到数据的映射字典
+
+    Returns:
+        int: 成功写入的数据条数
+    """
+    success_count = 0
+
+    # 预先排序地址，提高写入效率
+    sorted_addresses = sorted(data_dict.keys())
+
+    for addr in sorted_addresses:
+        data = data_dict[addr]
+
+        # 设置写入信号
+        dut.mem_addr.value = addr
+        dut.mem_data.value = data
+        dut.mem_write_enable.value = 1
+
+        # 只在必要时推进时钟
+        dut.Step(1)
+
+        # 检查写入状态
+        if not dut.mem_error.value:
+            success_count += 1
+
+        # 清除写使能
+        dut.mem_write_enable.value = 0
+
+    return success_count
+```
+
+#### 缓存和状态管理
+
+```python
+class APIStateManager:
+    """API状态管理器，提供缓存和状态跟踪功能"""
+
+    def __init__(self, dut):
+        self.dut = dut
+        self._cache = {}
+        self._state_history = []
+
+    def cached_read(self, address: int, force_refresh: bool = False) -> int:
+        """带缓存的内存读取"""
+        if not force_refresh and address in self._cache:
+            return self._cache[address]
+
+        # 执行实际读取
+        value = self._read_from_hardware(address)
+        self._cache[address] = value
+        return value
+
+    def invalidate_cache(self, address: Optional[int] = None):
+        """使缓存失效"""
+        if address is None:
+            self._cache.clear()
+        else:
+            self._cache.pop(address, None)
+
+    def save_state(self, name: str):
+        """保存当前状态"""
+        state = {
+            'name': name,
+            'timestamp': time.time(),
+            'registers': self._capture_registers(),
+            'cache': self._cache.copy()
+        }
+        self._state_history.append(state)
+
+    def restore_state(self, name: str) -> bool:
+        """恢复到指定状态"""
+        for state in reversed(self._state_history):
+            if state['name'] == name:
+                self._restore_registers(state['registers'])
+                self._cache = state['cache'].copy()
+                return True
+        return False
+
+# 使用状态管理器的API示例
+def api_transaction_execute(dut, operations: List[Dict]) -> List[Any]:
+    """执行事务操作，支持回滚"""
+    state_mgr = APIStateManager(dut)
+
+    # 保存初始状态
+    state_mgr.save_state("transaction_start")
+
+    try:
+        results = []
+        for op in operations:
+            result = _execute_single_operation(dut, op)
+            results.append(result)
+
+        return results
+
+    except Exception as e:
+        # 发生错误时回滚
+        state_mgr.restore_state("transaction_start")
+        raise RuntimeError(f"事务执行失败，已回滚: {e}")
+```
+
+### 6. 调试和诊断工具
+
+#### 调试辅助API
+
+```python
+def api_debug_dump_state(dut, include_memory: bool = False) -> Dict[str, Any]:
+    """转储DUT当前状态，用于调试
+
+    Args:
+        dut: DUT实例
+        include_memory: 是否包含内存内容
+
+    Returns:
+        Dict: 状态信息字典
+    """
+    state = {
+        'timestamp': time.time(),
+        'clock_count': getattr(dut, '_clock_count', 0),
+        'registers': {},
+        'flags': {},
+        'signals': {}
+    }
+
+    # 收集寄存器状态
+    register_names = ['pc', 'sp', 'acc', 'status']
+    for reg_name in register_names:
+        if hasattr(dut, reg_name):
+            state['registers'][reg_name] = getattr(dut, reg_name).value
+
+    # 收集标志位
+    flag_names = ['zero', 'carry', 'overflow', 'negative']
+    for flag_name in flag_names:
+        if hasattr(dut, f'{flag_name}_flag'):
+            state['flags'][flag_name] = bool(getattr(dut, f'{flag_name}_flag').value)
+
+    # 收集重要信号
+    signal_names = ['ready', 'busy', 'error', 'interrupt']
+    for sig_name in signal_names:
+        if hasattr(dut, sig_name):
+            state['signals'][sig_name] = getattr(dut, sig_name).value
+
+    # 可选：收集内存内容
+    if include_memory and hasattr(dut, 'memory'):
+        state['memory'] = _dump_memory_contents(dut)
+
+    return state
+
+def api_debug_trace_enable(dut, trace_signals: List[str] = None):
+    """启用信号跟踪，用于调试时序问题"""
+    if trace_signals is None:
+        trace_signals = ['clock', 'reset', 'enable', 'data_valid']
+
+    # 实现信号跟踪逻辑
+    for signal in trace_signals:
+        if hasattr(dut, signal):
+            # 设置跟踪回调
+            dut.add_trace_callback(signal, _trace_callback)
+
+def _trace_callback(signal_name: str, old_value, new_value, timestamp):
+    """信号跟踪回调函数"""
+    print(f"[{timestamp:0.3f}] {signal_name}: {old_value} -> {new_value}")
 ```
