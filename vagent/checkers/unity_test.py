@@ -39,7 +39,7 @@ class UnityChipCheckerMarkdownFileFormat(Checker):
 
 
 class UnityChipCheckerLabelStructure(Checker):
-    def __init__(self, doc_file, leaf_node, min_count=1):
+    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API"):
         """
         Initialize the checker with the documentation file, the specific label (leaf node) to check,
         and the minimum count required for that label.
@@ -47,6 +47,7 @@ class UnityChipCheckerLabelStructure(Checker):
         self.doc_file = doc_file
         self.leaf_node = leaf_node
         self.min_count = min_count
+        self.must_have_prefix = must_have_prefix
 
     def do_check(self) -> Tuple[bool, object]:
         """Check the label structure in the documentation file."""
@@ -67,6 +68,13 @@ class UnityChipCheckerLabelStructure(Checker):
                 "Encoding issues: Ensure file is saved in UTF-8 format",
             ]})
             return False, {"error": emsg}
+        if self.must_have_prefix:
+            find_prefix = False
+            for mark in data["marks"]:
+                if mark.startswith(self.must_have_prefix):
+                    find_prefix = True
+            if not find_prefix:
+                return False, {"error": f"In the document ({self.doc_file}), it must have group/."}
         return True, {"message": msg, f"{self.leaf_node}_count": len(data["marks"])}
 
 
@@ -408,13 +416,13 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['test_function_with_no_check_point_mark'] > 0:
             unmarked_functions = report['test_function_with_no_check_point_mark_list']
             if len(unmarked_functions) > 0:
-                info_runtest["error"] = ["Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
-                                        "In test templates, every test function must be associated with specific check points through 'mark_function' calls. " + \
-                                        "Each test function should:",
-                                        "1. Include coverage marking at the beginning: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', function_name, ['CK-POINTS']).",
-                                        "2. Have clear TODO comments explaining what needs to be implemented.",
-                                        "3. End with 'assert False, \"Not implemented\"' to prevent accidental passing.",
-                                        "Please add proper function markings according to the test template specification."]
+                info_runtest["error"] = [f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
+                                         "In test templates, every test function must be associated with specific check points through 'mark_function' calls. " + \
+                                         "Each test function should:",
+                                         "1. Include coverage marking at the beginning: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', function_name, ['CK-POINTS']).",
+                                         "2. Have clear TODO comments explaining what needs to be implemented.",
+                                         "3. End with 'assert False, \"Not implemented\"' to prevent accidental passing.",
+                                         "Please add proper function markings according to the test template specification."]
                 return False, info_runtest
 
         # Additional template-specific validations
@@ -482,7 +490,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         report, str_out, str_err = self.run_test.do(
             "", 
             pytest_ex_args=targets,
-            return_stdout=True, return_stderr=True, return_all_checks=True, return_all_functions=True, timeout=self.timeout
+            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=self.timeout
         )
         func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
                                          ex_python_path=self.workspace,
@@ -502,7 +510,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if func_name not in test_functions:
                 api_un_tested.append(func_name)
         def get_emsg(m):
-            return {"error": m, "STDOUT": str_out, "STDERR": str_err}
+            return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
             return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by tests.")
         if report["test_function_with_no_check_point_mark"] > 0:
@@ -562,8 +570,8 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         # Parse documentation marks for validation
         ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
         if not ret:
-            info_report["error"] = msg
-            return ret, info_report
+            info_runtest["error"] = msg
+            return ret, info_runtest
 
         # Success: All validations passed
         success_msg = ["Test case validation successful!",

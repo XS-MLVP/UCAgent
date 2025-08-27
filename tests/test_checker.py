@@ -32,7 +32,7 @@ def test_checker_functions_and_checks():
 def test_checker_dut_api():
     """Test the UnityChipCheckerDutApi class."""
     workspace = os.path.join(current_dir, "../examples/ALU")
-    checker = UnityChipCheckerDutApi("unity_test/tests/ALU_api.py", 1).set_workspace(workspace)
+    checker = UnityChipCheckerDutApi("api_ALU", "unity_test/tests/ALU_api.py", 1).set_workspace(workspace)
     p, m = checker.do_check()
     print(p)
     print(yam_str(m))
@@ -72,7 +72,9 @@ def test_checker_test_case():
     """Test the UnityChipCheckerTestCase class."""
     workspace = os.path.join(current_dir, "../examples/ALU")
 
-    for cls in [UnityChipCheckerTestTemplate, UnityChipCheckerTestFree, UnityChipCheckerTestCase]:
+    for cls in [UnityChipCheckerTestTemplate,
+                UnityChipCheckerTestFree,
+                UnityChipCheckerTestCase]:
         print("cls:", cls.__name__)
         checker = cls("unity_test/ALU_functions_and_checks.md",
                       "unity_test/tests",
@@ -98,5 +100,5 @@ if __name__ == "__main__":
     #test_checker_functions_and_checks()
     #test_checker_dut_api()
     #test_coverage()
-    #test_checker_test_case()
-    test_checker_api_test()
+    test_checker_test_case()
+    #test_checker_api_test()

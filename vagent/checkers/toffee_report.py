@@ -49,17 +49,21 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     return True, [v for v in marked_checks["marks"] if v.startswith(target_ck_prefix)]
 
 
-def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str, check_tc_in_doc=True, check_doc_in_tc=True):
+def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str,
+                       check_tc_in_doc=True, check_doc_in_tc=True,
+                       failed_funcs_bins: dict=None):
     """Check failed checkpoint in bug analysis documentation."""
+    failed_fb = []
+    if failed_funcs_bins:
+        failed_fb = [cb for cks in failed_funcs_bins.values() for cb in cks if cb not in failed_check]
     if check_doc_in_tc:
         un_related_bug_marks = []
         for ck in marked_bug_checks:
-            if ck not in failed_check:
+            if ck not in failed_check + failed_fb:
                 un_related_bug_marks.append(ck)
         if len(un_related_bug_marks) > 0:
             return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains marks not related to any failed test cases: {', '.join(un_related_bug_marks)}. " + \
-                            "Please ensure all bug analysis marks correspond to actual test failures.",
-                            "Action required:",
+                            "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Update the bug analysis documentation to include all relevant test failures.",
                             "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
@@ -78,8 +82,20 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                                 "3. Review test implementation and DUT behavior to determine root cause.",
                                 "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
                                 ]
-
-
+    if failed_funcs_bins is not None:
+        for func, checks in failed_funcs_bins.items():
+            un_buged_cks = []
+            for cb in checks:
+                if cb not in marked_bug_checks:
+                    un_buged_cks.append(cb)
+            if len(un_buged_cks) > 0:
+                return False, [f"Checkpoint ({','.join(un_buged_cks)}) in failed test function: {func} are not unanalyzed in the bug analysis file <{bug_analysis_file}>. You need:",
+                               "1. Document these checkpoints in the bug analysis file with appropriate marks.",
+                               "2. if this checkpoints are not related to the test function, delete it in 'mark_function'",
+                               "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
+                               f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in <{bug_analysis_file}>",
+                               "when you document the checkpoints need use the correct form at <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
+                               ]
     return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results."
 
 
@@ -152,24 +168,31 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         if not ret:
             return ret, bug_ck_list
 
-        ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file, check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc)
+        ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
+                                      check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc,
+                                      failed_funcs_bins = report.get("failed_funcs_bins", {}))
         if not ret:
             return ret, msg
 
-    for func, checks in report.get("failed_funcs_bins", {}).items():
-        marked_checks = []
-        for ck in checks:
-            if not ck.startswith(target_ck_prefix):
-                continue
-            if ck in bug_ck_list:
-                marked_checks.append(ck)
-        if len(marked_checks) == 0:
-            return False, [f"Unanalyzed test failures detected: failed test function '{func}' needs at least one function/check is marked in bug analysis documentation '{bug_file}'. " + \
-                            "Test failures must be properly analyzed and documented. Options:",
-                            "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_file),
-                            "2. If these are test issues, fix the test logic to make them pass.",
-                            "3. Review test implementation and DUT behavior to determine root cause.",
-                            "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"]
+    if report['unmarked_check_points'] > 0:
+        unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
+        if len(unmark_check_points) > 0:
+            return False, f"Test template validation failed: Found {len(unmark_check_points)} unmarked check points: {', '.join(unmark_check_points)} " + \
+                           "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
+                           "Please use it like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                           "This ensures proper coverage mapping between documentation and test implementation. " + \
+                           "Review your task requirements and complete the check point markings. "
+
+    failed_check_point_passed_funcs = report.get("failed_check_point_passed_funcs", {})
+    if failed_check_point_passed_funcs:
+        fmsg = [f"Test logic inconsistency: Check points failed, but same of its test functions passed:"]
+        for k, v in failed_check_point_passed_funcs.items():
+            fmsg.append(f"  Check point '{k}' failed, but functions passed: {', '.join(v)}")
+        fmsg.append("Action required:")
+        fmsg.append("1. Review the test logic to ensure that check points are correctly associated with their test functions.")
+        fmsg.append("2. Ensure that each check point accurately reflects the intended functionality and failure conditions.")
+        fmsg.append("3. Fix any inconsistencies to ensure reliable and accurate test results.")
+        return False, fmsg
 
     if callable(post_checker):
         ret, msg = post_checker(report)

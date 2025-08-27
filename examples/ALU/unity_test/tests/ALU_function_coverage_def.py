@@ -9,15 +9,33 @@ funcov_group = [funcov_FG_API, funcov_FG_SIMPLE, funcov_FG_HARD]
 
 
 def init_coverage_group_api(g, dut):
+    # 检查点直接返回True，用于标记，其具体判断交给对应的测试用例，如果测试用例Pass则表明这些检测点也全部通过
     g.add_watch_point(dut, {
         "CK-ADD": lambda x: True,
         "CK-SUB": lambda x: True,
-        "CK-SUB": lambda x: True,
+        "CK-MUL": lambda x: True,
+        "CK-AND": lambda x: True,
+        "CK-OR":  lambda x: True,
+        "CK-XOR": lambda x: True,
+        "CK-NOT": lambda x: True,
+        "CK-SHL": lambda x: True,
+        "CK-SHR": lambda x: True,
+        "CK-INVALID": lambda x: True
     },
     name="FC-OPERATION")
 
 
 def init_coverage_group_simple(g, dut):
+    g.add_watch_point(dut,
+        {
+            "CK-NORM": lambda x: x.a.value + x.b.value + x.cin.value == x.out.value + (x.cout.value << 64),
+            "CK-CARRY": lambda x: x.cout.value == 1 and x.a.value + x.b.value + x.cin.value >= (1 << 64),
+            "CK-CIN-NORM": lambda x: x.cin.value == 1 and (x.a.value + x.b.value + x.cin.value == x.out.value + (x.cout.value << 64)),
+            "CK-CIN-CARRY": lambda x: x.cin.value == 1 and x.cout.value == 1,
+            "CK-OVERFLOW": lambda x: x.a.value + x.b.value + x.cin.value >= (1 << 64) and x.cout.value == 1
+        },
+        name="FC-ADD"
+    )
     g.add_watch_point(dut,
         {
             "CK-NORM": lambda x: x.a.value - x.b.value - x.cin.value == x.out.value,

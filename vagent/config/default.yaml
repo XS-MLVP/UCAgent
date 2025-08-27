@@ -161,6 +161,7 @@ stage:
           - "为每组定义<FG-组名>标签，组名要有意义"
           - "创建文档框架，先完成分组部分"
           - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等，栈结构可以有<FG-PUSH>、<FG-POP>、<FG-POP-PUSH>等"
+          - "注意：必须有<FG-API>分组"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"

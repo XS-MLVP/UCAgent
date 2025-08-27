@@ -24,7 +24,11 @@ class DUTALU:
         cin = cin & 0x1
         out = 0
         cout = 0
-        if op == 1:  # 减法
+        if op == 0:  # 加法
+            result = a + b + cin
+            out = result & mask
+            cout = 1 if (result >> 64) != 0 else 0
+        elif op == 1:  # 减法
             result = a - b - cin
             out = result & mask
             cout = 1 if (a < b + cin) else 0  # 借位

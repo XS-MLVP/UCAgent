@@ -909,6 +909,32 @@ def yam_str(data: dict) -> str:
     """
     Convert a dictionary to a YAML-formatted string.
     """
-    return yaml.dump(data, allow_unicode=True, default_flow_style=False,
-                     default_style='"',
-                     indent=2)
+    class LiteralStr(str):
+        """Custom string class for literal scalar representation"""
+        pass
+    def represent_literal_str(dumper, data):
+        """Custom representer for literal strings"""
+        if '\n' in data:
+            # Use literal style (|) for multi-line strings
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='|')
+        else:
+            # Use default style for single-line strings
+            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+    def process_strings(obj):
+        if isinstance(obj, dict):
+            return {k: process_strings(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [process_strings(item) for item in obj]
+        elif isinstance(obj, str) and '\n' in obj:
+            return LiteralStr(obj)
+        else:
+            return obj
+    processed_data = process_strings(data)
+    yaml.add_representer(LiteralStr, represent_literal_str)
+    try:
+        return yaml.dump(processed_data, allow_unicode=True, default_flow_style=False,
+                         width=float('inf'),  # Prevent line wrapping
+                         indent=2)
+    finally:
+        if LiteralStr in yaml.representer.Representer.yaml_representers:
+            del yaml.representer.Representer.yaml_representers[LiteralStr]
