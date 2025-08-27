@@ -25,10 +25,13 @@ import pytest
 ```python
 def test_basic_functionality(dut):
     """测试基本功能的描述
-    
+
     Args:
         dut: DUT fixture实例，由pytest自动注入
-    """
+    """    
+    # 0. 覆盖率标记（必须）
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_basic_functionality, ["CK-BASIC"])
+
     # 1. 测试数据准备
     input_a = 10
     input_b = 20
@@ -39,9 +42,6 @@ def test_basic_functionality(dut):
     
     # 3. 断言验证结果
     assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
-    
-    # 4. 覆盖率标记（必须）
-    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_basic_functionality, ["CK-BASIC"])
 ```
 
 ## 覆盖率关联机制
@@ -51,6 +51,9 @@ def test_basic_functionality(dut):
 ```python
 dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, ["{检查点列表}"])
 ```
+
+需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。
+
 
 **参数说明：**
 - **功能分组**：对应功能描述文档中的 `<FG-*>` 标签
@@ -63,26 +66,28 @@ dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, ["{�
 ```python
 def test_addition_overflow(dut):
     """测试加法溢出场景"""
+    # 标记覆盖的检查点
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_addition_overflow, ["CK-OVERFLOW"])
+
     # 使用最大值测试溢出
     max_val = (1 << 64) - 1
     result, carry = api_adder_add(dut, max_val, 1, 0)
     
     # 验证溢出标志
     assert carry == 1, "溢出时应该设置进位标志"
-    assert result == 0, "溢出时低位应该为0"
-    
-    # 标记覆盖的检查点
-    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_addition_overflow, ["CK-OVERFLOW"])
+    assert result == 0, "溢出时低位应该为0"    
 
 def test_addition_with_carry(dut):
     """测试带进位的加法"""
+
+    # 可以标记多个检查点
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_addition_with_carry, ["CK-BASIC", "CK-CARRY-IN"])
+
     result, carry = api_adder_add(dut, 10, 20, 1)  # 10 + 20 + 1 = 31
     
     assert result == 31, f"预期结果31，实际{result}"
     assert carry == 0, "正常情况下不应有进位"
     
-    # 可以标记多个检查点
-    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_addition_with_carry, ["CK-BASIC", "CK-CARRY-IN"])
 ```
 
 ## 覆盖率完整性要求
@@ -98,6 +103,10 @@ def test_addition_with_carry(dut):
 # ✅ 良好的覆盖率设计
 def test_comprehensive_addition(dut):
     """综合加法测试，覆盖多个场景"""
+    # 标记所有相关检查点
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_comprehensive_addition, 
+                                                ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
+
     # 基本加法
     result, _ = api_adder_add(dut, 5, 3, 0)
     assert result == 8
@@ -109,10 +118,7 @@ def test_comprehensive_addition(dut):
     # 进位测试
     result, _ = api_adder_add(dut, 10, 20, 1)
     assert result == 31
-    
-    # 标记所有相关检查点
-    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_comprehensive_addition, 
-                                                ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
+
 
 # ❌ 避免：没有覆盖任何检查点
 def test_bad_example(dut):
@@ -188,6 +194,9 @@ class TestAdderBasic:
     
     def test_basic_addition(self, dut):
         """测试基本加法功能"""
+        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_basic_addition, 
+                                                    ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
+
         test_cases = [
             (1, 2, 0, 3, 0),      # 简单加法
             (0, 0, 0, 0, 0),      # 零值加法
@@ -198,12 +207,12 @@ class TestAdderBasic:
             sum_result, cout_result = api_adder_add(dut, a, b, cin)
             assert sum_result == expected_sum, f"加法错误: {a}+{b}+{cin}={sum_result}, 期望{expected_sum}"
             assert cout_result == expected_cout, f"进位错误: {a}+{b}+{cin}, cout={cout_result}, 期望{expected_cout}"
-        
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_basic_addition, 
-                                                    ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
 
     def test_overflow_scenarios(self, dut):
         """测试溢出场景"""
+        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_overflow_scenarios, 
+                                                    ["CK-OVERFLOW", "CK-CARRY-OVERFLOW"])
+
         max_64bit = (1 << 64) - 1
         
         # 最大值 + 1 溢出
@@ -217,26 +226,23 @@ class TestAdderBasic:
         # 带进位的溢出
         sum_result, cout_result = api_adder_add(dut, max_64bit, 0, 1)
         assert cout_result == 1, "最大值加进位应产生溢出"
-        
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_overflow_scenarios, 
-                                                    ["CK-OVERFLOW", "CK-CARRY-OVERFLOW"])
 
     def test_boundary_conditions(self, dut):
         """测试边界条件"""
+        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_boundary_conditions, 
+                                                    ["CK-BOUNDARY-MAX", "CK-BOUNDARY-ZERO"])
         max_val = (1 << 64) - 1
-        
+
         # 最大值与0相加
         sum_result, cout_result = api_adder_add(dut, max_val, 0, 0)
         assert sum_result == max_val, "最大值加0应该等于最大值"
         assert cout_result == 0, "最大值加0不应产生进位"
-        
+
         # 0与最大值相加
         sum_result, cout_result = api_adder_add(dut, 0, max_val, 0)
         assert sum_result == max_val, "0加最大值应该等于最大值"
         assert cout_result == 0, "0加最大值不应产生进位"
-        
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_boundary_conditions, 
-                                                    ["CK-BOUNDARY-MAX", "CK-BOUNDARY-ZERO"])
+
 
 class TestAdderError:
     """加法器错误处理测试"""
@@ -248,6 +254,8 @@ class TestAdderError:
         
     def test_reset_behavior(self, dut):
         """测试复位行为"""
+        dut.fc_cover["FG-CONTROL"].mark_function("FC-RESET", self.test_reset_behavior, ["CK-RESET-RECOVERY"])
+
         # 先执行一个操作
         api_adder_add(dut, 100, 200, 1)
         
@@ -257,8 +265,7 @@ class TestAdderError:
         # 验证复位后状态
         sum_result, cout_result = api_adder_add(dut, 1, 1, 0)
         assert sum_result == 2, "复位后应能正常工作"
-        
-        dut.fc_cover["FG-CONTROL"].mark_function("FC-RESET", self.test_reset_behavior, ["CK-RESET-RECOVERY"])
+
 ```
 
 ### 参数化测试示例
@@ -277,6 +284,8 @@ class TestParameterized:
     ])
     def test_addition_cases(self, dut, a, b, cin, expected_sum, expected_cout):
         """参数化加法测试"""
+        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_addition_cases, check_points)
+
         sum_result, cout_result = api_adder_add(dut, a, b, cin)
         assert sum_result == expected_sum
         assert cout_result == expected_cout
@@ -289,8 +298,7 @@ class TestParameterized:
             check_points.append("CK-CARRY-IN")
         if expected_cout == 1:
             check_points.append("CK-OVERFLOW")
-            
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_addition_cases, check_points)
+
 ```
 
 ## 最佳实践
@@ -300,6 +308,8 @@ class TestParameterized:
 ```python
 def test_comprehensive_data_coverage(dut):
     """全面的数据覆盖测试"""
+    dut.fc_cover["FG-TEST"].mark_function("FC-COMPREHENSIVE", test_comprehensive_data_coverage, ["CK-COVERAGE"])
+
     # 典型值
     typical_values = [1, 10, 100, 1000]
     
@@ -313,8 +323,7 @@ def test_comprehensive_data_coverage(dut):
         for b in typical_values[:2]:  # 限制组合数量
             result = api_operation(dut, a, b)
             assert result is not None, f"操作失败: a={a}, b={b}"
-    
-    dut.fc_cover["FG-TEST"].mark_function("FC-COMPREHENSIVE", test_comprehensive_data_coverage, ["CK-COVERAGE"])
+
 ```
 
 ### 2. 错误处理和异常测试
@@ -322,15 +331,16 @@ def test_comprehensive_data_coverage(dut):
 ```python
 def test_error_conditions(dut):
     """测试错误条件处理"""
+    dut.fc_cover["FG-ERROR"].mark_function("FC-ERROR-HANDLING", test_error_conditions, ["CK-INVALID-INPUT"])
+
     # 测试无效输入（如果API支持）
     with pytest.raises(ValueError):
         api_invalid_operation(dut, -1)  # 假设不支持负数
-    
+
     # 测试超时情况（如果适用）
     with pytest.raises(TimeoutError):
         api_long_operation(dut, timeout=0.1)
-        
-    dut.fc_cover["FG-ERROR"].mark_function("FC-ERROR-HANDLING", test_error_conditions, ["CK-INVALID-INPUT"])
+
 ```
 
 ### 3. 性能和压力测试
@@ -338,19 +348,18 @@ def test_error_conditions(dut):
 ```python
 def test_performance_stress(dut):
     """性能和压力测试"""
+    dut.fc_cover["FG-PERFORMANCE"].mark_function("FC-STRESS", test_performance_stress, ["CK-THROUGHPUT"])
+
     import time
-    
     start_time = time.time()
-    
+
     # 执行大量操作
     for i in range(1000):
         result = api_fast_operation(dut, i % 256)
         assert result is not None
-    
+
     elapsed = time.time() - start_time
     assert elapsed < 1.0, f"性能测试失败，耗时{elapsed}秒"
-    
-    dut.fc_cover["FG-PERFORMANCE"].mark_function("FC-STRESS", test_performance_stress, ["CK-THROUGHPUT"])
 ```
 
 ### 4. 测试辅助函数
@@ -378,12 +387,12 @@ def verify_operation_properties(dut, a, b):
 
 def test_mathematical_properties(dut):
     """测试数学性质"""
+    dut.fc_cover["FG-MATH"].mark_function("FC-PROPERTIES", test_mathematical_properties, ["CK-COMMUTATIVE"])
+
     test_pairs = [(1, 2), (10, 20), (100, 200)]
     
     for a, b in test_pairs:
         verify_operation_properties(dut, a, b)
-    
-    dut.fc_cover["FG-MATH"].mark_function("FC-PROPERTIES", test_mathematical_properties, ["CK-COMMUTATIVE"])
 ```
 
 ## 质量保证检查清单

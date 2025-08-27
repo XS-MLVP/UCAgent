@@ -23,8 +23,17 @@ DUT整体功能
 
 ### 标签系统
 - **功能分组标签**：`<FG-{group-name}>` - 标识功能分组
-- **功能点标签**：`<FC-{function-name}>` - 标识具体功能点
-- **检测点标签**：`<CK-{check-point-name}>` - 标识具体检测点
+- **功能点标签**：`<FC-{function-name}>` - 标识具体功能点 (也称为测试点 Test Point)
+- **检测点标签**：`<CK-{check-point-name}>` - 标识具体检测点 (也称为Test Bin, 叫做“测试仓库”、“测试区间”或者“检查点”)
+
+检查点(Test Bin)通常用'/'拼接起来进行表示：
+
+- FG-{group-name}/FC-{function-name}/CK-{check-point-name}
+
+例如：
+- <FG-GROUP-A>/<FC-FUNCTION-A1>/<CK-CHECK-A1-1>
+- <FG-GROUP-A>/<FC-FUNCTION-A1>/<CK-CHECK-A1-2>
+- <FG-ARITHMETIC>/<FC-ADD>/<CK-BASIC>
 
 **重要提醒**：checker工具正是通过这些标签进行规范检测的，标签格式必须严格遵循规范。
 
@@ -144,6 +153,12 @@ DUT整体功能
 <CK-MIN>           # 最小值处理
 ```
 
+#### 必要分组
+
+在所有功能点与检测点描述文档中，必须要有一下分组：
+
+<FG-API> # 测试API分组，对DUT验证时需要用到的标准API
+
 ## 完整示例：ALU设计
 
 ### 设计规格
@@ -187,6 +202,30 @@ ALU（Arithmetic Logic Unit，算术逻辑单元）是CPU的核心组件，负�
 | 其他 | 保留     | out = 0, cout = 0 | 无定义 |
 
 ## 功能分组与检测点
+
+
+### DUT测试API
+
+<FG-API>
+
+#### 通用operation功能
+
+<FC-OPERATION>
+
+提供DUT支持的各种运算操作接口，涵盖所有op操作码对应的运算类型。这些操作是DUT的核心功能实现。
+
+**检测点：**
+- <CK-ADD> 加法操作：验证op=0时的加法运算功能，{cout,out} = a + b + cin
+- <CK-SUB> 减法操作：验证op=1时的减法运算功能，out = a - b - cin  
+- <CK-MUL> 乘法操作：验证op=2时的乘法运算功能，out = a × b
+- <CK-AND> 按位与操作：验证op=3时的按位与运算功能，out = a & b
+- <CK-OR> 按位或操作：验证op=4时的按位或运算功能，out = a | b
+- <CK-XOR> 按位异或操作：验证op=5时的按位异或运算功能，out = a ^ b
+- <CK-NOT> 按位非操作：验证op=6时的按位非运算功能，out = ~a
+- <CK-SHL> 左移操作：验证op=7时的左移运算功能，out = a << (b & 0x3F)
+- <CK-SHR> 右移操作：验证op=8时的右移运算功能，out = a >> (b & 0x3F)
+- <CK-INVALID> 无效操作码：验证op值超出定义范围时的处理，out = 0
+
 
 <FG-ARITHMETIC>
 
