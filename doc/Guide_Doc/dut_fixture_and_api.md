@@ -929,3 +929,10 @@ def _trace_callback(signal_name: str, old_value, new_value, timestamp):
     """信号跟踪回调函数"""
     print(f"[{timestamp:0.3f}] {signal_name}: {old_value} -> {new_value}")
 ```
+
+### 其他说明
+
+- fixture dut 和 API 在文件 {DUT}_api.py 文件中实现，因此在使用时需要 `from {DUT}_api import *`
+- API 注释应当尽可能的详尽
+- 在 fixture dut 中需要做好 DUT 实例的生命周期管理
+

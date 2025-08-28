@@ -51,7 +51,7 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
 
 def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str,
                        check_tc_in_doc=True, check_doc_in_tc=True,
-                       failed_funcs_bins: dict=None):
+                       failed_funcs_bins: dict=None, target_ck_prefix=""):
     """Check failed checkpoint in bug analysis documentation."""
     failed_fb = []
     if failed_funcs_bins:
@@ -86,6 +86,8 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
         for func, checks in failed_funcs_bins.items():
             un_buged_cks = []
             for cb in checks:
+                if not cb.startswith(target_ck_prefix):
+                    continue
                 if cb not in marked_bug_checks:
                     un_buged_cks.append(cb)
             if len(un_buged_cks) > 0:
@@ -163,14 +165,16 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         return ret, msg
 
     checks_tc_fail = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
-    if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)):
+    failed_funcs_bins = report.get("failed_funcs_bins", {})
+    if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
         ret, bug_ck_list = get_bug_ck_list_from_doc(workspace, bug_file, target_ck_prefix)
         if not ret:
             return ret, bug_ck_list
 
         ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
                                       check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc,
-                                      failed_funcs_bins = report.get("failed_funcs_bins", {}))
+                                      failed_funcs_bins=failed_funcs_bins,
+                                      target_ck_prefix=target_ck_prefix)
         if not ret:
             return ret, msg
 

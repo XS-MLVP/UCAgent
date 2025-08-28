@@ -354,7 +354,7 @@ class StageManager(object):
         }
         if ck_pass:
             self.stage_index += 1
-            message = f"Stage {self.stage_index - 1} completed successfully."
+            message = f"Stage {self.stage_index - 1} completed successfully. "
             if self.stage_index >= len(self.stages):
                 message = ("All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "

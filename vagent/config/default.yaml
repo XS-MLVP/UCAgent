@@ -323,6 +323,9 @@ stage:
       - "第6步：验证测试结果 - 使用RunTestCases('{OUT}/tests/test_{DUT}_api[_name].py::your_test_function')运行并检查结果"
       - "要求：每个API函数至少有一个基础功能测试用例"
       - "完成所有API对应测试用例后，请用Check工具进行阶段检查"
+      - "注意："
+      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
+      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
@@ -377,7 +380,10 @@ stage:
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
       - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
-      - "注意：工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
+      - "注意："
+      - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
+      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
+      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
