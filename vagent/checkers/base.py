@@ -51,6 +51,7 @@ class Checker(object):
         This method can be overridden in subclasses to handle cleanup or termination logic.
         """
         if not self.is_in_check or self._process is None:
+            self.is_in_check = False
             return "No check process find"
         error_str = "kill success"
         try:
@@ -79,7 +80,12 @@ class Checker(object):
                           f"and use tool 'StdCheck' to get the stdout and stderr data"
         self.is_in_check = True
         self.time_start = time.time()
-        p, m = self.do_check()
+        try:
+            p, m = self.do_check()
+        except Exception as e:
+            self.is_in_check = False
+            return False, f"Error occurred during check: {e}"
+        self.is_in_check = False
         if p:
             p_msg = self.get_default_message_pass()
             if p_msg:
@@ -88,7 +94,6 @@ class Checker(object):
             f_msg = self.get_default_message_fail()
             if f_msg:
                 self.append_msg(m, f_msg, "Fail_Message")
-        self.is_in_check = False
         self.set_check_process(None, None) # Reset the process and timeout after check
         return p, self.rec_render(m, self)
 

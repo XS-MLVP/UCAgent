@@ -172,7 +172,7 @@ class VerifyStage(object):
     def task_info(self):
         return OrderedDict({
             "description": self.task,
-            "reference_files":  self.reference_files,
+            "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
 
