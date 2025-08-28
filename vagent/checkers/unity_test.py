@@ -512,9 +512,12 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         def get_emsg(m):
             return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
-            return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by tests.")
+            return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by the tests.")
         if report["test_function_with_no_check_point_mark"] > 0:
-            return False, get_emsg(f"Some test functions do not have check point marks: {', '.join(report['test_function_with_no_check_point_mark_list'])}")
+            return False, get_emsg(f"Some test functions do not have check point marks: {', '.join(report['test_function_with_no_check_point_mark_list'])}. "
+                                    "Please mark them like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                                    "This ensures proper coverage mapping between documentation and test implementation. " + \
+                                    "Review your task requirements and complete the check point markings. ")
 
         ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
         if not ret:
