@@ -521,7 +521,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         def get_emsg(m):
             return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
-            return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by the tests.")
+            return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) are not covered by the test cases ({', '.join(test_keys)}). " + \
+                                   f"You need to define the related test cases with `test_` prefix. eg: define `test_api_dut_func1` for `api_dut_func1`")
         if report["test_function_with_no_check_point_mark"] > 0:
             return False, get_emsg(f"Some test functions ({', '.join(report['test_function_with_no_check_point_mark_list'])}) do not have check point marks. "
                                     "Please mark them like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
