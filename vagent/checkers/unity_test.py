@@ -208,31 +208,33 @@ class UnityChipCheckerCoverageGroup(Checker):
     def do_check(self) -> Tuple[bool, str]:
         """Check the functional coverage groups against the documentation."""
         # File existence validation
+        def mk_emsg(msg):
+            return {"error": msg + " Please make sure you are processing the right file."}
         if not os.path.exists(self.get_path(self.cov_file)):
-            return False, {"error": f"Functional coverage file '{self.cov_file}' not found in workspace."}
+            return False, mk_emsg(f"Functional coverage file '{self.cov_file}' not found in workspace.")
         # Module import validation
         funcs = fc.get_target_from_file(self.get_path(self.cov_file), "get_coverage_groups",
                                         ex_python_path=self.workspace,
                                         dtype="FUNC")
         if not funcs:
-            return False, {"error": f"No 'get_coverage_groups' functions found in '{self.cov_file}'."}
+            return False, mk_emsg(f"No 'get_coverage_groups' functions found in '{self.cov_file}'.")
         if len(funcs) != 1:
-            return False, {"error": f"Multiple 'get_coverage_groups' functions found in '{self.cov_file}'. Only one is allowed."}
+            return False, mk_emsg(f"Multiple 'get_coverage_groups' functions found in '{self.cov_file}'. Only one is allowed.")
         get_coverage_groups = funcs[0]
         args = fc.get_func_arg_list(get_coverage_groups)
         if len(args) != 1 or args[0] != "dut":
-            return False, {"error": f"The 'get_coverage_groups' function must have one argument named 'dut', but got ({', '.join(args)})."}
+            return False, mk_emsg(f"The 'get_coverage_groups' function in: {self.cov_file} must have one argument named 'dut', but got ({', '.join(args)}).")
         class fake_dut:
             def __getattribute__(self, name):
                 return self
         groups = get_coverage_groups(fake_dut())
         if not groups:
-            return False, {"error": f"The 'get_coverage_groups' function returned no groups."}
+            return False, mk_emsg(f"The 'get_coverage_groups' function returned no groups in target file: {self.cov_file}")
         if not isinstance(groups, list):
-            return False, {"error": f"The 'get_coverage_groups' function must return a list of coverage groups, but got {type(groups)}."}
+            return False, mk_emsg(f"The 'get_coverage_groups' function in: {self.cov_file} must return a list of coverage groups, but got {type(groups)}.")
         from toffee.funcov import CovGroup
         if not all(isinstance(g, CovGroup) for g in groups):
-            return False, {"error": f"All items returned by 'get_coverage_groups' must be instances of 'toffee.funcov.CovGroup', but got {type(groups[0])}."}
+            return False, mk_emsg(f"All items returned by 'get_coverage_groups' in: {self.cov_file} must be instances of 'toffee.funcov.CovGroup', but got {type(groups[0])}.")
         # checks
         for ctype in self.check_types:
             doc_groups = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), ctype, 1)
@@ -275,10 +277,11 @@ class UnityChipCheckerCoverageGroup(Checker):
 
     def _com_check_func(self, func_groups, doc_groups, ctype):
         a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups["marks"])
+        suggested_msg = "You need make those two files consist in coverage groups."
         if len(a) > 0:
-            return False, f"Coverage groups check failed: {len(a)} {ctype} groups in '{self.cov_file}' not found in '{self.doc_file}': {', '.join(a)}."
+            return False, f"Coverage groups check failed: find {len(a)} {ctype} ({', '.join(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
         if len(b) > 0:
-            return False, f"Coverage groups check failed: {len(b)} {ctype} groups in '{self.doc_file}' not found in '{self.cov_file}': {', '.join(b)}."
+            return False, f"Coverage groups check failed: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
         info(f"{ctype} coverage {len(doc_groups['marks'])} marks check passed")
         return True, "Coverage groups check passed."
 
@@ -291,12 +294,13 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6000):
+    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6000, ignore_ck_prefix=""):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
         self.min_tests = min_tests
         self.timeout = timeout
+        self.ignore_ck_prefix = ignore_ck_prefix
         self.run_test = RunUnityChipTest()
 
     def set_workspace(self, workspace: str):
@@ -375,7 +379,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, info_runtest
         if report["tests"]["total"] < self.min_tests:
             info_runtest["error"] = f"Insufficient test cases defined: {report['tests']['total']} found, " +\
-                                    f"minimum required is {self.min_tests}." + \
+                                    f"minimum required is {self.min_tests}. " + \
                                      "Please ensure that the test cases are defined in the correct format and location."
             return False, info_runtest
         try:
@@ -443,29 +447,34 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
     def _validate_template_structure(self, report, str_out, str_err) -> Tuple[bool, str]:
         """
         Validate the structure and requirements specific to test templates.
-        
+
         Args:
             report: Test execution report
             str_out: Standard output from test execution
             str_err: Standard error from test execution
-            
+
         Returns:
             Tuple[bool, str]: Validation result and message
         """
         # Check that all tests failed as expected in template
-        if report.get("tests", {}).get("fails", 0) != report.get("tests", {}).get("total", 0):
-            return False, "Test template structure validation failed: Not all test functions are properly failing." + \
-                          "In test templates, ALL test functions must fail with 'assert False, \"Not implemented\"' to indicate they are templates." + \
-                          "This prevents incomplete templates from being accidentally considered as passing tests." + \
-                          "Please ensure every test function ends with the required fail assertion."
-        
+        passed_test = []
+        for fv, rt in report.get("test_cases", {}).items():
+            if self.ignore_ck_prefix and ":"+self.ignore_ck_prefix in fv:
+                continue
+            if rt == "PASSED":
+                passed_test.append(fv)
+
+        if passed_test:
+            return False, f"Test template structure validation failed: Not all test functions ({', '.join(passed_test)}) are properly failing. " + \
+                           "In test templates, ALL test functions must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
+                           "This prevents incomplete templates from being accidentally considered as passing tests. " + \
+                           "Please ensure every test function ends with the required fail assertion."
         # Check for proper TODO comments (this would require parsing the actual test files)
         # For now, we rely on the fact that properly structured templates should fail with "Not implemented"
         if "Not implemented" not in str_out and "Not implemented" not in str_err:
-            return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages." + \
-                          "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation." + \
+            return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
+                          "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
                           "This helps distinguish between actual test failures and template placeholders."
-        
         return True, "Template structure validation passed."
 
 

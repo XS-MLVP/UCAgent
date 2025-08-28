@@ -104,7 +104,7 @@ stage:
       - "第3步：识别风险点 - 哪些地方容易出错？边界条件有哪些？"
       - "第4步：制定验证计划 - 如何系统地测试所有功能？"
       - "第5步：写入验证规划文档到{OUT}/{DUT}_verification_needs_and_plan.md"
-      - "注意：{DUT}中可能有隐藏bug，测试失败时请分析是否为设计缺陷"
+      - "注意：{DUT}中可能有隐藏bug，测试失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
     checker:
@@ -357,6 +357,7 @@ stage:
         args:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
+          ignore_ck_prefix: "test_api_{DUT}_"
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
           pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
