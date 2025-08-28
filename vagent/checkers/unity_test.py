@@ -279,9 +279,9 @@ class UnityChipCheckerCoverageGroup(Checker):
         a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups["marks"])
         suggested_msg = "You need make those two files consist in coverage groups."
         if len(a) > 0:
-            return False, f"Coverage groups check failed: find {len(a)} {ctype} ({', '.join(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
+            return False, f"Coverage groups check fail: find {len(a)} {ctype} ({', '.join(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
         if len(b) > 0:
-            return False, f"Coverage groups check failed: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
+            return False, f"Coverage groups check fail: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
         info(f"{ctype} coverage {len(doc_groups['marks'])} marks check passed")
         return True, "Coverage groups check passed."
 
@@ -462,7 +462,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if self.ignore_ck_prefix and ":"+self.ignore_ck_prefix in fv:
                 continue
             if rt == "PASSED":
-                passed_test.append(fv)
+                passed_test.append(fv + "=" + rt)
 
         if passed_test:
             return False, f"Test template structure validation failed: Not all test functions ({', '.join(passed_test)}) are properly failing. " + \
@@ -523,7 +523,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         if api_un_tested:
             return False, get_emsg(f"API functions ({', '.join(api_un_tested)}) not covered by the tests.")
         if report["test_function_with_no_check_point_mark"] > 0:
-            return False, get_emsg(f"Some test functions do not have check point marks: {', '.join(report['test_function_with_no_check_point_mark_list'])}. "
+            return False, get_emsg(f"Some test functions ({', '.join(report['test_function_with_no_check_point_mark_list'])}) do not have check point marks. "
                                     "Please mark them like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
