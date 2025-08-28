@@ -325,7 +325,7 @@ stage:
       - "完成所有API对应测试用例后，请用Check工具进行阶段检查"
       - "注意："
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
-      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
+      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（基于源代码分析）"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
@@ -376,7 +376,7 @@ stage:
       - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
       - "第7步：分析测试结果："
       - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
-      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md"
+      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析）"
       - "  - 如果Fail不合理：修正测试逻辑"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
@@ -404,7 +404,7 @@ stage:
     desc: "验证审查与总结"
     task:
       - "目标：对测试过程进行回顾，提炼经验教训"
-      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对于的描述"
+      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（需要基于源代码分析bug）"
       - "第2步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
       - "第3步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
       - "第4步：根据需要判断是否进行验证补充，或者调整验证规划"
