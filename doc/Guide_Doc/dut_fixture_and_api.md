@@ -14,6 +14,27 @@
 3. **时钟管理**：为时序电路初始化时钟
 4. **测试清理**：测试结束后的资源清理和数据收集
 
+在实现fixture dut之前，需要先实现 `create_dut` 函数，他的作用是创建DUT。其基本结构如下：
+
+```python
+def create_dut():
+    """创建DUT实例的工厂函数
+    
+    Returns:
+        DUT实例，已完成基本初始化
+    """
+    # 导入并实例化具体的DUT类
+    from {dut_module} import DUT{DutClass}
+    
+    dut = DUT{DutClass}()
+    
+    # 进行必要的初始化设置
+    # 例如：设置默认值、复位等
+    dut.reset.value = 1  # 示例：设置复位信号
+    
+    return dut
+```
+
 ### 标准 Fixture 实现
 
 ```python
@@ -52,22 +73,6 @@ def dut(request):
         g.clear()  # 清空覆盖率统计
     dut.Finish()   # 清理DUT资源
 
-def create_dut():
-    """创建DUT实例的工厂函数
-    
-    Returns:
-        DUT实例，已完成基本初始化
-    """
-    # 导入并实例化具体的DUT类
-    from {dut_module} import DUT{DutClass}
-    
-    dut = DUT{DutClass}()
-    
-    # 进行必要的初始化设置
-    # 例如：设置默认值、复位等
-    dut.reset.value = 1  # 示例：设置复位信号
-    
-    return dut
 ```
 
 ### 时钟配置指南

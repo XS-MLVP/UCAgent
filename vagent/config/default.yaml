@@ -77,7 +77,7 @@ mcp_server:
 
     **重要工具：**
     - `CurrentTips`: 获取当前阶段任务指导
-    - `Check`: 检查阶段是否完成(会自动运行pytest等)
+    - `Check`: 检查阶段是否完成(自动运行pytest、检查python文件等，不要自己调用Python，不然会导致PYTHONPATH不一致从而出现import fail等错误）
     - `Complete`: 完成当前阶段进入下一阶段
     - `ReadTextFile`: 读取文件(必须用这个，否则我不知道你读了什么)
     - 文件写入：你可以选择合适的工具
