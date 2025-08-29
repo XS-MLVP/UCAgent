@@ -520,3 +520,133 @@ class VerifyPDB(Pdb):
         Auto-complete the remove_un_write_dir command.
         """
         return [d for d in self.agent.cfg.un_write_dirs if d.startswith(text.strip())]
+
+    def do_help(self, arg):
+        """
+        Show help information for VerifyPDB commands.
+        """
+        if arg:
+            # Call the parent help method for specific command help
+            super().do_help(arg)
+        else:
+            # Show custom help message
+            echo_g("VerifyPDB Commands:")
+            echo("===================")
+            
+            # Get all do_ methods
+            methods = [method for method in dir(self) if method.startswith('do_') and not method == 'do_help']
+            methods.sort()
+            
+            # Display built-in commands
+            echo_g("\nBuilt-in Commands:")
+            for method in methods:
+                cmd_name = method[3:]  # Remove 'do_' prefix
+                func = getattr(self, method)
+                if func.__doc__:
+                    first_line = func.__doc__.strip().split('\n')[0]
+                    echo(f"  {cmd_name:<20} - {first_line}")
+                else:
+                    echo(f"  {cmd_name:<20} - No description available")
+            
+            echo_y("\nAdditional Features:")
+            echo("  Any unrecognized command will be executed as a bash command.")
+            echo("  Type 'help <command>' for detailed help on a specific command.")
+            echo("  Use Ctrl+C to interrupt execution and return to the prompt.")
+
+    def do_pwd(self, arg):
+        """
+        Show current working directory and workspace information.
+        """
+        current_dir = os.getcwd()
+        echo_g(f"Current working directory: {current_dir}")
+        
+        if hasattr(self.agent, 'workspace') and self.agent.workspace:
+            echo_g(f"Agent workspace: {self.agent.workspace}")
+            if current_dir != self.agent.workspace:
+                echo_y("Note: Current directory differs from agent workspace")
+        
+        if hasattr(self.agent, 'dut_name') and self.agent.dut_name:
+            echo_g(f"DUT name: {self.agent.dut_name}")
+
+    def do_shell(self, arg):
+        """
+        Execute a shell command with explicit confirmation.
+        Usage: shell <command>
+        """
+        if not arg.strip():
+            echo_y("Usage: shell <command>")
+            return
+        
+        echo(f"Executing shell command: {arg}")
+        self.default(arg)
+
+    def default(self, line):
+        """
+        Handle unrecognized commands by executing them as bash commands.
+        """
+        import subprocess
+        import shlex
+        
+        line = line.strip()
+        if not line:
+            return
+        
+        # Get the command name (first word)
+        cmd_parts = line.split()
+        cmd_name = cmd_parts[0] if cmd_parts else ""
+        
+        # List of potentially dangerous commands to warn about
+        dangerous_commands = {
+            'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
+            'kill', 'killall', 'pkill', 'reboot', 'shutdown', 'halt',
+            'fdisk', 'mkfs', 'format', 'dd', 'mount', 'umount'
+        }
+        
+        # Check if the command is potentially dangerous
+        if cmd_name in dangerous_commands:
+            echo_r(f"Warning: '{cmd_name}' is a potentially dangerous command!")
+            response = input("Are you sure you want to execute this command? (y/N): ")
+            if response.lower() not in ['y', 'yes']:
+                echo_y("Command execution cancelled.")
+                return
+            
+        # Show a warning that this command is not a built-in PDB command
+        echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
+        echo(f"Executing as bash command: {line}")
+        
+        try:
+            # Change to agent's workspace directory before executing
+            original_cwd = os.getcwd()
+            if hasattr(self.agent, 'workspace') and self.agent.workspace:
+                os.chdir(self.agent.workspace)
+                echo(f"Working directory: {self.agent.workspace}")
+            
+            # Execute the command using subprocess
+            result = subprocess.run(
+                line, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                timeout=30  # 30 second timeout to prevent hanging
+            )
+            
+            # Display the output
+            if result.stdout:
+                echo_g(f"Output:\n{result.stdout}")
+            if result.stderr:
+                echo_r(f"Error:\n{result.stderr}")
+            if result.returncode != 0:
+                echo_r(f"Command exited with code: {result.returncode}")
+            else:
+                echo_g(f"Command completed successfully (exit code: 0)")
+                
+        except subprocess.TimeoutExpired:
+            echo_r(f"Command '{line}' timed out after 30 seconds")
+        except Exception as e:
+            echo_r(f"Error executing command '{line}': {str(e)}")
+        finally:
+            # Restore original working directory
+            try:
+                os.chdir(original_cwd)
+            except Exception:
+                pass
