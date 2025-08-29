@@ -189,10 +189,10 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
 
     failed_check_point_passed_funcs = report.get("failed_check_point_passed_funcs", {})
     if failed_check_point_passed_funcs:
-        fmsg = [f"Test logic inconsistency: Check points failed, but same of its test functions passed:"]
+        fmsg = [f"Test logic inconsistency: Check points failed, but some of the related test cases passed:"]
         for k, v in failed_check_point_passed_funcs.items():
-            fmsg.append(f"  Check point '{k}' failed, but functions passed: {', '.join(v)}")
-        fmsg.append("Action required:")
+            fmsg.append(f"  Check point `{k}` failed, but related test cases passed: {', '.join(v)}")
+        fmsg.append("Under normal conditions, if a check point fails, the corresponding test cases should also fail. Action required:")
         fmsg.append("1. Review the test logic to ensure that check points are correctly associated with their test functions.")
         fmsg.append("2. Ensure that each check point accurately reflects the intended functionality and failure conditions.")
         fmsg.append("3. Fix any inconsistencies to ensure reliable and accurate test results.")

@@ -1,7 +1,8 @@
 # UCAgent（UnityChip Verification Agent）
 
-基于大模型进行自动化UT验证AI 代理（
+基于大模型进行自动化UT验证AI 代理
 
+[English Introduction](/README.en.md)
 
 ### 项目简介
 
@@ -14,10 +15,12 @@ python3 ucagent.py <workspace> <dut_name>
 
 参数：
 ```bash
-usage: ucagent.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite] [--output OUTPUT]
-                  [--override OVERRIDE] [--stream-output] [--human] [--seed SEED] [--tui]
-                  [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools] [--loop] [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE] [--mcp-server]
-                  [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST] [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
+usage: ucagent.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
+                  [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human] [--seed SEED]
+                  [--tui] [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools]
+                  [--loop] [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE]
+                  [--mcp-server] [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
+                  [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
                   [--no-write NO_WRITE [NO_WRITE ...]] [--version]
                   workspace dut
 
@@ -41,7 +44,8 @@ options:
   --tui                 Run in TUI (Text User Interface) mode
   --sys-tips SYS_TIPS   System tips to be used in the agent
   --ex-tools EX_TOOLS   List of external tools to be used by the agent, e.g., --ex-tools SqThink
-  --no-embed-tools      Disable embedded tools in the agent
+  --no-embed-tools, --mcp-server-no-embed-tools
+                        Disable embedded tools in the agent
   --loop, -l            Start the agent loop immediately
   --loop-msg LOOP_MSG   Message to be sent to the agent at the start of the loop
   --log                 Enable logging
@@ -130,11 +134,11 @@ Picker 是硬件仿真工具，用于生成Verilog的Python绑定。
 openai:
   openai_api_base: <your_openai_api_base_url>    # API基础URL
   model_name: <your_model_name>                  # 模型名称，如 gpt-4o-mini
-  openai_api_key: <your_openai_api_key>         # API密钥
+  openai_api_key: <your_openai_api_key>          # API密钥
 
 # 向量嵌入模型配置（用于文档搜索和记忆功能）
 embed:
-  model: <your_embed_model_name>                 # 嵌入模型名称
+  model: <your_embed_model_name>                # 嵌入模型名称
   openai_base_url: <your_openai_api_base_url>   # 嵌入模型API URL
   api_key: <your_api_key>                       # 嵌入模型API密钥
   dims: <your_embed_model_dims>                 # 嵌入维度，如 1536
@@ -196,9 +200,9 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server
 
 **服务地址:** `http://127.0.0.1:5000/mcp`
 
-**建议的任务启动提示词:**
+**建议的任务启动提示词（提供文件类工具）:**
 
->请用 `'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile', 'TextFileReplace', 'TextFileMultiReplace', 'WriteToFile', 'AppendToFile'`等工具完成任务。现在你可以通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读文件，否则我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。
+>首先请通过工具`RoleInfo`获取你的角色信息，然后基于unitytest中的MCP工具完成任务，包括所有文件操作。在完成每个阶段任务时，你需要用`Check`工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。如果测试发现存在bug，需要进行充分详细的分析，最好能给出修复建议。请在当前工作目录进行文件操作，不要超出该目录。
 
 #### 2. 编程AI工具 (OpenHands、Cursor、Gemini-CLI等)
 
@@ -209,9 +213,9 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server
 python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 ```
 
-**建议的任务启动提示词:**
+**建议的任务启动提示词（不提供文件类工具）:**
 
-> 首先请通过工具`RoleInfo`获取你的角色信息，然后基于`'SearchInGuidDoc', 'MemoryPut', 'MemoryGet', 'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'`等工具完成任务。执行任务时需要通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。如果测试发现存在bug，需要进行充分详细的分析，最好能给出修复建议。
+> 首先请通过工具`RoleInfo`获取你的角色信息，然后基于unitytest中的MCP工具完成任务。在执行任务时，你可以通过`CurrentTips`获取任务提示。注意，你需要用`ReadTextFile`读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用`Check`工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。如果测试发现存在bug，需要进行充分详细的分析，最好能给出修复建议。请在当前工作目录进行文件操作，不要超出该目录。
 
 **简化配置 (无嵌入工具):**
 
@@ -221,17 +225,13 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
-**对应的提示词:**
-
-> 首先请通过工具`RoleInfo`获取你的角色信息，然后基于`'CurrentTips', 'Detail', 'Status', 'Check', 'Complete', 'GoToStage', 'ReadTextFile'`等工具完成任务。执行任务时需要通过CurrentTips获取任务提示。注意，你需要用ReadTextFile读取文本文件，不然我不知道你是否进行了读取操作，文件写操作你可以选择你擅长的工具；在完成每个阶段任务时，你需要用Check工具检测是否达标，它会自动运行程序，例如pytest等，然后返回检测结果。如果测试发现存在bug，需要进行充分详细的分析，最好能给出修复建议。
-
 #### 集成示例: Gemini-CLI
 
 ##### 1. 启动UCAgent MCP服务器
 
 ```bash
 # 准备环境
-make dut
+make clean
 
 # 启动MCP服务器 (包含完整工具集)
 make mcp_Adder
