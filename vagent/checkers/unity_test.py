@@ -3,10 +3,11 @@
 
 from typing import Tuple
 import vagent.util.functions as fc
-from vagent.util.log import info
+from vagent.util.log import info, warning
 from vagent.tools.testops import RunUnityChipTest
 import os
 import glob
+import traceback
 
 from vagent.checkers.base import Checker
 from vagent.checkers.toffee_report import check_report
@@ -58,6 +59,8 @@ class UnityChipCheckerLabelStructure(Checker):
             data = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), self.leaf_node, self.min_count)
         except Exception as e:
             error_details = str(e)
+            warning(f"Error occurred while checking {self.doc_file}: {error_details}")
+            warning(traceback.format_exc())
             emsg = [f"Documentation parsing failed for file '{self.doc_file}': {error_details}."]
             if "\\n" in error_details:
                 emsg.append("Literal '\\n' characters detected - use actual line breaks instead of escaped characters")
