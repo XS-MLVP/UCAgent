@@ -1,5 +1,6 @@
 #coding=utf-8
 
+from vagent.util.log import info
 import os
 from typing import List
 import json
@@ -184,7 +185,7 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
                 current_key = str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, "")
                 pod, next_key = get_pod_next_key(i)
                 assert pod is not None, f"At line ({index}): contain {key} '{prefix}' but it do not find its parent {pre_key} '{pre_prf}' in previous."
-                assert current_key not in pod, f"{key} '{prefix}' is defined multiple times. find it in line {index} again."
+                assert current_key not in pod, f"{current_key}' is defined multiple times. find it in line {index} again."
                 pod[current_key] = {"line": index}
                 if next_key is not None:
                     pod[current_key][next_key] = {}
@@ -609,7 +610,6 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
     if not os.path.exists(target_file):
         raise FileNotFoundError(f"Target file {target_file} does not exist.")
     # Add extra Python paths if provided
-    original_path = sys.path.copy()
     if isinstance(ex_python_path, str):
         ex_python_path = [ex_python_path]
     elif not isinstance(ex_python_path, list):
@@ -617,6 +617,7 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
     ex_python_path.append(os.path.dirname(target_file))  # Ensure the target file's directory is included
     ex_python_path = list(set(ex_python_path))  # Remove duplicates
     for path in ex_python_path:
+        info(f"Adding '{path}' to sys.path for import.")
         if os.path.exists(path) and path not in sys.path:
             sys.path.insert(0, path)
     try:
@@ -678,9 +679,6 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
         return matched_objects
     except Exception as e:
         raise ImportError(f"Failed to import and process {target_file}: {e}")
-    finally:
-        # Restore original sys.path
-        sys.path = original_path
 
 
 def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="*.pyc,*.log,*.tmp"):

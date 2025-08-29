@@ -5,6 +5,7 @@ from typing import Tuple
 from vagent.util.functions import render_template
 from vagent.util.log import info, error
 import time
+import traceback
 
 
 class Checker(object):
@@ -84,7 +85,9 @@ class Checker(object):
             p, m = self.do_check()
         except Exception as e:
             self.is_in_check = False
-            return False, f"Error occurred during check: {e}"
+            estack = traceback.format_exc()
+            info(estack)
+            return False, f"Error occurred during check: {e} \n" + estack
         self.is_in_check = False
         if p:
             p_msg = self.get_default_message_pass()
