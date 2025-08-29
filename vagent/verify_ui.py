@@ -28,34 +28,36 @@ class VerifyUI:
         self.content_msgs = urwid.SimpleListWalker([])
         self.content_msgs_focus = 0
         self.content_msgs_scroll = False
-        self.content_msgs_maxln = max_messages
+        self.content_msgs_maxln = max(100, max_messages)  # Ensure minimum value
         self.box_task = urwid.ListBox(self.content_task)
         self.box_stat = urwid.ListBox(self.content_stat)
         self.box_msgs = urwid.ListBox(self.content_msgs)
         self.console_input = urwid.Edit(self.console_input_cap)
         self.console_input_busy = ["(wait.  )", "(wait.. )", "(wait...)"]
         self.console_input_busy_index = -1
-        self.console_max_height = 15
+        self.console_max_height = max(3, 15)  # Ensure minimum height
         self.console_default_txt = "\n" * (self.console_max_height - 1)
         self.console_outbuffer = self.console_default_txt
         self.console_output = ANSIText(self.console_outbuffer)
         self.console_page_cache = None
         self.console_page_cache_index = 0
-        self.content_task_fix_width = 40
-        self.task_box_maxfiles = 5
+        self.content_task_fix_width = max(10, min(200, 40))  # Ensure reasonable bounds
+        self.task_box_maxfiles = max(1, 5)  # Ensure minimum value
         self.last_cmd = None
         self.last_key = None
         self.last_line = ""
         self.complete_remain = []
-        self.complete_maxshow = 100
+        self.complete_maxshow = max(10, 100)  # Ensure minimum value
         self.complete_tips = "\nAvailable commands:\n"
         self.cmd_history_index = readline.get_current_history_length() + 1
         self._pdio = io.StringIO()
+        self._ui_lock = threading.Lock()  # Add lock for thread safety
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
-        self.gap_time = gap_time
+        self.gap_time = max(0.1, gap_time)  # Ensure minimum gap time
         self.is_cmd_busy = False
         self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
         self.deamon_cmds = OrderedDict()
+        self.loop = None  # Initialize loop to None
         self.int_layout()
         self._handle_stdout_error()
 
@@ -104,16 +106,42 @@ class VerifyUI:
 
     def update_top_pane(self):
         """
-        Update the layout of top_pane to reflect the new value of content_asm_fix_width.
+        Update the layout of top_pane to reflect the new value of content_task_fix_width.
         """
-        self.root.body.contents[0] = (
-            urwid.Columns([
-            (self.content_task_fix_width, self.u_task_box),
-            ("weight", 20, self.u_llm_pip),
-        ], dividechars=0),
-            ('weight', 1)
-        )
-        self.loop.draw_screen()
+        try:
+            # Ensure width is within reasonable bounds
+            self.content_task_fix_width = max(10, min(self.content_task_fix_width, 200))
+            
+            # Update the layout
+            self.root.body.contents[0] = (
+                urwid.Columns([
+                (self.content_task_fix_width, self.u_task_box),
+                ("weight", 20, self.u_llm_pip),
+            ], dividechars=0),
+                ('weight', 1)
+            )
+            
+            # Safely redraw screen if loop exists
+            if hasattr(self, 'loop') and self.loop is not None:
+                try:
+                    self.loop.draw_screen()
+                except:
+                    # If draw_screen fails, we'll skip it - the screen will update later
+                    pass
+        except Exception as e:
+            # If update fails, reset to a safe width and try again
+            try:
+                self.content_task_fix_width = 40  # Reset to default
+                self.root.body.contents[0] = (
+                    urwid.Columns([
+                    (self.content_task_fix_width, self.u_task_box),
+                    ("weight", 20, self.u_llm_pip),
+                ], dividechars=0),
+                    ('weight', 1)
+                )
+            except:
+                # If this also fails, just ignore - the layout will remain as is
+                pass
 
     def update_info(self):
         self.content_task.clear()
@@ -158,43 +186,148 @@ class VerifyUI:
                                                 align='left'))
 
     def message_echo(self, msg, end="\n"):
-        self.update_info()
-        self.update_console_ouput()
-        if not msg:
-            return
-        last_text = self.content_msgs[-1] if len(self.content_msgs) > 0 else None
-        for i, line in enumerate((msg + end).split("\n")):
-            if i== 0 and last_text is not None:
-                last_text.original_widget.set_text(last_text.original_widget.get_text()[0] + line)
-            else:
-                self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
-        if len(self.content_msgs) > self.content_msgs_maxln:
-            self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
-        if not self.content_msgs_scroll:
-            self.content_msgs_focus = len(self.content_msgs) - 1
-        self.update_messages_focus()
+        # Use lock to prevent concurrent modifications
+        with self._ui_lock:
+            try:
+                self.update_info()
+                self.update_console_ouput()
+                if not msg:
+                    return
+                
+                # Thread-safe message handling
+                try:
+                    last_text = self.content_msgs[-1] if len(self.content_msgs) > 0 else None
+                    for i, line in enumerate((msg + end).split("\n")):
+                        try:
+                            if i == 0 and last_text is not None:
+                                # Safely append to the last message
+                                try:
+                                    current_text = last_text.original_widget.get_text()[0]
+                                    last_text.original_widget.set_text(current_text + line)
+                                except (AttributeError, IndexError):
+                                    # If appending fails, create a new message
+                                    self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
+                            else:
+                                self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
+                        except Exception:
+                            # If creating widget fails, skip this line
+                            continue
+                    
+                    # Safely trim message list
+                    try:
+                        if len(self.content_msgs) > self.content_msgs_maxln:
+                            self.content_msgs[:] = self.content_msgs[-self.content_msgs_maxln:]
+                    except Exception:
+                        pass
+                    
+                    # Update focus if not scrolling
+                    try:
+                        if not self.content_msgs_scroll:
+                            msg_count = len(self.content_msgs)
+                            if msg_count > 0:
+                                self.content_msgs_focus = msg_count - 1
+                            else:
+                                self.content_msgs_focus = 0
+                    except Exception:
+                        pass
+                    
+                    # Update focus display
+                    self.update_messages_focus()
+                    
+                except Exception as e:
+                    # If message handling completely fails, just ignore this message
+                    pass
+            except Exception as e:
+                # Complete fallback - ignore the message
+                pass
 
     def update_messages_focus(self):
-        msg_count = len(self.content_msgs)
-        if msg_count < 1:
-            return
-        for i in range(self.content_msgs_focus - 5, self.content_msgs_focus + 5):
-            if i < 0 or i >= msg_count:
-                continue
-            self.content_msgs[i].set_attr_map({None: 'body'})
-        self.content_msgs.set_focus(self.content_msgs_focus)
-        self.content_msgs.get_focus()[0].set_attr_map({None: 'yellow'})
-        self.u_messages_box.set_title(f"Messages ({self.content_msgs_focus}/{msg_count})")
+        try:
+            msg_count = len(self.content_msgs)
+            if msg_count < 1:
+                return
+            
+            # Ensure focus index is within valid range
+            self.content_msgs_focus = max(0, min(self.content_msgs_focus, msg_count - 1))
+            
+            # Reset all message attributes in the visible range
+            for i in range(max(0, self.content_msgs_focus - 5), 
+                          min(msg_count, self.content_msgs_focus + 6)):
+                try:
+                    if i < msg_count and self.content_msgs[i] is not None:
+                        self.content_msgs[i].set_attr_map({None: 'body'})
+                except (IndexError, AttributeError):
+                    continue
+            
+            # Set focus and highlight current message
+            try:
+                if 0 <= self.content_msgs_focus < msg_count:
+                    self.content_msgs.set_focus(self.content_msgs_focus)
+                    focused_item = self.content_msgs.get_focus()
+                    if focused_item and len(focused_item) > 0 and focused_item[0] is not None:
+                        focused_item[0].set_attr_map({None: 'yellow'})
+            except (IndexError, AttributeError, TypeError):
+                # If setting focus fails, try to reset to a safe state
+                if msg_count > 0:
+                    self.content_msgs_focus = msg_count - 1
+                    try:
+                        self.content_msgs.set_focus(self.content_msgs_focus)
+                    except:
+                        pass
+            
+            # Update title
+            try:
+                self.u_messages_box.set_title(f"Messages ({self.content_msgs_focus + 1}/{msg_count})")
+            except:
+                self.u_messages_box.set_title("Messages")
+                
+        except Exception as e:
+            # Fallback: reset to safe state
+            try:
+                msg_count = len(self.content_msgs)
+                if msg_count > 0:
+                    self.content_msgs_focus = msg_count - 1
+                    self.u_messages_box.set_title(f"Messages ({msg_count})")
+                else:
+                    self.content_msgs_focus = 0
+                    self.u_messages_box.set_title("Messages (0)")
+            except:
+                pass
 
     def set_messages_focus(self, delta):
         """
         Set the focus of the messages list.
         :param delta: The change in focus, can be positive or negative.
         """
-        self.content_msgs_scroll = True
-        self.content_msgs_focus += delta
-        self.content_msgs_focus = max(0, min(self.content_msgs_focus, len(self.content_msgs) - 1))
-        self.update_messages_focus()
+        try:
+            msg_count = len(self.content_msgs)
+            if msg_count <= 0:
+                self.content_msgs_focus = 0
+                self.content_msgs_scroll = False
+                return
+                
+            self.content_msgs_scroll = True
+            old_focus = self.content_msgs_focus
+            self.content_msgs_focus += delta
+            
+            # Ensure the focus stays within bounds
+            self.content_msgs_focus = max(0, min(self.content_msgs_focus, msg_count - 1))
+            
+            # Only update if focus actually changed
+            if old_focus != self.content_msgs_focus:
+                self.update_messages_focus()
+        except Exception as e:
+            # Reset to safe state on error
+            try:
+                msg_count = len(self.content_msgs)
+                if msg_count > 0:
+                    self.content_msgs_focus = max(0, min(self.content_msgs_focus, msg_count - 1))
+                else:
+                    self.content_msgs_focus = 0
+                self.content_msgs_scroll = False
+            except:
+                self.content_msgs_focus = 0
+                self.content_msgs_scroll = False
 
     def _get_output(self, txt="", clear=False):
         if clear:
@@ -245,45 +378,78 @@ class VerifyUI:
             except Exception as e:
                 self.console_output.set_text(self._get_output(f"{YELLOW}Complete cmd Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
         elif key == 'ctrl up':
-            self.console_max_height += 1
-            new_text = self.console_outbuffer.split("\n")
-            new_text.insert(0, "")
-            self.console_outbuffer = "\n".join(new_text)
-            self.console_output.set_text(self._get_output())
+            try:
+                self.console_max_height = max(3, self.console_max_height + 1)  # Minimum height of 3
+                new_text = self.console_outbuffer.split("\n")
+                new_text.insert(0, "")
+                self.console_outbuffer = "\n".join(new_text)
+                self.console_output.set_text(self._get_output())
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'ctrl down':
-            self.console_max_height -= 1
-            new_text = self.console_outbuffer.split("\n")
-            new_text = new_text[1:]
-            self.console_outbuffer = "\n".join(new_text)
-            self.console_output.set_text(self._get_output())
+            try:
+                self.console_max_height = max(3, self.console_max_height - 1)  # Minimum height of 3
+                new_text = self.console_outbuffer.split("\n")
+                if len(new_text) > 1:  # Ensure we don't remove all text
+                    new_text = new_text[1:]
+                self.console_outbuffer = "\n".join(new_text)
+                self.console_output.set_text(self._get_output())
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'ctrl left':
-            self.content_task_fix_width -= 1
-            self.update_top_pane()
+            try:
+                self.content_task_fix_width = max(10, self.content_task_fix_width - 1)  # Minimum width
+                self.update_top_pane()
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'ctrl right':
-            self.content_task_fix_width += 1
-            self.update_top_pane()
+            try:
+                self.content_task_fix_width = min(200, self.content_task_fix_width + 1)  # Maximum width
+                self.update_top_pane()
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'shift up':
-            self.set_messages_focus(-1)
+            try:
+                self.set_messages_focus(-1)
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'shift down':
-            self.set_messages_focus(1)
+            try:
+                self.set_messages_focus(1)
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == "up":
-            if self.console_output_page_scroll(1):
-                return
-            self.cmd_history_index -= 1
-            self.cmd_history_index = max(0, self.cmd_history_index)
-            hist_cmd = self.cmd_history_get(self.cmd_history_index)
-            if hist_cmd is not None:
-                self.console_input.set_edit_text(hist_cmd)
-                self.console_input.set_edit_pos(len(hist_cmd))
+            try:
+                if self.console_output_page_scroll(1):
+                    return
+                self.cmd_history_index -= 1
+                self.cmd_history_index = max(0, self.cmd_history_index)
+                hist_cmd = self.cmd_history_get(self.cmd_history_index)
+                if hist_cmd is not None:
+                    self.console_input.set_edit_text(hist_cmd)
+                    self.console_input.set_edit_pos(len(hist_cmd))
+            except Exception as e:
+                # If history access fails, just ignore the keypress
+                pass
         elif key == "down":
-            if self.console_output_page_scroll(-1):
-                return
-            self.cmd_history_index += 1
-            self.cmd_history_index = min(self.cmd_history_index, readline.get_current_history_length() + 1)
-            hist_cmd = self.cmd_history_get(self.cmd_history_index)
-            if hist_cmd is not None:
-                self.console_input.set_edit_text(hist_cmd)
-                self.console_input.set_edit_pos(len(hist_cmd))
+            try:
+                if self.console_output_page_scroll(-1):
+                    return
+                self.cmd_history_index += 1
+                self.cmd_history_index = min(self.cmd_history_index, readline.get_current_history_length() + 1)
+                hist_cmd = self.cmd_history_get(self.cmd_history_index)
+                if hist_cmd is not None:
+                    self.console_input.set_edit_text(hist_cmd)
+                    self.console_input.set_edit_pos(len(hist_cmd))
+            except Exception as e:
+                # If history access fails, just ignore the keypress
+                pass
         self.last_key = key
         return True
 
@@ -456,28 +622,59 @@ class VerifyUI:
         return True
 
     def update_console_ouput(self, need_scroll=False):
-        if self.console_page_cache is not None:
-            pindex = self.console_page_cache_index
-            text_data = "\n"+"\n".join(self.console_page_cache[pindex:pindex + self.console_max_height])
-        else:
-            text_data = self._get_pdb_out()
-            text_lines = text_data.split("\n")
-            # just check the last output check
-            if len(text_lines) > self.console_max_height and need_scroll:
-                self.console_page_cache = text_lines
-                self.console_page_cache_index = 0
-                text_data = "\n"+"\n".join(text_lines[:self.console_max_height])
-                self.console_input.set_caption(f"<Up/Down: scroll, Esc: exit>")
-                self.root.focus_part = None
-        self.console_output.set_text(self._get_output(text_data))
-        if self.console_input_busy_index >= 0:
-            self.console_input_busy_index += 1
-            n = self.console_input_busy_index % len(self.console_input_busy)
-            self.console_input.set_caption(self.console_input_busy[n])
-        else:
-            self.console_input.set_caption(self.console_input_cap)
-        self.loop.screen.clear()
-        self.loop.draw_screen()
+        try:
+            if self.console_page_cache is not None:
+                pindex = self.console_page_cache_index
+                cache_len = len(self.console_page_cache)
+                # Ensure pindex is within bounds
+                pindex = max(0, min(pindex, cache_len - 1))
+                end_index = min(cache_len, pindex + self.console_max_height)
+                text_data = "\n"+"\n".join(self.console_page_cache[pindex:end_index])
+            else:
+                text_data = self._get_pdb_out()
+                text_lines = text_data.split("\n")
+                # just check the last output check
+                if len(text_lines) > self.console_max_height and need_scroll:
+                    self.console_page_cache = text_lines
+                    self.console_page_cache_index = 0
+                    text_data = "\n"+"\n".join(text_lines[:self.console_max_height])
+                    try:
+                        self.console_input.set_caption(f"<Up/Down: scroll, Esc: exit>")
+                        self.root.focus_part = None
+                    except:
+                        pass
+            
+            try:
+                self.console_output.set_text(self._get_output(text_data))
+            except:
+                # If setting text fails, try with empty string
+                self.console_output.set_text("")
+            
+            try:
+                if self.console_input_busy_index >= 0:
+                    self.console_input_busy_index += 1
+                    n = self.console_input_busy_index % len(self.console_input_busy)
+                    self.console_input.set_caption(self.console_input_busy[n])
+                else:
+                    self.console_input.set_caption(self.console_input_cap)
+            except:
+                # If setting caption fails, just ignore
+                pass
+            
+            try:
+                if hasattr(self, 'loop') and self.loop is not None:
+                    self.loop.screen.clear()
+                    self.loop.draw_screen()
+            except:
+                # If screen operations fail, just ignore
+                pass
+        except Exception as e:
+            # Complete fallback - just try to keep UI responsive
+            try:
+                self.console_output.set_text("Console update error occurred")
+                self.console_input.set_caption(self.console_input_cap)
+            except:
+                pass
 
     def _get_pdb_out(self):
         self._pdio.flush()
