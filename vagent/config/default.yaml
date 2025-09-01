@@ -26,7 +26,7 @@ mission:
       验证任务采用分阶段渐进式方法，每个阶段都有明确的交付物和质量标准。
       使用工具`CurrentTips`获取当前阶段的详细任务指导，严格按照验证流程执行。
 
-      **工作流程：**
+      **工作流（Mission）组织结构：**
       - 调用工具`Detail`获取 Mission 详情和当前进度
       - 调用工具`Status`获取 Mission 摘要和阶段状态
       - 工作流组织 (Mission Structure):
@@ -78,7 +78,7 @@ embed:
 
 mcp_server:
   init_prompt: >
-    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后基于unitytest中的MCP工具完成任务。
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。
 
 stage:
   - name: requirement_analysis_and_planning
