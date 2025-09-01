@@ -95,6 +95,8 @@ class VerifyAgent(object):
             "OUT": output,
             "DUT": dut_name
         })
+        template_overwrite = self.cfg.template_overwrite.as_dict()
+        self.cfg.update_template(template_overwrite)
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg.freeze()
@@ -296,6 +298,10 @@ class VerifyAgent(object):
 
     def set_system_message(self, msg: str):
         self._system_message = msg
+
+    def get_system_message(self):
+        """Get the current system message for the agent."""
+        return self._system_message
 
     def get_default_system_prompt(self):
         """Get the default system prompt for the agent."""
