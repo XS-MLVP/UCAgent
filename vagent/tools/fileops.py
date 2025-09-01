@@ -2,7 +2,7 @@
 
 from typing import Optional, List, Tuple
 from vagent.util.log import info, str_info, str_return, str_error, str_data, warning
-from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from
+from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from, rm_workspace_prefix
 from vagent.util.functions import get_diff
 from .uctool import UCTool
 
@@ -86,12 +86,21 @@ class BaseReadWrite:
             # func(success, path, msg)
             cb(*args, **kwargs)
 
+    def refine_dirs(self, workspace, dirs):
+        if not dirs:
+            return dirs
+        if not isinstance(dirs, list):
+            dirs = [dirs]
+        dirs = [rm_workspace_prefix(workspace,d) for d in dirs]
+        assert any([a != "." for a in dirs]), "'.' cannot be used as a writable or unwritable directory."
+        return  dirs
+
     def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 30720):
         """Initialize the base write tool."""
         assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
         self.workspace = os.path.abspath(workspace)
-        self.write_able_dirs = write_dirs
-        self.un_write_able_dirs = un_write_dirs
+        self.write_able_dirs = self.refine_dirs(self.workspace, write_dirs)
+        self.un_write_able_dirs = self.refine_dirs(self.workspace, un_write_dirs)
         self.max_read_size = max_read_size
         if write_dirs is not None:
             if len(write_dirs) == 0:
@@ -632,13 +641,13 @@ class ReadTextFile(UCTool, BaseReadWrite):
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgTextFileReplace(BaseModel):
+class ArgReplaceLinesByIndex(BaseModel):
     path: str = Field(
         default=None,
         description="Text file path to modify, relative to the workspace.")
     start: int = Field(
         default=0,
-        description="Start line index (form 0 to file lines - 1) to replace. If index < 0 insert at head, if index >= file lines append at end."
+        description="Start line index (form 0 to total_lines - 1) to replace. If index < 0 insert at head, if index >= file lines append at end."
     )
     count: int = Field(
         default=-1,
@@ -655,11 +664,11 @@ class ArgTextFileReplace(BaseModel):
     )
 
 
-class TextFileReplace(UCTool, BaseReadWrite):
-    """Replace or insert a block of lines in a text file at the target position"""
-    name: str = "TextFileReplace"
+class ReplaceLinesByIndex(UCTool, BaseReadWrite):
+    """Replace or insert a block of lines in a text file at the target position (line index)"""
+    name: str = "ReplaceLinesByIndex"
     description: str = (
-        "Replace or insert a block of lines in a text file at the target position. "
+        "Replace or insert a block of lines in a text file at the target position (line index)."
         "If file does not exist, creates it. Line index starts from 0."
         "eg:\n "
         "the original file content is:\n"
@@ -673,7 +682,7 @@ class TextFileReplace(UCTool, BaseReadWrite):
         "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
         "If you want to replace multiple blocks of lines, use 'TextFileMultiReplace' tool instead.\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgTextFileReplace
+    args_schema: Optional[ArgsSchema] = ArgReplaceLinesByIndex
     return_direct: bool = False
 
     def _run(self, path: str, start: int = 0, count: int = -1, data: str = None, preserve_indent: bool = False,
@@ -790,10 +799,10 @@ class TextFileReplace(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgTextFileMultiReplace(BaseModel):
+class ArgMultiReplaceLinesByIndex(BaseModel):
     path: str = Field(
         default=None,
-        description="File path to multi-replace, relative to the workspace."
+        description="Text file path to multi-replace, relative to the workspace."
     )
     values: List[Tuple[int, int, str, bool]] = Field(
         default=[],
@@ -809,11 +818,11 @@ class ArgTextFileMultiReplace(BaseModel):
     )
 
 
-class TextFileMultiReplace(UCTool, BaseReadWrite):
-    """Replace or insert multiple blocks of lines in a text file at target positions"""
-    name: str = "TextFileMultiReplace"
+class MultiReplaceLinesByIndex(UCTool, BaseReadWrite):
+    """Replace or insert multiple blocks of lines in a text file at target positions (line index)"""
+    name: str = "MultiReplaceLinesByIndex"
     description: str = (
-        "Replace or insert multiple blocks of lines in a text file at target positions. The file must exist. \n"
+        "Replace or insert multiple blocks of lines in a text file at target positions (line index). The file must exist. \n"
         "Supports direct replacement or preserving original line indentation.\n"
         "eg:\n"
         "the original file content is:\n"
@@ -829,7 +838,7 @@ class TextFileMultiReplace(UCTool, BaseReadWrite):
         "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
         "If you want to replace just one block of lines, use 'TextFileReplace' tool instead.\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgTextFileMultiReplace
+    args_schema: Optional[ArgsSchema] = ArgMultiReplaceLinesByIndex
     return_direct: bool = False
 
     def _run(self, path: str, values: List[Tuple[int, int, str, bool]],
@@ -1319,6 +1328,118 @@ class CreateDirectory(UCTool, BaseReadWrite):
             return str_error(error_msg)
         except (IOError, OSError) as e:
             error_msg = f"Failed to create directory {path}: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgReplaceStringInFile(BaseModel):
+    path: str = Field(
+        default=None,
+        description="Text file path to modify, relative to the workspace.")
+    old_string: str = Field(
+        default=None,
+        description="The exact literal text to replace. Must include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string does not match exactly, the tool will fail.")
+    new_string: str = Field(
+        default=None,
+        description="The exact literal text to replace old_string with. Ensure the resulting code is correct and idiomatic.")
+
+
+class ReplaceStringInFile(UCTool, BaseReadWrite):
+    """Replace exact string content in a text file with precise string matching."""
+    name: str = "ReplaceStringInFile"
+    description: str = (
+        "Replace exact string content in a text file. This tool performs precise string matching and replacement. "
+        "The old_string must match exactly (including whitespace, indentation, newlines, and surrounding code). "
+        "Include at least 3-5 lines of context BEFORE and AFTER the target text to ensure unique identification. "
+        "Each use of this tool replaces exactly ONE occurrence of old_string. "
+        "If the string matches multiple locations or does not match exactly, the tool will fail. "
+        "Example usage:\n"
+        "old_string: 'def old_function():\\n    # TODO: implement\\n    pass\\n    return 0'\n"
+        "new_string: 'def new_function():\\n    \"\"\"New implementation\"\"\"\\n    result = calculate()\\n    return result'\n"
+        "Critical: old_string must uniquely identify the single instance to change and match precisely."
+    )
+    args_schema: Optional[ArgsSchema] = ArgReplaceStringInFile
+    return_direct: bool = False
+
+    def _run(self, path: str, old_string: str, new_string: str,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        """Replace exact string content in a text file."""
+        # Validate inputs
+        if not old_string:
+            error_msg = "old_string cannot be empty."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        if new_string is None:
+            error_msg = "new_string cannot be None. Use empty string if you want to delete the content."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        # Check file
+        success, msg, real_path = self.check_file(path)
+        if not success:
+            self.do_callback(False, path, msg)
+            return str_error(msg)
+        
+        # Check if it's a text file
+        if not is_text_file(real_path):
+            error_msg = f"File {path} is not a text file."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        
+        info(f"Replacing string in file {real_path}")
+        
+        try:
+            # Read file content
+            with open(real_path, 'r', encoding='utf-8') as f:
+                original_content = f.read()
+            
+            # Check if old_string exists in the file
+            if old_string not in original_content:
+                error_msg = f"The specified old_string was not found in the file. The string must match exactly including all whitespace, indentation, and newlines."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            
+            # Count occurrences to ensure uniqueness
+            occurrence_count = original_content.count(old_string)
+            if occurrence_count == 0:
+                error_msg = f"The specified old_string was not found in the file."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            elif occurrence_count > 1:
+                error_msg = f"The specified old_string appears {occurrence_count} times in the file. The string must be unique. Include more context to make it unique."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            
+            # Perform the replacement
+            new_content = original_content.replace(old_string, new_string, 1)
+            
+            # Write the new content back to the file
+            with open(real_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+                f.flush()
+            
+            # Generate diff for better understanding
+            original_lines = original_content.splitlines(keepends=True)
+            new_lines = new_content.splitlines(keepends=True)
+            diff_result = get_diff(original_lines, new_lines, path)
+            
+            success_msg = f"Successfully replaced 1 occurrence of the specified string in {path}."
+            self.do_callback(True, path, {"old_string": old_string, "new_string": new_string})
+            
+            return str_info(success_msg) + diff_result
+            
+        except UnicodeDecodeError as e:
+            error_msg = f"Failed to decode file {path} as UTF-8: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        except IOError as e:
+            error_msg = f"Failed to modify file {path}: {str(e)}"
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
 

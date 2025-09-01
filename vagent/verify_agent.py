@@ -119,7 +119,7 @@ class VerifyAgent(object):
             RoleInfo(self._default_system_prompt)
         ]
         if not no_embed_tools:
-            self.tool_reference = SearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
+            self.tool_reference = SemanticSearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
             self.tool_memory_put = MemoryPut().set_store(self.cfg.embed)
             self.tool_memory_get = MemoryGet().set_store(store=self.tool_memory_put.get_store())
             self.tool_list_base += [
@@ -145,15 +145,16 @@ class VerifyAgent(object):
                            SearchText(self.workspace),
                            FindFiles(self.workspace),
                            # File writing and editing tools (require permissions)
-                           DeleteFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           TextFileReplace(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           TextFileMultiReplace(self.workspace,   write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           WriteToFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           AppendToFile(self.workspace,           write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           DeleteFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           ReplaceLinesByIndex(self.workspace,      write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           MultiReplaceLinesByIndex(self.workspace, write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           ReplaceStringInFile(self.workspace,      write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           WriteToFile(self.workspace,              write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           AppendToFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            # File management tools (require permissions)
-                           CopyFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           MoveFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           CreateDirectory(self.workspace,        write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           CopyFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           MoveFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           CreateDirectory(self.workspace,          write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \

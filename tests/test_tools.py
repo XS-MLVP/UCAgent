@@ -39,9 +39,14 @@ def test_read_text_file():
 
 def test_edit_multil_line():
     print("============== test_edit_multiline ==============")
-    tool = TextFileMultiReplace(workspace=os.path.join(current_dir, "../examples"))
+    workspace = os.path.join(current_dir, "../output")
+    if not os.path.exists(workspace):
+        os.makedirs(workspace)
+        import shutil as sh
+        sh.copy(os.path.join(current_dir, "../config.yaml"), os.path.join(workspace, "test_config.yaml"))
+    tool = MultiReplaceLinesByIndex(workspace)
     print_tool_info(tool)
-    result = tool.invoke({"path": "Adder/Adder.v", "values": [
+    result = tool.invoke({"path": "test_config.yaml", "values": [
         (-1, 0, f"// This is a test comment: {time.time()}", False),
          (9, 0, f"// This is a test comment:\n// {time.time()}", True),
         ]})
@@ -50,12 +55,28 @@ def test_edit_multil_line():
 def test_ref_mem():
     from vagent.util.config import get_config
     cfg = get_config(os.path.join(current_dir, "../config.yaml"))
-    tool = SearchInGuidDoc(cfg.embed, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
+    tool = SemanticSearchInGuidDoc(cfg.embed, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
     print(tool.invoke({"query": "import", "limit": 3}))
 
+
+def test_replace_string_in_file():
+    workspace = os.path.join(current_dir, "../output")
+    if not os.path.exists(workspace):
+        os.makedirs(workspace)
+    import shutil as sh
+    sh.copy(os.path.join(current_dir, "../config.yaml"), os.path.join(workspace, "test_config.yaml"))
+    replace_string_tool = ReplaceStringInFile(workspace, un_write_dirs=["/tmp"])
+    print(replace_string_tool.invoke({
+        "path": "test_config.yaml",
+        "old_string": "Qwen/Qwen3-Embedding-8B",
+        "new_string": f"openai_{time.time()}",
+    }))
+
+
 if __name__ == "__main__":
-    test_read_text_file()
-    test_list_path()
-    test_read_file()
+    #test_read_text_file()
+    #test_list_path()
+    #test_read_file()
     #test_edit_multil_line()
-    test_ref_mem()
+    #test_ref_mem()
+    test_replace_string_in_file()

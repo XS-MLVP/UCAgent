@@ -299,7 +299,11 @@ def rm_workspace_prefix(workspace: str, path:str) -> dict:
     :return: A path with the workspace prefix removed.
     """
     workspace = os.path.abspath(workspace)
-    path = path.replace(os.path.abspath(workspace), "")
+    if path.startswith(os.sep):
+        path = path[1:]
+    abs_path = os.path.abspath(os.path.join(workspace, path))
+    assert abs_path.startswith(workspace), f"Path {abs_path} is not under workspace {workspace}."
+    path = abs_path.replace(workspace, "")
     if path.startswith(os.sep):
         path = path[1:]
     return path if path else "."

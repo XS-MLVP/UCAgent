@@ -24,11 +24,11 @@ class ArgsMemSearch(BaseModel):
     limit: int = Field(3, description="The maximum number of results to return, default 3", ge=1, le=100)
 
 
-class SearchInGuidDoc(UCTool):
-    """Search in the guild documentation for verification definitions and examples."""
-    name: str = "SearchInGuidDoc"
+class SemanticSearchInGuidDoc(UCTool):
+    """Semantic search in the guild documentation for verification definitions and examples."""
+    name: str = "SemanticSearchInGuidDoc"
     description: str = (
-        "Search in the guild documentation for verification definitions and examples. "
+        "Semantic search in the guild documentation for verification definitions and examples. "
     )
     args_schema: Optional[ArgsSchema] = ArgsMemSearch
 
