@@ -1379,7 +1379,12 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
             error_msg = "new_string cannot be None. Use empty string if you want to delete the content."
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
-        
+
+        if new_string == old_string:
+            error_msg = f"new_string is identical to old_string ({old_string}). No changes made."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
         # Check file
         success, msg, real_path = self.check_file(path)
         if not success:
