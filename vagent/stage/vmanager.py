@@ -219,7 +219,7 @@ class StageManager(object):
         info(f"Initialized StageManager with {len(self.stages)} stages.")
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}" for i, stage in enumerate(self.stages)]))
         self.stage_index = min(max(0, force_stage_index), len(self.stages) - 1)
-        for i in range(self.stage_index):
+        for i in range(self.stage_index + 1):
             self.stages[i].set_reached(True)
         self.last_check_info = None
         self.tool_read_text = tool_read_text
@@ -250,9 +250,10 @@ class StageManager(object):
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
         tips["mission"]       = self.mission.name
-        tips["stage_title"]   = cstage.title()
-        tips["stage_index"]   = self.stage_index
-        tips["current_task"]  = cstage.task_info()
+        tips["current_stage"] = OrderedDict({
+            "index": self.stage_index,
+            **cstage.detail(),
+        })
         ref_files = []
         for k, v in cstage.reference_files.items():
             if v:
@@ -269,10 +270,10 @@ class StageManager(object):
         """
         ret = OrderedDict()
         ret["mission"] = self.mission.name
-        ret["stage_list"] = OrderedDict()
+        ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"][stage.name] = stage.detail()
-            ret["stage_list"][stage.name]["index"] = i
+            ret["stage_list"].append(stage.detail())
+            ret["stage_list"][-1]["index"] = i
         ret["current_stage_index"] = self.stage_index
         ret["current_stage_name"] = self.stages[self.stage_index].name if self.stage_index < len(self.stages) else None
         return ret
@@ -363,6 +364,7 @@ class StageManager(object):
                 self.all_completed = True
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
+                self.stages[self.stage_index].set_reached(True)
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
         return {

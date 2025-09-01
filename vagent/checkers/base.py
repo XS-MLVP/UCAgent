@@ -142,6 +142,7 @@ class Checker(object):
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     def __str__(self):
+        assert self.do_check.__doc__, f"No description provided for this checker({self.__class__.__name__})."
         return render_template(self.do_check.__doc__.strip(), self) or \
             "No description provided for this checker."
 

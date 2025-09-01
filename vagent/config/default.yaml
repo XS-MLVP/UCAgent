@@ -7,11 +7,16 @@ openai:
   model_kwargs:
     stop: ["."]
 
+
+template_overwrite:
+  DOC_GEN_LANG: "中文"
+
+
 mission:
   name: "{DUT}芯片验证任务"
   prompt:
     system: >
-      你是一位资深的芯片验证工程师和AI测试专家，专门从事数字电路的功能验证工作。
+      你是一位资深的芯片验证工程师和AI测试专家，专门从事数字电路的功能验证工作，非常擅长使用python进行验证。
       你具备深厚的硬件设计理解能力，还具有软件测试方法论知识，以及基于现代验证框架的实践经验。
 
       **核心任务目标：**
@@ -21,28 +26,39 @@ mission:
       验证任务采用分阶段渐进式方法，每个阶段都有明确的交付物和质量标准。
       使用工具`CurrentTips`获取当前阶段的详细任务指导，严格按照验证流程执行。
 
-      **标准流程：**
-      验证分为8个阶段，每个阶段都有具体任务：
-      1. **需求分析** - 理解验证要求，制定验证计划
-      2. **功能理解** - 深入了解芯片功能和接口定义
-      3. **功能分析** - 把复杂功能拆成可测试的小块
-      4. **设计接口** - 创建测试API，让测试更简单
-      5. **建立覆盖率** - 跟踪哪些功能已经测试了
-      6. **创建模板** - 准备测试框架
-      7. **执行测试** - 写真实测试，找出bug并分析
-      8. **审查总结** - 回顾验证过程，提炼经验教训
-
+      **工作流程：**
+      - 调用工具`Detail`获取 Mission 详情和当前进度
+      - 调用工具`Status`获取 Mission 摘要和阶段状态
+      - 工作流组织 (Mission Structure):
+        - 工作流由多个stage组成，每个stage包含具体的task描述，需要按顺序完成
+        - 子stage处理机制:
+          - 如果stage中包含子stage，必须按顺序逐一完成每个子stage
+          - 子stage完成后，使用`Check`工具检测当前子stage是否达到完成标准
+          - 所有子stage完成后，再检测父stage（upper_stage）是否达到完成标准
+          - 父stage完成后，使用`Complete`工具进入下一个主要阶段
+          - 完成顺序举例:
+            - 如果stage 3包含子阶段，完成顺序是：3.1 → 3.2 → 3.3 → 3（父stage最后完成）
+            - 如果stage 3只是分组容器，则只有子任务：3.1、3.2、3.3，没有独立的任务3
+            - 使用`Status`工具可以查看当前处于哪个具体的子stage
+            - 每个子stage完成时都会自动检查是否可以推进到下一个子stage或父stage
+        - 阶段推进原则:
+          - 当前阶段未完成时，不能跳转到下一阶段
+          - 使用`CurrentTips`获取当前阶段/子阶段的具体任务指导
+          - 每个阶段完成后必须用`Check`工具验证完成状态
+          - 确认完成后用`Complete`工具正式推进到下一阶段
+  
       **工作原则：**
       - 按步骤有序进行，每步完成后用`Check`工具验证
       - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
+      - 深入分析发现的问题
       - 发现bug要详细分析：什么问题、为什么出现、如何修复
-      - 写清楚、简单易懂的代码和文档
-
+      - 注重代码和文档质量，生成实用、可维护的验证代码
+  
       **必须使用的工具：**
       - `CurrentTips`: 获取当前步骤的具体指导
       - `Check`: 检查当前步骤是否完成
       - `Complete`: 完成当前步骤，进入下一步
-      - `ReadTextFile`: 读取文件内容（让agent知晓你阅读了哪些文件）
+      - `ReadTextFile`: 读取文件内容（让工具知晓你阅读了哪些文件）
       - 其他文件操作和搜索工具按需使用
 
       现在开始你的验证工作！
@@ -62,38 +78,7 @@ embed:
 
 mcp_server:
   init_prompt: >
-    欢迎使用UCAgent芯片验证平台！
-
-    **你的角色：**
-    你是专业的芯片验证AI助手，负责测试数字电路功能。
-
-    **开始工作：**
-    1. 先调用`RoleInfo`工具了解你的角色和当前任务
-    2. 使用`CurrentTips`工具获取当前阶段的具体任务
-    3. 用其他工具完成文件读写、搜索等操作
-
-    **工作流程：**
-    验证分为8个阶段：需求分析 → 功能理解 → 功能分析 → API设计 → 覆盖率模型 → 测试模板 → 执行测试 → 验证审查与总结
-
-    **重要工具：**
-    - `CurrentTips`: 获取当前阶段任务指导
-    - `Check`: 检查阶段是否完成(自动运行pytest、检查python文件等，不要自己调用Python，不然会导致PYTHONPATH不一致从而出现import fail等错误）
-    - `Complete`: 完成当前阶段进入下一阶段
-    - `ReadTextFile`: 读取文件(必须用这个，否则我不知道你读了什么)
-    - 文件写入：你可以选择合适的工具
-
-    **质量保证：**
-    - 每个阶段完成后必须用`Check`工具验证
-    - 如果测试发现bug，要详细分析原因和修复方案
-    - 包括：问题描述、根本原因、影响范围、修复建议
-
-    **核心原则：**
-    - 按阶段有序推进
-    - 注重代码和文档质量
-    - 深入分析发现的问题
-    - 生成实用、可维护的验证代码
-
-    现在开始你的芯片验证工作！
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后基于unitytest中的MCP工具完成任务。
 
 stage:
   - name: requirement_analysis_and_planning
@@ -103,7 +88,7 @@ stage:
       - "第2步：确定验证目标 - 需要测试哪些功能？输入输出是什么？"
       - "第3步：识别风险点 - 哪些地方容易出错？边界条件有哪些？"
       - "第4步：制定验证计划 - 如何系统地测试所有功能？"
-      - "第5步：写入验证规划文档到{OUT}/{DUT}_verification_needs_and_plan.md"
+      - "第5步：写入验证规划文档到{OUT}/{DUT}_verification_needs_and_plan.md，请使用{DOC_GEN_LANG}编写"
       - "注意：{DUT}中可能有隐藏bug，测试失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
@@ -122,7 +107,7 @@ stage:
       - "第3步：分析输入输出端口 - 每个端口的作用是什么？"
       - "第4步：确定芯片类型 - 是时序电路(需要时钟)还是组合电路？"
       - "第5步：分析{DUT}的功能有哪几大类，大约有多少个功能点？"
-      - "第6步：整理基本信息，写入{OUT}/{DUT}_basic_info.md"
+      - "第6步：整理基本信息，写入{OUT}/{DUT}_basic_info.md，请使用{DOC_GEN_LANG}编写"
       - "目标：为后续阶段提供清晰的芯片基础信息"
     reference_files:
       - "{DUT}/README.md"
@@ -142,7 +127,7 @@ stage:
       - "第2步：对待验证功能点按功能模块分组，每组用<FG-名称>标记"
       - "第3步：每组内定义具体功能点，用<FC-名称>标记"
       - "第4步：每个功能点设计检测点，用<CK-名称>标记"
-      - "第5步：写入{OUT}/{DUT}_functions_and_checks.md"
+      - "把结果及时写入{OUT}/{DUT}_functions_and_checks.md，请使用{DOC_GEN_LANG}编写"
       - "重要：标签格式必须正确，这是后续自动化测试的基础"
       - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
     reference_files:
@@ -205,7 +190,7 @@ stage:
       - "第3步：配置时钟(时序电路需要，组合电路不需要)"
       - "第4步：实现dut fixture - 管理测试的完整生命周期"
       - "第5步：创建API函数 - 以'api_'开头，封装常用操作"
-      - "第6步：写入{OUT}/tests/{DUT}_api.py"
+      - "需要将结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
       - "原则：让测试人员使用简单的API，而不是复杂的底层信号"
       - "参考Guide_Doc/dut_fixture_and_api.md了解标准写法"
     stage:
@@ -262,9 +247,9 @@ stage:
       - "第3步：为每个功能点<FC-*>添加watch_point监测点"
       - "第4步：为每个检测点<CK-*>实现检查函数(尽可能的用lambda函数)"
       - "第5步：实现get_coverage_groups(dut)主函数"
-      - "第6步：结果写入{OUT}/tests/{DUT}_function_coverage_def.py"
-      - "关键：检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
       - "参考Guide_Doc/dut_function_coverage_def.md了解实现方法"
+      - "需要将结果及时写入{OUT}/tests/{DUT}_function_coverage_def.py，请使用{DOC_GEN_LANG}编写注释"
+      - "关键：检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
     stage:
       - name: coverage_group_creation
         desc: "功能覆盖组创建"
@@ -326,6 +311,7 @@ stage:
       - "注意："
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（基于源代码分析）"
+      - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
@@ -376,7 +362,7 @@ stage:
       - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
       - "第7步：分析测试结果："
       - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
-      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析）"
+      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析，需要用{DOC_GEN_LANG}编写文档）"
       - "  - 如果Fail不合理：修正测试逻辑"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
@@ -404,11 +390,12 @@ stage:
     desc: "验证审查与总结"
     task:
       - "目标：对测试过程进行回顾，提炼经验教训"
-      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（需要基于源代码分析bug）"
+      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（需要基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
       - "第2步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
       - "第3步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
       - "第4步：根据需要判断是否进行验证补充，或者调整验证规划"
       - "第5步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
+      - "注意：任务中涉及到的文档和注释，主体需要用中文编写"
     reference_files:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_summary.md"

@@ -48,6 +48,9 @@ class VerifyStage(object):
             self.tool_read_text.append_callback(self.on_file_read)
         self._is_reached = False
         self.substages = substages if substages is not None else []
+        for sub in self.substages:
+            sub.parent = self
+        self.parent = None
 
     def on_file_read(self, success, file_path, content):
         if not success:
@@ -160,7 +163,6 @@ class VerifyStage(object):
 
     def detail(self):
         return OrderedDict({
-                "desc": self.description,
                 "task": self.task_info(),
                 "section_index": self.prefix,
                 "checker": [str(c) for c in self.checker],
@@ -169,12 +171,20 @@ class VerifyStage(object):
                 "fail_count": self.fail_count,
         })
 
-    def task_info(self):
-        return OrderedDict({
+    def task_info(self, with_parent=True):
+        data = OrderedDict({
+            "title": self.title(),
             "description": self.task,
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
+        if with_parent:
+            if self.parent:
+                data["upper_task"] = self.parent.task_info(with_parent=False)
+            if self.substages:
+                data["notes"] = f"You have complete this stage's submissions ({', '.join([s.title() for s in self.substages])}), " + \
+                                 "now you need to check this stage is complete or not."
+        return data
 
 
 def parse_vstage(cfg, workspace, tool_read_text, prefix=""):

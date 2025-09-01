@@ -490,6 +490,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         self.target_file_tests = target_file_tests
 
     def do_check(self) -> tuple[bool, object]:
+        """Perform the check for DUT API tests."""
         test_files = [fc.rm_workspace_prefix(self.workspace, f) for f in glob.glob(os.path.join(self.workspace, self.target_file_tests))]
         if len(test_files) == 0:
             return False, {"error": f"No test files matching '{self.target_file_tests}' found in workspace."}
@@ -543,15 +544,6 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
     def do_check(self) -> Tuple[bool, str]:
         """
         Perform comprehensive check for implemented test cases.
-        
-        This checker validates:
-        1. Test execution results and coverage
-        2. Consistency between documentation and test implementation
-        3. Proper handling of failed check points through bug analysis
-        4. Complete coverage mapping between tests and documentation
-            
-        Returns:
-            Tuple[bool, str]: Success status and detailed message
         """
         import copy
         # Execute tests and get comprehensive report

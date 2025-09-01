@@ -3,7 +3,7 @@
 from pdb import Pdb
 import os
 from vagent.util.log import echo_g, echo_y, echo_r, echo, info, message
-from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime
+from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
 import time
 import signal
 
@@ -256,6 +256,20 @@ class VerifyPDB(Pdb):
     def api_tool_status(self):
         return [(tool.name, tool.call_count) for tool in self.agent.test_tools]
 
+    def api_task_detail(self, index=None):
+        """
+        Get details of a specific task.
+        """
+        if index is None:
+            return self.agent.stage_manager.detail()
+        is_current = index == self.agent.stage_manager.stage_index
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        return {"is_current": is_current, "detail": self.agent.stage_manager.stages[index].detail()}
+
+    def api_current_tips(self):
+        return self.agent.stage_manager.get_current_tips()
+
     def api_task_list(self):
         """
         List all tasks in the current workspace.
@@ -282,23 +296,41 @@ class VerifyPDB(Pdb):
     def do_status(self, arg):
         echo(self.api_status())
 
-    def do_task_list(self, arg):
+    def do_task_status(self, arg):
         """
         List all tasks in the current workspace.
         """
         message(dump_as_json(self.api_task_list()))
 
-    def do_get_sys_tips(self, arg):
+    def do_task_detail(self, arg):
         """
-        Get system tips.
+        Show details of a specific task.
         """
-        message(self.agent._system_message)
+        index = None
+        arg = arg.strip()
+        if arg:
+            try:
+                index = int(arg.strip())
+            except ValueError:
+                echo_r("Invalid index. Please provide a valid integer index. Usage: task_detail [index]")
+                return
+        detail = self.api_task_detail(index=index)
+        message(yam_str(detail))
+
+    def do_current_tips(self, arg):
+        """
+        Get current tips.
+        """
+        message(yam_str(self.api_current_tips()))
 
     def do_set_sys_tips(self, arg):
         """
         Set system tips.
         """
         self.agent.set_system_message(arg.strip())
+
+    def do_get_sys_tips(self):
+        message(yam_str(self.agent.get_system_message()))
 
     def do_tui(self, arg):
         """
@@ -328,6 +360,15 @@ class VerifyPDB(Pdb):
         if not name:
             echo_y("export name cannot be empty. Usage: export_agent <name>")
         self.curframe.f_locals[name] = self.agent
+
+    def do_export_stage_manager(self, arg):
+        if self.curframe is None:
+            message("No active frame available. Make sure you're in an active debugging session.")
+            return
+        name = arg.strip()
+        if not name:
+            echo_y("export name cannot be empty. Usage: export_stage_manager <name>")
+        self.curframe.f_locals[name] = self.agent.stage_manager
 
     def do_print_last_msg(self, arg):
         """
@@ -582,45 +623,50 @@ class VerifyPDB(Pdb):
 
     def default(self, line):
         """
-        Handle unrecognized commands by executing them as bash commands.
+        Handle unrecognized commands. First try as PDB command, then shell command for clear shell commands only.
         """
         import subprocess
-        import shlex
-        
         line = line.strip()
         if not line:
             return
-        
         # Get the command name (first word)
         cmd_parts = line.split()
         cmd_name = cmd_parts[0] if cmd_parts else ""
-        
-        # List of potentially dangerous commands to warn about
-        dangerous_commands = {
+        # Check if this looks like a clear shell command
+        shell_commands_normal = {
+                'ls', 'cd', 'pwd', 'mkdir', 'touch', 'cp', 'mv', 'rm', 'cat', 'grep',
+                'find', 'ps', 'top', 'htop', 'kill', 'chmod', 'chown', 'tar', 'gzip',
+                'curl', 'wget', 'ssh', 'scp', 'rsync', 'git', 'docker', 'systemctl',
+                'service', 'sudo', 'su', 'which', 'whereis', 'echo', 'history',
+                'head', 'tail', 'wc', 'sort', 'uniq', 'awk', 'sed', 'diff',
+                'make', 'cmake', 'gcc', 'g++', 'python', 'pip', 'npm', 'node'
+        }
+        shell_commands_dangerous = {
             'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
             'kill', 'killall', 'pkill', 'reboot', 'shutdown', 'halt',
             'fdisk', 'mkfs', 'format', 'dd', 'mount', 'umount'
         }
-        
+        supported_shell_cmds = shell_commands_normal.union(shell_commands_dangerous)
+        # If it's clearly not a shell command, let PDB handle it (for Python expressions, variables, etc.)
+        if not cmd_name in supported_shell_cmds:
+            # Let PDB's default handler deal with Python expressions and variables
+            return super().default(line)
         # Check if the command is potentially dangerous
-        if cmd_name in dangerous_commands:
+        if cmd_name in shell_commands_dangerous:
             echo_r(f"Warning: '{cmd_name}' is a potentially dangerous command!")
             response = input("Are you sure you want to execute this command? (y/N): ")
             if response.lower() not in ['y', 'yes']:
                 echo_y("Command execution cancelled.")
                 return
-            
         # Show a warning that this command is not a built-in PDB command
         echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
         echo(f"Executing as bash command: {line}")
-        
         try:
             # Change to agent's workspace directory before executing
             original_cwd = os.getcwd()
             if hasattr(self.agent, 'workspace') and self.agent.workspace:
                 os.chdir(self.agent.workspace)
                 echo(f"Working directory: {self.agent.workspace}")
-            
             # Execute the command using subprocess
             result = subprocess.run(
                 line, 
@@ -629,7 +675,6 @@ class VerifyPDB(Pdb):
                 text=True, 
                 timeout=30  # 30 second timeout to prevent hanging
             )
-            
             # Display the output
             if result.stdout:
                 echo_g(f"Output:\n{result.stdout}")
@@ -639,7 +684,6 @@ class VerifyPDB(Pdb):
                 echo_r(f"Command exited with code: {result.returncode}")
             else:
                 echo_g(f"Command completed successfully (exit code: 0)")
-                
         except subprocess.TimeoutExpired:
             echo_r(f"Command '{line}' timed out after 30 seconds")
         except Exception as e:
