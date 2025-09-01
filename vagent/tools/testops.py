@@ -37,8 +37,8 @@ class ArgRunPyTest(BaseModel):
         description="Whether to return the standard error of the test run."
     )
     timeout: int = Field(
-        default=600,
-        description="Timeout for the test run in seconds. Default is 600 seconds (10 minutes)."
+        default=6,
+        description="Timeout for the test run in seconds. Default is 6 seconds."
     )
 
 
@@ -126,7 +126,7 @@ class RunPyTest(UCTool):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
-             timeout: int = 600,
+             timeout: int = 6,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Python tests and return the output."""
         all_pass, pyt_out, pyt_err = self.do(
@@ -193,7 +193,7 @@ class RunUnityChipTest(RunPyTest):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
-             timeout: int = 600,
+             timeout: int = 6,
              run_manager: CallbackManagerForToolRun = None, return_all_checks=False) -> dict:
         """Run the Unity chip tests."""
         shutil.rmtree(self.result_dir, ignore_errors=True)
@@ -294,7 +294,7 @@ class RunUnityChipTest(RunPyTest):
              pytest_ex_args: str = "",
              return_stdout: bool = False,
              return_stderr: bool = False,
-             timeout: int = 600,
+             timeout: int = 6,
              run_manager: CallbackManagerForToolRun = None) -> str:
         """Run the Unity chip tests and return the output."""
         data, pyt_out, pyt_err = self.do(

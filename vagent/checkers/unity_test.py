@@ -297,7 +297,7 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6000, ignore_ck_prefix=""):
+    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6, ignore_ck_prefix=""):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -483,7 +483,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
     
-    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=6000):
+    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=6):
         super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout)
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
