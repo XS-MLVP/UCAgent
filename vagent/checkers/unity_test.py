@@ -526,7 +526,6 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
             return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)}. " + \
-                                   f"Found existing test functions: {', '.join(test_keys) if test_keys else 'None'}. " + \
                                    f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (add prefix 'test_' to the API name)")
         if report["test_function_with_no_check_point_mark"] > 0:
             return False, get_emsg(f"Some test functions ({', '.join(report['test_function_with_no_check_point_mark_list'])}) do not have check point marks. "
