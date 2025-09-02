@@ -841,7 +841,7 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
     if logger:
         logging.getLogger = __getLogger
     from mcp.server.fastmcp import FastMCP
-    from langchain_mcp_adapters.tools import to_fastmcp
+    from vagent.tools.uctool import to_fastmcp
     from vagent.util.log import info
     fastmcp_tools = []
     for tool in mcp_tools:
@@ -858,6 +858,8 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
         host=mcp.settings.host,
         port=mcp.settings.port,
         log_level=mcp.settings.log_level.lower(),
+        timeout_keep_alive=300,
+        timeout_graceful_shutdown=60,
     )
     return uvicorn.Server(config), __old_getLogger
 

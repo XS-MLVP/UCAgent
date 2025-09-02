@@ -37,6 +37,11 @@ mcp_all_tools_%: init_%
 
 clean:
 	rm -rf output
+	rm -rf .pytest_cache
+	find ./ -name '*.dat'|xargs rm -f
+	find ./ -name '*.vcd'|xargs rm -f
+	find ./ -name '*.fst'|xargs rm -f
+	find ./ -name __pycache__|xargs rm -rf
 
 clean_test:
 	rm -rf output/unity_test
