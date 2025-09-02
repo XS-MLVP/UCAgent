@@ -679,8 +679,6 @@ class ReplaceLinesByIndex(UCTool, BaseReadWrite):
         "line 1\n" \
         "new line\n" \
         "line 3\n"
-        "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
-        "If you want to replace multiple blocks of lines, use 'TextFileMultiReplace' tool instead.\n"
     )
     args_schema: Optional[ArgsSchema] = ArgReplaceLinesByIndex
     return_direct: bool = False
@@ -835,8 +833,6 @@ class MultiReplaceLinesByIndex(UCTool, BaseReadWrite):
         "  new line b\n"
         "inserted line c\n"
         "line 3\n"
-        "If you just write all the text to file, you should use 'WriteToFile' tool instead.\n"
-        "If you want to replace just one block of lines, use 'TextFileReplace' tool instead.\n"
     )
     args_schema: Optional[ArgsSchema] = ArgMultiReplaceLinesByIndex
     return_direct: bool = False
@@ -919,7 +915,8 @@ class WriteToFile(UCTool, BaseReadWrite):
     name: str = "WriteToFile"
     description: str = (
         "Write string data to a file in the workspace. Overwrites existing content. "
-        "Creates file if it does not exist."
+        "Creates file if it does not exist. "
+        "Note: do not use this tool to modify existing content, use tool ReplaceLinesByIndex or ReplaceStringInFile."
     )
     args_schema: Optional[ArgsSchema] = ArgWriteToFile
     return_direct: bool = False
@@ -928,6 +925,7 @@ class WriteToFile(UCTool, BaseReadWrite):
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Write data to a file in the workspace."""
         self.create_file = True  # ensure file is created if not exists
+        is_existed_file = os.path.exists(os.path.join(self.workspace, path))
         success, msg, real_path = self.check_file(path)
         if not success:
             self.do_callback(False, path, msg)
@@ -941,7 +939,11 @@ class WriteToFile(UCTool, BaseReadWrite):
                 f.write(data)
             f.flush()
             self.do_callback(True, path, data)
-            return str_info(f"Write {len(data)} characters complete." if data else f"File({path}) cleared.")
+            warn_msg = ""
+            if is_existed_file:
+                warn_msg = "(Warning: Your are overwriting existing file, if edit text content please use other tools). "
+            msg = f"Write {len(data)} characters complete. " if data else f"File({path}) content cleared. "
+            return str_info(msg + warn_msg)
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
@@ -1354,9 +1356,10 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
     name: str = "ReplaceStringInFile"
     description: str = (
         "Replace exact string content in a text file. This tool performs precise string matching and replacement. "
-        "The old_string must match exactly (including whitespace, indentation, newlines, and surrounding code). "
+        "The old_string must match exactly (including whitespace, indentation, newlines, and surrounding code), if empty will replace the whole file content. "
         "Include at least 3-5 lines of context BEFORE and AFTER the target text to ensure unique identification. "
         "Each use of this tool replaces exactly ONE occurrence of old_string. "
+        "If this target file not exists, the tool will create it and write the new_string into it. "
         "If the string matches multiple locations or does not match exactly, the tool will fail. "
         "Example usage:\n"
         "old_string: 'def old_function():\\n    # TODO: implement\\n    pass\\n    return 0'\n"
@@ -1369,76 +1372,68 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
     def _run(self, path: str, old_string: str, new_string: str,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace exact string content in a text file."""
+        self.create_file = True
         # Validate inputs
-        if not old_string:
-            error_msg = "old_string cannot be empty."
-            self.do_callback(False, path, error_msg)
-            return str_error(error_msg)
-        
         if new_string is None:
             error_msg = "new_string cannot be None. Use empty string if you want to delete the content."
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
 
-        if new_string == old_string:
-            error_msg = f"new_string is identical to old_string ({old_string}). No changes made."
-            self.do_callback(False, path, error_msg)
-            return str_error(error_msg)
-
-        # Check file
         success, msg, real_path = self.check_file(path)
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
+
+        if new_string == old_string:
+            error_msg = f"new_string is identical to old_string ({old_string}). No changes made."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
         
         # Check if it's a text file
         if not is_text_file(real_path):
             error_msg = f"File {path} is not a text file."
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
-        
         info(f"Replacing string in file {real_path}")
-        
         try:
             # Read file content
             with open(real_path, 'r', encoding='utf-8') as f:
                 original_content = f.read()
-            
-            # Check if old_string exists in the file
-            if old_string not in original_content:
-                error_msg = f"The specified old_string was not found in the file. The string must match exactly including all whitespace, indentation, and newlines."
-                self.do_callback(False, path, error_msg)
-                return str_error(error_msg)
-            
-            # Count occurrences to ensure uniqueness
-            occurrence_count = original_content.count(old_string)
-            if occurrence_count == 0:
-                error_msg = f"The specified old_string was not found in the file."
-                self.do_callback(False, path, error_msg)
-                return str_error(error_msg)
-            elif occurrence_count > 1:
-                error_msg = f"The specified old_string appears {occurrence_count} times in the file. The string must be unique. Include more context to make it unique."
-                self.do_callback(False, path, error_msg)
-                return str_error(error_msg)
-            
-            # Perform the replacement
-            new_content = original_content.replace(old_string, new_string, 1)
-            
+            new_content = new_string
+            if old_string:
+                # Check if old_string exists in the file
+                if old_string not in original_content:
+                    error_msg = f"The specified old_string was not found in the file. The string must match exactly including all whitespace, indentation, and newlines."
+                    self.do_callback(False, path, error_msg)
+                    return str_error(error_msg)
+                # Count occurrences to ensure uniqueness
+                occurrence_count = original_content.count(old_string)
+                if occurrence_count == 0:
+                    error_msg = f"The specified old_string was not found in the file."
+                    self.do_callback(False, path, error_msg)
+                    return str_error(error_msg)
+                elif occurrence_count > 1:
+                    error_msg = f"The specified old_string appears {occurrence_count} times in the file. The string must be unique. Include more context to make it unique."
+                    self.do_callback(False, path, error_msg)
+                    return str_error(error_msg)
+                # Perform the replacement
+                new_content = original_content.replace(old_string, new_string, 1)
+
             # Write the new content back to the file
             with open(real_path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
                 f.flush()
-            
+
             # Generate diff for better understanding
             original_lines = original_content.splitlines(keepends=True)
             new_lines = new_content.splitlines(keepends=True)
             diff_result = get_diff(original_lines, new_lines, path)
-            
+
             success_msg = f"Successfully replaced 1 occurrence of the specified string in {path}."
             self.do_callback(True, path, {"old_string": old_string, "new_string": new_string})
-            
+
             return str_info(success_msg) + diff_result
-            
+
         except UnicodeDecodeError as e:
             error_msg = f"Failed to decode file {path} as UTF-8: {str(e)}"
             self.do_callback(False, path, error_msg)

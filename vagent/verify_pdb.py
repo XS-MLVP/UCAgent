@@ -254,7 +254,9 @@ class VerifyPDB(Pdb):
         return stats
 
     def api_tool_status(self):
-        return [(tool.name, tool.call_count) for tool in self.agent.test_tools]
+        return [(tool.name, tool.call_count,
+                 getattr(tool, "is_busy", lambda: False)())
+                 for tool in self.agent.test_tools]
 
     def api_task_detail(self, index=None):
         """
