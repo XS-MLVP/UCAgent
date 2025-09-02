@@ -139,7 +139,8 @@ class UCTool(BaseTool):
             if not self.is_in_streaming:
                 self.is_alive_loop = False
                 return
-            if self.stream_queue.is_empty():
+            item = self.stream_queue.try_get()
+            if item is None:
                 count_down -= 1
                 fc.info(msg)
                 if self.sync_block_log_to_client:
@@ -148,7 +149,6 @@ class UCTool(BaseTool):
                     except Exception as e:
                         fc.info(f"Failed to send msg({msg}) ctx.info: {e}, may be connection failed")
                     continue
-            item = self.stream_queue.get()
             self.stream_queue_buffer.put(item)
             # Send data back to client
             if self.sync_block_log_to_client:
@@ -170,9 +170,13 @@ class UCTool(BaseTool):
             return await super().ainvoke(input, config, **kwargs)
         fc.info(f"call {self.__class__.__name__} in Stream-MPC mode")
         if self.is_in_streaming:
-            return {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
+            error_msg = {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
+            fc.info(str(error_msg))
+            return error_msg
         if self.is_alive_loop:
-            return {"error": f"Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."}
+            error_msg = {"error": f"Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."}
+            fc.info(str(error_msg))
+            return error_msg
         self.is_in_streaming = True
         self.reset_force_exit()
         alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out, ctx), daemon=True)
@@ -185,6 +189,7 @@ class UCTool(BaseTool):
             fc.info(traceback.format_exc())
             data = {"error": str(e)}
         self.is_in_streaming = False
+        fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")
         return data
 
     def pre_call(self, *args, **kwargs):
