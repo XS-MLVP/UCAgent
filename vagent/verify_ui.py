@@ -173,11 +173,16 @@ class VerifyUI:
             if d < 180:
                 color = "success_green"
                 mtime += f" ({fmt_time_deta(d)})"
-            self.content_task.append(urwid.Text((color, f"{mtime}:\n {f}"), align='left'))
+            self.content_task.append(urwid.Text((color, f"{mtime}: {f}"), align='left'))
         # Tools
         self.content_task.append(urwid.Text(f"\nTools Call\n", align='center'))
-        tool_info = " ".join([f"{t[0]}({t[1]})" for t in self.vpdb.api_tool_status()])
-        self.content_task.append(urwid.Text(tool_info, align='left'))
+        tool_info = ""
+        for name, count, busy in self.vpdb.api_tool_status():
+            if busy:
+                tool_info += f"{YELLOW}{name}({count}){RESET} "
+            else:
+                tool_info += f"{name}({count}) "
+        self.content_task.append(ANSIText(tool_info, align='left'))
         # Deamon Commands
         if self.deamon_cmds:
             self.content_task.append(urwid.Text(f"\nDeamon Commands\n", align='center'))

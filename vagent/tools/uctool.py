@@ -95,8 +95,8 @@ class UCTool(BaseTool):
         self.stream_queue_buffer.clear()
         self.set_force_exit(False)
 
-    def is_streaming(self):
-        return self.is_in_streaming
+    def is_busy(self):
+        return self.is_in_streaming or self.is_alive_loop
 
     def set_call_time_out(self, timeout: int):
         self.call_time_out = timeout
@@ -177,7 +177,13 @@ class UCTool(BaseTool):
         self.reset_force_exit()
         alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out, ctx), daemon=True)
         alive_thread.start()
-        data = await super().ainvoke(input, config, **kwargs)
+        try:
+            data = await super().ainvoke(input, config, **kwargs)
+        except Exception as e:
+            import traceback
+            fc.info(f"error: {e}")
+            fc.info(traceback.format_exc())
+            data = {"error": str(e)}
         self.is_in_streaming = False
         return data
 
