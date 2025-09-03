@@ -78,7 +78,7 @@ embed:
 
 mcp_server:
   init_prompt: >
-    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`WriteTextFile`编辑文件。
 
 stage:
   - name: requirement_analysis_and_planning
@@ -208,6 +208,7 @@ stage:
              target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
          - "Guide_Doc/dut_fixture_and_api.md"
+         - "Guide_Doc/dut_function_coverage_def.md"
      - name: pytest_fixture_implementation
        desc: "pytest fixture实现"
        task:
@@ -312,6 +313,8 @@ stage:
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（基于源代码分析）"
       - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
+      - "  - 发现的bug需要计入bug分析文档{OUT}/{DUT}_bug_analysis.md，格式请参考Guide_Doc/dut_bug_analysis.md"
+      - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
@@ -323,6 +326,9 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
     reference_files:
       - "Guide_Doc/dut_fixture_and_api.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_function_coverage_def.md"
+      - "Guide_Doc/dut_test_case.md"
 
   - name: test_framework_scaffolding
     desc: "测试框架脚手架构建"

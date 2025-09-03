@@ -806,7 +806,13 @@ class WriteTextFile(UCTool, BaseReadWrite):
                     operation_desc += f" with {data_lines} new line(s)"
                 self.do_callback(True, path, {"start": start, "count": count, "data": data})
                 # Generate diff for better understanding
-                diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
+                diff_result = ""
+                if data is not None:
+                    if count != -1:
+                        diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
+                    elif mode == "replace":
+                        diff_result = " (Warning: Your are replacing to end of file, it is not the best practice" + \
+                                      " if you just want to edit part of the file content. And diff is not generated for this case.)"
                 return str_info(f"{operation_desc}.") + diff_result
 
         except UnicodeDecodeError as e:
