@@ -199,6 +199,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         fmsg.append("1. Review the test logic to ensure that check points are correctly associated with their test functions.")
         fmsg.append("2. Ensure that each check point accurately reflects the intended functionality and failure conditions.")
         fmsg.append("3. Fix any inconsistencies to ensure reliable and accurate test results.")
+        fmsg.append("4. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.")
         return False, fmsg
 
     if callable(post_checker):

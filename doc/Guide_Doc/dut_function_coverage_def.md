@@ -65,6 +65,9 @@ CovGroup.add_watch_point(target, bins: dict, name: str)
 
 ### 3. 采样和统计
 
+必须要有功能覆盖组采样，即调用其sample()方法, 如何不在StepRis/StepFail的回调函数中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败。
+
+举例：
 ```python
 # 手动采样
 covgroup.sample()

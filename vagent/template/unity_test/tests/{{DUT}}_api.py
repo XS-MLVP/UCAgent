@@ -26,7 +26,8 @@ def dut(request):
     # 请在这里根据DUT是否为时序电路判断是否需要调用 dut.InitClock
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样，StepRis也适用于组合电路，因为组合电路也可以用Step接口进行推进
+                           func_coverage_group])         # 上升沿采样，StepRis也适用于组合电路，因为组合电路也可以用Step接口进行推进.
+                                                         # 必须要有g.sample()采样覆盖组, 如何不在StepRis/StepFail中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败
     setattr(dut, "fc_cover",
             {g.name:g for g in func_coverage_group})     # 以属性名称fc_cover保存覆盖组到DUT
     yield dut
