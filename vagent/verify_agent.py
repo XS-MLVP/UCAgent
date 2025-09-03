@@ -146,11 +146,8 @@ class VerifyAgent(object):
                            FindFiles(self.workspace),
                            # File writing and editing tools (require permissions)
                            DeleteFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           ReplaceLinesByIndex(self.workspace,      write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           MultiReplaceLinesByIndex(self.workspace, write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           WriteTextFile(self.workspace,            write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            ReplaceStringInFile(self.workspace,      write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           WriteToFile(self.workspace,              write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
-                           AppendToFile(self.workspace,             write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            # File management tools (require permissions)
                            CopyFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            MoveFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),

@@ -641,147 +641,174 @@ class ReadTextFile(UCTool, BaseReadWrite):
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgReplaceLinesByIndex(BaseModel):
+class ArgWriteTextFile(BaseModel):
     path: str = Field(
         default=None,
-        description="Text file path to modify, relative to the workspace.")
-    start: int = Field(
-        default=0,
-        description="Start line index (form 0 to total_lines - 1) to replace. If index < 0 insert at head, if index >= file lines append at end."
-    )
-    count: int = Field(
-        default=-1,
-        description="Number of lines to replace. 0: means insert, -1: means to end of file."
+        description="Text file path to write, relative to the workspace. Created if not exists."
     )
     data: str = Field(
         default=None,
-        description="New lines of data to replace the target lines. If None, target `count` of lines from `start` are removed."
+        description="String data to write. If None, clears the content."
+    )
+    mode: str = Field(
+        default="replace",
+        description="Write mode: 'overwrite' (replace entire file), 'append' (add to end), or 'replace' (replace lines by index)."
+    )
+    start: int = Field(
+        default=0,
+        description="Start line index (0-based) for 'replace' mode. If index < 0, insert at head; if index >= file lines, append at end."
+    )
+    count: int = Field(
+        default=-1,
+        description="Number of lines to replace for 'replace' mode. 0: insert, -1: to end of file, positive: replace n lines."
     )
     preserve_indent: bool = Field(
         default=False,
-        description= "If True, preserve the indentation of the original lines when replacing, "
-        "if the new data lines is more than the target lines, the extra lines will preserved the indentation of the last target line."
+        description="For 'replace' mode: if True, preserve indentation of original lines when replacing."
     )
 
 
-class ReplaceLinesByIndex(UCTool, BaseReadWrite):
-    """Replace or insert a block of lines in a text file at the target position (line index)"""
-    name: str = "ReplaceLinesByIndex"
+class WriteTextFile(UCTool, BaseReadWrite):
+    """Write string data to a text file in the workspace with multiple modes."""
+    name: str = "WriteTextFile"
     description: str = (
-        "Replace or insert a block of lines in a text file at the target position (line index)."
-        "If file does not exist, creates it. Line index starts from 0."
-        "eg:\n "
-        "the original file content is:\n"
-        "line 1\n" \
-        "line 2\n" \
-        "line 3\n" \
-        "the replace operation with (start=1, count=1, data='new line', preserve_indent=False) will result in:\n"
-        "line 1\n" \
-        "new line\n" \
-        "line 3\n"
+        "Write string data to a text file in the workspace. Supports multiple write modes:\n"
+        "- 'overwrite': Replace entire file content\n"
+        "- 'append': Add data to the end of the file\n"
+        "- 'replace': Replace/insert lines at specific line indices (default)\n"
+        "Creates file if it does not exist. For 'replace' mode, supports preserving indentation."
     )
-    args_schema: Optional[ArgsSchema] = ArgReplaceLinesByIndex
+    args_schema: Optional[ArgsSchema] = ArgWriteTextFile
     return_direct: bool = False
 
-    def _run(self, path: str, start: int = 0, count: int = -1, data: str = None, preserve_indent: bool = False,
+    def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 0, count: int = -1, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Replace the content of a text file in the workspace."""
+        """Write data to a text file in the workspace with specified mode."""
+        self.create_file = True  # ensure file is created if not exists
+        # Validate mode parameter
+        valid_modes = ["overwrite", "append", "replace"]
+        if mode not in valid_modes:
+            emsg = f"Invalid mode '{mode}'. Valid modes are: {valid_modes}"
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         success, msg, real_path = self.check_file(path)
+
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
-        
+
         # Check if it's a text file (only if file exists)
         if os.path.exists(real_path) and not is_text_file(real_path):
             emsg = f"File {path} is not a text file."
             self.do_callback(False, path, emsg)
             return str_error(emsg)
-        
-        info(f"Replacing text file {real_path} from line {start} with count {count}")
-        
-        # Validate count parameter
-        if count < -1:
-            emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        
+
         try:
-            # Read existing content or create empty if file doesn't exist
-            if os.path.exists(real_path):
-                with open(real_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-            else:
-                lines = []
-                info(f"File {real_path} doesn't exist, creating new file.")
-            
-            lines_count = len(lines)
-            
-            # Handle negative start (insert at beginning if start < 0)
-            if start < 0:
-                start = 0
-            
-            # Prepare replacement data
-            lines_pred = lines[:min(start, lines_count)]
-            lines_after = []
-            
-            if count == -1:
-                # Replace from start to end of file
+            if mode == "overwrite":
+                # WriteToFile functionality
+                is_existed_file = os.path.exists(real_path)
+                with open(real_path, 'w', encoding='utf-8') as f:
+                    if data is None:
+                        info(f"Clearing file {real_path}.")
+                        f.truncate(0)
+                    else:
+                        info(f"Writing data to file {real_path}.")
+                        f.write(data)
+                    f.flush()
+                self.do_callback(True, path, data)
+                warn_msg = ""
+                if is_existed_file:
+                    warn_msg = "(Warning: You are overwriting existing file. If editing content, consider using 'replace' mode). "
+                msg = f"Write {len(data) if data else 0} characters complete. " if data else f"File({path}) content cleared. "
+                return str_info(msg + warn_msg)
+
+            elif mode == "append":
+                # AppendToFile functionality
+                with open(real_path, 'a', encoding='utf-8') as f:
+                    if data is None:
+                        info(f"Clearing file {real_path}.")
+                        f.truncate(0)
+                    else:
+                        info(f"Appending data to file {real_path}.")
+                        f.write(data)
+                    f.flush()
+                self.do_callback(True, path, data)
+                return str_info(f"Append {len(data) if data else 0} characters complete." if data else f"File({path}) cleared.")
+
+            elif mode == "replace":
+                # ReplaceLinesByIndex functionality
+                info(f"Replacing text file {real_path} from line {start} with count {count}")
+                # Validate count parameter
+                if count < -1:
+                    emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                # Read existing content or create empty if file doesn't exist
+                if os.path.exists(real_path):
+                    with open(real_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                else:
+                    lines = []
+                    info(f"File {real_path} doesn't exist, creating new file.")
+                lines_count = len(lines)
+                # Handle negative start (insert at beginning if start < 0)
+                if start < 0:
+                    start = 0
+                # Prepare replacement data
+                lines_pred = lines[:min(start, lines_count)]
                 lines_after = []
-            elif count == 0:
-                # Insert mode - don't remove any lines
-                lines_after = lines[min(start, lines_count):]
-            else:
-                # Replace 'count' lines starting from 'start'
-                end_pos = min(start + count, lines_count)
-                lines_after = lines[end_pos:]
-            
-            # Prepare new content
-            lines_insert = []
-            if data is not None:
-                if preserve_indent and start < lines_count:
-                    # Use existing lines for indentation reference
-                    ref_lines = lines[start:min(start + max(1, count if count > 0 else 1), lines_count)]
-                    if ref_lines:
-                        indented_content = copy_indent_from(ref_lines, data.split("\n"))
-                        lines_insert = ["\n".join(indented_content)]
-                        if not lines_insert[0].endswith('\n'):
-                            lines_insert[0] += '\n'
+                if count == -1:
+                    # Replace from start to end of file
+                    lines_after = []
+                elif count == 0:
+                    # Insert mode - don't remove any lines
+                    lines_after = lines[min(start, lines_count):]
+                else:
+                    # Replace 'count' lines starting from 'start'
+                    end_pos = min(start + count, lines_count)
+                    lines_after = lines[end_pos:]
+                # Prepare new content
+                lines_insert = []
+                if data is not None:
+                    if preserve_indent and start < lines_count:
+                        # Use existing lines for indentation reference
+                        ref_lines = lines[start:min(start + max(1, count if count > 0 else 1), lines_count)]
+                        if ref_lines:
+                            indented_content = copy_indent_from(ref_lines, data.split("\n"))
+                            lines_insert = ["\n".join(indented_content)]
+                            if not lines_insert[0].endswith('\n'):
+                                lines_insert[0] += '\n'
+                        else:
+                            lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
                     else:
                         lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
+
+                # Construct new file content
+                lines_new = lines_pred + lines_insert + lines_after
+                # Write the new content
+                with open(real_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines_new)
+                    f.flush()
+
+                # Prepare result message
+                operation_desc = ""
+                if count == 0:
+                    operation_desc = f"Inserted new content at line {start}"
+                elif count == -1:
+                    operation_desc = f"Replaced content from line {start} to end of file"
+                elif data is None:
+                    operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start}"
                 else:
-                    lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
-            
-            # Construct new file content
-            lines_new = lines_pred + lines_insert + lines_after
-            
-            # Write the new content
-            with open(real_path, 'w', encoding='utf-8') as f:
-                f.writelines(lines_new)
-                f.flush()
-            
-            # Prepare result message
-            operation_desc = ""
-            if count == 0:
-                operation_desc = f"Inserted new content at line {start}"
-            elif count == -1:
-                operation_desc = f"Replaced content from line {start} to end of file"
-            elif data is None:
-                operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start}"
-            else:
-                actual_replaced = min(count, max(0, lines_count - start))
-                operation_desc = f"Replaced {actual_replaced} lines starting from line {start}"
-            
-            if data is not None:
-                data_lines = len(data.split('\n'))
-                operation_desc += f" with {data_lines} new line(s)"
-            
-            self.do_callback(True, path, {"start": start, "count": count, "data": data})
-            
-            # Generate diff for better understanding
-            diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
-            
-            return str_info(f"{operation_desc}.") + diff_result
-            
+                    actual_replaced = min(count, max(0, lines_count - start))
+                    operation_desc = f"Replaced {actual_replaced} lines starting from line {start}"
+                if data is not None:
+                    data_lines = len(data.split('\n'))
+                    operation_desc += f" with {data_lines} new line(s)"
+                self.do_callback(True, path, {"start": start, "count": count, "data": data})
+                # Generate diff for better understanding
+                diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
+                return str_info(f"{operation_desc}.") + diff_result
+
         except UnicodeDecodeError as e:
             emsg = f"Failed to decode file {path} as UTF-8: {str(e)}"
             self.do_callback(False, path, emsg)
@@ -790,195 +817,6 @@ class ReplaceLinesByIndex(UCTool, BaseReadWrite):
             emsg = f"Failed to modify file {path}: {str(e)}"
             self.do_callback(False, path, emsg)
             return str_error(emsg)
-
-    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
-        """Initialize the tool."""
-        super().__init__(**kwargs)
-        self.init_base_rw(workspace, write_dirs, un_write_dirs)
-
-
-class ArgMultiReplaceLinesByIndex(BaseModel):
-    path: str = Field(
-        default=None,
-        description="Text file path to multi-replace, relative to the workspace."
-    )
-    values: List[Tuple[int, int, str, bool]] = Field(
-        default=[],
-        description=(
-            "List of edits: [(index, count, data, preserve_indent), ...].\n"
-            "- index: int, form 0 to file lines - 1. If index < 0 insert at head, if index >= file lines append at end.\n"
-            "- count: int, number of lines to replace. 0: insert. `count` must be positive value.\n"
-            "- data: str, the new data to replace or insert. If None, delete the `count` lines start from `index`.\n"
-            "- preserve_indent: bool, False for direct replace; True for replace with the same indentation as the original line, "
-            "if the new data lines is more than the target lines, the extra lines will preserved the indentation of the last target line.\n"
-            "Each target block (index, index+count) must be unique, with no intersections.\n"
-        )
-    )
-
-
-class MultiReplaceLinesByIndex(UCTool, BaseReadWrite):
-    """Replace or insert multiple blocks of lines in a text file at target positions (line index)"""
-    name: str = "MultiReplaceLinesByIndex"
-    description: str = (
-        "Replace or insert multiple blocks of lines in a text file at target positions (line index). The file must exist. \n"
-        "Supports direct replacement or preserving original line indentation.\n"
-        "eg:\n"
-        "the original file content is:\n"
-        "line 1\n"
-        "    line 2\n"
-        "line 3\n"
-        "the multi-replace operation with values=[(1, 1, 'new line a\\n  new line b', False), (2, 0, 'inserted line c', True)] will result in:\n"
-        "line 1\n"
-        "new line a\n"
-        "  new line b\n"
-        "inserted line c\n"
-        "line 3\n"
-    )
-    args_schema: Optional[ArgsSchema] = ArgMultiReplaceLinesByIndex
-    return_direct: bool = False
-
-    def _run(self, path: str, values: List[Tuple[int, int, str, bool]],
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Replace or insert multiple blocks of lines in a text file at target positions.
-        The values should be a list of tuples: (index, count, data, preserve_indent).
-        """
-        success, msg, real_path = self.check_file(path)
-        if not success:
-            self.do_callback(False, path, msg)
-            return str_error(msg)
-        if not is_text_file(real_path):
-            emsg = f"File {path} is not a text file. Please use 'ReadBinFile' to read binary files."
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        info(f"Editing text file {real_path} with values {values}")
-        final_data = []
-        with open(real_path, 'r+', encoding='utf-8') as f:
-            lines = f.readlines()
-            # check overlaped target sections
-            values = sorted(values, key=lambda x: x[0])
-            for i, (index, count, _, _) in enumerate(values):
-                if count < 0:
-                    emsg = f"`count` in block-{i} must be postive or zero"
-                    self.do_callback(False, path, emsg)
-                    return str_error(emsg)
-                if i == 0:
-                    continue
-                p_index, p_count = values[i - 1][0], values[i - 1][1]
-                if not (index >= (p_index + p_count)):
-                    emsg = f"Target block-{i} ({index}:{index+count}) is overlaped with previous target block-{i-1} ({p_index}:{p_index+p_count}). Please provide unique line indices in ascending order."
-                    self.do_callback(False, path, emsg)
-                    return str_error(emsg)
-            end_index = 0
-            for index, count, data, preserve_indent in values:
-                if index < 0:
-                    if data is not None:
-                        final_data.append([data + "\n"])
-                    continue
-                final_data.append(lines[end_index: index])
-                insert_lines = []
-                if data is not None:
-                    if preserve_indent:
-                        src_lines = lines[index:index + max(1, count)]
-                        insert_lines = ["\n".join(copy_indent_from(src_lines, data.split("\n"))) + "\n"]
-                    else:
-                        insert_lines = [data + "\n"]
-                end_index = index + count
-                final_data.append(insert_lines)
-            final_data.append(lines[end_index:])
-        # write the new content
-        data = [i for sublist in final_data for i in sublist]  # flatten the list
-        with open(real_path, 'w', encoding='utf-8') as f:
-            f.writelines(data)
-            f.flush()
-        ret_info = str_info(f"MultiReplace complete.") + get_diff(lines, data, path)
-        self.do_callback(True, path, ret_info)
-        return ret_info
-
-    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
-        """Initialize the tool."""
-        super().__init__(**kwargs)
-        self.init_base_rw(workspace, write_dirs, un_write_dirs)
-
-class ArgWriteToFile(BaseModel):
-    path: str = Field(
-        default=None,
-        description="File path to write, relative to the workspace. Created if not exists."
-    )
-    data: str = Field(
-        default=None,
-        description="String data to write. If not set, file will be cleared."
-    )
-
-
-class WriteToFile(UCTool, BaseReadWrite):
-    """Write string data to a file in the workspace."""
-    name: str = "WriteToFile"
-    description: str = (
-        "Write string data to a file in the workspace. Overwrites existing content. "
-        "Creates file if it does not exist. "
-        "Note: do not use this tool to modify existing content, use tool ReplaceLinesByIndex or ReplaceStringInFile."
-    )
-    args_schema: Optional[ArgsSchema] = ArgWriteToFile
-    return_direct: bool = False
-
-    def _run(self, path: str, data: str = None,
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Write data to a file in the workspace."""
-        self.create_file = True  # ensure file is created if not exists
-        is_existed_file = os.path.exists(os.path.join(self.workspace, path))
-        success, msg, real_path = self.check_file(path)
-        if not success:
-            self.do_callback(False, path, msg)
-            return str_error(msg)
-        with open(real_path, 'w', encoding='utf-8') as f:
-            if data is None:
-                info(f"Clearing file {real_path}.")
-                f.truncate(0)
-            else:
-                info(f"Writing data to file {real_path}.")
-                f.write(data)
-            f.flush()
-            self.do_callback(True, path, data)
-            warn_msg = ""
-            if is_existed_file:
-                warn_msg = "(Warning: Your are overwriting existing file, if edit text content please use other tools). "
-            msg = f"Write {len(data)} characters complete. " if data else f"File({path}) content cleared. "
-            return str_info(msg + warn_msg)
-
-    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
-        """Initialize the tool."""
-        super().__init__(**kwargs)
-        self.init_base_rw(workspace, write_dirs, un_write_dirs)
-
-
-class AppendToFile(UCTool, BaseReadWrite):
-    """Append string data to a file in the workspace."""
-    name: str = "AppendToFile"
-    description: str = (
-        "Append string data to a file in the workspace. Creates file if it does not exist."
-        "If data is None, clears the file content."
-    )
-    args_schema: Optional[ArgsSchema] = ArgWriteToFile
-    return_direct: bool = False
-
-    def _run(self, path: str, data: str = None,
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Append data to a file in the workspace."""
-        self.create_file = True  # ensure file is created if not exists
-        success, msg, real_path = self.check_file(path)
-        if not success:
-            self.do_callback(False, path, msg)
-            return str_error(msg)
-        with open(real_path, 'a', encoding='utf-8') as f:
-            if data is None:
-                info(f"Clearing file {real_path}.")
-                f.truncate(0)
-            else:
-                info(f"Appending data to file {real_path}.")
-                f.write(data)
-            f.flush()
-            self.do_callback(True, path, data)
-            return str_info(f"Append {len(data)} characters complete." if data else f"File({path}) cleared.")
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
