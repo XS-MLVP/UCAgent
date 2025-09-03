@@ -1,7 +1,9 @@
 #coding=utf-8
 
+from vagent.util.log import warning
 import vagent.util.functions as fc
 import os
+import traceback
 
 
 def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_prefix:str):
@@ -9,6 +11,7 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
     try:
         marked_bugs = fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_analysis_file), leaf_node="BUG-RATE")
     except Exception as e:
+        warning(traceback.format_exc())
         return False, [f"Bug analysis documentation parsing failed for file '{bug_analysis_file}': {str(e)}. " + \
                         "Common issues:",
                         "1. Malformed bug analysis tags.",
@@ -96,7 +99,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                                "2. if this checkpoints are not related to the test function, delete it in 'mark_function'",
                                "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
                                f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in <{bug_analysis_file}>",
-                               "when you document the checkpoints need use the correct form at <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
+                               "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
                                ]
     return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results."
 

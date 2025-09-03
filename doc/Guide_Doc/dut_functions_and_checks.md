@@ -26,14 +26,15 @@ DUT整体功能
 - **功能点标签**：`<FC-{function-name}>` - 标识具体功能点 (也称为测试点 Test Point)
 - **检测点标签**：`<CK-{check-point-name}>` - 标识具体检测点 (也称为Test Bin, 叫做“测试仓库”、“测试区间”或者“检查点”)
 
-检查点(Test Bin)通常用'/'拼接起来进行表示：
+在“引用”检查点(Test Bin)时，通常用'/'拼接起来进行表示：
 
 - FG-{group-name}/FC-{function-name}/CK-{check-point-name}
 
 例如：
-- <FG-GROUP-A>/<FC-FUNCTION-A1>/<CK-CHECK-A1-1>
-- <FG-GROUP-A>/<FC-FUNCTION-A1>/<CK-CHECK-A1-2>
-- <FG-ARITHMETIC>/<FC-ADD>/<CK-BASIC>
+- FG-GROUP-A/FC-FUNCTION-A1/CK-CHECK-A1-1
+- FG-GROUP-A/FC-FUNCTION-A1/CK-CHECK-A1-2
+- FG-ARITHMETIC/FC-ADD/CK-BASIC
+
 
 **重要提醒**：checker工具正是通过这些标签进行规范检测的，标签格式必须严格遵循规范。
 
