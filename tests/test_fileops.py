@@ -6,7 +6,6 @@ import sys
 import tempfile
 import shutil
 import unittest
-from unittest.mock import patch, MagicMock
 
 # Add project root to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from vagent.tools.fileops import (
     SearchText, FindFiles, PathList, ReadTextFile, ReadBinFile,
-    WriteToFile, AppendToFile, TextFileReplace, TextFileMultiReplace,
+    WriteTextFile, ReplaceStringInFile,
     CopyFile, MoveFile, DeleteFile, CreateDirectory, GetFileInfo,
     is_file_writeable, BaseReadWrite
 )
@@ -177,38 +176,54 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("Read 256/256 bytes", result)  # Updated to match new binary file size
         self.assertIn("BIN_DATA", result)
 
-    def test_write_to_file(self):
-        """Test file writing functionality"""
-        tool = WriteToFile(workspace=self.workspace)
+    def test_write_text_file_overwrite(self):
+        """Test file writing functionality in overwrite mode"""
+        tool = WriteTextFile(workspace=self.workspace)
         
         # Write new file
         test_content = "Hello, World!\nSecond line."
-        result = tool._run(path="new_file.txt", data=test_content)
+        result = tool._run(path="new_file.txt", data=test_content, mode="overwrite")
         self.assertIn("Write 26 characters complete", result)
         
         # Verify file was written
         with open(os.path.join(self.workspace, "new_file.txt"), 'r') as f:
             self.assertEqual(f.read(), test_content)
+            
+        # Test clearing file
+        result = tool._run(path="new_file.txt", data=None, mode="overwrite")
+        self.assertIn("File(new_file.txt) content cleared", result)
+        
+        # Verify file was cleared
+        with open(os.path.join(self.workspace, "new_file.txt"), 'r') as f:
+            self.assertEqual(f.read(), "")
 
-    def test_append_to_file(self):
+    def test_write_text_file_append(self):
         """Test file appending functionality"""
-        tool = AppendToFile(workspace=self.workspace)
+        tool = WriteTextFile(workspace=self.workspace)
         
         # Append to existing file
-        result = tool._run(path="simple.txt", data="\nAppended line")
+        result = tool._run(path="simple.txt", data="\nAppended line", mode="append")
         self.assertIn("Append 14 characters complete", result)
         
         # Verify content was appended
         with open(os.path.join(self.workspace, "simple.txt"), 'r') as f:
             content = f.read()
             self.assertIn("Appended line", content)
+            
+        # Test append to new file
+        result = tool._run(path="append_new.txt", data="New file content", mode="append")
+        self.assertIn("Append 16 characters complete", result)
+        
+        # Verify new file was created
+        with open(os.path.join(self.workspace, "append_new.txt"), 'r') as f:
+            self.assertEqual(f.read(), "New file content")
 
-    def test_text_file_replace_basic(self):
-        """Test basic text file replacement"""
-        tool = TextFileReplace(workspace=self.workspace)
+    def test_write_text_file_replace_basic(self):
+        """Test basic text file replacement using replace mode"""
+        tool = WriteTextFile(workspace=self.workspace)
         
         # Replace single line
-        result = tool._run(path="simple.txt", start=1, count=1, data="Replaced Line 2")
+        result = tool._run(path="simple.txt", start=1, count=1, data="Replaced Line 2", mode="replace")
         self.assertIn("Replaced 1 lines starting from line 1", result)
         
         # Verify replacement
@@ -216,34 +231,84 @@ class TestFileOpsTools(unittest.TestCase):
             lines = f.readlines()
             self.assertEqual(lines[1].strip(), "Replaced Line 2")
 
-    def test_text_file_replace_insert(self):
+    def test_write_text_file_replace_insert(self):
         """Test insertion mode in text file replace"""
-        tool = TextFileReplace(workspace=self.workspace)
+        tool = WriteTextFile(workspace=self.workspace)
         
         # Insert line
-        result = tool._run(path="simple.txt", start=1, count=0, data="Inserted line")
+        result = tool._run(path="simple.txt", start=1, count=0, data="Inserted line", mode="replace")
         self.assertIn("Inserted new content at line 1", result)
 
-    def test_text_file_replace_preserve_indent(self):
-        """Test indentation preservation"""
-        tool = TextFileReplace(workspace=self.workspace)
+    def test_write_text_file_replace_preserve_indent(self):
+        """Test indentation preservation in replace mode"""
+        tool = WriteTextFile(workspace=self.workspace)
         
         # Replace with indentation preservation
         result = tool._run(path="indented.py", start=1, count=1, 
-                          data="def new_method(self):\n    pass", preserve_indent=True)
+                          data="def new_method(self):\n    pass", mode="replace", preserve_indent=True)
         self.assertIn("Replaced 1 lines", result)
 
-    def test_text_file_multi_replace(self):
-        """Test multiple replacements in one operation"""
-        tool = TextFileMultiReplace(workspace=self.workspace)
+    def test_write_text_file_invalid_mode(self):
+        """Test invalid mode parameter"""
+        tool = WriteTextFile(workspace=self.workspace)
         
-        # Multiple edits
-        values = [
-            (1, 1, "New Line 2", False),  # Replace line 1
-            (2, 0, "Inserted line", False)  # Insert at line 2
-        ]
-        result = tool._run(path="simple.txt", values=values)
-        self.assertIn("MultiReplace complete", result)
+        # Test invalid mode
+        result = tool._run(path="test.txt", data="test", mode="invalid")
+        self.assertIn("Invalid mode 'invalid'", result)
+
+    def test_write_text_file_replace_to_end(self):
+        """Test replace mode with count=-1 (replace to end of file)"""
+        tool = WriteTextFile(workspace=self.workspace)
+        
+        # Replace from line 1 to end of file
+        result = tool._run(path="simple.txt", start=1, count=-1, data="New content\nReplaces everything from line 1", mode="replace")
+        self.assertIn("Replaced content from line 1 to end of file", result)
+        
+        # Verify replacement
+        with open(os.path.join(self.workspace, "simple.txt"), 'r') as f:
+            lines = f.readlines()
+            self.assertEqual(len(lines), 3)  # Line 0 + 2 new lines
+            self.assertEqual(lines[0].strip(), "Line 1")
+            self.assertEqual(lines[1].strip(), "New content")
+
+    def test_write_text_file_replace_remove_lines(self):
+        """Test replace mode with data=None to remove lines"""
+        tool = WriteTextFile(workspace=self.workspace)
+        
+        # Remove lines by passing data=None
+        result = tool._run(path="simple.txt", start=1, count=1, data=None, mode="replace")
+        self.assertIn("Removed 1 lines starting from line 1", result)
+        
+        # Verify removal
+        with open(os.path.join(self.workspace, "simple.txt"), 'r') as f:
+            lines = f.readlines()
+            self.assertEqual(len(lines), 2)  # Should have 2 lines left
+            self.assertEqual(lines[0].strip(), "Line 1")
+            self.assertEqual(lines[1].strip(), "Line 3")
+
+    def test_write_text_file_create_new_file(self):
+        """Test creating new file with different modes"""
+        tool = WriteTextFile(workspace=self.workspace)
+        
+        # Create new file in overwrite mode
+        result = tool._run(path="new_overwrite.txt", data="Overwrite content", mode="overwrite")
+        self.assertIn("Write 17 characters complete", result)
+        
+        # Create new file in append mode
+        result = tool._run(path="new_append.txt", data="Append content", mode="append")
+        self.assertIn("Append 14 characters complete", result)
+        
+        # Create new file in replace mode
+        result = tool._run(path="new_replace.txt", start=0, count=0, data="Replace content", mode="replace")
+        self.assertIn("Inserted new content at line 0", result)
+        
+        # Verify all files were created with correct content
+        with open(os.path.join(self.workspace, "new_overwrite.txt"), 'r') as f:
+            self.assertEqual(f.read(), "Overwrite content")
+        with open(os.path.join(self.workspace, "new_append.txt"), 'r') as f:
+            self.assertEqual(f.read(), "Append content")
+        with open(os.path.join(self.workspace, "new_replace.txt"), 'r') as f:
+            self.assertEqual(f.read(), "Replace content\n")
 
     def test_copy_file(self):
         """Test file copying functionality"""
@@ -424,13 +489,13 @@ class TestFileOpsTools(unittest.TestCase):
     def test_write_restrictions(self):
         """Test write restrictions functionality"""
         # Create tool with write restrictions
-        tool = WriteToFile(workspace=self.workspace, un_write_dirs=["restricted"])
+        tool = WriteTextFile(workspace=self.workspace, un_write_dirs=["restricted"])
         
         # Create restricted directory
         os.makedirs(os.path.join(self.workspace, "restricted"), exist_ok=True)
         
         # Try to write to restricted directory
-        result = tool._run(path="restricted/test.txt", data="test")
+        result = tool._run(path="restricted/test.txt", data="test", mode="overwrite")
         self.assertIn("not allowed to write", result)
 
     def test_callback_functionality(self):
@@ -498,7 +563,9 @@ def run_specific_tests():
     # Add specific tests
     suite.addTest(TestFileOpsTools('test_search_text_basic'))
     suite.addTest(TestFileOpsTools('test_read_text_file_basic'))
-    suite.addTest(TestFileOpsTools('test_write_to_file'))
+    suite.addTest(TestFileOpsTools('test_write_text_file_overwrite'))
+    suite.addTest(TestFileOpsTools('test_write_text_file_append'))
+    suite.addTest(TestFileOpsTools('test_write_text_file_replace_basic'))
     
     runner = unittest.TextTestRunner(verbosity=2)
     return runner.run(suite)
