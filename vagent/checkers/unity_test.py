@@ -525,8 +525,12 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         def get_emsg(m):
             return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
-            return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)}. " + \
-                                   f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (add prefix 'test_' to the API name)")
+            info(f"Missed APIs: {','.join(api_un_tested)}")
+            info(f"Found test APIs: {','.join([f.__name__ for f in test_functions])}")
+            info(f"All test cases: {','.join(test_keys)}")
+            return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
+                                   f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
+                                   f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
         if report["test_function_with_no_check_point_mark"] > 0:
             return False, get_emsg(f"Some test functions ({', '.join(report['test_function_with_no_check_point_mark_list'])}) do not have check point marks. "
                                     "Please mark them like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
