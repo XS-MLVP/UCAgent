@@ -526,7 +526,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
         if api_un_tested:
             info(f"Missed APIs: {','.join(api_un_tested)}")
-            info(f"Found test APIs: {','.join([f.__name__ for f in test_functions])}")
+            info(f"Found test APIs: {','.join(test_functions)}")
             info(f"All test cases: {','.join(test_keys)}")
             return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
                                    f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
