@@ -618,6 +618,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             passed_tc = []
             failed_tc = []
             for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
+                if ":"+self.ignore_ck_prefix in k:
+                    info(f"{self.__class__.__name__} ignore test case: {k}")
+                    continue
                 if v == "PASSED":
                     passed_tc.append(k)
                 else:

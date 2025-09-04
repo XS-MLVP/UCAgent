@@ -1,6 +1,6 @@
 #coding=utf-8
 
-from vagent.util.log import warning
+from vagent.util.log import warning, info
 import vagent.util.functions as fc
 import os
 import traceback
@@ -123,6 +123,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
             if ck not in test_case_checks:
                 ck_not_in_tc.append(ck)
         if len(ck_not_in_tc) > 0:
+            info(f"Check points in test function: {', '.join(test_case_checks)}")
             return False, [f"Test coverage gap: Documentation({doc_file}) defines check points not implemented in tests: {', '.join(ck_not_in_tc)} " + \
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
