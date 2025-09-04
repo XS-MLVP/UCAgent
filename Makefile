@@ -24,6 +24,7 @@ init_%:
 	fi
 	cp examples/$*/*.md output/$*/  | true
 	cp examples/$*/*.py output/$*/  | true
+	cp examples/$*/*.scala output/$*/  | true
 	cp doc/* output/ -r  | true
 
 test_%: init_%

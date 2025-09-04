@@ -212,6 +212,94 @@ def load_json_file(path: str):
             raise RuntimeError(f"Unexpected error while loading JSON file {json_file}: {e}")
 
 
+def load_toffee_report(result_json_path: str, workspace: str, run_test_success: bool, return_all_checks: bool) -> dict:
+    """
+    Load a Toffee JSON report from the specified path.
+    :param path: Path to the Toffee JSON report file.
+    :return: Parsed Toffee report data.
+    """
+    assert os.path.exists(result_json_path)
+    ret_data = {
+            "run_test_success": run_test_success,
+    }
+    data = load_json_file(result_json_path)
+    # Extract relevant information from the JSON data
+    # tests
+    tests = get_toffee_json_test_case(workspace, data.get("test_abstract_info", {}))
+    tests_map = {k[0]: k[1] for k in tests}
+    fails =  [k[0] for k in tests if k[1] == "FAILED"]
+    ret_data["tests"] = {
+        "total": len(tests),
+        "fails": len(fails),
+    }
+    ret_data["tests"]["test_cases"] = tests_map
+    # coverages
+    # functional coverage
+    fc_data = data.get("coverages", {}).get("functional", {})
+    ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
+    ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
+    ret_data["failed_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
+    ret_data["failed_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
+    # failed bins:
+    # groups->points->bins
+    bins_fail = []
+    bins_unmarked = []
+    bins_funcs = {}
+    funcs_bins = {}
+    bins_funcs_reverse = {}
+    bins_all = []
+    for g in fc_data.get("groups", []):
+        for p in g.get("points", []):
+            cv_funcs = p.get("functions", {})
+            for b in p.get("bins", []):
+                bin_full_name = "%s/%s/%s" % (g["name"], p["name"], b["name"])
+                bin_is_fail = b["hints"] == 0
+                if bin_is_fail:
+                    bins_fail.append(bin_full_name)
+                test_funcs =cv_funcs.get(b["name"], [])
+                if len(test_funcs) < 1:
+                    bins_unmarked.append(bin_full_name)
+                else:
+                    for tf in test_funcs:
+                        func_key = rm_workspace_prefix(workspace, tf)
+                        if func_key not in bins_funcs:
+                            bins_funcs[func_key] = []
+                        if func_key in fails:
+                            if func_key not in funcs_bins:
+                                funcs_bins[func_key] = []
+                            funcs_bins[func_key].append(bin_full_name)
+                        bins_funcs[func_key].append(bin_full_name)
+                        if bin_full_name not in bins_funcs_reverse:
+                            bins_funcs_reverse[bin_full_name] = []
+                        bins_funcs_reverse[bin_full_name].append([
+                            func_key, tests_map.get(func_key, "Unknown")])
+                # all bins
+                bins_all.append(bin_full_name)
+    ret_data["failed_funcs_bins"] = funcs_bins
+    if return_all_checks:
+        ret_data["bins_all"] = bins_all
+    if len(bins_fail) > 0:
+        ret_data["failed_check_point_list"] = bins_fail
+        bins_fail_funcs = {}
+        for b in bins_fail:
+            passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
+            if passed_func:
+                bins_fail_funcs[b] = passed_func
+        ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
+    ret_data["unmarked_check_points"] = len(bins_unmarked)
+    if len(bins_unmarked) > 0:
+        ret_data["unmarked_check_points_list"] = bins_unmarked
+    # functions with no check points
+    test_fc_no_check_points = []
+    for f, _ in tests:
+        if f not in bins_funcs:
+            test_fc_no_check_points.append(f)
+    ret_data["test_function_with_no_check_point_mark"] = len(test_fc_no_check_points)
+    if len(test_fc_no_check_points) > 0:
+        ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
+    return ret_data
+
+
 def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     """
     Get the test case file and word from a toffee JSON item.

@@ -221,10 +221,20 @@ class StageManager(object):
         self.stage_index = min(max(0, force_stage_index), len(self.stages) - 1)
         for i in range(self.stage_index + 1):
             self.stages[i].set_reached(True)
+        for s in self.stages:
+            s.set_stage_manager(self)
+        self.stages[self.stage_index].on_init()
         self.last_check_info = None
         self.tool_read_text = tool_read_text
         self.all_completed = False
         self.free_pytest_run = UnityChipCheckerTestFree("", "", "").set_workspace(workspace)
+        self.data = {}
+
+    def set_data(self, key, value):
+        self.data[key] = value
+
+    def get_data(self, key, default=None):
+        return self.data.get(key, default)
 
     def new_tools(self):
         """
@@ -365,6 +375,7 @@ class StageManager(object):
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
                 self.stages[self.stage_index].set_reached(True)
+                self.stages[self.stage_index].on_init()
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
         return {

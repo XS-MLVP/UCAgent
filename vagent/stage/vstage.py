@@ -2,9 +2,23 @@
 
 
 from vagent.util.functions import import_class_from_str, find_files_by_pattern
-from vagent.util.log import info
+from vagent.util.log import info, warning
+from vagent.util.config import Config
 import vagent.checkers as checkers
 from collections import OrderedDict
+import copy
+
+
+def convert_task_form_cfg(data):
+    if isinstance(data, Config):
+       return data.as_dict()
+    if isinstance(data, list):
+        return [convert_task_form_cfg(d) for d in data]
+    if isinstance(data, (dict, OrderedDict)):
+        for k in data.keys():
+            assert not isinstance(k, Config), "Config cannot be used as dict key."
+            data[k] = convert_task_form_cfg(data[k])
+    return data
 
 
 class VerifyStage(object):
@@ -25,8 +39,8 @@ class VerifyStage(object):
         """
         self.name = name
         self.prefix = prefix
-        self.description = description
-        self.task = task
+        self.desc = description
+        self.task_list = convert_task_form_cfg(task)
         self._checker = checker
         self.workspace = workspace
         self.checker = [
@@ -52,6 +66,15 @@ class VerifyStage(object):
             sub.parent = self
         self.parent = None
 
+    def on_init(self):
+        for c in self.checker:
+            c.on_init()
+
+    def set_stage_manager(self, manager):
+        assert manager is not None, "Stage Manager cannot be None."
+        for c in self.checker:
+            c.set_stage_manager(manager)
+
     def on_file_read(self, success, file_path, content):
         if not success:
             return
@@ -60,7 +83,7 @@ class VerifyStage(object):
             info(f"[{self.__class__.__name__}] Reference file {file_path} has been read by the LLM.")
 
     def __repr__(self):
-        return f"VerifyStage(name={self.name}, description={self.description}, "+\
+        return f"VerifyStage(name={self.name}, description={self.description()}, "+\
                f"checker={'.'.join([n.name for n in self._checker])}, checker_cls={'.'.join([n.clss for n in self._checker])})"
 
     def do_kill(self):
@@ -156,7 +179,7 @@ class VerifyStage(object):
         return sum(s.get_substage_count() for s in self.substages) + ret
 
     def title(self):
-        tname = f"{self.name}-{self.description}"
+        tname = f"{self.name}-{self.description()}"
         if self.prefix:
             tname = self.prefix + "-" + tname
         return tname
@@ -171,10 +194,23 @@ class VerifyStage(object):
                 "fail_count": self.fail_count,
         })
 
+    def description(self):
+        desc = copy.deepcopy(self.desc)
+        for c in self.checker:
+            desc = c.filter_vstage_description(desc)
+        return desc
+
+    def task(self):
+        assert isinstance(self.task_list, list), "Stage task must be a list of strings."
+        task = copy.deepcopy(self.task_list)
+        for c in self.checker:
+            task = c.filter_vstage_task(task)
+        return task
+
     def task_info(self, with_parent=True):
         data = OrderedDict({
             "title": self.title(),
-            "description": self.task,
+            "description": self.task(),
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })

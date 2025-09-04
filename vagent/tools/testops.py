@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 from vagent.util.functions import load_json_file, rm_workspace_prefix
-from vagent.util.functions import get_toffee_json_test_case
+from vagent.util.functions import get_toffee_json_test_case, load_toffee_report
 from vagent.util.log import debug, info
 import os
 import shutil
@@ -205,87 +205,12 @@ class RunUnityChipTest(RunPyTest):
                                           timeout,
                                           run_manager,
                                           python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
+        result_json_path = os.path.join(self.result_dir, self.result_json_path)
         ret_data = {
             "run_test_success": all_pass,
         }
-        result_json_path = os.path.join(self.result_dir, self.result_json_path)
         if os.path.exists(result_json_path):
-            data = load_json_file(result_json_path)
-            # Extract relevant information from the JSON data
-            # test
-            tests = get_toffee_json_test_case(self.workspace, data.get("test_abstract_info", {}))
-            tests_map = {k[0]: k[1] for k in tests}
-            fails =  [k[0] for k in tests if k[1] == "FAILED"]
-            ret_data["tests"] = {
-                "total": len(tests),
-                "fails": len(fails),
-            }
-            ret_data["tests"]["test_cases"] = tests_map
-            # coverages
-            # functional coverage
-            fc_data = data.get("coverages", {}).get("functional", {})
-            ret_data["total_funct_point"] = fc_data.get("point_num_total", 0)
-            ret_data["total_check_point"] = fc_data.get("bin_num_total",   0)
-            ret_data["failed_funct_point"] = ret_data["total_funct_point"] - fc_data.get("point_num_hints", 0)
-            ret_data["failed_check_point"] = ret_data["total_check_point"] - fc_data.get("bin_num_hints",   0)
-            # failed bins:
-            # groups->points->bins
-            bins_fail = []
-            bins_unmarked = []
-            bins_funcs = {}
-            funcs_bins = {}
-            bins_funcs_reverse = {}
-            bins_all = []
-            for g in fc_data.get("groups", []):
-                for p in g.get("points", []):
-                    cv_funcs = p.get("functions", {})
-                    for b in p.get("bins", []):
-                        bin_full_name = "%s/%s/%s" % (g["name"], p["name"], b["name"])
-                        bin_is_fail = b["hints"] == 0
-                        if bin_is_fail:
-                            bins_fail.append(bin_full_name)
-                        test_funcs =cv_funcs.get(b["name"], [])
-                        if len(test_funcs) < 1:
-                            bins_unmarked.append(bin_full_name)
-                        else:
-                            for tf in test_funcs:
-                                func_key = rm_workspace_prefix(self.workspace, tf)
-                                if func_key not in bins_funcs:
-                                    bins_funcs[func_key] = []
-                                if func_key in fails:
-                                    if func_key not in funcs_bins:
-                                        funcs_bins[func_key] = []
-                                    funcs_bins[func_key].append(bin_full_name)
-                                bins_funcs[func_key].append(bin_full_name)
-                                if bin_full_name not in bins_funcs_reverse:
-                                    bins_funcs_reverse[bin_full_name] = []
-                                bins_funcs_reverse[bin_full_name].append([
-                                    func_key, tests_map.get(func_key, "Unknown")])
-                        # all bins
-                        bins_all.append(bin_full_name)
-            ret_data["failed_funcs_bins"] = funcs_bins
-            if return_all_checks:
-                ret_data["bins_all"] = bins_all
-            if len(bins_fail) > 0:
-                ret_data["failed_check_point_list"] = bins_fail
-                bins_fail_funcs = {}
-                for b in bins_fail:
-                    passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
-                    if passed_func:
-                        bins_fail_funcs[b] = passed_func
-                ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
-            ret_data["unmarked_check_points"] = len(bins_unmarked)
-            if len(bins_unmarked) > 0:
-                ret_data["unmarked_check_points_list"] = bins_unmarked
-            # functions with no check points
-            test_fc_no_check_points = []
-            for f, _ in tests:
-                if f not in bins_funcs:
-                    test_fc_no_check_points.append(f)
-            ret_data["test_function_with_no_check_point_mark"] = len(test_fc_no_check_points)
-            if len(test_fc_no_check_points) > 0:
-                ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
-            # FIXME: more data
+            ret_data = load_toffee_report(result_json_path, self.workspace, all_pass, return_all_checks)
         info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 

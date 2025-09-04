@@ -133,7 +133,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
 
 
-def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None):
+def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -146,6 +146,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         check_tc_in_doc: Whether to check test cases in documentation.
         check_doc_in_tc: Whether to check documentation in test cases.
         post_checker: An optional post-checker function.
+        only_marked_ckp_in_tc: Whether to only consider marked check points in test cases.
 
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
@@ -168,6 +169,9 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         return ret, msg
 
     checks_tc_fail = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
+    marked_check_points = [c for c in checks_in_tc if c not in report.get("unmarked_check_points_list", [])]
+    if only_marked_ckp_in_tc:
+        checks_tc_fail = [b for b in checks_tc_fail if b in marked_check_points]
     failed_funcs_bins = report.get("failed_funcs_bins", {})
     if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
         ret, bug_ck_list = get_bug_ck_list_from_doc(workspace, bug_file, target_ck_prefix)
@@ -175,13 +179,13 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
             return ret, bug_ck_list
 
         ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
-                                      check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc,
+                                      check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=(check_doc_in_tc and not only_marked_ckp_in_tc),
                                       failed_funcs_bins=failed_funcs_bins,
                                       target_ck_prefix=target_ck_prefix)
         if not ret:
             return ret, msg
 
-    if report['unmarked_check_points'] > 0:
+    if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
             return False, f"Test template validation failed: Found {len(unmark_check_points)} unmarked check points: {', '.join(unmark_check_points)} " + \
