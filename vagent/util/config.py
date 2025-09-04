@@ -49,7 +49,7 @@ class Config(object):
         return result
 
     def __str__(self):
-        return dump_as_json(self.as_dict())
+        return "Config(" + dump_as_json(self.as_dict()) + ")"
 
     def update_template(self, template_dict):
         """

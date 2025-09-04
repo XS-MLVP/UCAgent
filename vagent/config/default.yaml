@@ -51,7 +51,8 @@ mission:
       - 按步骤有序进行，每步完成后用`Check`工具验证
       - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
       - 深入分析发现的问题
-      - 发现bug要详细分析：什么问题、为什么出现、如何修复
+      - 发现bug要基于源码进行详细分析：什么问题、为什么出现、如何修复
+      - {DUT}源代码位于`{DUT}/{DUT}.v`，文件后缀可能是.v、.sv、.vh、.scala等
       - 注重代码和文档质量，生成实用、可维护的验证代码
   
       **必须使用的工具：**
@@ -350,6 +351,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
           ignore_ck_prefix: "test_api_{DUT}_"
+          data_key: "TEST_TEMPLATE_IMP_REPORT"
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
           pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
@@ -360,16 +362,6 @@ stage:
     desc: "全面验证执行与缺陷分析"
     task:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
-      - "第1步：理解芯片完整功能和预期行为"
-      - "第2步：将空的测试模板填充为可执行代码"
-      - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
-      - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
-      - "第5步：添加断言检查输出是否正确"
-      - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
-      - "第7步：分析测试结果："
-      - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
-      - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析，需要用{DOC_GEN_LANG}编写文档）"
-      - "  - 如果Fail不合理：修正测试逻辑"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
       - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
@@ -391,17 +383,47 @@ stage:
     reference_files:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
+    stage:
+      - name: test_case_implementation
+        desc: "分批测试用例实现与对应bug分析[{COMPLETED_CASES}/{TOTAL_CASES}]"
+        task:
+          - "第1步：理解芯片完整功能和预期行为"
+          - "第2步：将以下空的测试模板填充为可执行代码": "{LIST_CURRENT_CASES}"
+          - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
+          - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
+          - "第5步：添加断言检查输出是否正确"
+          - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
+          - "第7步：分析测试结果："
+          - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
+          - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析，需要用{DOC_GEN_LANG}编写文档）"
+          - "  - 如果Fail不合理：修正测试逻辑"
+          - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"
+          - "注意：在该阶段，有需要可以增加测试用例，但不能删除已有用例"
+          - "完成进度：{COMPLETED_CASES}/{TOTAL_CASES}个测试用例已完成"
+        reference_files:
+          - "Guide_Doc/dut_test_case.md"
+          - "Guide_Doc/dut_bug_analysis.md"
+        checker:
+        - name: batch_test_cases_implementation_check
+          clss: "UnityChipCheckerBatchTestsImplementation"
+          args:
+            doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+            doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+            test_dir: "{OUT}/tests"
+            ignore_ck_prefix: "test_api_{DUT}_"
+            batch_size: 5
+            data_key: "TEST_TEMPLATE_IMP_REPORT"
 
   - name: verification_review_and_summary
     desc: "验证审查与总结"
     task:
       - "目标：对测试过程进行回顾，提炼经验教训"
-      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（需要基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
+      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
       - "第2步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
       - "第3步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
       - "第4步：根据需要判断是否进行验证补充，或者调整验证规划"
       - "第5步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
-      - "注意：任务中涉及到的文档和注释，主体需要用中文编写"
+      - "注意：任务中涉及到的文档和注释，主体需要用{DOC_GEN_LANG}编写"
     reference_files:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_summary.md"

@@ -15,6 +15,33 @@ class Checker(object):
     is_in_check = False
     _timeout = None
     _process = None
+    stage_manager = None
+
+    def on_init(self):
+        pass
+
+    def filter_vstage_task(self, stage_detail):
+        return stage_detail
+
+    def filter_vstage_description(self, stage_description):
+        return stage_description
+
+    def set_stage_manager(self, manager):
+        assert manager is not None, "Stage Manager cannot be None."
+        self.stage_manager = manager
+        return self
+
+    def smanager_set_value(self, key, value):
+        if self.stage_manager is not None:
+            self.stage_manager.set_data(key, value)
+        else:
+            raise RuntimeError("Stage Manager is not set for this stage, cannot set data.")
+
+    def smanager_get_value(self, key, default=None):
+        if self.stage_manager is not None:
+            return self.stage_manager.get_data(key, default)
+        else:
+            raise RuntimeError("Stage Manager is not set for this stage, cannot get data.")
 
     def set_extra(self, **kwargs):
         """

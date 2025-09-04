@@ -1,6 +1,7 @@
 #coding=utf-8
 
 
+import re
 from typing import Tuple
 import vagent.util.functions as fc
 from vagent.util.log import info, warning
@@ -8,6 +9,7 @@ from vagent.tools.testops import RunUnityChipTest
 import os
 import glob
 import traceback
+import copy
 
 from vagent.checkers.base import Checker
 from vagent.checkers.toffee_report import check_report
@@ -297,13 +299,15 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check, test_dir, doc_bug_analysis=None, min_tests=1, timeout=6, ignore_ck_prefix=""):
+    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=6, ignore_ck_prefix="", data_key=None, **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
         self.min_tests = min_tests
         self.timeout = timeout
         self.ignore_ck_prefix = ignore_ck_prefix
+        self.data_key = data_key
+        self.extra_kwargs = extra_kwargs
         self.run_test = RunUnityChipTest()
 
     def set_workspace(self, workspace: str):
@@ -371,6 +375,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                               and the second element is a message string.
         """
         report, str_out, str_err = super().do_check()
+        raw_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
             del report["bins_all"]
@@ -445,6 +450,8 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                  f"✓ Coverage mapping is consistent between documentation and test implementation.",
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
+        if self.data_key:
+            self.smanager_set_value(self.data_key, raw_report)
         return True, info_report
 
     def _validate_template_structure(self, report, str_out, str_err) -> Tuple[bool, str]:
@@ -543,13 +550,138 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         return True, {"success": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
 
 
+class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        assert self.data_key, "data_key is required."
+        self.current_test_cases = [
+            # "test_case_name"
+        ]
+        self.total_test_cases = [
+            # (test_case_name, is_completed: boolean)
+        ]
+        self.batch_size = self.extra_kwargs.get("batch_size", 5)
+        self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
+        info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
+
+    def get_template_data(self):
+        completed = sum([t[1] for t in self.total_test_cases])
+        total = len(self.total_test_cases)
+        is_valid = total > 0
+        return {
+            "COMPLETED_CASES":    completed if is_valid else "-",
+            "TOTAL_CASES":        total if is_valid else "-",
+            "LIST_CURRENT_CASES": self.current_test_cases
+        }
+
+    def fill_template(self, data, template_data):
+        if isinstance(data, str):
+            return fc.render_template(data, template_data)
+        elif isinstance(data, list):
+            return [self.fill_template(d, template_data) for d in data]
+        elif isinstance(data, (dict, OrderedDict)):
+            ret = OrderedDict()
+            for k, v in data.items():
+                k = fc.render_template(k, template_data)
+                v = fc.render_template(v, template_data)
+                ret[k] = v
+            return ret
+        return data
+
+    def filter_vstage_description(self, stage_description):
+        return super().filter_vstage_description(self.fill_template(stage_description, self.get_template_data()))
+
+    def filter_vstage_task(self, stage_detail):
+        return super().filter_vstage_task(self.fill_template(stage_detail, self.get_template_data()))
+
+    def rm_line_no(self, s):
+        return re.sub(r":\d+-\d+", "", s)
+
+    def on_init(self):
+        self.check_data()
+
+    def check_data(self):
+        if len(self.total_test_cases) == 0:
+            pre_report = self.smanager_get_value(self.data_key, None)
+            if pre_report is None:
+                msg = f"No previous test report found in data key '{self.data_key}'. Please check the previous stage configuration."
+                if os.path.exists(self.get_path(self.pre_report_file)):
+                    msg += f" try load from 'pre_report_file({self.pre_report_file})' to load previous test report from a file."
+                    try:
+                        pre_report = fc.load_toffee_report(self.get_path(self.pre_report_file), self.workspace, run_test_success=True, return_all_checks=True)
+                    except Exception as e:
+                        return False, msg + f" Failed to read previous test report file '{self.pre_report_file}': {str(e)}."
+                else:
+                    return False, msg
+            info(f"Loaded previous test report complete.")
+            passed_tc = []
+            failed_tc = []
+            for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
+                if v == "PASSED":
+                    passed_tc.append(k)
+                else:
+                    failed_tc.append(k)
+            if len(passed_tc) != 0:
+                warning(f"No test cases defined for implementation. However, {len(passed_tc)} test cases are already passing: {', '.join(passed_tc)}. ")
+            self.total_test_cases = [(self.rm_line_no(k), False) for k in sorted(failed_tc)]
+            if len(self.total_test_cases) == 0:
+                return False, "No test cases found for implementation. All test cases are already passing. Nothing to do."
+            info(f"Total {len(self.total_test_cases)} test cases need to be implemented.")
+        if len(self.current_test_cases) == 0:
+            self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        info(f"Current batch: {len(self.current_test_cases)} test cases to implement: {', '.join(self.current_test_cases)}")
+        info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
+        return True, ""
+
+    def do_check(self):
+        """run batch of tests and check result."""
+        success, msg = self.check_data()
+        if not success:
+            return False, {"error": msg}
+        if len(self.current_test_cases) == 0:
+            return True, {"success": "All test cases have been implemented!"}
+        target_tests = " ".join(self.current_test_cases)
+        info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
+        report, str_out, str_err = super().do_check(pytest_args=target_tests)
+        error_msgs = {
+            "STDOUT": str_out,
+            "STDERR": str_err,
+        }
+        return_tests = {self.rm_line_no(k):v for k, v in report.get("tests", {}).get("test_cases", {}).items()}
+        # check missing test cases
+        missing_tests = [k for k in return_tests.keys() if k not in self.current_test_cases]
+        if len(missing_tests) > 0:
+            error_msgs["error"] = f"Some test cases are missing in the report: {', '.join(missing_tests)}. " + \
+                                   "Please ensure that all test cases are properly implemented and reported."
+            return False, error_msgs
+
+        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
+        for key in ["bins_all", "unmarked_check_points", "unmarked_check_points_list", "failed_check_point_list"]:
+            if key in report:
+                del report[key]
+        error_msgs["REPORT"] = report
+        if not ret:
+            error_msgs["error"] = msg
+            return ret, error_msgs
+        # update total test cases status
+        for i, (tc, _) in enumerate(self.total_test_cases):
+            if tc in return_tests:
+                self.total_test_cases[i] = (tc, True)
+        self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        if len(self.current_test_cases) == 0:
+            return True, {"success": "Congratulations! All test cases have been implemented! Use tool Complete to finish this stage."}
+
+        return True, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
+                     f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}."}
+
+
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
     def do_check(self) -> Tuple[bool, str]:
         """
         Perform comprehensive check for implemented test cases.
         """
-        import copy
         # Execute tests and get comprehensive report
         report, str_out, str_err = super().do_check()
         abs_report = copy.deepcopy(report)
@@ -558,8 +690,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             del abs_report["bins_all"]
 
         # Prepare diagnostic information
-        info_report = OrderedDict({"TEST_EXECUTION_REPORT":abs_report})
-        info_runtest = OrderedDict({"STDOUT": str_out, "STDERR": str_err})
+        info_runtest = OrderedDict({"STDOUT": str_out, "STDERR": str_err, "TEST_REPORT": abs_report})
         
         # Basic validation: Check if tests exist
         if report.get("tests") is None:
