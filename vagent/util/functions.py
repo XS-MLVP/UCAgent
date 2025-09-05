@@ -182,7 +182,7 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
                     continue
                 # find prefix+*+subfix in line
                 assert line.count(prefix) == 1, f"At line ({index}): '{line}' should contain exactly one {key} '{prefix}'"
-                current_key = str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, "")
+                current_key = rm_blank_in_str(str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, ""))
                 pod, next_key = get_pod_next_key(i)
                 assert pod is not None, f"At line ({index}): contain {key} '{prefix}' but it do not find its parent {pre_key} '{pre_prf}' in previous."
                 assert current_key not in pod, f"{current_key}' is defined multiple times. find it in line {index} again."
@@ -276,11 +276,11 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
         for p in g.get("points", []):
             cv_funcs = p.get("functions", {})
             for b in p.get("bins", []):
-                bin_full_name = "%s/%s/%s" % (g["name"], p["name"], b["name"])
+                bin_full_name = rm_blank_in_str("%s/%s/%s" % (g["name"], p["name"], b["name"]))
                 bin_is_fail = b["hints"] == 0
                 if bin_is_fail:
                     bins_fail.append(bin_full_name)
-                test_funcs =cv_funcs.get(b["name"], [])
+                test_funcs = cv_funcs.get(b["name"], [])
                 if len(test_funcs) < 1:
                     bins_unmarked.append(bin_full_name)
                 else:
@@ -1066,3 +1066,9 @@ def yam_str(data: dict) -> str:
     finally:
         if LiteralStr in yaml.representer.Representer.yaml_representers:
             del yaml.representer.Representer.yaml_representers[LiteralStr]
+
+
+def rm_blank_in_str(input_str: str) -> str:
+    """Remove blank lines from a string."""
+    assert isinstance(input_str, str), "Input must be a string."
+    return "".join([c.strip() for c in input_str.split()])
