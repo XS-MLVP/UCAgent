@@ -6,7 +6,7 @@ from vagent.util.functions import yam_str
 from vagent.util.log import info
 from collections import OrderedDict
 import traceback
-
+import copy
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -225,7 +225,7 @@ class StageManager(object):
         for s in self.stages:
             s.set_stage_manager(self)
         self.stages[self.stage_index].on_init()
-        self.last_check_info = None
+        self.last_check_info = {}
         self.tool_read_text = tool_read_text
         self.all_completed = False
         self.free_pytest_run = UnityChipCheckerTestFree("", "", "").set_workspace(workspace)
@@ -340,15 +340,14 @@ class StageManager(object):
             args = [target]
         info(f"Running check for stage {self.stage_index} with args: {args}")
         ck_pass, ck_info = func_check(*args)
-        self.last_check_info = {
+        ret_data = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
-        }
-        return OrderedDict({
-            "check_pass": ck_pass,
-            "check_info": ck_info,
         })
-
+        self.last_check_info = copy.deepcopy(ret_data)
+        if ck_pass:
+            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        return ret_data
 
     def complete(self):
         if self.stage_index >= len(self.stages):
@@ -359,10 +358,10 @@ class StageManager(object):
                 "last_check_result": self.last_check_info,
             }
         ck_pass, ck_info = self.stages[self.stage_index].do_check()
-        self.last_check_info = {
+        self.last_check_info = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
-        }
+        })
         if ck_pass:
             self.stage_index += 1
             message = f"Stage {self.stage_index - 1} completed successfully. "
