@@ -95,8 +95,8 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             if ck not in marked_bug_checks:
                 un_related_tc_marks.append(ck)
         if len(un_related_tc_marks) > 0:
-                return False, [f"Unanalyzed test failures detected: {', '.join(un_related_tc_marks)}. " + \
-                                "Test failures must be properly analyzed and documented. Options:",
+                return False, [f"Unanalyzed failed checkpoints detected: {', '.join(un_related_tc_marks)}. " + \
+                                "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
                                 "2. If these are test issues, fix the test logic to make them pass.",
                                 "3. Review test implementation and DUT behavior to determine root cause.",
