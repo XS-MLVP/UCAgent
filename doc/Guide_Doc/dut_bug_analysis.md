@@ -8,7 +8,7 @@
 ## 文档结构
 
 缺陷分析文档包含两个主要部分：
-1. **未测试通过检测点分析** - 列出所有失败的检查点及其置信度
+1. **未测试通过检测点分析** - 列出所有失败的检查点及其置信度，以及对应的测试用例名称
 2. **缺陷根因分析** - 对失败原因进行深入分析和归类
 
 ** 注意：**
@@ -123,6 +123,8 @@
 
 #### 加法功能 <FC-ADD>
 - <CK-BOUNDARY> 边界值处理：当操作数为最大值时，结果计算错误，Bug置信度 85% <BUG-RATE-85>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_1
 
 ...
 ```
@@ -138,35 +140,50 @@
 | 1-19% | 很可能是测试问题 | 检查测试用例 |
 | 0% | 已知忽略点 | 不处理 |
 
-### 完整示例
+### 完整示例:
 
-```markdown
 ## 未测试通过检测点分析
 
 <FG-ARITHMETIC>
 
 #### 加法功能 <FC-ADD>
 - <CK-CIN-OVERFLOW> 带进位的溢出检查：在最大值加法时未正确处理进位输入，导致溢出标志错误，Bug置信度 98% <BUG-RATE-98>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_1
 - <CK-BOUNDARY> 边界值处理：当操作数为最大值时，结果计算错误，Bug置信度 85% <BUG-RATE-85>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_2
 
 #### 减法功能 <FC-SUB>
 - <CK-BORROW> 借位处理：减法运算中借位逻辑实现不正确，Bug置信度 92% <BUG-RATE-92>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_3
+
 - <CK-UNDERFLOW> 下溢检测：负数结果的下溢标志未正确设置，Bug置信度 75% <BUG-RATE-75>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_4
 
 <FG-LOGIC>
 
 #### 位操作功能 <FC-BITOP>
 - <CK-SHL> 左移操作：移位位数超过字长时行为异常，Bug置信度 88% <BUG-RATE-88>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_5
 - <CK-SHR> 右移操作：算术右移的符号扩展实现错误，Bug置信度 95% <BUG-RATE-95>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_6
 
 #### 比较功能 <FC-COMPARE>
 - <CK-EQUAL> 相等比较：特定输入组合下相等判断失败，原因未明，Bug置信度 15% <BUG-RATE-15>
+  - 触发bug的测试用例：
+    - test_example.py::test_case_7
 
 <FG-CONTROL>
 
 #### 分支预测 <FC-BRANCH>
 - <CK-MISPREDICT> 分支预测失败：复杂分支模式下预测准确率低，已知设计限制，Bug置信度 0% <BUG-RATE-0>
-```
+  - 触发bug的测试用例：
+    - test_example.py::test_case_8
 
 ## 缺陷根因分析
 

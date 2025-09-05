@@ -72,7 +72,7 @@ CovGroup.add_watch_point(target, bins: dict, name: str)
 # 手动采样
 covgroup.sample()
 
-# 自动采样（推荐在fixture中设置）
+# 在dut.Step执行过程中自动采样（推荐在fixture中设置）
 dut.StepRis(lambda _: [g.sample() for g in coverage_groups])
 ```
 
