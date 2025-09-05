@@ -165,6 +165,9 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
                         "3. Review test organization and ensure complete traceability."]
 
     checks_in_tc  = [b for b in report.get("bins_all", []) if b.startswith(target_ck_prefix)]
+    if len(checks_in_tc) == 0:
+        warning(f"No test functions found for check point prefix '{target_ck_prefix}'. Please ensure test cases are correctly marked with this prefix.")
+        warning(f"Current test check points: {', '.join(report.get('bins_all', []))}")
     ret, msg = check_doc_struct(checks_in_tc, doc_ck_list, doc_file, check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc)
     if not ret:
         return ret, msg
@@ -205,6 +208,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         fmsg.append("2. Ensure that each check point accurately reflects the intended functionality and failure conditions.")
         fmsg.append("3. Fix any inconsistencies to ensure reliable and accurate test results.")
         fmsg.append("4. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.")
+        fmsg.append("5. If the test case is marked with multiple check points and some of them failed, some of them unfailed, it is also a problem of test logic. You should split the test case to make sure each check point is independent.")
         return False, fmsg
 
     if callable(post_checker):

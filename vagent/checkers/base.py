@@ -2,7 +2,7 @@
 
 import os
 from typing import Tuple
-from vagent.util.functions import render_template
+from vagent.util.functions import render_template, rm_workspace_prefix
 from vagent.util.log import info, error
 import time
 import traceback
@@ -191,8 +191,19 @@ class Checker(object):
         :param path: The relative path to be resolved.
         :return: The absolute path within the workspace.
         """
+        assert not path.startswith(os.sep), f"Path '{path}' should be relative, not absolute."
         return os.path.join(self.workspace, path)
 
+    def get_relative_path(self, path, target=None) -> str:
+        if not path:
+            return "."
+        path = os.path.abspath(self.get_path(path))
+        if target:
+            target = os.path.abspath(self.get_path(target))
+            assert path.startswith(target), f"Path '{path}' is not under target '{target}'"
+        else:
+            target = self.workspace
+        return rm_workspace_prefix(target, path)
 
 class NopChecker(Checker):
     def __init__(self, *a, **kw):

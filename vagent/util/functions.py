@@ -218,16 +218,40 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
     :param path: Path to the Toffee JSON report file.
     :return: Parsed Toffee report data.
     """
-    assert os.path.exists(result_json_path)
+    assert os.path.exists(result_json_path), f"Toffee report file {result_json_path} does not exist."
     ret_data = {
             "run_test_success": run_test_success,
     }
-    data = load_json_file(result_json_path)
+    try:
+        data = load_json_file(result_json_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load JSON file {result_json_path}: {e}")
     # Extract relevant information from the JSON data
     # tests
-    tests = get_toffee_json_test_case(workspace, data.get("test_abstract_info", {}))
-    tests_map = {k[0]: k[1] for k in tests}
-    fails =  [k[0] for k in tests if k[1] == "FAILED"]
+    test_abstract_info = data.get("test_abstract_info", {})
+    if not isinstance(test_abstract_info, dict):
+        raise ValueError(f"Expected test_abstract_info to be a dict, got {type(test_abstract_info)}")
+    try:
+        tests = get_toffee_json_test_case(workspace, test_abstract_info)
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse test case information: {e}")
+    if not isinstance(tests, list):
+        raise ValueError(f"Expected tests to be a list, got {type(tests)}")
+    if not tests:
+        # Handle empty test cases
+        tests_map = {}
+        fails = []
+    else:
+        try:
+            # Check if all items in tests are proper tuples with at least 2 elements
+            for i, test_item in enumerate(tests):
+                if not isinstance(test_item, (list, tuple)) or len(test_item) < 2:
+                    raise ValueError(f"Test item {i} is not a proper tuple/list with at least 2 elements: {test_item}")
+            
+            tests_map = {k[0]: k[1] for k in tests}
+            fails = [k[0] for k in tests if k[1] == "FAILED"]
+        except Exception as e:
+            raise RuntimeError(f"Failed to process test results: {e}. Tests data: {tests}")
     ret_data["tests"] = {
         "total": len(tests),
         "fails": len(fails),

@@ -318,6 +318,8 @@ class BaseUnityChipCheckerTestCase(Checker):
         """
         super().set_workspace(workspace)
         self.run_test.set_workspace(workspace)
+        if self.test_dir:
+            assert os.path.exists(self.get_path(self.test_dir)), f"Test directory '{self.test_dir}' does not exist in workspace."
         return self
 
     def do_check(self, pytest_args="") -> Tuple[bool, str]:
@@ -564,6 +566,8 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         self.batch_size = self.extra_kwargs.get("batch_size", 5)
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
+        self.is_inited = False
+        assert self.test_dir is not None, f"Need set test directory '{self.test_dir}'."
 
     def get_template_data(self):
         completed = sum([t[1] for t in self.total_test_cases])
@@ -572,8 +576,22 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         return {
             "COMPLETED_CASES":    completed if is_valid else "-",
             "TOTAL_CASES":        total if is_valid else "-",
-            "LIST_CURRENT_CASES": self.current_test_cases
+            "LIST_CURRENT_CASES": self.current_test_cases,
+            "TEST_BATCH_RUN_ARGS": self.get_run_args()[0] if is_valid else "-",
         }
+
+    def get_run_args(self, test_dir=None):
+        failed_tests_files = set()
+        target_tests = ""
+        for t in self.current_test_cases:
+            args = t.split(":")
+            test_file, test_parm = args[0], (":"+":".join(args[1:])) if len(args) > 1 else ""
+            test_path = self.get_path(test_file)
+            if not os.path.exists(test_path):
+                failed_tests_files.add(test_file)
+            f = self.get_relative_path(test_file, test_dir)
+            target_tests += f"{f}{test_parm} "
+        return target_tests.strip(), list(failed_tests_files)
 
     def fill_template(self, data, template_data):
         if isinstance(data, str):
@@ -600,9 +618,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
     def on_init(self):
         self.check_data()
+        self.is_inited = True
 
     def check_data(self):
-        if len(self.total_test_cases) == 0:
+        if len(self.total_test_cases) == 0 and not self.is_inited:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
                 msg = f"No previous test report found in data key '{self.data_key}'. Please check the previous stage configuration."
@@ -643,8 +662,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         if not success:
             return False, {"error": msg}
         if len(self.current_test_cases) == 0:
-            return True, {"success": "All test cases have been implemented!"}
-        target_tests = " ".join(self.current_test_cases)
+            return True, {"success": "All test cases have been implemented! Use tool `Complete to` finish this stage."}
+        target_tests, failed_tests_files = self.get_run_args(self.test_dir)
+        if len(failed_tests_files) > 0:
+            return False, {"error": f"The following test files do not exist: {', '.join(failed_tests_files)}. " + \
+                            "Please check your test case names and ensure they are correct."}
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests)
         error_msgs = {
@@ -652,10 +674,16 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "STDERR": str_err,
         }
         return_tests = {self.rm_line_no(k):v for k, v in report.get("tests", {}).get("test_cases", {}).items()}
+        if len(return_tests) == 0:
+            error_msgs["error"] = "No test cases found in the report. Please ensure that the test cases are defined correctly in the workspace."
+            return False, error_msgs
         # check missing test cases
-        missing_tests = [k for k in return_tests.keys() if k not in self.current_test_cases]
+        missing_tests = [k for k in self.current_test_cases if k not in return_tests.keys()]
+        extends_tests = [k for k in return_tests.keys() if k not in self.current_test_cases]
+        info(f"Returned {len(return_tests)} test cases, missing {len(missing_tests)}, extends {len(extends_tests)}")
         if len(missing_tests) > 0:
-            error_msgs["error"] = f"Some test cases are missing in the report: {', '.join(missing_tests)}. " + \
+            error_msgs["error"] = f"Some test cases are missing in the tests implementation: {', '.join(missing_tests)}. " + \
+                                  f"implemented cases: {', '.join(return_tests.keys())}" + \
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
@@ -673,10 +701,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 self.total_test_cases[i] = (tc, True)
         self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
         if len(self.current_test_cases) == 0:
-            return True, {"success": "Congratulations! All test cases have been implemented! Use tool Complete to finish this stage."}
+            return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
 
         return True, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
-                     f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}."}
+                                 f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
+                                 f"Progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)} completed."}
 
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):

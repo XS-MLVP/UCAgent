@@ -211,6 +211,7 @@ class StageManager(object):
         """
         Initialize the StageManager with an empty list of stages.
         """
+        self.data = {}
         self.workspace = workspace
         self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
         self.stages = self.root_stage.get_substages()
@@ -228,7 +229,6 @@ class StageManager(object):
         self.tool_read_text = tool_read_text
         self.all_completed = False
         self.free_pytest_run = UnityChipCheckerTestFree("", "", "").set_workspace(workspace)
-        self.data = {}
 
     def set_data(self, key, value):
         self.data[key] = value
