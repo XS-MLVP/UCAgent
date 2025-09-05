@@ -85,13 +85,17 @@ class RunPyTest(UCTool):
         if os.path.isdir(abs_test_path):
             # If it's a directory, set cwd to the directory itself and use relative path
             work_dir = abs_test_path
-            test_target = "." if pytest_ex_args == "" else pytest_ex_args
+            test_target = ["."] if pytest_ex_args == "" else pytest_ex_args.split()
         else:
             # If it's a file, set cwd to the directory containing the file
             work_dir = os.path.dirname(abs_test_path)
-            test_target = os.path.basename(abs_test_path) + " " + pytest_ex_args
+            file_basename = os.path.basename(abs_test_path)
+            test_target = [file_basename]
+            # Handle pytest_ex_args that may contain absolute paths
+            if pytest_ex_args:
+                test_target.extend(pytest_ex_args.split())
 
-        cmd = ["pytest", "-s", *self.get_pytest_args(), test_target]
+        cmd = ["pytest", "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(

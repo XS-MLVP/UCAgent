@@ -305,7 +305,9 @@ def main():
         print("\nUCAgent interrupted by user.")
         sys.exit(1)
     except Exception as e:
+        import traceback
         print(f"UCAgent encountered an error: {e}")
+        traceback.print_exc()
         sys.exit(1)
     print("UCAgent is exited.")
 

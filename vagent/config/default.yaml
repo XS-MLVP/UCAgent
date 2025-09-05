@@ -52,6 +52,7 @@ mission:
       - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
       - 深入分析发现的问题
       - 发现bug要基于源码进行详细分析：什么问题、为什么出现、如何修复
+      - 触发bbug对应的测试用例必须 Fail，不能误报为 Pass
       - {DUT}源代码位于`{DUT}/{DUT}.v`，文件后缀可能是.v、.sv、.vh、.scala等
       - 注重代码和文档质量，生成实用、可维护的验证代码
   
@@ -315,6 +316,7 @@ stage:
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（基于源代码分析）"
       - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
       - "  - 发现的bug需要计入bug分析文档{OUT}/{DUT}_bug_analysis.md，格式请参考Guide_Doc/dut_bug_analysis.md"
+      - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
     checker:
       - name: api_test_check
@@ -392,10 +394,11 @@ stage:
           - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
           - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
           - "第5步：添加断言检查输出是否正确"
-          - "第6步：每完成一个测试立即用RunTestCases('{OUT}/tests/test_target_file.py::target_case_to_run')检查运行结果"
+          - "第6步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
           - "第7步：分析测试结果："
           - "  - 如果Pass：且所有测试过程正确符合预期，则继续完成下一个"
           - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析，需要用{DOC_GEN_LANG}编写文档）"
+          - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
           - "  - 如果Fail不合理：修正测试逻辑"
           - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"
           - "注意：在该阶段，有需要可以增加测试用例，但不能删除已有用例"

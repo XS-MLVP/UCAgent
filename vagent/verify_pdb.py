@@ -6,6 +6,7 @@ from vagent.util.log import echo_g, echo_y, echo_r, echo, info, message
 from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
 import time
 import signal
+import traceback
 
 
 class VerifyPDB(Pdb):
@@ -696,3 +697,36 @@ class VerifyPDB(Pdb):
                 os.chdir(original_cwd)
             except Exception:
                 pass
+
+    def api_load_toffee_report(self, path, workspace):
+        """
+        Load a Toffee report from the specified path.
+        Args:
+            path (str): Path to the Toffee report file.
+            workspace (str): Workspace directory for resolving relative paths.
+        Returns:
+            dict: Parsed Toffee report data.
+        """
+        from vagent.util.functions import load_toffee_report
+        assert os.path.exists(path), f"File '{path}' does not exist."
+        return load_toffee_report(path, workspace, True, True)
+
+    def do_load_toffee_report(self, arg):
+        """
+        Load a Toffee report from the specified path.
+        Usage: load_toffee_report [path]
+        """
+        report_path = os.path.join(self.agent.workspace, "uc_test_report/toffee_report.json")
+        args = arg.strip()
+        if args:
+           report_path = args
+        if not os.path.exists(report_path):
+            echo_r(f"File '{report_path}' does not exist.")
+            return
+        echo_g(f"Loading Toffee report from: {report_path}")
+        try:
+            report = self.api_load_toffee_report(report_path, self.agent.workspace)
+            message(yam_str(report))
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error loading Toffee report: {e}")
