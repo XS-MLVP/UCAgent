@@ -705,7 +705,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
         return True, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
                                  f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
-                                 f"Progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)} completed."}
+                                 f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
 
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):

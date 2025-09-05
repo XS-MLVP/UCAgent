@@ -394,6 +394,16 @@ def get_unity_chip_doc_marks(path: str, leaf_node:str = "BUG-RATE", mini_leaf_co
                     mark_list.append(f"{k_g}/{k_f}/{k_c}/{[_ for _ in bug_rate.keys()][0]}")
     if leaf_node == "FG":
         assert count_group >= mini_leaf_count, f"At least {mini_leaf_count} groups are required, found {count_group}."
+    if leaf_node == "BUG-RATE" and len(mark_list) < 1:
+        with open(path, 'r') as f:
+            content = f.read()
+            likely_has_bug_desc = True
+            for k in node_type[:-1]:
+                if k not in content:
+                    likely_has_bug_desc = False
+                    break
+            if likely_has_bug_desc:
+                raise AssertionError(f"No valid bug marks found. Please ensure that you describe the bug in the right format. ")
     return {
         "count_group": count_group,
         "count_function": count_function,

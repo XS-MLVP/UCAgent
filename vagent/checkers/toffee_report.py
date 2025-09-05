@@ -58,18 +58,33 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
     """Check failed checkpoint in bug analysis documentation."""
     failed_fb = []
     if failed_funcs_bins:
-        failed_fb = [cb for cks in failed_funcs_bins.values() for cb in cks if cb not in failed_check]
+        for _, cks in failed_funcs_bins.items():
+            for cb in cks:
+                if cb not in failed_fb:
+                    failed_fb.append(cb.strip())
+    failed_fb = list(set(failed_fb))
     if check_doc_in_tc:
         un_related_bug_marks = []
+        un_failed_bug_marks = []
         for ck in marked_bug_checks:
-            if ck not in failed_check + failed_fb:
+            if ck not in failed_check:
                 un_related_bug_marks.append(ck)
+            if ck not in failed_fb:
+                un_failed_bug_marks.append(ck)
         if len(un_related_bug_marks) > 0:
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains marks not related to any failed test cases: {', '.join(un_related_bug_marks)}. " + \
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_related_bug_marks)} they are not failed in test cases. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Update the bug analysis documentation to include all relevant test failures.",
                             "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
+                            ]
+        if len(un_failed_bug_marks) > 0:
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_failed_bug_marks)} they are not in failed test functions. " + \
+                            "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
+                            "1. Update the bug analysis documentation to include all relevant test failures.",
+                            "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
+                            "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
+                           f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in `Failed` test function, otherwise it is meaningless."
                             ]
 
     if check_tc_in_doc:
@@ -86,21 +101,26 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                                 "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
                                 ]
     if failed_funcs_bins is not None:
+        un_buged_cks = {}
         for func, checks in failed_funcs_bins.items():
-            un_buged_cks = []
             for cb in checks:
                 if not cb.startswith(target_ck_prefix):
                     continue
                 if cb not in marked_bug_checks:
-                    un_buged_cks.append(cb)
-            if len(un_buged_cks) > 0:
-                return False, [f"Checkpoint ({','.join(un_buged_cks)}) in failed test function: {func} are not unanalyzed in the bug analysis file <{bug_analysis_file}>. You need:",
-                               "1. Document these checkpoints in the bug analysis file with appropriate marks.",
-                               "2. if this checkpoints are not related to the test function, delete it in 'mark_function'",
-                               "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
-                               f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in <{bug_analysis_file}>",
-                               "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
-                               ]
+                    # record the function name for each unbuged checkpoint
+                    if cb not in un_buged_cks:
+                        un_buged_cks[cb] = []
+                    un_buged_cks[cb].append(func)
+        if len(un_buged_cks) > 0:
+            return False, [f"The flow checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
+                         *[f"  Check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
+                           "You need:",
+                           "1. Document these checkpoints in the bug analysis file with appropriate marks.",
+                           "2. if this checkpoints are not related to the test function, delete it in 'mark_function'",
+                           "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
+                          f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'",
+                           "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
+                           ]
     return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results."
 
 

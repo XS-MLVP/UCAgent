@@ -361,6 +361,7 @@ class VerifyUI:
                 return
             if self.console_output_page_scroll("exit_page"):
                 return
+            self.focus_footer()
         elif key == 'enter':
             self.console_input.set_edit_text("")
             if cmd in ("q", "Q", "exit", "quit"):
@@ -536,6 +537,10 @@ class VerifyUI:
         signal.signal(signal.SIGINT, self.original_sigint)
         self.root.focus_part = 'footer'
         self.update_console_ouput(scrowl_ret)
+
+    def focus_footer(self):
+        self.root.focus_part = 'footer'
+        self.update_info()
 
     def _auto_update_ui(self, loop, user_data=None):
         """
