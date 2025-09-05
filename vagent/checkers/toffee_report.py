@@ -72,6 +72,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             if ck not in failed_fb:
                 un_failed_bug_marks.append(ck)
         if len(un_related_bug_marks) > 0:
+            info(f"All heck points in test report: {', '.join(failed_check)}")
             return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_related_bug_marks)} they are not failed in test cases. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Update the bug analysis documentation to include all relevant test failures.",
@@ -79,6 +80,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
                             ]
         if len(un_failed_bug_marks) > 0:
+            info(f"Failed checkpoints in test report: {', '.join(failed_fb)}")
             return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_failed_bug_marks)} they are not in failed test functions. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Update the bug analysis documentation to include all relevant test failures.",

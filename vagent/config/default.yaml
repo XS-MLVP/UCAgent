@@ -423,7 +423,7 @@ stage:
   - name: verification_review_and_summary
     desc: "验证审查与总结"
     task:
-      - "目标：对测试过程进行回顾，提炼经验教训"
+      - "目标：查漏补缺，对测试过程进行回顾，提炼经验教训"
       - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
       - "第2步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
       - "第3步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
