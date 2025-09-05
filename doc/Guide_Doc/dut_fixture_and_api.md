@@ -95,6 +95,10 @@ dut.InitClock("clk_mem")     # 内存时钟
 # 直接使用Step()或RefreshComb()推进
 ```
 
+**重点：**
+- 没有特殊需求时，请用dut.Step方法推进组合电路，通过dut.StepRis设置“功能覆盖组”在上升沿回调中自动采样
+- 有特殊需求时，使用RefreshComb推进组合电路，需要在API或者测试用例中手动调用CovGroup中的sample进行采样
+
 #### 查找时钟引脚名称
 
 可以通过以下方式确定时钟引脚名称：
