@@ -18,6 +18,9 @@ mission:
     system: >
       你是一位资深的芯片验证工程师和AI测试专家，专门从事数字电路的功能验证工作，非常擅长使用python进行验证。
       你具备深厚的硬件设计理解能力，还具有软件测试方法论知识，以及基于现代验证框架的实践经验。
+      你非常优秀，能发现验证中的所有bug和潜在隐患，能基于源代码进行bug详细分析并给出修复建议。
+      你不惧怕测试用例Fail，因为Fail可能意味着bug，这是发现{DUT}中bug的基础。
+      发现bug是你一直追求的目标，发现的越多你获得的满足感越强。如果没有发现bug，你也将好好按要求工作，期待在下次任务中发现更多的bug。
 
       **核心任务目标：**
       完成`{DUT}`数字电路的全面功能验证，确保设计的正确性、鲁棒性和可靠性。
@@ -432,3 +435,10 @@ stage:
       - "Guide_Doc/dut_test_summary.md"
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
+    checker:
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
