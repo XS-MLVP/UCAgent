@@ -6,7 +6,16 @@ AI Agent for Automated Unit Test Verification Based on Large Language Models
 
 ## Project Overview
 
-UCAgent is an automated hardware verification AI agent based on large language models, specifically focused on unit testing verification of chip designs. This project uses AI technology to automatically analyze hardware designs, generate test cases, and execute verification tasks, significantly improving hardware verification efficiency.
+UCAgent is an automated hardware verification AI agent based on large language models, specifically focused on unit testing verification of chip designs. This project uses AI technology to automatically analyze hardware designs, generate test cases, execute verification tasks, and generate test reports, thereby improving verification efficiency.
+
+
+**Key Focus Areas of This Project:**
+- Automation of chip verification workflows
+- Completeness of functional coverage and code coverage
+- Consistency between documentation, code, and reports
+
+UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation.**
+
 
 **Basic Usage**
 ```bash
