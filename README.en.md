@@ -106,7 +106,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 
 ## Installation and Usage
 
-### Method 1: pip Installation (Recommended)
+### Method 1: pip Installation
 
 Install the latest version directly from GitHub:
 
@@ -118,11 +118,9 @@ After installation, you can use the `ucagent` command from anywhere:
 
 ```bash
 ucagent --help                    # Show help information
-ucagent ./examples/Adder Adder    # Verify Adder design
-ucagent ./output Adder --tui      # Launch TUI interface
 ```
 
-### Method 2: Source Code Testing
+### Method 2: Source Code Execution (Recommended)
 
 1. Clone the repository:
 ```bash
@@ -178,7 +176,6 @@ Both installation methods have identical usage - just replace the command name:
 ucagent ./examples/Adder Adder
 
 # Source code method uses python ucagent.py
-make init_Adder
 python ucagent.py ./examples/Adder Adder
 ```
 

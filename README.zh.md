@@ -105,7 +105,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 
 ### 使用方法
 
-#### 方式一：pip 安装（推荐）
+#### 方式一：pip 安装
 
 直接从GitHub安装最新版本：
 
@@ -117,11 +117,9 @@ pip install git+https://github.com/XS-MLVP/UCAgent@master
 
 ```bash
 ucagent --help                    # 查看帮助信息
-ucagent ./examples/Adder Adder    # 验证 Adder 设计
-ucagent ./output Adder --tui      # 启动TUI界面
 ```
 
-#### 方式二：源码测试
+#### 方式二：源码执行（推荐）
 
 1. 克隆仓库：
 ```bash
@@ -177,7 +175,6 @@ embed:
 ucagent ./examples/Adder Adder
 
 # 源码方式使用 python ucagent.py
-make init_Adder
 python ucagent.py ./examples/Adder Adder
 ```
 
