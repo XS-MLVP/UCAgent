@@ -1,4 +1,5 @@
-include README.md
+include README.zh.md
+include README.en.md
 include LICENSE
 include requirements.txt
 include Makefile
@@ -6,6 +7,7 @@ include pytest.ini
 include config.yaml
 recursive-include vagent/config *.yaml
 recursive-include vagent/template *
+recursive-include vagent/doc *
 recursive-include doc *
 recursive-include examples *
 exclude output/*

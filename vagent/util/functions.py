@@ -596,6 +596,9 @@ def render_template_dir(workspace, template_dir, kwargs):
             if new_fname != fname:
                 os.rename(abs_path, new_abs_path)
                 abs_path = new_abs_path
+            if "/__pycache__/" in abs_path or not is_text_file(abs_path):
+                continue
+            info(f"Rendering template file: {abs_path}")
             with open(abs_path, "r", encoding="utf-8") as f:
                 content = f.read()
             template = env.from_string(content)

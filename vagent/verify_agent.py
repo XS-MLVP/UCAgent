@@ -27,6 +27,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, Tool
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any
+import traceback
 
 
 class SummarizationAndFixToolCall(SummarizationNode):
@@ -107,6 +108,13 @@ class VerifyAgent(object):
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg.freeze()
+        self.workspace = os.path.abspath(workspace)
+        self.output_dir = os.path.join(self.workspace, output)
+        # copy doc/Guide_Doc to workspace
+        guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
+        if not os.path.exists(guide_doc_path):
+            doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doc", "Guide_Doc")
+            shutil.copytree(doc_guide_path, guide_doc_path)
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
@@ -114,8 +122,6 @@ class VerifyAgent(object):
             self.model = model
         else:
             self.model = get_chat_model(self.cfg)
-        self.workspace = os.path.abspath(workspace)
-        self.output_dir = os.path.join(self.workspace, output)
         self.template = get_template_path(self.cfg.template, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
@@ -238,8 +244,14 @@ class VerifyAgent(object):
     def render_template(self, tmp_overwrite=False):
         if self.template is not None:
             tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
+            info(f"Rendering template from {self.template} to {tmp_dir}")
             if not os.path.exists(tmp_dir) or tmp_overwrite:
-                render_template_dir(self.workspace, self.template, {"DUT": self.dut_name})
+                try:
+                    render_template_dir(self.workspace, self.template, {"DUT": self.dut_name})
+                except Exception as e:
+                    debug(traceback.format_exc())
+                    error(f"Failed to render template from {self.template} to {tmp_dir}: {e}")
+                    raise e
 
     def start_mcps(self, no_file_ops=False, host="127.0.0.1", port=5000):
         tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext

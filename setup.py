@@ -3,9 +3,9 @@
 from setuptools import setup, find_packages
 import os
 
-# Read the contents of README.md
+# Read the contents of README.en.md
 current_directory = os.path.dirname(os.path.abspath(__file__))
-with open(os.path.join(current_directory, 'README.md'), encoding='utf-8') as f:
+with open(os.path.join(current_directory, 'README.en.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 # Read requirements from requirements.txt
@@ -26,7 +26,7 @@ setup(
         "Source": "https://github.com/XS-MLVP/UCAgent",
         "Documentation": "https://github.com/XS-MLVP/UCAgent#readme",
     },
-    packages=find_packages(exclude=["tests*", "examples*", "output*", "doc*"]),
+    packages=find_packages(exclude=["tests*", "examples*", "output*"]),
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
@@ -53,6 +53,7 @@ setup(
         "vagent": [
             "config/*.yaml",
             "template/**/*",
+            "doc/**/*",
         ],
     },
     zip_safe=False,

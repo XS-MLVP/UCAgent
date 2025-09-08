@@ -13,7 +13,7 @@ reset_%:
 	rm output/unity_test -rf  | true
 	cp examples/$*/*.md output/$*/ | true
 	cp examples/$*/*.py output/$*/ | true
-	cp doc/* output/ -r  | true
+	cp vagent/doc/* output/ -r  | true
 
 init_%:
 	rm output/examples/$* -rf
@@ -25,7 +25,7 @@ init_%:
 	cp examples/$*/*.md output/$*/  | true
 	cp examples/$*/*.py output/$*/  | true
 	cp examples/$*/*.scala output/$*/  | true
-	cp doc/* output/ -r  | true
+	cp vagent/doc/* output/ -r  | true
 
 test_%: init_%
 	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
@@ -39,6 +39,9 @@ mcp_all_tools_%: init_%
 clean:
 	rm -rf output
 	rm -rf .pytest_cache
+	rm -rf UCAgent.egg-info
+	rm -rf build
+	rm -rf dist
 	find ./ -name '*.dat'|xargs rm -f
 	find ./ -name '*.vcd'|xargs rm -f
 	find ./ -name '*.fst'|xargs rm -f

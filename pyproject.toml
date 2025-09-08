@@ -6,14 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "UCAgent"
 version = "1.0.0"
 description = "UnityChip Verification Agent - AI-powered hardware verification tool"
-readme = "README.md"
+readme = "README.en.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "XS-MLVP", email = "contact@xs-mlvp.org"},
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
 ]
 maintainers = [
-    {name = "XS-MLVP", email = "contact@xs-mlvp.org"},
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
 ]
 keywords = [
     "hardware", 
@@ -62,10 +62,10 @@ Repository = "https://github.com/XS-MLVP/UCAgent"
 ucagent = "vagent.cli:main"
 
 [tool.setuptools]
-packages = ["vagent", "vagent.config", "vagent.stage", "vagent.stage.checkers", "vagent.template", "vagent.tools", "vagent.util"]
+packages = ["vagent", "vagent.config", "vagent.stage", "vagent.interaction", "vagent.checkers", "vagent.template", "vagent.tools", "vagent.util"]
 
 [tool.setuptools.package-data]
-"vagent" = ["config/*.yaml", "template/**/*"]
+"vagent" = ["config/*.yaml", "template/**/*", "doc/**/*"]
 
 [tool.setuptools.exclude-package-data]
-"*" = ["tests*", "examples*", "output*", "doc*"]
+"*" = ["tests*", "examples*", "output*"]
