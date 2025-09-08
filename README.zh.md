@@ -19,20 +19,20 @@ UCAgent 提供了完整的 Agent 与 LLM 交互逻辑，支持三种智能模式
 
 **基本使用**
 ```bash
-python3 ucagent.py <workspace> <dut_name>
+ucagent <workspace> <dut_name>
 ```
 
 参数：
 ```bash
-usage: ucagent.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
-                  [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human]
-                  [--interaction-mode {standard,enhanced,advanced}] [--seed SEED] [--tui]
-                  [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools] [--loop]
-                  [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE]
-                  [--mcp-server] [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
-                  [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
-                  [--no-write NO_WRITE [NO_WRITE ...]] [--version]
-                  workspace dut
+usage: ucagent  [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
+                [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human]
+                [--interaction-mode {standard,enhanced,advanced}] [--seed SEED] [--tui]
+                [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools] [--loop]
+                [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE]
+                [--mcp-server] [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
+                [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
+                [--no-write NO_WRITE [NO_WRITE ...]] [--version]
+                workspace dut
 
 UCAgent - UnityChip Verification Agent
 
