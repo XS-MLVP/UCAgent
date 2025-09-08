@@ -14,7 +14,7 @@ UCAgent 是一个基于大语言模型的自动化硬件验证AI代理，专注�
 - 功能覆盖率与代码覆盖率的完整性
 - 文档、代码、报告之间的一致性
 
-UCAgent 提供了完整的 Agent 与 LLM 交互逻辑，支持三种智能模式（standard、enhanced、advanced），并集成了丰富的文件操作工具，可通过标准化API与大语言模型进行直接交互。基于 Picker & Toffee 框架的芯片验证在本质上等价于软件测试，**因此现有的编程类 AI Agent（如 OpenHands、Copilot、Claude Code、Gemini-CLI、Qwen-Code 等）可以通过 MCP 协议与 UCAgent 进行深度协同，实现更优的验证效果和更高的自动化程度。**
+UCAgent 提供了完整的 Agent 与 LLM 交互逻辑，支持三种智能模式（standard、enhanced、advanced），并集成了丰富的文件操作工具，可通过标准化API与大语言模型进行直接交互。基于 Picker & Toffee 框架的芯片验证在本质上等价于软件测试，**因此现有的编程类 AI Agent（如 OpenHands、Copilot、Claude Code、Gemini-CLI、Qwen-Code 等）可以通过 MCP 协议与 UCAgent 进行深度协同，实现更优的验证效果和更高的自动化程度。[请参考"集成示例-gemini-cli"](#集成示例-gemini-cli)**
 
 
 **基本使用**
@@ -264,7 +264,7 @@ INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
   "mcpServers": {
     "unitytest": {
       "httpUrl": "http://localhost:5000/mcp",
-      "timeout": 5000
+      "timeout": 10000
     }
   }
 }

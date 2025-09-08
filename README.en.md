@@ -2,7 +2,7 @@
 
 AI Agent for Automated Unit Test Verification Based on Large Language Models
 
-[中文介绍](/README.md)
+[中文介绍](/README.zh.md)
 
 ## Project Overview
 
@@ -14,7 +14,7 @@ UCAgent is an automated hardware verification AI agent based on large language m
 - Completeness of functional coverage and code coverage
 - Consistency between documentation, code, and reports
 
-UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation.**
+UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation. [Please reference "Integration Example: Gemini-CLI"](#integration-example-gemini-cli)**
 
 
 **Basic Usage**
@@ -261,7 +261,7 @@ Edit the `~/.gemini/settings.json` configuration file:
   "mcpServers": {
     "unitytest": {
       "httpUrl": "http://localhost:5000/mcp",
-      "timeout": 5000
+      "timeout": 10000
     }
   }
 }
