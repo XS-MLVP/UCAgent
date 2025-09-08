@@ -1,123 +1,7 @@
 
-# DUT Fixture 和 API 设计指南
+# API 和 ENV 设计指南
 
-本文档介绍如何为DUT（Design Under Test）创建pytest fixture和设计API接口，确保测试框架的稳定性和可维护性。
-
-## DUT Fixture 创建
-
-### 概述
-
-在所有测试函数中，都需要通过参数 `dut` 获取DUT的实例，因此需要提供对应的pytest fixture。DUT fixture负责：
-
-1. **实例化DUT**：创建和初始化被测设计
-2. **功能覆盖设置**：配置覆盖率组和采样机制
-3. **时钟管理**：为时序电路初始化时钟
-4. **测试清理**：测试结束后的资源清理和数据收集
-
-在实现fixture dut之前，需要先实现 `create_dut` 函数，他的作用是创建DUT。其基本结构如下：
-
-```python
-def create_dut():
-    """创建DUT实例的工厂函数
-    
-    Returns:
-        DUT实例，已完成基本初始化
-    """
-    # 导入并实例化具体的DUT类
-    from {dut_module} import DUT{DutClass}
-    
-    dut = DUT{DutClass}()
-    
-    # 进行必要的初始化设置
-    # 例如：设置默认值、复位等
-    dut.reset.value = 1  # 示例：设置复位信号
-    
-    return dut
-```
-
-### 标准 Fixture 实现
-
-```python
-import pytest
-from toffee_test.reporter import set_func_coverage
-from {dut_name}_function_coverage_def import get_coverage_groups
-
-@pytest.fixture()
-def dut(request):
-    # 1. 创建DUT实例
-    dut = create_dut()
-    
-    # 2. 获取功能覆盖组
-    func_coverage_group = get_coverage_groups(dut)
-    
-    # 3. 初始化时钟（仅时序电路需要）
-    # 确保DUT有对应的时钟引脚，常见名称：clock, clk, clk_i等
-    if hasattr(dut, 'clock'):
-        dut.InitClock("clock")
-    elif hasattr(dut, 'clk'):
-        dut.InitClock("clk")
-    # 组合电路不需要InitClock
-    
-    # 4. 设置覆盖率采样回调
-    dut.StepRis(lambda _: [g.sample() for g in func_coverage_group])
-    
-    # 5. 将覆盖组绑定到DUT实例
-    setattr(dut, "fc_cover", {g.name: g for g in func_coverage_group})
-    
-    # 6. 返回DUT实例给测试函数
-    yield dut
-    
-    # 7. 测试后处理（清理阶段）
-    set_func_coverage(request, func_coverage_group)  # 向toffee_test传递覆盖率数据
-    for g in func_coverage_group:
-        g.clear()  # 清空覆盖率统计
-    dut.Finish()   # 清理DUT资源
-
-```
-
-### 时钟配置指南
-
-不同类型的电路需要不同的时钟配置：
-
-#### 时序电路
-```python
-# 单时钟系统
-dut.InitClock("clk")
-
-# 多时钟系统  
-dut.InitClock("clk_core")    # 核心时钟
-dut.InitClock("clk_mem")     # 内存时钟
-```
-
-#### 组合电路
-```python  
-# 组合电路不需要InitClock
-# 直接使用Step()或RefreshComb()推进
-```
-
-**重点：**
-- 没有特殊需求时，请用dut.Step方法推进组合电路，通过dut.StepRis设置“功能覆盖组”在上升沿回调中自动采样
-- 有特殊需求时，使用RefreshComb推进组合电路，需要在API或者测试用例中手动调用CovGroup中的sample进行采样
-
-#### 查找时钟引脚名称
-
-可以通过以下方式确定时钟引脚名称：
-
-1. **查看DUT模块定义**：检查 `{DUT}/__init__.py` 或相关模块文件
-2. **查看端口列表**：使用 `dir(dut)` 查看所有属性
-3. **参考设计文档**：查看RTL设计的端口定义
-
-```python
-# 动态查找时钟引脚示例
-def setup_clock(dut):
-    clock_names = ['clock', 'clk', 'clk_i', 'clk_in', 'sys_clk']
-    for clk_name in clock_names:
-        if hasattr(dut, clk_name):
-            dut.InitClock(clk_name)
-            print(f"时钟已初始化: {clk_name}")
-            return
-    print("警告：未找到时钟引脚，可能是组合电路")
-```
+本文档介绍如何为DUT（Design Under Test）创建API和测试环境接口，确保测试的稳定性和可维护性。
 
 ## DUT API 设计
 
@@ -807,75 +691,6 @@ def api_bulk_memory_write(dut, data_dict: Dict[int, int]) -> int:
     return success_count
 ```
 
-#### 缓存和状态管理
-
-```python
-class APIStateManager:
-    """API状态管理器，提供缓存和状态跟踪功能"""
-
-    def __init__(self, dut):
-        self.dut = dut
-        self._cache = {}
-        self._state_history = []
-
-    def cached_read(self, address: int, force_refresh: bool = False) -> int:
-        """带缓存的内存读取"""
-        if not force_refresh and address in self._cache:
-            return self._cache[address]
-
-        # 执行实际读取
-        value = self._read_from_hardware(address)
-        self._cache[address] = value
-        return value
-
-    def invalidate_cache(self, address: Optional[int] = None):
-        """使缓存失效"""
-        if address is None:
-            self._cache.clear()
-        else:
-            self._cache.pop(address, None)
-
-    def save_state(self, name: str):
-        """保存当前状态"""
-        state = {
-            'name': name,
-            'timestamp': time.time(),
-            'registers': self._capture_registers(),
-            'cache': self._cache.copy()
-        }
-        self._state_history.append(state)
-
-    def restore_state(self, name: str) -> bool:
-        """恢复到指定状态"""
-        for state in reversed(self._state_history):
-            if state['name'] == name:
-                self._restore_registers(state['registers'])
-                self._cache = state['cache'].copy()
-                return True
-        return False
-
-# 使用状态管理器的API示例
-def api_transaction_execute(dut, operations: List[Dict]) -> List[Any]:
-    """执行事务操作，支持回滚"""
-    state_mgr = APIStateManager(dut)
-
-    # 保存初始状态
-    state_mgr.save_state("transaction_start")
-
-    try:
-        results = []
-        for op in operations:
-            result = _execute_single_operation(dut, op)
-            results.append(result)
-
-        return results
-
-    except Exception as e:
-        # 发生错误时回滚
-        state_mgr.restore_state("transaction_start")
-        raise RuntimeError(f"事务执行失败，已回滚: {e}")
-```
-
 ### 6. 调试和诊断工具
 
 #### 调试辅助API
@@ -945,3 +760,46 @@ def _trace_callback(signal_name: str, old_value, new_value, timestamp):
 - API 注释应当尽可能的详尽
 - 在 fixture dut 中需要做好 DUT 实例的生命周期管理
 
+
+## ENV 设计
+
+通过DUT API可以实现对DUT的操作，但在很多场景下，DUT需要相关外设，才能正常工作。ENV（Environment）设计的目标是为DUT提供一个完整的测试环境，包括必要的外设模拟、协议处理、数据生成等功能，确保DUT能够在接近真实工作场景的环境中进行测试。
+
+**注意**：env是可选项，需要根据DUT的特征进行考虑：
+
+- 如果DUT没有依赖也不需要参考模型，那么dut本身即env
+- 如果DUT有外设，且有状态需要维护，那么需要构建对应的env
+- 大多数情况下，纯组合电路DUT，不需要考虑env
+
+### 设计原则
+
+ENV设计应遵循以下核心原则：
+
+1. **现实性**：环境应尽可能模拟真实的工作场景和外设行为
+2. **可控性**：环境行为应可配置、可预测、可重现
+3. **扩展性**：支持不同配置和场景的灵活切换
+4. **隔离性**：不同测试用例之间的环境互不干扰
+5. **效率性**：环境初始化和运行应高效，不成为测试瓶颈
+6. **可观测性**：提供充分的监控和调试信息
+
+
+### 基于Toffee构建测试环境
+
+【本章节待完善】
+
+#### Toffee测试框架介绍
+
+##### 环境搭建
+
+##### 增加外设
+
+### ENV 组件架构
+
+### 其他说明
+
+- ENV组件应该与DUT API配合使用，通过API进行DUT操作
+- ENV配置应该支持不同的测试场景和复杂度等级
+- 环境组件应该提供充分的可观测性和调试支持
+- 建议使用工厂模式和配置文件实现ENV的灵活创建和管理
+- ENV的性能对测试效率有直接影响，需要在功能完整性和执行效率之间平衡
+- ENV应该支持并发测试和资源隔离，避免不同测试用例间的相互干扰

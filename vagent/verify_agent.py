@@ -9,8 +9,10 @@ from .util.models import get_chat_model
 
 import vagent.tools
 from .tools import *
+from .tools.planning import CreatePlan, UpdatePlan, GetPlan, ListPlans
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
+from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
 
 import time
 import random
@@ -62,7 +64,8 @@ class VerifyAgent(object):
                  debug=False,
                  no_embed_tools=False,
                  force_stage_index=0,
-                 no_write_targets=None
+                 no_write_targets=None,
+                 interaction_mode="standard"
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -87,6 +90,10 @@ class VerifyAgent(object):
             thread_id (int, optional): Thread ID for the agent. If None, a random ID will be generated.
                                        Defaults to None.
             debug (bool, optional): Whether to enable debug mode. Defaults to False.
+            no_embed_tools (bool, optional): Whether to disable embedded tools. Defaults to False.
+            force_stage_index (int, optional): Force starting from a specific stage index. Defaults to 0.
+            no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
+            interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
         """
         if debug:
             set_debug(True)
@@ -156,7 +163,21 @@ class VerifyAgent(object):
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
                            + import_and_instance_tools(ex_tools, vagent.tools)
-        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext
+        
+        # Initialize planning tools
+        self.planning_tools = [
+            CreatePlan(),
+            UpdatePlan(), 
+            GetPlan(),
+            ListPlans()
+        ]
+        # Share the same plan storage across all planning tools
+        for i, tool in enumerate(self.planning_tools):
+            if i > 0:  # Share storage from the first tool
+                tool._plans = self.planning_tools[0]._plans
+                tool._current_plan_id = self.planning_tools[0]._current_plan_id
+        
+        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
 
         summarization_node = SummarizationAndFixToolCall(
             token_counter=count_tokens_approximately,
@@ -197,6 +218,21 @@ class VerifyAgent(object):
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self.handle_sigint()
+        
+        # Initialize interaction logic based on mode
+        self.interaction_mode = interaction_mode
+        self.enhanced_logic = None
+        self.advanced_logic = None
+        
+        if interaction_mode == "enhanced":
+            self.enhanced_logic = EnhancedInteractionLogic(self)
+            info("Using enhanced interaction mode with planning and memory management")
+        elif interaction_mode == "advanced":
+            self.advanced_logic = AdvancedInteractionLogic(self)
+            info("Using advanced interaction mode with adaptive strategies")
+        else:
+            info("Using standard interaction mode")
+        
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
     def render_template(self, tmp_overwrite=False):
@@ -342,6 +378,7 @@ class VerifyAgent(object):
     def run_loop(self, with_break=False, msg=None):
         if msg:
             self.set_continue_msg(msg)
+        # conversation loop
         while not self.is_exit():
             self.one_loop()
             if self.is_exit():
@@ -357,8 +394,33 @@ class VerifyAgent(object):
         return self
 
     def one_loop(self, msg=None):
+        """Enhanced one loop with intelligent interaction logic based on configured mode"""
+        # Use the configured interaction mode
+        if self.interaction_mode == "advanced" and self.advanced_logic:
+            try:
+                return self.advanced_logic.advanced_one_loop(msg)
+            except Exception as e:
+                warning(f"Advanced interaction logic failed, falling back to enhanced: {e}")
+                # Fall back to enhanced logic if available
+                if self.enhanced_logic:
+                    try:
+                        return self.enhanced_logic.enhanced_one_loop(msg)
+                    except Exception as e2:
+                        warning(f"Enhanced interaction logic also failed, using standard: {e2}")
+                        # Fall back to standard logic
+                        pass
+        elif self.interaction_mode == "enhanced" and self.enhanced_logic:
+            try:
+                return self.enhanced_logic.enhanced_one_loop(msg)
+            except Exception as e:
+                warning(f"Enhanced interaction logic failed, falling back to standard: {e}")
+                # Fall back to standard logic
+                pass
+        
+        # Standard logic (fallback)
         if msg:
             self.set_continue_msg(msg)
+        # one conversation round with retry on tool call error
         while True:
             tips = self.get_current_tips()
             if self.is_exit():
@@ -370,6 +432,100 @@ class VerifyAgent(object):
                 return
         self.invoke_round += 1
         return self
+
+    def get_interaction_status(self):
+        """Get the status of the interaction logic"""
+        # Try advanced logic first
+        if hasattr(self, 'advanced_logic'):
+            try:
+                status = self.advanced_logic.get_interaction_status()
+                status['logic_type'] = 'advanced'
+                return status
+            except:
+                pass
+        
+        # Fall back to enhanced logic
+        if hasattr(self, 'enhanced_logic'):
+            try:
+                status = self.enhanced_logic.get_interaction_status()
+                status['logic_type'] = 'enhanced'
+                return status
+            except:
+                pass
+        
+        return {"status": "No enhanced logic available", "logic_type": "standard"}
+    
+    def set_interaction_phase(self, phase: str, sub_phase: str = "initial"):
+        """Manually set the interaction phase"""
+        # Try advanced logic first
+        if hasattr(self, 'advanced_logic'):
+            try:
+                self.advanced_logic.state.transition_to_phase(phase, sub_phase)
+                info(f"Advanced interaction phase set to: {phase}.{sub_phase}")
+                return
+            except:
+                pass
+        
+        # Fall back to enhanced logic
+        if hasattr(self, 'enhanced_logic'):
+            try:
+                self.enhanced_logic.state.transition_to_phase(phase)
+                info(f"Enhanced interaction phase set to: {phase}")
+                return
+            except:
+                pass
+        
+        warning("No enhanced logic available for phase setting")
+    
+    def force_reflection(self):
+        """Force a reflection phase in the next loop"""
+        # Try both logic systems
+        success = False
+        
+        if hasattr(self, 'advanced_logic'):
+            try:
+                self.advanced_logic.state.last_reflection_round = 0
+                success = True
+                info("Advanced logic: Reflection will be triggered in next loop")
+            except:
+                pass
+        
+        if hasattr(self, 'enhanced_logic'):
+            try:
+                self.enhanced_logic.state.last_reflection_round = 0
+                success = True
+                info("Enhanced logic: Reflection will be triggered in next loop")
+            except:
+                pass
+        
+        if not success:
+            warning("No enhanced logic available for reflection forcing")
+    
+    def use_advanced_logic(self, enable: bool = True):
+        """Enable or disable advanced interaction logic for next loops"""
+        self._use_advanced_logic = enable
+        if enable:
+            info("Advanced interaction logic will be used in subsequent loops")
+        else:
+            info("Advanced interaction logic disabled, will use enhanced logic")
+    
+    def get_performance_summary(self):
+        """Get performance summary from advanced logic if available"""
+        if hasattr(self, 'advanced_logic'):
+            try:
+                return self.advanced_logic._get_performance_summary()
+            except:
+                pass
+        return "Performance tracking not available"
+    
+    def get_current_plan(self):
+        """Get the current plan information"""
+        if hasattr(self, 'planning_tools') and self.planning_tools:
+            try:
+                return self.planning_tools[2]._run()  # GetPlan tool
+            except Exception as e:
+                warning(f"Failed to get current plan: {e}")
+        return "No planning tools available"
 
     def do_work(self, instructions, config):
         """Perform the work using the agent."""
