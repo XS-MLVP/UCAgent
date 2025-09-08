@@ -27,6 +27,8 @@ class VerifyPDB(Pdb):
                 self.init_cmd = [init_cmd]
             info(f"VerifyPDB initialized with {len(self.init_cmd)} initial commands.")
         self._in_tui = False
+        # Control whether empty line repeats last command
+        self._repeat_last_command = True
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -47,6 +49,20 @@ class VerifyPDB(Pdb):
         else:
             echo_r("SIGINT received. Exiting PDB.")
             raise KeyboardInterrupt
+
+    def emptyline(self):
+        """
+        Handle empty line input. Behavior depends on _repeat_last_command setting.
+        
+        When _repeat_last_command is True (default): repeat last command (PDB default behavior)
+        When _repeat_last_command is False: do nothing
+        """
+        if self._repeat_last_command:
+            # Default PDB behavior: repeat last command
+            return super().emptyline()
+        else:
+            # Do nothing when empty line is entered
+            pass
 
     def api_complite_workspace_file(self, text):
         """Auto-complete workspace files
@@ -250,7 +266,7 @@ class VerifyPDB(Pdb):
         m = g.model
         delta_time = time.time() - g._time_start
         stats= f"LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  \n" + \
-               f"AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
+               f"Interaction Mode: {g.interaction_mode}  AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
                f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}"
         return stats
 
@@ -334,6 +350,40 @@ class VerifyPDB(Pdb):
 
     def do_get_sys_tips(self):
         message(yam_str(self.agent.get_system_message()))
+
+    def do_repeat_mode(self, arg):
+        """
+        Control whether empty line repeats the last command.
+        
+        Usage:
+          repeat_mode on      - Enable repeat mode (default behavior)
+          repeat_mode off     - Disable repeat mode (empty line does nothing)
+          repeat_mode status  - Show current status
+          repeat_mode         - Show current status
+        """
+        arg = arg.strip().lower()
+        
+        if arg == "on" or arg == "enable" or arg == "true":
+            self._repeat_last_command = True
+            echo_g("Repeat mode enabled: empty line will repeat last command")
+        elif arg == "off" or arg == "disable" or arg == "false":
+            self._repeat_last_command = False
+            echo_g("Repeat mode disabled: empty line will do nothing")
+        elif arg == "status" or arg == "":
+            status = "enabled" if self._repeat_last_command else "disabled"
+            echo(f"Repeat mode is currently: {status}")
+        else:
+            echo_r(f"Invalid argument: {arg}")
+            echo_y("Usage: repeat_mode [on|off|status]")
+
+    def complete_repeat_mode(self, text, line, begidx, endidx):
+        """
+        Auto-complete the repeat_mode command.
+        """
+        options = ["on", "off", "status", "enable", "disable", "true", "false"]
+        if not text:
+            return options
+        return [option for option in options if option.startswith(text.strip().lower())]
 
     def do_tui(self, arg):
         """

@@ -15,13 +15,9 @@ python3 ucagent.py <workspace> <dut_name>
 
 参数：
 ```bash
-usage: ucagent.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
-                  [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human] [--seed SEED]
-                  [--tui] [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools]
-                  [--loop] [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE]
-                  [--mcp-server] [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
-                  [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
-                  [--no-write NO_WRITE [NO_WRITE ...]] [--version]
+usage: ucagent.py [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite] [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human] [--interaction-mode {standard,enhanced,advanced}] [--seed SEED] [--tui]
+                  [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools] [--loop] [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE] [--mcp-server] [--mcp-server-no-file-tools]
+                  [--mcp-server-host MCP_SERVER_HOST] [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX] [--no-write NO_WRITE [NO_WRITE ...]] [--version]
                   workspace dut
 
 UCAgent - UnityChip Verification Agent
@@ -40,6 +36,8 @@ options:
   --override OVERRIDE   Override configuration settings in the format A.B.C=value
   --stream-output, -s   Stream output to the console
   --human, -hm          Enable human input mode at the beginning of the run
+  --interaction-mode {standard,enhanced,advanced}
+                        Set the interaction mode: 'standard' (default), 'enhanced' (planning & memory), or 'advanced' (adaptive strategies)
   --seed SEED           Seed for random number generation
   --tui                 Run in TUI (Text User Interface) mode
   --sys-tips SYS_TIPS   System tips to be used in the agent
@@ -73,6 +71,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 - 支持的操作系统: Linux, macOS, Windows
 - 内存: 建议 4GB 以上
 - 网络: 需要访问AI模型API（OpenAI兼容）
+- picker: https://github.com/XS-MLVP/picker
 
 ### 使用方法
 
@@ -105,22 +104,16 @@ cd UCAgent
 pip install -r requirements.txt
 ```
 
-3. 使用 Python 脚本运行（功能与 `ucagent` 命令完全相同）：
+3. 编译dut，以编译example中的Adder为例
+4. 
 ```bash
-python ucagent.py --help                  # 查看帮助信息
-python ucagent.py ./examples/Adder Adder  # 验证 Adder 设计
-python ucagent.py ./output Adder --tui    # 启动TUI界面
+make init_Adder
 ```
 
-### 依赖组件
-
-#### 安装 Picker
-
-Picker 是硬件仿真工具，用于生成Verilog的Python绑定。
-
+1. 使用 Python 脚本运行（功能与 `ucagent` 命令完全相同）：
 ```bash
-# 详细安装步骤请参考官方文档
-# https://github.com/XS-MLVP/picker
+python ucagent.py --help                  # 查看帮助信息
+python ucagent.py ./output Adder --tui    # 启动TUI界面，或者执行 make test_Adder
 ```
 
 ### 快速开始
@@ -164,6 +157,7 @@ python ucagent.py ./examples/Adder Adder
 | 参数 | 简写 | 说明 | 示例 |
 |------|------|------|------|
 | `--config` | - | 指定配置文件路径 | `--config config.yaml` |
+| `--interaction-mode` | `-im` | 选择LLM交互模式，支持"standard", "enhanced", "advanced" | `-im enhanced` |
 | `--stream-output` | `-s` | 启用流式输出模式 | `-s` |
 | `--tui` | - | 启用终端UI界面 | `--tui` |
 | `--human` | `-hm` | 启用人工交互模式 | `-hm` |

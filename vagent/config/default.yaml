@@ -194,10 +194,8 @@ stage:
       - "第2步：设计create_dut()函数 - 负责创建和初始化芯片实例"
       - "第3步：配置时钟(时序电路需要，组合电路不需要)"
       - "第4步：实现dut fixture - 管理测试的完整生命周期"
-      - "第5步：创建API函数 - 以'api_'开头，封装常用操作"
       - "需要将结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
-      - "原则：让测试人员使用简单的API，而不是复杂的底层信号"
-      - "参考Guide_Doc/dut_fixture_and_api.md了解标准写法"
+      - "参考Guide_Doc/dut_fixture.md了解标准写法"
     stage:
      - name: dut_creation_implementation
        desc: "DUT创建函数实现"
@@ -212,7 +210,7 @@ stage:
            args:
              target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
-         - "Guide_Doc/dut_fixture_and_api.md"
+         - "Guide_Doc/dut_fixture.md"
          - "Guide_Doc/dut_function_coverage_def.md"
      - name: pytest_fixture_implementation
        desc: "pytest fixture实现"
@@ -225,24 +223,7 @@ stage:
            args:
              target_file: "{OUT}/tests/{DUT}_api.py"
        reference_files:
-         - "Guide_Doc/dut_fixture_and_api.md"
-     - name: basic_api_implementation
-       desc: "基础API实现"
-       task:
-         - "请参考文档：Guide_Doc/dut_fixture_and_api.md创建API"
-         - "至少实现1个基础API函数(以api_{DUT}_开头)"
-         - "确保API函数能正确调用底层接口"
-         - "每个API函数都必须要有对应的注释（位于函数__doc__）对功能进行详细描述，包括功能、输入参数、返回值等"
-         - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
-         - "例如：对于ALU，需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层API接口"
-       checker:
-         - name: api_check
-           clss: "UnityChipCheckerDutApi"
-           args:
-             api_prefix: "api_{DUT}_"
-             target_file: "{OUT}/tests/{DUT}_api.py"
-       reference_files:
-         - "Guide_Doc/dut_fixture_and_api.md"
+         - "Guide_Doc/dut_fixture.md"
 
   - name: coverage_model_implementation
     desc: "功能覆盖率模型实现"
@@ -293,11 +274,31 @@ stage:
         reference_files:
           - "Guide_Doc/dut_function_coverage_def.md"
 
+  - name: basic_api_implementation
+    desc: "基础API实现"
+    task:
+      - "请参考文档：Guide_Doc/dut_api_and_env.md创建API"
+      - "所有API以'api_'前缀开头，封装DUT的基本和常用操作"
+      - "至少实现1个基础API函数(以api_{DUT}_开头)"
+      - "原则：让测试人员使用简单的API，而不是复杂的底层信号"
+      - "确保API函数能正确调用底层接口"
+      - "每个API函数都必须要有对应的注释（位于函数__doc__）对功能进行详细描述，包括功能、输入参数、返回值等"
+      - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
+      - "把结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
+      - "例如：对于ALU，需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层API接口"
+    checker:
+      - name: api_check
+        clss: "UnityChipCheckerDutApi"
+        args:
+          api_prefix: "api_{DUT}_"
+          target_file: "{OUT}/tests/{DUT}_api.py"
+    reference_files:
+      - "Guide_Doc/dut_api_and_env.md"
   - name: basic_api_function_test
     desc: "基础API功能正确性测试"
     task:
       - "目标: 验证已实现的API函数功能是否正确，确保API接口质量"
-      - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_fixture_and_api.md，重点关注'API测试'部分"
+      - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_api_and_env.md，重点关注'API测试'部分"
       - "第2步：分析测试需求 - 查看{OUT}/{DUT}_functions_and_checks.md，了解需要测试的API功能点"
       - "第3步：创建API测试文件 - 在{OUT}/tests/目录下创建test_{DUT}_api_*.py测试文件"
       - "第4步：编写测试函数，每个测试函数需要："
@@ -331,10 +332,17 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
     reference_files:
-      - "Guide_Doc/dut_fixture_and_api.md"
+      - "Guide_Doc/dut_api_and_env.md"
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_function_coverage_def.md"
       - "Guide_Doc/dut_test_case.md"
+
+  # FIXME: TBD
+  # Optimal stage (setup_env):
+  #   - Create test environment based on the DUT API and fixtures
+  #   - Provide a ready-to-use test environment and APIs for subsequent test case implementation
+  #   - Ensure the test environment is stable and reliable
+  #   - This stage can be skipped if the dut is env-self-contained
 
   - name: test_framework_scaffolding
     desc: "测试框架脚手架构建"

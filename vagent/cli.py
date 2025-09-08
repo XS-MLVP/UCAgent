@@ -117,6 +117,13 @@ def get_args():
         help="Enable human input mode at the beginning of the run"
     )
     parser.add_argument(
+        "--interaction-mode",  "-im",
+        type=str, 
+        choices=["standard", "enhanced", "advanced"], 
+        default="standard", 
+        help="Set the interaction mode: 'standard' (default), 'enhanced' (planning & memory), or 'advanced' (adaptive strategies)"
+    )
+    parser.add_argument(
         "--seed", 
         type=int, 
         default=None, 
@@ -281,6 +288,7 @@ def run():
         no_embed_tools=args.no_embed_tools,
         force_stage_index=args.force_stage_index,
         no_write_targets=args.no_write,
+        interaction_mode=args.interaction_mode,
     )
     
     # Set break mode if human interaction or TUI is requested
