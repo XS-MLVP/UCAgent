@@ -1,4 +1,4 @@
-# UCAgent（UnityChip Verification Agent）
+# UCAgent（UnityChip verification Agent）
 
 基于大模型进行自动化UT验证AI 代理
 
@@ -16,13 +16,28 @@ UCAgent 是一个基于大语言模型的自动化硬件验证AI代理，专注�
 
 UCAgent 提供了完整的 Agent 与 LLM 交互逻辑，支持三种智能模式（standard、enhanced、advanced），并集成了丰富的文件操作工具，可通过标准化API与大语言模型进行直接交互。基于 Picker & Toffee 框架的芯片验证在本质上等价于软件测试，**因此现有的编程类 AI Agent（如 OpenHands、Copilot、Claude Code、Gemini-CLI、Qwen-Code 等）可以通过 MCP 协议与 UCAgent 进行深度协同，实现更优的验证效果和更高的自动化程度。[请参考"集成示例-gemini-cli"](#集成示例-gemini-cli)**
 
+-----
 
-**基本使用**
+#### 输入输出
+
 ```bash
 ucagent <workspace> <dut_name>
 ```
 
-参数：
+**输入：**
+ - `workspace：`工作目录，其中需包含待测设计（DUT），即由 picker 导出的 DUT 对应的 Python 包 `<DUT_DIR>`，例如：Adder
+  - `workspace/<DUT_DIR>/README.md:` 以自然语言描述的该DUT验证需求与目标
+  - 其他与验证相关的文件（例如：提供的测试实例、需求说明等）
+ - `dut_name:` 待测设计的名称，即 `<DUT_DIR>`
+
+**输出：**
+- `workspace/Guide_Doc：`验证过程中所遵循的各项要求与指导文档
+- `workspace/uc_test_report：` 生成的 Toffe-test 测试报告
+- `workspace/unity_test/tests：` 动生成的测试用例
+- `workspace/*.md：` 生成的各类文档，包括 Bug 分析、检查点记录、验证计划、验证结论等
+
+
+#### 参数说明
 ```bash
 usage: ucagent  [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
                 [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human]
@@ -120,12 +135,11 @@ pip install -r requirements.txt
 ```
 
 3. 编译dut，以编译example中的Adder为例
-4. 
 ```bash
 make init_Adder
 ```
 
-1. 使用 Python 脚本运行（功能与 `ucagent` 命令完全相同）：
+4. 运行 Python 脚本（功能与 `ucagent` 命令完全相同）：
 ```bash
 python ucagent.py --help                  # 查看帮助信息
 python ucagent.py ./output Adder --tui    # 启动TUI界面，或者执行 make test_Adder

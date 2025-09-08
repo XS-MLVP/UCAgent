@@ -1,4 +1,4 @@
-# UCAgent (UnityChip Verification Agent)
+# UCAgent (UnityChip verification Agent)
 
 AI Agent for Automated Unit Test Verification Based on Large Language Models
 
@@ -16,13 +16,29 @@ UCAgent is an automated hardware verification AI agent based on large language m
 
 UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation. [Please reference "Integration Example: Gemini-CLI"](#integration-example-gemini-cli)**
 
+-----
 
-**Basic Usage**
+#### Input and output
+
 ```bash
 ucagent <workspace> <dut_name>
 ```
 
-Parameters:
+**Input:**
+ - `workspace:` Working directory that must contain the Device Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
+  - `workspace/<DUT_DIR>/README.md:` Natural language description of the DUT verification requirements and objectives
+  - Other verification-related files (e.g., provided test examples, requirement specifications, etc.)
+ - `dut_name:` Name of the Device Under Test, i.e., `<DUT_DIR>`
+
+**Output:**
+- `workspace/Guide_Doc:` Requirements and guidance documents followed during the verification process
+- `workspace/uc_test_report:` Generated Toffee-test reports
+- `workspace/unity_test/tests:` Dynamically generated test cases
+- `workspace/*.md:` Generated documentation of various types, including bug analysis, checkpoint records, verification plans, verification conclusions, etc.
+
+
+#### Parameter Description
+
 ```bash
 usage: ucagent  [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
                 [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human]
