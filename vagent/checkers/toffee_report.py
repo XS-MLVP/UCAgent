@@ -86,6 +86,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             "1. Update the bug analysis documentation to include all relevant test failures.",
                             "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
+                            "4. Remove the un-related bug analysis marks in the bug analysis documentation if they are not related to the DUT bugs.",
                            f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in `Failed` test function, otherwise it is meaningless."
                             ]
 
