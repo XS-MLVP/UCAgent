@@ -17,6 +17,11 @@
 在实现fixture dut之前，需要先实现 `create_dut` 函数，他的作用是创建DUT。其基本结构如下：
 
 ```python
+import os
+
+def current_path_file(file_name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
+
 def create_dut():
     """创建DUT实例的工厂函数
     
@@ -27,7 +32,13 @@ def create_dut():
     from {dut_module} import DUT{DutClass}
     
     dut = DUT{DutClass}()
-    
+
+    # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
+    dut.SetCoverage(current_path_file("{dut_module}.dat"))
+
+    # 设置覆波形生成文件（根据需要设置，可选）
+    # dut.SetWaveform(current_path_file("{dut_module}.fst"))
+
     # 进行必要的初始化设置
     # 例如：设置默认值、复位等
     dut.reset.value = 1  # 示例：设置复位信号
@@ -39,7 +50,7 @@ def create_dut():
 
 ```python
 import pytest
-from toffee_test.reporter import set_func_coverage
+from toffee_test.reporter import set_func_coverage, set_line_coverage
 from {dut_name}_function_coverage_def import get_coverage_groups
 
 @pytest.fixture()
@@ -68,7 +79,11 @@ def dut(request):
     yield dut
     
     # 7. 测试后处理（清理阶段）
-    set_func_coverage(request, func_coverage_group)  # 向toffee_test传递覆盖率数据
+    set_func_coverage(request, func_coverage_group)  # 向toffee_test传递功能覆盖率数据
+
+    # 8. 设置需要收集的代码行覆盖率文件
+    set_line_coverage(request, current_path_file("{dut_module}.dat"))  # 向toffee_test传代码行递覆盖率数据
+
     for g in func_coverage_group:
         g.clear()  # 清空覆盖率统计
     dut.Finish()   # 清理DUT资源

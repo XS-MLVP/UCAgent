@@ -118,8 +118,9 @@ class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""
     name: str = "RunTestCases"
     description: str = (
-        "This tool is used to execute the test cases in the workspace."
-        "Returns the result of the test execution. You should call this tool after you have implemented or modified the DUT or test cases."
+        "This tool is used to execute the test cases in the workspace. "
+        "Returns the result of the test execution. You should call this tool after you have implemented or modified the DUT or test cases. "
+        "Current test directory is set to the '{TEST_DIR}',  the file path you passed should be relative to this directory."
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
@@ -228,7 +229,7 @@ class StageManager(object):
         self.last_check_info = {}
         self.tool_read_text = tool_read_text
         self.all_completed = False
-        self.free_pytest_run = UnityChipCheckerTestFree("", "", "").set_workspace(workspace)
+        self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
 
     def set_data(self, key, value):
         self.data[key] = value
@@ -244,7 +245,7 @@ class StageManager(object):
             ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
-            ToolRunTestCases().set_function(self.tool_run_test_cases),
+            ToolRunTestCases().set_function(self.tool_run_test_cases).render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
             ToolDoCheck().set_function(self.tool_check),
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),

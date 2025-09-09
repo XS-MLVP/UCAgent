@@ -2,10 +2,15 @@
 
 import pytest
 from {{DUT}}_function_coverage_def import get_coverage_groups
-from toffee_test.reporter import set_func_coverage
+from toffee_test.reporter import set_func_coverage, set_line_coverage
 
 # import your dut module here
 from {{DUT}} import DUT{{DUT}}  # Replace with the actual DUT class import
+
+import os
+
+def current_path_file(file_name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
 
 
 def create_dut():
@@ -16,7 +21,15 @@ def create_dut():
         dut_instance: An instance of the {{DUT}} class.
     """
     # Replace with the actual instantiation and initialization of your DUT
-    return DUT{{DUT}}()
+    dut = DUT{{DUT}}()
+
+    # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
+    dut.SetCoverage(current_path_file("{{DUT}}.dat"))
+
+    # 设置覆波形生成文件（根据需要设置，可选）
+    # dut.SetWaveform(current_path_file("{{DUT}}.fst"))
+
+    return dut
 
 
 @pytest.fixture()
@@ -33,6 +46,10 @@ def dut(request):
     yield dut
     # 测试后处理
     set_func_coverage(request, func_coverage_group)      # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
+
+    # 设置需要收集的代码行覆盖率文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
+    set_line_coverage(request, current_path_file("{{DUT}}.dat"))  # 向toffee_test传代码行递覆盖率数据
+
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计
     dut.Finish()                                         # 清理DUT，每个DUT class 都有 Finish 方法
