@@ -641,18 +641,18 @@ class ReadTextFile(UCTool, BaseReadWrite):
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgWriteTextFile(BaseModel):
+class ArgEditTextFile(BaseModel):
     path: str = Field(
         default=None,
-        description="Text file path to write, relative to the workspace. Created if not exists."
+        description="Text file path to edit, relative to the workspace. Created if not exists."
     )
     data: str = Field(
         default=None,
-        description="String data to write. If None, clears the content."
+        description="String data to edit. If None, clears the content."
     )
     mode: str = Field(
         default="replace",
-        description="Write mode: 'overwrite' (replace entire file), 'append' (add to end), or 'replace' (replace lines by index)."
+        description="Edit mode: 'overwrite' (replace entire file), 'append' (add to end), or 'replace' (replace lines by index)."
     )
     start: int = Field(
         default=0,
@@ -668,22 +668,23 @@ class ArgWriteTextFile(BaseModel):
     )
 
 
-class WriteTextFile(UCTool, BaseReadWrite):
-    """Write string data to a text file in the workspace with multiple modes."""
-    name: str = "WriteTextFile"
+class EditTextFile(UCTool, BaseReadWrite):
+    """Edit text file in the workspace with multiple modes (If file not exists, it will be created)."""
+    name: str = "EditTextFile"
     description: str = (
-        "Write string data to a text file in the workspace. Supports multiple write modes:\n"
+        "Edit text file in the workspace. Supports multiple edit modes:\n"
+        "- 'replace': Replace/insert lines at specific line indices (default)\n"
         "- 'overwrite': Replace entire file content\n"
         "- 'append': Add data to the end of the file\n"
-        "- 'replace': Replace/insert lines at specific line indices (default)\n"
-        "Creates file if it does not exist. For 'replace' mode, supports preserving indentation."
+        "Creates file if it does not exist. For 'replace' mode, supports preserving indentation.\n"
+        "When success, returns the difference summary, otherwise returns error message."
     )
-    args_schema: Optional[ArgsSchema] = ArgWriteTextFile
+    args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
 
     def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 0, count: int = -1, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Write data to a text file in the workspace with specified mode."""
+        """Edit data in a text file in the workspace with specified mode."""
         self.create_file = True  # ensure file is created if not exists
         # Validate mode parameter
         valid_modes = ["overwrite", "append", "replace"]
@@ -811,7 +812,7 @@ class WriteTextFile(UCTool, BaseReadWrite):
                     if count != -1:
                         diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
                     elif mode == "replace":
-                        diff_result = " (Warning: Your are replacing to end of file, it is not the best practice" + \
+                        diff_result = " (Warning: difference summary is ignored. You are replacing to end of file, it is not the best practice" + \
                                       " if you just want to edit part of the file content. And diff is not generated for this case.)"
                 return str_info(f"{operation_desc}.") + diff_result
 

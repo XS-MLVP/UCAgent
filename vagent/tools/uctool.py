@@ -87,6 +87,10 @@ class UCTool(BaseTool):
     def cb_force_exit(self):
         pass
 
+    def render_desc(self, kwargs):
+        self.description = fc.render_template(self.description, kwargs)
+        return self
+
     def is_force_exit(self):
         return self.force_exit
 

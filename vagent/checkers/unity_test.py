@@ -579,7 +579,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "COMPLETED_CASES":    completed if is_valid else "-",
             "TOTAL_CASES":        total if is_valid else "-",
             "LIST_CURRENT_CASES": self.current_test_cases,
-            "TEST_BATCH_RUN_ARGS": self.get_run_args()[0] if is_valid else "-",
+            "TEST_BATCH_RUN_ARGS": self.get_run_args(self.test_dir)[0] if is_valid else "-",
         }
 
     def get_run_args(self, test_dir=None):

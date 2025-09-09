@@ -99,7 +99,9 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
                                 "2. If these are test issues, fix the test logic to make them pass.",
-                                "3. Review test implementation and DUT behavior to determine root cause.",
+                                "3. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
+                                "4. Review test implementation and DUT behavior to determine root cause.",
+                                "5. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
                                 ]
     if failed_funcs_bins is not None:
