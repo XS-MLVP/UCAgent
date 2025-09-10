@@ -42,6 +42,7 @@ class VerifyUI:
         self.console_page_cache = None
         self.console_page_cache_index = 0
         self.content_task_fix_width = max(10, min(200, 40))  # Ensure reasonable bounds
+        self.status_content_fix_height = 5
         self.task_box_maxfiles = max(1, 5)  # Ensure minimum value
         self.last_cmd = None
         self.last_key = None
@@ -79,7 +80,7 @@ class VerifyUI:
             title=u"Messages")
 
         self.u_llm_pip = urwid.Pile([
-           (5, self.u_status_box),
+           (self.status_content_fix_height, self.u_status_box),
            self.u_messages_box
         ])
 
@@ -111,7 +112,12 @@ class VerifyUI:
         try:
             # Ensure width is within reasonable bounds
             self.content_task_fix_width = max(10, min(self.content_task_fix_width, 200))
-            
+            self.status_content_fix_height = max(3, min(self.status_content_fix_height, 100))
+            # Update status height in the pile
+            self.u_llm_pip = urwid.Pile([
+               (self.status_content_fix_height, self.u_status_box),
+               self.u_messages_box
+            ])
             # Update the layout
             self.root.body.contents[0] = (
                 urwid.Columns([
@@ -383,6 +389,20 @@ class VerifyUI:
                 self.complete_cmd(cmd)
             except Exception as e:
                 self.console_output.set_text(self._get_output(f"{YELLOW}Complete cmd Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
+        elif key == 'shift up':
+            try:
+                self.status_content_fix_height = max(3, self.status_content_fix_height - 1)  # Minimum height of 3
+                self.update_top_pane()
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
+        elif key == 'shift down':
+            try:
+                self.status_content_fix_height = min(100, self.status_content_fix_height + 1)  # Maximum height of 100
+                self.update_top_pane()
+            except Exception as e:
+                # If this fails, just ignore the keypress
+                pass
         elif key == 'ctrl up':
             try:
                 self.console_max_height = max(3, self.console_max_height + 1)  # Minimum height of 3
