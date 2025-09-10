@@ -221,7 +221,7 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server
 
 **Recommended Task Startup Prompt (with file tools):**
 
->First, please use the `RoleInfo` tool to get your role information, then complete tasks based on the MCP tools in unitytest, including all file operations. When completing each stage task, you need to use the `Check` tool to test whether it meets the standards. It will automatically run programs like pytest and return test results. If bugs are found during testing, detailed analysis is required, preferably with fix suggestions. Please perform file operations in the current working directory and do not exceed this directory.
+> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files.
 
 ### 2. Programming AI Tools (OpenHands, Cursor, Gemini-CLI, etc.)
 
@@ -234,7 +234,7 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 
 **Recommended Task Startup Prompt (without file tools):**
 
-> First, please use the `RoleInfo` tool to get your role information, then complete tasks based on the MCP tools in unitytest. When executing tasks, you can get task hints through `CurrentTips`. Note that you need to use `ReadTextFile` to read text files, otherwise I won't know if you've performed read operations. You can choose tools you're familiar with for file write operations. When completing each stage task, you need to use the `Check` tool to test whether it meets standards. It will automatically run programs like pytest and return test results. If bugs are found during testing, detailed analysis is required, preferably with fix suggestions. Please perform file operations in the current working directory and do not exceed this directory.
+> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files. You need perform file operations in the current working directory and do not exceed that directory.
 
 **Simplified Configuration (no embedding tools):**
 
@@ -291,7 +291,7 @@ gemini
 
 **Input Task Prompt:**
 
-> First, please use the `RoleInfo` tool to get your role information, then complete tasks based on the MCP tools in unitytest. When executing tasks, you can get task hints through `CurrentTips`. Note that you need to use `ReadTextFile` to read text files, otherwise I won't know if you've performed read operations. You can choose tools you're familiar with for file write operations. When completing each stage task, you need to use the `Check` tool to test whether it meets standards. It will automatically run programs like pytest and return test results. If bugs are found during testing, detailed analysis is required, preferably with fix suggestions. Please perform file operations in the current working directory and do not exceed this directory.
+> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files. You need perform file operations in the current working directory and do not exceed that directory.
 
 **Monitor Progress:**
 
