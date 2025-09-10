@@ -669,15 +669,16 @@ class ArgEditTextFile(BaseModel):
 
 
 class EditTextFile(UCTool, BaseReadWrite):
-    """Edit text file in the workspace with multiple modes (If file not exists, it will be created)."""
+    """Edit or create text file in the workspace with multiple modes (If file not exists, it will be created)."""
     name: str = "EditTextFile"
     description: str = (
-        "Edit text file in the workspace. Supports multiple edit modes:\n"
+        "Edit or create text file in the workspace. Supports multiple edit modes:\n"
         "- 'replace': Replace/insert lines at specific line indices (default)\n"
         "- 'overwrite': Replace entire file content\n"
         "- 'append': Add data to the end of the file\n"
         "Creates file if it does not exist. For 'replace' mode, supports preserving indentation.\n"
-        "When success, returns the difference summary, otherwise returns error message."
+        "When success, returns the difference summary, otherwise returns error message.\n"
+        "It is recommended to use 'replace' mode in common cases (default mode) which is token saving."
     )
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False

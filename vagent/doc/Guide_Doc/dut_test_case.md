@@ -192,57 +192,57 @@ import pytest
 class TestAdderBasic:
     """加法器基础功能测试"""
     
-    def test_basic_addition(self, dut):
-        """测试基本加法功能"""
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_basic_addition, 
-                                                    ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
+def test_basic_addition(dut):
+    """测试基本加法功能"""
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_basic_addition, 
+                                                ["CK-BASIC", "CK-ZERO", "CK-CARRY-IN"])
+    test_cases = [
+        (1, 2, 0, 3, 0),      # 简单加法
+        (0, 0, 0, 0, 0),      # 零值加法
+        (10, 15, 1, 26, 0),   # 带进位输入
+    ]
+    
+    for a, b, cin, expected_sum, expected_cout in test_cases:
+        sum_result, cout_result = api_adder_add(dut, a, b, cin)
+        assert sum_result == expected_sum, f"加法错误: {a}+{b}+{cin}={sum_result}, 期望{expected_sum}"
+        assert cout_result == expected_cout, f"进位错误: {a}+{b}+{cin}, cout={cout_result}, 期望{expected_cout}"
 
-        test_cases = [
-            (1, 2, 0, 3, 0),      # 简单加法
-            (0, 0, 0, 0, 0),      # 零值加法
-            (10, 15, 1, 26, 0),   # 带进位输入
-        ]
-        
-        for a, b, cin, expected_sum, expected_cout in test_cases:
-            sum_result, cout_result = api_adder_add(dut, a, b, cin)
-            assert sum_result == expected_sum, f"加法错误: {a}+{b}+{cin}={sum_result}, 期望{expected_sum}"
-            assert cout_result == expected_cout, f"进位错误: {a}+{b}+{cin}, cout={cout_result}, 期望{expected_cout}"
 
-    def test_overflow_scenarios(self, dut):
-        """测试溢出场景"""
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_overflow_scenarios, 
-                                                    ["CK-OVERFLOW", "CK-CARRY-OVERFLOW"])
+def test_overflow_scenarios(dut):
+    """测试溢出场景"""
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_overflow_scenarios, 
+                                                ["CK-OVERFLOW", "CK-CARRY-OVERFLOW"])
+    max_64bit = (1 << 64) - 1
+    
+    # 最大值 + 1 溢出
+    sum_result, cout_result = api_adder_add(dut, max_64bit, 1, 0)
+    assert cout_result == 1, "溢出时应设置进位标志"
+    
+    # 最大值 + 最大值溢出
+    sum_result, cout_result = api_adder_add(dut, max_64bit, max_64bit, 0)
+    assert cout_result == 1, "大数相加溢出时应设置进位标志"
+    
+    # 带进位的溢出
+    sum_result, cout_result = api_adder_add(dut, max_64bit, 0, 1)
+    assert cout_result == 1, "最大值加进位应产生溢出"
 
-        max_64bit = (1 << 64) - 1
-        
-        # 最大值 + 1 溢出
-        sum_result, cout_result = api_adder_add(dut, max_64bit, 1, 0)
-        assert cout_result == 1, "溢出时应设置进位标志"
-        
-        # 最大值 + 最大值溢出
-        sum_result, cout_result = api_adder_add(dut, max_64bit, max_64bit, 0)
-        assert cout_result == 1, "大数相加溢出时应设置进位标志"
-        
-        # 带进位的溢出
-        sum_result, cout_result = api_adder_add(dut, max_64bit, 0, 1)
-        assert cout_result == 1, "最大值加进位应产生溢出"
 
-    def test_boundary_conditions(self, dut):
-        """测试边界条件"""
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_boundary_conditions, 
-                                                    ["CK-BOUNDARY-MAX", "CK-BOUNDARY-ZERO"])
-        max_val = (1 << 64) - 1
+def test_boundary_conditions(dut):
+    """测试边界条件"""
+    dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_boundary_conditions, 
+                                                ["CK-BOUNDARY-MAX", "CK-BOUNDARY-ZERO"])
+    max_val = (1 << 64) - 1
+    # 最大值与0相加
+    sum_result, cout_result = api_adder_add(dut, max_val, 0, 0)
+    assert sum_result == max_val, "最大值加0应该等于最大值"
+    assert cout_result == 0, "最大值加0不应产生进位"
+    # 0与最大值相加
+    sum_result, cout_result = api_adder_add(dut, 0, max_val, 0)
+    assert sum_result == max_val, "0加最大值应该等于最大值"
+    assert cout_result == 0, "0加最大值不应产生进位"
 
-        # 最大值与0相加
-        sum_result, cout_result = api_adder_add(dut, max_val, 0, 0)
-        assert sum_result == max_val, "最大值加0应该等于最大值"
-        assert cout_result == 0, "最大值加0不应产生进位"
 
-        # 0与最大值相加
-        sum_result, cout_result = api_adder_add(dut, 0, max_val, 0)
-        assert sum_result == max_val, "0加最大值应该等于最大值"
-        assert cout_result == 0, "0加最大值不应产生进位"
-
+# 也可以把相同类别的测试用例放入同一个Test Class中进行归类
 
 class TestAdderError:
     """加法器错误处理测试"""
