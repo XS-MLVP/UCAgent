@@ -1,6 +1,4 @@
 #coding=utf-8
-import pytest
-
 
 class DutPins:
     """DutPins provides dynamic access to DUT pins based on a provided mapping."""
@@ -97,6 +95,17 @@ class DualPortEnv:
         self.port1 = SinglePort(dut, "1")
 
     def push_pop_list(self, data_list0, data_list1, max_cycles=100, ex_cycles=10):
+        """Push and pop data between two ports.
+
+        Args:
+            data_list0 (_type_): data list for port 0, can contain integers (for push), None or "POP" strings.
+            data_list1 (_type_): data list for port 1, can contain integers (for push), None or "POP" strings.
+            max_cycles (int, optional): maximum number of cycles to run. Defaults to 100.
+            ex_cycles (int, optional): number of extra cycles to run after processing. Defaults to 10.
+
+        Returns:
+            pop_list0, pop_list1: lists of popped data from port 0 and port 1 respectively.
+        """
         self.reset()
         self.port0.push_list = data_list0
         self.port1.push_list = data_list1
@@ -123,8 +132,3 @@ class DualPortEnv:
         self.dut.Step(1)
         self.port0.reset()
         self.port1.reset()
-
-
-@pytest.fixture()
-def env(dut):
-    return DualPortEnv(dut)

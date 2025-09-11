@@ -7,6 +7,12 @@
 
 ### 概述
 
+根据验证需要，unitytest 定义了2类Fixture：
+
+- dut：必须实现（有且仅有一个），用于获得待验证模块的实例。
+- env：根据需要可选实现，用户获得验证环境（可以有多个， 名称以env开头）。
+
+#### dut Fixture
 在所有测试函数中，都需要通过参数 `dut` 获取DUT的实例，因此需要提供对应的pytest fixture。DUT fixture负责：
 
 1. **实例化DUT**：创建和初始化被测设计
@@ -46,7 +52,7 @@ def create_dut():
     return dut
 ```
 
-### 标准 Fixture 实现
+dut Fixture 参考如下：
 
 ```python
 import pytest
@@ -89,6 +95,185 @@ def dut(request):
     dut.Finish()   # 清理DUT资源
 
 ```
+
+#### env Fixture
+
+在DUT接口或者逻辑比较复杂时，或者需要依赖其他组件时，仅仅对DUT的接口进行操作可能无法满足验证需求，为此需要在DUT之上提供更高层次的抽象来简化测试用例（例如封装依赖组件、封装复杂逻辑、封装Reference Model等），该环境我们称为测试环境（Test Environment）。例如 Cache + Memory 构造的验证环境。env Fixture依赖 dut Fixture，具体参考如下：
+
+##### 基本用法
+
+```python
+class MyTestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        # 初始化测试环境相关组件
+        self._setup_environment()
+    
+    def _setup_environment(self):
+        """初始化测试环境"""
+        # 配置默认状态
+        self.reset_system()
+        # 初始化内部状态
+        self._transaction_count = 0
+    
+    def reset_system(self):
+        """系统复位"""
+        self.dut.reset.value = 1
+        self.dut.Step()
+        self.dut.reset.value = 0
+        self.dut.Step()
+    
+    def wait_cycles(self, cycles):
+        """等待指定周期数"""
+        for _ in range(cycles):
+            self.dut.Step()
+
+@pytest.fixture()
+def env(dut):
+    return MyTestEnv(dut)
+
+@pytest.fixture()
+def env_simple(dut):
+    return MyTestEnv(dut)
+
+```
+
+**注意：** 和dut Fixture不同，env Fixture可以有多个（eg： env, env_1, env_fast, ...），他们的名字必须以env开头。
+
+##### 高级用法示例
+
+**1. 带Reference Model的环境**
+
+```python
+class CPUTestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.ref_model = CPUReferenceModel()  # 参考模型
+        self.memory = MemoryModel()           # 内存模型
+        self.instruction_queue = []           # 指令队列
+        
+    def execute_instruction(self, instruction):
+        """执行指令并与参考模型对比"""
+        # DUT执行
+        dut_result = self._execute_on_dut(instruction)
+        
+        # 参考模型执行
+        ref_result = self.ref_model.execute(instruction)
+        
+        # 结果比较
+        assert dut_result == ref_result, f"结果不匹配: DUT={dut_result}, REF={ref_result}"
+        
+        return dut_result
+    
+    def load_program(self, program):
+        """加载程序到内存"""
+        for addr, instr in enumerate(program):
+            self.memory.write(addr, instr)
+
+@pytest.fixture()
+def env_cpu(dut):
+    return CPUTestEnv(dut)
+```
+
+**2. 协议封装环境**
+
+```python
+class AXITestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.axi_master = AXIMaster(dut)      # AXI主控接口封装
+        self.axi_slave = AXISlave(dut)        # AXI从设备接口封装
+        self.outstanding_transactions = {}     # 未完成事务跟踪
+        
+    async def write_burst(self, addr, data, burst_len=1):
+        """AXI突发写事务"""
+        transaction_id = self._get_next_id()
+        
+        # 地址通道
+        await self.axi_master.send_write_addr(addr, burst_len, transaction_id)
+        
+        # 数据通道
+        for i, data_beat in enumerate(data):
+            last = (i == len(data) - 1)
+            await self.axi_master.send_write_data(data_beat, last)
+        
+        # 等待响应
+        response = await self.axi_master.wait_write_response(transaction_id)
+        return response
+    
+    async def read_burst(self, addr, burst_len=1):
+        """AXI突发读事务"""
+        transaction_id = self._get_next_id()
+        
+        # 发送读地址
+        await self.axi_master.send_read_addr(addr, burst_len, transaction_id)
+        
+        # 接收读数据
+        data = []
+        for _ in range(burst_len):
+            read_data = await self.axi_master.wait_read_data(transaction_id)
+            data.append(read_data)
+        
+        return data
+
+@pytest.fixture()
+def env_aix(dut):
+    return AXITestEnv(dut)
+```
+
+**3. 多组件协同环境**
+
+```python
+class SoCTestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.cpu_env = CPUTestEnv(dut.cpu)
+        self.cache_env = CacheTestEnv(dut.cache)  
+        self.memory_env = MemoryTestEnv(dut.memory)
+        self.interrupt_controller = InterruptController(dut.pic)
+        
+    def boot_system(self):
+        """系统启动序列"""
+        # 1. 复位所有组件
+        self.reset_all_components()
+        
+        # 2. 初始化内存
+        self.memory_env.load_bootloader()
+        
+        # 3. 配置中断控制器
+        self.interrupt_controller.configure()
+        
+        # 4. 启动CPU
+        self.cpu_env.start_execution()
+        
+    def run_benchmark(self, benchmark_name):
+        """运行基准测试"""
+        program = self.load_benchmark(benchmark_name)
+        self.memory_env.load_program(program)
+        
+        start_cycles = self.dut.cycle_count.value
+        result = self.cpu_env.run_until_halt()
+        end_cycles = self.dut.cycle_count.value
+        
+        return {
+            'result': result,
+            'cycles': end_cycles - start_cycles,
+            'cache_stats': self.cache_env.get_statistics()
+        }
+
+@pytest.fixture()
+def env_soc(dut):
+    return SoCTestEnv(dut)
+```
+
+**注意事项：**
+- env Fixture不是必要的，请根据DUT的复杂度来定
+- env Fixture必须返回一个Class实例，且必须有dut属性
+- 环境类应该封装复杂的DUT操作，提供高层次的API
+- 建议在环境类中实现自检和调试功能
+- 环境类应该负责自己的资源管理和清理
+- 考虑使用async/await支持异步操作（如果需要）
+
 
 ### 时钟配置指南
 

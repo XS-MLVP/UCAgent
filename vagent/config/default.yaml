@@ -226,6 +226,7 @@ stage:
            clss: "UnityChipCheckerDutFixture"
            args:
              target_file: "{OUT}/tests/{DUT}_api.py"
+             min_env: 0
        reference_files:
          - "Guide_Doc/dut_fixture.md"
 

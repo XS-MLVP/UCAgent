@@ -55,15 +55,25 @@ def dut(request):
     dut.Finish()                                         # 清理DUT，每个DUT class 都有 Finish 方法
 
 
+# 如果需要定义env fixture, 请取消下面的注释，并根据需要修改名称
+# @pytest.fixture()
+# def env(dut):
+#     return MyEnv(dut)
+#
+# @pytest.fixture()
+# def env1(dut):
+#     return MyEnv1(dut)
+#
+#
 # 根据DUT的功能需要，定义API函数， API函数需要通用且稳定，不是越多越好
-# def api_{{DUT}}_{operation_name}(dut, ...):
+# def api_{{DUT}}_{operation_name}(env, ...):
 #    """
 #    api description and parameters
 #    ...
 #    """
+#    dut = env.dut
 #    dut.some_input.value = value
 #    dut.Step()
 #    return dut.some_output.value
 #    # Replace with the actual API function for your DUT
 #    ...
-#

@@ -105,8 +105,9 @@ class UnityChipCheckerDutCreation(Checker):
 
 
 class UnityChipCheckerDutFixture(Checker):
-    def __init__(self, target_file):
+    def __init__(self, target_file, min_env=0):
         self.target_file = target_file
+        self.min_env = min_env
 
     def do_check(self) -> Tuple[bool, object]:
         """Check the DUT fixture implementation for correctness."""
@@ -146,6 +147,18 @@ class UnityChipCheckerDutFixture(Checker):
             # If we can't parse the source code, fall back to the generator function check
             # which should be sufficient in most cases
             pass
+        env_func_list = fc.get_target_from_file(self.get_path(self.target_file), "env*",
+                                             ex_python_path=self.workspace,
+                                             dtype="FUNC")
+        for env_func in env_func_list:
+            args = fc.get_func_arg_list(env_func)
+            if len(args) != 1 or args[0] != "dut":
+                return False, {"error": f"The '{env_func.__name__}' fixture has only one arg named 'dut', but got ({', '.join(args)})."}
+            if not (hasattr(env_func, '_pytestfixturefunction') or "pytest_fixture" in str(env_func)):
+                return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+        if len(env_func_list) < self.min_env:
+            return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
+                                    f"You have defined {len(env_func_list)} env fixtures: {[f.__name__ for f in env_func_list]}."}
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
@@ -168,11 +181,11 @@ class UnityChipCheckerDutApi(Checker):
             if not args or len(args) < 1:
                 failed_apis.append(func)
                 continue
-            if args[0] != "dut":
+            if not (args[0] == "dut" or args[0].startswith("env")):
                 failed_apis.append(func)
         if len(failed_apis) > 0:
             return False, {
-                "error": f"The following API functions have invalid or missing arguments. The first arg must be 'dut'",
+                "error": f"The following API functions have invalid or missing arguments. The first arg must be 'dut' or 'env*'",
                 "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
             }
         if len(func_list) < self.min_apis:

@@ -48,7 +48,7 @@ def api_demo_op(dut, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
     如果有特殊的使用注意事项或限制条件，也要在这里说明。
 
     Args:
-        dut: DUT实例，必须是已初始化的{DUT_NAME}对象
+        dut: DUT实例/Env实例，必须是已初始化的{DUT_NAME}对象/带{DUT_NAME}的Env
         a (int): 第一个操作数，取值范围[0, 2^32-1]，表示输入A的数值
         b (int): 第二个操作数，取值范围[0, 2^32-1]，表示输入B的数值
         mode (str, optional): 操作模式，可选值为"add"/"sub"/"mul"，默认为"add"
