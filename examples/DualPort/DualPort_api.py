@@ -1,94 +1,130 @@
 #coding=utf-8
+import pytest
 
 
 class DutPins:
+    """DutPins provides dynamic access to DUT pins based on a provided mapping."""
     def __init__(self, pin_maps):
         self.pins = pin_maps
     def __getattribute__(self, name):
+        if name == "pins":
+            return super().__getattribute__(name)
         if name in self.pins:
             return self.pins[name]
         return super().__getattribute__(name)
 
 
-def api_DualPort_reset(dut):
-    """Reset the DUT by setting rst to 1 for one cycle, then set it back to 0."""
-    dut.rst.value = 1
-    dut.Step(1)
-    dut.rst.value = 0
-    dut.Step(1)
-    return True
+class SinglePort:
+    """SinglePort manages a single port of the DUT, handling push and pop operations."""
+    def __init__(self, dut, prefix):
+        self.dut = dut
+        self.port = DutPins({
+            "in_valid":  getattr(dut, f"in{prefix}_valid"),
+            "in_ready":  getattr(dut, f"in{prefix}_ready"),
+            "in_data":   getattr(dut, f"in{prefix}_data"),
+            "in_cmd":    getattr(dut, f"in{prefix}_cmd"),
+            "out_valid": getattr(dut, f"out{prefix}_valid"),
+            "out_ready": getattr(dut, f"out{prefix}_ready"),
+            "out_data":  getattr(dut, f"out{prefix}_data"),
+            "out_cmd":   getattr(dut, f"out{prefix}_cmd"),
+        })
+        self.ret_pop_list = []
+        self.push_list = []
+        self.cmd = None
+        self.prefix = prefix
+        self.state = 0 #  0: idle, 1: send cmd, 2: wait rsp
+
+    def reset(self):
+        self.ret_pop_list = []
+        self.push_list = []
+        self.cmd = None
+        self.state = 0
+
+    def is_busy(self):
+        return self.state != 0
+
+    def _push(self, value):
+        if value is None:
+            return False
+        self.port.in_valid.value = 1
+        self.port.in_cmd.value = 0
+        self.port.in_data.value = value
+
+    def _pop(self):
+        self.port.in_valid.value = 1
+        self.port.in_cmd.value = 1
+        self.port.in_data.value = 0
+
+    def data_handler(self, c):
+        # state machine for push/pop
+        if self.state == 1:
+            if self.port.in_ready.value == 1:
+                self.port.in_valid.value = 0
+                self.port.out_ready.value = 1
+                self.state = 2
+                if self.port.in_cmd.value == 0:
+                    # push command sent
+                    pass
+        elif self.state == 2:
+            if self.port.out_valid.value == 1:
+                self.port.out_ready.value = 0
+                self.state = 0
+                if self.port.out_cmd.value == 3:
+                    self.ret_pop_list.append(self.port.out_data.value)
+        if self.state == 0:
+            if self.cmd is None and len(self.push_list) > 0:
+                self.cmd = self.push_list.pop(0)
+            if self.cmd is not None:
+                if self.cmd == "POP":
+                    self._pop()
+                else:
+                    self._push(self.cmd)
+                self.state = 1
+                self.cmd = None
+
+    def is_idle(self):
+        return self.cmd is None and len(self.push_list) == 0 and not self.is_busy()
+
+    def stat(self):
+        return f"Port {self.prefix}: push_list={self.push_list}, ret_pop_list={self.ret_pop_list}, state={self.state}, cmd={self.cmd}"
 
 
-def api_DualPort_push_and_pop(dut, data_for_port_0: list, data_for_port_1: list, ex_cycles=10):
-    """Push and pop data on two ports of the DUT.
-    Each cycle, push/pop data from data_for_port_0 and data_for_port_1,
-    If the data is None, skip that cycle.
-    If the data is a number, perform a push operation.
-    If the data is a string "POP", perform a pop operation.
-    The popped values are collected in ret_pop_list_0 and ret_pop_list_1.
-    If the DUT is not ready for push/pop operations, the operation is delayed to the next cycle.
-    Example:
-        api_DualPort_push_and_pop(dut,
-            [1, 2, 3],
-            [1, None, "POP"]
-            )
-        returns:
-            ret_pop_list_0: []
-            ret_pop_list_1: [3]
-    Args:
-        dut: The DualPort instance.
-        data_for_port_0: List of data to push/pop for port 0.
-        data_for_port_1: List of data to push/pop for port 1.
-        ex_cycles: Extra cycles to wait after all data has been processed.
-    Returns:
-        ret_pop_list_0: List of popped values from port 0.
-        ret_pop_list_1: List of popped values from port 1.
-    """
-    port0 = DutPins({
-        "in_valid": dut.in0_valid, "in_ready": dut.in0_ready,   "in_data": dut.in0_data,
-        "in_cmd": dut.in0_cmd,     "out_valid": dut.out0_valid, "out_ready": dut.out0_ready,
-        "out_data": dut.out0_data, "out_cmd": dut.out0_cmd,
-    })
-    port1 = DutPins({
-        "in_valid": dut.in1_valid, "in_ready": dut.in1_ready,   "in_data": dut.in1_data,
-        "in_cmd": dut.in1_cmd,     "out_valid": dut.out1_valid, "out_ready": dut.out1_ready,
-        "out_data": dut.out1_data, "out_cmd": dut.out1_cmd,
-    })
-    ret_pop_list_0 = []
-    ret_pop_list_1 = []
-    def push(port, data):
-        if data is None:
-            return True
-        if port.in_ready.value == 1:
-            port.in_valid.value = 1
-            port.in_cmd.value = 0
-            port.in_data.value = data
-            return True
-        return False
-    def pop(port, ret_list):
-        if port.out_valid.value == 1:
-            ret_list.append(port.out_data.value)
-            return True
-        return False
-    def push_pop_task(data_list, port, ret_list):
-        port.in_valid.value = 0
-        port.out_ready.value = 0
-        if len(data_list) == 0:
-            return
-        data = data_list[0]
-        if data != "POP":
-            if push(port, data):
-                data_list.pop(0)
-        else:
-            port.out_ready.value = 1
-            if pop(port, ret_list):
-                data_list.pop(0)
-    dut.xclock.ClearRisCallBacks()
-    dut.StepRis(lambda c: push_pop_task(data_for_port_0, port0, ret_pop_list_0))
-    dut.StepRis(lambda c: push_pop_task(data_for_port_1, port1, ret_pop_list_1))
-    while len(data_for_port_1) > 0 or len(data_for_port_0) > 0:
-        dut.Step(1)
-    if ex_cycles > 0:
-        dut.Step(ex_cycles)
-    dut.xclock.ClearRisCallBacks()
-    return ret_pop_list_0, ret_pop_list_1
+class DualPortEnv:
+    """DualPortEnv manages two SinglePort instances, providing a higher-level interface for testing."""
+    def __init__(self, dut):
+        self.dut = dut
+        self.port0 = SinglePort(dut, "0")
+        self.port1 = SinglePort(dut, "1")
+
+    def push_pop_list(self, data_list0, data_list1, max_cycles=100, ex_cycles=10):
+        self.reset()
+        self.port0.push_list = data_list0
+        self.port1.push_list = data_list1
+        self.dut.xclock.ClearRisCallBacks()
+        self.dut.StepRis(self.port0.data_handler)
+        self.dut.StepRis(self.port1.data_handler)
+        count = 0
+        while (not self.port0.is_idle() or not self.port1.is_idle()) and count < max_cycles:
+            self.dut.Step(1)
+            count += 1
+        if  (not self.port0.is_idle() or not self.port1.is_idle()) > 0:
+            print("Warning: max_cycles reached, some data may not be processed.")
+            print(self.port0.stat())
+            print(self.port1.stat())
+        if ex_cycles > 0:
+            self.dut.Step(ex_cycles)
+        self.dut.xclock.ClearRisCallBacks()
+        return self.port0.ret_pop_list, self.port1.ret_pop_list
+
+    def reset(self):
+        self.dut.rst.value = 1
+        self.dut.Step(1)
+        self.dut.rst.value = 0
+        self.dut.Step(1)
+        self.port0.reset()
+        self.port1.reset()
+
+
+@pytest.fixture()
+def env(dut):
+    return DualPortEnv(dut)
