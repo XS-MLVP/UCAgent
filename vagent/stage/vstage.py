@@ -118,7 +118,7 @@ class VerifyStage(object):
             emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
             for k, v in self.reference_files.items():
                 if not v:
-                    emsg["files_need_read"].append(k + f"(Not readed, need ReadTextFile('{k}'))")
+                    emsg["files_need_read"].append(k + f" (Not readed, need ReadTextFile('{k}'))")
             self.fail_count += 1
             return False, emsg
         self.check_pass = True

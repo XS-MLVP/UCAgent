@@ -307,7 +307,8 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
         bins_fail_funcs = {}
         for b in bins_fail:
             passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
-            if passed_func:
+            failed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] != "PASSED"]
+            if len(passed_func) > 0 and len(failed_func) == 0:
                 bins_fail_funcs[b] = passed_func
         ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
     ret_data["unmarked_check_points"] = len(bins_unmarked)
