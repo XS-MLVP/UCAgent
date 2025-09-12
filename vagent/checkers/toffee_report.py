@@ -81,12 +81,12 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             ]
         if len(un_failed_bug_marks) > 0:
             info(f"Failed checkpoints in test report: {', '.join(failed_fb)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points ({', '.join(un_failed_bug_marks)}) which are not found in the failed test functions. " + \
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points ({', '.join(un_failed_bug_marks)}) which are not found in the failed test case functions. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
-                            "1. Update the bug analysis documentation to include all relevant test failures.",
-                            "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
-                            "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
-                            "4. Remove the un-related bug analysis marks in the bug analysis documentation if they are not related to the DUT bugs.",
+                            "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
+                            "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed).",
+                            "3. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
+                            "4. If the checkpoints related bug is not consistently reproducible by the test case, please consider mark them in a must `Fail` test function with description (eg: Assert False, '<bug description>').",
                            f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in `Failed` test function, otherwise it is meaningless."
                             ]
 
@@ -117,7 +117,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                         un_buged_cks[cb] = []
                     un_buged_cks[cb].append(func)
         if len(un_buged_cks) > 0:
-            return False, [f"The flow checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
+            return False, [f"The following checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
                          *[f"  Check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
                            "You need:",
                            "1. Document these checkpoints in the bug analysis file with appropriate marks.",

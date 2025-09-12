@@ -98,6 +98,10 @@ class ArgCheck(BaseModel):
             "• '-m marker': Run tests with specific markers\n"
         )
     )
+    timeout: int = Field(
+        default=0,
+        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+    )
 
     class Config:
         """Pydantic model configuration."""
@@ -124,14 +128,21 @@ class ToolRunTestCases(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
-    def _run(self, target=""):
+    def _run(self, target="", timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
-            return self.function(target)
+            return self.function(target, timeout)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Test execution failed: {str(e)}"
             info(error_msg)
             return  error_msg
+
+
+class ArgTimeout(BaseModel):
+    timeout: int = Field(
+        default=0,
+        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+    )
 
 
 class ToolDoCheck(ManagerTool):
@@ -141,7 +152,8 @@ class ToolDoCheck(ManagerTool):
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
         "The tool provides detailed feedback. Call this tool frequently to ensure continuous quality validation."
     )
-    def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    args_schema: Optional[ArgsSchema] = ArgTimeout
+    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
         
@@ -153,7 +165,7 @@ class ToolDoCheck(ManagerTool):
             str: Comprehensive validation report in JSON format
         """
         try:
-            return self.function()
+            return self.function(timeout)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
@@ -173,6 +185,15 @@ class ToolDoComplete(ManagerTool):
         "You should double check your work before calling this tool. \n"
         "Returns the result of the completion."
     )
+    args_schema: Optional[ArgsSchema] = ArgTimeout
+    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        try:
+            return self.function(timeout)
+        except Exception as e:
+            traceback.print_exc()
+            error_msg = f"Completion failed: {str(e)}"
+            info(error_msg)
+            return  error_msg
 
 
 class ArgToolGoToStage(BaseModel):
@@ -329,18 +350,13 @@ class StageManager(object):
             msg = f"Invalid stage index: {index}. No change made."
         return {"message": msg, "success": success}
 
-    def check(self, target: str=""):
+    def check(self, timeout):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
-        func_check = self.stages[self.stage_index].do_check
-        args = []
-        if len(inspect.signature(func_check).parameters) > 1:
-            args = [target]
-        info(f"Running check for stage {self.stage_index} with args: {args}")
-        ck_pass, ck_info = func_check(*args)
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout})
         ret_data = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
@@ -350,7 +366,7 @@ class StageManager(object):
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         return ret_data
 
-    def complete(self):
+    def complete(self, timeout):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
@@ -358,7 +374,7 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
-        ck_pass, ck_info = self.stages[self.stage_index].do_check()
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout})
         self.last_check_info = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
@@ -417,8 +433,8 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return ret
 
-    def tool_check(self):
-        ret = yam_str(self.check())
+    def tool_check(self,  timeout):
+        ret = yam_str(self.check(timeout))
         info("ToolCheck:\n" + ret)
         return ret
 
@@ -427,8 +443,8 @@ class StageManager(object):
         info("ToolExit:\n" + ret)
         return ret
 
-    def tool_complete(self):
-        ret = yam_str(self.complete())
+    def tool_complete(self, timeout):
+        ret = yam_str(self.complete(timeout))
         info("ToolComplete:\n" + ret)
         return ret
 
@@ -466,11 +482,11 @@ class StageManager(object):
         info("Tips:\n" + tips)
         return tips
 
-    def tool_run_test_cases(self, pytest_args=""):
+    def tool_run_test_cases(self, pytest_args="", timeout=0):
         """
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = yam_str(self.free_pytest_run.do_check(pytest_args)[1])
+        ret = yam_str(self.free_pytest_run.do_check(pytest_args, timeout=timeout)[1])
         info("RunTestCases:\n" + ret)
         return ret

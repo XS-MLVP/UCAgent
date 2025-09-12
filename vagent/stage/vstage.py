@@ -112,7 +112,7 @@ class VerifyStage(object):
             ret.append(f"{c.__class__.__name__}:\n{c.check_std(lines)}")
         return "\n".join(ret)
 
-    def do_check(self):
+    def do_check(self, *a, **kwargs):
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
             emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
@@ -123,7 +123,7 @@ class VerifyStage(object):
             return False, emsg
         self.check_pass = True
         for i, c in enumerate(self.checker):
-            ck_pass, ck_msg = c.check()
+            ck_pass, ck_msg = c.check(*a, **kwargs)
             if self.check_info[i] is None:
                 self.check_info[i] = {
                     "name": c.__class__.__name__,

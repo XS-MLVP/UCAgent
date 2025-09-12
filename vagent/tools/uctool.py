@@ -173,6 +173,10 @@ class UCTool(BaseTool):
         if not isinstance(ctx, Context):
             return await super().ainvoke(input, config, **kwargs)
         fc.info(f"call {self.__class__.__name__} in Stream-MPC mode")
+        timeout = input.get("timeout", None)
+        if timeout is not None:
+            timeout = int(timeout) + self.call_time_out
+            fc.info(f"force set tool ({self.__class__.__name__}) timeout to {timeout} (timeout + call_time_out) seconds")
         if self.is_in_streaming:
             error_msg = {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
             fc.info(str(error_msg))
@@ -183,7 +187,7 @@ class UCTool(BaseTool):
             return error_msg
         self.is_in_streaming = True
         self.reset_force_exit()
-        alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out, ctx), daemon=True)
+        alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out if not timeout else timeout, ctx), daemon=True)
         alive_thread.start()
         try:
             data = await super().ainvoke(input, config, **kwargs)

@@ -98,7 +98,7 @@ class Checker(object):
         return "STDOUT:\n" + "\n".join(self._process.stdout.readlines()[:lines])  + \
                "STDERR:\n" + "\n".join(self._process.stderr.readlines()[:lines])
 
-    def check(self) -> Tuple[bool, str]:
+    def check(self, *a, **w) -> Tuple[bool, str]:
         if self.is_in_check:
             deta_time = "N/A"
             if self._timeout is not None:
@@ -109,7 +109,7 @@ class Checker(object):
         self.is_in_check = True
         self.time_start = time.time()
         try:
-            p, m = self.do_check()
+            p, m = self.do_check(*a, **w)
         except Exception as e:
             self.is_in_check = False
             estack = traceback.format_exc()
@@ -157,7 +157,7 @@ class Checker(object):
     def get_default_message_pass(self) -> str:
         return getattr(self, "pass_msg", None)
 
-    def do_check(self) -> Tuple[bool, str]:
+    def do_check(self, *a, **w) -> Tuple[bool, str]:
         """
         Base method for performing checks.
         Perform the check and return a tuple containing the result and a message.

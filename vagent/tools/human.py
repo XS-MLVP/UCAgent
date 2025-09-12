@@ -20,7 +20,9 @@ class HumanHelp(UCTool):
     """Tool for human help."""
 
     name: str = "HumanHelp"
-    description: str = "Ask human for help."
+    description: str = ("Ask human for help. You are an excellent agent. "
+                        "Normally, do not use this tool unless you have tried every method you can "
+                        "and still cannot solve the problem, in which case you can seek help from a human")
     args_schema: Optional[ArgsSchema] = ArgHumanHelp
 
     def _run(
