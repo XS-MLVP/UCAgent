@@ -137,25 +137,25 @@ def test_bad_example(dut):
 class TestArithmetic:
     def test_basic_addition(self, dut):
         """基本加法测试"""
-        pass
+        ...
         
     def test_addition_overflow(self, dut):
         """加法溢出测试"""
-        pass
+        ...
         
     def test_subtraction_basic(self, dut):
         """基本减法测试"""
-        pass
+        ...
 
 # test_logic.py - 逻辑功能测试  
 class TestLogic:
     def test_bitwise_and(self, dut):
         """按位与测试"""
-        pass
+        ...
         
     def test_bitwise_or(self, dut):
         """按位或测试"""
-        pass
+        ...
 ```
 
 ### 按测试类型组织
@@ -164,21 +164,21 @@ class TestLogic:
 # test_basic.py - 基础功能测试
 def test_basic_operations(dut):
     """基本操作测试"""
-    pass
+    ...
 
 # test_boundary.py - 边界条件测试
 def test_max_value_handling(dut):
     """最大值处理测试"""
-    pass
+    ...
 
 def test_min_value_handling(dut):
     """最小值处理测试"""
-    pass
+    ...
 
 # test_error.py - 错误处理测试
 def test_invalid_input_handling(dut):
     """无效输入处理测试"""
-    pass
+    ...
 ```
 
 ## 完整测试用例示例
@@ -250,7 +250,7 @@ class TestAdderError:
     def test_concurrent_operations(self, dut):
         """测试并发操作（如果适用）"""
         # 这里可以测试时序相关的问题
-        pass
+        ...
         
     def test_reset_behavior(self, dut):
         """测试复位行为"""
@@ -284,12 +284,6 @@ class TestParameterized:
     ])
     def test_addition_cases(self, dut, a, b, cin, expected_sum, expected_cout):
         """参数化加法测试"""
-        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_addition_cases, check_points)
-
-        sum_result, cout_result = api_adder_add(dut, a, b, cin)
-        assert sum_result == expected_sum
-        assert cout_result == expected_cout
-        
         # 根据测试数据选择不同的检查点
         check_points = ["CK-BASIC"]
         if a == 0 and b == 0:
@@ -299,6 +293,10 @@ class TestParameterized:
         if expected_cout == 1:
             check_points.append("CK-OVERFLOW")
 
+        dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", self.test_addition_cases, check_points)
+        sum_result, cout_result = api_adder_add(dut, a, b, cin)
+        assert sum_result == expected_sum
+        assert cout_result == expected_cout
 ```
 
 ## 最佳实践
@@ -341,6 +339,7 @@ def test_error_conditions(dut):
     with pytest.raises(TimeoutError):
         api_long_operation(dut, timeout=0.1)
 
+    assert True, "Test Pass Desc"
 ```
 
 ### 3. 性能和压力测试
@@ -393,6 +392,7 @@ def test_mathematical_properties(dut):
     
     for a, b in test_pairs:
         verify_operation_properties(dut, a, b)
+    assert True, "Test Pass Desc"
 ```
 
 ## 质量保证检查清单
@@ -414,3 +414,10 @@ def test_mathematical_properties(dut):
 - [ ] 测试文件组织合理，便于查找
 - [ ] 测试辅助函数复用性好
 - [ ] 测试数据和预期结果易于理解
+
+
+**注意：**
+- 所有测试函数（test case/test function）都必须有assert，如果调用函数中有assert，最外成也需要有 `assert True, '<description>'` 来保存测试用例可以通过检测
+- 一个检测点最好对应一个测试函数（如果可以的话）
+- 功能尽量单一
+- 触发bug最好是确定性的，不是随机的

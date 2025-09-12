@@ -54,11 +54,11 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
 
 def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str,
                        check_tc_in_doc=True, check_doc_in_tc=True,
-                       failed_funcs_bins: dict=None, target_ck_prefix=""):
+                       failed_funcs_failed_bins: dict=None, target_ck_prefix=""):
     """Check failed checkpoint in bug analysis documentation."""
     failed_fb = []
-    if failed_funcs_bins:
-        for _, cks in failed_funcs_bins.items():
+    if failed_funcs_failed_bins:
+        for _, cks in failed_funcs_failed_bins.items():
             for cb in cks:
                 if cb not in failed_fb:
                     failed_fb.append(cb.strip())
@@ -96,7 +96,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             if ck not in marked_bug_checks:
                 un_related_tc_marks.append(ck)
         if len(un_related_tc_marks) > 0:
-                return False, [f"Unanalyzed failed checkpoints detected: {', '.join(un_related_tc_marks)}. " + \
+                return False, [f"Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
                                 "2. If these are test issues, fix the test logic to make them pass.",
@@ -105,9 +105,9 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                                 "5. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
                                 ]
-    if failed_funcs_bins is not None:
+    if failed_funcs_failed_bins is not None:
         un_buged_cks = {}
-        for func, checks in failed_funcs_bins.items():
+        for func, checks in failed_funcs_failed_bins.items():
             for cb in checks:
                 if not cb.startswith(target_ck_prefix):
                     continue
@@ -117,11 +117,11 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                         un_buged_cks[cb] = []
                     un_buged_cks[cb].append(func)
         if len(un_buged_cks) > 0:
-            return False, [f"The following checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
-                         *[f"  Check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
+            return False, [f"The following failed checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
+                         *[f"  Failed check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
                            "You need:",
                            "1. Document these checkpoints in the bug analysis file with appropriate marks.",
-                           "2. if this checkpoints are not related to the test function, delete it in 'mark_function'",
+                           "2. If this checkpoints are not related to the test function, delete it in 'mark_function' and make it `Pass` in other ways.",
                            "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
                           f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'",
                            "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
@@ -201,15 +201,15 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     marked_check_points = [c for c in checks_in_tc if c not in report.get("unmarked_check_points_list", [])]
     if only_marked_ckp_in_tc:
         checks_tc_fail = [b for b in checks_tc_fail if b in marked_check_points]
-    failed_funcs_bins = report.get("failed_funcs_bins", {})
-    if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
+    failed_funcs_failed_bins = report.get("failed_funcs_failed_bins", {})
+    if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_failed_bins:
         ret, bug_ck_list = get_bug_ck_list_from_doc(workspace, bug_file, target_ck_prefix)
         if not ret:
             return ret, bug_ck_list
 
         ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
                                       check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=(check_doc_in_tc and not only_marked_ckp_in_tc),
-                                      failed_funcs_bins=failed_funcs_bins,
+                                      failed_funcs_failed_bins=failed_funcs_failed_bins,
                                       target_ck_prefix=target_ck_prefix)
         if not ret:
             return ret, msg

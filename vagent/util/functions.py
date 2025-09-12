@@ -288,7 +288,7 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
                         func_key = rm_workspace_prefix(workspace, tf)
                         if func_key not in bins_funcs:
                             bins_funcs[func_key] = []
-                        if func_key in fails:
+                        if func_key in fails and bin_is_fail:
                             if func_key not in funcs_bins:
                                 funcs_bins[func_key] = []
                             funcs_bins[func_key].append(bin_full_name)
@@ -299,7 +299,8 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
                             func_key, tests_map.get(func_key, "Unknown")])
                 # all bins
                 bins_all.append(bin_full_name)
-    ret_data["failed_funcs_bins"] = funcs_bins
+    # failed_funcs_failed_bins: only record the failed bins for each failed function
+    ret_data["failed_funcs_failed_bins"] = funcs_bins
     if return_all_checks:
         ret_data["bins_all"] = bins_all
     if len(bins_fail) > 0:
@@ -310,6 +311,7 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
             failed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] != "PASSED"]
             if len(passed_func) > 0 and len(failed_func) == 0:
                 bins_fail_funcs[b] = passed_func
+        # record the failed check points that only have passed functions
         ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
     ret_data["unmarked_check_points"] = len(bins_unmarked)
     if len(bins_unmarked) > 0:
