@@ -29,7 +29,7 @@
 
 对双端口栈的压栈，和弹栈功能进行验证，考虑边界条件，例如栈满等情况。不要验证其他功能，例如波形，接口等。
 
-请基于本目录下文件`DualPort_api.py`中实现的`DualPortEnv`，编写API和测试用例 (如果有错误，需要你修正)，如果功能不能满足你的需要，你可以增加新的接口或Env。
+请基于文件`DualPort/DualPort_env.py`中实现的`DualPortEnv`，编写API和测试用例 (如果有错误，需要你修正)，如果功能不能满足你的需要，你可以增加新的接口或Env。
 
 可通过如下方式导入：
 
@@ -39,9 +39,9 @@ from DualPort.DualPort_env import DualPortEnv
 
 @pytest.fixture()
 def env(dut):
-    return MyEnv(dut)
+    return DualPortEnv(dut)
 
 def test_example(env):
     dut = env.dut
-    pass
+    ...
 ```

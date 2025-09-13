@@ -20,7 +20,7 @@ class UnityChipCheckerMarkdownFileFormat(Checker):
         self.markdown_file_list = markdown_file_list if isinstance(markdown_file_list, list) else [markdown_file_list]
         self.no_line_break = no_line_break
 
-    def do_check(self, timeout=0) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the markdown file format."""
         msg = f"{self.__class__.__name__} check pass."
         for markdown_file in self.markdown_file_list:
@@ -52,7 +52,7 @@ class UnityChipCheckerLabelStructure(Checker):
         self.min_count = min_count
         self.must_have_prefix = must_have_prefix
 
-    def do_check(self, timeout=0) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the label structure in the documentation file."""
         msg = f"{self.__class__.__name__} check {self.leaf_node} pass."
         if not os.path.exists(self.get_path(self.doc_file)):
@@ -87,7 +87,7 @@ class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file):
         self.target_file = target_file
 
-    def do_check(self, timeout=0) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT creation function for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"file '{self.target_file}' does not exist."}
@@ -109,7 +109,7 @@ class UnityChipCheckerDutFixture(Checker):
         self.target_file = target_file
         self.min_env = min_env
 
-    def do_check(self, timeout=0) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT fixture implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT fixture file '{self.target_file}' does not exist."}
@@ -168,7 +168,7 @@ class UnityChipCheckerDutApi(Checker):
         self.target_file = target_file
         self.min_apis = min_apis
 
-    def do_check(self, timeout=0) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT API implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
@@ -225,7 +225,7 @@ class UnityChipCheckerCoverageGroup(Checker):
             if ct not in ["FG", "FC", "CK"]:
                 raise ValueError(f"Invalid check type '{ct}'. Must be one of 'FG', 'FC', or 'CK'.")
 
-    def do_check(self, timeout=0) -> Tuple[bool, str]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """Check the functional coverage groups against the documentation."""
         # File existence validation
         def mk_emsg(msg):
@@ -337,7 +337,7 @@ class BaseUnityChipCheckerTestCase(Checker):
             assert os.path.exists(self.get_path(self.test_dir)), f"Test directory '{self.test_dir}' does not exist in workspace."
         return self
 
-    def do_check(self, pytest_args="", timeout=0) -> Tuple[bool, str]:
+    def do_check(self, pytest_args="", timeout=0, **kw) -> Tuple[bool, str]:
         """
         Perform the check for test cases.
 
@@ -360,9 +360,9 @@ class BaseUnityChipCheckerTestCase(Checker):
 
 class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, pytest_args="", timeout=0):
+    def do_check(self, pytest_args="", timeout=0, **kw):
         """call pytest to run the test cases."""
-        report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout)
+        report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
         # refine report:
         free_report = OrderedDict({
             "run_test_success": report.get("run_test_success", False),
@@ -384,7 +384,7 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, timeout=0) -> Tuple[bool, str]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """
         Perform the check for test templates.
 
@@ -392,7 +392,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             Tuple[bool, str]: A tuple where the first element is a boolean indicating success or failure,
                               and the second element is a message string.
         """
-        report, str_out, str_err = super().do_check(timeout=timeout)
+        report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         raw_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
@@ -514,7 +514,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests
 
-    def do_check(self, timeout=0) -> tuple[bool, object]:
+    def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Perform the check for DUT API tests."""
         test_files = [fc.rm_workspace_prefix(self.workspace, f) for f in glob.glob(os.path.join(self.workspace, self.target_file_tests))]
         if len(test_files) == 0:
@@ -674,7 +674,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
         return True, ""
 
-    def do_check(self, timeout=0) -> Tuple[bool, str]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """run batch of tests and check result."""
         success, msg = self.check_data()
         if not success:
@@ -686,7 +686,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return False, {"error": f"The following test files do not exist: {', '.join(failed_tests_files)}. " + \
                             "Please check your test case names and ensure they are correct."}
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
-        report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout)
+        report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
         error_msgs = {
             "STDOUT": str_out,
             "STDERR": str_err,
@@ -720,7 +720,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
         if len(self.current_test_cases) == 0:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
-
+        if kw.get("is_complete", False):
+            return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {', '.join(self.current_test_cases)}. " + \
+                                    f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
+                                     "Please continue implementing the remaining test cases before completing this stage."}
         return True, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
                                  f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
                                  f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
@@ -728,12 +731,12 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, timeout=0) -> Tuple[bool, str]:
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """
         Perform comprehensive check for implemented test cases.
         """
         # Execute tests and get comprehensive report
-        report, str_out, str_err = super().do_check(timeout=timeout)
+        report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         abs_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
         if all_bins_test:
