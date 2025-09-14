@@ -11,6 +11,9 @@ openai:
 template_overwrite:
   DOC_GEN_LANG: "中文"
 
+conversation_summary:
+  max_tokens: 3000
+  max_summary_tokens: 1000
 
 mission:
   name: "{DUT}芯片验证任务"
