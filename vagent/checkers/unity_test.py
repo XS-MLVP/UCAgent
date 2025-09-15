@@ -4,6 +4,7 @@
 import re
 from typing import Tuple
 import vagent.util.functions as fc
+from vagent.util.config import Config
 from vagent.util.log import info, warning
 from vagent.tools.testops import RunUnityChipTest
 import os
@@ -16,7 +17,7 @@ from vagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
 class UnityChipCheckerMarkdownFileFormat(Checker):
-    def __init__(self, markdown_file_list, no_line_break=False):
+    def __init__(self, markdown_file_list, no_line_break=False, **kw):
         self.markdown_file_list = markdown_file_list if isinstance(markdown_file_list, list) else [markdown_file_list]
         self.no_line_break = no_line_break
 
@@ -42,7 +43,7 @@ class UnityChipCheckerMarkdownFileFormat(Checker):
 
 
 class UnityChipCheckerLabelStructure(Checker):
-    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API"):
+    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API", **kw):
         """
         Initialize the checker with the documentation file, the specific label (leaf node) to check,
         and the minimum count required for that label.
@@ -84,7 +85,7 @@ class UnityChipCheckerLabelStructure(Checker):
 
 
 class UnityChipCheckerDutCreation(Checker):
-    def __init__(self, target_file):
+    def __init__(self, target_file, **kw):
         self.target_file = target_file
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
@@ -105,7 +106,7 @@ class UnityChipCheckerDutCreation(Checker):
 
 
 class UnityChipCheckerDutFixture(Checker):
-    def __init__(self, target_file, min_env=0):
+    def __init__(self, target_file, min_env=0, **kw):
         self.target_file = target_file
         self.min_env = min_env
 
@@ -163,7 +164,7 @@ class UnityChipCheckerDutFixture(Checker):
 
 
 class UnityChipCheckerDutApi(Checker):
-    def __init__(self, api_prefix, target_file, min_apis=1):
+    def __init__(self, api_prefix, target_file, min_apis=1, **kw):
         self.api_prefix = api_prefix
         self.target_file = target_file
         self.min_apis = min_apis
@@ -216,7 +217,7 @@ class UnityChipCheckerCoverageGroup(Checker):
     and watch points for comprehensive DUT verification coverage.
     """
 
-    def __init__(self, test_dir, cov_file, doc_file, check_types):
+    def __init__(self, test_dir, cov_file, doc_file, check_types, **kw):
         self.test_dir = test_dir
         self.cov_file = cov_file
         self.doc_file = doc_file
@@ -360,7 +361,7 @@ class BaseUnityChipCheckerTestCase(Checker):
 
 class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, pytest_args="", timeout=0, **kw):
+    def do_check(self, pytest_args="", timeout=0, return_line_coverage=False, **kw):
         """call pytest to run the test cases."""
         report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
         # refine report:
@@ -375,11 +376,27 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
                 marked_bins.append(b)
                 continue
         free_report["marked_bins"] = marked_bins
-        return True, OrderedDict({
+        if return_line_coverage:
+            line_coverage_data = {}
+            line_coverage_file = self.extra_kwargs.get("coverage_json", "uc_test_report/coverage.json")
+            if not os.path.exists(self.get_path(line_coverage_file)):
+                line_coverage_data["error"] = f"Line coverage file '{line_coverage_file}' does not exist in workspace."
+            else:
+                try:
+                    line_coverage_data = fc.parse_un_coverage_json(
+                        self.get_path(),
+                        self.workspace
+                    )
+                except Exception as e:
+                    line_coverage_data["error"] = f"Failed to parse line coverage file '{line_coverage_file}': {str(e)}."
+        ret = OrderedDict({
             "REPORT": free_report,
             "STDOUT": str_out,
-            "STDERR": str_err
+            "STDERR": str_err,
         })
+        if return_line_coverage:
+            ret["LINE_COVERAGE"] = line_coverage_data
+        return True, ret
 
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
@@ -508,7 +525,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
 
-    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=15):
+    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=15, **kw):
         super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout)
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
@@ -782,23 +799,26 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
-    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="", data_key=None, **extra_kwargs):
+    def __init__(self, doc_func_check=None,
+                 test_dir=None, doc_bug_analysis=None, cfg=None,
+                 min_tests=1, timeout=15, ignore_ck_prefix="", data_key=None,
+                 **extra_kwargs):
         super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_ck_prefix, data_key, **extra_kwargs)
         self.extra_kwargs = extra_kwargs
-        self.dut_name = extra_kwargs.get("dut_name", None)
-
-    def update_files(self):
-        dut_name = self.stage_manager.dut_name if self.stage_manager else self.dut_name
-        assert dut_name, "dut_name is required."
+        assert cfg is not None, "cfg is required."
+        if isinstance(cfg, dict):
+            dut_name = cfg.get("_temp_cfg", {}).get("DUT")
+        else:
+            assert isinstance(cfg, Config), f"cfg must be dict or Config, but got {type(cfg)}."
+            dut_name = cfg.get_value("_temp_cfg", {}).get("DUT")
         self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/coverage.json")
         self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
         self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")
         self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
-        self.update_files()
-        #ret, msg = super().do_check(timeout=timeout, **kw)
-        #if not ret:
-        #    return ret, msg
+        ret, msg = super().do_check(timeout=timeout, **kw)
+        if not ret:
+            return ret, msg
         ret, msg = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
         return ret, msg

@@ -102,6 +102,10 @@ class ArgCheck(BaseModel):
         default=0,
         description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
     )
+    return_line_coverage: bool = Field(
+        default=False,
+        description="Whether to return line coverage information in the test results."
+    )
 
     class Config:
         """Pydantic model configuration."""
@@ -128,9 +132,9 @@ class ToolRunTestCases(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
-    def _run(self, target="", timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, target="", timeout=0, return_line_coverage=False, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
-            return self.function(target, timeout)
+            return self.function(target, timeout, return_line_coverage)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Test execution failed: {str(e)}"
@@ -229,13 +233,14 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text, dut_name, force_stage_index=0):
+    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0):
         """
         Initialize the StageManager with an empty list of stages.
         """
+        self.cfg = cfg
         self.data = {}
         self.workspace = workspace
-        self.root_stage = get_root_stage(cfg, workspace, tool_read_text, dut_name)
+        self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
         self.stages = self.root_stage.get_substages()
         self.mission = cfg.mission
         self.agent = agent
@@ -482,11 +487,11 @@ class StageManager(object):
         info("Tips:\n" + tips)
         return tips
 
-    def tool_run_test_cases(self, pytest_args="", timeout=0):
+    def tool_run_test_cases(self, pytest_args="", timeout=0, return_line_coverage=False):
         """
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = yam_str(self.free_pytest_run.do_check(pytest_args, timeout=timeout)[1])
+        ret = yam_str(self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage)[1])
         info("RunTestCases:\n" + ret)
         return ret

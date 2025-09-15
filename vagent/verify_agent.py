@@ -99,14 +99,16 @@ class VerifyAgent(object):
         if debug:
             set_debug(True)
         self.cfg = get_config(config_file, cfg_override)
-        self.cfg.update_template({
+        temp_args = {
             "OUT": output,
             "DUT": dut_name
-        })
+        }
+        self.cfg.update_template(temp_args)
         template_overwrite = self.cfg.template_overwrite.as_dict()
         self.cfg.update_template(template_overwrite)
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
+        self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
         self.workspace = os.path.abspath(workspace)
         self.output_dir = os.path.join(self.workspace, output)
@@ -125,7 +127,7 @@ class VerifyAgent(object):
         self.template = get_template_path(self.cfg.template, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, dut_name, force_stage_index)
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,

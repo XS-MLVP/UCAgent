@@ -8,6 +8,9 @@ import vagent.checkers as checkers
 from collections import OrderedDict
 import copy
 
+def update_dict(d, u):
+    d.update(u)
+    return d
 
 def convert_task_form_cfg(data):
     if isinstance(data, Config):
@@ -24,6 +27,7 @@ def convert_task_form_cfg(data):
 class VerifyStage(object):
 
     def __init__(self,
+                 cfg,
                  workspace,
                  name,
                  description,
@@ -31,13 +35,13 @@ class VerifyStage(object):
                  checker,
                  reference_files,
                  output_files,
-                 dut_name,
                  prefix = "",
                  tool_read_text=None,
                  substages=None):
         """
         Initialize the VerifyStage.
         """
+        self.cfg = cfg
         self.name = name
         self.prefix = prefix
         self.desc = description
@@ -45,7 +49,8 @@ class VerifyStage(object):
         self._checker = checker
         self.workspace = workspace
         self.checker = [
-            import_class_from_str(c.clss, checkers)(**c.args.as_dict()).set_extra(
+            import_class_from_str(c.clss, checkers)(**update_dict(c.args.as_dict(),
+                                                                  {"cfg": self.cfg})).set_extra(
                 **c.extra_args.as_dict()
             ).set_workspace(workspace) for c in self._checker
         ]
@@ -224,7 +229,7 @@ class VerifyStage(object):
         return data
 
 
-def parse_vstage(cfg, workspace, tool_read_text, dut_name, prefix=""):
+def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
     if cfg is None:
         return []
     assert isinstance(cfg, list), "cfg.stage must be a list of VerifyStage configurations."
@@ -237,8 +242,9 @@ def parse_vstage(cfg, workspace, tool_read_text, dut_name, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         index = i + 1
-        substages = parse_vstage(stage.get_value('stage', None), workspace, tool_read_text, dut_name, prefix + f"{index}.")
+        substages = parse_vstage(root_cfg, stage.get_value('stage', None), workspace, tool_read_text, prefix + f"{index}.")
         ret.append(VerifyStage(
+            cfg=root_cfg,
             workspace=workspace,
             name=stage.name,
             description=stage.desc,
@@ -253,8 +259,9 @@ def parse_vstage(cfg, workspace, tool_read_text, dut_name, prefix=""):
     return ret
 
 
-def get_root_stage(cfg, workspace, tool_read_text, dut_name):
+def get_root_stage(cfg, workspace, tool_read_text):
     root = VerifyStage(
+        cfg=cfg,
         workspace=workspace,
         name="root",
         description=cfg.mission.name,
@@ -263,6 +270,5 @@ def get_root_stage(cfg, workspace, tool_read_text, dut_name):
         reference_files=[],
         output_files=[],
     )
-    root.substages = parse_vstage(cfg.stage, workspace, tool_read_text, dut_name)
-    root.dut_name = dut_name
+    root.substages = parse_vstage(cfg, cfg.stage, workspace, tool_read_text)
     return root

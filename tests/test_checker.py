@@ -101,6 +101,9 @@ def test_checker_line_coverage():
     kw = {
         "min_line_coverage": 0.8,
         "dut_name": dut,
+        "cfg": {
+            "_temp_cfg.DUT": dut
+        }
     }
     checker = UnityChipCheckerTestCaseWithLineCoverage(
         f"unity_test/{dut}_functions_and_checks.md",
