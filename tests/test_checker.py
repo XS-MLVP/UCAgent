@@ -95,10 +95,29 @@ def test_checker_api_test():
     print(yam_str(m))
 
 
+def test_checker_line_coverage():
+    workspace = os.path.join(current_dir, "../output")
+    dut = "Adder"
+    kw = {
+        "min_line_coverage": 0.8,
+        "dut_name": dut,
+    }
+    checker = UnityChipCheckerTestCaseWithLineCoverage(
+        f"unity_test/{dut}_functions_and_checks.md",
+        "unity_test/tests",
+        f"unity_test/{dut}_bug_analysis.md",
+        **kw
+    ).set_workspace(workspace)
+    p, m = checker.do_check()
+    print(p)
+    print(yam_str(m))
+
+
 if __name__ == "__main__":
     #test_markdown_checker()
     #test_checker_functions_and_checks()
     #test_checker_dut_api()
     #test_coverage()
-    test_checker_test_case()
+    #test_checker_test_case()
     #test_checker_api_test()
+    test_checker_line_coverage()

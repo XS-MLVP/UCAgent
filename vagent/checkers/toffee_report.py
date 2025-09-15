@@ -242,3 +242,63 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
             return ret, msg
 
     return True, "All failed test functions are properly marked in bug analysis documentation."
+
+
+
+def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md, min_line_coverage, post_checker=None):
+    """Check the line coverage report against analysis documentation.
+
+    Args:
+        workspace: The workspace directory.
+        file_cover_json: The line coverage JSON file.
+        file_ignore: The line coverage ignore file.
+        file_analyze_md: The line coverage analysis documentation file.
+        min_line_coverage: The minimum acceptable line coverage percentage.
+        post_checker: An optional post-checker function.
+
+    Returns:
+        A tuple indicating the success or failure of the check, along with an optional message.
+    """
+    cover_json = os.path.join(workspace, file_cover_json)
+    if not os.path.exists(cover_json):
+        return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available." 
+
+    file_ignore_path = os.path.join(workspace, file_ignore)
+    if file_ignore and os.path.exists(file_ignore_path):
+        igs = fc.parse_line_ignore_file(file_ignore_path).get("marks", [])
+        if len(igs) > 0:
+            file_analyze_md_path = os.path.join(workspace, file_analyze_md)
+            if not os.path.exists(file_analyze_md_path):
+                return False, f"Line coverage analysis documentation file `{file_analyze_md}` not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
+                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file, the analysis document `{file_analyze_md}` is required to explain why these lines are ignored."
+            doc_igs = fc.parse_marks_from_file(file_analyze_md_path, "LINE_IGNORE").get("marks", [])
+            un_doced_igs = []
+            for ig in igs:
+                if ig not in doc_igs:
+                    un_doced_igs.append(ig)
+            if len(un_doced_igs) > 0:
+                return False, f"Line coverage analysis documentation `{file_analyze_md}` does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
+                              f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>."
+
+    cover_data_path = os.path.join(workspace, file_cover_json)
+    if not os.path.exists(cover_data_path):
+        return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available."
+
+    cover_data = fc.parse_un_coverage_json(file_cover_json, workspace)  # just to check if the json is valid
+    cover_rate = cover_data.get("coverage_rate", 0.0)
+    if cover_rate < min_line_coverage:
+        return False, {"error": [f"Line coverage {cover_rate*100.0:.2f}% is below the minimum threshold of {min_line_coverage*100.0:.2f}%. Please improve the test coverage to meet the required standard."
+                                  "Actionable steps to improve coverage:",
+                                  "1. Review the un-covered lines in the coverage report.",
+                                  "2. Identify missing test cases that can cover these lines or find the existing test cases that should be enhanced.",
+                                  "3. Implement additional test cases to cover the un-covered lines or refine existing ones.",
+                                 ],
+                       "uncoverage_data": cover_data
+                       }
+
+    if callable(post_checker):
+        ret, msg = post_checker(cover_data)
+        if not ret:
+            return ret, msg
+
+    return True, f"Line coverage check passed (line coverage: {cover_rate:.2f}% >= {min_line_coverage*100.0:.2f}%)."

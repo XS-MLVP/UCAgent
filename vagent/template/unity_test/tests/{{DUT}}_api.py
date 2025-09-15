@@ -48,7 +48,8 @@ def dut(request):
     set_func_coverage(request, func_coverage_group)      # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
 
     # 设置需要收集的代码行覆盖率文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    set_line_coverage(request, current_path_file("{{DUT}}.dat"))  # 向toffee_test传代码行递覆盖率数据
+    set_line_coverage(request, current_path_file("{{DUT}}.dat"),
+                      ignore=current_path_file("{{DUT}}.ignore"))  # 向toffee_test传代码行递覆盖率数据
 
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计

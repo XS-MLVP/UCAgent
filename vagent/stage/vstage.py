@@ -31,6 +31,7 @@ class VerifyStage(object):
                  checker,
                  reference_files,
                  output_files,
+                 dut_name,
                  prefix = "",
                  tool_read_text=None,
                  substages=None):
@@ -223,7 +224,7 @@ class VerifyStage(object):
         return data
 
 
-def parse_vstage(cfg, workspace, tool_read_text, prefix=""):
+def parse_vstage(cfg, workspace, tool_read_text, dut_name, prefix=""):
     if cfg is None:
         return []
     assert isinstance(cfg, list), "cfg.stage must be a list of VerifyStage configurations."
@@ -236,7 +237,7 @@ def parse_vstage(cfg, workspace, tool_read_text, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         index = i + 1
-        substages = parse_vstage(stage.get_value('stage', None), workspace, tool_read_text, prefix + f"{index}.")
+        substages = parse_vstage(stage.get_value('stage', None), workspace, tool_read_text, dut_name, prefix + f"{index}.")
         ret.append(VerifyStage(
             workspace=workspace,
             name=stage.name,
@@ -252,7 +253,7 @@ def parse_vstage(cfg, workspace, tool_read_text, prefix=""):
     return ret
 
 
-def get_root_stage(cfg, workspace, tool_read_text):
+def get_root_stage(cfg, workspace, tool_read_text, dut_name):
     root = VerifyStage(
         workspace=workspace,
         name="root",
@@ -262,5 +263,6 @@ def get_root_stage(cfg, workspace, tool_read_text):
         reference_files=[],
         output_files=[],
     )
-    root.substages = parse_vstage(cfg.stage, workspace, tool_read_text)
+    root.substages = parse_vstage(cfg.stage, workspace, tool_read_text, dut_name)
+    root.dut_name = dut_name
     return root

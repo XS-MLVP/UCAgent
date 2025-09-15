@@ -16,6 +16,7 @@ class Checker(object):
     _timeout = None
     _process = None
     stage_manager = None
+    dut_name = None
 
     def on_init(self):
         pass

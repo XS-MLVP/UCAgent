@@ -229,13 +229,13 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0):
+    def __init__(self, workspace, cfg, agent, tool_read_text, dut_name, force_stage_index=0):
         """
         Initialize the StageManager with an empty list of stages.
         """
         self.data = {}
         self.workspace = workspace
-        self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
+        self.root_stage = get_root_stage(cfg, workspace, tool_read_text, dut_name)
         self.stages = self.root_stage.get_substages()
         self.mission = cfg.mission
         self.agent = agent

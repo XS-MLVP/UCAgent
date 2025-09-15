@@ -12,7 +12,7 @@ import traceback
 import copy
 
 from vagent.checkers.base import Checker
-from vagent.checkers.toffee_report import check_report
+from vagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
 class UnityChipCheckerMarkdownFileFormat(Checker):
@@ -778,3 +778,27 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
                       "Your test implementation successfully validates the DUT functionality!"]
 
         return True, success_msg
+
+
+class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
+
+    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="", data_key=None, **extra_kwargs):
+        super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_ck_prefix, data_key, **extra_kwargs)
+        self.extra_kwargs = extra_kwargs
+        self.dut_name = extra_kwargs.get("dut_name", None)
+
+    def update_files(self):
+        dut_name = self.stage_manager.dut_name if self.stage_manager else self.dut_name
+        assert dut_name, "dut_name is required."
+        self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/coverage.json")
+        self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
+        self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")
+        self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+        self.update_files()
+        #ret, msg = super().do_check(timeout=timeout, **kw)
+        #if not ret:
+        #    return ret, msg
+        ret, msg = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
+        return ret, msg

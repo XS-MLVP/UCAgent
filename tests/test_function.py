@@ -6,7 +6,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from vagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir
-
+import vagent.util.functions as fc
 
 
 def test_find_files_by_glob():
@@ -88,8 +88,39 @@ def test_render_template_dir():
     print("------------------------")
 
 
+
+def test_parse_marks_from_file():
+    """Test the parse_marks_from_file function."""
+    test_file = os.path.join(current_dir, "../vagent/template/unity_test/{{DUT}}_line_coverage_analysis.md")
+    marks = fc.parse_marks_from_file(test_file, "LINE_IGNORE")
+    print("Parsed marks from file '{}':".format(test_file))
+    print("Marks:", marks)
+    print("------------------------")
+
+
+def test_parse_line_ignore_file():
+    """Test the parse_line_ignore_file function."""
+    test_file = os.path.join(current_dir, "../vagent/template/unity_test/tests/{{DUT}}.ignore")
+    marks = fc.parse_line_ignore_file(test_file)
+    print("Parsed line ignore marks from file '{}':".format(test_file))
+    print("Marks:", marks)
+    print("------------------------")
+
+
+def test_parse_un_coverage_json():
+    """Test the parse_un_coverage_json function."""
+    test_file = os.path.join(current_dir, "../output/uc_test_report/coverage.json")
+    ignore_list = fc.parse_un_coverage_json(test_file, os.path.abspath(os.path.join(current_dir, "../output")))
+    print("Parsed ignore list from coverage JSON file '{}':".format(test_file))
+    print("Ignore List:\n%s" % fc.yam_str(ignore_list))
+    print("------------------------")
+
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
     #test_find_files_by_pattern()
-    test_render_template_dir()
+    #test_render_template_dir()
+    #test_parse_marks_from_file()
+    #test_parse_line_ignore_file()
+    test_parse_un_coverage_json()

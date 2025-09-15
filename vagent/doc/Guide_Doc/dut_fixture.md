@@ -88,7 +88,8 @@ def dut(request):
     set_func_coverage(request, func_coverage_group)  # 向toffee_test传递功能覆盖率数据
 
     # 8. 设置需要收集的代码行覆盖率文件
-    set_line_coverage(request, current_path_file("{dut_module}.dat"))  # 向toffee_test传代码行递覆盖率数据
+    set_line_coverage(request, current_path_file("{{DUT}}.dat"),
+                      ignore=current_path_file("{{DUT}}.ignore"))  # 向toffee_test传代码行递覆盖率数据
 
     for g in func_coverage_group:
         g.clear()  # 清空覆盖率统计

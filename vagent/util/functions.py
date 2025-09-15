@@ -1078,3 +1078,101 @@ def rm_blank_in_str(input_str: str) -> str:
     """Remove blank lines from a string."""
     assert isinstance(input_str, str), "Input must be a string."
     return "".join([c.strip() for c in input_str.split()])
+
+
+def parse_marks_from_file(file_path: str, tag: str) -> dict:
+    """Parse marks from a file based on a given tag.
+
+    Args:
+        file_path (str): The path to the file to parse.
+        tag (str): The tag to filter marks. eg ABC means <ABC>value</ABC>
+
+    Returns:
+        dict: marks that match the given tag.
+    """
+    ret = {
+        "detail": [],
+    }
+    tag = tag.strip()
+    assert os.path.exists(file_path), f"File {file_path} does not exist."
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            line = rm_blank_in_str(line).strip()
+            if f"<{tag}>" not in line:
+                continue
+            assert f"</{tag}>" in line, f"Line {i+1}: Missing closing tag </{tag}>. Note: tags cannot span multiple lines."
+            assert line.index(f"<{tag}>") < line.index(f"</{tag}>"), f"Line {i+1}: Malformed tags. Ensure <{tag}> appears before </{tag}>."
+            assert line.count(f"<{tag}>") == 1 and line.count(f"</{tag}>") == 1, f"Line {i+1}: Multiple <{tag}> or </{tag}> tags found. Only one pair is allowed per line."
+            value = line.split(f"<{tag}>", 1)[1].split(f"</{tag}>", 1)[0].strip()
+            ret["detail"].append({
+                "line": i + 1,
+                "value": value,
+            })
+    ret["count"] = len(ret["detail"])
+    ret["marks"] = [d["value"] for d in ret["detail"]]
+    return ret
+
+
+def parse_line_ignore_file(file_path: str) -> dict:
+    """Parse ignore lines from a file.
+
+    Args:
+        file_path (str): The path to the file to parse.
+    Returns:
+        dict: A dictionary with the ignore lines and their count.
+    """
+    ret = {
+        "detail": [],
+    }
+    assert os.path.exists(file_path), f"File {file_path} does not exist."
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            line = rm_blank_in_str(line).strip()
+            if not line or line.startswith("#"):
+                continue
+            value = line.split("#", 1)[0].strip()
+            ret["detail"].append({
+                "line": i + 1,
+                "value": value,
+            })
+    ret["count"] = len(ret["detail"])
+    ret["marks"] = [d["value"] for d in ret["detail"]]
+    return ret
+
+
+def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
+    """Parse Unity test coverage data from a file.
+
+    Args:
+        file_path (str): The path to the file to parse.
+
+    Returns:
+        dict: A dictionary with the coverage data and statistics.
+    """
+    ret = OrderedDict({
+        "lines_total": 0,
+        "lines_covered": 0,
+        "lines_uncovered": 0,
+        "coverage_rate": 0.0,
+        "coverage_detail": [],
+    })
+    assert os.path.exists(file_path), f"File {file_path} does not exist."
+    data = json.load(open(file_path, 'r', encoding='utf-8'))
+    ret["lines_total"] = data.get("overview", {}).get("data", [0,0])[0]
+    ret["lines_uncovered"] = data.get("overview", {}).get("data", [0,0])[1]
+    ret["lines_covered"] = ret["lines_total"] - ret["lines_uncovered"]
+    # Parse uncovered lines details
+    un_covered = data.get("uncovered", {}).get("data", {})
+    if ret["lines_total"] > 0:
+        ret["coverage_rate"] = float(ret["lines_covered"]) / float(ret["lines_total"])
+    if ret["lines_uncovered"] > 0 and un_covered:
+        for file_path, data in un_covered.items():
+            file_path = rm_workspace_prefix(workspace, file_path)
+            for module_name, cover_lines in data.items():
+                ret["coverage_detail"].append(OrderedDict({
+                    "module_name": module_name,
+                    "lines_uncovered": file_path  + ":" + ','.join(cover_lines["line"]),
+                }))
+    return ret
