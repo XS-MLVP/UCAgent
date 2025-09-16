@@ -1,6 +1,6 @@
 #coding=utf-8
 
-from vagent.util.log import info
+from vagent.util.log import info, warning
 import os
 from typing import List
 import json
@@ -905,7 +905,7 @@ def import_and_instance_tools(class_list: List[str], module=None):
     def _attach_call_count(instance):
         if hasattr(instance, 'call_count'):
             return instance
-        print(dir(instance))
+        warning(f"Attaching call_count to tool instance of type {type(instance)}")
         instance.__dict__['call_count'] = 0
         def get_new_invoke(old_inv):
             def new_invoke(self, input, config=None, **kwargs):

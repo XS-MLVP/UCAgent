@@ -51,6 +51,10 @@ class UCTool(BaseTool):
         default=False,
         description="Indicates if the alive loop is running."
     )
+    is_in_call: bool = Field(
+        default=False,
+        description="Indicates if the tool is currently being called."
+    )
     executor: Optional[concurrent.futures.ThreadPoolExecutor] = Field(
         default=None,
         description="Executor for running tasks."
@@ -75,6 +79,7 @@ class UCTool(BaseTool):
         self.stream_queue_buffer = CircularOverwriteQueue(kwargs.get("stream_queue_size", 1024))
         self.is_in_streaming = False
         self.is_alive_loop = False
+        self.is_in_call = False
         self.executor = None
         self.task_future = None
         self.sync_block_log_to_client = kwargs.get("sync_block_log_to_client", False)
@@ -100,7 +105,7 @@ class UCTool(BaseTool):
         self.set_force_exit(False)
 
     def is_busy(self):
-        return self.is_in_streaming or self.is_alive_loop
+        return self.is_in_streaming or self.is_alive_loop or self.is_in_call
 
     def set_call_time_out(self, timeout: int):
         self.call_time_out = timeout
@@ -118,7 +123,11 @@ class UCTool(BaseTool):
 
     def invoke(self, input, config = None, **kwargs):
         self.call_count += 1
-        return super().invoke(input, config, **kwargs)
+        self.is_in_call = True
+        try:
+            return super().invoke(input, config, **kwargs)
+        finally:
+            self.is_in_call = False
 
     def put_alive_data(self, data):
         self.stream_queue.put(data)
@@ -171,7 +180,11 @@ class UCTool(BaseTool):
         self.call_count += 1
         ctx = input.get("ctx", None)
         if not isinstance(ctx, Context):
-            return await super().ainvoke(input, config, **kwargs)
+            try:
+                self.is_in_call = True
+                return await super().ainvoke(input, config, **kwargs)
+            finally:
+                self.is_in_call = False
         fc.info(f"call {self.__class__.__name__} in Stream-MPC mode")
         timeout = input.get("timeout", None)
         if timeout is not None:
