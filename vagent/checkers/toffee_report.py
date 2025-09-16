@@ -266,8 +266,7 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
-    cover_json = os.path.join(workspace, file_cover_json)
-    if not os.path.exists(cover_json):
+    if not os.path.exists(os.path.join(workspace, file_cover_json)):
         return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available." 
 
     file_ignore_path = os.path.join(workspace, file_ignore)
@@ -287,10 +286,6 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                 return False, f"Line coverage analysis documentation `{file_analyze_md}` does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
                               f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>."
 
-    cover_data_path = os.path.join(workspace, file_cover_json)
-    if not os.path.exists(cover_data_path):
-        return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available."
-
     cover_data = fc.parse_un_coverage_json(file_cover_json, workspace)  # just to check if the json is valid
     cover_rate = cover_data.get("coverage_rate", 0.0)
     if cover_rate < min_line_coverage:
@@ -300,7 +295,7 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                                   "2. Identify missing test cases that can cover these lines or find the existing test cases that should be enhanced.",
                                   "3. Implement additional test cases to cover the un-covered lines or refine existing ones.",
                                  ],
-                       "uncoverage_data": cover_data
+                       "uncoverage_info": cover_data
                        }
 
     if callable(post_checker):

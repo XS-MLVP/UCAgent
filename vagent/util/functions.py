@@ -1154,7 +1154,7 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
     """Parse Unity test coverage data from a file.
 
     Args:
-        file_path (str): The path to the file to parse.
+        file_path (str): The path to the file to parse (related to workspace).
 
     Returns:
         dict: A dictionary with the coverage data and statistics.
@@ -1164,8 +1164,11 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
         "lines_covered": 0,
         "lines_uncovered": 0,
         "coverage_rate": 0.0,
-        "coverage_detail": [],
+        "uncoverage_detail": [],
     })
+    if file_path.startswith(os.sep):
+        file_path = file_path[1:]
+    file_path = os.path.abspath(os.path.join(workspace, file_path))
     assert os.path.exists(file_path), f"File {file_path} does not exist."
     data = json.load(open(file_path, 'r', encoding='utf-8'))
     ret["lines_total"] = data.get("overview", {}).get("data", [0,0])[0]
@@ -1176,11 +1179,11 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
     if ret["lines_total"] > 0:
         ret["coverage_rate"] = float(ret["lines_covered"]) / float(ret["lines_total"])
     if ret["lines_uncovered"] > 0 and un_covered:
-        for file_path, data in un_covered.items():
-            file_path = rm_workspace_prefix(workspace, file_path)
+        for cpath, data in un_covered.items():
+            cpath = rm_workspace_prefix(workspace, cpath)
             for module_name, cover_lines in data.items():
-                ret["coverage_detail"].append(OrderedDict({
+                ret["uncoverage_detail"].append(OrderedDict({
                     "module_name": module_name,
-                    "lines_uncovered": file_path  + ":" + ','.join(cover_lines["line"]),
+                    "lines_uncovered": cpath  + ":" + ','.join(cover_lines["line"]),
                 }))
     return ret
