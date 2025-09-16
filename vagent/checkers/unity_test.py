@@ -226,8 +226,7 @@ class UnityChipCheckerCoverageGroup(Checker):
             if ct not in ["FG", "FC", "CK"]:
                 raise ValueError(f"Invalid check type '{ct}'. Must be one of 'FG', 'FC', or 'CK'.")
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
-        """Check the functional coverage groups against the documentation."""
+    def basic_check(self):
         # File existence validation
         def mk_emsg(msg):
             return {"error": msg + " Please make sure you are processing the right file."}
@@ -256,6 +255,14 @@ class UnityChipCheckerCoverageGroup(Checker):
         from toffee.funcov import CovGroup
         if not all(isinstance(g, CovGroup) for g in groups):
             return False, mk_emsg(f"All items returned by 'get_coverage_groups' in: {self.cov_file} must be instances of 'toffee.funcov.CovGroup', but got {type(groups[0])}.")
+        return True, groups
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+        """Check the functional coverage groups against the documentation."""
+        basic_pass, groups_or_msg = self.basic_check()
+        if not basic_pass:
+            return basic_pass, groups_or_msg
+        groups = groups_or_msg
         # checks
         for ctype in self.check_types:
             doc_groups = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), ctype, 1)
@@ -304,6 +311,72 @@ class UnityChipCheckerCoverageGroup(Checker):
         if len(b) > 0:
             return False, f"Coverage groups check fail: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
         info(f"{ctype} coverage {len(doc_groups['marks'])} marks check passed")
+        return True, "Coverage groups check passed."
+
+
+class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageGroup):
+    """
+    Checker for Unity chip functional coverage groups batch implementation validation.
+
+    This class validates that all functional coverage groups defined in the documentation
+    are implemented in the coverage definition file, ensuring comprehensive DUT verification coverage.
+    """
+
+    def __init__(self, test_dir, cov_file, doc_file, batch_size, **kw):
+        super().__init__(test_dir, cov_file, doc_file, "CK", **kw)
+        self.batch_size = batch_size
+        self.current_tbd_ck_list = []
+        self.current_cmp_ck_list = []
+        self.cached_doc_ck_list = None
+        self.cached_cod_ck_list = None
+
+    def get_template_data(self):
+        return {
+            "TOTAL_POINTS":      "-" if self.cached_doc_ck_list is None else len(self.cached_doc_ck_list),
+            "COMPLETED_POINTS":  "-" if self.cached_cod_ck_list is None else len(self.cached_cod_ck_list),
+            "LIST_CURRENT_POINTS": self.current_tbd_ck_list,
+        }
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+        """Check the functional coverage groups against the documentation."""
+        basic_pass, groups_or_msg = self.basic_check()
+        if not basic_pass:
+            return basic_pass, groups_or_msg
+        note_msg = []
+        current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)["marks"]
+        if self.cached_doc_ck_list is not None:
+            if not fc.is_str_array_eq(self.cached_doc_ck_list, current_doc_ck_list):
+                del_ck, add_ck = fc.get_str_array_diff(self.cached_doc_ck_list, current_doc_ck_list)
+                msg = f"Documentation '{self.doc_file}' CK groups changed. Deleted: {del_ck}, Added: {add_ck}. "
+                del_ck = []
+                for ck in self.current_tbd_ck_list:
+                    if ck not in current_doc_ck_list:
+                        self.current_tbd_ck_list.remove(ck)
+                        del_ck.append(ck)
+                if del_ck:
+                    msg += f"So remove those deleted CK from current to be done list: {del_ck}."
+                note_msg.append(msg)
+        self.cached_doc_ck_list = current_doc_ck_list
+        # check in code
+        current_imp_ck_list = self._groups_as_marks(groups_or_msg, "CK")
+        if self.cached_cod_ck_list is not None:
+            if not fc.is_str_array_eq(self.cached_cod_ck_list, current_imp_ck_list):
+                del_ck, add_ck = fc.get_str_array_diff(self.cached_cod_ck_list, current_imp_ck_list)
+                note_msg.append(f"Implementation '{self.cov_file}' CK groups changed. Deleted: {del_ck}, Added: {add_ck}.")
+        new_imp_ck_list = []
+        unk_imp_ck_list = []
+        for ck in current_imp_ck_list:
+            if ck in self.current_tbd_ck_list and ck not in self.current_cmp_ck_list:
+                self.current_cmp_ck_list.append(ck)
+                new_imp_ck_list.append(ck)
+            if ck not in  self.cached_doc_ck_list:
+                unk_imp_ck_list.append(ck)
+        if unk_imp_ck_list:
+            error_msg = {"error": f"Find {len(unk_imp_ck_list)} CK groups ({', '.join(unk_imp_ck_list)}) in '{self.cov_file}' but not found them in '{self.doc_file}'."}
+            if note_msg:
+                error_msg["note"] = note_msg
+            return False, error_msg
+        # TBD
         return True, "Coverage groups check passed."
 
 

@@ -283,8 +283,28 @@ stage:
               cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               check_types: ["FC","CK"]
-        reference_files:
-          - "Guide_Doc/dut_function_coverage_def.md"
+        stage:
+          - name: implemente_function_checks_in_batch
+            desc: "分批功能点检查函数实现[{COMPLETED_POINTS}/{TOTAL_POINTS}]"
+            task:
+              - "第1步：理解功能点<FC-*>和检测点<CK-*>的预期行为"
+              - "第2步：实现以下检查点与对应检查方法": "{LIST_CURRENT_POINTS}"
+              - "第3步：使用lambda函数实现检查逻辑，传递引用参数(dut对象)"
+              - "第4步：如果检查函数过于复杂，lambda函数可以用普通函数替代"
+              - "第5步：如果多个检查函数有公共检查部分，也可以把公共部分实现为普通函数"
+              - "第7步：如果实现过程中发现需要增加或者删除检查点，可以更新文档{OUT}/{DUT}_functions_and_checks.md"
+              - "第8步：完成上述目标检查函数后，使用Check工具进行阶段检查"
+              - "完成进度：{COMPLETED_POINTS}/{TOTAL_POINTS}个检查点已完成"
+            checker:
+            - name: batch_coverage_points_implementation_check
+              clss: "UnityChipCheckerCoverageGroupBatchImplementation"
+              args:
+                test_dir: "{OUT}/tests"
+                cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+                doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+                batch_size: 5
+            reference_files:
+              - "Guide_Doc/dut_function_coverage_def.md"
 
   - name: basic_api_implementation
     desc: "基础API实现"

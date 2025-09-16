@@ -245,6 +245,8 @@ class VerifyAgent(object):
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
     def generate_instruction_file(self, file_path):
+        if not file_path:
+            return
         if file_path.startswith(os.sep):
             file_path = file_path[1:]
         file_path = os.path.abspath(os.path.join(self.workspace, file_path))

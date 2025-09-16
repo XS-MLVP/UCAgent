@@ -1187,3 +1187,17 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
                     "lines_uncovered": cpath  + ":" + ','.join(cover_lines["line"]),
                 }))
     return ret
+
+
+def is_str_array_eq(str_list1, str_list2):
+    a = sorted([s.strip() for s in str_list1 if s and s.strip()])
+    b = sorted([s.strip() for s in str_list2 if s and s.strip()])
+    return a == b
+
+
+def get_str_array_diff(str_list1, str_list2):
+    a = sorted([s.strip() for s in str_list1 if s and s.strip()])
+    b = sorted([s.strip() for s in str_list2 if s and s.strip()])
+    only_in_1 = [s for s in a if s not in b]
+    only_in_2 = [s for s in b if s not in a]
+    return only_in_1, only_in_2
