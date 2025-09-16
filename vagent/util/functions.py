@@ -507,6 +507,21 @@ def render_template(template: str, kwargs) -> str:
         return template
 
 
+def fill_template(data, template_data):
+    if isinstance(data, str):
+        return render_template(data, template_data)
+    elif isinstance(data, list):
+        return [fill_template(d, template_data) for d in data]
+    elif isinstance(data, (dict, OrderedDict)):
+        ret = OrderedDict()
+        for k, v in data.items():
+            k = render_template(k, template_data)
+            v = render_template(v, template_data)
+            ret[k] = v
+        return ret
+    return data
+
+
 def find_files_by_regex(workspace, pattern):
     """
     Find files in a workspace that match a given regex pattern.

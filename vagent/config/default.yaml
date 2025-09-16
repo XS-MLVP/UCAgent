@@ -156,7 +156,7 @@ stage:
       - "{OUT}/{DUT}_functions_and_checks.md"
     stage:
       - name: functional_grouping
-        desc: "功能分组与层次划分"
+        desc: "功能分组与层次划分{COUNT_FG}"
         task:
           - "基于{DUT}功能，将相关功能归类成组"
           - "为每组定义<FG-组名>标签，组名要有意义"
@@ -170,7 +170,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FG"
       - name: function_point_definition
-        desc: "具体功能点识别与定义"
+        desc: "具体功能点识别与定义{COUNT_FC}"
         task:
           - "在每个功能分组内，定义具体的功能点"
           - "用<FC-功能名>标签标记每个功能"
@@ -183,7 +183,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FC"
       - name: check_point_design
-        desc: "检测点设计与定义"
+        desc: "检测点设计与定义{COUNT_CK}"
         task:
           - "为每个功能点设计具体的检测点"
           - "用<CK-检测名>标签标记，如<CK-BASIC>基本功能，<CK-BOUNDARY>边界条件"
@@ -196,7 +196,7 @@ stage:
             args:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "CK"
-
+              data_key: "COVER_GROUP_DOC_CK_LIST"
   - name: testbench_infrastructure_design
     desc: "测试平台基础架构设计"
     task:
@@ -303,8 +303,10 @@ stage:
                 cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
                 doc_file: "{OUT}/{DUT}_functions_and_checks.md"
                 batch_size: 5
+                data_key: "COVER_GROUP_DOC_CK_LIST"
             reference_files:
               - "Guide_Doc/dut_function_coverage_def.md"
+              - "{OUT}/{DUT}_functions_and_checks.md"
 
   - name: basic_api_implementation
     desc: "基础API实现"

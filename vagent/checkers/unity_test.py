@@ -43,7 +43,7 @@ class UnityChipCheckerMarkdownFileFormat(Checker):
 
 
 class UnityChipCheckerLabelStructure(Checker):
-    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API", **kw):
+    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API", data_key=None, **kw):
         """
         Initialize the checker with the documentation file, the specific label (leaf node) to check,
         and the minimum count required for that label.
@@ -52,9 +52,12 @@ class UnityChipCheckerLabelStructure(Checker):
         self.leaf_node = leaf_node
         self.min_count = min_count
         self.must_have_prefix = must_have_prefix
+        self.data_key = data_key
+        self.leaf_count = None
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the label structure in the documentation file."""
+        self.leaf_count = None
         msg = f"{self.__class__.__name__} check {self.leaf_node} pass."
         if not os.path.exists(self.get_path(self.doc_file)):
             return False, {"error": f"Documentation file '{self.doc_file}' does not exist."}
@@ -81,7 +84,22 @@ class UnityChipCheckerLabelStructure(Checker):
                     find_prefix = True
             if not find_prefix:
                 return False, {"error": f"In the document ({self.doc_file}), it must have group/."}
+        if self.data_key:
+            self.smanager_set_value(self.data_key, data["marks"])
+            info(f"Cache {self.leaf_node} marks(size={len(data['marks'])}) to data key '{self.data_key}'.")
+        self.leaf_count = len(data["marks"])
         return True, {"message": msg, f"{self.leaf_node}_count": len(data["marks"])}
+
+    def get_template_data(self):
+        return {
+            f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else ""
+        }
+
+    def filter_vstage_description(self, stage_description):
+        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
+
+    def filter_vstage_task(self, stage_detail):
+        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
 
 
 class UnityChipCheckerDutCreation(Checker):
@@ -322,62 +340,132 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
     are implemented in the coverage definition file, ensuring comprehensive DUT verification coverage.
     """
 
-    def __init__(self, test_dir, cov_file, doc_file, batch_size, **kw):
+    def __init__(self, test_dir, cov_file, doc_file, batch_size, data_key, **kw):
         super().__init__(test_dir, cov_file, doc_file, "CK", **kw)
         self.batch_size = batch_size
+        self.data_key = data_key
         self.current_tbd_ck_list = []
         self.current_cmp_ck_list = []
-        self.cached_doc_ck_list = None
-        self.cached_cod_ck_list = None
+        self.cached_doc_ck_list = []
+        self.cached_cod_ck_list = []
+        assert self.data_key, "data_key is required."
 
     def get_template_data(self):
         return {
-            "TOTAL_POINTS":      "-" if self.cached_doc_ck_list is None else len(self.cached_doc_ck_list),
-            "COMPLETED_POINTS":  "-" if self.cached_cod_ck_list is None else len(self.cached_cod_ck_list),
+            "TOTAL_POINTS":      "-" if not self.cached_doc_ck_list else len(self.cached_doc_ck_list),
+            "COMPLETED_POINTS":  "-" if not self.cached_doc_ck_list else len(self.cached_cod_ck_list),
             "LIST_CURRENT_POINTS": self.current_tbd_ck_list,
         }
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+    def filter_vstage_description(self, stage_description):
+        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
+
+    def filter_vstage_task(self, stage_detail):
+        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
+
+    def on_init(self):
+        self.cached_doc_ck_list = self.smanager_get_value(self.data_key, [])
+        info(f"Load cached doc ck list(size={len(self.cached_doc_ck_list)}) from data key '{self.data_key}'.")
+
+    def update_to_be_done(self):
+        if len(self.current_tbd_ck_list) > 0:
+            return False
+        if len(self.cached_doc_ck_list) > 0:
+            ck_list, _ = fc.get_str_array_diff(self.cached_doc_ck_list, self.cached_cod_ck_list)
+            ck_list.sort()
+            self.current_tbd_ck_list = ck_list[:self.batch_size]
+            info(f"Find {len(ck_list)} CK points to be done, current batch size {self.batch_size}.")
+            info(f"Update to be done ck list(size={len(self.current_tbd_ck_list)}): {', '.join(self.current_tbd_ck_list)}.")
+        return len(self.current_tbd_ck_list) == 0
+
+    def update_cmp_list_from_tbd_list(self):
+        del_ck = []
+        for ck in self.current_cmp_ck_list:
+            if ck not in self.current_tbd_ck_list:
+                del_ck.append(ck)
+        for ck in del_ck:
+            self.current_cmp_ck_list.remove(ck)
+        return del_ck
+
+    def update_tbd_list_from_doc_list(self):
+        del_ck = []
+        for ck in self.current_tbd_ck_list:
+            if ck not in self.cached_doc_ck_list:
+                del_ck.append(ck)
+        for ck in del_ck:
+            self.current_tbd_ck_list.remove(ck)
+        return del_ck
+
+    def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """Check the functional coverage groups against the documentation."""
         basic_pass, groups_or_msg = self.basic_check()
         if not basic_pass:
             return basic_pass, groups_or_msg
         note_msg = []
         current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)["marks"]
-        if self.cached_doc_ck_list is not None:
-            if not fc.is_str_array_eq(self.cached_doc_ck_list, current_doc_ck_list):
-                del_ck, add_ck = fc.get_str_array_diff(self.cached_doc_ck_list, current_doc_ck_list)
-                msg = f"Documentation '{self.doc_file}' CK groups changed. Deleted: {del_ck}, Added: {add_ck}. "
-                del_ck = []
-                for ck in self.current_tbd_ck_list:
-                    if ck not in current_doc_ck_list:
-                        self.current_tbd_ck_list.remove(ck)
-                        del_ck.append(ck)
-                if del_ck:
-                    msg += f"So remove those deleted CK from current to be done list: {del_ck}."
-                note_msg.append(msg)
-        self.cached_doc_ck_list = current_doc_ck_list
+        if not fc.is_str_array_eq(self.cached_doc_ck_list, current_doc_ck_list):
+            del_ck, add_ck = fc.get_str_array_diff(self.cached_doc_ck_list, current_doc_ck_list)
+            msg = f"Documentation '{self.doc_file}' CK points changed. Deleted: {del_ck}, Added: {add_ck}. "
+            self.cached_doc_ck_list = current_doc_ck_list
+            del_ck = self.update_tbd_list_from_doc_list()
+            if del_ck:
+                msg += f"So remove those deleted CK points from current to be done list: {del_ck}."
+            note_msg.append(msg)
+        info(f"Doc CK list(size={len(self.cached_doc_ck_list)}): {', '.join(self.cached_doc_ck_list)}.")
+        self.update_cmp_list_from_tbd_list()
+        # check empty tbd
+        if not self.current_tbd_ck_list:
+            if self.update_to_be_done():
+                return True, {"success": "All CK points are done, call `Complete` to next stage."}
+            error_msg = {"error": f"CK points to be done is changed to {len(self.current_tbd_ck_list)}: {', '.join(self.current_tbd_ck_list)}."}
+            if note_msg:
+                error_msg["note"] = note_msg
+            return False, error_msg
         # check in code
         current_imp_ck_list = self._groups_as_marks(groups_or_msg, "CK")
-        if self.cached_cod_ck_list is not None:
-            if not fc.is_str_array_eq(self.cached_cod_ck_list, current_imp_ck_list):
-                del_ck, add_ck = fc.get_str_array_diff(self.cached_cod_ck_list, current_imp_ck_list)
-                note_msg.append(f"Implementation '{self.cov_file}' CK groups changed. Deleted: {del_ck}, Added: {add_ck}.")
-        new_imp_ck_list = []
+        if not fc.is_str_array_eq(self.cached_cod_ck_list, current_imp_ck_list):
+            del_ck, add_ck = fc.get_str_array_diff(self.cached_cod_ck_list, current_imp_ck_list)
+            note_msg.append(f"Implementation '{self.cov_file}' CK groups changed. "
+                            + (f"Deleted: {del_ck}, " if del_ck else "")
+                            + (f"Added: {add_ck}." if add_ck else ""))
+            self.cached_cod_ck_list = current_imp_ck_list
+        info(f"Code CK list(size={len(self.cached_cod_ck_list)}): {', '.join(self.cached_cod_ck_list)}.")
+        # check batch
         unk_imp_ck_list = []
         for ck in current_imp_ck_list:
             if ck in self.current_tbd_ck_list and ck not in self.current_cmp_ck_list:
                 self.current_cmp_ck_list.append(ck)
-                new_imp_ck_list.append(ck)
-            if ck not in  self.cached_doc_ck_list:
+            if ck not in self.cached_doc_ck_list:
                 unk_imp_ck_list.append(ck)
         if unk_imp_ck_list:
-            error_msg = {"error": f"Find {len(unk_imp_ck_list)} CK groups ({', '.join(unk_imp_ck_list)}) in '{self.cov_file}' but not found them in '{self.doc_file}'."}
+            error_msg = {"error": f"Find {len(unk_imp_ck_list)} CK points ({', '.join(unk_imp_ck_list)}) in '{self.cov_file}' but not found them in '{self.doc_file}'."}
+            if note_msg:
+                error_msg["note"] = note_msg
+            info(f"{self.__class__.__name__} check fail: {fc.yam_str(error_msg)}")
+            return False, error_msg
+        ck_remain = []
+        for ck in self.current_tbd_ck_list:
+            if ck not in self.current_cmp_ck_list:
+                ck_remain.append(ck)
+        if ck_remain:
+            error_msg = {"error": f"Coverage groups check fail: {len(ck_remain)} CK points ({', '.join(ck_remain)}) are still to be implemented."}
             if note_msg:
                 error_msg["note"] = note_msg
             return False, error_msg
-        # TBD
-        return True, "Coverage groups check passed."
+        success_msg = {"success": f"Congratulations! {len(self.current_cmp_ck_list)} CK points in this batch have been implemented."}
+        self.current_cmp_ck_list = []
+        self.current_tbd_ck_list = []
+        # ALL done, need to next stage
+        ret_cmp = True
+        if self.update_to_be_done():
+            success_msg["success"] += " All check is done, call `Complete` to next stage."
+        else:
+            success_msg["success"] += f" Now the next {len(self.current_tbd_ck_list)} CK points: {', '.join(self.current_tbd_ck_list)} need to be implemented."
+            if is_complete:
+                ret_cmp = False
+                success_msg["error"] = f"Not all CK points in this batch have been implemented."
+                del success_msg["success"]
+        return ret_cmp, success_msg
 
 
 class BaseUnityChipCheckerTestCase(Checker):
@@ -701,25 +789,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             target_tests += f"{f}{test_parm} "
         return target_tests.strip(), list(failed_tests_files)
 
-    def fill_template(self, data, template_data):
-        if isinstance(data, str):
-            return fc.render_template(data, template_data)
-        elif isinstance(data, list):
-            return [self.fill_template(d, template_data) for d in data]
-        elif isinstance(data, (dict, OrderedDict)):
-            ret = OrderedDict()
-            for k, v in data.items():
-                k = fc.render_template(k, template_data)
-                v = fc.render_template(v, template_data)
-                ret[k] = v
-            return ret
-        return data
-
     def filter_vstage_description(self, stage_description):
-        return super().filter_vstage_description(self.fill_template(stage_description, self.get_template_data()))
+        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
 
     def filter_vstage_task(self, stage_detail):
-        return super().filter_vstage_task(self.fill_template(stage_detail, self.get_template_data()))
+        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
 
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
