@@ -322,7 +322,7 @@ class StageManager(object):
         for i, stage in enumerate(self.stages):
             ret["stage_list"].append({
                 "index": i, 
-                "title": stage.title() + ("<Your are working here>" if i == self.stage_index else ""),
+                "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
             })

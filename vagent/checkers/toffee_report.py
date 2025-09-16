@@ -54,23 +54,28 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
 
 def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str,
                        check_tc_in_doc=True, check_doc_in_tc=True,
-                       failed_funcs_failed_bins: dict=None, target_ck_prefix=""):
+                       failed_funcs_failed_bins: dict=None, failed_funcs_passed_bins: dict=None, target_ck_prefix=""):
     """Check failed checkpoint in bug analysis documentation."""
-    failed_fb = []
+    bin_in_failed_tc = []
     if failed_funcs_failed_bins:
         for _, cks in failed_funcs_failed_bins.items():
             for cb in cks:
-                if cb not in failed_fb:
-                    failed_fb.append(cb.strip())
-    failed_fb = list(set(failed_fb))
+                if cb not in bin_in_failed_tc:
+                    bin_in_failed_tc.append(cb.strip())
+    if failed_funcs_passed_bins:
+        for _, cks in failed_funcs_passed_bins.items():
+            for cb in cks:
+                if cb not in bin_in_failed_tc:
+                    bin_in_failed_tc.append(cb.strip())
+    bin_in_failed_tc = list(set(bin_in_failed_tc))
     if check_doc_in_tc:
         un_related_bug_marks = []
-        un_failed_bug_marks = []
+        un_failedt_bug_marks = []
         for ck in marked_bug_checks:
             if ck not in failed_check:
                 un_related_bug_marks.append(ck)
-            if ck not in failed_fb:
-                un_failed_bug_marks.append(ck)
+            if ck not in bin_in_failed_tc:
+                un_failedt_bug_marks.append(ck)
         if len(un_related_bug_marks) > 0 and False: # FIXME: disable this check for now, bug related marks no need to be failed in test report
             info(f"All check points in test report: {', '.join(failed_check)}")
             return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_related_bug_marks)} they are not failed in test cases. " + \
@@ -79,9 +84,9 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
                             ]
-        if len(un_failed_bug_marks) > 0:
-            info(f"Failed checkpoints in test report: {', '.join(failed_fb)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points ({', '.join(un_failed_bug_marks)}) which are not found in the failed test case functions. " + \
+        if len(un_failedt_bug_marks) > 0:
+            info(f"Bins in failed tests: {', '.join(bin_in_failed_tc)}")
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points ({', '.join(un_failedt_bug_marks)}) which are not found in the failed test case functions. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
                             "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed).",
@@ -202,6 +207,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if only_marked_ckp_in_tc:
         checks_tc_fail = [b for b in checks_tc_fail if b in marked_check_points]
     failed_funcs_failed_bins = report.get("failed_funcs_failed_bins", {})
+    failed_funcs_passed_bins = report.get("failed_funcs_passed_bins", {})
     if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_failed_bins:
         ret, bug_ck_list = get_bug_ck_list_from_doc(workspace, bug_file, target_ck_prefix)
         if not ret:
@@ -210,6 +216,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
                                       check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=(check_doc_in_tc and not only_marked_ckp_in_tc),
                                       failed_funcs_failed_bins=failed_funcs_failed_bins,
+                                      failed_funcs_passed_bins=failed_funcs_passed_bins,
                                       target_ck_prefix=target_ck_prefix)
         if not ret:
             return ret, msg
