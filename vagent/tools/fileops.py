@@ -532,8 +532,8 @@ class ArgReadTextFile(BaseModel):
         default=None,
         description="Text file path to read, relative to the workspace.")
     start: int = Field(
-        default=0,
-        description="Start line index (0-based)."
+        default=1,
+        description="Start line index (1-based)."
     )
     count: int = Field(
         default=-1,
@@ -542,7 +542,7 @@ class ArgReadTextFile(BaseModel):
 
 
 class ReadTextFile(UCTool, BaseReadWrite):
-    """Read lines from a text file in the workspace."""
+    """Read lines from a text file in the workspace. (line index starts from 1)"""
     name: str = "ReadTextFile"
     description: str = (
         "Read lines from a text file in the workspace. Supports start line and line count. "
@@ -552,13 +552,13 @@ class ReadTextFile(UCTool, BaseReadWrite):
         "line 1\nline 2\nline 3\n"
         "while the returned file content is:\n"
         "[TXT_DATA]\n"
-        "0: line 1\n1: line 2\n2: line 3\n"
-        "The line index starts from 0. "
+        "1: line 1\n2: line 2\n3: line 3\n"
+        "The line index starts from 1. "
     )
     args_schema: Optional[ArgsSchema] = ArgReadTextFile
     return_direct: bool = False
 
-    def _run(self, path: str, start: int = 0, count: int = -1,
+    def _run(self, path: str, start: int = 1, count: int = -1,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Read the content of a text file in the workspace."""
         success, msg, real_path = self.check_file(path)
@@ -573,57 +573,46 @@ class ReadTextFile(UCTool, BaseReadWrite):
         if count == 0:
             self.do_callback(False, path, None)
             return str_error(f"Count is 0, no lines to read from file {path}.")
-        
         try:
             with open(real_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
                 lines_count = len(lines)
-                
                 # Handle empty file
                 if lines_count == 0:
                     self.do_callback(True, path, "")
                     return str_info(f"\nFile {path} is empty (0 lines).\n\n") + str_data("", "TXT_DATA")
-                
                 # Validate start parameter
-                if start < 0:
-                    start = max(0, lines_count + start)  # Allow negative indexing like Python lists
-                
+                start = max(0, start - 1)  # Convert to 0-based index
                 if start >= lines_count:
-                    emsg = f"Start line {start} is out of range (file has {lines_count} lines, valid range: 0-{lines_count-1})."
+                    emsg = f"Start line {start + 1} is out of range (file has {lines_count} lines, valid range: 1-{lines_count})."
                     self.do_callback(False, path, emsg)
                     return str_error(emsg)
-                
                 r_count = count
                 if r_count == -1 or start + r_count > lines_count:
                     r_count = lines_count - start
-                
                 # Ensure we don't read negative count
                 r_count = max(0, r_count)
-                
                 if r_count == 0:
                     self.do_callback(True, path, "")
-                    return str_info(f"\nNo lines to read from position {start} in file {path}.\n\n") + str_data("", "TXT_DATA")
-                
+                    return str_info(f"\nNo lines to read from position {start + 1} in file {path}.\n\n") + str_data("", "TXT_DATA")
                 # Format line numbers with appropriate padding
                 max_line_num = start + r_count - 1
                 line_num_width = len(str(max_line_num))
                 fmt_index = f"%{line_num_width}d: %s"
-                
-                content = ''.join([fmt_index % (i + start, line) for i, line in enumerate(lines[start:start + r_count])])
-                
+                content = ''.join([fmt_index % (i + start + 1, line) for i, line in enumerate(lines[start:start + r_count])])
                 # Check size limit
                 if len(content) > self.max_read_size:
                     emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
-                                     f"You need to specify a smaller range. Current range is (start={start}, count={count if count >= 0 else 'ALL'})."
+                                     f"You need to specify a smaller range. Current range is (start={start+1}, count={count if count >= 0 else 'ALL'})."
                     self.do_callback(False, path, emsg)
                     return str_error(emsg)
-                
+
                 remaining_lines = lines_count - start - r_count
-                ret_head = str_info(f"\nRead {r_count}/{lines_count} lines from '{path}' (lines {start}-{start + r_count - 1}), "
+                ret_head = str_info(f"\nRead {r_count}/{lines_count} lines from '{path}' (lines {start + 1}-{start + r_count}), "
                                    f"{remaining_lines} lines remain after the read position.\n\n")
                 self.do_callback(True, path, content)
                 return ret_head + str_data(content, "TXT_DATA")
-                
+
         except UnicodeDecodeError as e:
             emsg = f"Failed to decode file {path} as UTF-8: {str(e)}. File might be binary or use different encoding."
             self.do_callback(False, path, emsg)
@@ -655,8 +644,8 @@ class ArgEditTextFile(BaseModel):
         description="Edit mode: 'overwrite' (replace entire file), 'append' (add to end), or 'replace' (replace lines by index)."
     )
     start: int = Field(
-        default=0,
-        description="Start line index (0-based) for 'replace' mode. If index < 0, insert at head; if index >= file lines, append at end."
+        default=1,
+        description="Start line index (1-based) for 'replace' mode. If index < 1, insert at head; if index > file lines, append at end."
     )
     count: int = Field(
         default=-1,
@@ -683,9 +672,10 @@ class EditTextFile(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
 
-    def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 0, count: int = -1, preserve_indent: bool = False,
+    def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 1, count: int = -1, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Edit data in a text file in the workspace with specified mode."""
+        start = start - 1 # Convert to 0-based index
         self.create_file = True  # ensure file is created if not exists
         # Validate mode parameter
         valid_modes = ["overwrite", "append", "replace"]
@@ -739,7 +729,7 @@ class EditTextFile(UCTool, BaseReadWrite):
 
             elif mode == "replace":
                 # ReplaceLinesByIndex functionality
-                info(f"Replacing text file {real_path} from line {start} with count {count}")
+                info(f"Replacing text file {real_path} from line {start+1} with count {count}")
                 # Validate count parameter
                 if count < -1:
                     emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
@@ -795,18 +785,18 @@ class EditTextFile(UCTool, BaseReadWrite):
                 # Prepare result message
                 operation_desc = ""
                 if count == 0:
-                    operation_desc = f"Inserted new content at line {start}"
+                    operation_desc = f"Inserted new content at line {start+1}"
                 elif count == -1:
-                    operation_desc = f"Replaced content from line {start} to end of file"
+                    operation_desc = f"Replaced content from line {start+1} to end of file"
                 elif data is None:
-                    operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start}"
+                    operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start+1}"
                 else:
                     actual_replaced = min(count, max(0, lines_count - start))
-                    operation_desc = f"Replaced {actual_replaced} lines starting from line {start}"
+                    operation_desc = f"Replaced {actual_replaced} lines starting from line {start+1}"
                 if data is not None:
                     data_lines = len(data.split('\n'))
                     operation_desc += f" with {data_lines} new line(s)"
-                self.do_callback(True, path, {"start": start, "count": count, "data": data})
+                self.do_callback(True, path, {"start": start+1, "count": count, "data": data})
                 # Generate diff for better understanding
                 diff_result = ""
                 if data is not None:
