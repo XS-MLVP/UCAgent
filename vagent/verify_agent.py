@@ -66,7 +66,8 @@ class VerifyAgent(object):
                  no_embed_tools=False,
                  force_stage_index=0,
                  no_write_targets=None,
-                 interaction_mode="standard"
+                 interaction_mode="standard",
+                 gen_instruct_file=None,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -240,8 +241,21 @@ class VerifyAgent(object):
             info("Using advanced interaction mode with adaptive strategies")
         else:
             info("Using standard interaction mode")
-        
+        self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def generate_instruction_file(self, file_path):
+        if file_path.startswith(os.sep):
+            file_path = file_path[1:]
+        file_path = os.path.abspath(os.path.join(self.workspace, file_path))
+        dut_readme = os.path.join(self.workspace, self.dut_name, "README.md")
+        with open(file_path, "w", encoding="utf-8") as f:
+            if os.path.exists(dut_readme):
+                f.write("# Goal Description\n")
+                with open(dut_readme, "r", encoding="utf-8") as df:
+                    f.write(df.read() + "\n")
+            f.write("# Verification Instruction\n")
+            f.write(self._default_system_prompt + "\n")
 
     def render_template(self, tmp_overwrite=False):
         if self.template is not None:

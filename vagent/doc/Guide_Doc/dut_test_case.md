@@ -418,7 +418,9 @@ def test_mathematical_properties(dut):
 
 
 **注意：**
-- 所有测试函数（test case/test function）都必须有assert，如果调用函数中有assert，最外成也需要有 `assert True, '<description>'` 来保存测试用例可以通过检测
+- 所有测试函数（test case/test function）都必须有assert：
+  - 就算调用函数中有assert，最外层test函数也需要有
+  - 实在没有assert判断条件，也可以assert固定值，例如 `assert True, '<description>'` 来保存测试用例可以通过检测
 - 一个检测点最好对应一个测试函数（如果可以的话）
 - 功能尽量单一
 - 触发bug最好是确定性的，不是随机的

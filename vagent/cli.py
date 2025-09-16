@@ -229,6 +229,13 @@ def get_args():
         help="List of files or directories that cannot be written to during the run"
     )
     
+    parser.add_argument(
+        "--gen-instruct-file", "-gif",
+        type=str,
+        default=None,
+        help="Generate instruction file at the specified workspace path. If the file exists, it will be overwritten. eg: --gen-instruct-file GEMINI.md"
+    )
+
     # Version argument
     parser.add_argument(
         "--version", 
@@ -289,6 +296,7 @@ def run():
         force_stage_index=args.force_stage_index,
         no_write_targets=args.no_write,
         interaction_mode=args.interaction_mode,
+        gen_instruct_file=args.gen_instruct_file,
     )
     
     # Set break mode if human interaction or TUI is requested
