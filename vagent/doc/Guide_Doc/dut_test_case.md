@@ -19,6 +19,7 @@ import pytest
 - 测试用例应该只依赖DUT提供的API接口
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
+- 每个测试用例都应该有assert判断，如果内部调用函数有assert判断，则可在用例中添加`assert True，"原因说明"`
 
 ### 基本测试函数结构
 
@@ -339,7 +340,7 @@ def test_error_conditions(dut):
     with pytest.raises(TimeoutError):
         api_long_operation(dut, timeout=0.1)
 
-    assert True, "Test Pass Desc"
+    assert True, "<Reason why need 'assert True'>"
 ```
 
 ### 3. 性能和压力测试
@@ -392,7 +393,7 @@ def test_mathematical_properties(dut):
     
     for a, b in test_pairs:
         verify_operation_properties(dut, a, b)
-    assert True, "Test Pass Desc"
+    assert True, "<Reason why need 'assert True'>"
 ```
 
 ## 质量保证检查清单
