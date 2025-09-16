@@ -86,7 +86,7 @@ def api_demo_op(dut, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
     dut.input_b.value = b
     dut.operation_mode.value = {"add": 0, "sub": 1, "mul": 2}[mode]
 
-    # 推进时钟（时序电路需要）
+    # 推进电路执行一个时钟周期（仅在特殊情况下用RefreshComb推进组合电路）
     dut.Step(1)
 
     # 读取结果
@@ -177,7 +177,7 @@ def api_adder_add(dut, a, b, cin=0):
     dut.b.value = b  
     dut.cin.value = cin
     
-    # 推进计算（组合电路也可以使用Step）
+    # 推进电路（组合电路也建议使用Step）
     dut.Step(1)
     
     # 读取结果

@@ -69,13 +69,13 @@ def dut(request):
     
     # 3. 初始化时钟（仅时序电路需要）
     # 确保DUT有对应的时钟引脚，常见名称：clock, clk, clk_i等
+    # 组合电路不需要InitClock
     if hasattr(dut, 'clock'):
         dut.InitClock("clock")
     elif hasattr(dut, 'clk'):
         dut.InitClock("clk")
-    # 组合电路不需要InitClock
     
-    # 4. 设置覆盖率采样回调
+    # 4. 设置覆盖率采样回调（在StepRis中调用sample采样，必须用dut.Step方法推进电路）
     dut.StepRis(lambda _: [g.sample() for g in func_coverage_group])
     
     # 5. 将覆盖组绑定到DUT实例
@@ -293,12 +293,13 @@ dut.InitClock("clk_mem")     # 内存时钟
 #### 组合电路
 ```python  
 # 组合电路不需要InitClock
-# 直接使用Step()或RefreshComb()推进
 ```
 
 **重点：**
 - 没有特殊需求时，请用dut.Step方法推进组合电路，通过dut.StepRis设置“功能覆盖组”在上升沿回调中自动采样
-- 有特殊需求时，使用RefreshComb推进组合电路，需要在API或者测试用例中手动调用CovGroup中的sample进行采样
+- 仅有特殊需求时，才建议用RefreshComb推进电路
+  - 例如：dut既有组合电路逻辑又有时序电路逻辑，则可用 RefreshComb + Step的混合方式推进电路
+- 使用RefreshComb时，需要在API或者测试用例中手动调用CovGroup中的sample进行采样
 
 #### 查找时钟引脚名称
 

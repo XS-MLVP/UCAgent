@@ -37,15 +37,24 @@ def dut(request):
     dut = create_dut()                                   # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
     # 请在这里根据DUT是否为时序电路判断是否需要调用 dut.InitClock
+    # dut.InitClock("clk")
+
+    # 上升沿采样，StepRis也适用于组合电路用dut.Step推进时采样.
+    # 必须要有g.sample()采样覆盖组, 如何不在StepRis/StepFail中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败
     dut.StepRis(lambda _: [g.sample()
                            for g in
-                           func_coverage_group])         # 上升沿采样，StepRis也适用于组合电路，因为组合电路也可以用Step接口进行推进.
-                                                         # 必须要有g.sample()采样覆盖组, 如何不在StepRis/StepFail中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败
+                           func_coverage_group])
+
+    # 以属性名称fc_cover保存覆盖组到DUT
     setattr(dut, "fc_cover",
-            {g.name:g for g in func_coverage_group})     # 以属性名称fc_cover保存覆盖组到DUT
+            {g.name:g for g in func_coverage_group})
+
+    # 返回DUT实例
     yield dut
+
     # 测试后处理
-    set_func_coverage(request, func_coverage_group)      # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
+    # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
+    set_func_coverage(request, func_coverage_group)
 
     # 设置需要收集的代码行覆盖率文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
     set_line_coverage(request, current_path_file("{{DUT}}.dat"),
