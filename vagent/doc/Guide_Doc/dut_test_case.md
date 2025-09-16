@@ -340,7 +340,7 @@ def test_error_conditions(dut):
     with pytest.raises(TimeoutError):
         api_long_operation(dut, timeout=0.1)
 
-    assert True, "<Reason why need 'assert True'>"
+    assert True, "Make sure there has at least one assertion"
 ```
 
 ### 3. 性能和压力测试
@@ -393,7 +393,7 @@ def test_mathematical_properties(dut):
     
     for a, b in test_pairs:
         verify_operation_properties(dut, a, b)
-    assert True, "<Reason why need 'assert True'>"
+    assert True, "Assertion is in verify_operation_properties"
 ```
 
 ## 质量保证检查清单
