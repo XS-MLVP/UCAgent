@@ -302,7 +302,7 @@ stage:
                 test_dir: "{OUT}/tests"
                 cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
                 doc_file: "{OUT}/{DUT}_functions_and_checks.md"
-                batch_size: 5
+                batch_size: 20
                 data_key: "COVER_GROUP_DOC_CK_LIST"
             reference_files:
               - "Guide_Doc/dut_function_coverage_def.md"

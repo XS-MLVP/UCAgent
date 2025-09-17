@@ -456,16 +456,19 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         self.current_cmp_ck_list = []
         self.current_tbd_ck_list = []
         # ALL done, need to next stage
-        ret_cmp = True
         if self.update_to_be_done():
             success_msg["success"] += " All check is done, call `Complete` to next stage."
+            if note_msg:
+                success_msg["note"] = note_msg
+            return True, success_msg
         else:
             success_msg["success"] += f" Now the next {len(self.current_tbd_ck_list)} CK points: {', '.join(self.current_tbd_ck_list)} need to be implemented."
             if is_complete:
-                ret_cmp = False
-                success_msg["error"] = f"Not all CK points in this batch have been implemented."
+                success_msg["error"] = f"Not all CK points in this batch have been implemented. {', '.join(self.current_tbd_ck_list)} are still to be done."
                 del success_msg["success"]
-        return ret_cmp, success_msg
+            if note_msg:
+                success_msg["note"] = note_msg
+        return False, success_msg
 
 
 class BaseUnityChipCheckerTestCase(Checker):
@@ -888,9 +891,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {', '.join(self.current_test_cases)}. " + \
                                     f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
                                      "Please continue implementing the remaining test cases before completing this stage."}
-        return True, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
-                                 f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
-                                 f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
+        return False, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
+                                  f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
+                                  f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
 
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
