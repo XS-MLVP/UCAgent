@@ -1,5 +1,6 @@
 #coding=utf-8
 
+import copy
 from vagent.util.log import info, warning
 import os
 from typing import List
@@ -508,6 +509,8 @@ def render_template(template: str, kwargs) -> str:
 
 
 def fill_template(data, template_data):
+    if template_data is None:
+        return data
     if isinstance(data, str):
         return render_template(data, template_data)
     elif isinstance(data, list):
@@ -1216,3 +1219,11 @@ def get_str_array_diff(str_list1, str_list2):
     only_in_1 = [s for s in a if s not in b]
     only_in_2 = [s for s in b if s not in a]
     return only_in_1, only_in_2
+
+
+def clean_report_with_keys(report: dict, keys=["bins_all"]) -> dict:
+        data = copy.deepcopy(report)
+        for k in keys:
+            if k in data:
+                del data[k]
+        return data

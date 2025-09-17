@@ -379,18 +379,20 @@ stage:
   #   - This stage can be skipped if the dut is env-self-contained
 
   - name: test_framework_scaffolding
-    desc: "测试框架脚手架构建"
+    desc: "测试框架脚手架构建[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
     task:
       - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
-      - "  - 1) 每个测试函数以test_开头，第一个参数为dut(pytest fixture)，可以根据需要添加其他参数"
+      - "  - 1) 每个测试函数以test_开头，第一个参数为dut(pytest fixture)或者env(pytest fixture)，可以根据需要添加其他参数"
       - "  - 2) 每个测试函数的最开始添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
       - "  - 3) 添加详细的TODO注释说明要测什么"
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "确保：每个功能点<FC-*>至少有一个测试用例"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
+      - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
+      - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
     checker:
       - name: template_check
         clss: "UnityChipCheckerTestTemplate"
@@ -399,6 +401,7 @@ stage:
           test_dir: "{OUT}/tests"
           ignore_ck_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
+          batch_size: 5
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
           pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"

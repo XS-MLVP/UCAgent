@@ -2,7 +2,7 @@
 
 import os
 from typing import Tuple
-from vagent.util.functions import render_template, rm_workspace_prefix
+from vagent.util.functions import render_template, rm_workspace_prefix, fill_template
 from vagent.util.log import info, error
 import time
 import traceback
@@ -21,11 +21,14 @@ class Checker(object):
     def on_init(self):
         pass
 
-    def filter_vstage_task(self, stage_detail):
-        return stage_detail
+    def get_template_data(self):
+        return None
 
     def filter_vstage_description(self, stage_description):
-        return stage_description
+        return fill_template(stage_description, self.get_template_data())
+
+    def filter_vstage_task(self, stage_detail):
+        return fill_template(stage_detail, self.get_template_data())
 
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."

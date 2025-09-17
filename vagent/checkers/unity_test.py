@@ -95,12 +95,6 @@ class UnityChipCheckerLabelStructure(Checker):
             f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else ""
         }
 
-    def filter_vstage_description(self, stage_description):
-        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
-
-    def filter_vstage_task(self, stage_detail):
-        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
-
 
 class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file, **kw):
@@ -357,12 +351,6 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
             "LIST_CURRENT_POINTS": self.current_tbd_ck_list,
         }
 
-    def filter_vstage_description(self, stage_description):
-        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
-
-    def filter_vstage_task(self, stage_detail):
-        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
-
     def on_init(self):
         self.cached_doc_ck_list = self.smanager_get_value(self.data_key, [])
         info(f"Load cached doc ck list(size={len(self.cached_doc_ck_list)}) from data key '{self.data_key}'.")
@@ -479,7 +467,8 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="", data_key=None, **extra_kwargs):
+    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="",
+                 data_key=None, ret_std_error=True, ret_std_out=True, **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -488,6 +477,8 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.ignore_ck_prefix = ignore_ck_prefix
         self.data_key = data_key
         self.extra_kwargs = extra_kwargs
+        self.ret_std_error = ret_std_error
+        self.ret_std_out = ret_std_out
         self.run_test = RunUnityChipTest()
 
     def set_workspace(self, workspace: str):
@@ -554,18 +545,138 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
                 except Exception as e:
                     line_coverage_data["error"] = f"Failed to parse line coverage file '{line_coverage_file}': {str(e)}."
         ret = OrderedDict({
-            "REPORT": free_report,
-            "STDOUT": str_out,
-            "STDERR": str_err,
-        })
+            "REPORT": free_report})
+        if self.ret_std_out:
+            ret.update({"STDOUT": str_out})
+        if self.ret_std_error:
+            ret.update({"STDERR": str_err})
         if return_line_coverage:
             ret["LINE_COVERAGE"] = line_coverage_data
         return True, ret
 
 
+class UnityChipBatchTask:
+
+    def __init__(self, name, checker, batch_size):
+        self.name = name
+        self.checker = checker
+        self.tbd_task_list = []
+        self.cmp_task_list = []
+        self.source_task_list = []
+        self.gen_task_list = []
+        self.batch_size = batch_size
+
+    def get_template_data(self, total_tasks, completed_tasks, current_tasks):
+        return {
+            total_tasks:      "-" if not self.source_task_list else len(self.source_task_list),
+            completed_tasks:  "-" if not self.source_task_list else len(self.cmp_task_list),
+            current_tasks: self.tbd_task_list,
+        }
+
+    def update_tbd_from_source(self):
+        del_tasks = []
+        for t in self.tbd_task_list:
+            if t not in self.source_task_list:
+                del_tasks.append(t)
+        for t in del_tasks:
+            self.tbd_task_list.remove(t)
+
+    def update_cmp_from_tbd(self):
+        del_tasks = []
+        for t in self.cmp_task_list:
+            if t not in self.tbd_task_list:
+                del_tasks.append(t)
+        for t in del_tasks:
+            self.cmp_task_list.remove(t)
+        return del_tasks
+
+    def update_tbd_and_cmp(self):
+        self.update_tbd_from_source()
+        self.update_cmp_from_tbd()
+
+    def update_current_tbd(self):
+        if len(self.tbd_task_list) > 0:
+            return False
+        if len(self.source_task_list) > 0:
+            task_list, _ = fc.get_str_array_diff(self.source_task_list, self.cmp_task_list)
+            task_list.sort()
+            self.tbd_task_list = task_list[:self.batch_size]
+            info(f"{self.checker.__class__.__name__} Find {len(task_list)} {self.name} to be done, current batch size {self.batch_size}.")
+            info(f"{self.checker.__class__.__name__} Update to be done task list(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
+        return len(self.tbd_task_list) == 0
+
+    def sync_source_task(self, new_task_list, note_msg):
+        del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, new_task_list)
+        if del_tasks:
+            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
+        if add_tasks:
+            note_msg.append(f"Added: {', '.join(add_tasks)}")
+        if note_msg:
+            info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: {', '.join(note_msg)}")
+            self.update_tbd_and_cmp()
+        self.source_task_list = new_task_list
+
+    def sync_gen_task(self, new_task_list, note_msg):
+        del_tasks, add_tasks = fc.get_str_array_diff(self.gen_task_list, new_task_list)
+        if del_tasks:
+            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
+        if add_tasks:
+            note_msg.append(f"Added: {', '.join(add_tasks)}")
+        if note_msg:
+            info(f"{self.checker.__class__.__name__} Sync generated task for {self.name}: {', '.join(note_msg)}")
+        self.gen_task_list = new_task_list
+
+    def do_complete(self, note_msg, exmsg=""):
+        assert len(self.source_task_list) > 0, f"No source task for {self.name}, can not complete."
+        if self.update_current_tbd():
+            return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
+        for t in self.tbd_task_list:
+            if t in self.gen_task_list and t not in self.cmp_task_list:
+                self.cmp_task_list.append(t)
+        task_remain = []
+        for t in self.tbd_task_list:
+            if t not in self.cmp_task_list:
+                task_remain.append(t)
+        if task_remain:
+            msg = {"error": f"Not all {self.name} in this batch have been completed. {', '.join(task_remain)} are still to be done." + exmsg}
+            if note_msg:
+                msg["note"] = note_msg
+            return False, msg
+        success_msg = {"success": f"Congratulations! {len(self.tbd_task_list)} {self.name} in this batch have been completed."}
+        if note_msg:
+            success_msg["note"] = note_msg
+        self.tbd_task_list = []
+        self.cmp_task_list = []
+        if self.update_current_tbd():
+            success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
+            return True, success_msg
+        else:
+            success_msg["success"] += f" Now the next {len(self.tbd_task_list)} {self.name}: {', '.join(self.tbd_task_list)} need to be completed." + exmsg
+        return False, success_msg
+
+
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+    def get_template_data(self):
+        if hasattr(self, "batch_task"):
+            data = self.batch_task.get_template_data("TOTAL_CKS", "COVERED_CKS", "LIST_CKS_TO_BE_COVERED")
+            data["CASE_TESTS_COUNT"] = self.total_tests_count if hasattr(self, "total_tests_count") else "-"
+            return data
+        return {
+            "TOTAL_CKS":      "-",
+            "COVERED_CKS":    "-",
+            "LIST_CKS_TO_BE_COVERED": [],
+            "CASE_TESTS_COUNT":    "-",
+        }
+
+    def on_init(self):
+        self.total_tests_count = 0
+        self.batch_task = UnityChipBatchTask("check_points", self, self.extra_kwargs.get("batch_size", 20))
+        self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")["marks"]
+        self.batch_task.update_current_tbd()
+        info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
+
+    def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """
         Perform the check for test templates.
 
@@ -576,10 +687,14 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         raw_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
-        if all_bins_test:
-            del report["bins_all"]
+        report = fc.clean_report_with_keys(report)
         info_report = OrderedDict({"TEST_REPORT": report})
-        info_runtest = OrderedDict({"TEST_REPORT": report, "STDOUT": str_out, "STDERR": str_err})
+        info_runtest = OrderedDict({"TEST_REPORT": report})
+        self.total_tests_count = len([k for k, _ in report.get("test_cases", {}).items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
+        if self.ret_std_out:
+            info_report.update({"STDOUT": str_out})
+        if self.ret_std_error:
+            info_report.update({"STDERR": str_err})
         if report.get("tests") is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test cases are defined correctly in the workspace."
@@ -595,6 +710,25 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             info_report["error"] = f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. " + \
                                     "Review your task requirements and the file format to fix your documentation file."
             return False, info_report
+
+        # Additional template-specific validations
+        template_validation_result = self._validate_template_structure(report, str_out, str_err)
+        if not template_validation_result[0]:
+            info_runtest["error"] = template_validation_result[1]
+            return False, info_runtest
+
+        # check batch
+        if not is_complete:
+            note_msg = []
+            if report['unmarked_check_points'] > 0:
+                marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_points_list']]
+            else:
+                marked_bins = all_bins_test
+            self.batch_task.sync_source_task(all_bins_docs, note_msg)
+            self.batch_task.sync_gen_task(marked_bins, note_msg)
+            return self.batch_task.do_complete(note_msg, " Please mark the check points in its related test functions using 'mark_function'.")
+
+        # complete check
         bins_not_in_docs = []
         bins_not_in_test = []
         for b in all_bins_test:
@@ -636,12 +770,6 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                          "Please add proper function markings according to the test template specification."]
                 return False, info_runtest
 
-        # Additional template-specific validations
-        template_validation_result = self._validate_template_structure(report, str_out, str_err)
-        if not template_validation_result[0]:
-            info_runtest["error"] = template_validation_result[1]
-            return False, info_runtest
-
         # Success message with template-specific details
         info_report["success"] = ["Test template validation successful!",
                                  f"✓ Generated {report['tests']['total']} test case templates (all properly failing as expected).",
@@ -680,10 +808,14 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                            "Please ensure every test function ends with the required fail assertion."
         # Check for proper TODO comments (this would require parsing the actual test files)
         # For now, we rely on the fact that properly structured templates should fail with "Not implemented"
-        if "Not implemented" not in str_out and "Not implemented" not in str_err:
-            return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
-                          "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
-                          "This helps distinguish between actual test failures and template placeholders."
+        if self.ret_std_out and self.ret_std_error:
+            if "Not implemented" not in str_out and "Not implemented" not in str_err:
+                info(f"STDOUT: {str_out}")
+                info(f"STDERR: {str_err}")
+                return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
+                              "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
+                              "This helps distinguish between actual test failures and template placeholders. " + \
+                              "If you have implemented as the template requires, please make sure the `mark_function` works correctly."
         return True, "Template structure validation passed."
 
 
@@ -713,6 +845,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             pytest_ex_args=targets,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
         )
+        report_copy = fc.clean_report_with_keys(report)
         func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
                                          ex_python_path=self.workspace,
                                          dtype="FUNC")
@@ -731,7 +864,12 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if func_name not in test_functions:
                 api_un_tested.append(func_name)
         def get_emsg(m):
-            return {"error": m, "STDOUT": str_out, "STDERR": str_err, "REPORT": report}
+            msg =  {"error": m, "REPORT": report_copy}
+            if self.ret_std_out:
+                msg["STDOUT"] = str_out
+            if self.ret_std_error:
+                msg["STDERR"] = str_err
+            return msg
         if api_un_tested:
             info(f"Missed APIs: {','.join(api_un_tested)}")
             info(f"Found test APIs: {','.join(test_functions)}")
@@ -792,12 +930,6 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             target_tests += f"{f}{test_parm} "
         return target_tests.strip(), list(failed_tests_files)
 
-    def filter_vstage_description(self, stage_description):
-        return super().filter_vstage_description(fc.fill_template(stage_description, self.get_template_data()))
-
-    def filter_vstage_task(self, stage_detail):
-        return super().filter_vstage_task(fc.fill_template(stage_detail, self.get_template_data()))
-
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
 
@@ -854,10 +986,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                             "Please check your test case names and ensure they are correct."}
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
-        error_msgs = {
-            "STDOUT": str_out,
-            "STDERR": str_err,
-        }
+        error_msgs = {}
+        if self.ret_std_out:
+            error_msgs["STDOUT"] = str_out
+        if self.ret_std_error:
+            error_msgs["STDERR"] = str_err
         return_tests = {self.rm_line_no(k):v for k, v in report.get("tests", {}).get("test_cases", {}).items()}
         if len(return_tests) == 0:
             error_msgs["error"] = "No test cases found in the report. Please ensure that the test cases are defined correctly in the workspace."
@@ -873,9 +1006,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return False, error_msgs
 
         ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
-        for key in ["bins_all", "unmarked_check_points", "unmarked_check_points_list", "failed_check_point_list"]:
-            if key in report:
-                del report[key]
+        report  = fc.clean_report_with_keys(report, ["bins_all", "unmarked_check_points", "unmarked_check_points_list", "failed_check_point_list"])
         error_msgs["REPORT"] = report
         if not ret:
             error_msgs["error"] = msg
@@ -906,12 +1037,16 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         abs_report = copy.deepcopy(report)
         all_bins_test = report.get("bins_all", [])
-        if all_bins_test:
-            del abs_report["bins_all"]
+        abs_report = fc.clean_report_with_keys(report)
 
         # Prepare diagnostic information
-        info_runtest = OrderedDict({"STDOUT": str_out, "STDERR": str_err, "TEST_REPORT": abs_report})
-        
+        info_runtest = OrderedDict()
+        if self.ret_std_out:
+            info_runtest["STDOUT"] = str_out
+        if self.ret_std_error:
+            info_runtest["STDERR"] = str_err
+        info_runtest["TEST_REPORT"] = abs_report
+
         # Basic validation: Check if tests exist
         if report.get("tests") is None:
             info_runtest["error"] = ["Test execution failed: No test cases found in the report. Possible causes:",

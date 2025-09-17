@@ -780,3 +780,60 @@ class VerifyPDB(Pdb):
         except Exception as e:
             echo_r(traceback.format_exc())
             echo_r(f"Error loading Toffee report: {e}")
+
+    def api_list_checker_instance(self):
+        """
+        List all available checkers.
+        Returns:
+            list: List of checker Instances.
+        """
+        checkers = []
+        for stage in self.agent.stage_manager.stages:
+            for ck in stage.checker:
+                checkers.append({
+                    "class": ck.__class__.__name__,
+                    "name": stage.title(),
+                    "instance": ck,
+                })
+        return checkers
+
+    def do_list_checkers(self, arg):
+        """
+        List all active checker instances.
+        """
+        checkers = self.api_list_checker_instance()
+        if not checkers:
+            echo_y("No checker instance available.")
+            return
+        echo_g(f"Available checkers ({len(checkers)}):")
+        for i, ck in enumerate(checkers):
+            echo(f"[{i}] {ck['class']} (Stage: {ck['name']})")
+
+    def do_export_checker(self, arg):
+        """
+        Export a checker instance to a variable in the current frame.
+        Usage: export_checker <index> <var_name>
+        """
+        args = arg.strip().split()
+        if len(args) != 2:
+            echo_y("Usage: export_checker <index> <var_name>")
+            return
+        try:
+            index = int(args[0])
+        except ValueError:
+            echo_r("Invalid index. Please provide a valid integer index.")
+            return
+        var_name = args[1].strip()
+        if not var_name.isidentifier():
+            echo_r(f"Invalid variable name: '{var_name}'. Must be a valid Python identifier.")
+            return
+        checkers = self.api_list_checker_instance()
+        if index < 0 or index >= len(checkers):
+            echo_r(f"Index {index} is out of range. Valid range: 0 to {len(checkers) - 1}.")
+            return
+        checker = checkers[index]["instance"]
+        if self.curframe is None:
+            message("No active frame available. Make sure you're in an active debugging session.")
+            return
+        self.curframe.f_locals[var_name] = checker
+        echo_g(f"Checker instance '{checker.__class__.__name__}' exported to variable '{var_name}' in the current frame.")
