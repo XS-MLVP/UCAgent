@@ -1,4 +1,5 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""Toffee report checker for UCAgent verification."""
 
 from vagent.util.log import warning, info
 import vagent.util.functions as fc

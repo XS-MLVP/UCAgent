@@ -1,5 +1,5 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
+"""Verification manager for UCAgent stage execution."""
 
 import inspect
 from vagent.util.functions import yam_str

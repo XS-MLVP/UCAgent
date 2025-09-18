@@ -1,4 +1,5 @@
-#coding=utf8
+# -*- coding: utf-8 -*-
+"""Terminal User Interface for UCAgent verification."""
 
 import urwid
 import os

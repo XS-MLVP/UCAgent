@@ -1,4 +1,4 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
 
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
@@ -27,12 +27,15 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
+from pydantic import BaseModel
 import traceback
 
 
 class SummarizationAndFixToolCall(SummarizationNode):
-    def _func(self, input: dict[str, Any] | BaseModel) -> dict[str, Any]:
+    """Custom summarization node that fixes tool call arguments."""
+
+    def _func(self, input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
         for msg in input["messages"][-4:]:
             if not isinstance(msg, AIMessage):
                 continue
@@ -44,31 +47,36 @@ class SummarizationAndFixToolCall(SummarizationNode):
 
 
 class State(AgentState):
+    """Agent state with additional context information."""
     # NOTE: we're adding this key to keep track of previous summary information
     # to make sure we're not summarizing on every LLM call
-    context: dict[str, Any] 
+    context: Dict[str, Any]
 
 
-class VerifyAgent(object):
+class VerifyAgent:
+    """AI-powered hardware verification agent for chip design testing."""
 
-    def __init__(self, workspace, dut_name, output,
-                 config_file=None,
-                 cfg_override=None,
-                 tmp_overwrite=False,
-                 template_dir=None,
-                 stream_output=False,
-                 init_cmd=None,
-                 seed=None,
-                 sys_tips="",
-                 model=None,
-                 ex_tools=None,
-                 thread_id=None,
-                 debug=False,
-                 no_embed_tools=False,
-                 force_stage_index=0,
-                 no_write_targets=None,
-                 interaction_mode="standard",
-                 gen_instruct_file=None,
+    def __init__(self,
+                 workspace: str,
+                 dut_name: str,
+                 output: str,
+                 config_file: Optional[str] = None,
+                 cfg_override: Optional[Dict[str, Any]] = None,
+                 tmp_overwrite: bool = False,
+                 template_dir: Optional[str] = None,
+                 stream_output: bool = False,
+                 init_cmd: Optional[List[str]] = None,
+                 seed: Optional[int] = None,
+                 sys_tips: str = "",
+                 model = None,  # ChatOpenAI type from langchain_openai
+                 ex_tools: Optional[List[str]] = None,
+                 thread_id: Optional[int] = None,
+                 debug: bool = False,
+                 no_embed_tools: bool = False,
+                 force_stage_index: int = 0,
+                 no_write_targets: Optional[List[str]] = None,
+                 interaction_mode: str = "standard",
+                 gen_instruct_file: Optional[str] = None,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 

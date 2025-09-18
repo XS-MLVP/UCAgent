@@ -1,5 +1,4 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
 """
 Enhanced interaction logic for the verify agent.
 This module provides improved interaction management with planning, memory management,

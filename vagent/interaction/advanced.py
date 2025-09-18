@@ -1,5 +1,4 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
 """
 Advanced interaction logic for the verify agent.
 This module provides adaptive interaction strategies with context analysis and performance tracking.

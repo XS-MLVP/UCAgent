@@ -1,4 +1,6 @@
-#coding=utf-8
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test cases for utility functions."""
 
 import os
 current_dir = os.path.dirname(os.path.abspath(__file__))

@@ -1,21 +1,28 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
 
 import os
 import yaml
+from typing import Dict, Any, Optional, Union, List
 from .functions import render_template, dump_as_json
 from .log import info
 
-class Config(object):
+class Config:
+    """Configuration class for UCAgent settings."""
 
-    def __init__(self, dict=None):
-        self._freeze = False
-        self.from_dict(dict)
+    def __init__(self, data: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize configuration object.
 
-    def from_dict(self, data):
+        Args:
+            data: Dictionary containing configuration data.
         """
-        Load configuration from a dictionary.
-        :param dict: Dictionary containing configuration.
-        :return: None
+        self._freeze = False
+        self.from_dict(data)
+
+    def from_dict(self, data: Optional[Dict[str, Any]]) -> None:
+        """Load configuration from a dictionary.
+
+        Args:
+            data: Dictionary containing configuration.
         """
         if data is None:
             return
@@ -28,13 +35,19 @@ class Config(object):
             else:
                 setattr(self, key, value)
 
-    def empty(self):
+    def empty(self) -> bool:
+        """Check if the configuration is empty.
+
+        Returns:
+            True if configuration is empty, False otherwise.
+        """
         return len(self.as_dict()) <= 1
 
-    def as_dict(self):
-        """
-        Convert the configuration to a dictionary.
-        :return: Dictionary representation of the configuration.
+    def as_dict(self) -> Dict[str, Any]:
+        """Convert the configuration to a dictionary.
+
+        Returns:
+            Dictionary representation of the configuration.
         """
         result = {}
         for key, value in self.__dict__.items():

@@ -1,5 +1,5 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
+"""Unity test checker for UCAgent verification."""
 
 import re
 from typing import Tuple

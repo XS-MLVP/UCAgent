@@ -1,5 +1,4 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
 """
 Tool orchestrator for intelligent tool selection and usage optimization.
 This module provides context-aware tool recommendations and usage guidance.

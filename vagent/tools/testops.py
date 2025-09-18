@@ -1,4 +1,5 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""Test operations tools for UCAgent."""
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,

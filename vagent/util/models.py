@@ -1,10 +1,22 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""Model utilities for UCAgent chat models."""
 
-
+from typing import Any
 from .config import Config
 
 
-def get_chat_model_openai(cfg: Config):
+def get_chat_model_openai(cfg: Config) -> Any:
+    """Get OpenAI chat model instance.
+
+    Args:
+        cfg: Configuration object containing OpenAI settings.
+
+    Returns:
+        ChatOpenAI instance.
+
+    Raises:
+        ImportError: If langchain_openai is not installed.
+    """
     try:
         from langchain_openai import ChatOpenAI
     except ImportError:
@@ -17,7 +29,18 @@ def get_chat_model_openai(cfg: Config):
                                     )
 
 
-def get_chat_model_anthropic(cfg: Config):
+def get_chat_model_anthropic(cfg: Config) -> Any:
+    """Get Anthropic chat model instance.
+
+    Args:
+        cfg: Configuration object containing Anthropic settings.
+
+    Returns:
+        ChatAnthropic instance.
+
+    Raises:
+        ImportError: If langchain_anthropic is not installed.
+    """
     try:
         from langchain_anthropic import ChatAnthropic
     except ImportError:

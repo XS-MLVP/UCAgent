@@ -1,4 +1,5 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""Planning and task management tools for UCAgent."""
 
 from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema

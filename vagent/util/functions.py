@@ -1,9 +1,9 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
 
 import copy
 from vagent.util.log import info, warning
 import os
-from typing import List
+from typing import List, Dict, Any, Optional, Tuple, Union
 import json
 import importlib
 import re
@@ -13,13 +13,19 @@ import fnmatch
 import ast
 from pathlib import Path
 import yaml
+from collections import OrderedDict
 
 
-def fmt_time_deta(sec, abbr=False):
+def fmt_time_deta(sec: Union[int, float, str, None], abbr: bool = False) -> str:
     """
     Format time duration in seconds to a human-readable string.
-    :param sec: Time duration in seconds.
-    :return: Formatted string representing the time duration.
+
+    Args:
+        sec: Time duration in seconds.
+        abbr: Whether to use abbreviated format.
+
+    Returns:
+        Formatted string representing the time duration.
     """
     if sec is None:
         return "N/A"
@@ -43,12 +49,16 @@ def fmt_time_deta(sec, abbr=False):
     return deta_time
 
 
-def fmt_time_stamp(sec, fmt="%Y-%m-%d %H:%M:%S"):
+def fmt_time_stamp(sec: Union[int, float], fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     """
     Format a time duration in seconds to a string.
-    :param sec: Time duration in seconds.
-    :param fmt: Format string (default is "%Y-%m-%d %H:%M:%S").
-    :return: Formatted time string.
+
+    Args:
+        sec: Time duration in seconds.
+        fmt: Format string (default is "%Y-%m-%d %H:%M:%S").
+
+    Returns:
+        Formatted time string.
     """
     if sec is None:
         return "N/A"
@@ -59,11 +69,15 @@ def fmt_time_stamp(sec, fmt="%Y-%m-%d %H:%M:%S"):
     raise ValueError(f"Unsupported type for sec: {type(sec)}. Expected int or float.")
 
 
-def is_text_file(file_path):
+def is_text_file(file_path: str) -> bool:
     """
     Check if a file is a text file by attempting to read it.
-    :param file_path: Path to the file.
-    :return: True if the file is a text file, False otherwise.
+
+    Args:
+        file_path: Path to the file.
+
+    Returns:
+        True if the file is a text file, False otherwise.
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -1060,7 +1074,6 @@ def max_str(str_data, max_size=10):
     return str_data[:max_size] + "..."
 
 
-from collections import OrderedDict
 def ordered_dict_representer(dumper, data):
     return dumper.represent_dict(data.items())
 yaml.add_representer(OrderedDict, ordered_dict_representer)

@@ -1,14 +1,14 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""UCAgent base tool class implementation."""
 
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
 from pydantic import Field, BaseModel
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
 from mcp.server.fastmcp.tools import Tool as FastMCPTool
-from typing import Any
 import vagent.util.functions as fc
 
 import threading
@@ -23,11 +23,14 @@ class EmptyArgs(BaseModel):
 
 
 class UCTool(BaseTool):
+    """Base class for UCAgent tools with additional functionality."""
+
     call_count: int = Field(
         default=0,
-        description="Number of times the tool has been called.")
+        description="Number of times the tool has been called."
+    )
 
-    pre_call_back: Callable = Field(
+    pre_call_back: Optional[Callable] = Field(
         default=None,
         description="A callback function to be executed before each call to the tool."
     )

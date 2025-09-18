@@ -1,4 +1,5 @@
-#coding: utf-8
+# -*- coding: utf-8 -*-
+"""Base checker class for UCAgent verification checkers."""
 
 import os
 from typing import Tuple
@@ -9,7 +10,8 @@ import time
 import traceback
 
 
-class Checker(object):
+class Checker:
+    """Base class for verification checkers."""
 
     workspace = None
     time_start = None

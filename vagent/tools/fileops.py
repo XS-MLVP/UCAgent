@@ -1,4 +1,5 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""File operations tools for UCAgent."""
 
 from typing import Optional, List, Tuple
 from vagent.util.log import info, str_info, str_return, str_error, str_data, warning

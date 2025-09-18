@@ -1,8 +1,10 @@
-#coding=utf-8
+# -*- coding: utf-8 -*-
+"""Logging utilities for UCAgent."""
 
 import logging
 import logging.handlers
 import os
+from typing import Optional
 
 RESET = "\033[0m"
 GREEN = "\033[32m"
@@ -10,14 +12,27 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 
 
-__log_logger__ = None
-def get_log_logger():
-    """Returns a logger instance."""
+__log_logger__: Optional[logging.Logger] = None
+
+
+def get_log_logger() -> Optional[logging.Logger]:
+    """Returns a logger instance.
+
+    Returns:
+        Logger instance or None if not initialized.
+    """
     return __log_logger__
 
 
-__msg_logger__ = None
-def get_msg_logger():
+__msg_logger__: Optional[logging.Logger] = None
+
+
+def get_msg_logger() -> Optional[logging.Logger]:
+    """Returns a message logger instance.
+
+    Returns:
+        Message logger instance or None if not initialized.
+    """
     return __msg_logger__
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 UCAgent Command Line Interface
 
@@ -10,6 +11,7 @@ import os
 import sys
 import argparse
 import bdb
+from typing import Dict, List, Any, Optional
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +23,15 @@ from .verify_agent import VerifyAgent
 from .util.log import init_log_logger, init_msg_logger
 
 
-def get_override_dict(override_str):
-    """Parse override string into dictionary."""
+def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
+    """Parse override string into dictionary.
+
+    Args:
+        override_str: String containing override settings in format A.B.C=value
+
+    Returns:
+        Dict containing parsed override settings
+    """
     if override_str is None:
         return {}
     overrides = {}
@@ -38,15 +47,26 @@ def get_override_dict(override_str):
     return overrides
 
 
-def get_list_from_str(list_str):
-    """Parse comma-separated string into list."""
+def get_list_from_str(list_str: Optional[str]) -> List[str]:
+    """Parse comma-separated string into list.
+
+    Args:
+        list_str: Comma-separated string
+
+    Returns:
+        List of trimmed strings
+    """
     if list_str is None:
         return []
     return [item.strip() for item in list_str.split(",") if item.strip()]
 
 
-def get_args():
-    """Parse command line arguments."""
+def get_args() -> argparse.Namespace:
+    """Parse command line arguments.
+
+    Returns:
+        Parsed command line arguments
+    """
     # Determine the program name based on how it's called
     prog_name = "ucagent"
     if sys.argv[0].endswith("ucagent.py"):
@@ -246,7 +266,7 @@ def get_args():
     return parser.parse_args()
 
 
-def run():
+def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
     
@@ -311,7 +331,7 @@ def run():
         sys.exit(1)
 
 
-def main():
+def main() -> None:
     """Main entry point with exception handling."""
     try:
         run()

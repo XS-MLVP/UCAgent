@@ -1,5 +1,5 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
+"""Memory management tools for UCAgent."""
 
 from mem0 import Memory
 import time

@@ -1,5 +1,5 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
+"""Verification stage management for UCAgent."""
 
 from vagent.util.functions import import_class_from_str, find_files_by_pattern
 from vagent.util.log import info, warning

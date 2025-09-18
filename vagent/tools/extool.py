@@ -1,5 +1,5 @@
-#coding=utf-8
-
+# -*- coding: utf-8 -*-
+"""External tools integration for UCAgent."""
 
 from .uctool import UCTool
 
