@@ -229,123 +229,244 @@ class NopChecker(Checker):
 
 
 class UnityChipBatchTask:
+    """Batch task manager for Unity chip verification tasks.
 
-    def __init__(self, name, checker, batch_size):
+    This class manages a batch of verification tasks, tracking their progress
+    and handling synchronization between source tasks and generated tasks.
+    """
+
+    def __init__(self, name: str, checker: Checker, batch_size: int) -> None:
+        """Initialize the batch task manager.
+
+        Args:
+            name: Name identifier for the task type.
+            checker: The checker instance associated with these tasks.
+            batch_size: Maximum number of tasks to process in one batch.
+        """
         self.name = name
         self.checker = checker
-        self.tbd_task_list = []
-        self.cmp_task_list = []
-        self.source_task_list = []
-        self.gen_task_list = []
+        self.tbd_task_list = []  # To Be Done task list
+        self.cmp_task_list = []  # Completed task list
+        self.source_task_list = []  # Source task list (ground truth)
+        self.gen_task_list = []  # Generated task list (actual results)
         self.batch_size = batch_size
 
-    def get_template_data(self, total_tasks, completed_tasks, current_tasks):
+    def get_template_data(self, total_tasks: str, completed_tasks: str, current_tasks: str) -> dict:
+        """Get template data for task status reporting.
+
+        Args:
+            total_tasks: Key name for total tasks count.
+            completed_tasks: Key name for completed tasks count.
+            current_tasks: Key name for current tasks list.
+
+        Returns:
+            Dictionary containing task status information.
+        """
         return {
-            total_tasks:      "-" if not self.source_task_list else len(self.source_task_list),
-            completed_tasks:  "-" if not self.source_task_list else len(self.gen_task_list),
+            total_tasks: "-" if not self.source_task_list else len(self.source_task_list),
+            completed_tasks: "-" if not self.source_task_list else len(self.gen_task_list),
             current_tasks: self.tbd_task_list,
         }
 
-    def update_tbd_from_source(self):
-        del_tasks = []
-        for t in self.tbd_task_list:
-            if t not in self.source_task_list:
-                del_tasks.append(t)
-        for t in del_tasks:
-            self.tbd_task_list.remove(t)
+    def update_tbd_from_source(self) -> None:
+        """Update to-be-done task list by removing tasks not in source list."""
+        tasks_to_remove = []
+        for task in self.tbd_task_list:
+            if task not in self.source_task_list:
+                tasks_to_remove.append(task)
 
-    def update_cmp_from_tbd(self):
-        del_tasks = []
-        for t in self.cmp_task_list:
-            if t not in self.tbd_task_list:
-                del_tasks.append(t)
-        for t in del_tasks:
-            self.cmp_task_list.remove(t)
-        return del_tasks
+        for task in tasks_to_remove:
+            self.tbd_task_list.remove(task)
 
-    def update_tbd_and_cmp(self):
+    def update_cmp_from_tbd(self) -> list:
+        """Update completed task list by removing tasks not in to-be-done list.
+
+        Returns:
+            List of tasks that were removed from completed list.
+        """
+        tasks_to_remove = []
+        for task in self.cmp_task_list:
+            if task not in self.tbd_task_list:
+                tasks_to_remove.append(task)
+
+        for task in tasks_to_remove:
+            self.cmp_task_list.remove(task)
+        return tasks_to_remove
+
+    def update_tbd_and_cmp(self) -> None:
+        """Update both to-be-done and completed task lists."""
         self.update_tbd_from_source()
         self.update_cmp_from_tbd()
 
-    def update_current_tbd(self):
+    def update_current_tbd(self) -> bool:
+        """Update current to-be-done task list with next batch.
+
+        Returns:
+            True if no more tasks to be done, False otherwise.
+        """
         if len(self.tbd_task_list) > 0:
             return False
+
         if len(self.source_task_list) > 0:
-            task_list, _ = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
-            task_list.sort()
-            self.tbd_task_list = task_list[:self.batch_size]
-            info(f"{self.checker.__class__.__name__} Find {len(task_list)} {self.name} to be done, current batch size {self.batch_size}.")
-            info(f"{self.checker.__class__.__name__} Update to be done task list(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
+            remaining_tasks, _ = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
+            remaining_tasks.sort()
+            self.tbd_task_list = remaining_tasks[:self.batch_size]
+            info(f"{self.checker.__class__.__name__} Found {len(remaining_tasks)} {self.name} "
+                 f"to be done, current batch size {self.batch_size}.")
+            info(f"{self.checker.__class__.__name__} Updated to-be-done task list "
+                 f"(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
+
         return len(self.tbd_task_list) == 0
 
-    def sync_source_task(self, new_task_list, note_msg, init_msg):
-        del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, new_task_list)
-        if del_tasks or add_tasks:
+    def sync_source_task(self, new_task_list: list, note_msg: list, init_msg: str) -> None:
+        """Synchronize source task list with new task list.
+
+        Args:
+            new_task_list: New list of source tasks.
+            note_msg: List to append notification messages.
+            init_msg: Initial message for notifications.
+        """
+        deleted_tasks, added_tasks = fc.get_str_array_diff(self.source_task_list, new_task_list)
+
+        if deleted_tasks or added_tasks:
             note_msg.append(init_msg)
-        if del_tasks:
-            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
-        if add_tasks:
-            note_msg.append(f"Added: {', '.join(add_tasks)}")
+
+        if deleted_tasks:
+            note_msg.append(f"Deleted: {', '.join(deleted_tasks)}")
+        if added_tasks:
+            note_msg.append(f"Added: {', '.join(added_tasks)}")
+
         if note_msg:
-            info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: {', '.join(note_msg)}")
+            info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: "
+                 f"{', '.join(note_msg)}")
             self.update_tbd_and_cmp()
+
         self.source_task_list = new_task_list
 
-    def sync_gen_task(self, new_task_list, note_msg, init_msg):
-        del_tasks, add_tasks = fc.get_str_array_diff(self.gen_task_list, new_task_list)
-        if del_tasks or add_tasks:
+    def sync_gen_task(self, new_task_list: list, note_msg: list, init_msg: str) -> None:
+        """Synchronize generated task list with new task list.
+
+        Args:
+            new_task_list: New list of generated tasks.
+            note_msg: List to append notification messages.
+            init_msg: Initial message for notifications.
+        """
+        deleted_tasks, added_tasks = fc.get_str_array_diff(self.gen_task_list, new_task_list)
+
+        if deleted_tasks or added_tasks:
             note_msg.append(init_msg)
-        if del_tasks:
-            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
-        if add_tasks:
-            note_msg.append(f"Added: {', '.join(add_tasks)}")
+
+        if deleted_tasks:
+            note_msg.append(f"Deleted: {', '.join(deleted_tasks)}")
+        if added_tasks:
+            note_msg.append(f"Added: {', '.join(added_tasks)}")
+
         if note_msg:
-            info(f"{self.checker.__class__.__name__} Sync generated task for {self.name}: {', '.join(note_msg)}")
+            info(f"{self.checker.__class__.__name__} Sync generated task for {self.name}: "
+                 f"{', '.join(note_msg)}")
+
         self.gen_task_list = new_task_list
 
-    def do_complete(self, note_msg, is_complete, fail_source_msg, fail_gen_msg, exmsg=""):
-        assert len(self.source_task_list) > 0, f"No source task for {self.name}, can not complete."
+    def do_complete(self, note_msg: list, is_complete: bool, fail_source_msg: str,
+                   fail_gen_msg: str, exmsg: str) -> Tuple[bool, dict]:
+        """Complete the current batch and check overall progress.
+
+        Args:
+            note_msg: List to append notification messages.
+            is_complete: Whether this is a completion request.
+            fail_source_msg: Message for source task failures.
+            fail_gen_msg: Message for generated task failures.
+            exmsg: Extra message to append.
+
+        Returns:
+            Tuple of (success_flag, result_message).
+        """
+        assert len(self.source_task_list) > 0, f"No source task for {self.name}, cannot complete."
+
         if self.update_current_tbd():
-            del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
-            if del_tasks or add_tasks:
-                note_msg.append(f"You have completed the task in this batch, but the goal (size={len(self.source_task_list)}) and the final result (size={len(self.gen_task_list)}) are not consistent.")
-                if del_tasks:
-                    note_msg.append(f"These {self.name}: {', '.join(del_tasks)} are in the goal but not in the final result ({fail_source_msg}).")
-                if add_tasks:
-                    note_msg.append(f"These {self.name}: {', '.join(add_tasks)} are in the final result but not in the goal ({fail_gen_msg}).")
+            # Check for inconsistencies between source and generated tasks
+            missing_tasks, extra_tasks = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
+
+            if missing_tasks or extra_tasks:
+                note_msg.append(
+                    f"You have completed the task in this batch, but the goal (size={len(self.source_task_list)}) "
+                    f"and the final result (size={len(self.gen_task_list)}) are not consistent."
+                )
+
+                if missing_tasks:
+                    note_msg.append(
+                        f"These {self.name}: {', '.join(missing_tasks)} are in the goal "
+                        f"but not in the final result ({fail_source_msg})."
+                    )
+
+                if extra_tasks:
+                    note_msg.append(
+                        f"These {self.name}: {', '.join(extra_tasks)} are in the final result "
+                        f"but not in the goal ({fail_gen_msg})."
+                    )
+
                 if exmsg:
                     note_msg.append(exmsg)
+
                 return False, {"error": note_msg}
+
             if is_complete:
                 return True, "Complete success."
             return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
+
         if is_complete:
-            return False, f"Not all {self.name} in this batch have been completed. {', '.join(self.tbd_task_list)} are still to be done." + exmsg
-        for t in self.tbd_task_list:
-            if t in self.gen_task_list and t not in self.cmp_task_list:
-                self.cmp_task_list.append(t)
-        task_remain = []
-        task_cmpted = []
-        for t in self.tbd_task_list:
-            if t not in self.cmp_task_list:
-                task_remain.append(t)
+            return False, (
+                f"Not all {self.name} in this batch have been completed. "
+                f"{', '.join(self.tbd_task_list)} are still to be done.{exmsg}"
+            )
+
+        # Update completed task list
+        for task in self.tbd_task_list:
+            if task in self.gen_task_list and task not in self.cmp_task_list:
+                self.cmp_task_list.append(task)
+
+        # Categorize remaining and completed tasks
+        remaining_tasks = []
+        completed_tasks = []
+        for task in self.tbd_task_list:
+            if task not in self.cmp_task_list:
+                remaining_tasks.append(task)
             else:
-                task_cmpted.append(t)
-        if task_cmpted:
-            info(f"{self.checker.__class__.__name__} Task {', '.join(task_cmpted)} for {self.name} completed.")
-        if task_remain:
-            msg = {"error": f"Not all {self.name} in this batch have been completed. {', '.join(task_remain)} are still to be done." + exmsg}
+                completed_tasks.append(task)
+
+        if completed_tasks:
+            info(f"{self.checker.__class__.__name__} Task {', '.join(completed_tasks)} "
+                 f"for {self.name} completed.")
+
+        if remaining_tasks:
+            msg = {
+                "error": f"Not all {self.name} in this batch have been completed. "
+                        f"{', '.join(remaining_tasks)} are still to be done.{exmsg}"
+            }
             if note_msg:
                 msg["note"] = note_msg
             return False, msg
-        success_msg = {"success": f"Congratulations! {len(self.tbd_task_list)} {self.name} in this batch have been completed."}
+
+        # All tasks in current batch completed
+        success_msg = {
+            "success": f"Congratulations! {len(self.tbd_task_list)} {self.name} "
+                      f"in this batch have been completed."
+        }
         if note_msg:
             success_msg["note"] = note_msg
+
+        # Reset batch
         self.tbd_task_list = []
         self.cmp_task_list = []
+
+        # Check if all tasks are done
         if self.update_current_tbd():
             success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
             return True, success_msg
         else:
-            success_msg["success"] += f" Now the next {len(self.tbd_task_list)} {self.name}: {', '.join(self.tbd_task_list)} need to be completed." + exmsg
+            success_msg["success"] += (
+                f" Now the next {len(self.tbd_task_list)} {self.name}: "
+                f"{', '.join(self.tbd_task_list)} need to be completed.{exmsg}"
+            )
+
         return False, success_msg
