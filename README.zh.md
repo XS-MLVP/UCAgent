@@ -307,7 +307,7 @@ qwen
 **A:** 使用 `Ctrl+C` 进入交互模式，通过 `status` 查看当前状态，使用 `help` 获取调试命令。
 
 **Q: 可以自定义验证阶段吗？**
-**A:** 可以通过修改 `vagent/config/default.yaml` 中的 `stage` 配置来自定义验证流程。
+**A:** 可以通过修改 `vagent/lang/zh/config/default.yaml` 中的 `stage` 配置来自定义验证流程。也可直接在config.yaml中进行stage参数覆盖。
 
 **Q: 如何添加自定义工具？**
 **A:** 在 `vagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。

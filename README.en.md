@@ -305,7 +305,7 @@ While `qwen` is running, you can observe verification progress and status throug
 **A:** Use `Ctrl+C` to enter interactive mode, check current status with `status`, and use `help` to get debugging commands.
 
 **Q: Can I customize verification stages?**
-**A:** Yes, you can customize the verification workflow by modifying the `stage` configuration in `vagent/config/default.yaml`.
+**A:** Yes, you can customize the verification workflow by modifying the `stage` configuration in `vagent/lang/zh/config/default.yaml`. Alternatively, you can directly override the stage parameters in `config.yaml`.
 
 **Q: How do I add custom tools?**
 **A:** Create new tool classes in the `vagent/tools/` directory, inherit from the `UCTool` base class, and load them using the `--ex-tools` parameter.
