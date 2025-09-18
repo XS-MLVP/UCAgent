@@ -3,6 +3,7 @@
 import os
 from typing import Tuple
 from vagent.util.functions import render_template, rm_workspace_prefix, fill_template
+import vagent.util.functions as fc
 from vagent.util.log import info, error
 import time
 import traceback
@@ -222,3 +223,127 @@ class NopChecker(Checker):
                               and the second element is a message string.
         """
         return True, "Nop check pass"
+
+
+
+class UnityChipBatchTask:
+
+    def __init__(self, name, checker, batch_size):
+        self.name = name
+        self.checker = checker
+        self.tbd_task_list = []
+        self.cmp_task_list = []
+        self.source_task_list = []
+        self.gen_task_list = []
+        self.batch_size = batch_size
+
+    def get_template_data(self, total_tasks, completed_tasks, current_tasks):
+        return {
+            total_tasks:      "-" if not self.source_task_list else len(self.source_task_list),
+            completed_tasks:  "-" if not self.source_task_list else len(self.gen_task_list),
+            current_tasks: self.tbd_task_list,
+        }
+
+    def update_tbd_from_source(self):
+        del_tasks = []
+        for t in self.tbd_task_list:
+            if t not in self.source_task_list:
+                del_tasks.append(t)
+        for t in del_tasks:
+            self.tbd_task_list.remove(t)
+
+    def update_cmp_from_tbd(self):
+        del_tasks = []
+        for t in self.cmp_task_list:
+            if t not in self.tbd_task_list:
+                del_tasks.append(t)
+        for t in del_tasks:
+            self.cmp_task_list.remove(t)
+        return del_tasks
+
+    def update_tbd_and_cmp(self):
+        self.update_tbd_from_source()
+        self.update_cmp_from_tbd()
+
+    def update_current_tbd(self):
+        if len(self.tbd_task_list) > 0:
+            return False
+        if len(self.source_task_list) > 0:
+            task_list, _ = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
+            task_list.sort()
+            self.tbd_task_list = task_list[:self.batch_size]
+            info(f"{self.checker.__class__.__name__} Find {len(task_list)} {self.name} to be done, current batch size {self.batch_size}.")
+            info(f"{self.checker.__class__.__name__} Update to be done task list(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
+        return len(self.tbd_task_list) == 0
+
+    def sync_source_task(self, new_task_list, note_msg, init_msg):
+        del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, new_task_list)
+        if del_tasks or add_tasks:
+            note_msg.append(init_msg)
+        if del_tasks:
+            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
+        if add_tasks:
+            note_msg.append(f"Added: {', '.join(add_tasks)}")
+        if note_msg:
+            info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: {', '.join(note_msg)}")
+            self.update_tbd_and_cmp()
+        self.source_task_list = new_task_list
+
+    def sync_gen_task(self, new_task_list, note_msg, init_msg):
+        del_tasks, add_tasks = fc.get_str_array_diff(self.gen_task_list, new_task_list)
+        if del_tasks or add_tasks:
+            note_msg.append(init_msg)
+        if del_tasks:
+            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
+        if add_tasks:
+            note_msg.append(f"Added: {', '.join(add_tasks)}")
+        if note_msg:
+            info(f"{self.checker.__class__.__name__} Sync generated task for {self.name}: {', '.join(note_msg)}")
+        self.gen_task_list = new_task_list
+
+    def do_complete(self, note_msg, is_complete, fail_source_msg, fail_gen_msg, exmsg=""):
+        assert len(self.source_task_list) > 0, f"No source task for {self.name}, can not complete."
+        if self.update_current_tbd():
+            del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
+            if del_tasks or add_tasks:
+                note_msg.append(f"You have completed the task in this batch, but the goal (size={len(self.source_task_list)}) and the final result (size={len(self.gen_task_list)}) are not consistent.")
+                if del_tasks:
+                    note_msg.append(f"These {self.name}: {', '.join(del_tasks)} are in the goal but not in the final result ({fail_source_msg}).")
+                if add_tasks:
+                    note_msg.append(f"These {self.name}: {', '.join(add_tasks)} are in the final result but not in the goal ({fail_gen_msg}).")
+                if exmsg:
+                    note_msg.append(exmsg)
+                return False, {"error": note_msg}
+            if is_complete:
+                return True, "Complete success."
+            return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
+        if is_complete:
+            return False, f"Not all {self.name} in this batch have been completed. {', '.join(self.tbd_task_list)} are still to be done." + exmsg
+        for t in self.tbd_task_list:
+            if t in self.gen_task_list and t not in self.cmp_task_list:
+                self.cmp_task_list.append(t)
+        task_remain = []
+        task_cmpted = []
+        for t in self.tbd_task_list:
+            if t not in self.cmp_task_list:
+                task_remain.append(t)
+            else:
+                task_cmpted.append(t)
+        if task_cmpted:
+            info(f"{self.checker.__class__.__name__} Task {', '.join(task_cmpted)} for {self.name} completed.")
+        if task_remain:
+            msg = {"error": f"Not all {self.name} in this batch have been completed. {', '.join(task_remain)} are still to be done." + exmsg}
+            if note_msg:
+                msg["note"] = note_msg
+            return False, msg
+        success_msg = {"success": f"Congratulations! {len(self.tbd_task_list)} {self.name} in this batch have been completed."}
+        if note_msg:
+            success_msg["note"] = note_msg
+        self.tbd_task_list = []
+        self.cmp_task_list = []
+        if self.update_current_tbd():
+            success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
+            return True, success_msg
+        else:
+            success_msg["success"] += f" Now the next {len(self.tbd_task_list)} {self.name}: {', '.join(self.tbd_task_list)} need to be completed." + exmsg
+        return False, success_msg

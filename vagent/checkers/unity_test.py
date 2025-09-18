@@ -12,7 +12,7 @@ import glob
 import traceback
 import copy
 
-from vagent.checkers.base import Checker
+from vagent.checkers.base import Checker, UnityChipBatchTask
 from vagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
@@ -336,127 +336,41 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
 
     def __init__(self, test_dir, cov_file, doc_file, batch_size, data_key, **kw):
         super().__init__(test_dir, cov_file, doc_file, "CK", **kw)
-        self.batch_size = batch_size
         self.data_key = data_key
-        self.current_tbd_ck_list = []
-        self.current_cmp_ck_list = []
-        self.cached_doc_ck_list = []
-        self.cached_cod_ck_list = []
         assert self.data_key, "data_key is required."
+        self.batch_task = UnityChipBatchTask("check_points", self, batch_size)
 
     def get_template_data(self):
-        return {
-            "TOTAL_POINTS":      "-" if not self.cached_doc_ck_list else len(self.cached_doc_ck_list),
-            "COMPLETED_POINTS":  "-" if not self.cached_doc_ck_list else len(self.cached_cod_ck_list),
-            "LIST_CURRENT_POINTS": self.current_tbd_ck_list,
-        }
+        return self.batch_task.get_template_data(
+            "TOTAL_POINTS", "COMPLETED_POINTS", "LIST_CURRENT_POINTS"
+        )
 
     def on_init(self):
-        self.cached_doc_ck_list = self.smanager_get_value(self.data_key, [])
-        info(f"Load cached doc ck list(size={len(self.cached_doc_ck_list)}) from data key '{self.data_key}'.")
-
-    def update_to_be_done(self):
-        if len(self.current_tbd_ck_list) > 0:
-            return False
-        if len(self.cached_doc_ck_list) > 0:
-            ck_list, _ = fc.get_str_array_diff(self.cached_doc_ck_list, self.cached_cod_ck_list)
-            ck_list.sort()
-            self.current_tbd_ck_list = ck_list[:self.batch_size]
-            info(f"Find {len(ck_list)} CK points to be done, current batch size {self.batch_size}.")
-            info(f"Update to be done ck list(size={len(self.current_tbd_ck_list)}): {', '.join(self.current_tbd_ck_list)}.")
-        return len(self.current_tbd_ck_list) == 0
-
-    def update_cmp_list_from_tbd_list(self):
-        del_ck = []
-        for ck in self.current_cmp_ck_list:
-            if ck not in self.current_tbd_ck_list:
-                del_ck.append(ck)
-        for ck in del_ck:
-            self.current_cmp_ck_list.remove(ck)
-        return del_ck
-
-    def update_tbd_list_from_doc_list(self):
-        del_ck = []
-        for ck in self.current_tbd_ck_list:
-            if ck not in self.cached_doc_ck_list:
-                del_ck.append(ck)
-        for ck in del_ck:
-            self.current_tbd_ck_list.remove(ck)
-        return del_ck
+        self.batch_task.source_task_list = self.smanager_get_value(self.data_key, [])
+        self.batch_task.update_current_tbd()
+        info(f"Load cached doc ck list(size={len(self.batch_task.source_task_list)}) from data key '{self.data_key}'.")
 
     def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """Check the functional coverage groups against the documentation."""
         basic_pass, groups_or_msg = self.basic_check()
         if not basic_pass:
             return basic_pass, groups_or_msg
-        note_msg = []
         current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)["marks"]
-        if not fc.is_str_array_eq(self.cached_doc_ck_list, current_doc_ck_list):
-            del_ck, add_ck = fc.get_str_array_diff(self.cached_doc_ck_list, current_doc_ck_list)
-            msg = f"Documentation '{self.doc_file}' CK points changed. Deleted: {del_ck}, Added: {add_ck}. "
-            self.cached_doc_ck_list = current_doc_ck_list
-            del_ck = self.update_tbd_list_from_doc_list()
-            if del_ck:
-                msg += f"So remove those deleted CK points from current to be done list: {del_ck}."
-            note_msg.append(msg)
-        info(f"Doc CK list(size={len(self.cached_doc_ck_list)}): {', '.join(self.cached_doc_ck_list)}.")
-        self.update_cmp_list_from_tbd_list()
-        # check empty tbd
-        if not self.current_tbd_ck_list:
-            if self.update_to_be_done():
-                return True, {"success": "All CK points are done, call `Complete` to next stage."}
-            error_msg = {"error": f"CK points to be done is changed to {len(self.current_tbd_ck_list)}: {', '.join(self.current_tbd_ck_list)}."}
-            if note_msg:
-                error_msg["note"] = note_msg
-            return False, error_msg
-        # check in code
+        note_msg = []
+        self.batch_task.sync_source_task(
+            current_doc_ck_list,
+            note_msg,
+            f"Documentation '{self.doc_file}' CK points changed."
+        )
         current_imp_ck_list = self._groups_as_marks(groups_or_msg, "CK")
-        if not fc.is_str_array_eq(self.cached_cod_ck_list, current_imp_ck_list):
-            del_ck, add_ck = fc.get_str_array_diff(self.cached_cod_ck_list, current_imp_ck_list)
-            note_msg.append(f"Implementation '{self.cov_file}' CK groups changed. "
-                            + (f"Deleted: {del_ck}, " if del_ck else "")
-                            + (f"Added: {add_ck}." if add_ck else ""))
-            self.cached_cod_ck_list = current_imp_ck_list
-        info(f"Code CK list(size={len(self.cached_cod_ck_list)}): {', '.join(self.cached_cod_ck_list)}.")
-        # check batch
-        unk_imp_ck_list = []
-        for ck in current_imp_ck_list:
-            if ck in self.current_tbd_ck_list and ck not in self.current_cmp_ck_list:
-                self.current_cmp_ck_list.append(ck)
-            if ck not in self.cached_doc_ck_list:
-                unk_imp_ck_list.append(ck)
-        if unk_imp_ck_list:
-            error_msg = {"error": f"Find {len(unk_imp_ck_list)} CK points ({', '.join(unk_imp_ck_list)}) in '{self.cov_file}' but not found them in '{self.doc_file}'."}
-            if note_msg:
-                error_msg["note"] = note_msg
-            info(f"{self.__class__.__name__} check fail: {fc.yam_str(error_msg)}")
-            return False, error_msg
-        ck_remain = []
-        for ck in self.current_tbd_ck_list:
-            if ck not in self.current_cmp_ck_list:
-                ck_remain.append(ck)
-        if ck_remain:
-            error_msg = {"error": f"Coverage groups check fail: {len(ck_remain)} CK points ({', '.join(ck_remain)}) are still to be implemented."}
-            if note_msg:
-                error_msg["note"] = note_msg
-            return False, error_msg
-        success_msg = {"success": f"Congratulations! {len(self.current_cmp_ck_list)} CK points in this batch have been implemented."}
-        self.current_cmp_ck_list = []
-        self.current_tbd_ck_list = []
-        # ALL done, need to next stage
-        if self.update_to_be_done():
-            success_msg["success"] += " All check is done, call `Complete` to next stage."
-            if note_msg:
-                success_msg["note"] = note_msg
-            return True, success_msg
-        else:
-            success_msg["success"] += f" Now the next {len(self.current_tbd_ck_list)} CK points: {', '.join(self.current_tbd_ck_list)} need to be implemented."
-            if is_complete:
-                success_msg["error"] = f"Not all CK points in this batch have been implemented. {', '.join(self.current_tbd_ck_list)} are still to be done."
-                del success_msg["success"]
-            if note_msg:
-                success_msg["note"] = note_msg
-        return False, success_msg
+        self.batch_task.sync_gen_task(
+            current_imp_ck_list,
+            note_msg,
+            "Completed CK points changed."
+        )
+        return self.batch_task.do_complete(note_msg, is_complete,
+                                           f"in file: {self.doc_file}", f"in file: {self.cov_file}"
+                                           " Please implement the check points in its related coverage groups flow the guid documents.")
 
 
 class BaseUnityChipCheckerTestCase(Checker):
@@ -555,106 +469,6 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
         return True, ret
 
 
-class UnityChipBatchTask:
-
-    def __init__(self, name, checker, batch_size):
-        self.name = name
-        self.checker = checker
-        self.tbd_task_list = []
-        self.cmp_task_list = []
-        self.source_task_list = []
-        self.gen_task_list = []
-        self.batch_size = batch_size
-
-    def get_template_data(self, total_tasks, completed_tasks, current_tasks):
-        return {
-            total_tasks:      "-" if not self.source_task_list else len(self.source_task_list),
-            completed_tasks:  "-" if not self.source_task_list else len(self.cmp_task_list),
-            current_tasks: self.tbd_task_list,
-        }
-
-    def update_tbd_from_source(self):
-        del_tasks = []
-        for t in self.tbd_task_list:
-            if t not in self.source_task_list:
-                del_tasks.append(t)
-        for t in del_tasks:
-            self.tbd_task_list.remove(t)
-
-    def update_cmp_from_tbd(self):
-        del_tasks = []
-        for t in self.cmp_task_list:
-            if t not in self.tbd_task_list:
-                del_tasks.append(t)
-        for t in del_tasks:
-            self.cmp_task_list.remove(t)
-        return del_tasks
-
-    def update_tbd_and_cmp(self):
-        self.update_tbd_from_source()
-        self.update_cmp_from_tbd()
-
-    def update_current_tbd(self):
-        if len(self.tbd_task_list) > 0:
-            return False
-        if len(self.source_task_list) > 0:
-            task_list, _ = fc.get_str_array_diff(self.source_task_list, self.cmp_task_list)
-            task_list.sort()
-            self.tbd_task_list = task_list[:self.batch_size]
-            info(f"{self.checker.__class__.__name__} Find {len(task_list)} {self.name} to be done, current batch size {self.batch_size}.")
-            info(f"{self.checker.__class__.__name__} Update to be done task list(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
-        return len(self.tbd_task_list) == 0
-
-    def sync_source_task(self, new_task_list, note_msg):
-        del_tasks, add_tasks = fc.get_str_array_diff(self.source_task_list, new_task_list)
-        if del_tasks:
-            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
-        if add_tasks:
-            note_msg.append(f"Added: {', '.join(add_tasks)}")
-        if note_msg:
-            info(f"{self.checker.__class__.__name__} Sync source task for {self.name}: {', '.join(note_msg)}")
-            self.update_tbd_and_cmp()
-        self.source_task_list = new_task_list
-
-    def sync_gen_task(self, new_task_list, note_msg):
-        del_tasks, add_tasks = fc.get_str_array_diff(self.gen_task_list, new_task_list)
-        if del_tasks:
-            note_msg.append(f"Deleted: {', '.join(del_tasks)}")
-        if add_tasks:
-            note_msg.append(f"Added: {', '.join(add_tasks)}")
-        if note_msg:
-            info(f"{self.checker.__class__.__name__} Sync generated task for {self.name}: {', '.join(note_msg)}")
-        self.gen_task_list = new_task_list
-
-    def do_complete(self, note_msg, exmsg=""):
-        assert len(self.source_task_list) > 0, f"No source task for {self.name}, can not complete."
-        if self.update_current_tbd():
-            return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
-        for t in self.tbd_task_list:
-            if t in self.gen_task_list and t not in self.cmp_task_list:
-                self.cmp_task_list.append(t)
-        task_remain = []
-        for t in self.tbd_task_list:
-            if t not in self.cmp_task_list:
-                task_remain.append(t)
-        if task_remain:
-            msg = {"error": f"Not all {self.name} in this batch have been completed. {', '.join(task_remain)} are still to be done." + exmsg}
-            if note_msg:
-                msg["note"] = note_msg
-            return False, msg
-        success_msg = {"success": f"Congratulations! {len(self.tbd_task_list)} {self.name} in this batch have been completed."}
-        if note_msg:
-            success_msg["note"] = note_msg
-        self.tbd_task_list = []
-        self.cmp_task_list = []
-        if self.update_current_tbd():
-            success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
-            return True, success_msg
-        else:
-            success_msg["success"] += f" Now the next {len(self.tbd_task_list)} {self.name}: {', '.join(self.tbd_task_list)} need to be completed." + exmsg
-        return False, success_msg
-
-
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
     def get_template_data(self):
@@ -690,7 +504,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         report = fc.clean_report_with_keys(report)
         info_report = OrderedDict({"TEST_REPORT": report})
         info_runtest = OrderedDict({"TEST_REPORT": report})
-        self.total_tests_count = len([k for k, _ in report.get("test_cases", {}).items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
+        self.total_tests_count = len([k for k, _ in report["tests"]["test_cases"].items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})
         if self.ret_std_error:
@@ -724,9 +538,13 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                 marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_points_list']]
             else:
                 marked_bins = all_bins_test
-            self.batch_task.sync_source_task(all_bins_docs, note_msg)
-            self.batch_task.sync_gen_task(marked_bins, note_msg)
-            return self.batch_task.do_complete(note_msg, " Please mark the check points in its related test functions using 'mark_function'.")
+            self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
+            self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
+            return self.batch_task.do_complete(note_msg,
+                                               is_complete,
+                                               f"in file: {self.doc_func_check}",
+                                               f"in dir: {self.test_dir}",
+                                               " Please mark the check points in its related test functions using 'mark_function' correctly.")
 
         # complete check
         bins_not_in_docs = []
@@ -795,7 +613,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         """
         # Check that all tests failed as expected in template
         passed_test = []
-        for fv, rt in report.get("test_cases", {}).items():
+        for fv, rt in report["tests"]["test_cases"].items():
             if self.ignore_ck_prefix and ":"+self.ignore_ck_prefix in fv:
                 continue
             if rt == "PASSED":
@@ -1102,6 +920,7 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
         self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+        """check test case and line coverage."""
         ret, msg = super().do_check(timeout=timeout, **kw)
         if not ret:
             return ret, msg
