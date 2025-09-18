@@ -8,7 +8,7 @@
 #  openai_api_key: "YOUR_API_KEY"
 #
 #embed:
-#  model: "Qwen/Qwen3-Embedding-0.6B"
-#  openai_base_url: "http://10.156.154.242:8001/v1"
-#  api_key: "YOUR_API_KEY"
+#  model_name: "Qwen/Qwen3-Embedding-0.6B"
+#  openai_api_base: "http://10.156.154.242:8001/v1"
+#  openai_api_key: "YOUR_API_KEY"
 #  dims: 4096

@@ -24,6 +24,14 @@ class ArgsMemSearch(BaseModel):
     limit: int = Field(3, description="The maximum number of results to return, default 3", ge=1, le=100)
 
 
+def new_embed(config) -> dict:
+    info(f"Creating new embedding with model: {config['model_name']}, base_url: {config['openai_api_base']}")
+    return {"embed":OpenAIEmbeddings(model   = config["model_name"],
+                            base_url= config["openai_api_base"],
+                            api_key = config["openai_api_key"]),
+            "dims":config["dims"]
+            }
+
 class SemanticSearchInGuidDoc(UCTool):
     """Semantic search in the guild documentation for verification definitions and examples."""
     name: str = "SemanticSearchInGuidDoc"
@@ -44,12 +52,7 @@ class SemanticSearchInGuidDoc(UCTool):
         super().__init__()
         self.namespace = utils.NamespaceTemplate("doc_reference")
         self.store = InMemoryStore(
-            index={
-                "dims": config["dims"],
-                "embed": OpenAIEmbeddings(model   = config["model"],
-                                          base_url= config["openai_base_url"],
-                                          api_key = config["api_key"]),
-            }
+            index=new_embed(config)
         )
         self.workspace = os.path.abspath(workspace)
         self.doc_path = os.path.abspath(os.path.join(workspace, doc_path))
@@ -96,12 +99,7 @@ class MemoryTool(UCTool):
             self.store = store
         else:
             self.store = InMemoryStore(
-                index={
-                    "dims": config["dims"],
-                    "embed": OpenAIEmbeddings(model   = config["model"],
-                                              base_url= config["openai_base_url"],
-                                              api_key = config["api_key"]),
-                }
+                index=new_embed(config)
             )
         return self
 
