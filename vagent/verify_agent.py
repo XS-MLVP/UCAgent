@@ -184,12 +184,16 @@ class VerifyAgent:
                            + import_and_instance_tools(ex_tools, vagent.tools)
         
         # Initialize planning tools
-        self.planning_tools = [
-            CreatePlan(),
-            UpdatePlan(), 
-            GetPlan(),
-            ListPlans()
-        ]
+        self.planning_tools = []
+        if interaction_mode == "standard":
+            info(f"There are no planning tools in standard mode")
+        else:
+            self.planning_tools = [
+                CreatePlan(),
+                UpdatePlan(),
+                GetPlan(),
+                ListPlans()
+            ]
         # Share the same plan storage across all planning tools
         for i, tool in enumerate(self.planning_tools):
             if i > 0:  # Share storage from the first tool
@@ -201,9 +205,8 @@ class VerifyAgent:
         summarization_node = SummarizationAndFixToolCall(
             token_counter=count_tokens_approximately,
             model=self.model,
-            max_tokens=self.cfg.get_value("conversation_summary.max_tokens", 3000),
-            max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1000),
-            output_messages_key="llm_input_messages",
+            max_tokens=self.cfg.get_value("conversation_summary.max_tokens", 20*1024),
+            max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024),
         )
 
         self.agent = create_react_agent(
@@ -583,19 +586,39 @@ class VerifyAgent:
         elif isinstance(msg, SystemMessage):
             self._stat_msg_count_system += 1
 
-    def get_messages(self):
+    def messages_get_raw(self):
         """Get the messages from the agent's state."""
         values = self.agent.get_state(self.get_work_config()).values
-        return values.get("messages", []) if values else []
+        if "messages" not in values:
+            warning("No messages found in agent state")
+            return []
+        return values["messages"]
 
-    def pop_message(self, index):
-        # FIXME
+    def message_info(self):
+        """Get information about the messages in the agent's state."""
+        messages = self.messages_get_raw()
+        return {
+            "count": len(messages),
+            "size": sum([len(m.content) for m in messages]),
+        }
+
+    def message_get_str(self, index, count):
         values = self.agent.get_state(self.get_work_config()).values
-        if "messages" not in values or index < 0 or index >= len(values["messages"]):
-            warning(f"Invalid index {index} for messages, cannot pop message")
+        if "messages" not in values:
+            warning(f"No messages found, cannot get message")
+            return []
+        index = index % len(values["messages"])
+        return [m.pretty_repr() for m in values["messages"][index:index+count]]
+
+    def message_keep_latest(self, latest_size):
+        # FIXME: Unable to delete messages in langgraph agent state
+        values = self.agent.get_state(self.get_work_config()).values
+        if "messages" not in values:
+            warning(f"No messages found, cannot keep latest messages")
             return
-        values["messages"].pop(index)
-        info(f"Popped message at index {index}, remaining messages: {len(values['messages'])}")
+        info(f"Latest keeping messages with size {latest_size}, total messages before: {len(values['messages'])}")
+        self.agent.get_state(self.get_work_config()).values["messages"][:] = values["messages"][-latest_size:]
+        info(f"Messages after keeping: {len(values['messages'])}")
 
     def do_work_values(self, instructions, config):
         last_msg_index = None

@@ -424,44 +424,46 @@ class VerifyPDB(Pdb):
             echo_y("export name cannot be empty. Usage: export_stage_manager <name>")
         self.curframe.f_locals[name] = self.agent.stage_manager
 
-    def do_print_last_msg(self, arg):
+    def do_messages_info(self, arg):
         """
-        Print the last message sent by the agent.
+        Show information about the messages in the agent's state.
         """
-        try:
-            index = int(arg.strip()) if arg.strip() else -1
-        except ValueError:
-            echo_r("Invalid index. Please provide a valid integer index. Usage: print_last_msg [index]")
-            return
-        msgs = self.agent.get_messages()
-        if not msgs:
-            echo_y("No messages found.")
-            return
-        inde_pos = index if index >= 0 else len(msgs) + index
-        if inde_pos < 0 or inde_pos >= len(msgs):
-            echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
-            return
-        msg = msgs[index]
-        message(msg.__class__.__name__, msg)
+        info = self.agent.message_info()
+        message(yam_str(info))
 
-    def do_delete_last_msg(self, arg):
-        """
-        Delete the last message sent by the agent.
-        """
+    def do_messages_keep_latest(self, arg):
+        size_str = arg.strip()
+        if not size_str:
+            echo_y("Size cannot be empty. Usage: messages_keep_latest <size>")
+            return
         try:
-            index = int(arg.strip()) if arg.strip() else -1
-        except ValueError:
-            echo_r("Invalid index. Please provide a valid integer index. Usage: delete_last_msg [index]")
+            size = int(size_str)
+            if size <= 0:
+                raise ValueError("Size must be positive")
+        except ValueError as e:
+            echo_r(f"Invalid size: {e}. Size must be a positive integer.")
             return
-        msgs = self.agent.get_messages()
-        if not msgs:
-            echo_y("No messages found.")
-            return
-        inde_pos = index if index >= 0 else len(msgs) + index
-        if inde_pos < 0 or inde_pos >= len(msgs):
-            echo_r(f"Index {index} is out of range. Valid range: -{len(msgs)} to {len(msgs) - 1}.")
-            return
-        self.agent.pop_message(inde_pos)
+        self.agent.message_keep_latest(size)
+
+    def do_messages_print(self, arg):
+        start, size = -10, 10
+        args = arg.strip().split()
+        if len(args) > 0:
+            try:
+                start = int(args[0])
+            except ValueError:
+                echo_r(f"Invalid start index: {args[0]}. Start must be an integer.")
+                echo_r("Usage: messages_print [start] [size]")
+                return
+        if len(args) > 1:
+            try:
+                size = int(args[1])
+            except ValueError:
+                echo_r(f"Invalid size: {args[1]}. Size must be an integer.")
+                echo_r("Usage: messages_print [start] [size]")
+                return
+        for m in self.agent.message_get_str(start, size):
+            message(m)
 
     def do_start_mcp_server(self, arg, kwargs={"no_file_ops": False}):
         """
