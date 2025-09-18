@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from pyexpat.errors import messages
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
@@ -21,7 +22,7 @@ import signal
 import copy
 
 from langchain.globals import set_debug
-from langchain_core.messages.utils import count_tokens_approximately
+from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
@@ -44,6 +45,26 @@ class SummarizationAndFixToolCall(SummarizationNode):
             if hasattr(msg, "invalid_tool_calls"):
                 msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
         return super()._func(input)
+
+
+class TrimMessagesNode:
+    """Node to trim messages to a maximum count."""
+
+    def __init__(self, max_token: int):
+        self.max_token = max_token
+
+    def __call__(self, state):
+        msg = trim_messages(
+                state["messages"],
+                strategy="last",
+                token_counter=count_tokens_approximately,
+                max_tokens=self.max_token,
+                start_on="human",
+                end_on=("human", "tool"),
+                include_system=True,
+                allow_partial=False,
+        )
+        return {"llm_input_messages": msg}
 
 
 class State(AgentState):
@@ -202,18 +223,26 @@ class VerifyAgent:
         
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
 
-        summarization_node = SummarizationAndFixToolCall(
-            token_counter=count_tokens_approximately,
-            model=self.model,
-            max_tokens=self.cfg.get_value("conversation_summary.max_tokens", 20*1024),
-            max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024),
-        )
+        if self.cfg.get_value("conversation_summary.use_trim_mode", False):
+            info("Using TrimMessagesNode for conversation summarization")
+            message_manage_node = TrimMessagesNode(
+                max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
+            )
+        else:
+            info("Using SummarizationAndFixToolCall for conversation summarization")
+            message_manage_node = SummarizationAndFixToolCall(
+                token_counter=count_tokens_approximately,
+                model=self.model,
+                max_tokens=self.cfg.get_value("conversation_summary.max_tokens", 20*1024),
+                max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024),
+                output_messages_key="llm_input_messages"
+            )
 
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
             checkpointer=MemorySaver(),
-            pre_model_hook=summarization_node,
+            pre_model_hook=message_manage_node,
             state_schema=State,
         )
         self.message_echo_handler = None
@@ -256,6 +285,14 @@ class VerifyAgent:
             info("Using standard interaction mode")
         self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def summary_mode(self):
+        if self.cfg.get_value("conversation_summary.use_trim_mode", False):
+            return "Trim"
+        return "Summarize"
+
+    def summary_max_tokens(self):
+        return self.cfg.get_value("conversation_summary.max_summary_tokens", "-")
 
     def generate_instruction_file(self, file_path):
         if not file_path:
@@ -593,6 +630,11 @@ class VerifyAgent:
             warning("No messages found in agent state")
             return []
         return values["messages"]
+
+    def messages_count(self):
+        """Get the count of messages in the agent's state."""
+        messages = self.messages_get_raw()
+        return len(messages)
 
     def message_info(self):
         """Get information about the messages in the agent's state."""

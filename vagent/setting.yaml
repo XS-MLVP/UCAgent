@@ -12,14 +12,22 @@ openai:
     stop: ["."]
 
 embed:
-  model: "<your_embedding_model_name>"
-  openai_base_url: "http://<your_embedding_model_url>/v1"
-  api_key: "your_api_key"
+  model_name: "<your_embedding_model_name>"
+  openai_api_key: "your_api_key"
+  openai_api_base: "http://<your_embedding_model_url>/v1"
   dims: 4096
 
+# This is the setting for conversation summary
+# Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities
+# Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
+# if use_trim_mode is false (summarization mode):
+#   Param: max_tokens, suggested 50% of the model's context length
+# if use_trim_mode is true (trim mode):
+#   Param: max_tokens, suggested 80% of the model's context length
 conversation_summary:
-  max_tokens: 3000
-  max_summary_tokens: 1000
+  max_tokens: 102400
+  max_summary_tokens: 1024
+  use_trim_mode: true
 
 template: unity_test
 
