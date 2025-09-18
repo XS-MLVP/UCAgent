@@ -245,7 +245,7 @@ python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
 python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
-#### 集成示例: Gemini-CLI
+#### 集成示例: Qwen Code
 
 ##### 1. 启动UCAgent MCP服务器
 
@@ -255,9 +255,6 @@ make clean
 
 # 启动MCP服务器 (包含完整工具集)
 make mcp_Adder
-
-# 或者使用自定义参数启动
-make mcp_all_tools_Adder ARGS="--override openai.model_name='gpt-4o-mini'"
 ```
 
 > **说明:** `make mcp_all_tools_<DUT>` 会导出所有工具，包括文件操作、记忆操作等。可通过 `ARGS` 传递额外参数。
@@ -267,9 +264,11 @@ make mcp_all_tools_Adder ARGS="--override openai.model_name='gpt-4o-mini'"
 INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 ```
 
-##### 2. 配置Gemini-CLI
+##### 2. 配置 Qwen Code
 
-编辑 `~/.gemini/settings.json` 配置文件：
+Qwen Code安装请参考：[https://qwenlm.github.io/qwen-code-docs/zh/deployment/](https://qwenlm.github.io/qwen-code-docs/zh/deployment/)
+
+编辑 `~/.qwen/settings.json` 配置文件：
 ```json
 {
   "mcpServers": {
@@ -287,7 +286,7 @@ INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 
 ```bash
 cd UCAgent/output
-gemini
+qwen
 ```
 
 **输入任务提示词:**
@@ -296,7 +295,7 @@ gemini
 
 **监控进度:**
 
-在 `gemini-cli` 运行过程中，可以通过UCAgent的TUI界面观察验证进度和状态。
+在 `qwen` 运行过程中，可以通过UCAgent的TUI界面观察验证进度和状态。
 
 
 ### 常见问题 (FAQ)

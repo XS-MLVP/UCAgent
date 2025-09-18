@@ -244,7 +244,7 @@ If you haven't configured an embedding model, use the `--no-embed-tools` paramet
 python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
-### Integration Example: Gemini-CLI
+### Integration Example: Qwen Code
 
 #### 1. Start UCAgent MCP Server
 
@@ -254,9 +254,6 @@ make clean
 
 # Start MCP server (with complete toolset)
 make mcp_Adder
-
-# Or start with custom parameters
-make mcp_all_tools_Adder ARGS="--override openai.model_name='gpt-4o-mini'"
 ```
 
 > **Note:** `make mcp_all_tools_<DUT>` exports all tools, including file operations, memory operations, etc. Additional parameters can be passed through `ARGS`.
@@ -266,9 +263,11 @@ After successful startup, you'll see the prompt:
 INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
 ```
 
-#### 2. Configure Gemini-CLI
+#### 2. Configure Qwen Code
 
-Edit the `~/.gemini/settings.json` configuration file:
+Qwen Code Installation Reference：[https://qwenlm.github.io/qwen-code-docs/zh/deployment/](https://qwenlm.github.io/qwen-code-docs/zh/deployment/)
+
+Edit the `~/.qwen/settings.json` configuration file:
 ```json
 {
   "mcpServers": {
@@ -286,7 +285,7 @@ Open a new terminal and navigate to the project output directory:
 
 ```bash
 cd UCAgent/output
-gemini
+qwen
 ```
 
 **Input Task Prompt:**
@@ -295,7 +294,7 @@ gemini
 
 **Monitor Progress:**
 
-While `gemini-cli` is running, you can observe verification progress and status through UCAgent's TUI interface.
+While `qwen` is running, you can observe verification progress and status through UCAgent's TUI interface.
 
 ## Frequently Asked Questions (FAQ)
 

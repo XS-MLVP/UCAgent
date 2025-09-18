@@ -13,6 +13,7 @@ from .tools.planning import CreatePlan, UpdatePlan, GetPlan, ListPlans
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
+from .version import __version__
 
 import time
 import random
@@ -97,6 +98,7 @@ class VerifyAgent(object):
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
         """
+        self.__version__ = __version__
         if debug:
             set_debug(True)
         self.cfg = get_config(config_file, cfg_override)
