@@ -369,7 +369,8 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
             "Completed CK points changed."
         )
         return self.batch_task.do_complete(note_msg, is_complete,
-                                           f"in file: {self.doc_file}", f"in file: {self.cov_file}"
+                                           f"in file: {self.doc_file}",
+                                           f"in file: {self.cov_file}",
                                            " Please implement the check points in its related coverage groups flow the guid documents.")
 
 
