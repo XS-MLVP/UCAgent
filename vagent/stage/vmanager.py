@@ -107,20 +107,6 @@ class ArgCheck(BaseModel):
         description="Whether to return line coverage information in the test results."
     )
 
-    class Config:
-        """Pydantic model configuration."""
-        # Add validation examples for better documentation
-        schema_extra = {
-            "examples": [
-                {"target": ""},
-                {"target": "test_adder.py"},
-                {"target": "test_adder.py::test_basic_addition"},
-                {"target": "test_adder.py::TestAdder::test_overflow"},
-                {"target": "-k overflow"},
-                {"target": "-m slow"}
-            ]
-        }
-
 
 class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""

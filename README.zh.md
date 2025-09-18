@@ -97,7 +97,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 
 ### 系统要求
 
-- Python 3.8+
+- Python 3.11+
 - 支持的操作系统: Linux, macOS, Windows
 - 内存: 建议 4GB 以上
 - 网络: 需要访问AI模型API（OpenAI兼容）
@@ -110,7 +110,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 直接从GitHub安装最新版本：
 
 ```bash
-pip install git+https://github.com/XS-MLVP/UCAgent@master
+pip install git+https://github.com/XS-MLVP/UCAgent@main
 ```
 
 安装完成后，可在任意位置使用 `ucagent` 命令：

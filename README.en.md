@@ -98,7 +98,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 
 ## System Requirements
 
-- Python 3.8+
+- Python 3.11+
 - Supported OS: Linux, macOS, Windows
 - Memory: 4GB+ recommended
 - Network: Access to AI model API (OpenAI compatible)
@@ -111,7 +111,7 @@ For more information, visit: https://github.com/XS-MLVP/UCAgent
 Install the latest version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/XS-MLVP/UCAgent@master
+pip install git+https://github.com/XS-MLVP/UCAgent@main
 ```
 
 After installation, you can use the `ucagent` command from anywhere:
