@@ -1,11 +1,14 @@
 
-openai:
-  openai_api_base: "http://10.156.154.242:8000/v1"
-  model_name: Qwen/Qwen3-32B
-  openai_api_key: "EMPTY_API_KEY"
+# example config file for UCAgent
+# you can copy this file to ~/.ucagent/setting.yaml and modify it as needed
 
-embed:
-  model: "Qwen/Qwen3-Embedding-8B"
-  openai_base_url: http://10.156.154.242:8001/v1
-  api_key: "EMPTY_API_KEY"
-  dims: 4096
+#openai:
+#  openai_api_base: "http://10.156.154.242:8000/v1"
+#  model_name: Qwen/Qwen3-32B
+#  openai_api_key: "EMPTY_API_KEY"
+
+#embed:
+#  model: "Qwen/Qwen3-Embedding-8B"
+#  openai_base_url: http://10.156.154.242:8001/v1
+#  api_key: "EMPTY_API_KEY"
+#  dims: 4096

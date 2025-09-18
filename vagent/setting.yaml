@@ -1,0 +1,34 @@
+
+# default basic settings for UCAgent
+lang: "zh"
+
+model_type: openai
+
+openai:
+  model_name: "<your_chat_model_name>"
+  openai_api_key: "your_api_key"
+  openai_api_base: "http://<your_chat_model_url>/v1"
+  model_kwargs:
+    stop: ["."]
+
+embed:
+  model: "<your_embedding_model_name>"
+  openai_base_url: http://<your_embedding_model_url>/v1
+  api_key: "your_api_key"
+  dims: 4096
+
+conversation_summary:
+  max_tokens: 3000
+  max_summary_tokens: 1000
+
+template: unity_test
+
+un_write_dirs:
+  - "{DUT}"
+  - "Guide_Doc"
+write_dirs:
+  - "{OUT}"
+
+tools:
+  RunTestCases:
+    test_dir: "{OUT}/tests"

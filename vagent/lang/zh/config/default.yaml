@@ -1,19 +1,6 @@
 
-model_type: openai
-openai:
-  model_name: Qwen/Qwen3-32B
-  openai_api_key: "EMPTY_API_KEY"
-  openai_api_base: "http://127.0.0.1:8000/v1"
-  model_kwargs:
-    stop: ["."]
-
-
 template_overwrite:
   DOC_GEN_LANG: "中文"
-
-conversation_summary:
-  max_tokens: 3000
-  max_summary_tokens: 1000
 
 mission:
   name: "{DUT}芯片验证任务"
@@ -74,23 +61,6 @@ mission:
       - 根据需要进行查阅
 
       现在调用`CurrentTips`，开始你的验证工作！
-
-template: unity_test
-un_write_dirs:
-  - "{DUT}"
-  - "Guide_Doc"
-write_dirs:
-  - "{OUT}"
-
-tools:
-  RunTestCases:
-    test_dir: "{OUT}/tests"
-
-embed:
-  model: "Qwen/Qwen3-Embedding-8B"
-  openai_base_url: http://10.156.154.242:8001/v1
-  api_key: "EMPTY_API_KEY"
-  dims: 4096
 
 mcp_server:
   init_prompt: >

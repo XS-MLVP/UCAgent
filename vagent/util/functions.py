@@ -638,7 +638,7 @@ def render_template_dir(workspace, template_dir, kwargs):
     return rendered_files
 
 
-def get_template_path(template_name: str, template_path:str=None) -> str:
+def get_template_path(template_name: str, lang:str=None, template_path:str=None) -> str:
     """
     Get the absolute path to a template file.
     :param template_name: The name of the template file.
@@ -647,8 +647,9 @@ def get_template_path(template_name: str, template_path:str=None) -> str:
     if not template_name:
         return None
     if not template_path:
+        assert lang is not None, "Language must be specified if template_path is not provided."
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        template_path = os.path.abspath(os.path.join(current_dir, "../template"))
+        template_path = os.path.abspath(os.path.join(current_dir, "../lang", lang, "template"))
     else:
         assert os.path.exists(template_path), f"Template path {template_path} does not exist."
     tmp = os.path.join(template_path, template_name)

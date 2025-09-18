@@ -5,10 +5,7 @@ include requirements.txt
 include Makefile
 include pytest.ini
 include config.yaml
-recursive-include vagent/config *.yaml
-recursive-include vagent/template *
-recursive-include vagent/doc *
-recursive-include doc *
+recursive-include vagent/ *
 recursive-include examples *
 exclude output/*
 exclude .git*

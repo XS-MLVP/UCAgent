@@ -14,6 +14,8 @@ log/
 __pycache__/
 *.py[cod]
 *$py.class
+pytest.ini
+.pytest_cache/
 
 # C extensions
 *.so

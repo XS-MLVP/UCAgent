@@ -116,7 +116,7 @@ class VerifyAgent(object):
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
         if not os.path.exists(guide_doc_path):
-            doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "doc", "Guide_Doc")
+            doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang", self.cfg.lang, "doc", "Guide_Doc")
             shutil.copytree(doc_guide_path, guide_doc_path)
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
@@ -125,7 +125,7 @@ class VerifyAgent(object):
             self.model = model
         else:
             self.model = get_chat_model(self.cfg)
-        self.template = get_template_path(self.cfg.template, template_dir)
+        self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index)
