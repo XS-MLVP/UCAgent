@@ -13,7 +13,7 @@ openai:
 
 embed:
   model: "<your_embedding_model_name>"
-  openai_base_url: http://<your_embedding_model_url>/v1
+  openai_base_url: "http://<your_embedding_model_url>/v1"
   api_key: "your_api_key"
   dims: 4096
 
