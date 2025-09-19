@@ -1,8 +1,10 @@
 
 # {{DUT}} 覆盖率 ignore文件
 
-# 默认忽 picker 生成的接口文件
-{{DUT}}_top.sv
-{{DUT}}_top.v
+# 默认忽 picker 生成的接口文件，位于`{{DUT}}/`目录中
+*/{{DUT}}/{{DUT}}_top.sv
+*/{{DUT}}/{{DUT}}_top.v
 
-# 请此处添加其他需要忽略的文件或者行
+# 请此处添加其他需要忽略的文件或者行 （目标文件需要在workspace中）
+# eg:
+# */{{DUT}}/example.v

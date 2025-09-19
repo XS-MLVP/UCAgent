@@ -38,6 +38,11 @@ test/*.v             # 忽略test目录下的所有.v文件
 **/*_old.v           # 忽略任意目录下以_old结尾的.v文件
 ```
 
+**重要**：
+
+`*.ignore` 文件中的匹配语法请参考python中的函数[fnmatch.fnmatch](https://docs.python.org/zh-cn/3/library/fnmatch.html)的匹配规则
+
+
 ### 高级用法示例
 
 **1. 复杂项目的ignore配置**
