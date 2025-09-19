@@ -919,11 +919,24 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
         self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
         self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")
         self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)
+        self.cur_line_coverage = None
+
+    def on_init(self):
+        self.cur_line_coverage = 0.0
+
+    def get_template_data(self):
+        if self.cur_line_coverage is None:
+            cov = ""
+        else:
+            cov = f"({self.cur_line_coverage*100: .2f}/{self.min_line_coverage*100: .2f})"
+        return {
+            "COVERAGE_COMPLETE": cov
+        }
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """check test case and line coverage."""
         ret, msg = super().do_check(timeout=timeout, **kw)
         if not ret:
             return ret, msg
-        ret, msg = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
+        ret, msg, self.cur_line_coverage = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
         return ret, msg

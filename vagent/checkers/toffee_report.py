@@ -265,10 +265,10 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
         post_checker: An optional post-checker function.
 
     Returns:
-        A tuple indicating the success or failure of the check, along with an optional message.
+        A tuple indicating the success or failure of the check, along with an optional message and coverage rate.
     """
     if not os.path.exists(os.path.join(workspace, file_cover_json)):
-        return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available." 
+        return False, f"Line coverage result json file `{file_cover_json}` not found in workspace `{workspace}`. Please ensure the coverage data is generated and available." , 0.0
 
     file_ignore_path = os.path.join(workspace, file_ignore)
     if file_ignore and os.path.exists(file_ignore_path):
@@ -277,7 +277,8 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
             file_analyze_md_path = os.path.join(workspace, file_analyze_md)
             if not os.path.exists(file_analyze_md_path):
                 return False, f"Line coverage analysis documentation file ({file_analyze_md}) not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
-                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file ({file_ignore}), the analysis document ({file_analyze_md}) is required to explain why these lines are ignored."
+                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file ({file_ignore}), the analysis document ({file_analyze_md}) is required to explain why these lines are ignored.", \
+                                0.0
             doc_igs = fc.parse_marks_from_file(file_analyze_md_path, "LINE_IGNORE").get("marks", [])
             un_doced_igs = []
             for ig in igs:
@@ -285,7 +286,8 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                     un_doced_igs.append(ig)
             if len(un_doced_igs) > 0:
                 return False, f"Line coverage analysis documentation ({file_analyze_md}) does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
-                              f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>."
+                              f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>.", \
+                                0.0
 
     cover_data = fc.parse_un_coverage_json(file_cover_json, workspace)  # just to check if the json is valid
     cover_rate = cover_data.get("coverage_rate", 0.0)
@@ -297,14 +299,15 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                                   "3. Implement additional test cases to cover the un-covered lines or refine existing ones.",
                                   "4. If certain lines are intentionally un-covered (e.g., deprecated code, third-party libraries), " + \
                                       f"ignore them in the ignore file ({file_ignore}) and document the reasons in the analysis documentation ({file_analyze_md}) using <LINE_IGNORE> tags.",
-                                  "5. Re-run the tests and coverage analysis to verify that the coverage meets or exceeds the minimum threshold."
+                                  "5. Re-run the tests and coverage analysis to verify that the coverage meets or exceeds the minimum threshold.",
+                                  "Note: When ignoring lines, ensure that the ignore patterns start with '*/', like '*/{DUT}/{DUT}.v:18-20,50-60'."
                                  ],
                        "uncoverage_info": cover_data
-                       }
+                       }, cover_rate
 
     if callable(post_checker):
         ret, msg = post_checker(cover_data)
         if not ret:
-            return ret, msg
+            return ret, msg, cover_rate
 
-    return True, f"Line coverage check passed (line coverage: {cover_rate:.2f}% >= {min_line_coverage*100.0:.2f}%)."
+    return True, f"Line coverage check passed (line coverage: {cover_rate:.2f}% >= {min_line_coverage*100.0:.2f}%).", cover_rate

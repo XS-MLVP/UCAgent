@@ -359,7 +359,9 @@ stage:
       - "  - 2) 每个测试函数的最开始添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
       - "  - 3) 添加详细的TODO注释说明要测什么"
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
-      - "确保：每个功能点<FC-*>至少有一个测试用例"
+      - "注意："
+      - "  - 确保每个功能点<FC-*>至少有一个测试用例"
+      - "  - 测试用例应当具有针对性，不要冗余，不要一个测试用例关联过多功能点、测试点"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
@@ -389,6 +391,8 @@ stage:
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
+      - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
+      - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -419,7 +423,11 @@ stage:
           - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
           - "  - 如果Fail不合理：修正测试逻辑"
           - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"
-          - "注意：在该阶段，有需要可以增加测试用例，但不能删除已有用例"
+          - "注意："
+          - "  - 在该阶段，有需要可以增加测试用例，但不能删除已有用例"
+          - "  - 测试用例应当与功能点、测试点精准对应，不要冗余，不要一个测试用例关联过多功能点、测试点"
+          - "  - 如果功能点有bug，那么bug对应的具体检测点应当不通过，且至少有一个关联的针对性测试用例失败"
+          - "  - 如果功能点正常，那么对应的检测点应当通过，且至少有一个关联的针对性测试用例通过"
           - "完成进度：{COMPLETED_CASES}/{TOTAL_CASES}个测试用例已完成"
         reference_files:
           - "Guide_Doc/dut_test_case.md"
@@ -436,7 +444,7 @@ stage:
             data_key: "TEST_TEMPLATE_IMP_REPORT"
 
   - name: line_coverage_analysis_and_improvement
-    desc: "代码行覆盖率分析与提升"
+    desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"
     task:
       - "目标：查漏补缺，对测试过程进行回顾，提代码行覆盖率"
       - "第1步：运行Check方法获取代码行覆盖率信息"
