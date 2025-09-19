@@ -10,7 +10,7 @@ from .util.models import get_chat_model
 import vagent.tools
 from .message import TrimMessagesNode, SummarizationAndFixToolCall, State
 from .tools import *
-from .tools.planning import CreatePlan, UpdatePlan, GetPlan, ListPlans
+from .tools.planning import *
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
@@ -51,6 +51,7 @@ class VerifyAgent:
                  debug: bool = False,
                  no_embed_tools: bool = False,
                  force_stage_index: int = 0,
+                 force_plan: bool = False,
                  no_write_targets: Optional[List[str]] = None,
                  interaction_mode: str = "standard",
                  gen_instruct_file: Optional[str] = None,
@@ -115,7 +116,8 @@ class VerifyAgent:
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index)
+        self.plan_panel = PlanPanel()
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_plan, self.plan_panel)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,
@@ -159,24 +161,18 @@ class VerifyAgent:
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
                            + import_and_instance_tools(ex_tools, vagent.tools)
-        
+
         # Initialize planning tools
         self.planning_tools = []
-        if interaction_mode == "standard":
-            info(f"There are no planning tools in standard mode")
-        else:
+        self.force_plan = force_plan
+        if interaction_mode == "standard" and force_plan:
             self.planning_tools = [
-                CreatePlan(),
-                UpdatePlan(),
-                GetPlan(),
-                ListPlans()
+                CreatePlan(self.plan_panel),
+                CompletePlanSteps(self.plan_panel),
+                UndoPlanSteps(self.plan_panel),
+                ResetPlan(self.plan_panel),
+                GetPlanSummary(self.plan_panel),
             ]
-        # Share the same plan storage across all planning tools
-        for i, tool in enumerate(self.planning_tools):
-            if i > 0:  # Share storage from the first tool
-                tool._plans = self.planning_tools[0]._plans
-                tool._current_plan_id = self.planning_tools[0]._current_plan_id
-        
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
@@ -556,15 +552,6 @@ class VerifyAgent:
             except:
                 pass
         return "Performance tracking not available"
-    
-    def get_current_plan(self):
-        """Get the current plan information"""
-        if hasattr(self, 'planning_tools') and self.planning_tools:
-            try:
-                return self.planning_tools[2]._run()  # GetPlan tool
-            except Exception as e:
-                warning(f"Failed to get current plan: {e}")
-        return "No planning tools available"
 
     def do_work(self, instructions, config):
         """Perform the work using the agent."""
@@ -586,7 +573,6 @@ class VerifyAgent:
         """Get the messages from the agent's state."""
         values = self.agent.get_state(self.get_work_config()).values
         if "messages" not in values:
-            warning("No messages found in agent state")
             return []
         return values["messages"]
 

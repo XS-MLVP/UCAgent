@@ -66,21 +66,20 @@ class EnhancedInteractionLogic:
     def _init_planning_tools(self):
         """Initialize planning tools"""
         try:
-            from vagent.tools.planning import CreatePlan, UpdatePlan, GetPlan, ListPlans
+            from vagent.tools.planning import CreatePlan, CompletePlanSteps, UndoPlanSteps, ResetPlan, GetPlanSummary, PlanPanel
+            # Create shared plan panel
+            self.plan_panel = PlanPanel()
             self.planning_tools = {
-                'create': CreatePlan(),
-                'update': UpdatePlan(),
-                'get': GetPlan(),
-                'list': ListPlans()
+                'create': CreatePlan(plan_panel=self.plan_panel),
+                'complete': CompletePlanSteps(plan_panel=self.plan_panel),
+                'undo': UndoPlanSteps(plan_panel=self.plan_panel),
+                'reset': ResetPlan(plan_panel=self.plan_panel),
+                'summary': GetPlanSummary(plan_panel=self.plan_panel)
             }
-            # Share the same plan storage across all tools
-            for tool_name, tool in self.planning_tools.items():
-                if tool_name != 'create':
-                    tool._plans = self.planning_tools['create']._plans
-                    tool._current_plan_id = self.planning_tools['create']._current_plan_id
         except Exception as e:
             warning(f"Failed to initialize planning tools: {e}")
             self.planning_tools = None
+            self.plan_panel = None
     
     def enhanced_one_loop(self, msg: str = None):
         """Enhanced one_loop with improved interaction logic"""
@@ -240,8 +239,8 @@ Execution Guidelines:
 
 1. FOLLOW THE PLAN:
    - Execute the next incomplete step from your plan
-   - Use UpdatePlan to mark steps as completed
-   - If you encounter issues, update the plan with new steps or modifications
+   - Use CompletePlanSteps to mark completed steps when finished
+   - If you encounter issues, consider using ResetPlan to create a new approach
 
 2. USE AVAILABLE TOOLS STRATEGICALLY:
    - SemanticSearchInGuidDoc: When you need reference information or examples
@@ -251,7 +250,7 @@ Execution Guidelines:
 
 3. TRACK PROGRESS:
    - Document significant findings and decisions
-   - Update the plan with any new insights or changes in approach
+   - Use CompletePlanSteps to mark steps as completed when finished
    - Save important intermediate results to memory
 
 4. MAINTAIN QUALITY:
@@ -270,7 +269,7 @@ REFLECTION PHASE - Time to assess progress and adjust approach.
 Please conduct a comprehensive reflection:
 
 1. ASSESS CURRENT PROGRESS:
-   - Use GetPlan to review your current plan and progress
+   - Review your current plan status (the plan summary is available)
    - What has been accomplished successfully?
    - What challenges or obstacles have you encountered?
 
@@ -285,7 +284,7 @@ Please conduct a comprehensive reflection:
 
 4. CONSOLIDATE INSIGHTS:
    - Use MemoryPut to save important insights from this reflection
-   - Update your plan if needed with UpdatePlan
+   - If major changes needed, use ResetPlan to create a new approach
    - Document any major strategy changes
 
 5. PLAN NEXT STEPS:
@@ -328,9 +327,9 @@ Focus on preserving the most valuable insights and context from recent work.
     
     def _get_current_plan_status(self) -> str:
         """Get the current plan status"""
-        if self.planning_tools and self.planning_tools['get']:
+        if self.plan_panel:
             try:
-                return self.planning_tools['get']._run()
+                return self.plan_panel._summary()
             except Exception as e:
                 warning(f"Failed to get plan status: {e}")
         return "No active plan available. Consider creating a plan with CreatePlan."

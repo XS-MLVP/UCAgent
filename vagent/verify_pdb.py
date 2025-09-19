@@ -107,7 +107,7 @@ class VerifyPDB(Pdb):
             if "=" in v:
                 key, value = v.split("=", 1)
                 key = key.strip()
-                value = value.strip()
+                value = value.strip().replace(";", ",")
                 k[key] = eval(value)
             else:
                 a.append(eval(v.strip()))
@@ -246,6 +246,7 @@ class VerifyPDB(Pdb):
         try:
             echo(dump_as_json(tool.invoke(k.model_dump())))
         except Exception as e:
+            echo_y(traceback.format_exc())
             echo_r(f"Error invoking tool '{tool_name}': {e}")
             return
 

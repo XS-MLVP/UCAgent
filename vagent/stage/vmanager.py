@@ -219,13 +219,15 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0):
+    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0, force_plan=False, plan_panel=None):
         """
         Initialize the StageManager with an empty list of stages.
         """
         self.cfg = cfg
         self.data = {}
         self.workspace = workspace
+        self.force_plan = force_plan
+        self.plan_panel = plan_panel
         self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
         self.stages = self.root_stage.get_substages()
         self.mission = cfg.mission
@@ -242,6 +244,14 @@ class StageManager(object):
         self.tool_read_text = tool_read_text
         self.all_completed = False
         self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+
+    def attach_plan_summary(self, data):
+        assert isinstance(data, str), "the target data type of attach_plan_summary must be str"
+        if not self.force_plan:
+            return data
+        if not self.plan_panel:
+            return data
+        return data + self.plan_panel._summary()
 
     def set_data(self, key, value):
         self.data[key] = value
@@ -285,7 +295,8 @@ class StageManager(object):
         if ref_files:
             tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
-        return tips
+        tips = yam_str(tips)
+        return self.attach_plan_summary(tips)
 
     def detail(self):
         """
@@ -412,22 +423,22 @@ class StageManager(object):
         """
         detail = yam_str(self.detail())
         info("ToolDetail:\n" + detail)
-        return detail
+        return self.attach_plan_summary(detail)
 
     def tool_status(self):
         stat = yam_str(self.status())
-        info("ToolStaus:\n" + stat)
-        return stat
+        info("ToolStatus:\n" + stat)
+        return self.attach_plan_summary(stat)
 
     def tool_go_to_stage(self, index):
         ret = yam_str(self.go_to_stage(index))
         info("ToolGoToStage:\n" + ret)
-        return ret
+        return self.attach_plan_summary(ret)
 
     def tool_check(self,  timeout):
         ret = yam_str(self.check(timeout))
         info("ToolCheck:\n" + ret)
-        return ret
+        return self.attach_plan_summary(ret)
 
     def tool_exit(self):
         ret = yam_str(self.exit())
@@ -437,7 +448,7 @@ class StageManager(object):
     def tool_complete(self, timeout):
         ret = yam_str(self.complete(timeout))
         info("ToolComplete:\n" + ret)
-        return ret
+        return self.attach_plan_summary(ret)
 
     def tool_kill_check(self):
         """
@@ -469,7 +480,7 @@ class StageManager(object):
         Get the tips for the current task.
         This is used to provide guidance to the user on what to do next.
         """
-        tips = yam_str(self.get_current_tips())
+        tips = self.get_current_tips()
         info("Tips:\n" + tips)
         return tips
 
@@ -480,4 +491,4 @@ class StageManager(object):
         """
         ret = yam_str(self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage)[1])
         info("RunTestCases:\n" + ret)
-        return ret
+        return self.attach_plan_summary(ret)

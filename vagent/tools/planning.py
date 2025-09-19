@@ -5,193 +5,212 @@ from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from typing import Optional, List
 from pydantic import BaseModel, Field
-import json
+import vagent.util.functions as fc
 import time
+from collections import OrderedDict
 
 
-class ArgsPlanningCreate(BaseModel):
-    """Arguments for creating a task plan"""
-    task_description: str = Field(..., description="Description of the current subtask")
-    steps: List[str] = Field(..., description="List of planned steps to complete the task")
-    expected_outputs: List[str] = Field(default=[], description="Expected outputs or deliverables")
-    priority: str = Field(default="medium", description="Priority level: high, medium, low")
+class PlanPanel:
 
+    def __init__(self, max_str_size=100):
+        self.max_str_size = max_str_size
+        self.plan = {
+            # 'current_task_description': str, 'steps': List[str, is_completed: bool], 'notes': str
+        }
+        self._reset()
 
-class ArgsPlanningUpdate(BaseModel):
-    """Arguments for updating a task plan"""
-    plan_id: str = Field(..., description="ID of the plan to update")
-    completed_steps: List[int] = Field(default=[], description="Indices of completed steps (0-based)")
-    updated_steps: List[str] = Field(default=[], description="Updated or new steps")
-    notes: str = Field(default="", description="Additional notes or observations")
+    def _reset(self):
+        """Reset the current plan"""
+        self.plan = {}
 
+    def _summary(self) -> str:
+        """Get a formatted summary of a plan"""
+        if self._empty():
+            return "\nPlan is empty, please create it as you need."
+        def as_cmp_str(is_cmp):
+            return "(completed)" if is_cmp else ""
+        steps = [
+            f"{i+1}{as_cmp_str(is_cmp)}: {desc}" for i, (desc, is_cmp) in enumerate(self.plan['steps'])
+        ]
+        if self._is_all_completed():
+            return "\nAll plan steps are completed! You can create new one depending on your needs."
+        steps_text = "\n  ".join(steps)
+        return f"\n-------- Plan Panel --------\n" \
+               f" Task Description: {self.plan['task_description']}\n" \
+               f" Steps:\n  {steps_text}\n" \
+               f" Created At: {self.plan['created_at']}\n" \
+               f" Updated At: {self.plan['updated_at']}\n" \
+               f" Notes: {self.plan.get('notes', 'None')}" \
+               f"\n----------------------------\n"
 
-class ArgsPlanningGet(BaseModel):
-    """Arguments for retrieving plan information"""
-    plan_id: str = Field(default="", description="ID of specific plan to retrieve (empty for current active plan)")
+    def _empty(self) -> bool:
+        return not bool(self.plan)
+
+    def _check_str_size(self, notes, steps, emsg, info_size=10, min_steps=2, max_steps=20):
+        if notes:
+            if len(notes) > self.max_str_size:
+                return False, f"Error: {emsg} len(notes[{notes[:info_size]}]) > max_str_size({self.max_str_size}), the notes should be streamlined!"
+        if len(steps) > max_steps:
+            return False, f"Error: {emsg} total steps({len(steps)}) exceed max_steps({max_steps})"
+        if len(steps) < min_steps:
+            return False, f"Error: {emsg} total steps({len(steps)}) less than min_steps({min_steps})"
+        ex_steps = []
+        for m in steps:
+            if len(m) > self.max_str_size:
+                ex_steps.append(f"{m[:info_size]}...")
+        if ex_steps:
+            return False, f"Error: {emsg} len(steps[{', '.join(ex_steps)}]) > max_str_size({self.max_str_size}), the steps should be streamlined!"
+        return True, ""
+
+    def _create(self, task_description: str, steps: List[str], notes=None) -> str:
+        """Create a new plan"""
+        passed, emsg = self._check_str_size(notes, steps, "CreatePlan failed!")
+        if not passed:
+            return emsg
+        self.plan = {
+            'task_description': task_description,
+            'steps': [[s, False] for s in steps],
+            'created_at': time.strftime("%Y-%m-%d %H:%M:%S"),
+            'updated_at': time.strftime("%Y-%m-%d %H:%M:%S"),
+            'notes': notes or ""
+        }
+        return f"Plan created successfully!\n\n{self._summary()}"
+
+    def _complete_steps(self, completed_steps: List[int] = None, notes: str = "") -> str:
+        """Update the plan with completed steps, updated steps, and notes"""
+        if self._empty():
+            return "No active plan to update. Please create a plan first."
+        cmp_count = 0
+        # Update completed steps
+        if completed_steps:
+            for step_idx in completed_steps:
+                step_idx = step_idx - 1
+                if 0 <= step_idx < len(self.plan['steps']) and not self.plan['steps'][step_idx][1]:
+                    self.plan['steps'][step_idx][1] = True
+                    cmp_count += 1
+        # Add notes
+        if notes:
+            self.plan['notes'] = notes
+        self.plan['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        return f"Plan updated successfully! {cmp_count} step(s) marked as completed.\n\n{self._summary()}"
+
+    def _undo_steps(self, steps: List[int] = None, notes: str = "") -> str:
+        """Undo completed steps in the plan"""
+        if self._empty():
+            return "No active plan to update. Please create a plan first."
+        undo_count = 0
+        # Update completed steps
+        if steps:
+            for step_idx in steps:
+                step_idx = step_idx - 1
+                if 0 <= step_idx < len(self.plan['steps']) and self.plan['steps'][step_idx][1]:
+                    self.plan['steps'][step_idx][1] = False
+                    undo_count += 1
+        # Add notes
+        if notes:
+            self.plan['notes'] = notes
+        self.plan['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        return f"Plan updated successfully! {undo_count} step(s) marked as undone.\n\n{self._summary()}"
+
+    def _is_all_completed(self) -> bool:
+        """Check if all steps in the plan are completed"""
+        if self._empty():
+            return False
+        return all(is_cmp for _, is_cmp in self.plan['steps'])
 
 
 class PlanningTool(UCTool):
-    """Base planning tool with shared functionality"""
-    
-    def __init__(self):
-        super().__init__()
-        self._plans = {}
-        self._current_plan_id = None
-    
-    def _generate_plan_id(self) -> str:
-        """Generate a unique plan ID"""
-        return f"plan_{int(time.time() * 1000)}"
-    
-    def _get_plan_summary(self, plan: dict) -> str:
-        """Get a formatted summary of a plan"""
-        total_steps = len(plan['steps'])
-        completed_steps = len(plan['completed_steps'])
-        progress = f"{completed_steps}/{total_steps}"
-        
-        summary = f"Plan ID: {plan['id']}\n"
-        summary += f"Task: {plan['task_description']}\n"
-        summary += f"Progress: {progress} steps completed\n"
-        summary += f"Priority: {plan['priority']}\n"
-        summary += f"Created: {plan['created_at']}\n"
-        
-        if plan['notes']:
-            summary += f"Notes: {plan['notes']}\n"
-        
-        summary += "\nSteps:\n"
-        for i, step in enumerate(plan['steps']):
-            status = "✓" if i in plan['completed_steps'] else "○"
-            summary += f"  {status} {i+1}. {step}\n"
-        
-        if plan['expected_outputs']:
-            summary += "\nExpected Outputs:\n"
-            for output in plan['expected_outputs']:
-                summary += f"  - {output}\n"
-        
-        return summary
+    plan_panel: PlanPanel = Field(default_factory=PlanPanel, description="Panel managing all plans")
+    def __init__(self, plan_panel: PlanPanel, **data):
+        super().__init__(**data)
+        self.plan_panel = plan_panel
+
+
+class ArgsPlanningCreate(BaseModel):
+    task_description: str = Field(..., description="Description of the task to be planned")
+    steps: List[str] = Field(..., description="List of steps to accomplish the task")
+
+
+class ArgsCompletePlanSteps(BaseModel):
+    completed_steps: List[int] = Field(
+        default=[], description="List of step index (1-based) that have been completed"
+    )
+    notes: str = Field(default="", description="Additional notes or updates about the plan")
+
+
+class ArgsUndoPlanSteps(BaseModel):
+    steps: List[int] = Field(
+        default=[], description="List of step indices (1-based) to mark as not completed"
+    )
+    notes: str = Field(default="", description="Additional notes or updates about the plan")
 
 
 class CreatePlan(PlanningTool):
     """Create a new task plan with detailed steps"""
     name: str = "CreatePlan"
     description: str = (
-        "Create a new detailed plan for the current subtask. "
+        "Create a new detailed plan for the current subtask. It will overwrite any existing plan. "
         "This helps organize the approach and track progress systematically. "
+        "The steps and notes should be concise and clear. "
         "Use this when starting a new subtask or when you need to reorganize your approach."
     )
     args_schema: Optional[ArgsSchema] = ArgsPlanningCreate
 
-    def _run(self, task_description: str, steps: List[str], expected_outputs: List[str] = None, 
-             priority: str = "medium", run_manager = None) -> str:
+    def _run(self, task_description: str, steps: List[str], run_manager = None) -> str:
         """Create a new plan"""
-        plan_id = self._generate_plan_id()
-        
-        plan = {
-            'id': plan_id,
-            'task_description': task_description,
-            'steps': steps,
-            'expected_outputs': expected_outputs or [],
-            'priority': priority,
-            'completed_steps': [],
-            'notes': '',
-            'created_at': time.strftime("%Y-%m-%d %H:%M:%S"),
-            'updated_at': time.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        self._plans[plan_id] = plan
-        self._current_plan_id = plan_id
-        
-        return f"Plan created successfully!\n\n{self._get_plan_summary(plan)}"
+        assert self.plan_panel is not None, "Plan panel is not initialized."
+        return self.plan_panel._create(task_description, steps)
 
 
-class UpdatePlan(PlanningTool):
-    """Update an existing plan with progress or modifications"""
-    name: str = "UpdatePlan"
+class CompletePlanSteps(PlanningTool):
+    name: str = "CompletePlanSteps"
     description: str = (
-        "Update an existing plan by marking steps as completed, adding new steps, or adding notes. "
-        "Use this to track progress and adapt the plan as work progresses."
+        "Update the current plan by marking specific steps as completed. "
+        "This helps track progress and keep the plan up-to-date."
     )
-    args_schema: Optional[ArgsSchema] = ArgsPlanningUpdate
-
-    def _run(self, plan_id: str, completed_steps: List[int] = None, updated_steps: List[str] = None, 
-             notes: str = "", run_manager = None) -> str:
-        """Update an existing plan"""
-        if plan_id not in self._plans:
-            return f"Error: Plan with ID '{plan_id}' not found."
-        
-        plan = self._plans[plan_id]
-        
-        # Update completed steps
-        if completed_steps:
-            for step_idx in completed_steps:
-                if 0 <= step_idx < len(plan['steps']) and step_idx not in plan['completed_steps']:
-                    plan['completed_steps'].append(step_idx)
-        
-        # Update steps
-        if updated_steps:
-            plan['steps'] = updated_steps
-            # Reset completed steps that are now out of range
-            plan['completed_steps'] = [i for i in plan['completed_steps'] if i < len(updated_steps)]
-        
-        # Add notes
-        if notes:
-            if plan['notes']:
-                plan['notes'] += f"\n{notes}"
-            else:
-                plan['notes'] = notes
-        
-        plan['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        
-        return f"Plan updated successfully!\n\n{self._get_plan_summary(plan)}"
+    args_schema: Optional[ArgsSchema] = ArgsCompletePlanSteps
+    def _run(self, completed_steps: List[int] = [], notes: str = "", run_manager = None) -> str:
+        """Mark steps as completed in the current plan"""
+        assert self.plan_panel is not None, "Plan panel is not initialized."
+        return self.plan_panel._complete_steps(completed_steps, notes)
 
 
-class GetPlan(PlanningTool):
-    """Retrieve current or specific plan information"""
-    name: str = "GetPlan"
+class UndoPlanSteps(PlanningTool):
+    name: str = "UndoPlanSteps"
     description: str = (
-        "Retrieve information about the current active plan or a specific plan by ID. "
-        "Use this to review the current plan, check progress, or recall previous plans."
+        "Undo completed steps in the current plan by marking them as not completed. "
+        "This is useful if a step was marked completed by mistake or needs to be redone."
     )
-    args_schema: Optional[ArgsSchema] = ArgsPlanningGet
+    args_schema: Optional[ArgsSchema] = ArgsUndoPlanSteps
+    def _run(self, steps: List[int] = [], notes: str = "", run_manager = None) -> str:
+        """Undo completed steps in the current plan"""
+        assert self.plan_panel is not None, "Plan panel is not initialized."
+        return self.plan_panel._undo_steps(steps, notes)
 
-    def _run(self, plan_id: str = "", run_manager = None) -> str:
-        """Get plan information"""
-        if not plan_id:
-            plan_id = self._current_plan_id
-        
-        if not plan_id:
-            return "No active plan found. Use CreatePlan to create a new plan."
-        
-        if plan_id not in self._plans:
-            return f"Error: Plan with ID '{plan_id}' not found."
-        
-        plan = self._plans[plan_id]
-        return self._get_plan_summary(plan)
-
-
-class ListPlans(PlanningTool):
-    """List all available plans"""
-    name: str = "ListPlans"
+class ResetPlan(PlanningTool):
+    name: str = "ResetPlan"
     description: str = (
-        "List all available plans with basic information. "
-        "Use this to see all plans that have been created."
+        "Reset the current plan, clearing all steps and notes. "
+        "Use this when you want to start fresh with a new plan."
     )
-
+    args_schema: Optional[ArgsSchema] = None
     def _run(self, run_manager = None) -> str:
-        """List all plans"""
-        if not self._plans:
-            return "No plans found. Use CreatePlan to create a new plan."
-        
-        summary = f"Found {len(self._plans)} plan(s):\n\n"
-        
-        for plan_id, plan in self._plans.items():
-            total_steps = len(plan['steps'])
-            completed_steps = len(plan['completed_steps'])
-            progress = f"{completed_steps}/{total_steps}"
-            current_marker = " (CURRENT)" if plan_id == self._current_plan_id else ""
-            
-            summary += f"• {plan_id}{current_marker}\n"
-            summary += f"  Task: {plan['task_description']}\n"
-            summary += f"  Progress: {progress} | Priority: {plan['priority']}\n"
-            summary += f"  Created: {plan['created_at']}\n\n"
-        
-        return summary
+        """Reset the current plan"""
+        assert self.plan_panel is not None, "Plan panel is not initialized."
+        self.plan_panel._reset()
+        return "Current plan has been reset. You can create a new plan now."
+
+
+class GetPlanSummary(PlanningTool):
+    name: str = "GetPlanSummary"
+    description: str = (
+        "Get a summary of the current plan, including task description, steps, and their completion status. "
+        "Use this to review the plan and track progress."
+    )
+    args_schema: Optional[ArgsSchema] = None
+    def _run(self, run_manager = None) -> str:
+        """Get a summary of the current plan"""
+        assert self.plan_panel is not None, "Plan panel is not initialized."
+        if self.plan_panel._empty():
+            return "No active plan. Please create a plan first."
+        return self.plan_panel._summary()

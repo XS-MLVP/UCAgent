@@ -35,32 +35,31 @@ class ToolRecommendationEngine:
         """Initialize tool categorization"""
         return {
             ToolCategory.SEARCH: [
-                'SemanticSearchInGuidDoc', 'ReadTextFile', 'ListDir',
-                'SearchFunction', 'SearchStruct'
+                'SemanticSearchInGuidDoc', 'ReadTextFile', 'PathList',
+                'SearchText', 'FindFiles'
             ],
             ToolCategory.MEMORY: [
-                'MemoryPut', 'MemoryGet', 'MemoryList', 'MemoryDelete'
+                'MemoryPut', 'MemoryGet'
             ],
             ToolCategory.FILE_OPS: [
-                'ReadTextFile', 'WriteTextFile', 'AppendTextFile', 'MoveFile',
-                'DeleteFile', 'CreateDir', 'ListDir'
+                'ReadTextFile', 'EditTextFile', 'MoveFile',
+                'DeleteFile', 'CreateDirectory', 'PathList'
             ],
             ToolCategory.VERIFICATION: [
-                'CheckFunctionCoverage', 'CheckFunctionCoverageCondition',
-                'CheckConditionGroup', 'RunTest', 'CompileCode'
+                'RunTestCases', 'Status', 'Detail', 'CurrentTips'
             ],
             ToolCategory.PLANNING: [
-                'CreatePlan', 'UpdatePlan', 'GetPlan', 'ListPlans'
+                'CreatePlan', 'CompletePlanSteps', 'UndoPlanSteps', 'ResetPlan', 'GetPlanSummary'
             ],
             ToolCategory.ANALYSIS: [
-                'AnalyzeCode', 'ParseVerilog', 'ExtractFunctions',
-                'AnalyzeTestResults'
+                'GetFileInfo', 'SearchText', 'ReadTextFile',
+                'ReadBinFile'
             ],
             ToolCategory.REFLECTION: [
-                'Reflect', 'SqThink'
+                'Reflect', 'HumanHelp'
             ],
             ToolCategory.EXECUTION: [
-                'RunCommand', 'CompileCode', 'RunTest', 'ExecuteScript'
+                'RunTestCases', 'EditTextFile', 'ReplaceStringInFile'
             ]
         }
     
@@ -143,10 +142,14 @@ class ToolRecommendationEngine:
                 'recovery': "Create a new plan based on lessons learned",
                 'exploration': "Create an exploratory plan for investigating options"
             },
-            'UpdatePlan': {
-                'implementation': "Mark completed steps and add new discoveries",
-                'verification': "Update plan with verification results",
-                'recovery': "Revise plan based on new understanding"
+            'CompletePlanSteps': {
+                'implementation': "Mark completed steps and track progress",
+                'verification': "Mark verification steps as completed",
+                'focused_execution': "Track specific task completion"
+            },
+            'ResetPlan': {
+                'recovery': "Reset and create a fresh approach based on new understanding",
+                'planning_phase': "Start over with a completely new planning approach"
             },
             'ReadTextFile': {
                 'exploration': "Read documentation and example files to understand context",
