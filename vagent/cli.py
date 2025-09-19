@@ -262,6 +262,13 @@ def get_args() -> argparse.Namespace:
         help="Generate instruction file at the specified workspace path. If the file exists, it will be overwritten. eg: --gen-instruct-file GEMINI.md"
     )
 
+    parser.add_argument(
+        "--guid-doc-path",
+        type=str,
+        default=None,
+        help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
+    )
+
     # Version argument
     parser.add_argument(
         "--version", 
@@ -313,6 +320,7 @@ def run() -> None:
         cfg_override=args.override,
         tmp_overwrite=args.template_overwrite,
         template_dir=args.template_dir,
+        guid_doc_path=args.guid_doc_path,
         stream_output=args.stream_output,
         seed=args.seed,
         init_cmd=init_cmds,

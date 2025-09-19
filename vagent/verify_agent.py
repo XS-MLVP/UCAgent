@@ -41,6 +41,7 @@ class VerifyAgent:
                  cfg_override: Optional[Dict[str, Any]] = None,
                  tmp_overwrite: bool = False,
                  template_dir: Optional[str] = None,
+                 guid_doc_path: Optional[str] = None,
                  stream_output: bool = False,
                  init_cmd: Optional[List[str]] = None,
                  seed: Optional[int] = None,
@@ -105,6 +106,9 @@ class VerifyAgent:
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
         if not os.path.exists(guide_doc_path):
             doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang", self.cfg.lang, "doc", "Guide_Doc")
+            if guid_doc_path is not None:
+                assert os.path.exists(guid_doc_path), f"Specified guid_doc_path {guid_doc_path} does not exist"
+                doc_guide_path = guid_doc_path
             shutil.copytree(doc_guide_path, guide_doc_path)
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
