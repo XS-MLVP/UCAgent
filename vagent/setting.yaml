@@ -28,6 +28,7 @@ conversation_summary:
   max_tokens: 51200   # default 50k tokens for 128k context model
   max_summary_tokens: 1024
   use_trim_mode: true # default use trim mode to manage conversation history
+  max_keep_msgs: 200  # max messages to keep in memory, older messages will be removed (not the messages to LLM)
 
 template: unity_test
 

@@ -181,11 +181,13 @@ class VerifyAgent:
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
         self.use_trim_mode = self.cfg.get_value("conversation_summary.use_trim_mode", False)
+        self.max_keep_msgs = self.cfg.get_value("conversation_summary.max_keep_msgs", 200)
 
         if self.use_trim_mode:
             info("Using TrimMessagesNode for conversation summarization (max_token={})".format(self.max_token))
             message_manage_node = TrimMessagesNode(
-                max_token=self.max_token
+                max_token=self.max_token,
+                max_keep_msgs=self.max_keep_msgs
             )
         else:
             info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
@@ -195,7 +197,7 @@ class VerifyAgent:
                 max_tokens=self.max_token,
                 max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
-            )
+            ).set_max_keep_msgs(self.max_keep_msgs)
 
         self.agent = create_react_agent(
             model=self.model,
