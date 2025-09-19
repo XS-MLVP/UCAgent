@@ -25,9 +25,9 @@ embed:
 # if use_trim_mode is true (trim mode):
 #   Param: max_tokens, suggested 80% of the model's context length
 conversation_summary:
-  max_tokens: 102400
+  max_tokens: 51200   # default 50k tokens for 128k context model
   max_summary_tokens: 1024
-  use_trim_mode: true
+  use_trim_mode: true # default use trim mode to manage conversation history
 
 template: unity_test
 

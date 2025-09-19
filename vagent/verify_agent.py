@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from pyexpat.errors import messages
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
-from .util.functions import fill_dlist_none, dump_as_json, get_ai_message_tool_call, yam_str
+from .util.functions import dump_as_json, get_ai_message_tool_call, yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 from .util.models import get_chat_model
 
 import vagent.tools
+from .message import TrimMessagesNode, SummarizationAndFixToolCall, State
 from .tools import *
 from .tools.planning import CreatePlan, UpdatePlan, GetPlan, ListPlans
 from .stage import StageManager
@@ -22,56 +22,12 @@ import signal
 import copy
 
 from langchain.globals import set_debug
-from langchain_core.messages.utils import count_tokens_approximately, trim_messages
+from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langmem.short_term import SummarizationNode
-from langgraph.prebuilt.chat_agent_executor import AgentState
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
 import traceback
-
-
-class SummarizationAndFixToolCall(SummarizationNode):
-    """Custom summarization node that fixes tool call arguments."""
-
-    def _func(self, input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
-        for msg in input["messages"][-4:]:
-            if not isinstance(msg, AIMessage):
-                continue
-            if hasattr(msg, "additional_kwargs"):
-                msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments", ["arguments"])
-            if hasattr(msg, "invalid_tool_calls"):
-                msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
-        return super()._func(input)
-
-
-class TrimMessagesNode:
-    """Node to trim messages to a maximum count."""
-
-    def __init__(self, max_token: int):
-        self.max_token = max_token
-
-    def __call__(self, state):
-        msg = trim_messages(
-                state["messages"],
-                strategy="last",
-                token_counter=count_tokens_approximately,
-                max_tokens=self.max_token,
-                start_on="human",
-                end_on=("human", "tool"),
-                include_system=True,
-                allow_partial=False,
-        )
-        return {"llm_input_messages": msg}
-
-
-class State(AgentState):
-    """Agent state with additional context information."""
-    # NOTE: we're adding this key to keep track of previous summary information
-    # to make sure we're not summarizing on every LLM call
-    context: Dict[str, Any]
 
 
 class VerifyAgent:
@@ -222,19 +178,22 @@ class VerifyAgent:
                 tool._current_plan_id = self.planning_tools[0]._current_plan_id
         
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
+        self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
+        self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
+        self.use_trim_mode = self.cfg.get_value("conversation_summary.use_trim_mode", False)
 
-        if self.cfg.get_value("conversation_summary.use_trim_mode", False):
-            info("Using TrimMessagesNode for conversation summarization")
+        if self.use_trim_mode:
+            info("Using TrimMessagesNode for conversation summarization (max_token={})".format(self.max_token))
             message_manage_node = TrimMessagesNode(
-                max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
+                max_token=self.max_token
             )
         else:
-            info("Using SummarizationAndFixToolCall for conversation summarization")
+            info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
             message_manage_node = SummarizationAndFixToolCall(
                 token_counter=count_tokens_approximately,
                 model=self.model,
-                max_tokens=self.cfg.get_value("conversation_summary.max_tokens", 20*1024),
-                max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024),
+                max_tokens=self.max_token,
+                max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
             )
 
@@ -287,12 +246,12 @@ class VerifyAgent:
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
     def summary_mode(self):
-        if self.cfg.get_value("conversation_summary.use_trim_mode", False):
-            return "Trim"
-        return "Summarize"
+        if self.use_trim_mode:
+            return f"Trim({self.max_token})"
+        return f"Summarize({self.max_token})"
 
     def summary_max_tokens(self):
-        return self.cfg.get_value("conversation_summary.max_summary_tokens", "-")
+        return self.max_summary_tokens
 
     def generate_instruction_file(self, file_path):
         if not file_path:
