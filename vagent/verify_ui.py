@@ -24,6 +24,11 @@ class VerifyUI:
     def __init__(self, vpdb, max_messages=1000, prompt="(UnityChip) ", gap_time=0.5):
         self.vpdb = vpdb
         self.console_input_cap = prompt
+        # w_task, h_console, h_status
+        self.content_task_fix_width = 84
+        self.console_max_height = 13
+        self.status_content_fix_height = 7
+        # Content and Boxes
         self.content_task = urwid.SimpleListWalker([])
         self.content_stat = urwid.SimpleListWalker([])
         self.content_msgs = urwid.SimpleListWalker([])
@@ -36,14 +41,11 @@ class VerifyUI:
         self.console_input = urwid.Edit(self.console_input_cap)
         self.console_input_busy = ["(wait.  )", "(wait.. )", "(wait...)"]
         self.console_input_busy_index = -1
-        self.console_max_height = max(3, 15)  # Ensure minimum height
         self.console_default_txt = "\n" * (self.console_max_height - 1)
         self.console_outbuffer = self.console_default_txt
         self.console_output = ANSIText(self.console_outbuffer)
         self.console_page_cache = None
         self.console_page_cache_index = 0
-        self.content_task_fix_width = max(10, min(200, 40))  # Ensure reasonable bounds
-        self.status_content_fix_height = 5
         self.task_box_maxfiles = max(1, 5)  # Ensure minimum value
         self.last_cmd = None
         self.last_key = None
@@ -153,7 +155,8 @@ class VerifyUI:
     def update_info(self):
         self.content_task.clear()
         self.content_stat.clear()
-        self.content_stat.append(urwid.Text(self.vpdb.api_status()))
+        w_task, h_console, h_status = self.content_task_fix_width, self.console_max_height, self.status_content_fix_height
+        self.content_stat.append(urwid.Text(self.vpdb.api_status() + f"\nWHH({w_task},{h_console},{h_status})"))
         # task
         task_data = self.vpdb.api_task_list()
         self.content_task.append(urwid.Text(f"\n{task_data['mission_name']}\n", align='center'))
