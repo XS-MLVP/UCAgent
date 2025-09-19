@@ -428,7 +428,7 @@ class PathList(UCTool, BaseReadWrite):
             if any(directory.startswith(p) for p in self.ignore_dirs_files):
                 continue
             if not directory == ".":
-                result.append(f"{index}\t{directory}/".strip() + "\t(type: directory, size: N/A, bytes: N/A)")
+                result.append(f"{index}    {directory}/".strip() + "    (type: directory, size: N/A, bytes: N/A)")
                 index += 1
                 count_directories += 1
             for file in files:
@@ -445,12 +445,12 @@ class PathList(UCTool, BaseReadWrite):
                 file_type = "binary" if not is_text_file(absolute_file_path) else "text"
                 bytes_count= get_file_size(absolute_file_path)
                 file_size = bytes_to_human_readable(bytes_count)
-                result.append(f"{index}\t{tfile_path.strip()}" + f"\t(type: {file_type}, size: {file_size}, bytes: {bytes_count})")
+                result.append(f"{index}    {tfile_path.strip()}" + f"    (type: {file_type}, size: {file_size}, bytes: {bytes_count})")
                 index += 1
                 count_files += 1
         if result:
             ret_head = str_info(f"\nFound {count_directories} directories and {count_files} files in workspace.\n\n")
-            result.insert(0, f"Index\tName\t(Type, Size, Bytes)")
+            result.insert(0, f"Index    Name    (Type, Size, Bytes)")
             self.do_callback(True, path, result)
             return ret_head + str_return("\n".join(result))
         self.do_callback(False, path, None)
