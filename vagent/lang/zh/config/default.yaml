@@ -454,6 +454,8 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           min_line_coverage: 0.1 # 根据需要调整覆盖率要求，例如0.7表示70%，建议初始要求不要太高，完成所有功能测试后再提升该值大于90%
+    reference_files:
+          - "Guide_Doc/dut_line_coverage.md"
 
   - name: verification_review_and_summary
     desc: "验证审查与总结"

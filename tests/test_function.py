@@ -111,7 +111,7 @@ def test_parse_line_ignore_file():
 
 def test_parse_un_coverage_json():
     """Test the parse_un_coverage_json function."""
-    test_file = os.path.join(current_dir, "../output/uc_test_report/coverage.json")
+    test_file = "uc_test_report/line_dat/code_coverage.json"
     ignore_list = fc.parse_un_coverage_json(test_file, os.path.abspath(os.path.join(current_dir, "../output")))
     print("Parsed ignore list from coverage JSON file '{}':".format(test_file))
     print("Ignore List:\n%s" % fc.yam_str(ignore_list))

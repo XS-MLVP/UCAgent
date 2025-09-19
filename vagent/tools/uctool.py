@@ -15,6 +15,7 @@ import threading
 import concurrent.futures
 import asyncio
 from vagent.util.cqueque import CircularOverwriteQueue
+import time
 
 
 class EmptyArgs(BaseModel):
@@ -37,6 +38,10 @@ class UCTool(BaseTool):
     call_time_out: int = Field(
         default=20,
         description="Maximum time in seconds to allow the tool to run."
+    )
+    last_call_time: float = Field(
+        default=0.0,
+        description="Timestamp of the last time the tool was called."
     )
     stream_queue: CircularOverwriteQueue = Field(
         default=None,
@@ -85,6 +90,7 @@ class UCTool(BaseTool):
         self.is_in_call = False
         self.executor = None
         self.task_future = None
+        self.last_call_time = 0.0
         self.sync_block_log_to_client = kwargs.get("sync_block_log_to_client", False)
 
     def set_force_exit(self, value):
@@ -110,6 +116,9 @@ class UCTool(BaseTool):
     def is_busy(self):
         return self.is_in_streaming or self.is_alive_loop or self.is_in_call
 
+    def is_hot(self):
+        return (time.time() - self.last_call_time) < 1 or self.is_busy()
+
     def set_call_time_out(self, timeout: int):
         self.call_time_out = timeout
         return self
@@ -131,6 +140,7 @@ class UCTool(BaseTool):
             return super().invoke(input, config, **kwargs)
         finally:
             self.is_in_call = False
+            self.last_call_time = time.time()
 
     def put_alive_data(self, data):
         self.stream_queue.put(data)
@@ -181,6 +191,7 @@ class UCTool(BaseTool):
 
     async def ainvoke(self, input, config = None, **kwargs):
         self.call_count += 1
+        self.last_call_time = time.time()
         ctx = input.get("ctx", None)
         if not isinstance(ctx, Context):
             try:
@@ -188,6 +199,7 @@ class UCTool(BaseTool):
                 return await super().ainvoke(input, config, **kwargs)
             finally:
                 self.is_in_call = False
+                self.last_call_time = time.time()
         fc.info(f"call {self.__class__.__name__} in Stream-MPC mode")
         timeout = input.get("timeout", None)
         if timeout is not None:
@@ -202,6 +214,7 @@ class UCTool(BaseTool):
             fc.info(str(error_msg))
             return error_msg
         self.is_in_streaming = True
+        self.last_call_time = time.time()
         self.reset_force_exit()
         alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out if not timeout else timeout, ctx), daemon=True)
         alive_thread.start()
@@ -213,6 +226,7 @@ class UCTool(BaseTool):
             fc.info(traceback.format_exc())
             data = {"error": str(e)}
         self.is_in_streaming = False
+        self.last_call_time = time.time()
         fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")
         return data
 

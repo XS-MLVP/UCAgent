@@ -915,7 +915,7 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
         else:
             assert isinstance(cfg, Config), f"cfg must be dict or Config, but got {type(cfg)}."
             dut_name = cfg.get_value("_temp_cfg", {}).get("DUT")
-        self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/coverage.json")
+        self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/line_dat/code_coverage.json")
         self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
         self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")
         self.min_line_coverage = self.extra_kwargs.get("min_line_coverage", 0.8)

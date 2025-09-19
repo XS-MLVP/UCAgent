@@ -1203,8 +1203,8 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
     file_path = os.path.abspath(os.path.join(workspace, file_path))
     assert os.path.exists(file_path), f"File {file_path} does not exist."
     data = json.load(open(file_path, 'r', encoding='utf-8'))
-    ret["lines_total"] = data.get("overview", {}).get("data", [0,0])[0]
-    ret["lines_uncovered"] = data.get("overview", {}).get("data", [0,0])[1]
+    ret["lines_total"] = data['overview']['total']["line"]
+    ret["lines_uncovered"] = data['overview']['miss']["line"]
     ret["lines_covered"] = ret["lines_total"] - ret["lines_uncovered"]
     # Parse uncovered lines details
     un_covered = data.get("uncovered", {}).get("data", {})
@@ -1212,12 +1212,17 @@ def parse_un_coverage_json(file_path: str, workspace: str) -> dict:
         ret["coverage_rate"] = float(ret["lines_covered"]) / float(ret["lines_total"])
     if ret["lines_uncovered"] > 0 and un_covered:
         for cpath, data in un_covered.items():
-            cpath = rm_workspace_prefix(workspace, cpath)
-            for module_name, cover_lines in data.items():
+            if data["total"]["line"] == 0:
+                continue
+            for module_name, cover_lines in data["modules"].items():
+                if cover_lines["miss"]["line"] == 0:
+                    continue
+                cpath = rm_workspace_prefix(workspace, cpath)
+                lines = cover_lines["line"]
                 ret["uncoverage_detail"].append(OrderedDict({
-                    "module_name": module_name,
-                    "lines_uncovered": cpath  + ":" + ','.join(cover_lines["line"]),
-                }))
+                        "module_name": module_name,
+                        "lines_uncovered": cpath  + ":" + ','.join(lines),
+                    }))
     return ret
 
 

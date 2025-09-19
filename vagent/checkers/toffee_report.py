@@ -276,15 +276,15 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
         if len(igs) > 0:
             file_analyze_md_path = os.path.join(workspace, file_analyze_md)
             if not os.path.exists(file_analyze_md_path):
-                return False, f"Line coverage analysis documentation file `{file_analyze_md}` not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
-                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file, the analysis document `{file_analyze_md}` is required to explain why these lines are ignored."
+                return False, f"Line coverage analysis documentation file ({file_analyze_md}) not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
+                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file ({file_ignore}), the analysis document ({file_analyze_md}) is required to explain why these lines are ignored."
             doc_igs = fc.parse_marks_from_file(file_analyze_md_path, "LINE_IGNORE").get("marks", [])
             un_doced_igs = []
             for ig in igs:
                 if ig not in doc_igs:
                     un_doced_igs.append(ig)
             if len(un_doced_igs) > 0:
-                return False, f"Line coverage analysis documentation `{file_analyze_md}` does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
+                return False, f"Line coverage analysis documentation ({file_analyze_md}) does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
                               f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>."
 
     cover_data = fc.parse_un_coverage_json(file_cover_json, workspace)  # just to check if the json is valid
@@ -295,6 +295,9 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                                   "1. Review the un-covered lines in the coverage report.",
                                   "2. Identify missing test cases that can cover these lines or find the existing test cases that should be enhanced.",
                                   "3. Implement additional test cases to cover the un-covered lines or refine existing ones.",
+                                  "4. If certain lines are intentionally un-covered (e.g., deprecated code, third-party libraries), " + \
+                                      f"ignore them in the ignore file ({file_ignore}) and document the reasons in the analysis documentation ({file_analyze_md}) using <LINE_IGNORE> tags.",
+                                  "5. Re-run the tests and coverage analysis to verify that the coverage meets or exceeds the minimum threshold."
                                  ],
                        "uncoverage_info": cover_data
                        }

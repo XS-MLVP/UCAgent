@@ -3,7 +3,7 @@
 # you can copy this file to ~/.ucagent/setting.yaml and modify it as needed
 
 #openai:
-#  model_name: Qwen/Qwen3-Coder-30B-A3B-Instruct
+#  model_name: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 #  openai_api_base: "http://10.156.154.242:8000/v1"
 #  openai_api_key: "YOUR_API_KEY"
 #
