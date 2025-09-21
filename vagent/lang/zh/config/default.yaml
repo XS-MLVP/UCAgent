@@ -402,7 +402,6 @@ stage:
           test_dir: "{OUT}/tests"
         extra_args:
           fail_msg: "测试实现不符合要求。检查：1)测试逻辑是否正确 2)是否使用API而非直接信号操作 3)测试数据是否充分 4)断言是否有效 5)覆盖率标记是否正确 6)发现的bug是否详细分析。参考Guide_Doc/dut_test_case.md和examples了解正确方法。"
-          pass_msg: "测试实现成功！测试逻辑正确，验证全面，bug分析详尽。"
           max_try: -1
     reference_files:
       - "Guide_Doc/dut_test_case.md"

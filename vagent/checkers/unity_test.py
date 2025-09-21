@@ -890,14 +890,25 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             info_runtest["error"] = msg
             return ret, info_runtest
 
+        marked_bugs = 0
+        if os.path.exists(self.get_path(self.doc_bug_analysis)):
+            try:
+                marked_bugs = len(fc.get_unity_chip_doc_marks(os.path.join(self.workspace,
+                                                                   self.doc_bug_analysis), leaf_node="BUG-RATE")["marks"])
+            except Exception as e:
+                return False, {"error": f"Failed to parse the bug analysis document {self.doc_bug_analysis}: {str(e)}. " + \
+                               "\n".join(fc.description_bug_doc())}
+
         # Success: All validations passed
         success_msg = ["Test case validation successful!",
                       f"✓ Executed {report['tests']['total']} test cases with comprehensive coverage.",
                       f"✓ All {len(all_bins_test)} check points are properly implemented and documented.",
                       f"✓ Test-documentation consistency verified.",
-                      f"✓ Coverage mapping between tests and documentation is complete.",
+                      f"✓ Marked {marked_bugs} bugs in file: {self.doc_bug_analysis}.",
                       "Your test implementation successfully validates the DUT functionality!"]
-
+        if marked_bugs == 0:
+            success_msg.append("Warning: No bugs were marked in the bug analysis document. If issues were found during testing, please ensure they are documented appropriately.")
+            success_msg.extend(fc.description_bug_doc())
         return True, success_msg
 
 
