@@ -16,6 +16,7 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
         return False, [f"Bug analysis documentation parsing failed for file '{bug_analysis_file}': {str(e)}. " + \
                         "Common issues:",
                         "1. Malformed bug analysis tags.",
+                        *fc.description_bug_doc(),
                         "2. Invalid confidence rating format.",
                         "3. Encoding or syntax errors.",
                         "Please review and fix the bug analysis documentation format."]
@@ -47,6 +48,7 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     except Exception as e:
         return False, [f"Documentation parsing failed for file '{doc_file}': {str(e)}. Common issues:",
                         "1. Malformed tags (ensure proper <FG-*>, <FC-*>, <CK-*> format).",
+                        *fc.description_func_doc(),
                         "2. Encoding issues or special characters.",
                         "3. Invalid document structure.",
                         "Please review your documentation format and fix any syntax errors."]
