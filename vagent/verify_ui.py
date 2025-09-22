@@ -578,7 +578,10 @@ class VerifyUI:
         This is useful for refreshing the display without user input.
         """
         self.update_info()
-        self.update_console_ouput(True)
+        if self.content_msgs_scroll:
+            self.update_console_ouput(True)
+        else:
+            self.update_console_ouput(False)
         loop.set_alarm_in(1.0, self._auto_update_ui)
 
     def _process_batch_cmd(self):

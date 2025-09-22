@@ -760,15 +760,14 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         if len(self.total_test_cases) == 0 and not self.is_inited:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
-                msg = f"No previous test report found in data key '{self.data_key}'. Please check the previous stage configuration."
-                if os.path.exists(self.get_path(self.pre_report_file)):
-                    msg += f" try load from 'pre_report_file({self.pre_report_file})' to load previous test report from a file."
-                    try:
-                        pre_report = fc.load_toffee_report(self.get_path(self.pre_report_file), self.workspace, run_test_success=True, return_all_checks=True)
-                    except Exception as e:
-                        return False, msg + f" Failed to read previous test report file '{self.pre_report_file}': {str(e)}."
-                else:
-                    return False, msg
+                assert self.pre_report_file is not None, "Need set 'pre_report_file' to load previous test report from a file."
+                assert os.path.exists(self.get_path(self.pre_report_file)), f"Previous report file '{self.pre_report_file}' does not exist."
+                info(f"Loading previous test report from file '{self.pre_report_file}'...")
+                pre_report = fc.load_json_file(self.get_path(self.pre_report_file))
+            else:
+                if self.pre_report_file is not None:
+                    fc.save_json_file(self.get_path(self.pre_report_file), pre_report)
+                    info(f"Saved previous test report to file '{self.pre_report_file}'.")
             info(f"Loaded previous test report complete.")
             passed_tc = []
             failed_tc = []

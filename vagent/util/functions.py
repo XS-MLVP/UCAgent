@@ -226,6 +226,23 @@ def load_json_file(path: str):
         except Exception as e:
             raise RuntimeError(f"Unexpected error while loading JSON file {json_file}: {e}")
 
+def save_json_file(path: str, data):
+    """
+    Save data to a JSON file at the specified path.
+    :param path: Path to the JSON file.
+    :param data: Data to be saved (should be JSON serializable).
+    """
+    dir_name = os.path.dirname(path)
+    if dir_name and not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+    with open(path, 'w', encoding='utf-8') as f:
+        try:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        except TypeError as e:
+            raise ValueError(f"Data provided is not JSON serializable: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
+
 
 def load_toffee_report(result_json_path: str, workspace: str, run_test_success: bool, return_all_checks: bool) -> dict:
     """
