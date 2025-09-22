@@ -181,7 +181,7 @@ def get_args() -> argparse.Namespace:
         help="List of external tools to be used by the agent, e.g., --ex-tools SqThink"
     )
     parser.add_argument(
-        "--no-embed-tools", "--mcp-server-no-embed-tools",
+        "--no-embed-tools",
         action="store_true", 
         default=False, 
         help="Disable embedded tools in the agent"

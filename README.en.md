@@ -14,115 +14,43 @@ UCAgent is an automated hardware verification AI agent based on large language m
 - Completeness of functional coverage and code coverage
 - Consistency between documentation, code, and reports
 
-UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation. [Please reference "Integration Example: Qwen Code"](#integration-example-qwen-code)**
+UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation.**
 
 -----
 
-#### Input and output
+#### UCAgent Input and Output
 
 ```bash
 ucagent <workspace> <dut_name>
 ```
 
 **Input:**
- - `workspace:` Working directory that must contain the Device Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
-  - `workspace/<DUT_DIR>/README.md:` Natural language description of the DUT verification requirements and objectives
-  - Other verification-related files (e.g., provided test examples, requirement specifications, etc.)
- - `dut_name:` Name of the Device Under Test, i.e., `<DUT_DIR>`
+ - `workspace:` Working directory:
+   - `workspace/<DUT_DIR>:` Design Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
+   - `workspace/<DUT_DIR>/README.md:` Verification requirements and objectives for the DUT described in natural language
+   - `workspace/<DUT_DIR>/*.md:` Other reference files
+   - `workspace/<DUT_DIR>/*.v/sv/scala:` Source files for bug analysis
+   - Other verification-related files (e.g., provided test instances, requirement specifications, etc.)
+ - `dut_name:` Name of the design under test, i.e., `<DUT_DIR>`
 
 **Output:**
-- `workspace/Guide_Doc:` Requirements and guidance documents followed during the verification process
-- `workspace/uc_test_report:` Generated Toffee-test reports
-- `workspace/unity_test/tests:` Dynamically generated test cases
-- `workspace/*.md:` Generated documentation of various types, including bug analysis, checkpoint records, verification plans, verification conclusions, etc.
+- `workspace/Guide_Doc:` Various requirements and guidance documents followed during the verification process
+- `workspace/uc_test_report:` Generated Toffee-test test reports
+- `workspace/unity_test/tests:` Automatically generated test cases
+- `workspace/*.md:` Generated various documents, including bug analysis, checkpoint records, verification plans, verification conclusions, etc.
 
 
-#### Parameter Description
-
-```bash
-usage: ucagent  [-h] [--config CONFIG] [--template-dir TEMPLATE_DIR] [--template-overwrite]
-                [--output OUTPUT] [--override OVERRIDE] [--stream-output] [--human]
-                [--interaction-mode {standard,enhanced,advanced}] [--seed SEED] [--tui]
-                [--sys-tips SYS_TIPS] [--ex-tools EX_TOOLS] [--no-embed-tools] [--loop]
-                [--loop-msg LOOP_MSG] [--log] [--log-file LOG_FILE] [--msg-file MSG_FILE]
-                [--mcp-server] [--mcp-server-no-file-tools] [--mcp-server-host MCP_SERVER_HOST]
-                [--mcp-server-port MCP_SERVER_PORT] [--force-stage-index FORCE_STAGE_INDEX]
-                [--no-write NO_WRITE [NO_WRITE ...]] [--version]
-                workspace dut
-
-UCAgent - UnityChip Verification Agent
-
-positional arguments:
-  workspace             Workspace directory to run the agent in
-  dut                   DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU
-
-options:
-  -h, --help            show this help message and exit
-  --config CONFIG       Path to the configuration file
-  --template-dir TEMPLATE_DIR
-                        Path to the template directory
-  --template-overwrite  Overwrite existing templates in the workspace
-  --output OUTPUT       Output directory name for verification results
-  --override OVERRIDE   Override configuration settings in the format A.B.C=value
-  --stream-output, -s   Stream output to the console
-  --human, -hm          Enable human input mode at the beginning of the run
-  --interaction-mode {standard,enhanced,advanced}
-                        Set the interaction mode: 'standard' (default),
-                        'enhanced' (planning & memory), or 'advanced' (adaptive strategies)
-  --seed SEED           Seed for random number generation
-  --tui                 Run in TUI (Text User Interface) mode
-  --sys-tips SYS_TIPS   System tips to be used in the agent
-  --ex-tools EX_TOOLS   List of external tools to be used by the agent, e.g., --ex-tools SqThink
-  --no-embed-tools, --mcp-server-no-embed-tools
-                        Disable embedded tools in the agent
-  --loop, -l            Start the agent loop immediately
-  --loop-msg LOOP_MSG   Message to be sent to the agent at the start of the loop
-  --log                 Enable logging
-  --log-file LOG_FILE   Path to the log file
-  --msg-file MSG_FILE   Path to the message file
-  --mcp-server          Run the MCP server
-  --mcp-server-no-file-tools
-                        Run the MCP server without file operations tools
-  --mcp-server-host MCP_SERVER_HOST
-                        Host for the MCP server
-  --mcp-server-port MCP_SERVER_PORT
-                        Port for the MCP server
-  --force-stage-index FORCE_STAGE_INDEX
-                        Force the stage index to start from a specific stage
-  --no-write NO_WRITE [NO_WRITE ...], --nw NO_WRITE [NO_WRITE ...]
-                        List of files or directories that cannot be written to during the run
-  --version             show program's version number and exit
-
-For more information, visit: https://github.com/XS-MLVP/UCAgent
-```
-
-## System Requirements
+### System Requirements
 
 - Python 3.11+
-- Supported OS: Linux, macOS, Windows
-- Memory: 4GB+ recommended
-- Network: Access to AI model API (OpenAI compatible)
+- Supported operating systems: Linux, macOS
+- Memory: 4GB or more recommended
+- Network: Requires access to AI model APIs (OpenAI compatible)
 - picker: https://github.com/XS-MLVP/picker
 
-## Installation and Usage
+### Quick Start
 
-### Method 1: pip Installation
-
-Install the latest version directly from GitHub:
-
-```bash
-pip install git+https://github.com/XS-MLVP/UCAgent@main
-```
-
-After installation, you can use the `ucagent` command from anywhere:
-
-```bash
-ucagent --help                    # Show help information
-```
-
-### Method 2: Source Code Execution (Recommended)
-
-1. Clone the repository:
+1. Download source code
 ```bash
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
@@ -133,141 +61,23 @@ cd UCAgent
 pip install -r requirements.txt
 ```
 
-3. Compile DUT, using Adder in examples as an example:
+3. Compile DUT, using the Adder example (requires [picker](https://github.com/XS-MLVP/picker))
 ```bash
 make init_Adder
 ```
 
-4. Run using Python script (functionality identical to `ucagent` command):
+4. Start MCP-Server, default address: http://127.0.0.1:5000
 ```bash
-python ucagent.py --help                  # Show help information
-python ucagent.py ./output Adder --tui    # Launch TUI interface, or execute make test_Adder
+make mcp_Adder # workspace is set to the output directory under current directory
 ```
 
-## Quick Start
+5. Install and configure Qwen Code CLI
 
-### 1. Configuration Setup
+Please refer to: [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/)
 
-Create and edit a `config.yaml` file to configure AI model and embedding model:
+Since test cases may take longer to run when there are many of them, it's recommended to set a larger `timeout` value, such as 10 seconds. Example Qwen configuration file:
 
-```yaml
-# OpenAI-compatible API configuration
-openai:
-  openai_api_base: <your_openai_api_base_url>    # API base URL
-  model_name: <your_model_name>                  # Model name, e.g., gpt-4o-mini
-  openai_api_key: <your_openai_api_key>          # API key
-
-# Vector embedding model configuration (for document search and memory features)
-embed:
-  model: <your_embed_model_name>                # Embedding model name
-  openai_base_url: <your_openai_api_base_url>   # Embedding model API URL
-  api_key: <your_api_key>                       # Embedding model API key
-  dims: <your_embed_model_dims>                 # Embedding dimensions, e.g., 1536
-```
-
-### 2. Usage Examples
-
-Both installation methods have identical usage - just replace the command name:
-
-#### Basic Usage
-
-```bash
-# pip installation version uses ucagent command
-ucagent ./examples/Adder Adder
-
-# Source code method uses python ucagent.py
-python ucagent.py ./examples/Adder Adder
-```
-
-#### Common Options
-
-| Parameter | Short | Description | Example |
-|------|------|------|------|
-| `--config` | - | Specify configuration file path | `--config config.yaml` |
-| `--interaction-mode` | `-im` | Choose LLM interaction mode, supports "standard", "enhanced", "advanced" | `-im enhanced` |
-| `--stream-output` | `-s` | Enable streaming output mode | `-s` |
-| `--tui` | - | Enable terminal UI interface | `--tui` |
-| `--human` | `-hm` | Enable human interaction mode | `-hm` |
-| `--loop` | `-l` | Start execution loop immediately | `-l` |
-| `--seed` | - | Set random seed | `--seed 12345` |
-| `--log` | - | Enable logging | `--log` |
-| `--ex-tools` | - | Add external tools | `--ex-tools SqThink` |
-
-#### MCP Server Options
-
-| Parameter | Description | Default |
-|------|------|--------|
-| `--mcp-server` | Start MCP server mode | - |
-| `--mcp-server-host` | MCP server host address | `127.0.0.1` |
-| `--mcp-server-port` | MCP server port | `5000` |
-| `--mcp-server-no-file-tools` | Disable file operation tools | - |
-| `--mcp-server-no-embed-tools` | Disable embedded tools | - |
-
-#### Integration with Other AI Tools (MCP Protocol Support)
-
-UCAgent supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) and can serve as a tool server for integration with various AI clients.
-
-## Supported AI Clients
-
-### 1. LLM Clients (Cherry Studio, Claude Desktop, etc.)
-
-For AI clients without local file editing capabilities:
-```bash
-# Start MCP server with full functionality
-python3 ucagent.py output/ Adder -s -hm --tui --mcp-server
-```
-
-**Service Address:** `http://127.0.0.1:5000/mcp`
-
-**Recommended Task Startup Prompt (with file tools):**
-
-> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files.
-
-### 2. Programming AI Tools (OpenHands, Cursor, Gemini-CLI, etc.)
-
-These tools have file editing capabilities, so UCAgent doesn't need to provide file writing tools:
-
-```bash
-# Start MCP server without file operation tools
-python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools
-```
-
-**Recommended Task Startup Prompt (without file tools):**
-
-> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files. You need perform file operations in the current working directory and do not exceed that directory.
-
-**Simplified Configuration (no embedding tools):**
-
-If you haven't configured an embedding model, use the `--no-embed-tools` parameter:
-
-```bash
-python3 ucagent.py output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
-```
-
-### Integration Example: Qwen Code
-
-#### 1. Start UCAgent MCP Server
-
-```bash
-# Prepare environment
-make clean
-
-# Start MCP server (with complete toolset)
-make mcp_Adder
-```
-
-> **Note:** `make mcp_all_tools_<DUT>` exports all tools, including file operations, memory operations, etc. Additional parameters can be passed through `ARGS`.
-
-After successful startup, you'll see the prompt:
-```
-INFO     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
-```
-
-#### 2. Configure Qwen Code
-
-Qwen Code Installation Reference：[https://qwenlm.github.io/qwen-code-docs/zh/deployment/](https://qwenlm.github.io/qwen-code-docs/zh/deployment/)
-
-Edit the `~/.qwen/settings.json` configuration file:
+ `~/.qwen/settings.json` configuration file:
 ```json
 {
   "mcpServers": {
@@ -279,40 +89,128 @@ Edit the `~/.qwen/settings.json` configuration file:
 }
 ```
 
-#### 3. Start Verification Task
-
-Open a new terminal and navigate to the project output directory:
-
+6. Start verification
 ```bash
-cd UCAgent/output
+cd output
 qwen
 ```
 
-**Input Task Prompt:**
+**Input task prompt:**
 
-> Please obtain your role information and basic guidance through the tool `RoleInfo`, and then complete the task. Please use the tool `ReadTextFile` to read files, and use `EditTextFile` to create and edit files. You need perform file operations in the current working directory and do not exceed that directory.
+> Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
 
-**Monitor Progress:**
 
-While `qwen` is running, you can observe verification progress and status through UCAgent's TUI interface.
+-----
 
-## Frequently Asked Questions (FAQ)
+### Installation and Usage
 
-**Q: How do I configure different AI models?**
-**A:** Modify the `openai.model_name` field in `config.yaml`. Any OpenAI-compatible API is supported.
+Install the latest version directly from GitHub:
 
-**Q: What should I do if errors occur during verification?**
-**A:** Use `Ctrl+C` to enter interactive mode, check current status with `status`, and use `help` to get debugging commands.
+```bash
+pip install git+https://github.com/XS-MLVP/UCAgent@main
+```
+or
 
-**Q: Can I customize verification stages?**
-**A:** Yes, you can customize the verification workflow by modifying the `stage` configuration in `vagent/lang/zh/config/default.yaml`. Alternatively, you can directly override the stage parameters in `config.yaml`.
+```bash
+git clone https://github.com/XS-MLVP/UCAgent.git
+cd UCAgent
+pip install .
+```
 
-**Q: How do I add custom tools?**
-**A:** Create new tool classes in the `vagent/tools/` directory, inherit from the `UCTool` base class, and load them using the `--ex-tools` parameter.
+### Usage Methods
 
-**Q: MCP server connection issues?**
-**A:** Check if the port is occupied, verify firewall settings, and you can specify other ports using `--mcp-server-port`.
+#### 1. MCP-Server with Code Agent (Recommended)
 
-## Contributing
+This mode enables collaborative verification with all LLM clients that support MCP-Server calls, such as: Cherry Studio, Claude Code, Gemini-CLI, VS Code Copilot, Qwen-Code, Qoder, etc.
+
+When starting UCAgent, enable the corresponding service through `mcp-server` related parameters.
+
+##### MCP Server Options
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--mcp-server` | Start MCP server mode | - |
+| `--mcp-server-host` | MCP server host address | `127.0.0.1` |
+| `--mcp-server-port` | MCP server port | `5000` |
+| `--mcp-server-no-file-tools` | Start MCP Sever and disable file operation tools | - |
+| `--no-embed-tools` | Disable embedded tools | - |
+
+Example:
+```bash
+ucagent output/ Adder --tui --mcp-server-no-file-tools --no-embed-tools
+```
+
+Parameter explanation:
+- `--tui` Enable text user interface for displaying progress and command line interaction
+- `--mcp-server-no-file-tools` Start MCP Sever and disable UCAgent's file editing tools, use Code Agent's built-in file tools
+- `--no-embed-tools` Disable Embed-related tools (Code Agent has optimized similar tools for itself)
+
+Recommended task startup prompt (without file tools, i.e., `--mcp-server-no-file-tools`):
+
+> Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
+
+Or (with file tools):
+> Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files and `EditTextFile` to create and edit files.
+
+**Tip: Code Agents are optimized for their own models, so using them to drive UCAgent will achieve better verification results**
+
+#### 2. Direct LLM Integration
+
+Create and edit a `config.yaml` file to configure the AI model and embedding model:
+
+```yaml
+# OpenAI-compatible API configuration
+openai:
+  openai_api_base: <your_openai_api_base_url>    # API base URL
+  model_name: <your_model_name>                  # Model name, e.g., gpt-4o-mini
+  openai_api_key: <your_openai_api_key>          # API key
+
+# Vector embedding model configuration (for document search and memory functions, can be disabled with --no-embed-tools)
+embed:
+  model_name: <your_embed_model_name>           # Embedding model name
+  openai_api_base: <your_openai_api_base_url>   # Embedding model API URL
+  openai_api_key: <your_api_key>                # Embedding model API key
+  dims: <your_embed_model_dims>                 # Embedding dimensions, e.g., 1536
+```
+
+Example:
+
+```bash
+ucagent output/ Adder --config config.yaml -s -hm --tui -utt
+```
+
+##### Common Options
+
+| Parameter | Short | Description | Example |
+|-----------|-------|-------------|---------|
+| `--config` | - | Specify configuration file path | `--config config.yaml` |
+| `--interaction-mode` | `-im` | Select LLM interaction mode, supports "standard", "enhanced", "advanced" | `-im enhanced` |
+| `--stream-output` | `-s` | Enable streaming output mode | `-s` |
+| `--tui` | - | Enable terminal UI interface | `--tui` |
+| `--human` | `-hm` | Enable human interaction mode | `-hm` |
+| `--loop` | `-l` | Start execution loop immediately | `-l` |
+| `--seed` | - | Set random seed | `--seed 12345` |
+| `--log` | - | Enable logging | `--log` |
+| `--ex-tools` | - | Add external tools | `--ex-tools SqThink` |
+| `--use-todo-tools` | `-utt` | Enable ToDo-related tools | `-utt` |
+
+### Frequently Asked Questions (FAQ)
+
+**Q: How to configure different AI models?**
+**A:** Modify the `openai.model_name` field in `config.yaml`, supports any OpenAI-compatible API.
+
+**Q: What to do when errors occur during verification?**
+**A:** Use `Ctrl+C` to enter interactive mode, use `status` to check current status, and use `help` to get debugging commands.
+
+**Q: Can verification stages be customized?**
+**A:** Yes, you can customize the verification workflow by modifying the `stage` configuration in `vagent/lang/zh/config/default.yaml`. You can also override stage parameters directly in config.yaml.
+
+**Q: How to add custom tools?**
+**A:** Create new tool classes in the `vagent/tools/` directory, inherit from the `UCTool` base class, and load them through the `--ex-tools` parameter.
+
+**Q: MCP server cannot connect?**
+**A:** Check if the port is occupied, confirm firewall settings, and you can specify other ports through `--mcp-server-port`.
+
+### Contributing
 
 Issues and Pull Requests are welcome!
