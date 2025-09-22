@@ -4,8 +4,8 @@
 Test module for vagent.tools.planning
 
 This module contains comprehensive tests for the planning tools including:
-- PlanPanel functionality
-- Planning tool classes (CreatePlan, CompletePlanSteps, UndoPlanSteps, ResetPlan)
+- ToDoPanel functionality
+- Planning tool classes (CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo)
 - Integration between tools and panel
 - Edge cases and error handling
 """
@@ -22,27 +22,27 @@ project_root = os.path.abspath(os.path.join(current_dir, ".."))
 sys.path.insert(0, project_root)
 
 from vagent.tools.planning import (
-    PlanPanel, 
-    CreatePlan, 
-    CompletePlanSteps, 
-    UndoPlanSteps, 
-    ResetPlan,
-    GetPlanSummary,
+    ToDoPanel, 
+    CreateToDo, 
+    CompleteToDoSteps, 
+    UndoToDoSteps, 
+    ResetToDo,
+    GetToDoSummary,
     ArgsPlanningCreate,
-    ArgsCompletePlanSteps,
-    ArgsUndoPlanSteps
+    ArgsCompleteToDoSteps,
+    ArgsUndoToDoSteps
 )
 
 
-class TestPlanPanel(unittest.TestCase):
-    """Test the PlanPanel class functionality."""
+class TestToDoPanel(unittest.TestCase):
+    """Test the ToDoPanel class functionality."""
 
     def setUp(self):
         """Set up test fixtures before each test method."""
-        self.panel = PlanPanel()
+        self.panel = ToDoPanel()
 
     def test_initialization(self):
-        """Test PlanPanel initialization."""
+        """Test ToDoPanel initialization."""
         self.assertTrue(self.panel._empty())
         self.assertEqual(self.panel.plan, {})
 
@@ -248,29 +248,29 @@ class TestPlanningTools(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures before each test method."""
-        self.panel = PlanPanel()
+        self.panel = ToDoPanel()
         
-        self.create_tool = CreatePlan(plan_panel=self.panel)
-        self.complete_tool = CompletePlanSteps(plan_panel=self.panel)
-        self.undo_tool = UndoPlanSteps(plan_panel=self.panel)
-        self.reset_tool = ResetPlan(plan_panel=self.panel)
-        self.get_summary_tool = GetPlanSummary(plan_panel=self.panel)
+        self.create_tool = CreateToDo(todo_panel=self.panel)
+        self.complete_tool = CompleteToDoSteps(todo_panel=self.panel)
+        self.undo_tool = UndoToDoSteps(todo_panel=self.panel)
+        self.reset_tool = ResetToDo(todo_panel=self.panel)
+        self.get_summary_tool = GetToDoSummary(todo_panel=self.panel)
 
     def test_tool_initialization(self):
         """Test that tools are properly initialized with panel."""
-        self.assertIs(self.create_tool.plan_panel, self.panel)
-        self.assertIs(self.complete_tool.plan_panel, self.panel)
-        self.assertIs(self.undo_tool.plan_panel, self.panel)
-        self.assertIs(self.reset_tool.plan_panel, self.panel)
-        self.assertIs(self.get_summary_tool.plan_panel, self.panel)
+        self.assertIs(self.create_tool.todo_panel, self.panel)
+        self.assertIs(self.complete_tool.todo_panel, self.panel)
+        self.assertIs(self.undo_tool.todo_panel, self.panel)
+        self.assertIs(self.reset_tool.todo_panel, self.panel)
+        self.assertIs(self.get_summary_tool.todo_panel, self.panel)
 
     def test_tool_names_and_descriptions(self):
         """Test that tools have proper names and descriptions."""
-        self.assertEqual(self.create_tool.name, "CreatePlan")
-        self.assertEqual(self.complete_tool.name, "CompletePlanSteps")
-        self.assertEqual(self.undo_tool.name, "UndoPlanSteps")
-        self.assertEqual(self.reset_tool.name, "ResetPlan")
-        self.assertEqual(self.get_summary_tool.name, "GetPlanSummary")
+        self.assertEqual(self.create_tool.name, "CreateToDo")
+        self.assertEqual(self.complete_tool.name, "CompleteToDoSteps")
+        self.assertEqual(self.undo_tool.name, "UndoToDoSteps")
+        self.assertEqual(self.reset_tool.name, "ResetToDo")
+        self.assertEqual(self.get_summary_tool.name, "GetToDoSummary")
         
         # Check descriptions are not empty
         self.assertTrue(len(self.create_tool.description) > 0)
@@ -282,14 +282,14 @@ class TestPlanningTools(unittest.TestCase):
         self.assertTrue(len(self.reset_tool.description) > 0)
 
     def test_create_plan_tool(self):
-        """Test CreatePlan tool functionality."""
+        """Test CreateToDo tool functionality."""
         result = self.create_tool._run("Test Task", ["Step 1", "Step 2"])
         
         self.assertIn("Plan created successfully", result)
         self.assertFalse(self.panel._empty())
 
     def test_complete_plan_steps_tool(self):
-        """Test CompletePlanSteps tool functionality."""
+        """Test CompleteToDoSteps tool functionality."""
         # First create a plan
         self.create_tool._run("Test", ["Step 1", "Step 2"])
         
@@ -300,7 +300,7 @@ class TestPlanningTools(unittest.TestCase):
         self.assertTrue(self.panel.plan['steps'][0][1])
 
     def test_undo_plan_steps_tool(self):
-        """Test UndoPlanSteps tool functionality."""
+        """Test UndoToDoSteps tool functionality."""
         # Create plan and complete steps
         self.create_tool._run("Test", ["Step 1", "Step 2"])
         self.complete_tool._run([1, 2])
@@ -312,7 +312,7 @@ class TestPlanningTools(unittest.TestCase):
         self.assertFalse(self.panel.plan['steps'][0][1])
 
     def test_reset_plan_tool(self):
-        """Test ResetPlan tool functionality."""
+        """Test ResetToDo tool functionality."""
         # Create a plan
         self.create_tool._run("Test", ["Step 1"])
         self.assertFalse(self.panel._empty())
@@ -324,7 +324,7 @@ class TestPlanningTools(unittest.TestCase):
         self.assertTrue(self.panel._empty())
 
     def test_get_plan_summary_tool(self):
-        """Test GetPlanSummary tool functionality."""
+        """Test GetToDoSummary tool functionality."""
         # Test with empty plan
         result = self.get_summary_tool._run()
         self.assertIn("No active plan", result)
@@ -347,7 +347,7 @@ class TestPlanningTools(unittest.TestCase):
         # Complete steps with another tool
         self.complete_tool._run([1])
         
-        # Verify state is shared using GetPlanSummary
+        # Verify state is shared using GetToDoSummary
         summary = self.get_summary_tool._run()
         self.assertIn("Shared Test", summary)
         self.assertIn("1(completed): Step A", summary)
@@ -365,7 +365,7 @@ class TestPlanningTools(unittest.TestCase):
         self.assertTrue(self.panel._empty())
 
     def test_complete_tool_default_parameters(self):
-        """Test CompletePlanSteps with default parameters."""
+        """Test CompleteToDoSteps with default parameters."""
         self.create_tool._run("Test", ["Step 1"])
         
         # Call with default parameters (empty lists and strings)
@@ -375,7 +375,7 @@ class TestPlanningTools(unittest.TestCase):
         self.assertIn("0 step(s) marked as completed", result)
 
     def test_undo_tool_default_parameters(self):
-        """Test UndoPlanSteps with default parameters."""
+        """Test UndoToDoSteps with default parameters."""
         self.create_tool._run("Test", ["Step 1"])
         self.complete_tool._run([1])
         
@@ -400,9 +400,9 @@ class TestPlanningToolArguments(unittest.TestCase):
         self.assertEqual(valid_args.steps, ["Step 1", "Step 2"])
 
     def test_args_complete_plan_steps_schema(self):
-        """Test ArgsCompletePlanSteps schema validation."""
+        """Test ArgsCompleteToDoSteps schema validation."""
         # Valid arguments with values
-        args_with_values = ArgsCompletePlanSteps(
+        args_with_values = ArgsCompleteToDoSteps(
             completed_steps=[1, 2],
             notes="Test notes"
         )
@@ -410,14 +410,14 @@ class TestPlanningToolArguments(unittest.TestCase):
         self.assertEqual(args_with_values.notes, "Test notes")
         
         # Valid arguments with defaults
-        args_defaults = ArgsCompletePlanSteps()
+        args_defaults = ArgsCompleteToDoSteps()
         self.assertEqual(args_defaults.completed_steps, [])
         self.assertEqual(args_defaults.notes, "")
 
     def test_args_undo_plan_steps_schema(self):
-        """Test ArgsUndoPlanSteps schema validation."""
+        """Test ArgsUndoToDoSteps schema validation."""
         # Valid arguments with values
-        args_with_values = ArgsUndoPlanSteps(
+        args_with_values = ArgsUndoToDoSteps(
             steps=[1, 3],
             notes="Undo notes"
         )
@@ -425,7 +425,7 @@ class TestPlanningToolArguments(unittest.TestCase):
         self.assertEqual(args_with_values.notes, "Undo notes")
         
         # Valid arguments with defaults
-        args_defaults = ArgsUndoPlanSteps()
+        args_defaults = ArgsUndoToDoSteps()
         self.assertEqual(args_defaults.steps, [])
         self.assertEqual(args_defaults.notes, "")
 
@@ -435,12 +435,12 @@ class TestPlanningIntegration(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.panel = PlanPanel()
-        self.create_tool = CreatePlan(plan_panel=self.panel)
-        self.complete_tool = CompletePlanSteps(plan_panel=self.panel)
-        self.undo_tool = UndoPlanSteps(plan_panel=self.panel)
-        self.reset_tool = ResetPlan(plan_panel=self.panel)
-        self.get_summary_tool = GetPlanSummary(plan_panel=self.panel)
+        self.panel = ToDoPanel()
+        self.create_tool = CreateToDo(todo_panel=self.panel)
+        self.complete_tool = CompleteToDoSteps(todo_panel=self.panel)
+        self.undo_tool = UndoToDoSteps(todo_panel=self.panel)
+        self.reset_tool = ResetToDo(todo_panel=self.panel)
+        self.get_summary_tool = GetToDoSummary(todo_panel=self.panel)
 
     def test_full_workflow(self):
         """Test a complete planning workflow."""
@@ -582,7 +582,7 @@ if __name__ == '__main__':
     suite = unittest.TestSuite()
     
     # Add all test classes
-    suite.addTests(loader.loadTestsFromTestCase(TestPlanPanel))
+    suite.addTests(loader.loadTestsFromTestCase(TestToDoPanel))
     suite.addTests(loader.loadTestsFromTestCase(TestPlanningTools))
     suite.addTests(loader.loadTestsFromTestCase(TestPlanningToolArguments))
     suite.addTests(loader.loadTestsFromTestCase(TestPlanningIntegration))

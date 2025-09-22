@@ -360,20 +360,20 @@ class AdvancedInteractionLogic:
     def _init_components(self):
         """Initialize planning tools and tool orchestrator"""
         try:
-            from vagent.tools.planning import CreatePlan, CompletePlanSteps, UndoPlanSteps, ResetPlan, GetPlanSummary, PlanPanel
+            from vagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
             # Create shared plan panel
-            self.plan_panel = PlanPanel()
+            self.todo_panel = ToDoPanel()
             self.planning_tools = {
-                'create': CreatePlan(plan_panel=self.plan_panel),
-                'complete': CompletePlanSteps(plan_panel=self.plan_panel),
-                'undo': UndoPlanSteps(plan_panel=self.plan_panel),
-                'reset': ResetPlan(plan_panel=self.plan_panel),
-                'summary': GetPlanSummary(plan_panel=self.plan_panel)
+                'create': CreateToDo(todo_panel=self.todo_panel),
+                'complete': CompleteToDoSteps(todo_panel=self.todo_panel),
+                'undo': UndoToDoSteps(todo_panel=self.todo_panel),
+                'reset': ResetToDo(todo_panel=self.todo_panel),
+                'summary': GetToDoSummary(todo_panel=self.todo_panel)
             }
         except Exception as e:
             warning(f"Failed to initialize planning tools: {e}")
             self.planning_tools = None
-            self.plan_panel = None
+            self.todo_panel = None
         
         try:
             from .orchestrator import ToolOrchestrator
@@ -489,7 +489,7 @@ Focused Approach:
    {self._get_tool_recommendations('focused')}
 
 4. PROGRESS TRACKING:
-   - Use CompletePlanSteps to mark specific progress when steps are done
+   - Use CompleteToDoSteps to mark specific progress when steps are done
    - Save only essential results to memory
 
 Execute the next planned step directly and efficiently.
@@ -507,7 +507,7 @@ Context: {context_analysis['domain']} task with {context_analysis['complexity'].
 Systematic Approach:
 1. STRUCTURED ANALYSIS:
    - Break down the current task into logical phases
-   - Use CreatePlan to ensure structured approach with defined steps
+   - Use CreateToDo to ensure structured approach with defined steps
    - Map dependencies and requirements systematically
 
 2. METHODICAL EXECUTION:
@@ -547,7 +547,7 @@ Recovery Approach:
    - Look for simpler or more direct solutions
 
 3. RESET AND RESTART:
-   - Use ResetPlan to create a fresh approach based on new understanding
+   - Use ResetToDo to create a fresh approach based on new understanding
    - If available, use the Reflect tool for structured problem analysis
    - Consider stepping back to a higher level view
 
@@ -575,8 +575,8 @@ Start by diagnosing the current obstacles and identifying alternative approaches
         # Fallback recommendations
         recommendations = {
             'exploration': "- Use SemanticSearchInGuidDoc with broad terms\n   - Try ReadTextFile for documentation review\n   - Use MemoryGet to check related work",
-            'focused': "- Use specific tools for the current task\n   - Minimize tool switching\n   - Use CompletePlanSteps for progress tracking",
-            'systematic': "- Use CreatePlan for structured planning\n   - Use comprehensive tool set as needed\n   - Use MemoryPut for detailed documentation",
+            'focused': "- Use specific tools for the current task\n   - Minimize tool switching\n   - Use CompleteToDoSteps for progress tracking",
+            'systematic': "- Use CreateToDo for structured planning\n   - Use comprehensive tool set as needed\n   - Use MemoryPut for detailed documentation",
             'recovery': "- Use Reflect tool if available\n   - Use SemanticSearchInGuidDoc for alternatives\n   - Use MemoryGet to review previous work"
         }
         

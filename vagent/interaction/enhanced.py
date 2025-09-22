@@ -66,20 +66,20 @@ class EnhancedInteractionLogic:
     def _init_planning_tools(self):
         """Initialize planning tools"""
         try:
-            from vagent.tools.planning import CreatePlan, CompletePlanSteps, UndoPlanSteps, ResetPlan, GetPlanSummary, PlanPanel
+            from vagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
             # Create shared plan panel
-            self.plan_panel = PlanPanel()
+            self.todo_panel = ToDoPanel()
             self.planning_tools = {
-                'create': CreatePlan(plan_panel=self.plan_panel),
-                'complete': CompletePlanSteps(plan_panel=self.plan_panel),
-                'undo': UndoPlanSteps(plan_panel=self.plan_panel),
-                'reset': ResetPlan(plan_panel=self.plan_panel),
-                'summary': GetPlanSummary(plan_panel=self.plan_panel)
+                'create': CreateToDo(todo_panel=self.todo_panel),
+                'complete': CompleteToDoSteps(todo_panel=self.todo_panel),
+                'undo': UndoToDoSteps(todo_panel=self.todo_panel),
+                'reset': ResetToDo(todo_panel=self.todo_panel),
+                'summary': GetToDoSummary(todo_panel=self.todo_panel)
             }
         except Exception as e:
             warning(f"Failed to initialize planning tools: {e}")
             self.planning_tools = None
-            self.plan_panel = None
+            self.todo_panel = None
     
     def enhanced_one_loop(self, msg: str = None):
         """Enhanced one_loop with improved interaction logic"""
@@ -209,7 +209,7 @@ Please follow this planning process:
    - Identify key components that need to be addressed
 
 2. CREATE A DETAILED PLAN:
-   - Use CreatePlan to create a structured plan with specific steps
+   - Use CreateToDo to create a structured plan with specific steps
    - Break down the task into manageable, concrete steps
    - Define expected outputs for each major step
    - Set appropriate priority level
@@ -239,8 +239,8 @@ Execution Guidelines:
 
 1. FOLLOW THE PLAN:
    - Execute the next incomplete step from your plan
-   - Use CompletePlanSteps to mark completed steps when finished
-   - If you encounter issues, consider using ResetPlan to create a new approach
+   - Use CompleteToDoSteps to mark completed steps when finished
+   - If you encounter issues, consider using ResetToDo to create a new approach
 
 2. USE AVAILABLE TOOLS STRATEGICALLY:
    - SemanticSearchInGuidDoc: When you need reference information or examples
@@ -250,7 +250,7 @@ Execution Guidelines:
 
 3. TRACK PROGRESS:
    - Document significant findings and decisions
-   - Use CompletePlanSteps to mark steps as completed when finished
+   - Use CompleteToDoSteps to mark steps as completed when finished
    - Save important intermediate results to memory
 
 4. MAINTAIN QUALITY:
@@ -284,7 +284,7 @@ Please conduct a comprehensive reflection:
 
 4. CONSOLIDATE INSIGHTS:
    - Use MemoryPut to save important insights from this reflection
-   - If major changes needed, use ResetPlan to create a new approach
+   - If major changes needed, use ResetToDo to create a new approach
    - Document any major strategy changes
 
 5. PLAN NEXT STEPS:
@@ -327,12 +327,12 @@ Focus on preserving the most valuable insights and context from recent work.
     
     def _get_current_plan_status(self) -> str:
         """Get the current plan status"""
-        if self.plan_panel:
+        if self.todo_panel:
             try:
-                return self.plan_panel._summary()
+                return self.todo_panel._summary()
             except Exception as e:
                 warning(f"Failed to get plan status: {e}")
-        return "No active plan available. Consider creating a plan with CreatePlan."
+        return "No active plan available. Consider creating a plan with CreateToDo."
     
     def _execute_with_message(self, message: str):
         """Execute the agent with a specific message"""

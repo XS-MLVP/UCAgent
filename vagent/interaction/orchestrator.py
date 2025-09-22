@@ -49,7 +49,7 @@ class ToolRecommendationEngine:
                 'RunTestCases', 'Status', 'Detail', 'CurrentTips'
             ],
             ToolCategory.PLANNING: [
-                'CreatePlan', 'CompletePlanSteps', 'UndoPlanSteps', 'ResetPlan', 'GetPlanSummary'
+                'CreateToDo', 'CompleteToDoSteps', 'UndoToDoSteps', 'ResetToDo', 'GetToDoSummary'
             ],
             ToolCategory.ANALYSIS: [
                 'GetFileInfo', 'SearchText', 'ReadTextFile',
@@ -137,17 +137,17 @@ class ToolRecommendationEngine:
                 'recovery': "Review previous approaches and their outcomes",
                 'focused_execution': "Get specific context needed for current task"
             },
-            'CreatePlan': {
+            'CreateToDo': {
                 'planning_phase': "Create a detailed plan with specific steps and priorities",
                 'recovery': "Create a new plan based on lessons learned",
                 'exploration': "Create an exploratory plan for investigating options"
             },
-            'CompletePlanSteps': {
+            'CompleteToDoSteps': {
                 'implementation': "Mark completed steps and track progress",
                 'verification': "Mark verification steps as completed",
                 'focused_execution': "Track specific task completion"
             },
-            'ResetPlan': {
+            'ResetToDo': {
                 'recovery': "Reset and create a fresh approach based on new understanding",
                 'planning_phase': "Start over with a completely new planning approach"
             },

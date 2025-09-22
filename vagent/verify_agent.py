@@ -52,7 +52,7 @@ class VerifyAgent:
                  debug: bool = False,
                  no_embed_tools: bool = False,
                  force_stage_index: int = 0,
-                 force_plan: bool = False,
+                 force_todo: bool = False,
                  no_write_targets: Optional[List[str]] = None,
                  interaction_mode: str = "standard",
                  gen_instruct_file: Optional[str] = None,
@@ -120,8 +120,8 @@ class VerifyAgent:
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
-        self.plan_panel = PlanPanel()
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_plan, self.plan_panel)
+        self.todo_panel = ToDoPanel()
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_todo, self.todo_panel)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,
@@ -168,14 +168,14 @@ class VerifyAgent:
 
         # Initialize planning tools
         self.planning_tools = []
-        self.force_plan = force_plan
-        if interaction_mode == "standard" and force_plan:
+        self.force_todo = force_todo
+        if interaction_mode == "standard" and force_todo:
             self.planning_tools = [
-                CreatePlan(self.plan_panel),
-                CompletePlanSteps(self.plan_panel),
-                UndoPlanSteps(self.plan_panel),
-                ResetPlan(self.plan_panel),
-                GetPlanSummary(self.plan_panel),
+                CreateToDo(self.todo_panel),
+                CompleteToDoSteps(self.todo_panel),
+                UndoToDoSteps(self.todo_panel),
+                ResetToDo(self.todo_panel),
+                GetToDoSummary(self.todo_panel),
             ]
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)

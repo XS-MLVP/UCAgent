@@ -5,46 +5,44 @@ from .uctool import UCTool
 from langchain_core.tools.base import ArgsSchema
 from typing import Optional, List
 from pydantic import BaseModel, Field
-import vagent.util.functions as fc
 import time
-from collections import OrderedDict
 
 
-class PlanPanel:
+class ToDoPanel:
 
     def __init__(self, max_str_size=100):
         self.max_str_size = max_str_size
-        self.plan = {
+        self.todo_list = {
             # 'current_task_description': str, 'steps': List[str, is_completed: bool], 'notes': str
         }
         self._reset()
 
     def _reset(self):
-        """Reset the current plan"""
-        self.plan = {}
+        """Reset the current ToDo"""
+        self.todo_list = {}
 
     def _summary(self) -> str:
-        """Get a formatted summary of a plan"""
+        """Get a formatted summary of a ToDo"""
         if self._empty():
-            return "\nPlan is empty, please create it as you need."
+            return "\ToDo list is empty, please create it as you need."
         def as_cmp_str(is_cmp):
             return "(completed)" if is_cmp else ""
         steps = [
-            f"{i+1}{as_cmp_str(is_cmp)}: {desc}" for i, (desc, is_cmp) in enumerate(self.plan['steps'])
+            f"{i+1}{as_cmp_str(is_cmp)}: {desc}" for i, (desc, is_cmp) in enumerate(self.todo_list['steps'])
         ]
         if self._is_all_completed():
-            return "\nAll plan steps are completed! You can create new one depending on your needs."
+            return "\nAll ToDo steps are completed! You can create new one depending on your needs."
         steps_text = "\n  ".join(steps)
-        return f"\n-------- Plan Panel --------\n" \
-               f" Task Description: {self.plan['task_description']}\n" \
+        return f"\n-------- ToDo Panel --------\n" \
+               f" Task Description: {self.todo_list['task_description']}\n" \
                f" Steps:\n  {steps_text}\n" \
-               f" Created At: {self.plan['created_at']}\n" \
-               f" Updated At: {self.plan['updated_at']}\n" \
-               f" Notes: {self.plan.get('notes', 'None')}" \
+               f" Created At: {self.todo_list['created_at']}\n" \
+               f" Updated At: {self.todo_list['updated_at']}\n" \
+               f" Notes: {self.todo_list.get('notes', 'None')}" \
                f"\n----------------------------\n"
 
     def _empty(self) -> bool:
-        return not bool(self.plan)
+        return not bool(self.todo_list)
 
     def _check_str_size(self, notes, steps, emsg, info_size=10, min_steps=2, max_steps=20):
         if notes:
@@ -63,154 +61,154 @@ class PlanPanel:
         return True, ""
 
     def _create(self, task_description: str, steps: List[str], notes=None) -> str:
-        """Create a new plan"""
-        passed, emsg = self._check_str_size(notes, steps, "CreatePlan failed!")
+        """Create a new ToDo"""
+        passed, emsg = self._check_str_size(notes, steps, "CreateToDo failed!")
         if not passed:
             return emsg
-        self.plan = {
+        self.todo_list = {
             'task_description': task_description,
             'steps': [[s, False] for s in steps],
             'created_at': time.strftime("%Y-%m-%d %H:%M:%S"),
             'updated_at': time.strftime("%Y-%m-%d %H:%M:%S"),
             'notes': notes or ""
         }
-        return f"Plan created successfully!\n\n{self._summary()}"
+        return f"ToDo created successfully!\n\n{self._summary()}"
 
     def _complete_steps(self, completed_steps: List[int] = None, notes: str = "") -> str:
-        """Update the plan with completed steps, updated steps, and notes"""
+        """Update the ToDo with completed steps, updated steps, and notes"""
         if self._empty():
-            return "No active plan to update. Please create a plan first."
+            return "No active ToDo to update. Please create a ToDo first."
         cmp_count = 0
         # Update completed steps
         if completed_steps:
             for step_idx in completed_steps:
                 step_idx = step_idx - 1
-                if 0 <= step_idx < len(self.plan['steps']) and not self.plan['steps'][step_idx][1]:
-                    self.plan['steps'][step_idx][1] = True
+                if 0 <= step_idx < len(self.todo_list['steps']) and not self.todo_list['steps'][step_idx][1]:
+                    self.todo_list['steps'][step_idx][1] = True
                     cmp_count += 1
         # Add notes
         if notes:
-            self.plan['notes'] = notes
-        self.plan['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        return f"Plan updated successfully! {cmp_count} step(s) marked as completed.\n\n{self._summary()}"
+            self.todo_list['notes'] = notes
+        self.todo_list['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        return f"ToDo updated successfully! {cmp_count} step(s) marked as completed.\n\n{self._summary()}"
 
     def _undo_steps(self, steps: List[int] = None, notes: str = "") -> str:
-        """Undo completed steps in the plan"""
+        """Undo completed steps in the ToDo"""
         if self._empty():
-            return "No active plan to update. Please create a plan first."
+            return "No active ToDo to update. Please create a ToDo first."
         undo_count = 0
         # Update completed steps
         if steps:
             for step_idx in steps:
                 step_idx = step_idx - 1
-                if 0 <= step_idx < len(self.plan['steps']) and self.plan['steps'][step_idx][1]:
-                    self.plan['steps'][step_idx][1] = False
+                if 0 <= step_idx < len(self.todo_list['steps']) and self.todo_list['steps'][step_idx][1]:
+                    self.todo_list['steps'][step_idx][1] = False
                     undo_count += 1
         # Add notes
         if notes:
-            self.plan['notes'] = notes
-        self.plan['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        return f"Plan updated successfully! {undo_count} step(s) marked as undone.\n\n{self._summary()}"
+            self.todo_list['notes'] = notes
+        self.todo_list['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        return f"ToDo updated successfully! {undo_count} step(s) marked as undone.\n\n{self._summary()}"
 
     def _is_all_completed(self) -> bool:
-        """Check if all steps in the plan are completed"""
+        """Check if all steps in the ToDo are completed"""
         if self._empty():
             return False
-        return all(is_cmp for _, is_cmp in self.plan['steps'])
+        return all(is_cmp for _, is_cmp in self.todo_list['steps'])
 
 
-class PlanningTool(UCTool):
-    plan_panel: PlanPanel = Field(default_factory=PlanPanel, description="Panel managing all plans")
-    def __init__(self, plan_panel: PlanPanel, **data):
+class ToDoTool(UCTool):
+    todo_panel: ToDoPanel = Field(default_factory=ToDoPanel, description="Panel managing all ToDos")
+    def __init__(self, todo_panel: ToDoPanel, **data):
         super().__init__(**data)
-        self.plan_panel = plan_panel
+        self.todo_panel = todo_panel
 
 
-class ArgsPlanningCreate(BaseModel):
-    task_description: str = Field(..., description="Description of the task to be planned")
+class ArgsToDoCreate(BaseModel):
+    task_description: str = Field(..., description="Description of the task to be done")
     steps: List[str] = Field(..., description="List of steps to accomplish the task")
 
 
-class ArgsCompletePlanSteps(BaseModel):
+class ArgsCompleteToDoSteps(BaseModel):
     completed_steps: List[int] = Field(
         default=[], description="List of step index (1-based) that have been completed"
     )
-    notes: str = Field(default="", description="Additional notes or updates about the plan")
+    notes: str = Field(default="", description="Additional notes or updates about the ToDo")
 
 
-class ArgsUndoPlanSteps(BaseModel):
+class ArgsUndoToDoSteps(BaseModel):
     steps: List[int] = Field(
         default=[], description="List of step indices (1-based) to mark as not completed"
     )
-    notes: str = Field(default="", description="Additional notes or updates about the plan")
+    notes: str = Field(default="", description="Additional notes or updates about the ToDo")
 
 
-class CreatePlan(PlanningTool):
-    """Create a new task plan with detailed steps"""
-    name: str = "CreatePlan"
+class CreateToDo(ToDoTool):
+    """Create a new Todo ToDo with detailed steps"""
+    name: str = "CreateToDo"
     description: str = (
-        "Create a new detailed plan for the current subtask. It will overwrite any existing plan. "
+        "Create a new detailed ToDo for the current subtask. It will overwrite any existing ToDo. "
         "This helps organize the approach and track progress systematically. "
         "The steps and notes should be concise and clear. "
         "Use this when starting a new subtask or when you need to reorganize your approach."
     )
-    args_schema: Optional[ArgsSchema] = ArgsPlanningCreate
+    args_schema: Optional[ArgsSchema] = ArgsToDoCreate
 
     def _run(self, task_description: str, steps: List[str], run_manager = None) -> str:
-        """Create a new plan"""
-        assert self.plan_panel is not None, "Plan panel is not initialized."
-        return self.plan_panel._create(task_description, steps)
+        """Create a new ToDo"""
+        assert self.todo_panel is not None, "ToDo panel is not initialized."
+        return self.todo_panel._create(task_description, steps)
 
 
-class CompletePlanSteps(PlanningTool):
-    name: str = "CompletePlanSteps"
+class CompleteToDoSteps(ToDoTool):
+    name: str = "CompleteToDoSteps"
     description: str = (
-        "Update the current plan by marking specific steps as completed. "
-        "This helps track progress and keep the plan up-to-date."
+        "Update the current ToDo by marking specific steps as completed. "
+        "This helps track progress and keep the ToDo up-to-date."
     )
-    args_schema: Optional[ArgsSchema] = ArgsCompletePlanSteps
+    args_schema: Optional[ArgsSchema] = ArgsCompleteToDoSteps
     def _run(self, completed_steps: List[int] = [], notes: str = "", run_manager = None) -> str:
-        """Mark steps as completed in the current plan"""
-        assert self.plan_panel is not None, "Plan panel is not initialized."
-        return self.plan_panel._complete_steps(completed_steps, notes)
+        """Mark steps as completed in the current ToDo"""
+        assert self.todo_panel is not None, "ToDo panel is not initialized."
+        return self.todo_panel._complete_steps(completed_steps, notes)
 
 
-class UndoPlanSteps(PlanningTool):
-    name: str = "UndoPlanSteps"
+class UndoToDoSteps(ToDoTool):
+    name: str = "UndoToDoSteps"
     description: str = (
-        "Undo completed steps in the current plan by marking them as not completed. "
+        "Undo completed ToDo steps in the current ToDo by marking them as not completed. "
         "This is useful if a step was marked completed by mistake or needs to be redone."
     )
-    args_schema: Optional[ArgsSchema] = ArgsUndoPlanSteps
+    args_schema: Optional[ArgsSchema] = ArgsUndoToDoSteps
     def _run(self, steps: List[int] = [], notes: str = "", run_manager = None) -> str:
-        """Undo completed steps in the current plan"""
-        assert self.plan_panel is not None, "Plan panel is not initialized."
-        return self.plan_panel._undo_steps(steps, notes)
+        """Undo completed steps in the current ToDo"""
+        assert self.todo_panel is not None, "ToDo panel is not initialized."
+        return self.todo_panel._undo_steps(steps, notes)
 
-class ResetPlan(PlanningTool):
-    name: str = "ResetPlan"
+class ResetToDo(ToDoTool):
+    name: str = "ResetToDo"
     description: str = (
-        "Reset the current plan, clearing all steps and notes. "
-        "Use this when you want to start fresh with a new plan."
+        "Reset the current ToDo, clearing all steps and notes. "
+        "Use this when you want to start fresh with a new ToDo."
     )
     args_schema: Optional[ArgsSchema] = None
     def _run(self, run_manager = None) -> str:
-        """Reset the current plan"""
-        assert self.plan_panel is not None, "Plan panel is not initialized."
-        self.plan_panel._reset()
-        return "Current plan has been reset. You can create a new plan now."
+        """Reset the current ToDo"""
+        assert self.todo_panel is not None, "ToDo panel is not initialized."
+        self.todo_panel._reset()
+        return "Current ToDo has been reset. You can create a new ToDo now."
 
 
-class GetPlanSummary(PlanningTool):
-    name: str = "GetPlanSummary"
+class GetToDoSummary(ToDoTool):
+    name: str = "GetToDoSummary"
     description: str = (
-        "Get a summary of the current plan, including task description, steps, and their completion status. "
-        "Use this to review the plan and track progress."
+        "Get a summary of the current ToDo, including task description, steps, and their completion status. "
+        "Use this to review the ToDo and track progress."
     )
     args_schema: Optional[ArgsSchema] = None
     def _run(self, run_manager = None) -> str:
-        """Get a summary of the current plan"""
-        assert self.plan_panel is not None, "Plan panel is not initialized."
-        if self.plan_panel._empty():
-            return "No active plan. Please create a plan first."
-        return self.plan_panel._summary()
+        """Get a summary of the current ToDo"""
+        assert self.todo_panel is not None, "ToDo panel is not initialized."
+        if self.todo_panel._empty():
+            return "No active ToDo. Please create a ToDo first."
+        return self.todo_panel._summary()

@@ -144,10 +144,10 @@ def get_args() -> argparse.Namespace:
         help="Set the interaction mode: 'standard' (default), 'enhanced' (planning & memory), or 'advanced' (adaptive strategies)"
     )
     parser.add_argument(
-        "--force-plan", "-fp",
+        "--force-todo", "-fp",
         action="store_true",
         default=False,
-        help="Force attaching plan info at every tips and workflow tool calls"
+        help="Force attaching ToDo info at every tips and workflow tool calls"
     )
     parser.add_argument(
         "--seed", 
@@ -328,7 +328,7 @@ def run() -> None:
         ex_tools=args.ex_tools,
         no_embed_tools=args.no_embed_tools,
         force_stage_index=args.force_stage_index,
-        force_plan=args.force_plan,
+        force_todo=args.force_todo,
         no_write_targets=args.no_write,
         interaction_mode=args.interaction_mode,
         gen_instruct_file=args.gen_instruct_file,
