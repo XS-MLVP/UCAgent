@@ -15,11 +15,29 @@ class ToDoPanel:
         self.todo_list = {
             # 'current_task_description': str, 'steps': List[str, is_completed: bool], 'notes': str
         }
+        self.stat_tool = None
         self._reset()
+
+    def set_stat_tool(self, stat_tool):
+        self.stat_tool = stat_tool
+
+    def set_stat_tool_des(self, des: str):
+        if self.stat_tool:
+            self.stat_tool.description = des
 
     def _reset(self):
         """Reset the current ToDo"""
         self.todo_list = {}
+
+    def set_tool_process(self):
+        if self._empty():
+            self.set_stat_tool_des("No Active ToDo List.")
+        elif self._is_all_completed():
+            self.set_stat_tool_des("Current ToDo list is completed! You can create a new one depending on your needs.")
+        else:
+            cmp_count = sum(is_cmp for _, is_cmp in self.todo_list['steps'])
+            un_cmp_count = len(self.todo_list['steps']) - cmp_count
+            self.set_stat_tool_des(f"Current ToDo List has {len(self.todo_list['steps'])} steps, {cmp_count} completed and {un_cmp_count} uncompleted.")
 
     def _summary(self) -> str:
         """Get a formatted summary of a ToDo"""
@@ -64,6 +82,7 @@ class ToDoPanel:
         """Create a new ToDo"""
         passed, emsg = self._check_str_size(notes, steps, "CreateToDo failed!")
         if not passed:
+            self.set_tool_process()
             return emsg
         self.todo_list = {
             'task_description': task_description,
@@ -72,11 +91,13 @@ class ToDoPanel:
             'updated_at': time.strftime("%Y-%m-%d %H:%M:%S"),
             'notes': notes or ""
         }
+        self.set_tool_process()
         return f"ToDo created successfully!\n\n{self._summary()}"
 
     def _complete_steps(self, completed_steps: List[int] = None, notes: str = "") -> str:
         """Update the ToDo with completed steps, updated steps, and notes"""
         if self._empty():
+            self.set_tool_process()
             return "No active ToDo to update. Please create a ToDo first."
         cmp_count = 0
         # Update completed steps
@@ -90,11 +111,13 @@ class ToDoPanel:
         if notes:
             self.todo_list['notes'] = notes
         self.todo_list['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.set_tool_process()
         return f"ToDo updated successfully! {cmp_count} step(s) marked as completed.\n\n{self._summary()}"
 
     def _undo_steps(self, steps: List[int] = None, notes: str = "") -> str:
         """Undo completed steps in the ToDo"""
         if self._empty():
+            self.set_tool_process()
             return "No active ToDo to update. Please create a ToDo first."
         undo_count = 0
         # Update completed steps
@@ -108,6 +131,7 @@ class ToDoPanel:
         if notes:
             self.todo_list['notes'] = notes
         self.todo_list['updated_at'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.set_tool_process()
         return f"ToDo updated successfully! {undo_count} step(s) marked as undone.\n\n{self._summary()}"
 
     def _is_all_completed(self) -> bool:
@@ -212,3 +236,19 @@ class GetToDoSummary(ToDoTool):
         if self.todo_panel._empty():
             return "No active ToDo. Please create a ToDo first."
         return self.todo_panel._summary()
+
+
+class ToDoState(ToDoTool):
+    name: str = "ToDoState"
+    description: str = (
+        "Current ToDo list is empty, please create a new ToDo as you need."
+    )
+    args_schema: Optional[ArgsSchema] = None
+
+    def __init__(self, *a, **data):
+        super().__init__(*a, **data)
+        self.todo_panel.set_stat_tool(self)
+
+    def _run(self, run_manager = None) -> str:
+        """Get the current state of the ToDo list"""
+        return self.description

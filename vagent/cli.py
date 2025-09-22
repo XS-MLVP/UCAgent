@@ -147,8 +147,15 @@ def get_args() -> argparse.Namespace:
         "--force-todo", "-fp",
         action="store_true",
         default=False,
-        help="Force attaching ToDo info at every tips and workflow tool calls"
+        help="Enable ToDo related tools and force attaching ToDo info at every tips and workflow tool calls"
     )
+    parser.add_argument(
+        "--use-todo-tools", "-utt",
+        action="store_true",
+        default=False,
+        help="Enable ToDo related tools"
+    )
+     # Miscellaneous arguments
     parser.add_argument(
         "--seed", 
         type=int, 
@@ -340,6 +347,7 @@ def run() -> None:
         gen_instruct_file=args.gen_instruct_file,
         stage_skip_list=args.skip,
         stage_unskip_list=args.unskip,
+        use_todo_tools=args.use_todo_tools,
     )
     
     # Set break mode if human interaction or TUI is requested

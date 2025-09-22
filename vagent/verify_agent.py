@@ -58,6 +58,7 @@ class VerifyAgent:
                  gen_instruct_file: Optional[str] = None,
                  stage_skip_list: Optional[List[int]] = None,
                  stage_unskip_list: Optional[List[int]] = None,
+                 use_todo_tools: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -173,13 +174,14 @@ class VerifyAgent:
         # Initialize planning tools
         self.planning_tools = []
         self.force_todo = force_todo
-        if interaction_mode == "standard" and force_todo:
+        if (interaction_mode == "standard" and force_todo) or use_todo_tools:
             self.planning_tools = [
                 CreateToDo(self.todo_panel),
                 CompleteToDoSteps(self.todo_panel),
                 UndoToDoSteps(self.todo_panel),
                 ResetToDo(self.todo_panel),
                 GetToDoSummary(self.todo_panel),
+                ToDoState(self.todo_panel),
             ]
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
