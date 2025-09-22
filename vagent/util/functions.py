@@ -1252,30 +1252,30 @@ def description_bug_doc():
     return [
          "Bug analysis document format:",
          "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK>, <BUG-RATE-XX>, where XX is an integer between 0 and 100 representing the confidence level.",
-         "   For example:"
-         "    <FG-LOGIC>"
-         "            <FC-ADD>"
+         "   For example:",
+         "    <FG-LOGIC>",
+         "            <FC-ADD>",
          "                <CK-BASIC> <BUG-RATE-80> Bug explain and its has 80% confidence to be a DUT bug.",
-         "                   Bug reason analysis:"
-         "                   ```verilog"
-         "                     assert (a + b == c) else $error('Addition error');"
-         "                     // use comments to explain why this is a bug in DUT"
-         "                   ..."
-         "                   Bug fix suggestion:"
-         "                   ```verilog"
-         "                     // Ensure proper handling of XXX cases"
-         "                     ..."
+         "                   Bug reason analysis:",
+         "                   ```verilog",
+         "                     assert (a + b == c) else $error('Addition error');",
+         "                     // use comments to explain why this is a bug in DUT",
+         "                   ...",
+         "                   Bug fix suggestion:",
+         "                   ```verilog",
+         "                     // Ensure proper handling of XXX cases",
+         "                     ...",
          "                <CK-OVERFLOW> <BUG-RATE-50> Bug explain and its has 50% confidence to be a DUT bug.",
-         "                   Bug reason analysis:"
-         "                   ```verilog"
-         "                     assert (a + b >= a) else $error('Overflow error');"
-         "                     // use comments to explain why this is a bug in DUT"
-         "                   ..."
-         "                   Bug fix suggestion:"
-         "                   ```verilog"
-         "                     // Ensure proper handling of overflow cases"
-         "             <FC-MUL>"
-         "                ..."
+         "                   Bug reason analysis:",
+         "                   ```verilog",
+         "                     assert (a + b >= a) else $error('Overflow error');",
+         "                     // use comments to explain why this is a bug in DUT",
+         "                   ...",
+         "                   Bug fix suggestion:",
+         "                   ```verilog",
+         "                     // Ensure proper handling of overflow cases",
+         "             <FC-MUL>",
+         "                ...",
     ]
 
 
@@ -1284,14 +1284,14 @@ def description_func_doc():
     return [
          "Functions and check points document format:",
          "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK> to tag the functions and its checkpoints.",
-         "   For example:"
-         "    <FG-LOGIC>"
+         "   For example:",
+         "    <FG-LOGIC>",
          "          group description.",
-         "            <FC-ADD>"
+         "            <FC-ADD>",
          "               function description: This function performs addition of two numbers.",
-         "                <CK-BASIC>"
+         "                <CK-BASIC>",
          "                  check description: This check verifies basic addition functionality.",
-         "                <CK-OVERFLOW>"
+         "                <CK-OVERFLOW>",
          "                  check description: This check verifies addition overflow handling.",
          "             <FC-MUL>",
          "                ...",
