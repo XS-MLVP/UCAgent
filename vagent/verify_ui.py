@@ -361,8 +361,12 @@ class VerifyUI:
                 self.console_outbuffer = self.console_outbuffer[:-1] + buffer
             else:
                 self.console_outbuffer = buffer
+            if self.console_outbuffer:
+                obuffer = self.console_outbuffer.split("\n")
+                if len(obuffer) > self.content_msgs_maxln:
+                    self.console_outbuffer = "\n".join(obuffer[-self.content_msgs_maxln:])
         lines = self.console_outbuffer.split("\n")
-        return "\n".join(lines[-self.console_max_height:])        
+        return "\n".join(lines[-self.console_max_height:])
 
     def handle_input(self, key):
         """
@@ -399,6 +403,8 @@ class VerifyUI:
                 self.complete_cmd(cmd)
             except Exception as e:
                 self.console_output.set_text(self._get_output(f"{YELLOW}Complete cmd Error: {str(e)}\n{traceback.format_exc()}{RESET}\n"))
+        elif key == 'shift right': # clear console
+            self.console_output.set_text(self._get_output(self.console_default_txt, clear=True))
         elif key == 'shift up':
             try:
                 self.status_content_fix_height = max(3, self.status_content_fix_height - 1)  # Minimum height of 3
