@@ -5,12 +5,50 @@ from vagent.util.functions import fill_dlist_none
 
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.messages import AIMessage, RemoveMessage
+from langchain_core.callbacks import BaseCallbackHandler
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any, Dict, Union
 from pydantic import BaseModel
+import time
 
 
+class TokenSpeedCallbackHandler(BaseCallbackHandler):
+    """Callback handler to monitor token generation speed."""
+
+    def __init__(self):
+        super().__init__()
+        self.total_tokens_size = 0
+        self.last_tokens_size = 0
+        self.last_access_time = 0.0
+        self.last_token_speed = 0.0
+
+    def on_llm_new_token(self, token: str, **kwargs) -> None:
+        self.total_tokens_size += len(token)
+        message = kwargs["chunk"].message
+        if message and hasattr(message, "tool_call_chunks"):
+            for tool_call in message.tool_call_chunks:
+                tool_name = tool_call["name"]
+                args = tool_call["args"]
+                if tool_name:
+                    self.total_tokens_size += len(tool_name)
+                if args:
+                    self.total_tokens_size += len(args)
+
+    def get_speed(self) -> float:
+        if self.last_access_time == 0.0:
+            self.last_access_time = time.time()
+            self.last_tokens_size = self.total_tokens_size
+            return 0.0
+        now_time = time.time()
+        delta_time = now_time - self.last_access_time
+        if delta_time < 1.0:
+            return self.last_token_speed
+        delta_tokens = self.total_tokens_size - self.last_tokens_size
+        self.last_access_time = now_time
+        self.last_token_speed = delta_tokens / delta_time
+        self.last_tokens_size = self.total_tokens_size
+        return self.last_token_speed
 
 def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
         for msg in input["messages"][-4:]:

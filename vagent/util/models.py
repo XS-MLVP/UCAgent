@@ -5,7 +5,7 @@ from typing import Any
 from .config import Config
 
 
-def get_chat_model_openai(cfg: Config) -> Any:
+def get_chat_model_openai(cfg: Config, callbacks) -> Any:
     """Get OpenAI chat model instance.
 
     Args:
@@ -22,14 +22,21 @@ def get_chat_model_openai(cfg: Config) -> Any:
     except ImportError:
         raise ImportError("Please install langchain_openai to use OpenAI chat model. "
                           "You can install it with: pip install langchain_openai")
-    return ChatOpenAI(openai_api_key=cfg.openai.openai_api_key,
-                                    openai_api_base=cfg.openai.openai_api_base,
-                                    model=cfg.openai.model_name,
-                                    seed=cfg.seed,
-                                    )
+    kw = dict(
+        openai_api_key=cfg.openai.openai_api_key,
+        openai_api_base=cfg.openai.openai_api_base,
+        model=cfg.openai.model_name,
+        seed=cfg.seed
+    )
+    if callbacks:
+        kw.update({
+            "callbacks": callbacks,
+            "streaming": True
+            })
+    return ChatOpenAI(**kw)
 
 
-def get_chat_model_anthropic(cfg: Config) -> Any:
+def get_chat_model_anthropic(cfg: Config, callbacks) -> Any:
     """Get Anthropic chat model instance.
 
     Args:
@@ -47,25 +54,28 @@ def get_chat_model_anthropic(cfg: Config) -> Any:
         raise ImportError("Please install langchain_anthropic to use Anthropic chat model. "
                           "You can install it with: pip install langchain_anthropic")
     llm = ChatAnthropic(
-        **cfg.anthropic.as_dict()
+        **cfg.anthropic.as_dict(),
+        callbacks=callbacks
     )
     return llm
 
 
-def get_chat_model_google_genai(cfg: Config):
+def get_chat_model_google_genai(cfg: Config, callbacks):
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
     except ImportError:
         raise ImportError("Please install langchain_google_genai to use Google GenAI chat model. "
                           "You can install it with: pip install langchain_google_genai")
-    return ChatGoogleGenerativeAI(**cfg.google_genai.as_dict())
+    return ChatGoogleGenerativeAI(**cfg.google_genai.as_dict(),
+                                  callbacks=callbacks
+                                  )
 
 
-def get_chat_model(cfg: Config):
+def get_chat_model(cfg: Config, callbacks: Any = None) -> Any:
     model_type = cfg.get_value("model_type", "openai")
     func = "get_chat_model_%s" % model_type
     if func in globals():
-        return globals()[func](cfg)
+        return globals()[func](cfg, callbacks)
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Supported types are: "
                          f"{', '.join([ f.removeprefix('get_chat_model_') for f in globals().keys() if f.startswith('get_chat_model_') ])}.")

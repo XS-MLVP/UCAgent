@@ -272,7 +272,7 @@ class VerifyPDB(Pdb):
         stats= f"UCAgent: {g.__version__}  LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  \n" + \
                f"SummaryMode: {g.summary_mode()}  MessageCount: {msg_c}  MessageSize: {msg_s} Interaction Mode: {g.interaction_mode}  \n" + \
                f"AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
-               f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}"
+               f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}  Token Reception: {g.cb_token_speed.get_speed():.1f} bps"
         return stats
 
     def api_tool_status(self):

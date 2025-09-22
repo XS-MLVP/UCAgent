@@ -9,6 +9,7 @@ from .util.models import get_chat_model
 
 import vagent.tools
 from .message import TrimMessagesNode, SummarizationAndFixToolCall, State
+from .message import TokenSpeedCallbackHandler
 from .tools import *
 from .tools.planning import *
 from .stage import StageManager
@@ -46,7 +47,6 @@ class VerifyAgent:
                  init_cmd: Optional[List[str]] = None,
                  seed: Optional[int] = None,
                  sys_tips: str = "",
-                 model = None,  # ChatOpenAI type from langchain_openai
                  ex_tools: Optional[List[str]] = None,
                  thread_id: Optional[int] = None,
                  debug: bool = False,
@@ -116,10 +116,8 @@ class VerifyAgent:
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
-        if model is not None:
-            self.model = model
-        else:
-            self.model = get_chat_model(self.cfg)
+        self.cb_token_speed = TokenSpeedCallbackHandler()
+        self.model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
