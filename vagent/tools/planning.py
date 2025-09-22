@@ -24,16 +24,16 @@ class ToDoPanel:
     def _summary(self) -> str:
         """Get a formatted summary of a ToDo"""
         if self._empty():
-            return "\ToDo list is empty, please create it as you need."
+            return "\nCurrent ToDo list is empty, please create it as you need."
         def as_cmp_str(is_cmp):
             return "(completed)" if is_cmp else ""
         steps = [
             f"{i+1}{as_cmp_str(is_cmp)}: {desc}" for i, (desc, is_cmp) in enumerate(self.todo_list['steps'])
         ]
         if self._is_all_completed():
-            return "\nAll ToDo steps are completed! You can create new one depending on your needs."
+            return "\nCurrent ToDo list is completed! You can create a new one depending on your needs."
         steps_text = "\n  ".join(steps)
-        return f"\n-------- ToDo Panel --------\n" \
+        return f"\n-------- ToDo List --------\n" \
                f" Task Description: {self.todo_list['task_description']}\n" \
                f" Steps:\n  {steps_text}\n" \
                f" Created At: {self.todo_list['created_at']}\n" \

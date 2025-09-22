@@ -269,6 +269,12 @@ def get_args() -> argparse.Namespace:
         help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
     )
 
+    parser.add_argument('--skip', action='append', default=[], type=int,
+                        help='Skip the specified stage index (can be used multiple times)')
+
+    parser.add_argument('--unskip', action='append', default=[], type=int,
+                        help='Unskip the specified stage index (can be used multiple times)')
+
     # Version argument
     parser.add_argument(
         "--version", 
@@ -332,6 +338,8 @@ def run() -> None:
         no_write_targets=args.no_write,
         interaction_mode=args.interaction_mode,
         gen_instruct_file=args.gen_instruct_file,
+        stage_skip_list=args.skip,
+        stage_unskip_list=args.unskip,
     )
     
     # Set break mode if human interaction or TUI is requested

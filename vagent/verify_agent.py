@@ -56,6 +56,8 @@ class VerifyAgent:
                  no_write_targets: Optional[List[str]] = None,
                  interaction_mode: str = "standard",
                  gen_instruct_file: Optional[str] = None,
+                 stage_skip_list: Optional[List[int]] = None,
+                 stage_unskip_list: Optional[List[int]] = None,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -121,7 +123,9 @@ class VerifyAgent:
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.todo_panel = ToDoPanel()
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_todo, self.todo_panel)
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_todo, self.todo_panel,
+                                          stage_skip_list=stage_skip_list,
+                                          stage_unskip_list=stage_unskip_list)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,

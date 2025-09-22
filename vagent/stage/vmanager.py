@@ -219,7 +219,9 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0, force_todo=False, todo_panel=None):
+    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0, force_todo=False, todo_panel=None,
+                 stage_skip_list  = None,
+                 stage_unskip_list = None):
         """
         Initialize the StageManager with an empty list of stages.
         """
@@ -247,6 +249,15 @@ class StageManager(object):
         self.tool_read_text = tool_read_text
         self.all_completed = False
         self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        if stage_skip_list:
+            for si in stage_skip_list:
+                self.skip_stage(si)
+                info(f"Stage {si} is set to be skipped.")
+        if stage_unskip_list:
+            for sui in stage_unskip_list:
+                self.unskip_stage(sui)
+                info(f"Stage {sui} is set to be unskipped.")
+        info("Current stage index is " + str(self.stage_index) + ".")
 
     def attach_todo_summary(self, data):
         assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
