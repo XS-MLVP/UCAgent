@@ -36,6 +36,7 @@ class VerifyStage(object):
                  reference_files,
                  output_files,
                  prefix = "",
+                 skip=False,
                  tool_read_text=None,
                  substages=None):
         """
@@ -44,6 +45,7 @@ class VerifyStage(object):
         self.cfg = cfg
         self.name = name
         self.prefix = prefix
+        self.skip = skip
         self.desc = description
         self.task_list = convert_task_form_cfg(task)
         self._checker = checker
@@ -75,6 +77,14 @@ class VerifyStage(object):
     def on_init(self):
         for c in self.checker:
             c.on_init()
+
+    def set_skip(self, is_skip):
+        self.skip = is_skip
+        for sb in self.substages:
+            sb.set_skip(is_skip)
+
+    def is_skipped(self):
+        return self.skip
 
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."
@@ -198,6 +208,7 @@ class VerifyStage(object):
                 "reached": self.is_reached(),
                 "check_pass": self.check_pass,
                 "fail_count": self.fail_count,
+                "is_skipped": self.is_skipped(),
         })
 
     def description(self):
@@ -241,8 +252,13 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         checker = stage.get_value('checker', [])
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
+        skip = stage.get_value('skip', False)
         index = i + 1
         substages = parse_vstage(root_cfg, stage.get_value('stage', None), workspace, tool_read_text, prefix + f"{index}.")
+        if skip:
+            warning(f"Stage '{stage.name}' is set to be skipped.")
+            for sb in substages:
+                sb.set_skip(True)
         ret.append(VerifyStage(
             cfg=root_cfg,
             workspace=workspace,
@@ -254,7 +270,8 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             output_files=output_files,
             tool_read_text=tool_read_text,
             substages=substages,
-            prefix=prefix + f"{index}"
+            prefix=prefix + f"{index}",
+            skip=skip,
         ))
     return ret
 

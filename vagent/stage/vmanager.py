@@ -3,7 +3,7 @@
 
 import inspect
 from vagent.util.functions import yam_str
-from vagent.util.log import info
+from vagent.util.log import info, warning
 from collections import OrderedDict
 import traceback
 import copy
@@ -233,10 +233,13 @@ class StageManager(object):
         self.mission = cfg.mission
         self.agent = agent
         info(f"Initialized StageManager with {len(self.stages)} stages.")
-        info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}" for i, stage in enumerate(self.stages)]))
+        info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
         self.stage_index = min(max(0, force_stage_index), len(self.stages) - 1)
         for i in range(self.stage_index + 1):
+            if self.stages[i].is_skipped():
+                continue
             self.stages[i].set_reached(True)
+        self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
         self.stages[self.stage_index].on_init()
@@ -322,6 +325,7 @@ class StageManager(object):
                 "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
+                "is_skipped": stage.is_skipped(),
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
@@ -342,6 +346,8 @@ class StageManager(object):
             if index == self.stage_index:
                 msg = f"Already at stage {index}: {self.stages[index].name}."
                 success = True
+            elif self.stages[index].is_skipped():
+                msg = f"Can not goto the skipped stage"
             elif self.stages[index].is_reached():
                 self.stage_index = index
                 msg = f"Changed to stage {index}: {self.stages[index].name} success."
@@ -351,6 +357,16 @@ class StageManager(object):
         else:
             msg = f"Invalid stage index: {index}. No change made."
         return {"message": msg, "success": success}
+
+    def force_go_to_stage(self, index):
+        """
+        Force go to a specific stage by index, ignoring whether it is reached or not.
+        This is used when initializing the StageManager with a specific stage index.
+        """
+        if 0 <= index < len(self.stages):
+            self.stage_index = index
+            return True
+        return False
 
     def check(self, timeout):
         if not self.stage_index < len(self.stages):
@@ -368,6 +384,38 @@ class StageManager(object):
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         return ret_data
 
+    def next_stage(self):
+        self.stage_index += 1
+        self._go_skip_stage()
+
+    def _go_skip_stage(self):
+        if self.stage_index >= len(self.stages):
+            return
+        sk = 0
+        while self.stages[self.stage_index].is_skipped():
+            self.stage_index += 1
+            sk += 1
+            if self.stage_index >= len(self.stages):
+                break
+        if sk > 0:
+            info(f"skipped {sk} stages, current stage index is now {self.stage_index}.")
+
+    def skip_stage(self, index):
+        if 0 <= index < len(self.stages):
+            self.stages[index].set_skip(True)
+            info(f"Stage '{self.stages[index].name}' is set to be skipped.")
+            if index == self.stage_index:
+                self.next_stage()
+        else:
+            warning(f"Invalid stage index: {index}, can not set skip.")
+
+    def unskip_stage(self, index):
+        if 0 <= index < len(self.stages):
+            self.stages[index].set_skip(False)
+            info(f"Stage '{self.stages[index].name}' is set to be unskipped.")
+        else:
+            warning(f"Invalid stage index: {index}, can not set unskip.")
+
     def complete(self, timeout):
         if self.stage_index >= len(self.stages):
             return {
@@ -382,8 +430,8 @@ class StageManager(object):
             "check_pass": ck_pass,
         })
         if ck_pass:
-            self.stage_index += 1
-            message = f"Stage {self.stage_index - 1} completed successfully. "
+            message = f"Stage {self.stage_index} completed successfully. "
+            self.next_stage()
             if self.stage_index >= len(self.stages):
                 message = ("All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "

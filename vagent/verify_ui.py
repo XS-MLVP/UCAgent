@@ -164,12 +164,18 @@ class VerifyUI:
         for i, stage in enumerate(task_data['task_list']["stage_list"]):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
+            is_skipped = stage.get("is_skipped", False)
             color = None
             if i < current_index:
                 color = "success_green"
             elif i == current_index:
                 color = "norm_red"
-            text = f"{i:2d} {task_title} ({fail_count} fails)"
+            fail_count_msg = f" ({fail_count} fails)"
+            if is_skipped:
+                color = "yellow"
+                task_title += " (skipped)"
+                fail_count_msg = ""
+            text = f"{i:2d} {task_title}{fail_count_msg}"
             if color:
                 utxt = urwid.Text((color, text), align='left')
             else:

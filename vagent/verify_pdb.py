@@ -844,3 +844,32 @@ class VerifyPDB(Pdb):
             return
         self.curframe.f_locals[var_name] = checker
         echo_g(f"Checker instance '{checker.__class__.__name__}' exported to variable '{var_name}' in the current frame.")
+
+    def do_skip_stage(self, arg):
+        """
+        Skip the current stage and move to the next one.
+        """
+        try:
+            index = int(arg.strip())
+        except ValueError:
+            echo_r("Invalid index. Usage: skip_stage [index]")
+            return
+        current_index = self.agent.stage_manager.stage_index
+        if current_index >= index:
+            echo_y(f"Current stage index is {current_index}. Cannot skip to an earlier or the same stage.")
+            return
+        self.agent.stage_manager.skip_stage(index)
+
+    def do_unskip_stage(self, arg):
+        """
+        Unskip a previously skipped stage.
+        """
+        try:
+            index = int(arg.strip())
+        except ValueError:
+            echo_r("Invalid index. Usage: unskip_stage <index>")
+            return
+        if index < 0 or index >= len(self.agent.stage_manager.stages):
+            echo_r(f"Index {index} is out of range. Valid range: 0 to {len(self.agent.stage_manager.stages) - 1}.")
+            return
+        self.agent.stage_manager.unskip_stage(index)

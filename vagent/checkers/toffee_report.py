@@ -95,7 +95,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed).",
                             "3. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                             "4. If the checkpoints related bug is not consistently reproducible by the test case, please consider mark them in a must `Fail` test function with description (eg: Assert False, '<bug description>').",
-                           f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in `Failed` test function, otherwise it is meaningless."
+                           f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in at least one `Failed` test function, otherwise it is meaningless."
                             ]
 
     if check_tc_in_doc:
@@ -106,12 +106,13 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
         if len(un_related_tc_marks) > 0:
                 return False, [f"Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
-                                "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <<BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
+                                "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
+                                *fc.description_bug_doc(),
                                 "2. If these are test issues, fix the test logic to make them pass.",
                                 "3. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
                                 "4. Review test implementation and DUT behavior to determine root cause.",
                                 "5. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
-                                "Note: Checkpoint is always represents like `FG-*/FC-*/CK-*`, eg: `FG-LOGIC/FC-ADD/CK-BASIC`"
+                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the checker, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
                                 ]
     if failed_funcs_failed_bins is not None:
         un_buged_cks = {}
@@ -132,7 +133,8 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                            "2. If this checkpoints are not related to the test function, delete it in 'mark_function' and make it `Pass` in other ways.",
                            "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
                           f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'",
-                           "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>"
+                           "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>",
+                           *fc.description_bug_doc()
                            ]
     return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results."
 
@@ -161,7 +163,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
                             "1. Implement test cases that cover these check points.",
-                            "2. Use proper mark_function() calls to associate tests with check points.",
+                            "2. Use proper mark_function() calls to associate tests with check points. In the test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
                             "3. Ensure complete functional coverage as specified in documentation."]
 
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
@@ -193,7 +195,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
         return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
                         "Action required:",
-                        "1. Add mark_function() calls to associate these functions with appropriate check points.",
+                        "1. Add mark_function() calls to associate these functions with appropriate check points, like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
                         "2. Ensure every test function validates specific documented functionality.",
                         "3. Review test organization and ensure complete traceability."]
 
@@ -235,7 +237,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
 
     failed_check_point_passed_funcs = report.get("failed_check_point_passed_funcs", {})
     if failed_check_point_passed_funcs:
-        fmsg = [f"Test logic inconsistency: Check points failed, but all of the related test cases passed (fail check point should has at least one related failed case):"]
+        fmsg = [f"Test logic inconsistency: Check points failed, but all of the related test cases passed (fail check point should has at least one related failed test case function):"]
         for k, v in failed_check_point_passed_funcs.items():
             fmsg.append(f"  Check point `{k}` failed, but related test cases: `{', '.join(v)}` passed" )
         fmsg.append("Under normal conditions, if a check point fails, the corresponding test cases should also fail. Action required:")
@@ -302,7 +304,7 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                                   "4. If certain lines are intentionally un-covered (e.g., deprecated code, third-party libraries), " + \
                                       f"ignore them in the ignore file ({file_ignore}) and document the reasons in the analysis documentation ({file_analyze_md}) using <LINE_IGNORE> tags.",
                                   "5. Re-run the tests and coverage analysis to verify that the coverage meets or exceeds the minimum threshold.",
-                                  "Note: When ignoring lines, ensure that the ignore patterns start with '*/', like '*/{DUT}/{DUT}.v:18-20,50-60'."
+                                  "Note: When ignoring lines, ensure that the ignore patterns start with '*/', like '*/{DUT}/{DUT}.v:18-20,50-60' which means the lines from 18-20,50-60 in file {DUT}/{DUT}.v should be ignored."
                                  ],
                        "uncoverage_info": cover_data
                        }, cover_rate
