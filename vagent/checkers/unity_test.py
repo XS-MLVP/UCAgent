@@ -558,12 +558,12 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if b not in all_bins_test:
                 bins_not_in_test.append(b)
         if len(bins_not_in_docs) > 0:
-            info_runtest["error"] = f"The follow check points: {', '.join(bins_not_in_docs)} are not defined in the documentation file {self.doc_func_check} but defined in the test cover group. " + \
+            info_runtest["error"] = f"The follow {len(bins_not_in_docs)} check points: {', '.join(bins_not_in_docs)} are not defined in the documentation file {self.doc_func_check} but defined in the test cover group. " + \
                                      "Please ensure that all check points in the test cover group are defined in the documentation file. " + \
                                      "Review your task requirements and the test cases."
             return False, info_runtest
         if len(bins_not_in_test) > 0:
-            info_runtest["error"] = f"The follow check points: {', '.join(bins_not_in_test)} are defined in the documentation file {self.doc_func_check} but not defined in the test cover group. " + \
+            info_runtest["error"] = f"The follow {len(bins_not_in_test)} check points: {', '.join(bins_not_in_test)} are defined in the documentation file {self.doc_func_check} but not defined in the test cover group. " + \
                                      "Please ensure that all check points defined in the documentation are also in the the test cover group. " + \
                                      "Review your task requirements and the test cases."
             return False, info_runtest
@@ -571,7 +571,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['unmarked_check_points'] > 0:
             unmark_check_points = report['unmarked_check_points_list']
             if len(unmark_check_points) > 0:
-                info_runtest["error"] = f"Test template validation failed, cannot find the flow check points: `{', '.join(unmark_check_points)}` " + \
+                info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                                          "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                          "This ensures proper coverage mapping between documentation and test implementation. " + \
@@ -697,8 +697,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
                                    f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
-        if report["test_function_with_no_check_point_mark"] > 0:
-            return False, get_emsg(f"The functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. "
+        test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
+        if test_count_no_check_point_mark > 0:
+            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. "
                                     "Please mark the related check points in the test function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")

@@ -89,7 +89,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             ]
         if len(un_failedt_bug_marks) > 0:
             info(f"Bins in failed tests: {', '.join(bin_in_failed_tc)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points ({', '.join(un_failedt_bug_marks)}) which are not found in the failed test case functions. " + \
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains {len(un_failedt_bug_marks)} bug check points ({', '.join(un_failedt_bug_marks)}) which are not found in the failed test case functions. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
                             "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed).",
@@ -104,7 +104,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             if ck not in marked_bug_checks:
                 un_related_tc_marks.append(ck)
         if len(un_related_tc_marks) > 0:
-                return False, [f"Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
+                return False, [f"{len(un_related_tc_marks)} Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
@@ -127,7 +127,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                     un_buged_cks[cb].append(func)
         if len(un_buged_cks) > 0:
             info(f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'")
-            return False, [f"The following failed checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
+            return False, [f"The following ({len(un_buged_cks)}) failed checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
                          *[f"  Failed check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
                            "You need:",
                            "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
@@ -148,7 +148,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
             if ck not in doc_checks:
                 ck_not_in_doc.append(ck)
         if len(ck_not_in_doc) > 0:
-            return False, [f"Documentation inconsistency: Test implementation contains undocumented check points: {', '.join(ck_not_in_doc)}. " + \
+            return False, [f"Documentation inconsistency: Test implementation contains {len(ck_not_in_doc)} undocumented check points: {', '.join(ck_not_in_doc)}. " + \
                             "These check points are used in tests but not defined in documentation file '{}'. ".format(doc_file) + \
                             "Action required:",
                             "1. Add missing check points to the documentation with proper <CK-*> tags.",
@@ -161,7 +161,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                 ck_not_in_tc.append(ck)
         if len(ck_not_in_tc) > 0:
             info(f"Check points in test function: {', '.join(test_case_checks)}")
-            return False, [f"Test coverage gap: Documentation({doc_file}) defines check points not implemented in tests: {', '.join(ck_not_in_tc)} " + \
+            return False, [f"Test coverage gap: Documentation({doc_file}) defines {len(ck_not_in_tc)} check points not implemented in tests: {', '.join(ck_not_in_tc)} " + \
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
                             "1. Implement test cases that cover these check points.",
@@ -231,7 +231,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
-            return False, f"Test template validation failed, cannot find the flow check points: `{', '.join(unmark_check_points)}` " + \
+            return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                            "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
@@ -239,7 +239,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
 
     failed_check_point_passed_funcs = report.get("failed_check_point_passed_funcs", {})
     if failed_check_point_passed_funcs:
-        fmsg = [f"Test logic inconsistency: Check points failed, but all of the related test cases passed (fail check point should has at least one related failed test case function):"]
+        fmsg = [f"Test logic inconsistency: {len(failed_check_point_passed_funcs)} Check points failed, but all of the related test cases passed (fail check point should has at least one related failed test case function):"]
         for k, v in failed_check_point_passed_funcs.items():
             fmsg.append(f"  Check point `{k}` failed, but related test cases: `{', '.join(v)}` passed" )
         fmsg.append("Under normal conditions, if a check point fails, the corresponding test cases should also fail. Action required:")
