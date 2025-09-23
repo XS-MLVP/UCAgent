@@ -106,13 +106,13 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
         if len(un_related_tc_marks) > 0:
                 return False, [f"Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
-                                "1. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
+                                "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
+                                "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
+                                "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
                                 *fc.description_bug_doc(),
-                                "2. If these are test issues, fix the test logic to make them pass.",
-                                "3. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
-                                "4. Review test implementation and DUT behavior to determine root cause.",
-                                "5. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
-                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the checker, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
+                                "5. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
+                                "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
+                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
                                 ]
     if failed_funcs_failed_bins is not None:
         un_buged_cks = {}
@@ -126,13 +126,15 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                         un_buged_cks[cb] = []
                     un_buged_cks[cb].append(func)
         if len(un_buged_cks) > 0:
+            info(f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'")
             return False, [f"The following failed checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
                          *[f"  Failed check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
                            "You need:",
-                           "1. Document these checkpoints in the bug analysis file with appropriate marks.",
-                           "2. If this checkpoints are not related to the test function, delete it in 'mark_function' and make it `Pass` in other ways.",
-                           "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs.",
-                          f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'",
+                           "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
+                           "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
+                           "3. If these checkpoints are valid and indicate DUT bugs, document them in the bug analysis file with appropriate marks.",
+                           "4. If these checkpoints are not related to the test function, delete them in 'mark_function' and make them `Pass` in other ways (eg: use a lambda check function that always returns True).",
+                           "5. Review the failed test cases to ensure they are correctly identifying and reporting DUT bugs.",
                            "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>",
                            *fc.description_bug_doc()
                            ]
@@ -229,7 +231,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
-            return False, f"Test template validation failed, cannot find ({len(unmark_check_points)}) check points ({', '.join(unmark_check_points)}) " + \
+            return False, f"Test template validation failed, cannot find the flow check points: `{', '.join(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                            "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \

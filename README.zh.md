@@ -170,7 +170,8 @@ openai:
   model_name: <your_model_name>                  # 模型名称，如 gpt-4o-mini
   openai_api_key: <your_openai_api_key>          # API密钥
 
-# 向量嵌入模型配置（用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭）
+# 向量嵌入模型配置
+# 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭
 embed:
   model_name: <your_embed_model_name>           # 嵌入模型名称
   openai_api_base: <your_openai_api_base_url>   # 嵌入模型API URL

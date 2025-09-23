@@ -165,7 +165,9 @@ openai:
   model_name: <your_model_name>                  # Model name, e.g., gpt-4o-mini
   openai_api_key: <your_openai_api_key>          # API key
 
-# Vector embedding model configuration (for document search and memory functions, can be disabled with --no-embed-tools)
+# Vector embedding model configuration
+# This is for document search and memory functions which
+#   can be disabled with --no-embed-tools
 embed:
   model_name: <your_embed_model_name>           # Embedding model name
   openai_api_base: <your_openai_api_base_url>   # Embedding model API URL

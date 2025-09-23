@@ -72,6 +72,7 @@ class UnityChipCheckerLabelStructure(Checker):
                 emsg.append("Literal '\\n' characters detected - use actual line breaks instead of escaped characters")
             emsg.append({"check_list": [
                 "Malformed tags: Ensure proper format. e.g., <FG-NAME>, <FC-NAME>, <CK-NAME>",
+                *fc.description_func_doc(),
                 "Invalid characters: Use only alphanumeric and hyphen in tag names",
                 "Missing tag closure: All tags must be properly closed",
                 "Encoding issues: Ensure file is saved in UTF-8 format",
@@ -570,7 +571,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['unmarked_check_points'] > 0:
             unmark_check_points = report['unmarked_check_points_list']
             if len(unmark_check_points) > 0:
-                info_runtest["error"] = f"Test template validation failed, cannot find ({len(unmark_check_points)}) check points ({', '.join(unmark_check_points)}) " + \
+                info_runtest["error"] = f"Test template validation failed, cannot find the flow check points: `{', '.join(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                                          "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                          "This ensures proper coverage mapping between documentation and test implementation. " + \
@@ -791,7 +792,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
         return True, ""
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
+    def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """run batch of tests and check result."""
         success, msg = self.check_data()
         if not success:
@@ -818,8 +819,8 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         extends_tests = [k for k in return_tests.keys() if k not in self.current_test_cases]
         info(f"Returned {len(return_tests)} test cases, missing {len(missing_tests)}, extends {len(extends_tests)}")
         if len(missing_tests) > 0:
-            error_msgs["error"] = f"Some test cases are missing in the tests implementation: {', '.join(missing_tests)}. " + \
-                                  f"implemented cases: {', '.join(return_tests.keys())}" + \
+            info(f"implemented cases: {', '.join(return_tests.keys())}")
+            error_msgs["error"] = f"The flow test cases: `{', '.join(missing_tests)}` are missing in the tests implementation. " + \
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
@@ -836,7 +837,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
         if len(self.current_test_cases) == 0:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
-        if kw.get("is_complete", False):
+        if is_complete:
             return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {', '.join(self.current_test_cases)}. " + \
                                     f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
                                      "Please continue implementing the remaining test cases before completing this stage."}
