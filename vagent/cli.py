@@ -19,9 +19,6 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from .verify_agent import VerifyAgent
-from .util.log import init_log_logger, init_msg_logger
-
 
 def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
     """Parse override string into dictionary.
@@ -78,7 +75,11 @@ def get_args() -> argparse.Namespace:
         epilog="For more information, visit: https://github.com/XS-MLVP/UCAgent"
     )
     
-    # Positional arguments
+    # First, check if --check is present in sys.argv
+    check_mode = '--check' in sys.argv
+    if check_mode:
+        do_check()
+
     parser.add_argument(
         "workspace", 
         type=str, 
@@ -276,6 +277,9 @@ def get_args() -> argparse.Namespace:
         help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
     )
 
+    parser.add_argument('--check', action='store_true', default=False,
+                        help='Check current default configurations and exit')
+
     parser.add_argument('--skip', action='append', default=[], type=int,
                         help='Skip the specified stage index (can be used multiple times)')
 
@@ -292,10 +296,53 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def do_check() -> None:
+    """Check current default configurations."""
+
+    def echo_g(msg: str):
+        print(f"\033[92m{msg}\033[0m")
+    def echo_r(msg: str):
+        print(f"\033[91m{msg}\033[0m")
+    def check_exist(msg, file_path: str, indent=0):
+        indent_str = '  ' * indent
+        if os.path.exists(file_path):
+            echo_g(f"{indent_str}Check\t{msg}\t{file_path}\t[Found]")
+        else:
+            echo_r(f"{indent_str}Check\t{msg}\t{file_path}\t[Error, Not Found]")
+
+    # 1. Check default config file
+    default_config_path = os.path.join(current_dir, "setting.yaml")
+    default_user_config_path = os.path.join(os.path.expanduser("~"), ".ucagent/setting.yaml")
+    echo_g("UCAgent Check:")
+    check_exist("sys_config", default_config_path)
+    check_exist("user_config", default_user_config_path)
+
+    # 2. Check default lang dir and its templates, config, Guide_Doc
+    default_lang_dir = os.path.join(current_dir, "lang")
+    check_exist("lang_dir", default_lang_dir)
+    if os.path.exists(default_lang_dir):
+        for lang in os.listdir(default_lang_dir):
+            lang_dir = os.path.join(default_lang_dir, lang)
+            if os.path.isdir(lang_dir):
+                check_exist(f"'{lang}' config", os.path.join(lang_dir, "config/default.yaml"))
+                check_exist(f"'{lang}' Guide_Doc", os.path.join(lang_dir, "doc/Guide_Doc"))
+                templates_dir = os.path.join(lang_dir, "template")
+                if os.path.isdir(templates_dir):
+                    for template_file in os.listdir(templates_dir):
+                        check_exist(f"'{lang}' template", os.path.join(templates_dir, template_file))
+                else:
+                    echo_r(f"{templates_dir} [Error, Not Found]")
+    # exit after check
+    sys.exit(0)
+
+
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
-    
+
+    from .verify_agent import VerifyAgent
+    from .util.log import init_log_logger, init_msg_logger
+
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
         if args.log_file:
