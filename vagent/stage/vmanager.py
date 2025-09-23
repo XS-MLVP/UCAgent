@@ -337,6 +337,7 @@ class StageManager(object):
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
                 "is_skipped": stage.is_skipped(),
+                "time_cost": stage.get_time_cost_str(),
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
@@ -442,6 +443,7 @@ class StageManager(object):
         })
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
+            self.stages[self.stage_index].on_complete()
             self.next_stage()
             if self.stage_index >= len(self.stages):
                 message = ("All stages completed successfully. "

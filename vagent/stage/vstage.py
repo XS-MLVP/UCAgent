@@ -7,6 +7,7 @@ from vagent.util.config import Config
 import vagent.checkers as checkers
 from collections import OrderedDict
 import copy
+import time
 
 def update_dict(d, u):
     d.update(u)
@@ -73,10 +74,41 @@ class VerifyStage(object):
         for sub in self.substages:
             sub.parent = self
         self.parent = None
+        self.time_start = None
+        self.time_end = None
 
     def on_init(self):
         for c in self.checker:
             c.on_init()
+        self.time_start = time.time()
+
+    def on_complete(self):
+        if self.time_end is not None:
+            return
+        self.time_end = time.time()
+
+    def get_time_cost(self):
+        if self.time_start is None:
+            return 0
+        if self.time_end is None:
+            return time.time() - self.time_start
+        return self.time_end - self.time_start
+
+    def get_time_cost_str(self):
+        cost = self.get_time_cost()
+        if cost < 1:
+            return f""
+        secs = int(cost)%60
+        minu = int(cost/60)%60
+        hour = int(cost/3600)
+        ret = []
+        if hour > 0:
+            ret.append(f"{hour}h")
+        if minu > 0:
+            ret.append(f"{minu:02}m")
+        if secs > 0:
+            ret.append(f"{secs:02}s")
+        return " ".join(ret)
 
     def set_skip(self, is_skip):
         self.skip = is_skip
