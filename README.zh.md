@@ -99,6 +99,23 @@ qwen
 
 > 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
+注：请根据任务需要编写验证 Prompt
+
+#### 常用操作
+
+##### TUI快捷键：
+- `ctrl + 上/下/左/右`：调节界面布局
+- `shift + 上/下`：调节状态面板高度
+- `shift + 右`：清空控制台
+- `esc`: 强制刷新界面
+
+##### 常用交互命令：
+- `q`：退出TUI（或者退出UCAgent）
+- `tui`：进入TUI
+- `tab`: 命令补全
+- `tool_list`：列出所有可用工具
+- `tool_invoke`：手动调用工具
+- `help`：查看所有命令帮助
 
 -----
 
@@ -200,6 +217,12 @@ ucagent output/ Adder --config config.yaml -s -hm --tui -utt
 | `--ex-tools` | - | 添加外部工具 | `--ex-tools SqThink` |
 | `--use-todo-tools` | `-utt` | 启用ToDo相关工具 | `-utt` |
 
+##### 常用交互命令
+
+- `ctrl+c`：暂停当前任务
+- `loop [prompt]`：继续当前任务
+
+请通过`help`命令查看所有支持的交互命令
 
 ### 常见问题 (FAQ)
 

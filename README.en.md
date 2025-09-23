@@ -99,6 +99,25 @@ qwen
 
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
 
+Note: Please write a validation prompt according to the task requirements
+
+#### frequency operations
+
+##### TUI shortcut key:
+
+- `ctrl+up/down/left/right`: Adjust the UI interface layout
+- `shift+up/down`: Adjust the height of the status UI panel
+- `shift+right`: Clear Console
+- `esc`: Force refresh interface
+
+##### Common interactive commands:
+
+- `q`: Exit TUI (or exit UCAgent)
+- `tui`: Enter TUI
+- `tab`: Command completion
+- `tool_ist`: List all available tools
+- `tool_invote`: Manually call the tool
+- `help`: View all available commands
 
 -----
 
@@ -195,6 +214,13 @@ ucagent output/ Adder --config config.yaml -s -hm --tui -utt
 | `--log` | - | Enable logging | `--log` |
 | `--ex-tools` | - | Add external tools | `--ex-tools SqThink` |
 | `--use-todo-tools` | `-utt` | Enable ToDo-related tools | `-utt` |
+
+##### Frequently used commands
+
+- `ctrl+c`: Pause the current task
+- `loop [prompt]`: Continue the current task
+
+Please use the `help` command to view all supported interactive commands
 
 ### Frequently Asked Questions (FAQ)
 
