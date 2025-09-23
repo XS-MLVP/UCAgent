@@ -107,7 +107,7 @@ Note: Please write a validation prompt according to the task requirements
 
 - `ctrl+up/down/left/right`: Adjust the UI interface layout
 - `shift+up/down`: Adjust the height of the status UI panel
-- `shift+right`: Clear Console
+- `shift+right`: Clear console
 - `esc`: Force refresh interface
 
 ##### Common interactive commands:
@@ -221,6 +221,32 @@ ucagent output/ Adder --config config.yaml -s -hm --tui -utt
 - `loop [prompt]`: Continue the current task
 
 Please use the `help` command to view all supported interactive commands
+
+### Human machine collaborative verification
+
+UCAgent supports human-machine collaboration during the verification process, allowing users to pause AI execution, manually intervene in the verification process, and then continue AI execution. This mode is suitable for scenarios that require fine control or complex decision-making.
+
+**Collaborative process:**
+
+1. Pause AI execution:
+- In direct access to LLM mode: Press `Ctrl+C` to pause.
+- In Code Agent collaborative mode: pause according to the pause method of the agent (such as Gemini cl using `Esc`).
+
+2. Manual intervention:
+- Manually edit files, test cases, or configurations.
+- Use interactive commands for debugging or tuning.
+
+3. Stage control:
+- Use `tool_invote Check` to check the current stage status.
+- Use `tool_invote Complete` to mark the completion of the stage and move on to the next stage.
+
+4. Continue to execute:
+- Use the `loop [prompt]` command to continue AI execution and provide additional prompt information.
+- In Code Agent mode, input prompts through the Agent's console.
+
+5. Permission management:
+- File write permissions can be set using commands such as `add_un_writable_path` and `del_un_writable_path` to control whether AI can edit specific files.
+- Suitable for direct access to LLM or mandatory use of UCAgent file tools.
 
 ### Frequently Asked Questions (FAQ)
 
