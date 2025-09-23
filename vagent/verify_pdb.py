@@ -505,14 +505,14 @@ class VerifyPDB(Pdb):
         force = arg.strip().lower() == "force"
         self.agent.render_template(tmp_overwrite=force)
 
-    def do_list_rw_dirs(self, arg):
+    def do_list_rw_paths(self, arg):
         """
-        List all directories that can be written to.
+        List all paths that can be written to.
         """
         write_dirs = self.agent.cfg.get_value("write_dirs", [])
         un_write_dirs = self.agent.cfg.get_value("un_write_dirs", [])
-        echo_g(f"Writeable directories: {write_dirs}")
-        echo_y(f"Non-writeable directories: {un_write_dirs}")
+        echo_g(f"Writeable paths: {write_dirs}")
+        echo_y(f"Non-writeable paths: {un_write_dirs}")
 
     def api_is_valid_workspace_path(self, path):
         """
@@ -534,91 +534,91 @@ class VerifyPDB(Pdb):
             return False, f"Path '{dir_path}' does not exist."
         return True, os.path.relpath(abspath, self.agent.workspace)
 
-    def do_add_write_dir(self, arg):
+    def do_add_write_path(self, arg):
         """
-        Add a directory to the list of writable directories.
-        Usage: add_write_dir <directory>
+        Add a path to the list of writable paths.
+        Usage: add_write_path <path>
         """
         dir_path = arg.strip()
         if not dir_path:
-            echo_y("Directory path cannot be empty. Usage: add_write_dir <directory>")
+            echo_y("Path cannot be empty. Usage: add_write_path <path>")
             return
         ok, msg = self.api_is_valid_workspace_path(dir_path)
         if not ok:
             echo_r(msg)
             return
         if msg in self.agent.cfg.write_dirs:
-            echo_y(f"Directory '{msg}' is already in the writable directories list.")
+            echo_y(f"Path '{msg}' is already in the writable paths list.")
             return
         self.agent.cfg.write_dirs.append(msg)
 
-    def complete_add_write_dir(self, text, line, begidx, endidx):
+    def complete_add_write_path(self, text, line, begidx, endidx):
         """
-        Auto-complete the add_write_dir command.
+        Auto-complete the add_write_path command.
         """
         return self.api_complite_workspace_file(text)
 
-    def do_add_un_write_dir(self, arg):
+    def do_add_un_write_path(self, arg):
         """
-        Add a directory to the list of non-writable directories.
-        Usage: add_un_write_dir <directory>
+        Add a path to the list of non-writable paths.
+        Usage: add_un_write_path <path>
         """
         dir_path = arg.strip()
         if not dir_path:
-            echo_y("Directory path cannot be empty. Usage: add_un_write_dir <directory>")
+            echo_y("Path cannot be empty. Usage: add_un_write_path <path>")
             return
         ok, msg = self.api_is_valid_workspace_path(dir_path)
         if not ok:
             echo_r(msg)
             return
         if msg in self.agent.cfg.un_write_dirs:
-            echo_y(f"Directory '{msg}' is already in the non-writable directories list.")
+            echo_y(f"Path '{msg}' is already in the non-writable paths list.")
             return
         self.agent.cfg.un_write_dirs.append(msg)
 
-    def complete_add_un_write_dir(self, text, line, begidx, endidx):
+    def complete_add_un_write_path(self, text, line, begidx, endidx):
         """
-        Auto-complete the add_un_write_dir command.
+        Auto-complete the add_un_write_path command.
         """
         return self.api_complite_workspace_file(text)
 
-    def do_del_write_dir(self, arg):
+    def do_del_write_path(self, arg):
         """
-        Remove a directory from the list of writable directories.
-        Usage: remove_write_dir <directory>
+        Remove a path from the list of writable paths.
+        Usage: del_write_path <path>
         """
         dir_path = arg.strip()
         if not dir_path:
-            echo_y("Directory path cannot be empty. Usage: remove_write_dir <directory>")
+            echo_y("Path cannot be empty. Usage: del_write_path <path>")
             return
         if dir_path not in self.agent.cfg.write_dirs:
-            echo_y(f"Directory '{dir_path}' is not in the writable directories list.")
+            echo_y(f"Path '{dir_path}' is not in the writable paths list.")
             return
         self.agent.cfg.write_dirs.remove(dir_path)
 
-    def complete_del_write_dir(self, text, line, begidx, endidx):
+    def complete_del_write_path(self, text, line, begidx, endidx):
         """
-        Auto-complete the remove_write_dir command.
+        Auto-complete the del_write_path command.
         """
         return [d for d in self.agent.cfg.write_dirs if d.startswith(text.strip())]
 
-    def do_del_un_write_dir(self, arg):
+    def do_del_un_write_path(self, arg):
         """
-        Remove a directory from the list of non-writable directories.
-        Usage: remove_un_write_dir <directory>
+        Remove a path from the list of non-writable paths.
+        Usage: del_un_write_path <path>
         """
         dir_path = arg.strip()
         if not dir_path:
-            echo_y("Directory path cannot be empty. Usage: remove_un_write_dir <directory>")
+            echo_y("Path cannot be empty. Usage: del_un_write_path <path>")
             return
         if dir_path not in self.agent.cfg.un_write_dirs:
-            echo_y(f"Directory '{dir_path}' is not in the non-writable directories list.")
+            echo_y(f"Path '{dir_path}' is not in the non-writable paths list.")
             return
         self.agent.cfg.un_write_dirs.remove(dir_path)
 
-    def complete_del_un_write_dir(self, text, line, begidx, endidx):
+    def complete_del_un_write_path(self, text, line, begidx, endidx):
         """
-        Auto-complete the remove_un_write_dir command.
+        Auto-complete the del_un_write_path command.
         """
         return [d for d in self.agent.cfg.un_write_dirs if d.startswith(text.strip())]
 
