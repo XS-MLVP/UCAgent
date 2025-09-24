@@ -119,14 +119,13 @@ class UnityChipCheckerDutCreation(Checker):
 
 
 class UnityChipCheckerDutFixture(Checker):
-    def __init__(self, target_file, min_env=0, **kw):
+    def __init__(self, target_file, **kw):
         self.target_file = target_file
-        self.min_env = min_env
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the DUT fixture implementation for correctness."""
+        """Check the fixture implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"DUT fixture file '{self.target_file}' does not exist."}
+            return False, {"error": f"fixture file '{self.target_file}' does not exist."}
         dut_func = fc.get_target_from_file(self.get_path(self.target_file), "dut",
                                            ex_python_path=self.workspace,
                                            dtype="FUNC")
@@ -161,19 +160,32 @@ class UnityChipCheckerDutFixture(Checker):
             # If we can't parse the source code, fall back to the generator function check
             # which should be sufficient in most cases
             pass
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
+
+class UnityChipCheckerEnvFixture(Checker):
+    def __init__(self, target_file, min_env=1, force_bundle=False, **kw):
+        self.target_file = target_file
+        self.min_env = max(1, min_env)
+        self.force_bundle = force_bundle # FIXME: currently not used
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Check the Env fixture implementation for correctness."""
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"fixture file '{self.target_file}' does not exist."}
         env_func_list = fc.get_target_from_file(self.get_path(self.target_file), "env*",
                                              ex_python_path=self.workspace,
                                              dtype="FUNC")
         for env_func in env_func_list:
             args = fc.get_func_arg_list(env_func)
-            if len(args) != 1 or args[0] != "dut":
-                return False, {"error": f"The '{env_func.__name__}' fixture has only one arg named 'dut', but got ({', '.join(args)})."}
+            if len(args) < 1 or args[0] != "dut":
+                return False, {"error": f"The '{env_func.__name__}' Env fixture's first arg must be 'dut', but got ({', '.join(args)})."}
             if not (hasattr(env_func, '_pytestfixturefunction') or "pytest_fixture" in str(env_func)):
                 return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
         if len(env_func_list) < self.min_env:
             return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
                                     f"You have defined {len(env_func_list)} env fixtures: {[f.__name__ for f in env_func_list]}."}
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+        return True, {"message": f"{self.__class__.__name__} Env fixture check for {self.target_file} passed."}
 
 
 class UnityChipCheckerDutApi(Checker):
@@ -573,7 +585,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if len(unmark_check_points) > 0:
                 info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                                         "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                                         "Please use it in the correct test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                          "This ensures proper coverage mapping between documentation and test implementation. " + \
                                          "Review your task requirements and complete the check point markings. "
                 return False, info_runtest
@@ -584,7 +596,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                 info_runtest["error"] = [f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
                                          "In test templates, every test function must be associated with specific check points through 'mark_function' calls. " + \
                                          "Each test function should:",
-                                         "1. Include coverage marking at the beginning: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', function_name, ['CK-POINTS']).",
+                                         "1. Include coverage marking at the beginning: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', function_name, ['CK-POINTS']).",
                                          "2. Have clear TODO comments explaining what needs to be implemented.",
                                          "3. End with 'assert False, \"Not implemented\"' to prevent accidental passing.",
                                          "Please add proper function markings according to the test template specification."]
@@ -700,7 +712,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
             return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. "
-                                    "Please mark the related check points in the test function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                                    "Please mark the related check points in the test function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
 

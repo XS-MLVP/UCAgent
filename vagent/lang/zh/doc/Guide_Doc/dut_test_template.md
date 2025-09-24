@@ -16,9 +16,9 @@
 ### 基本示例
 
 ```python
-def test_basic_addition(dut):
+def test_basic_addition(env):
     """测试基本加法功能"""
-    dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
+    env.dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
 
     # TASK: 实现基本加法测试逻辑
     # Step:
@@ -30,9 +30,9 @@ def test_basic_addition(dut):
 ### 复杂示例
 
 ```python
-def test_overflow_scenarios(dut):
+def test_overflow_scenarios(env):
     """测试溢出场景"""
-    dut.fc_cover["FG-ADD"].mark_function("FC-OVERFLOW", test_overflow_scenarios, ["CK-OVERFLOW_NO_CIN", "CK-OVERFLOW_WITH_CIN"])
+    env.dut.fc_cover["FG-ADD"].mark_function("FC-OVERFLOW", test_overflow_scenarios, ["CK-OVERFLOW_NO_CIN", "CK-OVERFLOW_WITH_CIN"])
     # TASK: 实现溢出测试逻辑
     # Step:
     # 1. 测试最大值 + 1 的溢出情况
@@ -50,11 +50,11 @@ def test_overflow_scenarios(dut):
 
 - **函数名称**：必须以 `test_` 开头，符合pytest规范
 - **命名规范**：使用有意义的名称，清晰表达测试意图
-- **参数规范**：固定使用 `dut` 作为参数，表示被测设计单元
+- **参数规范**：固定使用 `env` 作为参数，表示被测设计单元环境
 
 ```python
-def test_boundary_conditions(dut):  # ✓ 良好的命名
-def test_func_a(dut):              # ✗ 命名不明确
+def test_boundary_conditions(env):  # ✓ 良好的命名
+def test_func_a(env):              # ✗ 命名不明确
 ```
 
 ### 2. 用例注释
@@ -64,7 +64,7 @@ def test_func_a(dut):              # ✗ 命名不明确
 - **测试场景**：列出具体需要验证的测试场景
 
 ```python
-def test_edge_cases(dut):
+def test_edge_cases(env):
     """测试边界情况和特殊场景
     
     测试内容：
@@ -77,14 +77,14 @@ def test_edge_cases(dut):
 
 ### 3. 测试点反标
 
-- **语法**：`dut.fc_cover["功能组"].mark_function("功能点", 测试函数, ["检查点列表"])`
+- **语法**：`env.dut.fc_cover["功能组"].mark_function("功能点", 测试函数, ["检查点列表"])`
 - **功能组**：对应功能描述文档中的 `<FG-*>` 标签
 - **功能点**：对应功能描述文档中的 `<FC-*>` 标签  
 - **检查点**：对应功能描述文档中的 `<CK-*>` 标签
 
 ```python
 # 标记该测试覆盖了FG-ADD组中的FC-BASIC功能点的三个检查点
-dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
+env.dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
 ```
 
 ### 4. 强制失败断言
@@ -106,22 +106,22 @@ dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM"
 ### 完整实现示例
 
 ```python
-def test_basic_addition(dut):
+def test_basic_addition(env):
     """测试基本加法功能"""
-    dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
+    env.dut.fc_cover["FG-ADD"].mark_function("FC-BASIC", test_basic_addition, ["CK-NORM", "CK-ZERO", "CK-CIN"])
     
     # 测试基本加法: 1 + 2 = 3
-    sum_val, carry = api_adder_add(dut, 1, 2, 0)
+    sum_val, carry = api_adder_add(env, 1, 2, 0)
     assert sum_val == 3
     assert carry == 0
     
     # 测试零输入: 0 + 0 = 0  
-    sum_val, carry = api_adder_add(dut, 0, 0, 0)
+    sum_val, carry = api_adder_add(env, 0, 0, 0)
     assert sum_val == 0
     assert carry == 0
     
     # 测试带进位: 1 + 2 + 1 = 4
-    sum_val, carry = api_adder_add(dut, 1, 2, 1)  
+    sum_val, carry = api_adder_add(env, 1, 2, 1)  
     assert sum_val == 4
     assert carry == 0
         
@@ -134,9 +134,9 @@ def test_basic_addition(dut):
 建议在函数的最开始进行反标， 确保覆盖率标记始终执行：
 
 ```python
-def test_example(dut):
+def test_example(env):
     """测试示例"""  
-    dut.fc_cover["FG-X"].mark_function("FC-Y", test_example, ["CK-Z"])
+    env.dut.fc_cover["FG-X"].mark_function("FC-Y", test_example, ["CK-Z"])
     # 测试逻辑
     # ...
     assert False, "Not implemented"  # 空模板阶段保留
@@ -147,7 +147,7 @@ def test_example(dut):
 遵循项目约定导入必要的API：
 
 ```python
-from {dut_name}_api import *  # 导入DUT相关的API函数
+from {DUT}_api import *  # 导入DUT相关的API函数
 ```
 
 ### 3. 覆盖率完整性

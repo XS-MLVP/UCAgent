@@ -92,7 +92,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains {len(un_failedt_bug_marks)} bug check points ({', '.join(un_failedt_bug_marks)}) which are not found in the failed test case functions. " + \
                             "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
                             "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
-                            "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed).",
+                            "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed) or create new `FAIL` test cases for them.",
                             "3. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                             "4. If the checkpoints related bug is not consistently reproducible by the test case, please consider mark them in a must `Fail` test function with description (eg: Assert False, '<bug description>').",
                            f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in at least one `Failed` test function, otherwise it is meaningless."
@@ -104,7 +104,7 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
             if ck not in marked_bug_checks:
                 un_related_tc_marks.append(ck)
         if len(un_related_tc_marks) > 0:
-                return False, [f"{len(un_related_tc_marks)} Unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
+                return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
@@ -165,7 +165,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
                             "1. Implement test cases that cover these check points.",
-                            "2. Use proper mark_function() calls to associate tests with check points. In the test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
+                            "2. Use proper mark_function() calls to associate tests with check points. In the test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
                             "3. Ensure complete functional coverage as specified in documentation."]
 
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
@@ -197,7 +197,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
         return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
                         "Action required:",
-                        "1. Add mark_function() calls to associate these functions with appropriate check points, like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
+                        "1. Add mark_function() calls to associate these functions with appropriate check points, like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
                         "2. Ensure every test function validates specific documented functionality.",
                         "3. Review test organization and ensure complete traceability."]
 
@@ -233,7 +233,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         if len(unmark_check_points) > 0:
             return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                           "Please use it in the correct test case function like: dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                           "Please use it in the correct test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
                            "Review your task requirements and complete the check point markings. "
 

@@ -3,6 +3,7 @@
 import pytest
 from {{DUT}}_function_coverage_def import get_coverage_groups
 from toffee_test.reporter import set_func_coverage, set_line_coverage
+from toffee import Bundle
 
 # import your dut module here
 from {{DUT}} import DUT{{DUT}}  # Replace with the actual DUT class import
@@ -65,11 +66,48 @@ def dut(request):
     dut.Finish()                                         # 清理DUT，每个DUT class 都有 Finish 方法
 
 
-# 如果需要定义env fixture, 请取消下面的注释，并根据需要修改名称
-# @pytest.fixture()
-# def env(dut):
-#     return MyEnv(dut)
-#
+# 根据需要定义子Bundle
+# class MyPort(Bundle):
+#     signal1, signal2 = Signals(2)
+#     # 根据需要定义Port对应的操作
+#     def some_operation(self):
+#         pass
+
+
+# 定义{{DUT}}Env类，封装DUT的引脚和常用操作
+class {{DUT}}Env:
+    '''请在这里对Env的功能进行描述'''
+
+    def __init__(self, dut):
+        self.dut = dut
+        # 请在这里根据DUT的引脚定义，封装引脚为toffee.Bundle
+        # self.some_input = MyPort.from_prefix("some_input_", dut)
+        # self.axi_master = Bundle.from_prefix("io_axi_master_", dut)
+        # self.some_input.bind(dut)
+
+    # 根据需要定义Env的常用操作
+    #def reset(self):
+    #    # 根据DUT的复位方式，完成复位操作
+    #    pass
+
+    # 直接导出DUT的通用操作
+    def Finish(self):
+        self.dut.Finish()
+
+    def Step(self, i:int = 1):
+        return self.dut.Step(i)
+
+    def RefreshComb(self):
+        return self.dut.RefreshComb()
+
+# 定义env fixture, 请取消下面的注释，并根据需要修改名称
+@pytest.fixture()
+def env(dut):
+     # 一般情况下为每个test都创建全新的 env 不需要 yield
+     return {{DUT}}Env(dut)
+
+
+# 定义其他Env
 # @pytest.fixture()
 # def env1(dut):
 #     return MyEnv1(dut)
@@ -81,9 +119,11 @@ def dut(request):
 #    api description and parameters
 #    ...
 #    """
-#    dut = env.dut
-#    dut.some_input.value = value
-#    dut.Step()
-#    return dut.some_output.value
+#    env.some_input.value = value
+#    env.Step()
+#    return env.some_output.value
 #    # Replace with the actual API function for your DUT
 #    ...
+
+
+# 本文件为模板，请根据需要修改，删除不需要的代码和注释

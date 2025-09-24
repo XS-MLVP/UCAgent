@@ -170,11 +170,12 @@ stage:
   - name: testbench_infrastructure_design
     desc: "测试平台基础架构设计"
     task:
-      - "目标：创建测试API接口，让后续测试更简单"
+      - "目标：创建基础接口，让后续测试更简单"
       - "第1步：分析{DUT}的底层接口和工作方式"
       - "第2步：设计create_dut()函数 - 负责创建和初始化芯片实例"
       - "第3步：配置时钟(时序电路需要，组合电路不需要)"
       - "第4步：实现dut fixture - 管理测试的完整生命周期"
+      - "第5步：实现env fixture - 封装输入输出引脚，以及必要组件和功能"
       - "需要将结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
       - "参考Guide_Doc/dut_fixture.md了解标准写法"
     stage:
@@ -193,17 +194,30 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "Guide_Doc/dut_function_coverage_def.md"
-     - name: pytest_fixture_implementation
-       desc: "pytest fixture实现"
+     - name: pytest_fixture_dut_implementation
+       desc: "dut fixture实现"
        task:
          - "实现dut fixture，包含完整的生命周期管理"
-         - "确保fixture能正确初始化和清理芯片"
+         - "确保dut fixture能正确初始化和清理芯片"
        checker:
-         - name: fixture_check
+         - name: dut_fixture_check
            clss: "UnityChipCheckerDutFixture"
            args:
              target_file: "{OUT}/tests/{DUT}_api.py"
-             min_env: 0
+       reference_files:
+         - "Guide_Doc/dut_fixture.md"
+     - name: pytest_fixture_env_implementation
+       desc: "env fixture实现"
+       task:
+         - "实现env fixture，包含需要的必要引脚封装"
+         - "你需要用toffee.Bundle封装{DUT}的所有输入输出引脚"
+       checker:
+         - name: env_fixture_check
+           clss: "UnityChipCheckerEnvFixture"
+           args:
+             target_file: "{OUT}/tests/{DUT}_api.py"
+             min_env: 1
+             force_bundle: true
        reference_files:
          - "Guide_Doc/dut_fixture.md"
 
@@ -281,15 +295,16 @@ stage:
   - name: basic_api_implementation
     desc: "基础API实现"
     task:
-      - "请参考文档：Guide_Doc/dut_api_and_env.md创建API"
-      - "所有API以'api_'前缀开头，封装DUT的基本和常用操作"
+      - "请参考文档：Guide_Doc/dut_api_instruction.md创建API"
+      - "所有API以'api_'前缀开头，封装DUT对应Env的基本和常用操作"
       - "至少实现1个基础API函数(以api_{DUT}_开头)"
       - "原则：让测试人员使用简单的API，而不是复杂的底层信号"
       - "确保API函数能正确调用底层接口"
       - "每个API函数都必须要有对应的注释（位于函数__doc__）对功能进行详细描述，包括功能、输入参数、返回值等"
       - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
       - "把结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
-      - "例如：对于ALU，需要实现底层功能 api_operate(data1, data2, operation), 然后基于其实现 api_add(data1, data2)等上层API接口"
+      - "例如：对于ALU，需要实现底层功能 api_operate(env, data1, data2, operation), 然后基于其实现 api_add(env, data1, data2)等上层API接口"
+      - "注意：api_函数操作的主要对象为env，非必要情况下不能直接操作dut，除利用`mark_function`反标测试点外"
     checker:
       - name: api_check
         clss: "UnityChipCheckerDutApi"
@@ -297,18 +312,18 @@ stage:
           api_prefix: "api_{DUT}_"
           target_file: "{OUT}/tests/{DUT}_api.py"
     reference_files:
-      - "Guide_Doc/dut_api_and_env.md"
+      - "Guide_Doc/dut_api_instruction.md"
   - name: basic_api_function_test
     desc: "基础API功能正确性测试"
     task:
       - "目标: 验证已实现的API函数功能是否正确，确保API接口质量"
-      - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_api_and_env.md，重点关注'API测试'部分"
+      - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_api_instruction.md，重点关注'API测试'部分"
       - "第2步：分析测试需求 - 查看{OUT}/{DUT}_functions_and_checks.md，了解需要测试的API功能点"
       - "第3步：创建API测试文件 - 在{OUT}/tests/目录下创建test_{DUT}_api_*.py测试文件"
       - "第4步：编写测试函数，每个测试函数需要："
       - "  - 函数名格式：test_<api_name>[_<test_scenario>]"
-      - "  - 第一个参数：dut (pytest fixture)"
-      - "  - 添加覆盖率标记：dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-XXX'])"
+      - "  - 第一个参数：env (pytest fixture)"
+      - "  - 添加覆盖率标记：env.dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-XXX'])"
       - "  - 包含详细的docstring：测试目标、流程、预期结果"
       - "  - 实现测试逻辑：设置输入、调用API、验证输出"
       - "第5步：测试内容包括："
@@ -336,7 +351,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
     reference_files:
-      - "Guide_Doc/dut_api_and_env.md"
+      - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_function_coverage_def.md"
       - "Guide_Doc/dut_test_case.md"
@@ -355,8 +370,8 @@ stage:
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
-      - "  - 1) 每个测试函数以test_开头，第一个参数为dut(pytest fixture)或者env(pytest fixture)，可以根据需要添加其他参数"
-      - "  - 2) 每个测试函数的最开始添加覆盖率标记：dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
+      - "  - 1) 每个测试函数以test_开头，第一个参数为env(pytest fixture)，可以根据需要添加其他参数"
+      - "  - 2) 每个测试函数的最开始添加覆盖率标记：env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])"
       - "  - 3) 添加详细的TODO注释说明要测什么"
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "注意："
@@ -389,7 +404,7 @@ stage:
       - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
       - "注意："
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
-      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
+      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
       - "  - 不要尝试修复确定为出发DUT bug的测试用例，而是保留测试用例为Fail"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
