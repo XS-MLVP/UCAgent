@@ -7,6 +7,7 @@ from vagent.util.log import info, warning
 from collections import OrderedDict
 import traceback
 import copy
+import time
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -258,6 +259,13 @@ class StageManager(object):
                 self.unskip_stage(sui)
                 info(f"Stage {sui} is set to be unskipped.")
         info("Current stage index is " + str(self.stage_index) + ".")
+        self.time_begin = time.time()
+        self.time_end = None
+
+    def get_time_cost(self):
+        if self.time_end is None:
+            return time.time() - self.time_begin
+        return self.time_end - self.time_begin
 
     def attach_todo_summary(self, data):
         assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
@@ -468,6 +476,7 @@ class StageManager(object):
         Exit the agent and end the mission after all stages are completed.
         """
         if self.all_completed:
+            self.time_end = time.time()
             self.agent.exit()  # Exit the agent if all stages are completed
             return {
                 "exit": True,

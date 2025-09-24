@@ -266,7 +266,7 @@ class VerifyPDB(Pdb):
         """
         g = self.agent
         m = g.model
-        delta_time = time.time() - g._time_start
+        delta_time = g.stage_manager.get_time_cost()
         msg_info = g.message_info()
         msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
         stats= f"UCAgent: {g.__version__}  LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  \n" + \
