@@ -2,8 +2,8 @@
 
 import pytest
 from {{DUT}}_function_coverage_def import get_coverage_groups
-from toffee_test.reporter import set_func_coverage, set_line_coverage
-from toffee import Bundle
+from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
+from toffee import Bundle, Signals
 
 # import your dut module here
 from {{DUT}} import DUT{{DUT}}  # Replace with the actual DUT class import
@@ -14,7 +14,7 @@ def current_path_file(file_name):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
 
 
-def create_dut():
+def create_dut(request):
     """
     Create a new instance of the {{DUT}} for testing.
     
@@ -24,18 +24,21 @@ def create_dut():
     # Replace with the actual instantiation and initialization of your DUT
     dut = DUT{{DUT}}()
 
+    # toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    dut.SetCoverage(current_path_file("{{DUT}}.dat"))
+    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=True)
+    dut.SetCoverage(coverage_path)
 
-    # 设置覆波形生成文件（根据需要设置，可选）
-    # dut.SetWaveform(current_path_file("{{DUT}}.fst"))
+    # 设置波形生成文件（根据需要设置，可选）
+    # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=True)
+    # dut.SetWaveform(wave_path)
 
     return dut
 
 
 @pytest.fixture()
 def dut(request):
-    dut = create_dut()                                   # 创建DUT
+    dut = create_dut(request)                         # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
     # 请在这里根据DUT是否为时序电路判断是否需要调用 dut.InitClock
     # dut.InitClock("clk")
@@ -57,9 +60,10 @@ def dut(request):
     # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
     set_func_coverage(request, func_coverage_group)
 
-    # 设置需要收集的代码行覆盖率文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    set_line_coverage(request, current_path_file("{{DUT}}.dat"),
-                      ignore=current_path_file("{{DUT}}.ignore"))  # 向toffee_test传代码行递覆盖率数据
+    # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False)
+    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=False)
+    # 向toffee_test传代码行递覆盖率数据
+    set_line_coverage(request, coverage_path, ignore=current_path_file("{{DUT}}.ignore"))
 
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计
@@ -71,7 +75,7 @@ def dut(request):
 #     signal1, signal2 = Signals(2)
 #     # 根据需要定义Port对应的操作
 #     def some_operation(self):
-#         pass
+#         ...
 
 
 # 定义{{DUT}}Env类，封装DUT的引脚和常用操作
@@ -91,12 +95,9 @@ class {{DUT}}Env:
     # 根据需要定义Env的常用操作
     #def reset(self):
     #    # 根据DUT的复位方式，完成复位操作
-    #    pass
+    #    ...
 
     # 直接导出DUT的通用操作
-    def Finish(self):
-        self.dut.Finish()
-
     def Step(self, i:int = 1):
         return self.dut.Step(i)
 

@@ -20,30 +20,34 @@ DUT fixture负责：
 3. **时钟管理**：为时序电路初始化时钟
 4. **测试清理**：测试结束后的资源清理和数据收集
 
-在实现 dut Fixture 之前，需要先实现 `create_dut` 函数，它的作用是创建 DUT。其基本结构如下：
+在实现 dut Fixture 之前，需要先实现 `create_dut(request)` 函数，它的作用是创建 DUT。其基本结构如下：
 
 ```python
 import os
+from toffee_test.reporter import get_file_in_tmp_dir
 
 def current_path_file(file_name):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
 
-def create_dut():
+def create_dut(request):
     """创建DUT实例的工厂函数
     
     Returns:
         DUT实例，已完成基本初始化
     """
     # 导入并实例化具体的DUT类
-    from {dut_module} import DUT{DutClass}
+    from {DUT} import DUT{DutClass}
     
     dut = DUT{DutClass}()
 
+    # toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    dut.SetCoverage(current_path_file("{dut_module}.dat"))
+    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.dat",  new_path=True)
+    dut.SetCoverage(coverage_path)
 
     # 设置波形生成文件（根据需要设置，可选）
-    # dut.SetWaveform(current_path_file("{dut_module}.fst"))
+    # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.fst",  new_path=True)
+    # dut.SetWaveform(wave_path)
 
     # 进行必要的初始化设置
     # 例如：设置默认值、复位等
@@ -56,13 +60,13 @@ dut Fixture 参考如下：
 
 ```python
 import pytest
-from toffee_test.reporter import set_func_coverage, set_line_coverage
+from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
 from {DUT}_function_coverage_def import get_coverage_groups
 
 @pytest.fixture()
 def dut(request):
     # 1. 创建DUT实例
-    dut = create_dut()
+    dut = create_dut(request)
     
     # 2. 获取功能覆盖组
     func_coverage_group = get_coverage_groups(dut)
@@ -87,9 +91,10 @@ def dut(request):
     # 7. 测试后处理（清理阶段）
     set_func_coverage(request, func_coverage_group)  # 向toffee_test传递功能覆盖率数据
 
-    # 8. 设置需要收集的代码行覆盖率文件
-    set_line_coverage(request, current_path_file("{{DUT}}.dat"),
-                      ignore=current_path_file("{{DUT}}.ignore"))  # 向toffee_test传代码行递覆盖率数据
+    # 8. 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False)
+    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.dat",  new_path=False)
+    # 向toffee_test传代码行递覆盖率数据
+    set_line_coverage(request, coverage_path, ignore=current_path_file("{{DUT}}.ignore"))
 
     for g in func_coverage_group:
         g.clear()  # 清空覆盖率统计
@@ -151,7 +156,7 @@ def setup_clock(dut):
 
 ```python
 ...
-from toffee import Bundle
+from toffee import Bundle, Signals
 ...
 
 # 根据需要定义子Bundle
@@ -181,9 +186,6 @@ class {{DUT}}Env:
     #    ...
 
     # 直接导出DUT的通用操作
-    def Finish(self):
-        self.dut.Finish()
-
     def Step(self, i:int = 1):
         return self.dut.Step(i)
 

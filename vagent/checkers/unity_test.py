@@ -11,6 +11,8 @@ import os
 import glob
 import traceback
 import copy
+import inspect
+import ast
 
 from vagent.checkers.base import Checker, UnityChipBatchTask
 from vagent.checkers.toffee_report import check_report, check_line_coverage
@@ -110,10 +112,20 @@ class UnityChipCheckerDutCreation(Checker):
                                             dtype="FUNC")
         if not func_list:
             return False, {"error": f"No 'create_dut' functions found in '{self.target_file}'."}
-        assert len(func_list) == 1, f"Multiple 'create_dut' functions found in '{self.target_file}'. Expected only one."
-        dut = func_list[0]()
+        if len(func_list) != 1:
+            return False, {"error": f"Multiple 'create_dut' functions found in '{self.target_file}'. Expected only one."}
+        cdut_func = func_list[0]
+        args = fc.get_func_arg_list(cdut_func)
+        # check args
+        if len(args) != 1 or args[0] != "request":
+            return False, {"error": f"The 'create_dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
+        dut = func_list[0](None)
         for need_func in ["Step", "StepRis"]:
             assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
+        # check 'get_file_in_tmp_dir'
+        func_source = inspect.getsource(cdut_func)
+        if "get_file_in_tmp_dir" not in func_source:
+            return False, {"error": f"The 'create_dut' function in '{self.target_file}' must call 'get_file_in_tmp_dir' to get coverage file path."}
         # Additional checks can be implemented here
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
@@ -142,11 +154,12 @@ class UnityChipCheckerDutFixture(Checker):
         if len(args) != 1 or args[0] != "request":
             return False, {"error": f"The 'dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
         # check yield - first check if it's a generator function
-        import inspect
-        import ast
         try:
             source_lines = inspect.getsourcelines(dut_func)[0]
             source_code = ''.join(source_lines)
+            # check 'get_file_in_tmp_dir'
+            if "get_file_in_tmp_dir" not in source_code:
+                return False, {"error": f"The 'dut' fixture in '{self.target_file}' must call 'get_file_in_tmp_dir' to get coverage file path."}
             tree = ast.parse(source_code)
             
             has_yield = False

@@ -25,7 +25,7 @@ class Config:
             data: Dictionary containing configuration.
         """
         if data is None:
-            return
+            return self
         for key, value in data.items():
             if isinstance(value, dict):
                 setattr(self, key, Config(value))
@@ -34,6 +34,7 @@ class Config:
                 setattr(self, key, [Config(item) if isinstance(item, dict) else item for item in value])
             else:
                 setattr(self, key, value)
+        return self
 
     def empty(self) -> bool:
         """Check if the configuration is empty.

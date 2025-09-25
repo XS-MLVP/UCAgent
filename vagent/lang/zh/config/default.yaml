@@ -172,7 +172,7 @@ stage:
     task:
       - "目标：创建基础接口，让后续测试更简单"
       - "第1步：分析{DUT}的底层接口和工作方式"
-      - "第2步：设计create_dut()函数 - 负责创建和初始化芯片实例"
+      - "第2步：设计create_dut(request)函数 - 负责创建和初始化芯片实例"
       - "第3步：配置时钟(时序电路需要，组合电路不需要)"
       - "第4步：实现dut fixture - 管理测试的完整生命周期"
       - "第5步：实现env fixture - 封装输入输出引脚，以及必要组件和功能"
@@ -182,10 +182,11 @@ stage:
      - name: dut_creation_implementation
        desc: "DUT创建函数实现"
        task:
-         - "在文件{OUT}/tests/{DUT}_api.py实现create_dut()函数，完成芯片的基础创建"
+         - "在文件{OUT}/tests/{DUT}_api.py实现create_dut(request)函数，完成芯片的基础创建"
          - "在该函数中根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
          - "根据验证需要，确定是否需要在该函数中开启波形导出、代码行覆盖率等"
          - "确保创建函数能正常工作"
+         - "确保在create_dut(request)函数中，通过get_file_in_tmp_dir(..., new_path=True)获取代码行覆盖率文件路径coverage_path，并传递给芯片实例dut.SetCoverage(coverage_path)"
        checker:
          - name: dut_creation_check
            clss: "UnityChipCheckerDutCreation"
@@ -198,7 +199,9 @@ stage:
        desc: "dut fixture实现"
        task:
          - "实现dut fixture，包含完整的生命周期管理"
-         - "确保dut fixture能正确初始化和清理芯片"
+         - "请按已有模板确保:"
+         - "- 确保在dut fixture的清理阶段，调用通过get_file_in_tmp_dir(..., new_path=False)获取已有路径的代码行覆盖率文件，并传递给set_line_coverage(request, coverage_path, ...)"
+         - "- 确保dut fixture能正确初始化和清理芯片"
        checker:
          - name: dut_fixture_check
            clss: "UnityChipCheckerDutFixture"

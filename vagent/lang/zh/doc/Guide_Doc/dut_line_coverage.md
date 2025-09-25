@@ -127,7 +127,7 @@ performance_counters.v:*
 
 ### 开启覆盖率生成
 
-需要在创建dut的`create_dut`函数中，调用DUT的`SetCoverage`方法设置生成覆盖率文件名，例如
+需要在创建dut的`create_dut(request)`函数中，调用DUT的`SetCoverage`方法设置生成覆盖率文件名，例如
 
 ```python
 ...
@@ -146,6 +146,10 @@ def dut(request):
     set_line_coverage(request, "path/to/coverage.dat", ignore=[])
     ...
 ```
+
+**重要：**
+- 需要通过get_file_in_tmp_dir(..., new_path=True)获取代码行覆盖率文件路径
+- 需要通过get_file_in_tmp_dir(..., new_path=False)获取已有路径的代码行覆盖率文件，并传递给set_line_coverage(request, coverage_path, ...)
 
 
 在ignore参数中指定ignore文件(或者ignore表达式，或者ignore文件所在的文件夹)，支持以list格式传递多个值。

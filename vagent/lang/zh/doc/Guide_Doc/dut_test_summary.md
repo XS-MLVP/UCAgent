@@ -30,7 +30,7 @@
 ### 测试执行时间分析
 | 阶段 | 耗时 | 说明 |
 |------|------|------|
-| DUT创建时间 | {DUT_CREATION_TIME}s | create_dut()和fixture初始化时间 |
+| DUT创建时间 | {DUT_CREATION_TIME}s | create_dut 和fixture初始化时间 |
 | 测试准备时间 | {SETUP_TIME}s | 环境准备和数据初始化时间 |
 | 测试执行时间 | {EXECUTION_TIME}s | 所有测试用例的实际执行时间 |
 | 覆盖率统计时间 | {COVERAGE_TIME}s | 功能覆盖率采样和统计时间 |
