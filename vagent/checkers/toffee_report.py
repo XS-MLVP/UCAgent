@@ -316,4 +316,4 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
         if not ret:
             return ret, msg, cover_rate
 
-    return True, f"Line coverage check passed (line coverage: {cover_rate:.2f}% >= {min_line_coverage*100.0:.2f}%).", cover_rate
+    return True, f"Line coverage check passed (line coverage: {cover_rate*100.0:.2f}% >= {min_line_coverage*100.0:.2f}%).", cover_rate
