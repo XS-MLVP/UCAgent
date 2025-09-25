@@ -3,12 +3,12 @@
 # you can copy this file to ~/.ucagent/setting.yaml and modify it as needed
 
 #openai:
-#  model_name: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
-#  openai_api_base: "http://10.156.154.242:8000/v1"
-#  openai_api_key: "YOUR_API_KEY"
-#
+#  model_name: "$(OPENAI_MODEL: Qwen/Qwen3-Coder-30B-A3B-Instruct)"
+#  openai_api_key: "$(OPENAI_API_KEY: YOUR_API_KEY)"
+#  openai_api_base: "$(OPENAI_API_BASE: http://10.156.154.242:8000/v1)"
+
 #embed:
-#  model_name: "Qwen/Qwen3-Embedding-0.6B"
-#  openai_api_base: "http://10.156.154.242:8001/v1"
-#  openai_api_key: "YOUR_API_KEY"
+#  model_name: "$(EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B)"
+#  openai_api_key: "$(EMBED_OPENAI_API_KEY: YOUR_API_KEY)"
+#  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://10.156.154.242:8001/v1)"
 #  dims: 4096

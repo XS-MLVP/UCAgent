@@ -963,9 +963,9 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
     def get_template_data(self):
         if self.cur_line_coverage is None:
-            cov = ""
+            cov = f"({self.min_line_coverage*100:.2f})"
         else:
-            cov = f"({self.cur_line_coverage*100: .2f}/{self.min_line_coverage*100: .2f})"
+            cov = f"({self.cur_line_coverage*100:.2f}/{self.min_line_coverage*100:.2f})"
         return {
             "COVERAGE_COMPLETE": cov
         }

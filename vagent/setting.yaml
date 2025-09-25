@@ -2,19 +2,28 @@
 # default basic settings for UCAgent
 lang: "zh"
 
+# Model support: openai, anthropic, google_genai
 model_type: openai
 
 openai:
-  model_name: "<your_chat_model_name>"
-  openai_api_key: "your_api_key"
-  openai_api_base: "http://<your_chat_model_url>/v1"
+  model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
+  openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
+  openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
   model_kwargs:
     stop: ["."]
 
+# export ANTHROPIC_API_KEY="your-api-key"
+anthropic:
+  model: "$(ANTHROPIC_MODEL: claude-3-7-sonnet-20250219)"
+
+# export GOOGLE_GENAI_API_KEY="your-api-key"
+google_genai:
+  model: "$(GOOGLE_GENAI_MODEL: gemini-2.5-pro)"
+
 embed:
-  model_name: "<your_embedding_model_name>"
-  openai_api_key: "your_api_key"
-  openai_api_base: "http://<your_embedding_model_url>/v1"
+  model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"
+  openai_api_key: "$(EMBED_OPENAI_API_KEY: [your_api_key])"
+  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://<your_embedding_model_url>/v1)"
   dims: 4096
 
 # This is the setting for conversation summary

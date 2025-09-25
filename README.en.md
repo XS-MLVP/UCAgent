@@ -178,20 +178,31 @@ Or (with file tools):
 Create and edit a `config.yaml` file to configure the AI model and embedding model:
 
 ```yaml
-# OpenAI-compatible API configuration
+# API configuration (supports openai, anthropic, google_genai)
+model_type: openai
+
+# $(NAME: default_ralue): Read the environment variable NAME,
+#    where default_ralue is the default value
 openai:
-  openai_api_base: <your_openai_api_base_url>    # API base URL
-  model_name: <your_model_name>                  # Model name, e.g., gpt-4o-mini
-  openai_api_key: <your_openai_api_key>          # API key
+  # Model Name
+  model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
+  # API Key
+  openai_api_key: "$(OPENAI_API_KEY: your_api_key)"
+  # API Basic URL
+  openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
 
 # Vector embedding model configuration
-# This is for document search and memory functions which
-#   can be disabled with --no-embed-tools
+#  Used for document search and memory functions,
+#  can be turned off through '--no-embed-tools'
 embed:
-  model_name: <your_embed_model_name>           # Embedding model name
-  openai_api_base: <your_openai_api_base_url>   # Embedding model API URL
-  openai_api_key: <your_api_key>                # Embedding model API key
-  dims: <your_embed_model_dims>                 # Embedding dimensions, e.g., 1536
+  # Embedded model name
+  model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"
+  # Embedded Model API Key
+  openai_api_key: "$(EMBED_OPENAI_API_KEY: [your_api_key])"
+  # Embedded Model API URL
+  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://<your_embedding_model_url>/v1)"
+  # Embedding dimensions, such as 4096
+  dims: "$(EMBED_OPENAI_API_BASE: 4096)"
 ```
 
 Example:

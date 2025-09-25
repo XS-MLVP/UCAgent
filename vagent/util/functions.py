@@ -1317,3 +1317,22 @@ def description_func_doc():
          "    <FG-MEMORY>",
          "          ...",
     ]
+
+
+def replace_bash_var(in_str, data: dict):
+    """
+    Replace bash-like variables in the input string with values from the data dictionary.
+
+    Args:
+        in_str (str): template str, eg: "Hello, $(name: Bob)!"
+        data (dict): data eg: {'name': 'Alice'}
+
+    Returns:
+        str: replaced str eg: "Hello, Alice!"
+    """
+    pattern = r'\$\(\s*(?P<key>\w+)\s*:\s*(?P<default>.*?)\s*\)'
+    def replace_match(match):
+        key = match.group('key').strip()
+        default = match.group('default').strip()
+        return str(data.get(key, default)) if default else str(data.get(key))
+    return re.sub(pattern, replace_match, in_str)

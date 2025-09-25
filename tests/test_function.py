@@ -118,6 +118,20 @@ def test_parse_un_coverage_json():
     print("------------------------")
 
 
+def test_replace_bash_var():
+    """Test the replace_bash_var function."""
+    template_str = "Hello, $(name: Bob )! Welcome to $( place: Wonderland ). Your score is $(score: 100)."
+    data = {
+        "name": "Alice",
+        "place": "Wonderland"
+        # 'score' is intentionally left out to test default value
+    }
+    result = fc.replace_bash_var(template_str, data)
+    print("Original string:", template_str)
+    print("Data:", data)
+    print("Replaced string:", result)
+    print("------------------------")
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -125,4 +139,5 @@ if __name__ == "__main__":
     #test_render_template_dir()
     #test_parse_marks_from_file()
     #test_parse_line_ignore_file()
-    test_parse_un_coverage_json()
+    #test_parse_un_coverage_json()
+    test_replace_bash_var()

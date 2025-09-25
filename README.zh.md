@@ -181,19 +181,29 @@ ucagent output/ Adder --tui --mcp-server-no-file-tools --no-embed-tools
 创建并编辑 `config.yaml` 文件，配置AI模型和嵌入模型：
 
 ```yaml
-# OpenAI兼容的API配置
+# API配置（支持openai, anthropic, google_genai）
+model_type: openai
+
+# $(NAME: default_value): 读取环境变量NAME，default_value为默认值
 openai:
-  openai_api_base: <your_openai_api_base_url>    # API基础URL
-  model_name: <your_model_name>                  # 模型名称，如 gpt-4o-mini
-  openai_api_key: <your_openai_api_key>          # API密钥
+  # 模型名称
+  model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
+  # API密钥
+  openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
+  # API基础URL
+  openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
 
 # 向量嵌入模型配置
 # 用于文档搜索和记忆功能，不需要可通过 --no-embed-tools 关闭
 embed:
-  model_name: <your_embed_model_name>           # 嵌入模型名称
-  openai_api_base: <your_openai_api_base_url>   # 嵌入模型API URL
-  openai_api_key: <your_api_key>                # 嵌入模型API密钥
-  dims: <your_embed_model_dims>                 # 嵌入维度，如 1536
+  # 嵌入模型名称
+  model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"
+  # 嵌入模型API密钥
+  openai_api_key: "$(EMBED_OPENAI_API_KEY: your_api_key)"
+  # 嵌入模型API URL
+  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://<your_embedding_model_url>/v1)"
+  # 嵌入维度，如 4096
+  dims: "$(EMBED_OPENAI_API_BASE: 4096)
 ```
 
 示例：

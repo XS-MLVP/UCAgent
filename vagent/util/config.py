@@ -3,7 +3,7 @@
 import os
 import yaml
 from typing import Dict, Any, Optional, Union, List
-from .functions import render_template, dump_as_json
+from .functions import render_template, dump_as_json, replace_bash_var
 from .log import info
 
 class Config:
@@ -291,21 +291,23 @@ def get_config(config_file=None, cfg_override=None):
     if user_config_file_path is None:
         info(f"Default user config file '{user_config_file}' not found, ignore.")
 
+    def load_yaml_with_env_vars(file_path):
+        with open(file_path, 'r') as file:
+            content = file.read()
+            rendered_content = replace_bash_var(content, os.environ)
+            return yaml.safe_load(rendered_content)
+
     # 1. load default config
     default_config_file = os.path.join(os.path.dirname(__file__), "../setting.yaml")
     assert os.path.isfile(default_config_file), f"Default configuration file '{default_config_file}' not found."
-    with open(default_config_file, 'r') as file:
-        default_config = yaml.safe_load(file)
-        cfg = Config(default_config)
+    cfg = Config(load_yaml_with_env_vars(default_config_file))
     info(f"Load config from '{default_config_file}' completed.")
 
     # 2. load user config
     user_home = os.path.expanduser('~')
     user_config_file = os.path.join(user_home, '.ucagent/setting.yaml')
     if os.path.isfile(user_config_file):
-        with open(user_config_file, 'r') as file:
-            user_config = yaml.safe_load(file)
-            cfg.merge_from(Config(user_config))
+        cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file)))
         info(f"Load config from '{user_config_file}' completed.")
     else:
         info(f"User config file '{user_config_file}' not found, ignore.")
@@ -315,15 +317,11 @@ def get_config(config_file=None, cfg_override=None):
     lang_config_file = os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml")
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
-    with open(lang_config_file, 'r') as file:
-        lang_config = yaml.safe_load(file)
-        cfg.merge_from(Config(lang_config))
+    cfg.merge_from(Config(load_yaml_with_env_vars(lang_config_file)))
 
     # 4. load user specified config
     if user_config_file_path is not None:
-        with open(user_config_file_path, 'r') as file:
-            user_config = yaml.safe_load(file)
-            cfg.merge_from(Config(user_config))
+        cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file_path)))
         info(f"Load config from '{user_config_file_path}' completed.")
 
     # set override values
