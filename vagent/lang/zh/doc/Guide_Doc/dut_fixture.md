@@ -63,7 +63,7 @@ import pytest
 from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
 from {DUT}_function_coverage_def import get_coverage_groups
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def dut(request):
     # 1. 创建DUT实例
     dut = create_dut(request)

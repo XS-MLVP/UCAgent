@@ -36,7 +36,7 @@ def create_dut(request):
     return dut
 
 
-@pytest.fixture()
+@pytest.fixture(scope="module")
 def dut(request):
     dut = create_dut(request)                         # 创建DUT
     func_coverage_group = get_coverage_groups(dut)

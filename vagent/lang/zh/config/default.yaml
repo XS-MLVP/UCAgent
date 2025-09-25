@@ -202,6 +202,7 @@ stage:
          - "请按已有模板确保:"
          - "- 确保在dut fixture的清理阶段，调用通过get_file_in_tmp_dir(..., new_path=False)获取已有路径的代码行覆盖率文件，并传递给set_line_coverage(request, coverage_path, ...)"
          - "- 确保dut fixture能正确初始化和清理芯片"
+         - "- 确保dut fixture的scope设置为module"
        checker:
          - name: dut_fixture_check
            clss: "UnityChipCheckerDutFixture"
