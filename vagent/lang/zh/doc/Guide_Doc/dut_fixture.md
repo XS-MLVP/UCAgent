@@ -94,6 +94,7 @@ def dut(request):
     # 8. 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False)
     coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.dat",  new_path=False)
     # 向toffee_test传代码行递覆盖率数据
+    # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
     set_line_coverage(request, coverage_path, ignore=current_path_file("{{DUT}}.ignore"))
 
     for g in func_coverage_group:
