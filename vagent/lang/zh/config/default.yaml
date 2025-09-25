@@ -210,7 +210,12 @@ stage:
        desc: "env fixture实现"
        task:
          - "实现env fixture，包含需要的必要引脚封装"
-         - "你需要用toffee.Bundle封装{DUT}的所有输入输出引脚"
+         - "1. 对dut的引脚进行分析，确定哪些是输入，哪些是输出，有哪些分组"
+         - "2. 如果存在多个分组，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联, 在env中按分组命名，例如io_group1.a, io_group2.b等"
+         - "3. 如果不存在分组，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联，在env中统一用io命名，例如io.a, io.b等"
+         - "4. 如果需要，可以在env fixture中添加必要的组件和功能"
+         - "5. 可以按dut功能需要，添加一些常用的操作方法,例如reset, Finish, Step等"
+         - "6. 引脚封装要有意义，便于理解和使用"
        checker:
          - name: env_fixture_check
            clss: "UnityChipCheckerEnvFixture"
@@ -405,7 +410,7 @@ stage:
       - "注意："
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture"
-      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug"
+      - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
       - "  - 不要尝试修复确定为出发DUT bug的测试用例，而是保留测试用例为Fail"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
@@ -434,7 +439,7 @@ stage:
           - "第6步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
           - "第7步：分析测试结果："
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
-          - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（基于源代码分析，需要用{DOC_GEN_LANG}编写文档）"
+          - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
           - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
           - "  - 如果Fail不合理：修正测试逻辑"
           - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"

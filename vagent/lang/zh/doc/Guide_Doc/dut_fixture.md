@@ -159,7 +159,7 @@ from toffee import Bundle
 #     signal1, signal2 = Signals(2)
 #     # 根据需要定义Port对应的操作
 #     def some_operation(self):
-#         pass
+#         ...
 
 # 定义{{DUT}}Env类，封装DUT的引脚和常用操作
 class {{DUT}}Env:
@@ -167,15 +167,18 @@ class {{DUT}}Env:
 
     def __init__(self, dut):
         self.dut = dut
-        # 请在这里根据DUT的引脚定义，封装引脚为toffee.Bundle
-        # self.some_input = MyPort.from_prefix("some_input_", dut)
-        # self.axi_master = Bundle.from_prefix("io_axi_master_", dut)
-        # self.some_input.bind(dut)
+        # 请在这里根据DUT的引脚定义，提供toffee.Bundle进行引脚封装
+        #  1.如果引脚有多组，且有不同前缀，请用from_prefix方法
+        # self.some_input1 = MyPort.from_prefix("some_input_")
+        # self.some_input1.bind(dut)
+        #  2.如果引脚无法分组，请用from_dict方法进行映射
+        # self.some_input2 = MyPort.from_dict({...})
+        # self.some_input2.bind(dut)
 
     # 根据需要定义Env的常用操作
     # def reset(self):
     #    # 根据DUT的复位方式，完成复位操作
-    #    pass
+    #    ...
 
     # 直接导出DUT的通用操作
     def Finish(self):
@@ -290,41 +293,6 @@ adder_bundle = AdderBundle.from_prefix('io_')
 adder_bundle.bind(adder)
 ```
 
-**注意**：`Bundle.from_prefix`也可以不定义Bundle的子类，而直接创建对引脚进行绑定。
-
-例如：
-```python
-adder = DUTAdder()
-adder_io = Bundle.from_prefix("io_", adder) # 该方法内部调用了bind(dut)，不用再次显示bind
-```
-
-方法`Bundle.from_prefix(prefix, dut)`是简化方法，虽然去掉Bundle子类定义，但可读性差，不建议使用
-
-
-###### 通过正则表达式进行绑定
-
-在某些情况下，DUT 中的接口名称与 Bundle 中的接口名称之间的对应关系并不是简单的前缀或者字典关系，而是更为复杂的规则。例如，Bundle 中的接口名称与 DUT 中的接口名称之间的对应关系为：
-
-```
-a    -> io_a_in
-b    -> io_b_in
-sum  -> io_sum_out
-cin  -> io_cin_in
-cout -> io_cout_out
-```
-
-在这种情况下，我们可以通过传入正则表达式，来告知 `Bundle` 以正则表达式的方式进行绑定。
-
-```python
-adder = DUTAdder()
-adder_bundle = AdderBundle.from_regex(r'io_(.*)_.*')
-adder_bundle.bind(adder)
-```
-
-使用正则表达式时，Bundle 会尝试将 DUT 中的接口名称与正则表达式进行匹配，匹配成功的接口，将会读取正则表达式中的所有捕获组，将其连接为一个字符串。再使用这个字符串与 Bundle 中的接口名称进行匹配。
-
-例如对于上面代码中的正则表达式，`io_a_in` 会与正则表达式成功匹配，唯一的捕获组捕获到的内容为 `a`。`a` 这个名称与 Bundle 中的接口名称 `a` 匹配，因此 `io_a_in` 会被正确绑定至 `a`。
-
 ##### 创建子 Bundle
 
 很多时候，我们会需要一个 Bundle 包含一个或多个其他 Bundle 的情况，这时我们可以将其他已经定义好的 Bundle 作为当前 Bundle 的子 Bundle。
@@ -364,105 +332,6 @@ arithmetic_bundle.multiplier.b.value = 4
 需要注意的是，子 Bundle 的创建方法去匹配的信号名称，是经过上一次 Bundle 的创建方法进行处理过后的名称。例如在上面的代码中，我们将顶层 Bundle 的匹配方式设置为 `from_prefix('io_')`，那么在 `AdderBundle` 中去匹配的信号，是去除了 `io_` 前缀后的名称。
 
 同时，字典匹配方法会将信号名称转换为字典映射后的名称传递给子 Bundle 进行匹配，正则表达式匹配方法会将正则表达式捕获到的名称传递给子 Bundle 进行匹配。
-
-##### 创建 SignalList
-
-在某些情况下，会存在有一组信号的名称相似，且数量较多，例如以下情况：
-
-```
-io_vec_0
-io_vec_1
-io_vec_2
-...
-io_vec_9
-```
-
-如果使用 `Signal` 一个一个定义，会显得非常繁琐。为了解决这个问题，toffee 提供了 `SignalList` 类，用于定义一组信号。按照如下方式使用：
-
-```python
-from toffee import Bundle, SignalList
-
-class VectorBundle(Bundle):
-    vec = SignalList("vec_#", 10)
-```
-
-上面的代码定义了一个 `VectorBundle`，它包含了一个 `vec` 信号列表，该信号列表包含了 10 个信号，信号名称分别为 `vec_0`, `vec_1`, `vec_2`, ..., `vec_9`。这取决于 `SignalList` 定义时传入的名称字符串`vec_#` ，其中的 `#` 根据第二个参数 10 被替换为 0 到 9。
-
-在实例化 `VectorBundle` 后，我们可以通过 `vec` 来访问这一组信号：
-
-```python
-vector_bundle = VectorBundle()
-
-vector_bundle.vec[0].value = 1
-vector_bundle.vec[1].value = 2
-...
-vector_bundle.vec[9].value = 10
-```
-
-如果想要自定义从数字到信号名称的映射，可以通过传入一个函数来实现，例如：
-
-```python
-def custom_name_func(i):
-    return f"vec_{i + 1}"
-
-class VectorBundle(Bundle):
-    vec = SignalList("vec_#", 10, custom_name_func)
-```
-
-##### 创建 BundleList
-
-类似的，还有可能会存在有一组 Bundle 的情况，例如以下情况：
-
-```
-io_vec0_a
-io_vec0_b
-io_vec0_c
-io_vec1_a
-io_vec1_b
-io_vec1_c
-...
-io_vec9_a
-io_vec9_b
-io_vec9_c
-```
-
-如果使用多个 SubBundle 一个一个定义，也会非常繁琐。为此，Toffee 还提供了 `BundleList` 类，用于定义一组 Bundle。按照如下方式使用：
-
-```python
-
-from toffee import Bundle, BundleList
-
-class SubBundle(Bundle):
-    a, b, c = Signals(3)
-
-class VectorBundle(Bundle):
-    vec = BundleList(SubBundle, "vec#_", 10)
-```
-
-上面的代码定义了一个 `VectorBundle`，它包含了一个 `vec` Bundle 列表，该 Bundle 列表包含了 10 个 SubBundle，每个 SubBundle 的匹配方法都被指定为**前缀匹配**，待匹配前缀分别为 `vec0_`, `vec1_`, `vec2_`, ..., `vec9_`。如果要访问这一组 Bundle，可以通过 `vec` 来访问：
-
-```python
-vector_bundle = VectorBundle()
-
-vector_bundle.vec[0].a.value = 1
-vector_bundle.vec[0].b.value = 2
-vector_bundle.vec[0].c.value = 3
-...
-
-vector_bundle.vec[9].a.value = 28
-vector_bundle.vec[9].b.value = 29
-vector_bundle.vec[9].c.value = 30
-```
-
-与 `SignalList` 类似，如果想要自定义从数字到 Bundle 名称的映射，可以通过传入一个函数来实现，例如：
-
-```python
-def custom_name_func(i):
-    return f"vec{i + 1}_"
-
-class VectorBundle(Bundle):
-    vec = BundleList(SubBundle, "vec#_", 10, custom_name_func)
-```
 
 ##### Bundle 中的实用操作
 
@@ -591,22 +460,6 @@ arithmetic_bundle.assign({
 ```
 
 
-### 异步支持
-
-在 Bundle 中，为了方便的接收时钟信息，提供了 `step` 函数。当 Bundle 连接至 DUT 的任意一个信号时，step 函数会自动同步至 DUT 的时钟信号。
-
-可以通过 `step` 函数来完成时钟周期的等待。
-
-```python
-async def adder_process(adder_bundle):
-    adder_bundle.a.value = 1
-    adder_bundle.b.value = 2
-    adder_bundle.cin.value = 0
-    await adder_bundle.step()
-    print(adder_bundle.sum.value)
-    print(adder_bundle.cout.value)
-```
-
 ###### 举例
 
 ```python
@@ -618,16 +471,13 @@ class AXI4LiteBundle(Bundle):
 class AXI4BasedDUTEnv:
     def __init__(self, dut):
         self.dut = dut
-    # 引脚封装（示例）
-    # AXI 接口封装
-    self.axi_sin_a = AXI4LiteBundle.from_prefix("io_axi_a_")
-    self.axi_sin_b = AXI4LiteBundle.from_prefix("io_axi_b_")
-        # 以 from_prefix(prefix, dut) 方式封装
-        self.custom_a = Bundle.from_prefix("my_custom_a_", dut)
-        self.custom_x = Bundle.from_prefix("my_custom_x_", dut)
+        # 引脚封装（示例）
+        # AXI 接口封装
+        self.axi_sin_a = AXI4LiteBundle.from_prefix("io_axi_a_")
+        self.axi_sin_b = AXI4LiteBundle.from_prefix("io_axi_b_")
         # 引脚绑定
-    self.axi_sin_a.bind(dut)
-    self.axi_sin_b.bind(dut)
+        self.axi_sin_a.bind(dut)
+        self.axi_sin_b.bind(dut)
 
     # 把DUT非引脚相关通用函数进行env级暴露：例如 Step 和 RefreshComb
     def Step(self, c=1):
@@ -649,107 +499,9 @@ def env(dut):
     return AXI4BasedDUTEnv(dut) # 一般情况下为每个test都创建全新的 env 不需要 yield
 ```
 
-**注意：**
-
+**注意事项：**
 - 与 dut Fixture 不同，env Fixture 可以有多个（例如：`env`, `env_1`, `env_fast`, ...），其名称必须以 `env` 开头
 - env Fixture 的第一个参数必须为 `dut`，其他参数可按需添加
-
-
-##### 其他用法示例
-
-**1. 带Reference Model的环境**
-
-```python
-class CPUTestEnv:
-    def __init__(self, dut):
-        self.dut = dut
-        self.ref_model = CPUReferenceModel()  # 参考模型
-        self.memory = MemoryModel()           # 内存模型
-        self.instruction_queue = []           # 指令队列
-        
-    def execute_instruction(self, instruction):
-        """执行指令并与参考模型对比"""
-        # DUT执行
-        dut_result = self._execute_on_dut(instruction)
-        
-        # 参考模型执行
-        ref_result = self.ref_model.execute(instruction)
-        
-        # 结果比较
-        assert dut_result == ref_result, f"结果不匹配: DUT={dut_result}, REF={ref_result}"
-        
-        return dut_result
-    
-    def load_program(self, program):
-        """加载程序到内存"""
-        for addr, instr in enumerate(program):
-            self.memory.write(addr, instr)
-
-@pytest.fixture()
-def env_cpu(dut):
-    return CPUTestEnv(dut)
-```
-
-**2. 协议封装环境**
-
-```python
-from toffee import Bundle, Signals
-
-class AXI4LiteMasterBundle(Bundle):
-    ...
-    async def send_write_addr(self, len, id):
-        ....
-
-class AXI4LiteSlaveBundle(Bundle):
-    ...
-
-
-class AXITestEnv:
-    def __init__(self, dut):
-        self.dut = dut
-        self.axi_master = AXI4LiteMasterBundle.from_prefix("master_") # AXI主控接口封装
-        self.axi_slave  = AXI4LiteSlaveBundle.from_prefix("slave_") # AXI从设备接口封装
-        self.outstanding_transactions = {}     # 未完成事务跟踪
-        self.axi_master.bind(dut)
-        self.axi_slave.bind(dut)
-        
-    async def write_burst(self, addr, data, burst_len=1):
-        """AXI突发写事务"""
-        transaction_id = self._get_next_id()
-        
-        # 地址通道
-        await self.axi_master.send_write_addr(addr, burst_len, transaction_id)
-        
-        # 数据通道
-        for i, data_beat in enumerate(data):
-            last = (i == len(data) - 1)
-            await self.axi_master.send_write_data(data_beat, last)
-        
-        # 等待响应
-        response = await self.axi_master.wait_write_response(transaction_id)
-        return response
-    
-    async def read_burst(self, addr, burst_len=1):
-        """AXI突发读事务"""
-        transaction_id = self._get_next_id()
-        
-        # 发送读地址
-        await self.axi_master.send_read_addr(addr, burst_len, transaction_id)
-        
-        # 接收读数据
-        data = []
-        for _ in range(burst_len):
-            read_data = await self.axi_master.wait_read_data(transaction_id)
-            data.append(read_data)
-        
-        return data
-
-@pytest.fixture()
-def env_aix(dut):
-    return AXITestEnv(dut)
-```
-
-**注意事项：**
 - env Fixture必须返回一个Class实例，且必须有dut属性
 - 环境类应该封装复杂的DUT操作，提供高层次的API
 - 建议在环境类中实现自检和调试功能

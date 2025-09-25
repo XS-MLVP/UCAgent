@@ -80,10 +80,13 @@ class {{DUT}}Env:
 
     def __init__(self, dut):
         self.dut = dut
-        # 请在这里根据DUT的引脚定义，封装引脚为toffee.Bundle
-        # self.some_input = MyPort.from_prefix("some_input_", dut)
-        # self.axi_master = Bundle.from_prefix("io_axi_master_", dut)
-        # self.some_input.bind(dut)
+        # 请在这里根据DUT的引脚定义，提供toffee.Bundle进行引脚封装
+        #  1.如果引脚有多组，且有不同前缀，请用from_prefix方法
+        # self.some_input1 = MyPort.from_prefix("some_input_")
+        # self.some_input1.bind(dut)
+        #  2.如果引脚无法分组，请用from_dict方法进行映射
+        # self.some_input2 = MyPort.from_dict({...})
+        # self.some_input2.bind(dut)
 
     # 根据需要定义Env的常用操作
     #def reset(self):
