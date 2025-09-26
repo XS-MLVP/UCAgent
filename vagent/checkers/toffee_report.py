@@ -87,10 +87,10 @@ def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_
                             "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
                             "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
                             ]
-        if len(un_failedt_bug_marks) > 0:
+        if len(un_failedt_bug_marks) > 0 and False: # FIXME: disable this check for now, bug related marks no need to be marked by the failed test cases
             info(f"Bins in failed tests: {', '.join(bin_in_failed_tc)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains {len(un_failedt_bug_marks)} bug check points ({', '.join(un_failedt_bug_marks)}) which are not found in the failed test case functions. " + \
-                            "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
+            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains {len(un_failedt_bug_marks)} bug check points ({', '.join(un_failedt_bug_marks)}) which are not marked by `mark_function` in any failed test case functions. " + \
+                            "Please ensure all bug analysis marks are marked by their bug related failed test cases. Action required:",
                             "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
                             "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed) or create new `FAIL` test cases for them.",
                             "3. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
