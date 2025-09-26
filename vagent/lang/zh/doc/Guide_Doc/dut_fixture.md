@@ -186,12 +186,10 @@ class {{DUT}}Env:
     #    # 根据DUT的复位方式，完成复位操作
     #    ...
 
-    # 直接导出DUT的通用操作
+    # 直接导出DUT的通用操作Step
     def Step(self, i:int = 1):
         return self.dut.Step(i)
 
-    def RefreshComb(self):
-        return self.dut.RefreshComb()
 
 # 定义env fixture, 请取消下面的注释，并根据需要修改名称
 @pytest.fixture()
