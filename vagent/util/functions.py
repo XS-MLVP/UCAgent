@@ -168,6 +168,40 @@ def str_replace_to(text: str, old: list, new: str) -> str:
     return text
 
 
+def nested_keys_as_list(ndata:dict, leaf:str, keynames: List[str], ex_ignore_names=["line"]) -> List[str]:
+    """Convert nested dictionary keys to a list of paths up to a specified leaf node."""
+    broken_leaf = []
+    def _nest_dict_leafs(data, ret_list,
+                         prefix="", stop_key="", leaf_key="",
+                         ignore_keys=[], parent_key=""):
+        child_count = [len(data[k]) for k in data.keys() if not k in ex_ignore_names]
+        for key, value in data.items():
+            if isinstance(value, dict):
+                new_prefix = f"{prefix}/{key}" if prefix else key
+                if key in ignore_keys:
+                    new_prefix = prefix
+                    parent_key = key
+                if key != stop_key:
+                    _nest_dict_leafs(value, ret_list, new_prefix, stop_key, leaf_key, ignore_keys, parent_key)
+            else:
+                new_prefix = prefix
+                if key not in ignore_keys:
+                    new_prefix = f"{prefix}/{key}" if prefix else key
+                if parent_key == leaf_key:
+                    ret_list.append(f"{new_prefix}")
+                else:
+                    if child_count and child_count[0] < 1:
+                        broken_leaf.append((parent_key, new_prefix))
+    ret_data = []
+    stop_keys = keynames + [""]
+    stop_key_map = {k:stop_keys[i+1] for i, k in enumerate(keynames)}
+    _nest_dict_leafs(ndata, ret_data,
+                     stop_key=stop_key_map[leaf], leaf_key=leaf,
+                     ignore_keys=keynames + ex_ignore_names,
+                     parent_key=keynames[0])
+    return ret_data, broken_leaf
+
+
 def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: List[str], subfix_list: List[str],
                       ignore_chars: List[str] = ["/", "<", ">"]) -> dict:
     """Parse the function points and checkpoints from a file."""

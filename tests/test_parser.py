@@ -5,13 +5,13 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.functions import parse_nested_keys, get_unity_chip_doc_marks
+from vagent.util.functions import parse_nested_keys, nested_keys_as_list
 
 
 def test_func_check_points():
     """Test the function points and checkpoints parsing."""
     function_list_file = os.path.join(current_dir, "test_data/dut_bug_analysis.md")
-    keynames = ["group", "function", "checkpoint", "bug", "func"]
+    keynames = ["group", "function", "checkpoint", "bug", "testcase"]
     prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-", "<TEST-"]
     subfix   = [">"]* len(prefix)
     # Parse the function points and checkpoints
@@ -21,14 +21,14 @@ def test_func_check_points():
         )
         # Print the parsed function points and checkpoints
         print("Parsed file:", function_list_file)
-        def print_dict(d, indent=0):
-            for key, value in d.items():
-                if isinstance(value, dict):
-                    print(" " * indent + f"{key}:")
-                    print_dict(value, indent + 2)
-                else:
-                    print(" " * indent + f"{key}: {value}")
-        print_dict(keydata)
+        ret_data, broken_mark = nested_keys_as_list(keydata, "testcase", keynames)
+        print("Function points and checkpoints:")
+        for item in ret_data:
+            print(item)
+        if broken_mark:
+            print("Broken leaf nodes (potential issues):")
+            for b in broken_mark:
+                print(b)
     parse()
 
 
