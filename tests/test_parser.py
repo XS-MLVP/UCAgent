@@ -10,9 +10,9 @@ from vagent.util.functions import parse_nested_keys, get_unity_chip_doc_marks
 
 def test_func_check_points():
     """Test the function points and checkpoints parsing."""
-    function_list_file = os.path.join(current_dir, "../examples/template/functions_and_checks.md")
-    keynames = ["group", "function", "checkpoint", "bug_rate"]
-    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"]
+    function_list_file = os.path.join(current_dir, "test_data/dut_bug_analysis.md")
+    keynames = ["group", "function", "checkpoint", "bug", "func"]
+    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-", "<TEST-"]
     subfix   = [">"]* len(prefix)
     # Parse the function points and checkpoints
     def parse():
@@ -29,21 +29,7 @@ def test_func_check_points():
                 else:
                     print(" " * indent + f"{key}: {value}")
         print_dict(keydata)
-        print(get_unity_chip_doc_marks(function_list_file))
     parse()
-    function_list_file = os.path.join(current_dir, "../examples/template/bug_func_and_checks.md")
-    parse()
-
-
-def test_load_json():
-    """Test loading JSON data from a file."""
-    import json
-    json_file = os.path.join(current_dir, "../examples/template/toffee_report.json")
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-        print("Loaded JSON data from:", json_file)
-        print("Data keys:", list(data.keys()))
-        print("Data content:", data)
 
 
 if __name__ == "__main__":
