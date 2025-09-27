@@ -5,7 +5,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.functions import parse_nested_keys, nested_keys_as_list
+from vagent.util.functions import parse_nested_keys, nested_keys_as_list, get_unity_chip_doc_marks
 
 
 def test_func_check_points():
@@ -29,7 +29,8 @@ def test_func_check_points():
             print("Broken leaf nodes (potential issues):")
             for b in broken_mark:
                 print(b)
-    parse()
+    #parse()
+    print(get_unity_chip_doc_marks(function_list_file, "TC"))
 
 
 if __name__ == "__main__":

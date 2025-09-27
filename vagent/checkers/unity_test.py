@@ -82,16 +82,16 @@ class UnityChipCheckerLabelStructure(Checker):
             return False, {"error": emsg}
         if self.must_have_prefix:
             find_prefix = False
-            for mark in data["marks"]:
+            for mark in data:
                 if mark.startswith(self.must_have_prefix):
                     find_prefix = True
             if not find_prefix:
                 return False, {"error": f"In the document ({self.doc_file}), it must have group/."}
         if self.data_key:
-            self.smanager_set_value(self.data_key, data["marks"])
-            info(f"Cache {self.leaf_node} marks(size={len(data['marks'])}) to data key '{self.data_key}'.")
-        self.leaf_count = len(data["marks"])
-        return True, {"message": msg, f"{self.leaf_node}_count": len(data["marks"])}
+            self.smanager_set_value(self.data_key, data)
+            info(f"Cache {self.leaf_node} marks(size={len(data)}) to data key '{self.data_key}'.")
+        self.leaf_count = len(data)
+        return True, {"message": msg, f"{self.leaf_node}_count": len(data)}
 
     def get_template_data(self):
         return {
@@ -342,13 +342,13 @@ class UnityChipCheckerCoverageGroup(Checker):
         return unmatched_in_a, unmatched_in_b
 
     def _com_check_func(self, func_groups, doc_groups, ctype):
-        a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups["marks"])
+        a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups)
         suggested_msg = "You need make those two files consist in coverage groups."
         if len(a) > 0:
             return False, f"Coverage groups check fail: find {len(a)} {ctype} ({', '.join(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
         if len(b) > 0:
             return False, f"Coverage groups check fail: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
-        info(f"{ctype} coverage {len(doc_groups['marks'])} marks check passed")
+        info(f"{ctype} coverage {len(doc_groups)} marks check passed")
         return True, "Coverage groups check passed."
 
 
@@ -381,7 +381,7 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         basic_pass, groups_or_msg = self.basic_check()
         if not basic_pass:
             return basic_pass, groups_or_msg
-        current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)["marks"]
+        current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)
         note_msg = []
         self.batch_task.sync_source_task(
             current_doc_ck_list,
@@ -513,7 +513,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
     def on_init(self):
         self.total_tests_count = 0
         self.batch_task = UnityChipBatchTask("check_points", self, self.extra_kwargs.get("batch_size", 20))
-        self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")["marks"]
+        self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
         self.batch_task.update_current_tbd()
         info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
 
@@ -546,7 +546,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                      "Please ensure that the test cases are defined in the correct format and location."
             return False, info_runtest
         try:
-            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")["marks"]
+            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
         except Exception as e:
             info_report["error"] = f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. " + \
                                     "Review your task requirements and the file format to fix your documentation file."
@@ -729,7 +729,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
 
-        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
+        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
         if not ret:
             return ret, get_emsg(msg)
         return True, {"success": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
@@ -850,7 +850,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
-        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
+        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
         report  = fc.clean_report_with_keys(report, ["bins_all", "unmarked_check_points", "unmarked_check_points_list", "failed_check_point_list"])
         error_msgs["REPORT"] = report
         if not ret:
@@ -911,19 +911,10 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
         
         # Parse documentation marks for validation
-        ret, msg = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
+        ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
         if not ret:
             info_runtest["error"] = msg
             return ret, info_runtest
-
-        marked_bugs = 0
-        if os.path.exists(self.get_path(self.doc_bug_analysis)):
-            try:
-                marked_bugs = len(fc.get_unity_chip_doc_marks(os.path.join(self.workspace,
-                                                                   self.doc_bug_analysis), leaf_node="BUG-RATE")["marks"])
-            except Exception as e:
-                return False, {"error": f"Failed to parse the bug analysis document {self.doc_bug_analysis}: {str(e)}. " + \
-                               "\n".join(fc.description_bug_doc())}
 
         # Success: All validations passed
         success_msg = ["Test case validation successful!",

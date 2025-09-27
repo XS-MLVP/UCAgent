@@ -10,7 +10,7 @@ import traceback
 def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_prefix:str):
     """Parse bug analysis documentation to extract marked bug analysis points."""
     try:
-        marked_bugs = fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_analysis_file), leaf_node="BUG-RATE")
+        marked_bugs = fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_analysis_file), leaf_node="BG")
     except Exception as e:
         warning(traceback.format_exc())
         return False, [f"Bug analysis documentation parsing failed for file '{bug_analysis_file}': {str(e)}. " + \
@@ -21,23 +21,24 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
                         "3. Encoding or syntax errors.",
                         "Please review and fix the bug analysis documentation format."]
     marked_bug_checks = []
-    for c in marked_bugs["marks"]:
+    # bugs: FG/FC/CK/BG
+    for c in marked_bugs:
         if not c.startswith(target_ck_prefix):
             continue
         labels = c.split("/")
-        if not labels[-1].startswith("BUG-RATE-"):
-            return False, f"Invalid bug analysis format in '{bug_analysis_file}': mark '{c}' missing 'BUG-RATE-' prefix. " + \
-                           "Correct format: <FG-GROUP>/<FC-FUNCTION>/<CK-CHECK>/<BUG-RATE-XX>. " + \
-                           "Example: <BUG-RATE-80> indicates 80% confidence that this is a DUT bug. " + \
+        if not labels[-1].startswith("BG-"):
+            return False, f"Invalid bug analysis format in '{bug_analysis_file}': mark '{c}' missing 'BG-' prefix. " + \
+                           "Correct format: <FG-GROUP>/<FC-FUNCTION>/<CK-CHECK>/<BG-NAME-XX>/<TC-TESTCASE>. " + \
+                           "Example: <BG-NAME-80> indicates 80% confidence that this is a DUT bug. " + \
                            "Please ensure all bug analysis marks follow this format. "
         try:
-            confidence = int(labels[-1].split("BUG-RATE-")[1])
+            confidence = int(labels[-1].split("-")[-1])
             if not (0 <= confidence <= 100):
                 raise ValueError("Confidence must be 0-100")
         except (IndexError, ValueError):
             return False, f"Invalid confidence rating in '{bug_analysis_file}': '{labels[-1]}'. " + \
                            "Confidence ratings must be integers between 0-100. " + \
-                           "Example: <BUG-RATE-75> for 75% confidence. "
+                           "Example: <BG-ERROR-OVERFLOW-75> for 75% confidence for bug 'ERROR-OVERFLOW'. "
         marked_bug_checks.append("/".join(labels[:-1]))
     return True, marked_bug_checks
 
@@ -52,93 +53,101 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
                         "2. Encoding issues or special characters.",
                         "3. Invalid document structure.",
                         "Please review your documentation format and fix any syntax errors."]
-    return True, [v for v in marked_checks["marks"] if v.startswith(target_ck_prefix)]
+    return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
 
 
-def check_bug_analysis(failed_check: list, marked_bug_checks:list, bug_analysis_file: str,
-                       check_tc_in_doc=True, check_doc_in_tc=True,
-                       failed_funcs_failed_bins: dict=None, failed_funcs_passed_bins: dict=None, target_ck_prefix=""):
+def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict):
+    try:
+        tc_list = [t for t in fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_file), leaf_node="TC") \
+                           if t.startswith(target_ck_prefix)]
+    except Exception as e:
+        warning(traceback.format_exc())
+        return False, [f"Bug analysis documentation parsing failed for file '{bug_file}': {str(e)}. " + \
+                        "Common issues:",
+                        "1. Malformed bug analysis tags.",
+                        *fc.description_bug_doc(),
+                        "2. Invalid confidence rating format.",
+                        "3. Encoding or syntax errors.",
+                        "Please review and fix the bug analysis documentation format."]
+    failed_tc_names = failed_tc_and_cks.keys()
+    failed_tc_maps = {k:False for k in failed_tc_names}
+    def is_in_tc_names(fracs):
+        for fname in failed_tc_names:
+            all_in = True
+            for p in fracs:
+                if p not in fname:
+                    all_in = False
+                    break
+            if all_in:
+                return True, fname
+        return False, ""
+    # fmt: FG/FC/CK/BG/TC
+    tc_not_found_in_ftc_list = []
+    tc_not_mark_the_cks_list = []
+    for tc in tc_list:
+        checkpoint = tc.split("/TC-")[0]
+        tc_name = tc.split("/")[-1].split("TC-")[-1]
+        tc_name_parts = tc_name.split("::")
+        if len(tc_name_parts) < 2:
+            return False, "test case parse fail, its format shuold be: <TC-test_file.py::[ClassName]::test_case_name> where ClassName is optional, eg: <TC-test_file.py::test_my_case>."
+        is_fail_tc, fail_tc_name = is_in_tc_names(tc_name_parts)
+        if is_fail_tc:
+            failed_tc_maps[fail_tc_name] = True
+            if checkpoint not in failed_tc_and_cks[fail_tc_name]:
+                tc_not_mark_the_cks_list.append((tc, checkpoint))
+        else:
+            tc_not_found_in_ftc_list.append((tc, checkpoint))
+
+    # tc not found in fail tcs
+    if len(tc_not_found_in_ftc_list) > 0:
+        ftc_msg = ', '.join([f"{x[1]}(in {x[0]})" for x in tc_not_found_in_ftc_list])
+        return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test cases ({ftc_msg}) which are not found in the failed test cases.",
+                       "Note: test cases indicate a bug must be 'Fail'"
+                       ]
+    # tc not mark their checkpoints
+    if len(tc_not_mark_the_cks_list) > 0:
+        ftc_msg = ', '.join([f"{x[1]}(in {x[0]})" for x in tc_not_mark_the_cks_list])
+        return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking their checkpoints.",
+                       "Note: failed test cases must mark their bug related checkpoint"
+                       ]
+    # fail tc not in bug doc
+    if not target_ck_prefix:
+        failed_tc = [k for k, v in failed_tc_maps.items() if not v]
+        if failed_tc:
+            return False, [f"Find undocumented failed test cases: {', '.join(failed_tc)}",
+                           f"Note: all failed test cases must be documented in file '{bug_file}' witch <TC-*> marks:"
+                           *fc.description_bug_doc,
+                           ]
+    return True, "",
+
+
+def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
+                          check_tc_in_doc=True, target_ck_prefix:str =""):
     """Check failed checkpoint in bug analysis documentation."""
-    bin_in_failed_tc = []
-    if failed_funcs_failed_bins:
-        for _, cks in failed_funcs_failed_bins.items():
-            for cb in cks:
-                if cb not in bin_in_failed_tc:
-                    bin_in_failed_tc.append(cb.strip())
-    if failed_funcs_passed_bins:
-        for _, cks in failed_funcs_passed_bins.items():
-            for cb in cks:
-                if cb not in bin_in_failed_tc:
-                    bin_in_failed_tc.append(cb.strip())
-    bin_in_failed_tc = list(set(bin_in_failed_tc))
-    if check_doc_in_tc:
-        un_related_bug_marks = []
-        un_failedt_bug_marks = []
-        for ck in marked_bug_checks:
-            if ck not in failed_check:
-                un_related_bug_marks.append(ck)
-            if ck not in bin_in_failed_tc:
-                un_failedt_bug_marks.append(ck)
-        if len(un_related_bug_marks) > 0 and False: # FIXME: disable this check for now, bug related marks no need to be failed in test report
-            info(f"All check points in test report: {', '.join(failed_check)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains bug check points: {', '.join(un_related_bug_marks)} they are not failed in test cases. " + \
-                            "Please ensure all bug analysis marks correspond to actual test failures. Action required:",
-                            "1. Update the bug analysis documentation to include all relevant test failures.",
-                            "2. Ensure that all bug analysis marks are properly linked to their corresponding test cases.",
-                            "3. Review the test cases to ensure they are correctly identifying and reporting DUT bugs."
-                            ]
-        if len(un_failedt_bug_marks) > 0 and False: # FIXME: disable this check for now, bug related marks no need to be marked by the failed test cases
-            info(f"Bins in failed tests: {', '.join(bin_in_failed_tc)}")
-            return False, [f"Documentation inconsistency: Bug analysis documentation '{bug_analysis_file}' contains {len(un_failedt_bug_marks)} bug check points ({', '.join(un_failedt_bug_marks)}) which are not marked by `mark_function` in any failed test case functions. " + \
-                            "Please ensure all bug analysis marks are marked by their bug related failed test cases. Action required:",
-                            "1. Check if they are mistakenly added in the bug analysis documentation. If so, remove them from the documentation.",
-                            "2. If they are valid bug analysis marks, ensure they are properly marked (use mark_function) to their corresponding test cases (those test functions need to be failed) or create new `FAIL` test cases for them.",
-                            "3. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
-                            "4. If the checkpoints related bug is not consistently reproducible by the test case, please consider mark them in a must `Fail` test function with description (eg: Assert False, '<bug description>').",
-                           f"Note: Bug related checkpoints described in '{bug_analysis_file}' must be marked in at least one `Failed` test function, otherwise it is meaningless."
-                            ]
+
+    ret, marked_bug_checks = get_bug_ck_list_from_doc(workspace, bug_analysis_file, target_ck_prefix)
+    if not ret:
+        return False, marked_bug_checks, -1
 
     if check_tc_in_doc:
         un_related_tc_marks = []
         for ck in failed_check:
             if ck not in marked_bug_checks:
                 un_related_tc_marks.append(ck)
+        # failed checkpoints must be analyzed in bug doc
         if len(un_related_tc_marks) > 0:
                 return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
                                 "The failed checkpoints must be properly analyzed and documented. Options:",
                                 "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
-                                "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
+                                "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
                                 *fc.description_bug_doc(),
                                 "5. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
                                 "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
                                 "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
-                                ]
-    if failed_funcs_failed_bins is not None:
-        un_buged_cks = {}
-        for func, checks in failed_funcs_failed_bins.items():
-            for cb in checks:
-                if not cb.startswith(target_ck_prefix):
-                    continue
-                if cb not in marked_bug_checks:
-                    # record the function name for each unbuged checkpoint
-                    if cb not in un_buged_cks:
-                        un_buged_cks[cb] = []
-                    un_buged_cks[cb].append(func)
-        if len(un_buged_cks) > 0:
-            info(f"Current analyzed checkpoints: {', '.join(marked_bug_checks)} in '{bug_analysis_file}'")
-            return False, [f"The following ({len(un_buged_cks)}) failed checkpoints marked in failed test functions are not unanalyzed in the bug analysis file '{bug_analysis_file}':",
-                         *[f"  Failed check point `{k}` in failed test functions: {', '.join(v)}" for k, v in un_buged_cks.items()],
-                           "You need:",
-                           "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
-                           "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
-                           "3. If these checkpoints are valid and indicate DUT bugs, document them in the bug analysis file with appropriate marks.",
-                           "4. If these checkpoints are not related to the test function, delete them in 'mark_function' and make them `Pass` in other ways (eg: use a lambda check function that always returns True).",
-                           "5. Review the failed test cases to ensure they are correctly identifying and reporting DUT bugs.",
-                           "when you document the checkpoints need use the correct format: <FG-*>, <FC-*>, <CK-*>, <BUG-RATE-*>",
-                           *fc.description_bug_doc()
-                           ]
-    return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results."
+                                ], -1
+
+    return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results.", len(marked_bug_checks)
 
 
 def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check_tc_in_doc=True, check_doc_in_tc=True):
@@ -192,14 +201,14 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
 
     ret, doc_ck_list = get_doc_ck_list_from_doc(workspace, doc_file, target_ck_prefix)
     if not ret:
-        return ret, doc_ck_list
+        return ret, doc_ck_list, -1
     if report["test_function_with_no_check_point_mark"] > 0:
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
         return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
                         "Action required:",
                         "1. Add mark_function() calls to associate these functions with appropriate check points, like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
                         "2. Ensure every test function validates specific documented functionality.",
-                        "3. Review test organization and ensure complete traceability."]
+                        "3. Review test organization and ensure complete traceability."], -1
 
     checks_in_tc  = [b for b in report.get("bins_all", []) if b.startswith(target_ck_prefix)]
     if len(checks_in_tc) == 0:
@@ -207,26 +216,28 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         warning(f"Current test check points: {', '.join(report.get('bins_all', []))}")
     ret, msg = check_doc_struct(checks_in_tc, doc_ck_list, doc_file, check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc)
     if not ret:
-        return ret, msg
+        return ret, msg, -1
 
-    checks_tc_fail = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
-    marked_check_points = [c for c in checks_in_tc if c not in report.get("unmarked_check_points_list", [])]
+    failed_checks_in_tc = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
+    marked_checks_in_tc = [c for c in checks_in_tc if c not in report.get("unmarked_check_points_list", [])]
     if only_marked_ckp_in_tc:
-        checks_tc_fail = [b for b in checks_tc_fail if b in marked_check_points]
-    failed_funcs_failed_bins = report.get("failed_funcs_failed_bins", {})
-    failed_funcs_passed_bins = report.get("failed_funcs_passed_bins", {})
-    if len(checks_tc_fail) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_failed_bins:
-        ret, bug_ck_list = get_bug_ck_list_from_doc(workspace, bug_file, target_ck_prefix)
-        if not ret:
-            return ret, bug_ck_list
+        failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
 
-        ret, msg = check_bug_analysis(checks_tc_fail, bug_ck_list, bug_file,
-                                      check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=(check_doc_in_tc and not only_marked_ckp_in_tc),
-                                      failed_funcs_failed_bins=failed_funcs_failed_bins,
-                                      failed_funcs_passed_bins=failed_funcs_passed_bins,
-                                      target_ck_prefix=target_ck_prefix)
+    failed_funcs_bins = report.get("failed_funcs_bins", {})
+
+    bug_ck_list_size = -1
+    if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
+
+        ret, msg = check_bug_tc_analysis(
+            workspace, bug_file, target_ck_prefix, failed_funcs_bins
+        )
         if not ret:
-            return ret, msg
+            return ret, msg, -1
+
+        ret, msg, bug_ck_list_size = check_bug_ck_analysis(workspace, bug_file, failed_checks_in_tc,
+                                                           check_tc_in_doc=check_tc_in_doc, target_ck_prefix=target_ck_prefix)
+        if not ret:
+            return ret, msg, -1
 
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
@@ -235,27 +246,14 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                            "Please use it in the correct test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
-                           "Review your task requirements and complete the check point markings. "
-
-    failed_check_point_passed_funcs = report.get("failed_check_point_passed_funcs", {})
-    if failed_check_point_passed_funcs:
-        fmsg = [f"Test logic inconsistency: {len(failed_check_point_passed_funcs)} Check points failed, but all of the related test cases passed (fail check point should has at least one related failed test case function):"]
-        for k, v in failed_check_point_passed_funcs.items():
-            fmsg.append(f"  Check point `{k}` failed, but related test cases: `{', '.join(v)}` passed" )
-        fmsg.append("Under normal conditions, if a check point fails, the corresponding test cases should also fail. Action required:")
-        fmsg.append("1. Review the test logic to ensure that check points are correctly associated with their test functions.")
-        fmsg.append("2. Ensure that each check point accurately reflects the intended functionality and failure conditions.")
-        fmsg.append("3. Fix any inconsistencies to ensure reliable and accurate test results.")
-        fmsg.append("4. Make sure you have called CovGroup.sample() to sample the coverage group in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.")
-        fmsg.append("5. If the test case is marked with multiple check points and some of them failed, some of them unfailed, it is also a problem of test logic. You should split the test case to make sure each check point is independent.")
-        return False, fmsg
+                           "Review your task requirements and complete the check point markings. ", -1
 
     if callable(post_checker):
         ret, msg = post_checker(report)
         if not ret:
-            return ret, msg
+            return ret, msg, -1
 
-    return True, "All failed test functions are properly marked in bug analysis documentation."
+    return True, "All failed test functions are properly marked in bug analysis documentation.", bug_ck_list_size
 
 
 
