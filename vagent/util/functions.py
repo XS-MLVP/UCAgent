@@ -168,7 +168,7 @@ def str_replace_to(text: str, old: list, new: str) -> str:
     return text
 
 
-def nested_keys_as_list(ndata:dict, leaf:str, keynames: List[str], ex_ignore_names=["line"]) -> List[str]:
+def nested_keys_as_list(ndata:dict, leaf:str, keynames: List[str], ex_ignore_names=["line"]) -> Tuple[List[str],List[str]]:
     """Convert nested dictionary keys to a list of paths up to a specified leaf node."""
     broken_leaf = []
     def _nest_dict_leafs(data, ret_list,
@@ -191,7 +191,7 @@ def nested_keys_as_list(ndata:dict, leaf:str, keynames: List[str], ex_ignore_nam
                     ret_list.append(f"{new_prefix}")
                 else:
                     if child_count and child_count[0] < 1:
-                        broken_leaf.append((parent_key, new_prefix))
+                        broken_leaf.append((parent_key, new_prefix, value))
     ret_data = []
     stop_keys = keynames + [""]
     stop_key_map = {k:stop_keys[i+1] for i, k in enumerate(keynames)}
@@ -218,7 +218,7 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
             return key_dict, nkey
         return pre_values[i - 1][keyname_list[i]], nkey
     with open(target_file, 'r') as f:
-        index = 0
+        index = 1
         lines = f.readlines()
         for line in lines:
             line = str_remove_blank(line.strip())
@@ -335,8 +335,7 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
     bins_fail = []
     bins_unmarked = []
     bins_funcs = {}
-    funcs_bins_pass = {}
-    funcs_bins_fail = {}
+    failed_funcs_bins = {}
     bins_funcs_reverse = {}
     bins_all = []
     for g in fc_data.get("groups", []):
@@ -356,14 +355,9 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
                         if func_key not in bins_funcs:
                             bins_funcs[func_key] = []
                         if func_key in fails:
-                            if bin_is_fail:
-                                if func_key not in funcs_bins_fail:
-                                    funcs_bins_fail[func_key] = []
-                                funcs_bins_fail[func_key].append(bin_full_name)
-                            else:
-                                if func_key not in funcs_bins_pass:
-                                    funcs_bins_pass[func_key] = []
-                                funcs_bins_pass[func_key].append(bin_full_name)
+                            if func_key not in failed_funcs_bins:
+                                failed_funcs_bins[func_key] = []
+                            failed_funcs_bins[func_key].append(bin_full_name)
                         bins_funcs[func_key].append(bin_full_name)
                         if bin_full_name not in bins_funcs_reverse:
                             bins_funcs_reverse[bin_full_name] = []
@@ -371,22 +365,11 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
                             func_key, tests_map.get(func_key, "Unknown")])
                 # all bins
                 bins_all.append(bin_full_name)
-    # Failed_funcs_failed_bins: only record the failed bins for each failed function
-    ret_data["failed_funcs_failed_bins"] = funcs_bins_fail
-    # Passed bins in failed functions
-    ret_data["failed_funcs_passed_bins"] = funcs_bins_pass
+    ret_data["failed_funcs_bins"] = failed_funcs_bins
     if return_all_checks:
         ret_data["bins_all"] = bins_all
     if len(bins_fail) > 0:
         ret_data["failed_check_point_list"] = bins_fail
-        bins_fail_funcs = {}
-        for b in bins_fail:
-            passed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] == "PASSED"]
-            failed_func = [f[0] for f in bins_funcs_reverse.get(b, []) if f[1] != "PASSED"]
-            if len(passed_func) > 0 and len(failed_func) == 0:
-                bins_fail_funcs[b] = passed_func
-        # record the failed check points that only have passed functions
-        ret_data["failed_check_point_passed_funcs"] = bins_fail_funcs
     ret_data["unmarked_check_points"] = len(bins_unmarked)
     if len(bins_unmarked) > 0:
         ret_data["unmarked_check_points_list"] = bins_unmarked
@@ -417,77 +400,26 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     return ret
 
 
-def get_unity_chip_doc_marks(path: str, leaf_node:str = "BUG-RATE", mini_leaf_count:int = 1) -> dict:
+def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 1) -> list:
     """
     Get the Unity chip documentation marks from a file.
     :param path: Path to the file containing Unity chip documentation.
     :param leaf_node: The leaf node type to consider in the documentation hierarchy.
     :param mini_leaf_count: The minimum number of leaf nodes required.
-    :return: A dictionary with the marks found in the file.
+    :return: key_name_list.
     """
-    node_type = ["FG", "FC", "CK", "BUG-RATE"]
-    assert os.path.exists(path), f"File {path} does not exist."
-    assert leaf_node in node_type, f"Invalid leaf_node '{leaf_node}'. Must be one of {node_type}."
-    pos = node_type.index(leaf_node) + 1
-    keynames = ["group", "function", "checkpoint", "bug_rate"][:pos]
-    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-RATE-"][:pos]
+    keynames = ["FG", "FC", "CK", "BG", "TC"]
+    assert leaf_node in keynames, f"Invalid leaf_node '{leaf_node}'. Must be one of {keynames}."
+    prefix   = ["<FG-", "<FC-", "<CK-", "<BG-", "<TC-"]
     subfix   = [">"]* len(prefix)
     data = parse_nested_keys(path, keynames, prefix, subfix)
-    count_group = 0
-    count_function = 0
-    count_checkpoint = 0
-    count_bug_rate = 0
-    mark_list = []
-    for k_g, d_g in data.items():
-        count_group += 1
-        function = d_g.get("function", {})
-        if leaf_node == "FG":
-            assert not function, f"Group '{k_g}' should not contain any functions when leaf_node is 'FG'."
-            mark_list.append(k_g)
-        else:
-            assert function, f"Group '{k_g}' must contain functions."
-        if leaf_node == "FC":
-            assert len(function) >= mini_leaf_count, f"At least {mini_leaf_count} functions are required in group '{k_g}', found {len(function)}."
-        for k_f, d_f in function.items():
-            count_function += 1
-            checkpoint = d_f.get("checkpoint", {})
-            if leaf_node == "FC":
-                assert not checkpoint, f"Function '{k_f}' should not contain any checkpoints when leaf_node is 'FC'."
-                mark_list.append(f"{k_g}/{k_f}")
-            else:
-                assert checkpoint, f"Function '{k_f}' must contain checkpoints."
-            if leaf_node == "CK":
-                assert len(checkpoint) >= mini_leaf_count, f"At least {mini_leaf_count} checkpoints are required in function '{k_g}/{k_f}', found {len(checkpoint)}."
-            for k_c, d_c in checkpoint.items():
-                count_checkpoint += 1
-                bug_rate = d_c.get("bug_rate", {})
-                if leaf_node == "CK":
-                    assert not bug_rate, f"Checkpoint '{k_c}' should not contain any bug rates when leaf_node is 'CK'."
-                    mark_list.append(f"{k_g}/{k_f}/{k_c}")
-                    continue
-                if leaf_node == "BUG-RATE":
-                    assert len(bug_rate) > 0, f"Checkpoint '{k_c}' must contain one bug rate when leaf_node is 'BUG-RATE'."
-                    count_bug_rate += 1
-                    mark_list.append(f"{k_g}/{k_f}/{k_c}/{[_ for _ in bug_rate.keys()][0]}")
-    if leaf_node == "FG":
-        assert count_group >= mini_leaf_count, f"At least {mini_leaf_count} groups are required, found {count_group}."
-    if leaf_node == "BUG-RATE" and len(mark_list) < 1:
-        with open(path, 'r') as f:
-            content = f.read()
-            likely_has_bug_desc = True
-            for k in node_type[:-1]:
-                if k not in content:
-                    likely_has_bug_desc = False
-                    break
-            if likely_has_bug_desc:
-                raise AssertionError(f"No valid bug marks found. Please ensure that you describe the bug in the right format. ")
-    return {
-        "count_group": count_group,
-        "count_function": count_function,
-        "count_checkpoint": count_checkpoint,
-        "count_bug_rate": count_bug_rate,
-        "marks": mark_list
-    }
+    tindex = keynames.index(leaf_node)
+    klist, blist = nested_keys_as_list(data, leaf_node, keynames, ex_ignore_names=["line"])
+    assert len(klist) >= mini_leaf_count, f"Need {mini_leaf_count} {leaf_node} at least, but find {len(klist)}"
+    fmsg = ", ".join([f"{b[1]} at line {b[2]}" for b in blist])
+    assert len(blist) == 0, f"Incomplete label {leaf_node} detected: `{fmsg}`, please fix it according to the format requirements: " + \
+                            f"{' '.join([x+'*>' for x in prefix[:tindex]])}"
+    return klist
 
 
 def rm_workspace_prefix(workspace: str, path:str) -> dict:
@@ -1302,11 +1234,15 @@ def clean_report_with_keys(report: dict, keys=["bins_all"]) -> dict:
 def description_bug_doc():
     return [
          "Bug analysis document format:",
-         "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK>, <BUG-RATE-XX>, where XX is an integer between 0 and 100 representing the confidence level.",
+         "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK>, <BG-NAME-XX>, <TC-FAILEDTESTCASE>.",
+         "   Where XX is an integer between 0 and 100 representing the confidence level. The format of FAILEDTESTCASE is 'test_python_file.py::testcase_name'.",
          "   For example:",
          "    <FG-LOGIC>",
          "            <FC-ADD>",
-         "                <CK-BASIC> <BUG-RATE-80> Bug explain and its has 80% confidence to be a DUT bug.",
+         "                <CK-BASIC>",
+         "                    <BG-NAME1-80> Bug NAME1 explain and its has 80% confidence to be a DUT bug.",
+         "                       <TC-test.py::test_my_test1> failed test case test.py::test_my_test1 explain",
+         "                       <TC-test.py::test_my_test2> failed test case test.py::test_my_test2 explain",
          "                   Bug reason analysis:",
          "                   ```verilog",
          "                     assert (a + b == c) else $error('Addition error');",
@@ -1315,8 +1251,11 @@ def description_bug_doc():
          "                   Bug fix suggestion:",
          "                   ```verilog",
          "                     // Ensure proper handling of XXX cases",
+         "                     <BG-NAME2-90> ....",
          "                     ...",
-         "                <CK-OVERFLOW> <BUG-RATE-50> Bug explain and its has 50% confidence to be a DUT bug.",
+         "                <CK-OVERFLOW>",
+         "                    <BG-NAME3-50> Bug NAME3 explain and its has 50% confidence to be a DUT bug.",
+         "                      <TC-test2.py::test_overflow> failed test case test2.py::test_overflow explain",
          "                   Bug reason analysis:",
          "                   ```verilog",
          "                     assert (a + b >= a) else $error('Overflow error');",
