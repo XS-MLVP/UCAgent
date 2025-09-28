@@ -267,7 +267,7 @@ def test_api_adder_add_invalid_input():
 
 ```python
 import pytest
-from {DUT}_api import *
+from {DUT}_api import * # 重要，必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
 
 def test_api_adder_add_basic(env):
     """测试加法器API基础功能
@@ -533,6 +533,6 @@ def api_cache_invalidate(env, address_range: Tuple[int, int],
 
 ### 其他说明
 
-- 需要在 `{DUT}_api.py` 中同时实现所有fixture 与 API，编写用例时只要 `from {DUT}_api import *`
+- 需要在 `{DUT}_api.py` 中同时实现所有fixture 与 API，编写用例时只要 `from {DUT}_api import *` (必须用 import *， 而不是 import env，不然会出现 dut 没定义错误)
 - API 注释应当尽可能的详尽
 - 在 fixture env 中需要做好 DUT 实例的生命周期管理

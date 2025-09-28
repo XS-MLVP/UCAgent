@@ -10,8 +10,14 @@ from {{DUT}} import DUT{{DUT}}  # Replace with the actual DUT class import
 
 import os
 
+
 def current_path_file(file_name):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
+
+
+def get_coverage_data_path(request, new_path:bool):
+    # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
+    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
 
 
 def create_dut(request):
@@ -24,10 +30,8 @@ def create_dut(request):
     # Replace with the actual instantiation and initialization of your DUT
     dut = DUT{{DUT}}()
 
-    # toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=True)
-    dut.SetCoverage(coverage_path)
+    dut.SetCoverage(get_coverage_data_path(request, new_path=True))
 
     # 设置波形生成文件（根据需要设置，可选）
     # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=True)
@@ -60,11 +64,9 @@ def dut(request):
     # 需要在测试结束的时候，通过set_func_coverage把覆盖组传递给toffee_test*
     set_func_coverage(request, func_coverage_group)
 
-    # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False)
-    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=False)
-    # 向toffee_test传代码行递覆盖率数据
+    # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
-    set_line_coverage(request, coverage_path, ignore=current_path_file("{{DUT}}.ignore"))
+    set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
 
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计
