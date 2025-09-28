@@ -230,7 +230,7 @@ class UnityChipCheckerDutApi(Checker):
         if len(func_list) < self.min_apis:
             return False, {
                 "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}. " + \
-                         f"You need to define APIs like: 'def {self.api_prefix}<API_NAME>(dut, ...)'. " + \
+                         f"You need to define APIs like: 'def {self.api_prefix}<API_NAME>(env, ...)'. " + \
                          f"Review your task details and ensure that the API functions are defined correctly in the target file.",
             }
         for func in func_list:

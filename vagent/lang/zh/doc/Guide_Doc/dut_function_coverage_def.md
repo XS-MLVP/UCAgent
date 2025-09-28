@@ -244,9 +244,9 @@ dut.StepRis(lambda _: [g.sample() for g in func_coverage_group])
 #### 手动采样
 ```python
 # 在API函数中采样，适用于特定操作
-def api_complex_operation(dut, ...):
+def api_complex_operation(env, ...):
     # 执行操作
-    result = perform_operation(dut, ...)
+    result = perform_operation(env.dut, ...)
     
     # 手动采样
     for g in get_coverage_groups():

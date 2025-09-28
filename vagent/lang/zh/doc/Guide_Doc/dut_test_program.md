@@ -216,89 +216,69 @@ import pytest
 from SimpleBus import *
 import random
 
-@pytest.fixture()
-def dut(request):
-    """DUT fixture，负责创建和清理DUT实例"""
-    bus = DUTSimpleBus()
-    yield bus
-    bus.Finish()
+class SimpleBusSeqEnv:
 
-def api_DUTSimpleBus_reset(dut):
-    """顺序逻辑封装的复位操作"""
-    dut.InitClock("clk")           # 初始化时钟
-    dut.reset.value = 1            # 拉高复位信号
-    dut.Step(10)                   # 保持复位10个时钟周期
-    dut.reset.value = 0            # 释放复位信号
-    dut.Step(10)                   # 等待电路稳定
+    def self.__init__(self, dut):
+        self.dut = dut
 
-def api_DUTSimpleBus_send_rec_seq(dut, data, timeout_steps=100):
-    """顺序逻辑封装的发送与接收操作
-    
-    Args:
-        dut: DUT实例
-        data: 要发送的数据列表
-        timeout_steps: 超时时钟周期数
-        
-    Returns:
-        list: 接收到的数据列表
-    """
-    return_data = []
-    in_data = [d for d in data]    # 复制输入数据
-    cycle = 0
-    
-    api_DUTSimpleBus_reset(dut)    # 复位DUT
-    
-    # 初始化信号
-    dut.send_valid_in.value = 0
-    dut.recv_ready_in.value = 0
-    
-    while len(return_data) < len(data) and cycle < timeout_steps:
-        # 接收逻辑：检查是否有有效数据输出
-        if dut.recv_valid_out.value and dut.recv_ready_in.value:
-            return_data.append(dut.recv_data_out.value)
-            print(f"Cycle {cycle}: 接收数据 0x{dut.recv_data_out.value:08x}")
-        
-        # 随机设置接收准备信号，模拟下游模块的随机性
-        dut.recv_ready_in.value = random.randint(0, 1)
-        
-        # 发送逻辑：当模块准备好接收时发送数据
-        if dut.send_ready_out.value and len(in_data) > 0:
-            data_to_send = in_data.pop(0)
-            dut.send_data_in.value = data_to_send
-            dut.send_valid_in.value = 1
-            print(f"Cycle {cycle}: 发送数据 0x{data_to_send:08x}")
-        else:
-            dut.send_valid_in.value = 0
-        
-        dut.Step(1)                # 推进一个时钟周期
-        cycle += 1
-    
-    # 清理发送信号
-    dut.send_valid_in.value = 0
-    
-    if cycle >= timeout_steps:
-        raise TimeoutError(f"传输超时，已传输 {len(return_data)}/{len(data)} 个数据")
-    
-    return return_data
+    def op_DUTSimpleBus_reset(self):
+        """顺序逻辑封装的复位操作"""
+        self.dut.InitClock("clk")           # 初始化时钟
+        self.dut.reset.value = 1            # 拉高复位信号
+        self.dut.Step(10)                   # 保持复位10个时钟周期
+        self.dut.reset.value = 0            # 释放复位信号
+        self.dut.Step(10)                   # 等待电路稳定
 
-def test_simple_bus_seq_basic(dut):
-    """基本顺序测试"""
-    data = [0x01, 0x02, 0x03, 0x04]
-    received = api_DUTSimpleBus_send_rec_seq(dut, data)
-    assert data == received, f"数据不匹配：发送 {data}, 接收 {received}"
+    def op_DUTSimpleBus_send_rec_seq(self, data, timeout_steps=100):
+        """顺序逻辑封装的发送与接收操作
 
-def test_simple_bus_seq_large_data(dut):
-    """大数据量顺序测试"""
-    data = list(range(100))  # 0-99
-    received = api_DUTSimpleBus_send_rec_seq(dut, data, timeout_steps=500)
-    assert data == received, "大数据量传输失败"
+        Args:
+            dut: DUT实例
+            data: 要发送的数据列表
+            timeout_steps: 超时时钟周期数
 
-def test_simple_bus_seq_random_data(dut):
-    """随机数据顺序测试"""
-    import random
-    data = [random.randint(0, 0xFFFFFFFF) for _ in range(20)]
-    received = api_DUTSimpleBus_send_rec_seq(dut, data, timeout_steps=200)
-    assert data == received, "随机数据传输失败"
+        Returns:
+            list: 接收到的数据列表
+        """
+        return_data = []
+        in_data = [d for d in data]    # 复制输入数据
+        cycle = 0
+
+        self.op_DUTSimpleBus_reset()    # 复位DUT
+
+        # 初始化信号
+        self.dut.send_valid_in.value = 0
+        self.dut.recv_ready_in.value = 0
+
+        while len(return_data) < len(data) and cycle < timeout_steps:
+            # 接收逻辑：检查是否有有效数据输出
+            if self.dut.recv_valid_out.value and self.dut.recv_ready_in.value:
+                return_data.append(self.dut.recv_data_out.value)
+                print(f"Cycle {cycle}: 接收数据 0x{self.dut.recv_data_out.value:08x}")
+
+            # 随机设置接收准备信号，模拟下游模块的随机性
+            self.dut.recv_ready_in.value = random.randint(0, 1)
+
+            # 发送逻辑：当模块准备好接收时发送数据
+            if self.dut.send_ready_out.value and len(in_data) > 0:
+                data_to_send = in_data.pop(0)
+                self.dut.send_data_in.value = data_to_send
+                self.dut.send_valid_in.value = 1
+                print(f"Cycle {cycle}: 发送数据 0x{data_to_send:08x}")
+            else:
+                self.dut.send_valid_in.value = 0
+
+            self.dut.Step(1)                # 推进一个时钟周期
+            cycle += 1
+
+        # 清理发送信号
+        self.dut.send_valid_in.value = 0
+
+        if cycle >= timeout_steps:
+            raise TimeoutError(f"传输超时，已传输 {len(return_data)}/{len(data)} 个数据")
+
+        return return_data
+
 ```
 
 ### 顺序编程的优缺点
@@ -330,163 +310,9 @@ def test_simple_bus_seq_random_data(dut):
 ### 实现示例
 
 ```python
-def api_DUTSimpleBus_send_rec_callback(dut, data, timeout_steps=100):
-    """基于回调的发送与接收操作封装
-    
-    Args:
-        dut: DUT实例
-        data: 要发送的数据列表
-        timeout_steps: 超时时钟周期数
-        
-    Returns:
-        list: 接收到的数据列表
-    """
-    return_data = []
-    in_data = [d for d in data]
-    send_state = {'active': False, 'data_sent': 0}  # 发送状态
-    recv_state = {'data_received': 0}               # 接收状态
-    
-    api_DUTSimpleBus_reset(dut)
-    dut.StepRis.ClearCallBacks()  # 清空之前的上升沿回调
-    
-    def send_callback(cycle):
-        """发送端回调函数"""
-        if len(in_data) > 0 and dut.send_ready_out.value:
-            # 有数据要发送且模块准备好接收
-            data_to_send = in_data.pop(0)
-            dut.send_data_in.value = data_to_send
-            dut.send_valid_in.value = 1
-            send_state['active'] = True
-            send_state['data_sent'] += 1
-            print(f"Cycle {cycle}: 发送数据 0x{data_to_send:08x} ({send_state['data_sent']}/{len(data)})")
-        elif send_state['active'] and dut.send_ready_out.value:
-            # 数据已被接收，清除发送信号
-            dut.send_valid_in.value = 0
-            send_state['active'] = False
-        elif not dut.send_ready_out.value:
-            # 模块未准备好，保持当前状态
-            pass
-    
-    def recv_callback(cycle):
-        """接收端回调函数"""
-        # 随机设置接收准备信号，模拟下游模块行为
-        dut.recv_ready_in.value = random.choice([0, 1]) if random.random() > 0.2 else 1
-        
-        # 检查是否有有效数据输出
-        if dut.recv_valid_out.value and dut.recv_ready_in.value:
-            received_data = dut.recv_data_out.value
-            return_data.append(received_data)
-            recv_state['data_received'] += 1
-            print(f"Cycle {cycle}: 接收数据 0x{received_data:08x} ({recv_state['data_received']}/{len(data)})")
-    
-    def status_callback(cycle):
-        """状态监控回调函数"""
-        if cycle % 50 == 0:  # 每50个周期打印一次状态
-            print(f"Cycle {cycle}: 发送进度 {send_state['data_sent']}/{len(data)}, "
-                  f"接收进度 {recv_state['data_received']}/{len(data)}")
-    
-    # 注册回调函数
-    dut.StepRis(send_callback)
-    dut.StepRis(recv_callback)
-    dut.StepRis(status_callback)
-    
-    # 初始化信号
-    dut.send_valid_in.value = 0
-    dut.recv_ready_in.value = 0
-    
-    # 主循环：只负责推进时钟
-    cycle = 0
-    while len(return_data) < len(data) and cycle < timeout_steps:
-        dut.Step(1)
-        cycle += 1
-    
-    # 清理信号
-    dut.send_valid_in.value = 0
-    dut.recv_ready_in.value = 0
-    
-    if cycle >= timeout_steps:
-        raise TimeoutError(f"传输超时，已传输 {len(return_data)}/{len(data)} 个数据")
-    
-    return return_data
-
-def test_simple_bus_callback_basic(dut):
-    """基本回调测试"""
-    data = [0x01, 0x02, 0x03, 0x04]
-    received = api_DUTSimpleBus_send_rec_callback(dut, data)
-    assert data == received, f"数据不匹配：发送 {data}, 接收 {received}"
-
-def test_simple_bus_callback_stress(dut):
-    """回调压力测试"""
-    data = list(range(0, 1000, 7))  # 0, 7, 14, ..., 994
-    received = api_DUTSimpleBus_send_rec_callback(dut, data, timeout_steps=2000)
-    assert data == received, "压力测试失败"
-
-# 高级回调示例：多状态机管理
-def api_DUTSimpleBus_advanced_callback(dut, data_streams, timeout_steps=500):
-    """高级回调示例：处理多个数据流
-    
-    Args:
-        dut: DUT实例
-        data_streams: 数据流字典，{stream_id: data_list}
-        timeout_steps: 超时时钟周期数
-    """
-    results = {stream_id: [] for stream_id in data_streams}
-    stream_queues = {stream_id: list(data) for stream_id, data in data_streams.items()}
-    current_stream = 0
-    stream_ids = list(data_streams.keys())
-    
-    api_DUTSimpleBus_reset(dut)
-    dut.StepRis.ClearCallBacks()
-    
-    def stream_scheduler_callback(cycle):
-        """数据流调度回调"""
-        nonlocal current_stream
-        if cycle % 10 == 0:  # 每10个周期切换数据流
-            current_stream = (current_stream + 1) % len(stream_ids)
-    
-    def adaptive_send_callback(cycle):
-        """自适应发送回调"""
-        current_stream_id = stream_ids[current_stream]
-        current_queue = stream_queues[current_stream_id]
-        
-        if current_queue and dut.send_ready_out.value:
-            data_to_send = current_queue.pop(0)
-            dut.send_data_in.value = data_to_send
-            dut.send_valid_in.value = 1
-            print(f"Cycle {cycle}: Stream {current_stream_id} 发送 0x{data_to_send:08x}")
-        else:
-            dut.send_valid_in.value = 0
-    
-    def intelligent_recv_callback(cycle):
-        """智能接收回调"""
-        # 根据当前负载动态调整接收准备信号
-        total_pending = sum(len(queue) for queue in stream_queues.values())
-        ready_probability = 0.9 if total_pending > 10 else 0.7
-        dut.recv_ready_in.value = 1 if random.random() < ready_probability else 0
-        
-        if dut.recv_valid_out.value and dut.recv_ready_in.value:
-            received_data = dut.recv_data_out.value
-            # 简单地按顺序分配给当前流（实际应用中需要更复杂的逻辑）
-            stream_id = stream_ids[current_stream]
-            results[stream_id].append(received_data)
-            print(f"Cycle {cycle}: Stream {stream_id} 接收 0x{received_data:08x}")
-    
-    # 注册回调
-    dut.StepRis(stream_scheduler_callback)
-    dut.StepRis(adaptive_send_callback)
-    dut.StepRis(intelligent_recv_callback)
-    
-    # 执行测试
-    cycle = 0
-    total_expected = sum(len(data) for data in data_streams.values())
-    total_received = 0
-    
-    while total_received < total_expected and cycle < timeout_steps:
-        dut.Step(1)
-        cycle += 1
-        total_received = sum(len(result) for result in results.values())
-    
-    return results
+class SimpleBusCallBackEnv:
+    ....
+    # TBD
 ```
 
 ### 回调编程的优缺点
@@ -508,49 +334,11 @@ def api_DUTSimpleBus_advanced_callback(dut, data_streams, timeout_steps=500):
 对于复杂 DUT，回调模式容易出现“回调地狱”，不利于用例维护。异步编程模型可以有效解决这一问题。具体如下：
 
 ```python
-import asyncio
-
-async def sender(dut, data_to_send):
-    for data in data_to_send:        
-        await dut.AStep(1) # 等待一个时钟周期
-        if not dut.send_ready_out.value == 1:
-            dut.send_valid_in.value = 0 # 如果发送不准备好，则不发送数据
-            continue
-        dut.send_data_in.value = data
-        dut.send_valid_in.value = 1     # 发送数据
-    # 发送完后清零
-    await dut.AStep(1)
-    dut.send_valid_in.value = 0
-
-async def receiver(dut, num_items_to_receive):
-    received_data = []
-    while len(received_data) < num_items_to_receive:
-        dut.recv_ready_in.value = 1 # allways ready to receive
-        await dut.AStep(1)  # 等待一个时钟周期
-        if dut.recv_valid_out.value:
-            received_data.append(dut.recv_data_out.value)
-            print(f"recv {dut.recv_data_out.value} at cycle {dut.xclock.clk}")
-    return received_data
-
-async def api_DUTSimpleBus_send_rec_async(dut, data, timeout_steps=1000):
-    api_DUTSimpleBus_reset(dut)                                       # reset dut
-    # 创建并启动发送和接收两个并发任务
-    receiver_task = asyncio.create_task(receiver(dut, len(data)))
-    asyncio.create_task(sender(dut, data))
-    while not receiver_task.done() and timeout_steps > 0:
-        dut.Step(1) # 推进电路
-        await asyncio.sleep(0) # 让出控制权，允许其他协程运行
-        timeout_steps -= 1
-    if timeout_steps <= 0:
-        raise TimeoutError("Timeout while waiting for receiver to finish")
-    return receiver_task.result()  # 返回接收任务的结果
-
-@pytest.mark.asyncio
-async def test_simple_bus_async(dut):
-    data = [0x01, 0x02, 0x03, 0x04]
-    received_data = await api_DUTSimpleBus_send_rec_async(dut, data)
-    assert data == received_data
+class SimpleBusASyncEnv:
+    ....
+    # TBD
 ```
+
 
 异步编程模式能有效应对复杂 DUT 验证场景，避免回调嵌套，提升用例可维护性。对于简单模块，异步模式的编程成本略高，但对于复杂场景优势明显。
 
