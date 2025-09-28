@@ -1309,3 +1309,11 @@ def replace_bash_var(in_str, data: dict):
         default = match.group('default').strip()
         return str(data.get(key, default)) if default else str(data.get(key))
     return re.sub(pattern, replace_match, in_str)
+
+
+def tips_of_get_coverage_data_path(dut_name: str):
+    return f"""
+If 'get_coverage_data_path' not find in the template, you should define it like this:
+def get_coverage_data_path(request, new_path:bool):
+    return get_file_in_tmp_dir(request, current_path_file("data/"), "{dut_name}.dat",  new_path=new_path)
+"""
