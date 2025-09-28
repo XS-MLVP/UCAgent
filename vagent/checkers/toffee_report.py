@@ -125,7 +125,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         failed_tc = [k for k, v in failed_tc_maps.items() if not v]
         if failed_tc:
             return False, [f"Find undocumented failed test cases: {', '.join(failed_tc)}",
-                           *fc.description_bug_doc,
+                           *fc.description_bug_doc(),
                            "Actions required:",
                            "1. Make sure the failed test cases are properly implemented and are indeed failing due to DUT bugs.",
                            "2. If they are valid failed test cases, document them in the bug analysis documentation using <TC-*> tags.",
