@@ -129,7 +129,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                            "Actions required:",
                            "1. Make sure the failed test cases are properly implemented and are indeed failing due to DUT bugs.",
                            "2. If they are valid failed test cases, document them in the bug analysis documentation using <TC-*> tags.",
-                           "3. If they are not related to any bugs, consider fixing the test cases or removing them if they are obsolete."
+                           "3. If they are not related to any bugs, consider fixing the test cases or removing them if they are obsolete.",
                            f"Note: all failed test cases must indicate bugs and be documented in file '{bug_file}' witch <TC-*> marks"
                            ]
     return True, ""
