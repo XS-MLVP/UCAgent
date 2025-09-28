@@ -202,7 +202,7 @@ class VerifyAgent:
                 max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
             ).set_max_keep_msgs(self.max_keep_msgs)
-
+        self.message_manage_node = message_manage_node
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
@@ -250,6 +250,18 @@ class VerifyAgent:
             info("Using standard interaction mode")
         self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+    def set_max_keep_msgs(self, max_keep_msgs: int):
+        return self.message_manage_node.set_max_keep_msgs(max_keep_msgs)
+
+    def set_max_token(self, max_token: int):
+        return self.message_manage_node.set_max_token(max_token)
+
+    def get_max_token(self) -> int:
+        return self.message_manage_node.get_max_token()
+
+    def get_max_keep_msgs(self) -> int:
+        return self.message_manage_node.get_max_keep_msgs()
 
     def summary_mode(self):
         if self.use_trim_mode:
