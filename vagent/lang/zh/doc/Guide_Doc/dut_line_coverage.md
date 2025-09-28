@@ -148,8 +148,8 @@ def dut(request):
 ```
 
 **重要：**
-- 需要通过get_file_in_tmp_dir(..., new_path=True)获取代码行覆盖率文件路径
-- 需要通过get_file_in_tmp_dir(..., new_path=False)获取已有路径的代码行覆盖率文件，并传递给set_line_coverage(request, coverage_path, ...)
+- 需要通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径，并传递给 dut.SetCoverage
+- 需要通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage
 
 
 在ignore参数中指定ignore文件(或者ignore表达式，或者ignore文件所在的文件夹)，支持以list格式传递多个值。

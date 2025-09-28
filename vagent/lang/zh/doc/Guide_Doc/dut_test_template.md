@@ -147,7 +147,7 @@ def test_example(env):
 遵循项目约定导入必要的API：
 
 ```python
-from {DUT}_api import *  # 导入DUT相关的API函数
+from {DUT}_api import *  # 导入DUT相关的API函数, 必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
 ```
 
 ### 3. 覆盖率完整性

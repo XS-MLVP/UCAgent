@@ -1,6 +1,6 @@
 #coding=utf-8
 
-from {{DUT}}_api import *
+from {{DUT}}_api import * # 重要，必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
 
 
 # 根据需要定义测试函数

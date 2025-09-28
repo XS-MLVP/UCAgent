@@ -186,7 +186,7 @@ stage:
          - "在该函数中根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
          - "根据验证需要，确定是否需要在该函数中开启波形导出、代码行覆盖率等"
          - "确保创建函数能正常工作"
-         - "确保在create_dut(request)函数中，通过get_file_in_tmp_dir(..., new_path=True)获取代码行覆盖率文件路径coverage_path，并传递给芯片实例dut.SetCoverage(coverage_path)"
+         - "确保在create_dut(request)函数中，通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径，并传递给 dut.SetCoverage"
        checker:
          - name: dut_creation_check
            clss: "UnityChipCheckerDutCreation"
@@ -200,7 +200,7 @@ stage:
        task:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
-         - "- 确保在dut fixture的清理阶段，调用通过get_file_in_tmp_dir(..., new_path=False)获取已有路径的代码行覆盖率文件，并传递给set_line_coverage(request, coverage_path, ...)"
+         - "- 确保在dut fixture的清理阶段，调用通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage"
          - "- 确保dut fixture能正确初始化和清理芯片"
          - "- 确保dut fixture的scope设置为module"
        checker:
@@ -344,7 +344,7 @@ stage:
       - "要求：每个API函数至少有一个基础功能测试用例"
       - "完成所有API对应测试用例后，请用Check工具进行阶段检查"
       - "注意："
-      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut"
+      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture dut (必须用 import *)"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（基于源代码分析）"
       - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
       - "  - 发现的bug需要计入bug分析文档{OUT}/{DUT}_bug_analysis.md，格式请参考Guide_Doc/dut_bug_analysis.md"
@@ -413,7 +413,7 @@ stage:
       - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
       - "注意："
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
-      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture"
+      - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixture (必须用 import *)"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
       - "  - 不要尝试修复确定为出发DUT bug的测试用例，而是保留测试用例为Fail"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"

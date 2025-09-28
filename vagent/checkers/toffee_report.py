@@ -56,7 +56,7 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
 
 
-def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict):
+def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, only_marked_ckp_in_tc: bool):
     try:
         tc_list = [t for t in fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_file), leaf_node="TC") \
                            if t.startswith(target_ck_prefix)]
@@ -85,7 +85,8 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     tc_not_found_in_ftc_list = []
     tc_not_mark_the_cks_list = []
     for tc in tc_list:
-        checkpoint = tc.split("/TC-")[0]
+        checkpoint = tc.split("/BG-")[0]
+        bug_label = tc.split("/TC-")[0]
         tc_name = tc.split("/")[-1].split("TC-")[-1]
         tc_name_parts = tc_name.split("::")
         if len(tc_name_parts) < 2:
@@ -94,32 +95,44 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         if is_fail_tc:
             failed_tc_maps[fail_tc_name] = True
             if checkpoint not in failed_tc_and_cks[fail_tc_name]:
-                tc_not_mark_the_cks_list.append((tc, checkpoint))
+                tc_not_mark_the_cks_list.append((tc_name, checkpoint))
         else:
-            tc_not_found_in_ftc_list.append((tc, checkpoint))
+            tc_not_found_in_ftc_list.append((tc_name, bug_label))
 
     # tc not found in fail tcs
-    if len(tc_not_found_in_ftc_list) > 0:
-        ftc_msg = ', '.join([f"{x[1]}(in {x[0]})" for x in tc_not_found_in_ftc_list])
+    if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
+        ftc_msg = ', '.join([f"{x[0]}(in {x[1]})" for x in tc_not_found_in_ftc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test cases ({ftc_msg}) which are not found in the failed test cases.",
-                       "Note: test cases indicate a bug must be 'Fail'"
+                       "Actions required:",
+                          "1. Ensure the test case names in the documentation match exactly with those in the test python file.",
+                          "2. If the test cases are based on classes, ensure the class names are included in the <TC-*> tags, e.g., <TC-test_example.py::TestClassName::test_function_name>.",
+                          "3. If the test cases have no relation to the bug, please remove them from the bug analysis documentation.",
+                          "4. The test python file in <TC-*> must be the same as the actual test file name.",
+                       "Note: those test cases indicate a bug must be 'Fail'"
                        ]
     # tc not mark their checkpoints
     if len(tc_not_mark_the_cks_list) > 0:
-        ftc_msg = ', '.join([f"{x[1]}(in {x[0]})" for x in tc_not_mark_the_cks_list])
+        ftc_msg = ', '.join([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking their checkpoints.",
-                       "Note: failed test cases must mark their bug related checkpoint"
+                       "Actions required:",
+                          "1. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
+                          "2. If a test case is supposed to validate a bug related specific checkpoint, ensure it use 'mark_function' to mark the checkpoint.",
+                          "3. If the test case does not relate to any specific checkpoint, consider deleting it from the bug analysis documentation.",
+                        "Note: those failed test cases must mark their bug related checkpoint"
                        ]
     # fail tc not in bug doc
     if not target_ck_prefix:
         failed_tc = [k for k, v in failed_tc_maps.items() if not v]
         if failed_tc:
             return False, [f"Find undocumented failed test cases: {', '.join(failed_tc)}",
-                           f"Note: all failed test cases must be documented in file '{bug_file}' witch <TC-*> marks:"
                            *fc.description_bug_doc,
+                           "Actions required:",
+                           "1. Make sure the failed test cases are properly implemented and are indeed failing due to DUT bugs.",
+                           "2. If they are valid failed test cases, document them in the bug analysis documentation using <TC-*> tags.",
+                           "3. If they are not related to any bugs, consider fixing the test cases or removing them if they are obsolete."
+                           f"Note: all failed test cases must indicate bugs and be documented in file '{bug_file}' witch <TC-*> marks"
                            ]
-    return True, "",
-
+    return True, ""
 
 def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
                           check_tc_in_doc=True, target_ck_prefix:str =""):
@@ -193,7 +206,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         check_tc_in_doc: Whether to check test cases in documentation.
         check_doc_in_tc: Whether to check documentation in test cases.
         post_checker: An optional post-checker function.
-        only_marked_ckp_in_tc: Whether to only consider marked check points in test cases.
+        only_marked_ckp_in_tc: Whether to only consider marked check points in test cases (enable this in batch testing mode).
 
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
@@ -229,7 +242,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
 
         ret, msg = check_bug_tc_analysis(
-            workspace, bug_file, target_ck_prefix, failed_funcs_bins
+            workspace, bug_file, target_ck_prefix, failed_funcs_bins, only_marked_ckp_in_tc
         )
         if not ret:
             return ret, msg, -1

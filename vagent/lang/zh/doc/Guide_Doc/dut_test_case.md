@@ -10,7 +10,7 @@
 ### 标准导入模式
 
 ```python
-from {DUT}_api import *
+from {DUT}_api import * # 重要，必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
 import pytest
 # 根据需要导入其他必要模块
 ```
@@ -187,7 +187,7 @@ def test_invalid_input_handling(env):
 ### 基础加法器测试
 
 ```python
-from adder_api import *
+from adder_api import *  # 重要，必须用 import *， 而不是 import env，不然会出现 dut 没定义错误
 import pytest
 
 class TestAdderBasic:

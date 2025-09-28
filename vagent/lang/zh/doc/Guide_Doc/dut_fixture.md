@@ -26,8 +26,15 @@ DUT fixture负责：
 import os
 from toffee_test.reporter import get_file_in_tmp_dir
 
+
 def current_path_file(file_name):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), file_name)
+
+
+def get_coverage_data_path(request, new_path:bool):
+    # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
+    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
+
 
 def create_dut(request):
     """创建DUT实例的工厂函数
@@ -40,10 +47,8 @@ def create_dut(request):
     
     dut = DUT{DutClass}()
 
-    # toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
-    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.dat",  new_path=True)
-    dut.SetCoverage(coverage_path)
+    dut.SetCoverage(get_coverage_data_path(request, new_path=True))
 
     # 设置波形生成文件（根据需要设置，可选）
     # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.fst",  new_path=True)
@@ -62,6 +67,7 @@ dut Fixture 参考如下：
 import pytest
 from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
 from {DUT}_function_coverage_def import get_coverage_groups
+
 
 @pytest.fixture(scope="module")
 def dut(request):
@@ -91,11 +97,9 @@ def dut(request):
     # 7. 测试后处理（清理阶段）
     set_func_coverage(request, func_coverage_group)  # 向toffee_test传递功能覆盖率数据
 
-    # 8. 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False)
-    coverage_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.dat",  new_path=False)
-    # 向toffee_test传代码行递覆盖率数据
+    # 8. 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
-    set_line_coverage(request, coverage_path, ignore=current_path_file("{{DUT}}.ignore"))
+    set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
 
     for g in func_coverage_group:
         g.clear()  # 清空覆盖率统计
@@ -466,8 +470,10 @@ arithmetic_bundle.assign({
 ```python
 from toffee import Bundle, Signals
 
+
 class AXI4LiteBundle(Bundle):
     aw, w, b, ar, r, req, resp = Signals(7)
+
 
 class AXI4BasedDUTEnv:
     def __init__(self, dut):
@@ -494,6 +500,7 @@ class AXI4BasedDUTEnv:
         self.dut.Step()
         self.dut.reset.value = 0
         self.dut.Step()
+
 
 @pytest.fixture()
 def env(dut):

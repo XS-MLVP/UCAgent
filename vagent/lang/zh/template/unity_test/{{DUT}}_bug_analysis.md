@@ -3,7 +3,7 @@
 
 <!-- 请删除本注释中的所有内容
 
-学习任务中给出的参考文档：Guide_Doc/dut_bug_analysis.md，用 FG-*、 FC-*、CK-* 和 BUG-RATE-* 标签，对{{DUT}}测试中功能的检测点不通过的原因和确定为bug的概率进行分析。
+学习任务中给出的参考文档：Guide_Doc/dut_bug_analysis.md，依照树状标签格式对{{DUT}}测试中功能的Bug进行标记和原因分析。
 
 举例：
 
@@ -12,8 +12,9 @@
 <FG-FUNCTYPE-A>
 
 #### 功能A1：<FC-A1>
-- <CK-NAME1> 检测点1：由于什么原因导致该检测点不通过，为{{DUT}}设计bug概率的为 80% <BUG-RATE-80> 
-....
+- <CK-NAME1> 检测点1：由于什么原因导致了 <BG-BUGA-80>  BUGA，确定为{{DUT}}设计bug概率的为 80%
+  - <TC-test_my.py::test_case1> ...
+...
 
 #### 根因分析
 

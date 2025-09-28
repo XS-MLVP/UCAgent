@@ -12,7 +12,7 @@ def test_func_check_points():
     """Test the function points and checkpoints parsing."""
     function_list_file = os.path.join(current_dir, "test_data/dut_bug_analysis.md")
     keynames = ["group", "function", "checkpoint", "bug", "testcase"]
-    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BUG-", "<TEST-"]
+    prefix   = ["<FG-",  "<FC-",     "<CK-",       "<BG-", "<TC-"]
     subfix   = [">"]* len(prefix)
     # Parse the function points and checkpoints
     def parse():
