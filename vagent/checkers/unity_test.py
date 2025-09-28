@@ -122,10 +122,10 @@ class UnityChipCheckerDutCreation(Checker):
         dut = func_list[0](None)
         for need_func in ["Step", "StepRis"]:
             assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
-        # check 'get_file_in_tmp_dir'
+        # check 'get_coverage_data_path'
         func_source = inspect.getsource(cdut_func)
-        if "get_file_in_tmp_dir" not in func_source:
-            return False, {"error": f"The 'create_dut' function in '{self.target_file}' must call 'get_file_in_tmp_dir' to get coverage file path."}
+        if "get_coverage_data_path" not in func_source:
+            return False, {"error": f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=True)' to get a new coverage file path."}
         # Additional checks can be implemented here
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
@@ -157,9 +157,9 @@ class UnityChipCheckerDutFixture(Checker):
         try:
             source_lines = inspect.getsourcelines(dut_func)[0]
             source_code = ''.join(source_lines)
-            # check 'get_file_in_tmp_dir'
-            if "get_file_in_tmp_dir" not in source_code:
-                return False, {"error": f"The 'dut' fixture in '{self.target_file}' must call 'get_file_in_tmp_dir' to get coverage file path."}
+            # check 'get_coverage_data_path'
+            if "get_coverage_data_path" not in source_code:
+                return False, {"error": f"The 'dut' fixture in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=False)' to get existed coverage file path."}
             tree = ast.parse(source_code)
             
             has_yield = False
