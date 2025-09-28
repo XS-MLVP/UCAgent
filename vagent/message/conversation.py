@@ -86,6 +86,20 @@ class SummarizationAndFixToolCall(SummarizationNode):
             ret["messages"] = deleted_msg
         return ret
 
+    def set_max_keep_msgs(self, max_keep_msgs: int):
+        self.max_keep_msgs = max_keep_msgs
+        return self
+
+    def set_max_token(self, max_token: int):
+        self.max_token = max_token
+        return self
+
+    def get_max_token(self) -> int:
+        return self.max_token
+
+    def get_max_keep_msgs(self) -> int:
+        return self.max_keep_msgs
+
 
 class TrimMessagesNode:
     """Node to trim messages to a maximum count."""
@@ -111,6 +125,20 @@ class TrimMessagesNode:
         if deleted_msg:
             ret["messages"] = deleted_msg
         return ret
+
+    def set_max_keep_msgs(self, max_keep_msgs: int):
+        self.max_keep_msgs = max_keep_msgs
+        return self
+
+    def set_max_token(self, max_token: int):
+        self.max_token = max_token
+        return self
+
+    def get_max_token(self) -> int:
+        return self.max_token
+
+    def get_max_keep_msgs(self) -> int:
+        return self.max_keep_msgs
 
 
 class State(AgentState):

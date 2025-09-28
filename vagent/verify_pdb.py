@@ -873,3 +873,38 @@ class VerifyPDB(Pdb):
             echo_r(f"Index {index} is out of range. Valid range: 0 to {len(self.agent.stage_manager.stages) - 1}.")
             return
         self.agent.stage_manager.unskip_stage(index)
+
+    def do_message_config(self, arg):
+        """
+        Show or set message configuration.
+        Usage:
+          message_config                - Show current configuration
+          message_config <key> <value>  - Set configuration key to value
+        """
+        def get_message_cfg():
+            return {
+                "max_keep_msgs": self.agent.get_max_keep_msgs(),
+                "max_token": self.agent.get_max_token(),
+            }
+        def set_message_cfg(cfg):
+            if "max_keep_msgs" in cfg:
+                self.agent.set_max_keep_msgs(cfg["max_keep_msgs"])
+            if "max_token" in cfg:
+                self.agent.set_max_token(cfg["max_token"])
+        args = arg.strip().split()
+        if len(args) == 0:
+            message(yam_str(get_message_cfg()))
+            return
+        if len(args) != 2:
+            echo_y("Usage: message_config [<key> <value>]")
+            return
+        key, value = args
+        try:
+            value = eval(value)
+        except Exception:
+            pass
+        cfg = self.agent.cfg.get_value("message_cfg", {})
+        cfg[key] = value
+        set_message_cfg(cfg)
+        echo_g(f"Message configuration updated: {key} = {value}")
+        message(yam_str(get_message_cfg()))
