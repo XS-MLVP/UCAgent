@@ -158,12 +158,15 @@ def setup_clock(dut):
 
 ```python
 ...
-from toffee import Bundle, Signals
+from toffee import Bundle, Signals, Signal
 ...
 
 # 根据需要定义子Bundle
 # class MyPort(Bundle):
+#     # 定义引脚多个引脚用Signals
 #     signal1, signal2 = Signals(2)
+#     # 定义单个引脚用Signal
+#     signal3 = Signal()
 #     # 根据需要定义Port对应的操作
 #     def some_operation(self):
 #         ...
@@ -176,7 +179,7 @@ class {{DUT}}Env:
         self.dut = dut
         # 请在这里根据DUT的引脚定义，提供toffee.Bundle进行引脚封装
         #  1.如果引脚有多组，且有不同前缀，请用from_prefix方法
-        # self.some_input1 = MyPort.from_prefix("some_input_")
+        # self.some_input1 = MyPort.from_prefix("some_input_") # 去掉前缀后的dut引脚必须和MyPort中的引脚成员同名，例如some_input_signal1和signal1对应
         # self.some_input1.bind(dut)
         #  2.如果引脚无法分组，请用from_dict方法进行映射
         # self.some_input2 = MyPort.from_dict({...})
