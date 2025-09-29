@@ -18,11 +18,17 @@ reset_%:
 init_%:
 	rm output/examples/$* -rf
 	@if [ ! -d output/$* ]; then \
+		option_fs=""; \
+		if [ -f examples/$*/filelist.txt ]; then \
+			option_fs="--fs examples/$*/filelist.txt"; \
+		fi; \
 		if [ -f examples/$*/$*.v ]; then \
-			picker export examples/$*/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst; \
+			picker export examples/$*/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
 	cp examples/$*/*.md output/$*/  | true
+	cp examples/$*/*.sv output/$*/  | true
+	cp examples/$*/*.v output/$*/  | true
 	cp examples/$*/*.py output/$*/  | true
 	cp examples/$*/*.scala output/$*/  | true
 	cp vagent/doc/* output/ -r  | true
