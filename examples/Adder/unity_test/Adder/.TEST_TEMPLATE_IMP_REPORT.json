@@ -1,0 +1,69 @@
+{
+    "run_test_success": true,
+    "tests": {
+        "total": 14,
+        "fails": 9,
+        "test_cases": {
+            "unity_test/tests/test_Adder_api_basic.py:5-34::test_api_Adder_add_basic": "FAILED",
+            "unity_test/tests/test_Adder_api_basic.py:37-57::test_api_Adder_add_with_carry_in": "PASSED",
+            "unity_test/tests/test_Adder_api_basic.py:60-80::test_api_Adder_add_zero_values": "PASSED",
+            "unity_test/tests/test_Adder_api_basic.py:83-103::test_api_Adder_add_overflow": "PASSED",
+            "unity_test/tests/test_Adder_api_basic.py:106-129::test_api_Adder_add_boundary": "PASSED",
+            "unity_test/tests/test_Adder_api_basic.py:132-150::test_api_Adder_add_sum_width": "PASSED",
+            "unity_test/tests/test_Adder_functional.py:7-28::test_add_operation": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:31-51::test_basic_addition": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:54-74::test_addition_with_carry_in": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:77-97::test_addition_overflow": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:100-120::test_addition_zero_values": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:123-143::test_addition_boundary_conditions": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:146-166::test_sum_width_value": "FAILED",
+            "unity_test/tests/test_Adder_functional.py:169-189::test_sum_width": "FAILED"
+        }
+    },
+    "total_funct_point": 3,
+    "total_check_point": 8,
+    "failed_funct_point": 0,
+    "failed_check_point": 0,
+    "failed_funcs_bins": {
+        "unity_test/tests/test_Adder_api_basic.py:5-34::test_api_Adder_add_basic": [
+            "FG-API/FC-OPERATION/CK-ADD",
+            "FG-ARITHMETIC/FC-ADD/CK-BASIC"
+        ],
+        "unity_test/tests/test_Adder_functional.py:7-28::test_add_operation": [
+            "FG-API/FC-OPERATION/CK-ADD"
+        ],
+        "unity_test/tests/test_Adder_functional.py:31-51::test_basic_addition": [
+            "FG-ARITHMETIC/FC-ADD/CK-BASIC"
+        ],
+        "unity_test/tests/test_Adder_functional.py:54-74::test_addition_with_carry_in": [
+            "FG-ARITHMETIC/FC-ADD/CK-CARRY-IN"
+        ],
+        "unity_test/tests/test_Adder_functional.py:77-97::test_addition_overflow": [
+            "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+        ],
+        "unity_test/tests/test_Adder_functional.py:100-120::test_addition_zero_values": [
+            "FG-ARITHMETIC/FC-ADD/CK-ZERO"
+        ],
+        "unity_test/tests/test_Adder_functional.py:123-143::test_addition_boundary_conditions": [
+            "FG-ARITHMETIC/FC-ADD/CK-BOUNDARY"
+        ],
+        "unity_test/tests/test_Adder_functional.py:169-189::test_sum_width": [
+            "FG-BIT-WIDTH/FC-SUM-WIDTH/CK-SUM-WIDTH"
+        ],
+        "unity_test/tests/test_Adder_functional.py:146-166::test_sum_width_value": [
+            "FG-BIT-WIDTH/FC-SUM-WIDTH/CK-SUM-VALUE"
+        ]
+    },
+    "bins_all": [
+        "FG-API/FC-OPERATION/CK-ADD",
+        "FG-ARITHMETIC/FC-ADD/CK-BASIC",
+        "FG-ARITHMETIC/FC-ADD/CK-CARRY-IN",
+        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW",
+        "FG-ARITHMETIC/FC-ADD/CK-ZERO",
+        "FG-ARITHMETIC/FC-ADD/CK-BOUNDARY",
+        "FG-BIT-WIDTH/FC-SUM-WIDTH/CK-SUM-WIDTH",
+        "FG-BIT-WIDTH/FC-SUM-WIDTH/CK-SUM-VALUE"
+    ],
+    "unmarked_check_points": 0,
+    "test_function_with_no_check_point_mark": 0
+}

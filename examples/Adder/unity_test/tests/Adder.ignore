@@ -1,0 +1,12 @@
+
+# Adder 覆盖率 ignore文件
+
+# 默认忽略 picker 生成的接口文件，位于`Adder/`目录中
+*/Adder/Adder_top.sv
+*/Adder/Adder_top.v
+
+# 请此处添加其他需要忽略的文件或者行 （目标文件需要在workspace中）
+# 例如忽略整个文件:
+# */Adder/example1.v
+# 例如忽略文件中指定的代码段，如10到20行，30到40行(多个代码段之间用逗号隔离):
+# */Adder/example2.v:10-20,30-40
