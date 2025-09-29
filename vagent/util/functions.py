@@ -400,7 +400,7 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     return ret
 
 
-def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 1) -> list:
+def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 0) -> list:
     """
     Get the Unity chip documentation marks from a file.
     :param path: Path to the file containing Unity chip documentation.
@@ -416,8 +416,8 @@ def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 1) 
     tindex = keynames.index(leaf_node)
     klist, blist = nested_keys_as_list(data, leaf_node, keynames, ex_ignore_names=["line"])
     assert len(klist) >= mini_leaf_count, f"Need {mini_leaf_count} {leaf_node} at least, but find {len(klist)}"
-    fmsg = ", ".join([f"{b[1]} at line {b[2]}" for b in blist])
-    assert len(blist) == 0, f"Incomplete label {leaf_node} detected: `{fmsg}`, please fix it according to the format requirements: " + \
+    fmsg = ", ".join([f"{b[1]} at line {b[2]} need sub node '<{leaf_node}-*>'" for b in blist])
+    assert len(blist) == 0, f"Incomplete label '<{leaf_node}-*>' detected: `{fmsg}`, please fix it according to the format requirements: " + \
                             f"{' '.join([x+'*>' for x in prefix[:tindex]])}"
     return klist
 
