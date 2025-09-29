@@ -72,7 +72,6 @@ def api_demo_op(env, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
 
     Note:
         - 该API适用于同步时序电路，会自动处理时钟推进
-        - 对于组合电路，也请用Step方法驱动电路，特殊情况用RefreshComb
         - 连续调用时建议间隔至少1个时钟周期
     """
     # 参数验证

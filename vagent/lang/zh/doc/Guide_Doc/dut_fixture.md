@@ -127,11 +127,8 @@ dut.InitClock("clk_mem")     # 内存时钟
 ```
 
 **重点：**
-- 常规情况下，统一使用 `dut.Step(...)` 推进电路；通过 `dut.StepRis(...)` 在上升沿回调中自动采样功能覆盖
-- 组合电路通常不需要时钟即可生效；为流程统一，可仍调用 `dut.Step(1)` 以触发 StepRis 回调与采样
-- 仅在特殊需求下使用 `RefreshComb` 推进组合逻辑，例如：模块同时包含组合与时序逻辑，需要在同一周期内刷新组合路径
-    - 此时可采用 `RefreshComb + Step` 的混合方式
-- 使用 `RefreshComb` 时，需要在 API 或测试用例中手动调用覆盖组 `CovGroup.sample()` 完成采样（因为不会触发 StepRis 回调）
+- 常规情况下，无论是组合电路还是时序电路，都统一使用 `dut.Step(...)` 推进电路；通过 `dut.StepRis(...)` 在上升沿回调中自动采样功能覆盖
+- 混合电路（同时包含时序电路与组合电路）的推进逻辑：`dut.RefreshComb() + dut.Step(1) + dut.RefreshComb()`
 
 #### 查找时钟引脚名称
 
@@ -486,12 +483,9 @@ class AXI4BasedDUTEnv:
         self.axi_sin_a.bind(dut)
         self.axi_sin_b.bind(dut)
 
-    # 把DUT非引脚相关通用函数进行env级暴露：例如 Step 和 RefreshComb
+    # 把DUT非引脚相关通用函数进行env级暴露：例如 Step
     def Step(self, c=1):
         return self.dut.Step(c)
-
-    def RefreshComb(self):
-        return self.dut.RefreshComb()
 
     def reset(self):
         """系统复位"""

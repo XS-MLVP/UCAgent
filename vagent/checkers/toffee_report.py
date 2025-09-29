@@ -56,7 +56,7 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
 
 
-def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, only_marked_ckp_in_tc: bool):
+def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, passed_tc_list: list, only_marked_ckp_in_tc: bool):
     try:
         tc_list = [t for t in fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_file), leaf_node="TC") \
                            if t.startswith(target_ck_prefix)]
@@ -71,8 +71,8 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                         "Please review and fix the bug analysis documentation format."]
     failed_tc_names = failed_tc_and_cks.keys()
     failed_tc_maps = {k:False for k in failed_tc_names}
-    def is_in_tc_names(fracs):
-        for fname in failed_tc_names:
+    def is_in_target_tc_names(fracs, name_list):
+        for fname in name_list:
             all_in = True
             for p in fracs:
                 if p not in fname:
@@ -84,6 +84,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     # fmt: FG/FC/CK/BG/TC
     tc_not_found_in_ftc_list = []
     tc_not_mark_the_cks_list = []
+    tc_found_in_ptc_list = []
     for tc in tc_list:
         checkpoint = tc.split("/BG-")[0]
         bug_label = tc.split("/TC-")[0]
@@ -91,24 +92,38 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         tc_name_parts = tc_name.split("::")
         if len(tc_name_parts) < 2:
             return False, "test case parse fail, its format shuold be: <TC-test_file.py::[ClassName]::test_case_name> where ClassName is optional, eg: <TC-test_file.py::test_my_case>."
-        is_fail_tc, fail_tc_name = is_in_tc_names(tc_name_parts)
+        is_fail_tc, fail_tc_name = is_in_target_tc_names(tc_name_parts, failed_tc_names)
+        is_pass_tc, pass_tc_name = is_in_target_tc_names(tc_name_parts, passed_tc_list)
         if is_fail_tc:
             failed_tc_maps[fail_tc_name] = True
             if checkpoint not in failed_tc_and_cks[fail_tc_name]:
-                tc_not_mark_the_cks_list.append((tc_name, checkpoint))
+                tc_not_mark_the_cks_list.append((fail_tc_name, checkpoint))
         else:
             tc_not_found_in_ftc_list.append((tc_name, bug_label))
+        if is_pass_tc and not is_fail_tc:
+            tc_found_in_ptc_list.append((tc_name, pass_tc_name))
 
+    # tc in pass tc
+    if len(tc_found_in_ptc_list) > 0:
+        ptc_msg = ', '.join([f"{x[0]}(location: {x[1]})" for x in tc_found_in_ptc_list])
+        return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_found_in_ptc_list)} test cases ({ptc_msg}) which should be 'FAILED' but found to be 'PASSED'.",
+                       "Actions required:",
+                          "1. Ensure the test case names in the documentation match exactly with those in the test python file.",
+                          "2. If the test cases are based on classes, ensure the class names are included in the <TC-*> tags, e.g., <TC-test_example.py::TestClassName::test_function_name>.",
+                          "3. If the test cases have no relation to the bug, please remove them from the bug analysis documentation.",
+                          "4. The test python file in <TC-*> must be the same as the actual test file name.",
+                       "Note: those test cases indicate a bug must be 'FAILED'"
+                       ]
     # tc not found in fail tcs
     if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
-        ftc_msg = ', '.join([f"{x[0]}(in {x[1]})" for x in tc_not_found_in_ftc_list])
+        ftc_msg = ', '.join([f"{x[0]}(documented below {x[1]})" for x in tc_not_found_in_ftc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test cases ({ftc_msg}) which are not found in the failed test cases.",
                        "Actions required:",
                           "1. Ensure the test case names in the documentation match exactly with those in the test python file.",
                           "2. If the test cases are based on classes, ensure the class names are included in the <TC-*> tags, e.g., <TC-test_example.py::TestClassName::test_function_name>.",
                           "3. If the test cases have no relation to the bug, please remove them from the bug analysis documentation.",
                           "4. The test python file in <TC-*> must be the same as the actual test file name.",
-                       "Note: those test cases indicate a bug must be 'Fail'"
+                       "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not mark their checkpoints
     if len(tc_not_mark_the_cks_list) > 0:
@@ -150,10 +165,10 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
         # failed checkpoints must be analyzed in bug doc
         if len(un_related_tc_marks) > 0:
                 return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
-                                "The failed checkpoints must be properly analyzed and documented. Options:",
+                               f"The failed checkpoints must be properly analyzed and documented in file '{bug_analysis_file}'. Options:",
                                 "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
-                                "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}' with confidence ratings.".format(bug_analysis_file),
+                                "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}' with confidence bug ratings.".format(bug_analysis_file),
                                 *fc.description_bug_doc(),
                                 "5. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
                                 "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
@@ -237,12 +252,13 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
 
     failed_funcs_bins = report.get("failed_funcs_bins", {})
+    passed_tc_list = [k for k,v in report["tests"]["test_cases"].items() if v == "PASSED"]
 
     bug_ck_list_size = -1
     if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
 
         ret, msg = check_bug_tc_analysis(
-            workspace, bug_file, target_ck_prefix, failed_funcs_bins, only_marked_ckp_in_tc
+            workspace, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
         )
         if not ret:
             return ret, msg, -1
