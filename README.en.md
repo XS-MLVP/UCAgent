@@ -99,7 +99,9 @@ qwen
 
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
 
-Note: Please write a validation prompt according to the task requirements
+Hints:
+- Please write a validation prompt according to the task requirements
+- When the Code Agent stops halfway, you can enter prompts: `continue and use the tools Check and Complete to determine if all tasks have been completed`
 
 #### frequency operations
 
