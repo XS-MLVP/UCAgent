@@ -3,6 +3,7 @@
 import pytest
 from {{DUT}}_function_coverage_def import get_coverage_groups
 from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
+from toffee_test.reporter import set_user_info, set_title_info
 from toffee import Bundle, Signals, Signal
 
 # import your dut module here
@@ -67,6 +68,10 @@ def dut(request):
     # 设置需要收集的代码行覆盖率文件(获取已有路径new_path=False) 向toffee_test传代码行递覆盖率数据
     # 代码行覆盖率 ignore 文件的固定路径为当前文件所在目录下的：{{DUT}}.ignore，请不要改变
     set_line_coverage(request, get_coverage_data_path(request, new_path=False), ignore=current_path_file("{{DUT}}.ignore"))
+
+    # 设置用户信息到报告
+    set_user_info("UCAgent-{{Version}}", "{{Email}}")
+    set_title_info("{{DUT}} Test Report")
 
     for g in func_coverage_group:                        # 采样覆盖组
         g.clear()                                        # 清空统计

@@ -15,11 +15,16 @@ with open(os.path.join(current_directory, 'requirements.txt'), encoding='utf-8')
     requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
 
-def version():
+def version_info():
     spec = importlib.util.spec_from_file_location("version", os.path.join(current_directory, "vagent", "version.py"))
     version_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(version_module)
-    return version_module.__version__
+    return {
+        "version": version_module.__version__,
+        "author": version_module.__author__,
+        "author_email": version_module.__email__,
+        "description": version_module.__description__
+    }
 
 
 class PostInstallCommand(install):
@@ -37,10 +42,7 @@ class PostInstallCommand(install):
 
 setup(
     name="UCAgent",
-    version=version(),
-    author="XS-MLVP",
-    author_email="contact@xs-mlvp.org",
-    description="UnityChip Verification Agent - AI-powered hardware verification tool",
+    **version_info(),
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/XS-MLVP/UCAgent",

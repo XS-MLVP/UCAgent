@@ -15,7 +15,7 @@ from .tools.planning import *
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
-from .version import __version__
+from .version import __version__, __email__
 
 import time
 import random
@@ -287,12 +287,16 @@ class VerifyAgent:
             f.write(self._default_system_prompt + "\n")
 
     def render_template(self, tmp_overwrite=False):
+        template_context = {"DUT": self.dut_name,
+                            "Version": __version__,
+                            "Email": __email__,
+                            }
         if self.template is not None:
             tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
             info(f"Rendering template from {self.template} to {tmp_dir}")
             if not os.path.exists(tmp_dir) or tmp_overwrite:
                 try:
-                    render_template_dir(self.workspace, self.template, {"DUT": self.dut_name})
+                    render_template_dir(self.workspace, self.template, template_context)
                 except Exception as e:
                     debug(traceback.format_exc())
                     error(f"Failed to render template from {self.template} to {tmp_dir}: {e}")
