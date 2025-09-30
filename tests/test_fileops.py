@@ -381,7 +381,7 @@ class TestBaseReadWrite(unittest.TestCase):
         base.init_base_rw(self.test_dir)
         
         self.assertEqual(base.workspace, os.path.abspath(self.test_dir))
-        self.assertEqual(base.max_read_size, 30720)
+        self.assertEqual(base.max_read_size, 131072)
 
     def test_check_file_creation(self):
         """Test file creation in check_file method"""
