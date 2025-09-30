@@ -49,7 +49,7 @@ class BaseReadWrite:
         description="Workspace directory to modify files in."
     )
     max_read_size: int = Field(
-        default=30720,
+        default=131072,
         description="Maximum file size to read (in bytes)."
     )
     write_able_dirs: List[str] = Field(
@@ -96,7 +96,7 @@ class BaseReadWrite:
         assert any([a != "." for a in dirs]), "'.' cannot be used as a writable or unwritable directory."
         return  dirs
 
-    def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 30720):
+    def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 131072):
         """Initialize the base write tool."""
         assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
         self.workspace = os.path.abspath(workspace)
@@ -521,7 +521,7 @@ class ReadBinFile(UCTool, BaseReadWrite):
             self.do_callback(True, path, content)
             return ret_head + str_data(content, "BIN_DATA")
 
-    def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
+    def __init__(self, workspace: str, max_read_size: int = 131072, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace, max_read_size=max_read_size)
@@ -623,7 +623,7 @@ class ReadTextFile(UCTool, BaseReadWrite):
             self.do_callback(False, path, emsg)
             return str_error(emsg)
 
-    def __init__(self, workspace: str, max_read_size: int = 30720, **kwargs):
+    def __init__(self, workspace: str, max_read_size: int = 131072, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace, max_read_size=max_read_size)
