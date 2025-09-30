@@ -134,6 +134,7 @@ dut.InitClock("clk_mem")     # 内存时钟
 **重点：**
 - 常规情况下，无论是组合电路还是时序电路，都统一使用 `dut.Step(...)` 推进电路；通过 `dut.StepRis(...)` 在上升沿回调中自动采样功能覆盖
 - 混合电路（同时包含时序电路与组合电路）的推进逻辑：`dut.RefreshComb() + dut.Step(1) + dut.RefreshComb()`
+- 一定要记住 `dut.RefreshComb` 不能单独用来推进电路，必须和`dut.Step`协同使用
 
 #### 查找时钟引脚名称
 
