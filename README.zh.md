@@ -285,6 +285,10 @@ lang: "en"
 
 或者通过参数`--config`, `--template-dir`, `--guid-doc-path` 指定到目标语言文件，达到类似效果。
 
+### UCAgent文档
+
+更多使用方式和教程请参考[UCAgent文档](https://open-verify.cc/mlvp/docs/ucagent/)
+
 
 ### 常见问题 (FAQ)
 
