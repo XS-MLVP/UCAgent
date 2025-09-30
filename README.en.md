@@ -261,6 +261,30 @@ UCAgent supports human-machine collaboration during the verification process, al
 - File write permissions can be set using commands such as `add_un_writable_path` and `del_un_writable_path` to control whether AI can edit specific files.
 - Suitable for direct access to LLM or mandatory use of UCAgent file tools.
 
+### Multi language support for config and guid doc
+
+At present, the repo only provides Chinese version. If you need other languages, you can find the 'lang-dir' directory through `ucagent -- check`:
+
+```bash
+ucagent --check
+UCAgent Check:
+Check   sys_config      ~/.local/lib/python3.11/site-packages/vagent/setting.yaml   [Found]
+Check   user_config     ~/.ucagent/setting.yaml [Found]
+Check   lang_dir        ~/.local/lib/python3.11/site-packages/vagent/lang   [Found]
+Check   'zh' config     ~/.local/lib/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
+Check   'zh' Guide_Doc  ~/.local/lib/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
+Check   'zh' template   ~/.local/lib/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
+```
+
+Enter the `lang_ir` directory, copy a copy using the command `cp -r zh en`, then translate it into the target language, and finally set it in the configuration file:
+
+```yaml
+lang: "en"
+```
+
+Alternatively, by specifying parameters: `--config`, `--template-dir`, `--guid-doc-path` to the target language file, a similar effect can be achieved.
+
+
 ### Frequently Asked Questions (FAQ)
 
 **Q: How to configure different AI models?**

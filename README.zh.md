@@ -262,6 +262,29 @@ UCAgent 支持在验证过程中进行人机协同，允许用户暂停 AI 执�
    - 可使用 `add_un_write_path`，`del_un_write_path` 等命令设置文件写权限，控制 AI 是否可以编辑特定文件。
    - 适用于直接接入 LLM 或强制使用 UCAgent 文件工具。
 
+### 配置与指导文档的多语言支持
+
+目前仓库仅提供中文版本，如果需要其他语言，可通过`ucagent --check`找到`lang_dir`目录：
+
+```bash
+ucagent --check
+UCAgent Check:
+Check   sys_config      ~/.local/lib/python3.11/site-packages/vagent/setting.yaml   [Found]
+Check   user_config     ~/.ucagent/setting.yaml [Found]
+Check   lang_dir        ~/.local/lib/python3.11/site-packages/vagent/lang   [Found]
+Check   'zh' config     ~/.local/lib/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
+Check   'zh' Guide_Doc  ~/.local/lib/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
+Check   'zh' template   ~/.local/lib/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
+```
+
+进入`lang_dir`目录，通过命令`cp -r zh en`复制一份，然后翻译为目标语言，最后在配置文件中设置：
+
+```yaml
+lang: "en"
+```
+
+或者通过参数`--config`, `--template-dir`, `--guid-doc-path` 指定到目标语言文件，达到类似效果。
+
 
 ### 常见问题 (FAQ)
 
