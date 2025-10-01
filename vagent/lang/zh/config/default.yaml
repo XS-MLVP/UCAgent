@@ -397,7 +397,7 @@ stage:
           test_dir: "{OUT}/tests"
           ignore_ck_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
-          batch_size: 20
+          batch_size: $(BATCH_SIZE_TMP: 20)
         extra_args:
           fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
           pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
@@ -465,7 +465,7 @@ stage:
             doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
             test_dir: "{OUT}/tests"
             ignore_ck_prefix: "test_api_{DUT}_"
-            batch_size: 10
+            batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/{DUT}/.TEST_TEMPLATE_IMP_REPORT.json"
 
