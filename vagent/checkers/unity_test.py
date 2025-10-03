@@ -364,7 +364,8 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         super().__init__(test_dir, cov_file, doc_file, "CK", **kw)
         self.data_key = data_key
         assert self.data_key, "data_key is required."
-        self.batch_task = UnityChipBatchTask("check_points", self, batch_size)
+        self.batch_size = batch_size
+        self.batch_task = UnityChipBatchTask("check_points", self)
 
     def get_template_data(self):
         return self.batch_task.get_template_data(
@@ -409,7 +410,7 @@ class BaseUnityChipCheckerTestCase(Checker):
     """
 
     def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="",
-                 data_key=None, ret_std_error=True, ret_std_out=True, **extra_kwargs):
+                 data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -420,6 +421,7 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.extra_kwargs = extra_kwargs
         self.ret_std_error = ret_std_error
         self.ret_std_out = ret_std_out
+        self.batch_size = batch_size
         self.run_test = RunUnityChipTest()
 
     def set_workspace(self, workspace: str):
@@ -512,7 +514,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
     def on_init(self):
         self.total_tests_count = 0
-        self.batch_task = UnityChipBatchTask("check_points", self, self.extra_kwargs.get("batch_size", 20))
+        self.batch_task = UnityChipBatchTask("check_points", self)
         self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
         self.batch_task.update_current_tbd()
         info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
@@ -746,7 +748,6 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         self.total_test_cases = [
             # (test_case_name, is_completed: boolean)
         ]
-        self.batch_size = self.extra_kwargs.get("batch_size", 5)
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
         self.is_inited = False

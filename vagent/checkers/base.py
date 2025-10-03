@@ -5,7 +5,7 @@ import os
 from typing import Tuple
 from vagent.util.functions import render_template, rm_workspace_prefix, fill_template
 import vagent.util.functions as fc
-from vagent.util.log import info, error
+from vagent.util.log import info, error, warning
 import time
 import traceback
 
@@ -26,6 +26,24 @@ class Checker:
 
     def get_template_data(self):
         return None
+
+    def get_attr(self):
+        cfg = {}
+        for k, v in self.__dict__.items():
+            if k.startswith("_") or callable(v):
+                continue
+            if type(v) in (str, int, float, bool, type(None)):
+                cfg[k] = v
+        return cfg
+
+    def set_attr(self, cfg):
+        self_attr = self.get_attr()
+        for k, v in cfg.items():
+            if k in self_attr:
+                setattr(self, k, v)
+            else:
+                warning(f"Unknown attribute '{k}' for checker '{self.__class__.__name__}', ignoring it.")
+        return self.get_attr()
 
     def filter_vstage_description(self, stage_description):
         return fill_template(stage_description, self.get_template_data())
@@ -235,13 +253,12 @@ class UnityChipBatchTask:
     and handling synchronization between source tasks and generated tasks.
     """
 
-    def __init__(self, name: str, checker: Checker, batch_size: int) -> None:
+    def __init__(self, name: str, checker: Checker) -> None:
         """Initialize the batch task manager.
 
         Args:
             name: Name identifier for the task type.
             checker: The checker instance associated with these tasks.
-            batch_size: Maximum number of tasks to process in one batch.
         """
         self.name = name
         self.checker = checker
@@ -249,7 +266,7 @@ class UnityChipBatchTask:
         self.cmp_task_list = []  # Completed task list
         self.source_task_list = []  # Source task list (ground truth)
         self.gen_task_list = []  # Generated task list (actual results)
-        self.batch_size = batch_size
+        assert hasattr(checker, "batch_size")
 
     def get_template_data(self, total_tasks: str, completed_tasks: str, current_tasks: str) -> dict:
         """Get template data for task status reporting.
@@ -310,9 +327,9 @@ class UnityChipBatchTask:
         if len(self.source_task_list) > 0:
             remaining_tasks, _ = fc.get_str_array_diff(self.source_task_list, self.gen_task_list)
             remaining_tasks.sort()
-            self.tbd_task_list = remaining_tasks[:self.batch_size]
+            self.tbd_task_list = remaining_tasks[:self.checker.batch_size]
             info(f"{self.checker.__class__.__name__} Found {len(remaining_tasks)} {self.name} "
-                 f"to be done, current batch size {self.batch_size}.")
+                 f"to be done, current batch size {self.checker.batch_size}.")
             info(f"{self.checker.__class__.__name__} Updated to-be-done task list "
                  f"(size={len(self.tbd_task_list)}): {', '.join(self.tbd_task_list)}.")
 

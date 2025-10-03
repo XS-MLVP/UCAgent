@@ -845,6 +845,64 @@ class VerifyPDB(Pdb):
         self.curframe.f_locals[var_name] = checker
         echo_g(f"Checker instance '{checker.__class__.__name__}' exported to variable '{var_name}' in the current frame.")
 
+    def do_checker_attr(self, arg):
+        """
+        Show or set checker attributes.
+        Usage:
+          checker_attr <index>                    - Show current attributes
+          checker_attr <index> <key> <value>      - Set attribute key to value
+        """
+        arg = arg.replace(":", " ")
+        def echo_cfg(cfg):
+            key_size = max([len(k) for k in cfg.keys()])
+            fmt = f"%{key_size + 2}s: %s"
+            for k, v in cfg.items():
+                message(fmt % (k,v))
+        args = arg.strip().split()
+        if len(args) == 0:
+            echo_y("Usage: checker_attr <index> [<key> <value>]")
+            return
+        try:
+            index = int(args[0])
+        except ValueError:
+            echo_r("Invalid index. Usage: checker_attr <index> [<key> <value>]")
+            return
+        checkers = self.api_list_checker_instance()
+        if index < 0 or index >= len(checkers):
+            echo_r(f"Index {index} is out of range. Valid range: 0 to {len(checkers) - 1}.")
+            return
+        checker = checkers[index]["instance"]
+        if len(args) == 1:
+            # Show current configuration
+            cfg = checker.get_attr()
+            echo_g(f"{checker.__class__.__name__}:")
+            echo_cfg(cfg)
+            return
+        if len(args) != 3:
+            echo_y("Usage: checker_attr <index> [<key> <value>]")
+            return
+        key, value = args[1], args[2]
+        cfg = checker.get_attr()
+        if key not in cfg:
+            echo_y(f"Key '{key}' not found in checker attributes.")
+            return
+        ttype = type(cfg[key])
+        if ttype in [int, float, bool]:
+            try:
+                value = ttype(eval(value))
+            except Exception:
+                echo_y(f"Value for key '{key}' must be of type {ttype.__name__}.")
+                return
+        elif ttype is str:
+            value = value
+        else:
+            echo_y(f"Unsupported attribute value type: {ttype.__name__} for key '{key}'.")
+            return
+        checker.set_attr({key: value})
+        cfg = checker.get_attr()
+        echo_g(f"{checker.__class__.__name__}:")
+        echo_g(f"Checker attributes updated: {key} = {cfg[key]}")
+
     def do_skip_stage(self, arg):
         """
         Skip the current stage and move to the next one.
