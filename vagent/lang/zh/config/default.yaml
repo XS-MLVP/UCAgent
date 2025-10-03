@@ -60,6 +60,10 @@ mission:
       - 位于Guide_Doc/目录下
       - 根据需要进行查阅
 
+      **注意：**
+      - 无论是组合电路还是时序电路，都必须使用Step接口驱动电路
+      - 请用工具Check和Complete判断是否完成所有任务
+
       现在调用`CurrentTips`，开始你的验证工作！
 
 mcp_server:
