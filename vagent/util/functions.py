@@ -418,7 +418,7 @@ def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 0) 
     assert len(klist) >= mini_leaf_count, f"Need {mini_leaf_count} {leaf_node} at least, but find {len(klist)}"
     fmsg = ", ".join([f"{b[1]} at line {b[2]} need sub node '<{leaf_node}-*>'" for b in blist])
     assert len(blist) == 0, f"Incomplete label '<{leaf_node}-*>' detected: `{fmsg}`, delete the incomplete labels or fix it according to the format requirements: " + \
-                            f"{' '.join([x+'*>' for x in prefix[:tindex]])}"
+                            f"{' '.join([x+'*>' for x in prefix[:tindex+1]])}"
     return klist
 
 
