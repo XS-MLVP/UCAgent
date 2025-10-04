@@ -108,10 +108,9 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         ptc_msg = ', '.join([f"{x[0]}(location: {x[1]})" for x in tc_found_in_ptc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_found_in_ptc_list)} test cases ({ptc_msg}) which should be 'FAILED' but found to be 'PASSED'.",
                        "Actions required:",
-                          "1. Ensure the test case names in the documentation match exactly with those in the test python file.",
-                          "2. If the test cases are based on classes, ensure the class names are included in the <TC-*> tags, e.g., <TC-test_example.py::TestClassName::test_function_name>.",
-                          "3. If the test cases have no relation to the bug, please remove them from the bug analysis documentation.",
-                          "4. The test python file in <TC-*> must be the same as the actual test file name.",
+                        "1. Make sure the bug analysis documentation marks the right test cases for each bug.",
+                        "2. Ensure the test cases is working correctly and 'FAILED' as expected.",
+                        "3. If the test cases are not related to any bugs, please remove them from the bug analysis documentation.",
                        "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not found in fail tcs
