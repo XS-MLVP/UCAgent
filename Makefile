@@ -1,37 +1,29 @@
-
 all: clean test
 
 init:
 	pip3 install -r requirements.txt
 
-dut:
-	rm output -rf
-	mkdir -p output
-	cp -r examples output/
-
 reset_%:
 	rm output/unity_test -rf  | true
-	cp examples/$*/*.md output/$*/ | true
-	cp examples/$*/*.py output/$*/ | true
-	cp vagent/doc/* output/ -r  | true
 
 init_%:
-	rm output/examples/$* -rf
+	mkdir -p output/$*_RTL
+	cp examples/$*/*.v output/$*_RTL/ | true
+	cp examples/$*/*.sv output/$*_RTL/ | true
+	cp examples/$*/*.vh output/$*_RTL/ | true
+	cp examples/$*/*.scala output/$*_RTL/ | true
+	cp examples/$*/filelist.txt output/$*_RTL/ | true
 	@if [ ! -d output/$* ]; then \
 		option_fs=""; \
-		if [ -f examples/$*/filelist.txt ]; then \
-			option_fs="--fs examples/$*/filelist.txt"; \
+		if [ -f output/$*_RTL/filelist.txt ]; then \
+			option_fs="--fs output/$*_RTL/filelist.txt"; \
 		fi; \
-		if [ -f examples/$*/$*.v ]; then \
-			picker export examples/$*/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
+		if [ -f output/$*_RTL/$*.v ]; then \
+			picker export output/$*_RTL/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
 	cp examples/$*/*.md output/$*/  | true
-	cp examples/$*/*.sv output/$*/  | true
-	cp examples/$*/*.v output/$*/  | true
 	cp examples/$*/*.py output/$*/  | true
-	cp examples/$*/*.scala output/$*/  | true
-	cp vagent/doc/* output/ -r  | true
 
 test_%: init_%
 	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}

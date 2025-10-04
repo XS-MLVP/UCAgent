@@ -29,7 +29,7 @@ ucagent <workspace> <dut_name>
    - `workspace/<DUT_DIR>:` Design Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
    - `workspace/<DUT_DIR>/README.md:` Verification requirements and objectives for the DUT described in natural language
    - `workspace/<DUT_DIR>/*.md:` Other reference files
-   - `workspace/<DUT_DIR>/*.v/sv/scala:` Source files for bug analysis
+   - `workspace/<DUT_DIR>_RTL/*.v/sv/scala:` Source files for bug analysis
    - Other verification-related files (e.g., provided test instances, requirement specifications, etc.)
  - `dut_name:` Name of the design under test, i.e., `<DUT_DIR>`
 

@@ -29,7 +29,7 @@ ucagent <workspace> <dut_name>
    - `workspace/<DUT_DIR>:` 待测设计（DUT），即由 picker 导出的 DUT 对应的 Python 包 `<DUT_DIR>`，例如：Adder
    - `workspace/<DUT_DIR>/README.md:` 以自然语言描述的该DUT验证需求与目标
    - `workspace/<DUT_DIR>/*.md:` 其他参考文件
-   - `workspace/<DUT_DIR>/*.v/sv/scala:` 源文件，用于进行bug分析
+   - `workspace/<DUT_DIR>_RTL/*.v/sv/scala:` 源文件，用于进行bug分析
    - 其他与验证相关的文件（例如：提供的测试实例、需求说明等）
  - `dut_name:` 待测设计的名称，即 `<DUT_DIR>`
 
