@@ -104,6 +104,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
             tc_found_in_ptc_list.append((tc_name, pass_tc_name))
 
     # tc in pass tc
+    tc_found_in_ptc_list = list(set(tc_found_in_ptc_list))
     if len(tc_found_in_ptc_list) > 0:
         ptc_msg = ', '.join([f"{x[0]}(location: {x[1]})" for x in tc_found_in_ptc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_found_in_ptc_list)} test cases ({ptc_msg}) which should be 'FAILED' but found to be 'PASSED'.",
@@ -114,6 +115,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                        "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not found in fail tcs
+    tc_not_found_in_ftc_list = list(set(tc_not_found_in_ftc_list))
     if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
         ftc_msg = ', '.join([f"{x[0]}(documented below {x[1]})" for x in tc_not_found_in_ftc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test cases ({ftc_msg}) which are not found in the failed test cases.",
@@ -125,6 +127,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                        "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not mark their checkpoints
+    tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
     if len(tc_not_mark_the_cks_list) > 0:
         ftc_msg = ', '.join([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking their checkpoints.",
