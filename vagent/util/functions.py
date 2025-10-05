@@ -365,14 +365,14 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
                             func_key, tests_map.get(func_key, "Unknown")])
                 # all bins
                 bins_all.append(bin_full_name)
-    ret_data["failed_funcs_bins"] = failed_funcs_bins
+    ret_data["failed_test_case_with_check_point_list"] = failed_funcs_bins
     if return_all_checks:
-        ret_data["bins_all"] = bins_all
+        ret_data["all_check_point_list"] = bins_all
     if len(bins_fail) > 0:
         ret_data["failed_check_point_list"] = bins_fail
     ret_data["unmarked_check_points"] = len(bins_unmarked)
     if len(bins_unmarked) > 0:
-        ret_data["unmarked_check_points_list"] = bins_unmarked
+        ret_data["unmarked_check_point_list"] = bins_unmarked
     # functions with no check points
     test_fc_no_check_points = []
     for f, _ in tests:
@@ -1223,7 +1223,7 @@ def get_str_array_diff(str_list1, str_list2):
     return only_in_1, only_in_2
 
 
-def clean_report_with_keys(report: dict, keys=["bins_all"]) -> dict:
+def clean_report_with_keys(report: dict, keys=["all_check_point_list"]) -> dict:
         data = copy.deepcopy(report)
         for k in keys:
             if k in data:

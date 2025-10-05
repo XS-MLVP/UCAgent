@@ -469,7 +469,7 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
         })
         marked_bins = []
         failed_check_point_list = report.get("failed_check_point_list", [])
-        for b in report.get("bins_all", []):
+        for b in report.get("all_check_point_list", []):
             if b not in failed_check_point_list:
                 marked_bins.append(b)
                 continue
@@ -529,7 +529,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         """
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         raw_report = copy.deepcopy(report)
-        all_bins_test = report.get("bins_all", [])
+        all_bins_test = report.get("all_check_point_list", [])
         report = fc.clean_report_with_keys(report)
         info_report = OrderedDict({"TEST_REPORT": report})
         info_runtest = OrderedDict({"TEST_REPORT": report})
@@ -852,7 +852,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return False, error_msgs
 
         ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
-        report  = fc.clean_report_with_keys(report, ["bins_all", "unmarked_check_points", "unmarked_check_points_list", "failed_check_point_list"])
+        report  = fc.clean_report_with_keys(report, ["all_check_point_list", "unmarked_check_points", "unmarked_check_point_list", "failed_check_point_list"])
         error_msgs["REPORT"] = report
         if not ret:
             error_msgs["error"] = msg
@@ -882,7 +882,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         # Execute tests and get comprehensive report
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         abs_report = copy.deepcopy(report)
-        all_bins_test = report.get("bins_all", [])
+        all_bins_test = report.get("all_check_point_list", [])
         abs_report = fc.clean_report_with_keys(report)
 
         # Prepare diagnostic information

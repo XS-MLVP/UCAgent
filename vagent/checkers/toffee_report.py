@@ -237,7 +237,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
                         "2. Ensure every test function validates specific documented functionality.",
                         "3. Review test organization and ensure complete traceability."], -1
 
-    checks_in_tc  = [b for b in report.get("bins_all", []) if b.startswith(target_ck_prefix)]
+    checks_in_tc  = [b for b in report.get("all_check_point_list", []) if b.startswith(target_ck_prefix)]
     if len(checks_in_tc) == 0:
         warning(f"No test functions found for check point prefix '{target_ck_prefix}'. Please ensure test cases are correctly marked with this prefix.")
         warning(f"Current test check points: {', '.join(report.get('bins_all', []))}")
@@ -246,11 +246,11 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         return ret, msg, -1
 
     failed_checks_in_tc = [b for b in report.get("failed_check_point_list", []) if b.startswith(target_ck_prefix)]
-    marked_checks_in_tc = [c for c in checks_in_tc if c not in report.get("unmarked_check_points_list", [])]
+    marked_checks_in_tc = [c for c in checks_in_tc if c not in report.get("unmarked_check_point_list", [])]
     if only_marked_ckp_in_tc:
         failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
 
-    failed_funcs_bins = report.get("failed_funcs_bins", {})
+    failed_funcs_bins = report.get("failed_test_case_with_check_point_list", {})
     passed_tc_list = [k for k,v in report["tests"]["test_cases"].items() if v == "PASSED"]
 
     bug_ck_list_size = -1
