@@ -564,7 +564,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if not is_complete:
             note_msg = []
             if report['unmarked_check_points'] > 0:
-                marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_points_list']]
+                marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_point_list']]
             else:
                 marked_bins = all_bins_test
             self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
@@ -596,7 +596,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         if report['unmarked_check_points'] > 0:
-            unmark_check_points = report['unmarked_check_points_list']
+            unmark_check_points = report['unmarked_check_point_list']
             if len(unmark_check_points) > 0:
                 info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \

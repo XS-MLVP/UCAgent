@@ -271,7 +271,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
             return ret, msg, -1
 
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
-        unmark_check_points = [ck for ck in report['unmarked_check_points_list'] if ck.startswith(target_ck_prefix)]
+        unmark_check_points = [ck for ck in report['unmarked_check_point_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
             return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
