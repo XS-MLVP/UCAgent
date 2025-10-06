@@ -31,7 +31,10 @@ def test_basic_functionality(env):
         env: Env fixture实例，由pytest自动注入
     """    
     # 0. 覆盖率标记（必须）
-    env.dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD", test_basic_functionality, ["CK-BASIC"])
+    env.dut.fc_cover["FG-ARITHMETIC"].mark_function("FC-ADD",test_basic_functionality, ["CK-BASIC1", "CK-BASIC2"])
+    # 如果该用例和多个功能点相关，则需要多次调用 mark_function 分别进行功能点-检查点标记
+    # Eg:
+    # env.dut.fc_cover["FG-XXXXXX"].mark_function("FC-YYYYYY", test_basic_functionality, ["CK-AAA1", "CK-AAA2"])
 
     # 1. 测试数据准备
     input_a = 10
@@ -53,7 +56,7 @@ def test_basic_functionality(env):
 env.dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, ["{检查点列表}"])
 ```
 
-需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。
+需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。一次调用mark_function只能关联一个功能点中的多个测试点，如果一个测试用例覆盖多个功能点，需要多次调用mark_function分别进行标记
 
 
 **参数说明：**
@@ -422,5 +425,6 @@ def test_mathematical_properties(env):
   - 就算调用函数中有assert，最外层test函数也需要有
   - assert 的基本格式为 assert output == excepted_output, description
 - 一个检测点最好对应一个测试函数（如果可以的话）
+- 如果测试用例和多个功能点相关，则需要调用多次 mark_function 分别进行标记
 - 功能尽量单一
 - 触发bug需要是确定性的，不是随机的

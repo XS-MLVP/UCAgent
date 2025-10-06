@@ -134,7 +134,8 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                        "Actions required:",
                           "1. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
                           "2. If a test case is supposed to validate a bug related specific checkpoint, ensure it use 'mark_function' to mark the checkpoint.",
-                          "3. If the test case does not relate to any specific checkpoint, consider deleting it from the bug analysis documentation.",
+                          "3. If a test case is related to multiple function points, ensure all relevant function and checkpoint are marked (call 'mark_function' for each function point).",
+                          "4. If the test case does not relate to any specific checkpoint, consider deleting it from the bug analysis documentation.",
                         "Note: those failed test cases must mark their bug related checkpoint"
                        ]
     # fail tc not in bug doc
@@ -204,7 +205,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
                             "1. Implement test cases that cover these check points.",
-                            "2. Use proper mark_function() calls to associate tests with check points. In the test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
+                           f"2. {fc.description_mark_function_doc()}",
                             "3. Ensure complete functional coverage as specified in documentation."]
 
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
@@ -236,7 +237,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
         return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
                         "Action required:",
-                        "1. Add mark_function() calls to associate these functions with appropriate check points, like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']).",
+                       f"1. {fc.description_mark_function_doc()}",
                         "2. Ensure every test function validates specific documented functionality.",
                         "3. Review test organization and ensure complete traceability."], -1
 
@@ -275,7 +276,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         if len(unmark_check_points) > 0:
             return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                           "Please use it in the correct test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                            fc.description_mark_function_doc() + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
                            "Review your task requirements and complete the check point markings. ", -1
 

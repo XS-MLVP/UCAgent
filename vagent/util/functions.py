@@ -1291,6 +1291,11 @@ def description_func_doc():
          "          ...",
     ]
 
+def description_mark_function_doc():
+    return ("At the test functions beginning use proper `mark_function` calls to associate tests with check points. "
+            "For example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
+            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times.")
+
 
 def replace_bash_var(in_str, data: dict):
     """

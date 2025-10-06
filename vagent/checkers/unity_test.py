@@ -600,7 +600,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if len(unmark_check_points) > 0:
                 info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                                         "Please use it in the correct test case function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+                                         fc.description_mark_function_doc() + \
                                          "This ensures proper coverage mapping between documentation and test implementation. " + \
                                          "Review your task requirements and complete the check point markings. "
                 return False, info_runtest
@@ -611,7 +611,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                 info_runtest["error"] = [f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
                                          "In test templates, every test function must be associated with specific check points through 'mark_function' calls. " + \
                                          "Each test function should:",
-                                         "1. Include coverage marking at the beginning: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', function_name, ['CK-POINTS']).",
+                                        f"1. {fc.description_mark_function_doc()}",
                                          "2. Have clear TODO comments explaining what needs to be implemented.",
                                          "3. End with 'assert False, \"Not implemented\"' to prevent accidental passing.",
                                          "Please add proper function markings according to the test template specification."]
@@ -726,8 +726,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
-            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. "
-                                    "Please mark the related check points in the test function like: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', test_function_name, ['CK-CHECK1', 'CK-CHECK2']). " + \
+            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. " + \
+                                     fc.description_mark_function_doc() + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
 
