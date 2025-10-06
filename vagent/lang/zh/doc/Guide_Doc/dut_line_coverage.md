@@ -203,7 +203,7 @@ ignore分析格式为：
 
 **ignore配置分析：**
 
-<LINE_IGNORE>CPU_Core.v:45-48</LINE_IGNORE>：预留异常处理功能，当前设计规范v1.2中未定义异常类型4'b1111的具体行为，计划在v2.0版本中实现。此代码路径在当前版本无法通过正常测试激活。
+<LINE_IGNORE>*/CPU_Core.v:45-48</LINE_IGNORE>：预留异常处理功能，当前设计规范v1.2中未定义异常类型4'b1111的具体行为，计划在v2.0版本中实现。此代码路径在当前版本无法通过正常测试激活。
 
 **行动计划：**
 - 第49-52行：需要添加调试模式测试用例，不应ignore
@@ -222,9 +222,9 @@ ignore分析格式为：
 
 **ignore配置分析：**
 
-<LINE_IGNORE>Memory_Controller.v:156-164</LINE_IGNORE>：错误注入测试功能，通过宏定义ERROR_INJECTION控制，仅用于可靠性测试阶段。在功能验证阶段此宏未定义，代码不会被编译。
+<LINE_IGNORE>*/Memory_Controller.v:156-164</LINE_IGNORE>：错误注入测试功能，通过宏定义ERROR_INJECTION控制，仅用于可靠性测试阶段。在功能验证阶段此宏未定义，代码不会被编译。
 
-<LINE_IGNORE>debug_interface.v</LINE_IGNORE>：调试接口模块，仅在FPGA验证环境中使用，ASIC实现中会被移除。包含JTAG扫描链和调试寄存器功能。
+<LINE_IGNORE>*/debug_interface.v</LINE_IGNORE>：调试接口模块，仅在FPGA验证环境中使用，ASIC实现中会被移除。包含JTAG扫描链和调试寄存器功能。
 
 **未覆盖但不ignore的代码：**
 ```verilog
@@ -254,11 +254,11 @@ ignore分析格式为：
 
 ### ignore配置详细分析
 
-<LINE_IGNORE>ALU.v:89-95</LINE_IGNORE>：浮点除法器功能。当前ALU配置为定点运算模式(FLOAT_ENABLE=0)，浮点功能在此配置下不可达。根据需求文档，当前阶段仅验证定点运算，浮点功能计划Phase2实现。
+<LINE_IGNORE>*/ALU.v:89-95</LINE_IGNORE>：浮点除法器功能。当前ALU配置为定点运算模式(FLOAT_ENABLE=0)，浮点功能在此配置下不可达。根据需求文档，当前阶段仅验证定点运算，浮点功能计划Phase2实现。
 
-<LINE_IGNORE>ALU.v:156-160</LINE_IGNORE>：溢出标志位特殊处理。仅在OVERFLOW_MODE=2时执行，当前验证使用OVERFLOW_MODE=0。经设计团队确认，模式2为实验性功能，暂不验证。
+<LINE_IGNORE>*/ALU.v:156-160</LINE_IGNORE>：溢出标志位特殊处理。仅在OVERFLOW_MODE=2时执行，当前验证使用OVERFLOW_MODE=0。经设计团队确认，模式2为实验性功能，暂不验证。
 
-<LINE_IGNORE>ALU.v:203</LINE_IGNORE>：内部一致性检查断言。正常功能测试中不会触发，仅在内部状态异常时生效。属于保护性代码。
+<LINE_IGNORE>*/ALU.v:203</LINE_IGNORE>：内部一致性检查断言。正常功能测试中不会触发，仅在内部状态异常时生效。属于保护性代码。
 
 ### 风险评估
 - **整体风险：** 低
@@ -308,7 +308,7 @@ ignore分析格式为：
 每个ignore配置都应该遵循以下分析模板：
 
 ```markdown
-<LINE_IGNORE>文件名:行号范围</LINE_IGNORE>：[ignore类型] ignore的具体原因，包括技术依据和时间计划。
+<LINE_IGNORE>*/文件名:行号范围</LINE_IGNORE>：[ignore类型] ignore的具体原因，包括技术依据和时间计划。
 
 ignore类型包括：
 - 预留功能：未来版本实现的功能
@@ -321,15 +321,15 @@ ignore类型包括：
 
 **良好的ignore分析示例：**
 
-<LINE_IGNORE>FPU.v:*</LINE_IGNORE>：[预留功能] 浮点运算单元，根据项目roadmap计划在v2.0版本实现。当前配置ENABLE_FPU=0，整个模块不会被使用。预计2024年Q3开始实现，届时需要移除此ignore。
+<LINE_IGNORE>*/FPU.v:*</LINE_IGNORE>：[预留功能] 浮点运算单元，根据项目roadmap计划在v2.0版本实现。当前配置ENABLE_FPU=0，整个模块不会被使用。预计2024年Q3开始实现，届时需要移除此ignore。
 
-<LINE_IGNORE>cache_ctrl.v:456-480</LINE_IGNORE>：[配置相关] 4路组相联缓存的替换算法，当前验证配置为直接映射缓存(CACHE_WAYS=1)。此代码段仅在CACHE_WAYS>1时执行。已通过单独的4路缓存配置验证此功能。
+<LINE_IGNORE>*/cache_ctrl.v:456-480</LINE_IGNORE>：[配置相关] 4路组相联缓存的替换算法，当前验证配置为直接映射缓存(CACHE_WAYS=1)。此代码段仅在CACHE_WAYS>1时执行。已通过单独的4路缓存配置验证此功能。
 
 **需要改进的ignore分析示例：**
 
-<LINE_IGNORE>module.v:100-120</LINE_IGNORE>：暂时不测试 ❌
+<LINE_IGNORE>*/module.v:100-120</LINE_IGNORE>：暂时不测试 ❌
 *问题：原因不明确，没有技术依据*
 
-<LINE_IGNORE>complex_logic.v:200-300</LINE_IGNORE>：太复杂了，难以测试 ❌  
+<LINE_IGNORE>*/relative_path/complex_logic.v:200-300</LINE_IGNORE>：太复杂了，难以测试 ❌  
 *问题：不是合理的ignore理由，应该设计测试方法*
 
