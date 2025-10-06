@@ -491,6 +491,7 @@ stage:
       - " - {DUT}源文件均位于{DUT}/目录下，依赖源文件位于{RTL_PATH}/目录下，文件后缀可能是.v、.sv、.vh、.scala等，需要你自行识别，例如：{RTL_PATH}/{DUT}.v"
       - " - 可编辑的代码行ignore文件位于{OUT}/tests/{DUT}.ignore，你可以根据需要进行调整"
       - " - ignore的Pattern请以*/开头，例如*/path_in_workspace/to_be_ignored.sv[:line_number_start-line_number_end, ...]，其中path_in_workspace为相对于workspace的路径，没有同名文件时可省略，例如*/to_be_ignored.sv[:line_number_start-line_number_end, ...]"
+      - " - ignore Pattern中代码行的格式为line_number_start-line_number_end，单行代码也为该格式，例如第10行代码需要标记为10-10"
       - " - 任务中涉及到的文档和注释，主体需要用{DOC_GEN_LANG}编写"
     checker:
       - name: line_coverage_check

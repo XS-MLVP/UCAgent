@@ -308,8 +308,34 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
 
     file_ignore_path = os.path.join(workspace, file_ignore)
     if file_ignore and os.path.exists(file_ignore_path):
-        igs = fc.parse_line_ignore_file(file_ignore_path).get("marks", [])
+        line_cov = fc.parse_line_ignore_file(file_ignore_path)
+        igs = line_cov.get("marks", [])
         if len(igs) > 0:
+            # check format
+            clines = [(x["line"], x["value"]) for x in line_cov["detail"]]
+            error_igs = []
+            for line, ig in clines:
+                if not ig.startswith("*/"):
+                    error_igs.append((line, ig))
+            if len(error_igs) > 0:
+                emessage = ', '.join([f"line {x[0]}: '{x[1]}'" for x in error_igs])
+                return False, f"Line coverage ignore file ({file_ignore}) contains {len(error_igs)} invalid ignore patterns (must start with '*/'): `{emessage}`. " + \
+                              "Please correct the ignore patterns to start with '*/', e.g., '*/{DUT}/{DUT}.v:18-20,50-50' which means the lines from 18-20 and line 50 in file {DUT}/{DUT}.v should be ignored.", \
+                                0.0
+            error_igs = []
+            for line, ig in clines:
+                if ":" in ig:
+                    line_part = ig.split(":")[-1]
+                    line_ranges = line_part.split(",")
+                    for lr in line_ranges:
+                        if "-" not in lr:
+                            error_igs.append((line, ig))
+                            break
+            if len(error_igs) > 0:
+                emessage = ', '.join([f"line {x[0]}: '{x[1]}'" for x in error_igs])
+                return False, f"Line coverage ignore file ({file_ignore}) contains {len(error_igs)} invalid ignore patterns (line number format error): `{emessage}`. " + \
+                              "Please correct the ignore patterns to use the format 'line_number_start-line_number_end', e.g., '*/{DUT}/{DUT}.v:18-20,50-50' which means the lines from 18-20 and line 50 in file {DUT}/{DUT}.v should be ignored.", \
+                                0.0
             file_analyze_md_path = os.path.join(workspace, file_analyze_md)
             if not os.path.exists(file_analyze_md_path):
                 return False, f"Line coverage analysis documentation file ({file_analyze_md}) not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
