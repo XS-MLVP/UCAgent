@@ -222,6 +222,27 @@ def api_cache_read(env, address, timeout_cycles=100):
     return data
 ```
 
+#### API 实现注意
+
+##### 按有符号数读取端口
+
+DUT 的端口可以通过`S()`方法完成按有符号数读取，例如:
+
+```python
+    signed_value = env.addr.S() # 这样得到的是**有符号的**结果
+    unsigned_value = env.addr.value # 这样得到的是无符号的结果
+```
+
+##### 读取/修改端口的指定位
+
+DUT 的端口支持对某位进行读写，例如：
+
+```python
+   lsb = env.addr[0] # 读取addr最低位的值
+   bit2 = env.addr[1] # 读取addr第1位的值
+   env.addr[2] = 0 # 修改addr第2位的值
+```
+
 ### API 测试
 
 完成API编写后，需要对其进行功能测试，检验其是否满足要求。API测试主要关注单个API函数的功能正确性。
