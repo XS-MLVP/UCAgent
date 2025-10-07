@@ -19,7 +19,7 @@ import pytest
 - 测试用例应该只依赖DUT提供的API接口
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
-- 每个测试用例都应该有assert判断，如果内部调用函数有assert判断，则可在用例中添加`assert True，"原因说明"`
+- 每个测试用例都应该有合理的assert判断：assert output==excepted_output, assert_message
 
 ### 基本测试函数结构
 
@@ -328,44 +328,7 @@ def test_comprehensive_data_coverage(env):
 
 ```
 
-### 2. 错误处理和异常测试
-
-```python
-def test_error_conditions(env):
-    """测试错误条件处理"""
-    env.dut.fc_cover["FG-ERROR"].mark_function("FC-ERROR-HANDLING", test_error_conditions, ["CK-INVALID-INPUT"])
-
-    # 测试无效输入（如果API支持）
-    with pytest.raises(ValueError):
-        api_invalid_operation(env, -1)  # 假设不支持负数
-
-    # 测试超时情况（如果适用）
-    with pytest.raises(TimeoutError):
-        api_long_operation(env, timeout=0.1)
-
-    assert True, "Make sure there has at least one assertion"
-```
-
-### 3. 性能和压力测试
-
-```python
-def test_performance_stress(env):
-    """性能和压力测试"""
-    env.dut.fc_cover["FG-PERFORMANCE"].mark_function("FC-STRESS", test_performance_stress, ["CK-THROUGHPUT"])
-
-    import time
-    start_time = time.time()
-
-    # 执行大量操作
-    for i in range(1000):
-        result = api_fast_operation(env, i % 256)
-        assert result is not None
-
-    elapsed = time.time() - start_time
-    assert elapsed < 1.0, f"性能测试失败，耗时{elapsed}秒"
-```
-
-### 4. 测试辅助函数
+### 2. 测试辅助函数
 
 ```python
 def generate_test_vectors(count=100):
@@ -395,8 +358,8 @@ def test_mathematical_properties(env):
     test_pairs = [(1, 2), (10, 20), (100, 200)]
     
     for a, b in test_pairs:
-        verify_operation_properties(env, a, b)
-    assert True, "Assertion is in verify_operation_properties"
+        result = verify_operation_properties(env, a, b)
+        assert result == excepted_result, ...
 ```
 
 ## 质量保证检查清单
