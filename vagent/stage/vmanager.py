@@ -5,6 +5,7 @@ import inspect
 from vagent.util.functions import yam_str
 from vagent.util.log import info, warning
 from collections import OrderedDict
+import vagent.util.functions as fc
 import traceback
 import copy
 import time
@@ -404,9 +405,21 @@ class StageManager(object):
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         return ret_data
 
+    def save_stage_info(self):
+        info = self.agent.get_stat_info()
+        info.update({
+            "stage_index": self.stage_index,
+            "all_completed": self.all_completed,
+            "time_begin": self.time_begin,
+            "time_end": self.time_end,
+            "is_agent_exit": self.agent.is_exit(),
+        })
+        fc.save_ucagent_info(self.workspace, info)
+
     def next_stage(self):
         self.stage_index += 1
         self._go_skip_stage()
+        self.save_stage_info()
 
     def _go_skip_stage(self):
         if self.stage_index >= len(self.stages):
@@ -478,6 +491,7 @@ class StageManager(object):
         if self.all_completed:
             self.time_end = time.time()
             self.agent.exit()  # Exit the agent if all stages are completed
+            self.save_stage_info()
             return {
                 "exit": True,
                 "message": "All stages completed. Exiting the mission."

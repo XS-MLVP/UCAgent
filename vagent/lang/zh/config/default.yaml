@@ -475,7 +475,7 @@ stage:
             ignore_ck_prefix: "test_api_{DUT}_"
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
-            pre_report_file: "{OUT}/{DUT}/.TEST_TEMPLATE_IMP_REPORT.json"
+            pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
 
   - name: line_coverage_analysis_and_improvement
     desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"

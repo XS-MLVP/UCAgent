@@ -277,6 +277,28 @@ def save_json_file(path: str, data):
         except Exception as e:
             raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
 
+def save_ucagent_info(workspace, info: dict):
+    """
+    Save UCAgent information to a JSON file in the workspace.
+    :param workspace: The workspace directory where the file will be saved.
+    :param info: The UCAgent information to be saved.
+    """
+    assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
+    info_path = os.path.join(workspace, ".ucagent_info.json")
+    save_json_file(info_path, info)
+
+def load_ucagent_info(workspace) -> dict:
+    """
+    Load UCAgent information from a JSON file in the workspace.
+    :param workspace: The workspace directory where the file is located.
+    :return: The loaded UCAgent information.
+    """
+    if not os.path.exists(workspace):
+        return {}
+    info_path = os.path.join(workspace, ".ucagent_info.json")
+    if not os.path.exists(info_path):
+        return {}
+    return load_json_file(info_path)
 
 def load_toffee_report(result_json_path: str, workspace: str, run_test_success: bool, return_all_checks: bool) -> dict:
     """

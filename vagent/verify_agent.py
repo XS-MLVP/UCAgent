@@ -88,6 +88,12 @@ class VerifyAgent:
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
         """
+        saved_info = fc.load_ucagent_info(workspace)
+        if force_stage_index == 0:
+            force_stage_index = saved_info.get("stage_index",
+                                               force_stage_index)
+            if force_stage_index > 0:
+                warning(f"Resuming from saved stage index: {force_stage_index}")
         self.__version__ = __version__
         if debug:
             set_debug(True)
@@ -411,6 +417,12 @@ class VerifyAgent:
         except UnicodeDecodeError:
             raise ValueError("Continue message must be a valid UTF-8 string")
         self._continue_msg = msg
+
+    def get_stat_info(self):
+        return {
+            "version": self.__version__,
+            "seed": self.seed,
+        }
 
     def is_exit(self):
         if self._is_exit:
