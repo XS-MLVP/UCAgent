@@ -307,6 +307,9 @@ lang: "en"
 **Q: MCP服务器无法连接？**
 **A:** 检查端口是否被占用，确认防火墙设置，可以通过 `--mcp-server-port` 指定其他端口。
 
+**Q: 如何运行长时间验证？**
+**A:** 请参考CodeAgent的无头模式以及脚本 `tests/test_nohead_loop.bash`。
+
 ### 贡献指南
 
 欢迎提交 Issue 和 Pull Request！

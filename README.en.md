@@ -183,8 +183,8 @@ Create and edit a `config.yaml` file to configure the AI model and embedding mod
 # API configuration (supports openai, anthropic, google_genai)
 model_type: openai
 
-# $(NAME: default_ralue): Read the environment variable NAME,
-#    where default_ralue is the default value
+# $(NAME: default_value): Read the environment variable NAME,
+#    where default_value is the default value
 openai:
   # Model Name
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
@@ -301,6 +301,9 @@ Alternatively, by specifying parameters: `--config`, `--template-dir`, `--guid-d
 
 **Q: MCP server cannot connect?**
 **A:** Check if the port is occupied, confirm firewall settings, and you can specify other ports through `--mcp-server-port`.
+
+**Q: How to run long-term verification?**
+**A:** Please refer to CodeAgent's headless mode and the script `tests/test_nohead_loop.bash`.
 
 ### Contributing
 
