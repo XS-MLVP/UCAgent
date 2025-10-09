@@ -473,16 +473,16 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
             if b not in failed_check_point_list:
                 marked_bins.append(b)
                 continue
-        free_report["marked_bins"] = marked_bins
+        free_report["marked_check_point_list"] = marked_bins
         if return_line_coverage:
             line_coverage_data = {}
-            line_coverage_file = self.extra_kwargs.get("coverage_json", "uc_test_report/coverage.json")
+            line_coverage_file = self.extra_kwargs.get("coverage_json", "uc_test_report/line_dat/code_coverage.json")
             if not os.path.exists(self.get_path(line_coverage_file)):
                 line_coverage_data["error"] = f"Line coverage file '{line_coverage_file}' does not exist in workspace."
             else:
                 try:
                     line_coverage_data = fc.parse_un_coverage_json(
-                        self.get_path(),
+                        line_coverage_file,
                         self.workspace
                     )
                 except Exception as e:
