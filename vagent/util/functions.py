@@ -216,6 +216,9 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
         nkey = keyname_list[i+1] if i < len(keyname_list) - 1 else None
         if i == 0:
             return key_dict, nkey
+        # Check if parent level exists
+        if pre_values[i - 1] is None:
+            return None, nkey
         return pre_values[i - 1][keyname_list[i]], nkey
     with open(target_file, 'r') as f:
         index = 1
@@ -233,8 +236,14 @@ def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: Li
                 assert line.count(prefix) == 1, f"At line ({index}): '{line}' should contain exactly one {key} '{prefix}'"
                 current_key = rm_blank_in_str(str_replace_to(get_sub_str(line, prefix, subfix), ignore_chars, ""))
                 pod, next_key = get_pod_next_key(i)
-                assert pod is not None, f"At line ({index}): contain {key} '{prefix}' but it do not find its parent {pre_key} '{pre_prf}' in previous."
-                assert current_key not in pod, f"{current_key}' is defined multiple times. find it in line {index} again."
+                # Enhanced error message with context
+                if pod is None:
+                    raise ValueError(
+                        f"At line ({index}): Found {key} tag '{prefix}' but its parent {pre_key} tag '{pre_prf}' "
+                        f"was not found in previous lines. Please ensure proper nesting: each '{prefix}' must be "
+                        f"preceded by a '{pre_prf}' tag.\nCurrent line content: {line}"
+                    )
+                assert current_key not in pod, f"At line ({index}): '{current_key}' is defined multiple times."
                 pod[current_key] = {"line": index}
                 if next_key is not None:
                     pod[current_key][next_key] = {}
