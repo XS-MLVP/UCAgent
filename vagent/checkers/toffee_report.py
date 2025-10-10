@@ -90,8 +90,13 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         bug_label = tc.split("/TC-")[0]
         tc_name = tc.split("/")[-1].split("TC-")[-1]
         tc_name_parts = tc_name.split("::")
+        try:
+            bug_rate = int(bug_label.split("-")[-1])
+        except Exception as e:
+            return False, f"Bug ({bug_label}) confidence parse fail ({str(e)}), its format should be: <BG-NAME-XX> where XX is the confidence rate from 0 to 100."
         if len(tc_name_parts) < 2:
-            return False, "test case parse fail, its format shuold be: <TC-test_file.py::[ClassName]::test_case_name> where ClassName is optional, eg: <TC-test_file.py::test_my_case>."
+            return False, f"Test case ({tc_name}) parse fail, its format shuold be: <TC-test_file.py::[ClassName]::test_case_name> where ClassName is optional, eg: <TC-test_file.py::test_my_case>."
+        is_zero_bug = (bug_rate == 0)
         is_fail_tc, fail_tc_name = is_in_target_tc_names(tc_name_parts, failed_tc_names)
         is_pass_tc, pass_tc_name = is_in_target_tc_names(tc_name_parts, passed_tc_list)
         if is_fail_tc:
@@ -99,8 +104,9 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
             if checkpoint not in failed_tc_and_cks[fail_tc_name]:
                 tc_not_mark_the_cks_list.append((fail_tc_name, checkpoint))
         else:
-            tc_not_found_in_ftc_list.append((tc_name, bug_label))
-        if is_pass_tc and not is_fail_tc:
+            if not is_zero_bug:
+                tc_not_found_in_ftc_list.append((tc_name, bug_label))
+        if is_pass_tc and not is_fail_tc and not is_zero_bug:
             tc_found_in_ptc_list.append((tc_name, pass_tc_name))
 
     # tc in pass tc
@@ -112,6 +118,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                         "1. Make sure the bug analysis documentation marks the right test cases for each bug.",
                         "2. Ensure the test cases is working correctly and 'FAILED' as expected.",
                         "3. If the test cases are not related to any bugs, please remove them from the bug analysis documentation.",
+                        "4. If this is a placeholder for failed checkpoints, please set the bug confidence to zero using <BG-NAME-0>.",
                        "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not found in fail tcs
@@ -124,6 +131,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                           "2. If the test cases are based on classes, ensure the class names are included in the <TC-*> tags, e.g., <TC-test_example.py::TestClassName::test_function_name>.",
                           "3. If the test cases have no relation to the bug, please remove them from the bug analysis documentation.",
                           "4. The test python file in <TC-*> must be the same as the actual test file name.",
+                          "5. If this is a placeholder for failed test cases, please set the bug confidence to zero using <BG-NAME-0>.",
                        "Note: those test cases indicate a bug must be 'FAILED'"
                        ]
     # tc not mark their checkpoints

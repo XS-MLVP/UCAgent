@@ -875,6 +875,30 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
+    def get_zero_bug_rate_list(self):
+        zero_list = []
+        try:
+            for bg in fc.get_unity_chip_doc_marks(os.path.join(self.workspace, self.doc_bug_analysis), leaf_node="BG"):
+                try:
+                    rate = int(bg.split("-")[-1])
+                    if rate == 0:
+                        zero_list.append(bg)
+                except Exception as e:
+                    pass
+        except Exception as e:
+            pass
+        return zero_list
+
+    def get_template_data(self):
+        zero_list = self.get_zero_bug_rate_list()
+        if len(zero_list) > 0:
+            zero_rate = f"({len(zero_list)}: {', '.join(zero_list)})"
+            return {
+                "BUG_ZERO_RATE_LIST": zero_rate
+            }
+        else:
+            return super().get_template_data()
+
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """
         Perform comprehensive check for implemented test cases.
@@ -912,9 +936,15 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
         
         # Parse documentation marks for validation
+        zero_list = self.get_zero_bug_rate_list()
+        zero_rate_msg = f"Note: The following {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list)}. " + \
+                         "You may want to review and update their occurrence rates if they were encountered during testing."
+
         ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
         if not ret:
             info_runtest["error"] = msg
+            if len(zero_list) > 0:
+                info_runtest["error"].append(zero_rate_msg)
             return ret, info_runtest
 
         # Success: All validations passed
@@ -924,6 +954,8 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
                       f"✓ Test-documentation consistency verified.",
                       f"✓ Marked {marked_bugs} bugs in file: {self.doc_bug_analysis}.",
                       "Your test implementation successfully validates the DUT functionality!"]
+        if len(zero_list) > 0:
+            success_msg.append(zero_rate_msg)
         if marked_bugs == 0:
             success_msg.append("Warning: No bugs were marked in the bug analysis document. If issues were found during testing, please ensure they are documented appropriately.")
             success_msg.extend(fc.description_bug_doc())

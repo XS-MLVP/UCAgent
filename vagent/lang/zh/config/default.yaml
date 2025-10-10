@@ -426,6 +426,7 @@ stage:
       - "  - 不要尝试修复确定为出发DUT bug的测试用例，而是保留测试用例为Fail"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
+      - "  - 对<BG-*-0>标记置信度为0的bug进行分析{BUG_ZERO_RATE_LIST}，确认是否真的需要"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
