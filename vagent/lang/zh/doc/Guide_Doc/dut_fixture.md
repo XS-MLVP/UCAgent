@@ -36,6 +36,11 @@ def get_coverage_data_path(request, new_path:bool):
     return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
 
 
+def get_waveform_path(request, new_path:bool):
+    # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
+    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=new_path)
+
+
 def create_dut(request):
     """创建DUT实例的工厂函数
     
@@ -50,9 +55,8 @@ def create_dut(request):
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
     dut.SetCoverage(get_coverage_data_path(request, new_path=True))
 
-    # 设置波形生成文件（根据需要设置，可选）
-    # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{DUT}.fst",  new_path=True)
-    # dut.SetWaveform(wave_path)
+    # 设置波形生成文件
+    dut.SetWaveform(get_waveform_path(request, new_path=True))
 
     # 进行必要的初始化设置
     # 例如：设置默认值、复位等
@@ -341,8 +345,6 @@ arithmetic_bundle.multiplier.b.value = 4
 同时，当我们以这种定义方式进行定义后，在最顶层的 Bundle 进行绑定时，会同时将子 Bundle 也绑定到 DUT 上，在定义子 Bundle 时，依然可以使用前文提到的多种绑定方式。
 
 需要注意的是，子 Bundle 的创建方法去匹配的信号名称，是经过上一次 Bundle 的创建方法进行处理过后的名称。例如在上面的代码中，我们将顶层 Bundle 的匹配方式设置为 `from_prefix('io_')`，那么在 `AdderBundle` 中去匹配的信号，是去除了 `io_` 前缀后的名称。
-
-同时，字典匹配方法会将信号名称转换为字典映射后的名称传递给子 Bundle 进行匹配，正则表达式匹配方法会将正则表达式捕获到的名称传递给子 Bundle 进行匹配。
 
 ##### Bundle 中的实用操作
 

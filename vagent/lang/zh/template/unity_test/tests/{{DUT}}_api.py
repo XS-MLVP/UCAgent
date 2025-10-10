@@ -21,6 +21,11 @@ def get_coverage_data_path(request, new_path:bool):
     return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
 
 
+def get_waveform_path(request, new_path:bool):
+    # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
+    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=new_path)
+
+
 def create_dut(request):
     """
     Create a new instance of the {{DUT}} for testing.
@@ -34,9 +39,8 @@ def create_dut(request):
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
     dut.SetCoverage(get_coverage_data_path(request, new_path=True))
 
-    # 设置波形生成文件（根据需要设置，可选）
-    # wave_path = get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=True)
-    # dut.SetWaveform(wave_path)
+    # 设置波形生成文件
+    dut.SetWaveform(get_waveform_path(request, new_path=True))
 
     return dut
 
