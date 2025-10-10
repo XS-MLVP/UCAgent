@@ -376,6 +376,7 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         self.batch_task.source_task_list = self.smanager_get_value(self.data_key, [])
         self.batch_task.update_current_tbd()
         info(f"Load cached doc ck list(size={len(self.batch_task.source_task_list)}) from data key '{self.data_key}'.")
+        return super().on_init()
 
     def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """Check the functional coverage groups against the documentation."""
@@ -518,6 +519,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
         self.batch_task.update_current_tbd()
         info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
+        return super().on_init()
 
     def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """
@@ -750,7 +752,6 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         ]
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
-        self.is_inited = False
         assert self.test_dir is not None, f"Need set test directory '{self.test_dir}'."
 
     def get_template_data(self):
@@ -782,10 +783,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
     def on_init(self):
         self.check_data()
-        self.is_inited = True
+        return super().on_init()
 
     def check_data(self):
-        if len(self.total_test_cases) == 0 and not self.is_inited:
+        if len(self.total_test_cases) == 0 and not self._is_init:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
                 assert self.pre_report_file is not None, "Need set 'pre_report_file' to load previous test report from a file."
@@ -877,6 +878,8 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
     def get_zero_bug_rate_list(self):
         zero_list = []
+        if not self._is_init:
+            return zero_list
         try:
             for bg in fc.get_unity_chip_doc_marks(os.path.join(self.workspace, self.doc_bug_analysis), leaf_node="BG"):
                 try:
@@ -983,6 +986,7 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
     def on_init(self):
         self.cur_line_coverage = 0.0
+        return super().on_init()
 
     def get_template_data(self):
         if self.cur_line_coverage is None:

@@ -20,9 +20,11 @@ class Checker:
     _process = None
     stage_manager = None
     dut_name = None
+    _is_init = False
 
     def on_init(self):
-        pass
+        self._is_init = True
+        return self
 
     def get_template_data(self):
         return None
