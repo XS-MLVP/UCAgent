@@ -81,15 +81,17 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
             if all_in:
                 return True, fname
         return False, ""
-    # fmt: FG/FC/CK/BG/TC
+    # fmt: FG/FC/CK/BG/TC-path/to/test_file.py::[ClassName]::test_case_name
     tc_not_found_in_ftc_list = []
     tc_not_mark_the_cks_list = []
     tc_found_in_ptc_list = []
     for tc in tc_list:
         checkpoint = tc.split("/BG-")[0]
         bug_label = tc.split("/TC-")[0]
-        tc_name = tc.split("/")[-1].split("TC-")[-1]
+        tc_name = tc.split("/TC-")[-1]
         tc_name_parts = tc_name.split("::")
+        tc_name = "<TC-" + tc_name + ">"
+        info(f"Check TC: {tc} ({tc_name}) for bug analysis")
         try:
             bug_rate = int(bug_label.split("-")[-1])
         except Exception as e:
@@ -98,7 +100,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
             return False, f"Test case ({tc_name}) parse fail, its format shuold be: <TC-test_file.py::[ClassName]::test_case_name> where ClassName is optional, eg: <TC-test_file.py::test_my_case>."
         is_zero_bug = (bug_rate == 0)
         is_fail_tc, fail_tc_name = is_in_target_tc_names(tc_name_parts, failed_tc_names)
-        is_pass_tc, pass_tc_name = is_in_target_tc_names(tc_name_parts, passed_tc_list)
+        # failed tc
         if is_fail_tc:
             failed_tc_maps[fail_tc_name] = True
             if checkpoint not in failed_tc_and_cks[fail_tc_name]:
@@ -106,6 +108,8 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         else:
             if not is_zero_bug:
                 tc_not_found_in_ftc_list.append((tc_name, bug_label))
+        # passed tc
+        is_pass_tc, pass_tc_name = is_in_target_tc_names(tc_name_parts, passed_tc_list)
         if is_pass_tc and not is_fail_tc and not is_zero_bug:
             tc_found_in_ptc_list.append((tc_name, pass_tc_name))
 

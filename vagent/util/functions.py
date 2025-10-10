@@ -203,7 +203,7 @@ def nested_keys_as_list(ndata:dict, leaf:str, keynames: List[str], ex_ignore_nam
 
 
 def parse_nested_keys(target_file: str, keyname_list: List[str], prefix_list: List[str], subfix_list: List[str],
-                      ignore_chars: List[str] = ["/", "<", ">"]) -> dict:
+                      ignore_chars: List[str] = ["<", ">"]) -> dict:
     """Parse the function points and checkpoints from a file."""
     assert os.path.exists(target_file), f"File {target_file} does not exist. You need to provide a valid file path."
     assert len(keyname_list) > 0, "Prefix must be provided."
