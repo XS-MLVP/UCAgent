@@ -890,14 +890,13 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         return zero_list
 
     def get_template_data(self):
+        zero_rate = ""
         zero_list = self.get_zero_bug_rate_list()
         if len(zero_list) > 0:
             zero_rate = f"({len(zero_list)}: {', '.join(zero_list)})"
-            return {
+        return {
                 "BUG_ZERO_RATE_LIST": zero_rate
             }
-        else:
-            return super().get_template_data()
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, str]:
         """
