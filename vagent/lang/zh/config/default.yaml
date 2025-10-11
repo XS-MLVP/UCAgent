@@ -319,7 +319,11 @@ stage:
       - "需要根据{DUT}的功能进行API实现，如果可以，需要提供底层功能API和任务功能API"
       - "把结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
       - "例如：对于ALU，需要实现底层功能 api_operate(env, data1, data2, operation), 然后基于其实现 api_add(env, data1, data2)等上层API接口"
-      - "注意：api_函数操作的主要对象为env，非必要情况下不能直接操作dut，除利用`mark_function`反标测试点外"
+      - "注意："
+      - "  API函数操作的主要对象为env，非必要情况下不能直接操作dut，除利用`mark_function`反标测试点外"
+      - "  针对时序电路，API函数需要考虑超时和等待机制，设置最大等待周期，防止死循环"
+      - "  对于总线类DUT，建议基于 dut.StepRis 实现总线事务级驱动"
+      - "  有需要时，请在Env中通过 dut.StepRis 实现对关联Mock组件的驱动"
     checker:
       - name: api_check
         clss: "UnityChipCheckerDutApi"
