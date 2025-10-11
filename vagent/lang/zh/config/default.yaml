@@ -223,7 +223,7 @@ stage:
          - "1. 对dut的引脚进行分析，确定哪些是输入，哪些是输出，有哪些分组"
          - "2. 如果存在多个分组，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联, 在env中按分组命名，例如io_group1.a, io_group2.b等"
          - "3. 如果不存在分组，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联，在env中统一用io命名，例如io.a, io.b等"
-         - "4. 如果需要，可以在env fixture中添加必要的组件和功能"
+         - "4. 如果需要，请务必在env fixture中添加必要的组件和功能，例如为{DUT}添加上下游依赖模块的Mock组件，并通过dut.StepRis进行Mock组件的驱动"
          - "5. 可以按dut功能需要，添加一些常用的操作方法,例如reset, Finish, Step等"
          - "6. 引脚封装要有意义，便于理解和使用"
        checker:
