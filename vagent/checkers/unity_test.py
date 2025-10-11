@@ -652,7 +652,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
         if passed_test:
             return False, f"Test template structure validation failed: Not all test functions ({', '.join(passed_test)}) are properly failing. " + \
-                           "In test templates, ALL test functions must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
+                          f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_ck_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
                            "This prevents incomplete templates from being accidentally considered as passing tests. " + \
                            "Please ensure every test function ends with the required fail assertion."
         # Check for proper TODO comments (this would require parsing the actual test files)
