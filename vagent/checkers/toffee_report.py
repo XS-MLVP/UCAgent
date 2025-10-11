@@ -185,8 +185,8 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
                                 "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}' with confidence bug ratings.".format(bug_analysis_file),
                                 *fc.description_bug_doc(),
-                                "5. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
-                                "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
+                                "4. If these are implicitly covered the marked test cases, you can use arbitrary <checkpoint> function 'lambda x:True' to force pass them (need document it in the comments).",
+                                "5. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
                                 "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
                                 ], -1
 
