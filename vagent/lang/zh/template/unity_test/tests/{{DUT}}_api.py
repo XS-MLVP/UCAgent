@@ -118,6 +118,9 @@ class {{DUT}}Env:
     #def reset(self):
     #    # 根据DUT的复位方式，完成复位操作
     #    ...
+    #    建议在dut reset时，把所有输入引脚，通过Bundle的assign接口置零
+    #    self.some_input1.assign({'*': 0})
+    #    self.some_input2.assign({'*': 0})
 
     # 直接导出DUT的通用操作Step
     def Step(self, i:int = 1):
