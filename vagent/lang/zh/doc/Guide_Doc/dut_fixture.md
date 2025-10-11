@@ -194,6 +194,13 @@ class {{DUT}}Env:
         #  2.如果引脚无法分组，请用from_dict方法进行映射
         # self.some_input2 = MyPort.from_dict({...})
         # self.some_input2.bind(dut)
+        # 根据需要添加StepRis回调:
+        # self.dut.StepRis(self.handle_axi_transactions)
+
+    # 根据需要添加清空Env注册的回调函数
+    # def clear_cbs(self):
+    #     self.dut.xclock.RemoveStepRisCbByDesc(self.handle_axi_transactions.__name__)
+    #     ...
 
     # 根据需要定义Env的常用操作
     # def reset(self):
@@ -511,6 +518,289 @@ class AXI4BasedDUTEnv:
 def env(dut):
     return AXI4BasedDUTEnv(dut) # 一般情况下为每个test都创建全新的 env 不需要 yield
 ```
+
+
+#### StepRis 回调函数
+
+`StepRis` 是 DUT 对象提供的回调注册机制，用于在每个时钟周期的上升沿自动执行指定的回调函数。这是实现功能覆盖率自动采样、驱动 Mock 组件、监控信号变化等功能的核心机制。
+
+##### 基本用法
+
+```python
+class TestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        # 注册上升沿回调函数
+        self.dut.StepRis(self.step_ris_cb)
+        
+    def step_ris_cb(self, cycles):
+        """上升沿回调函数
+        
+        Args:
+            cycles: 当前时钟周期数
+        """
+        print(f"Clock rising edge at cycle: {cycles}")
+        # 在这里可以执行：
+        # 1. 功能覆盖率采样
+        # 2. 驱动 Mock 组件
+        # 3. 监控信号变化
+        # 4. 记录调试信息
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+
+
+@pytest.fixture()
+def env(dut):
+    return TestEnv(dut)
+
+
+def test_with_callback(env):
+    # 每次调用 Step 时，每个时钟周期的上升沿都会调用 step_ris_cb
+    env.Step(10)  # step_ris_cb 会被调用 10 次
+```
+
+##### 函数原型
+
+```python
+class DUT{{DUTClass}}:
+    def StepRis(self, callback, args=(), kwargs={}) -> None:
+        """注册时钟上升沿回调函数
+        
+        Args:
+            callback: 回调函数，签名为 callback(cycles, *args, **kwargs)
+            args: 传递给回调函数的位置参数（元组）
+            kwargs: 传递给回调函数的关键字参数（字典）
+        """
+        pass
+```
+
+##### 常见应用场景
+
+**1. 功能覆盖率自动采样**
+
+这是 `StepRis` 最常见的用途，在 dut fixture 中自动注册：
+
+```python
+@pytest.fixture(scope="module")
+def dut(request):
+    dut = create_dut(request)
+    func_coverage_group = get_coverage_groups(dut)
+    
+    # 注册覆盖率采样回调
+    dut.StepRis(lambda _: [g.sample() for g in func_coverage_group])
+    
+    setattr(dut, "fc_cover", {g.name: g for g in func_coverage_group})
+    yield dut
+    
+    # 清理...
+```
+
+**2. 驱动 Mock 组件**
+
+使用 `StepRis` 驱动内存模型、总线模型等 Mock 组件：
+
+```python
+class MemoryMock:
+    def __init__(self):
+        self.data = {}
+        self.pending_writes = []
+    
+    def on_clock_edge(self, cycles):
+        """在时钟上升沿处理待处理的操作"""
+        # 处理延迟写入
+        if self.pending_writes:
+            addr, data = self.pending_writes.pop(0)
+            self.data[addr] = data
+
+
+class CacheTestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.memory = MemoryMock()
+        
+        # 注册内存模型的时钟回调
+        self.dut.StepRis(self.memory.on_clock_edge)
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+```
+
+**3. 信号监控和断言检查**
+
+```python
+class MonitorEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.error_count = 0
+        self.dut.StepRis(self.monitor_signals)
+    
+    def monitor_signals(self, cycles):
+        """监控关键信号并进行断言检查"""
+        # 检查总线协议
+        if self.dut.valid.value and not self.dut.ready.value:
+            print(f"Warning: valid but not ready at cycle {cycles}")
+        
+        # 检查数据一致性
+        if self.dut.error_flag.value:
+            self.error_count += 1
+            print(f"Error detected at cycle {cycles}")
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+```
+
+**4. 多个回调函数注册**
+
+可以注册多个回调函数，它们会按注册顺序依次执行：
+
+```python
+class ComplexEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        
+        # 注册多个回调
+        self.dut.StepRis(self.sample_coverage)    # 第一个：采样覆盖率
+        self.dut.StepRis(self.drive_memory)       # 第二个：驱动内存
+        self.dut.StepRis(self.monitor_signals)    # 第三个：监控信号
+        self.dut.StepRis(self.log_state)          # 第四个：记录状态
+    
+    def sample_coverage(self, cycles):
+        # 采样功能覆盖率
+        pass
+    
+    def drive_memory(self, cycles):
+        # 驱动内存模型
+        pass
+    
+    def monitor_signals(self, cycles):
+        # 监控信号
+        pass
+    
+    def log_state(self, cycles):
+        # 记录调试信息
+        if cycles % 100 == 0:
+            print(f"Cycle {cycles}: Running...")
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+```
+
+**5. 带参数的回调函数**
+
+通过 `args` 和 `kwargs` 传递额外参数：
+
+```python
+class ParameterizedEnv:
+    def __init__(self, dut, log_interval=100):
+        self.dut = dut
+        
+        # 传递额外参数给回调函数
+        self.dut.StepRis(
+            self.periodic_log,
+            kwargs={'interval': log_interval, 'prefix': 'TEST'}
+        )
+    
+    def periodic_log(self, cycles, interval=100, prefix=''):
+        """周期性记录日志"""
+        if cycles % interval == 0:
+            print(f"{prefix}: Cycle {cycles}")
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+```
+
+**6. 如何删除StepRis注册的回调函数**
+
+可以通过`dut.xclock.RemoveStepRisCbByDesc(cb_func.__name__)`删除注册的cb_func函数。
+
+例如:
+```python
+class TestEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        # 注册回调
+        self.dut.StepRis(self.on_cb_1)
+        self.dut.StepRis(self.on_cb_2)
+
+    def on_cb_1(self, c):
+        pass
+
+    def on_cb_2(self, c):
+        pass
+
+    def clear_cbs(self):
+        # 删除所有本Env注册的回调
+        self.dut.xclock.RemoveStepRisCbByDesc(self.on_cb_1.__name__)
+        self.dut.xclock.RemoveStepRisCbByDesc(self.on_cb_2.__name__)
+
+# in test
+def test_clear_env(env):
+    ...
+    env.clear_cbs() # 清空env注册的回调函数
+```
+
+##### 使用注意事项
+
+1. **性能考虑**：回调函数会在每个时钟周期执行，应避免复杂的计算
+2. **异常处理**：回调函数中的异常会中断仿真，建议添加异常处理
+3. **组合电路**：对于组合电路，虽然没有实际时钟，但仍然可以使用 `StepRis` 配合 `Step(1)` 实现统一的采样机制
+4. **与 RefreshComb 的关系**：`RefreshComb` 不会触发 `StepRis` 回调，只有 `Step` 才会触发
+
+
+##### 完整示例
+
+```python
+from toffee import Bundle, Signals
+import pytest
+
+
+class AXIBundle(Bundle):
+    valid, ready, data = Signals(3)
+
+
+class AXIMemoryEnv:
+    def __init__(self, dut):
+        self.dut = dut
+        self.axi = AXIBundle.from_prefix("axi_")
+        self.axi.bind(dut)
+        
+        self.memory = {}
+        self.transaction_count = 0
+        
+        # 注册多个回调
+        self.dut.StepRis(self.handle_axi_transactions)
+        self.dut.StepRis(self.log_statistics, kwargs={'log_interval': 1000})
+    
+    def handle_axi_transactions(self, cycles):
+        """处理 AXI 事务"""
+        if self.axi.valid.value and self.axi.ready.value:
+            addr = self.axi.data.value
+            self.memory[addr] = addr  # 简化的写入
+            self.transaction_count += 1
+    
+    def log_statistics(self, cycles, log_interval=1000):
+        """记录统计信息"""
+        if cycles % log_interval == 0 and cycles > 0:
+            print(f"Cycle {cycles}: {self.transaction_count} transactions completed")
+    
+    def Step(self, c=1):
+        return self.dut.Step(c)
+
+
+@pytest.fixture()
+def env(dut):
+    return AXIMemoryEnv(dut)
+
+
+def test_axi_transactions(env):
+    # 运行测试
+    env.Step(10000)
+    
+    # 验证结果
+    assert env.transaction_count > 0, "No transactions completed"
+```
+
 
 **注意事项：**
 - 与 dut Fixture 不同，env Fixture 可以有多个（例如：`env`, `env_1`, `env_fast`, ...），其名称必须以 `env` 开头

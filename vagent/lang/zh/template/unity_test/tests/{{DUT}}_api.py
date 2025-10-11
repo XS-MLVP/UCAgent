@@ -106,6 +106,13 @@ class {{DUT}}Env:
         #  2.如果引脚无法分组，请用from_dict方法进行映射
         # self.some_input2 = MyPort.from_dict({...})
         # self.some_input2.bind(dut)
+        # 根据需要添加StepRis回调:
+        # self.dut.StepRis(self.handle_axi_transactions)
+
+    # 根据需要添加清空Env注册的回调函数
+    # def clear_cbs(self):
+    #     self.dut.xclock.RemoveStepRisCbByDesc(self.handle_axi_transactions.__name__)
+    #     ...
 
     # 根据需要定义Env的常用操作
     #def reset(self):
