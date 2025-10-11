@@ -361,6 +361,7 @@ stage:
       - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
+      - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
