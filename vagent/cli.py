@@ -80,6 +80,12 @@ def get_args() -> argparse.Namespace:
     if check_mode:
         do_check()
 
+    upgrade_ucagent = '--upgrade' in sys.argv
+    if upgrade_ucagent:
+        from pip._internal import main as pip_main
+        pip_main(['install', '--upgrade', '--no-deps', '--force-reinstall', 'git+https://github.com/XS-MLVP/UCAgent@main'])
+        sys.exit(0)
+
     parser.add_argument(
         "workspace", 
         type=str, 
