@@ -457,6 +457,8 @@ class VerifyUI:
             except Exception as e:
                 # If this fails, just ignore the keypress
                 pass
+        elif key == 'shift left':
+            self.console_input.set_edit_text("")
         elif key == 'shift up':
             try:
                 self.set_messages_focus(-1)
