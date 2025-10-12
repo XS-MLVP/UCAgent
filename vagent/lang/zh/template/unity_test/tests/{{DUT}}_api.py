@@ -109,6 +109,10 @@ class {{DUT}}Env:
         # 根据需要添加StepRis回调:
         # self.dut.StepRis(self.handle_axi_transactions)
 
+        # 在最后通过 Bundle 的 set_all(0) 方法, 把所有输入引脚赋值为0
+        # self.some_input1.set_all(0)
+        # self.some_input2.set_all(0)
+
     # 根据需要添加清空Env注册的回调函数
     # def clear_cbs(self):
     #     self.dut.xclock.RemoveStepRisCbByDesc(self.handle_axi_transactions.__name__)
@@ -118,9 +122,6 @@ class {{DUT}}Env:
     #def reset(self):
     #    # 根据DUT的复位方式，完成复位操作
     #    ...
-    #    建议在dut reset时，把所有输入引脚，通过Bundle的assign接口置零
-    #    self.some_input1.assign({'*': 0})
-    #    self.some_input2.assign({'*': 0})
 
     # 直接导出DUT的通用操作Step
     def Step(self, i:int = 1):
