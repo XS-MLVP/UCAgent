@@ -399,7 +399,7 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         return self.batch_task.do_complete(note_msg, is_complete,
                                            f"in file: {self.doc_file}",
                                            f"in file: {self.cov_file}",
-                                           " Please implement the check points in its related coverage groups flow the guid documents.")
+                                           " Please implement the check points in its related coverage groups follow the guid documents.")
 
 
 class BaseUnityChipCheckerTestCase(Checker):
@@ -854,7 +854,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         info(f"Returned {len(return_tests)} test cases, missing {len(missing_tests)}, extends {len(extends_tests)}")
         if len(missing_tests) > 0:
             info(f"implemented cases: {', '.join(return_tests.keys())}")
-            error_msgs["error"] = f"The flow test cases: `{', '.join(missing_tests)}` are missing in the tests implementation. " + \
+            error_msgs["error"] = f"The following test cases: `{', '.join(missing_tests)}` are missing in the tests implementation. " + \
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 

@@ -422,6 +422,8 @@ def del_report_keys(report: dict, keys: List[str]) -> dict:
     :param keys: List of keys to be deleted.
     :return: The modified report dictionary.
     """
+    if not keys:
+        return report
     for key in keys:
         if "." in key:
             sub_report = report
@@ -1283,10 +1285,10 @@ def clean_report_with_keys(report: dict,
                            keys: list = None,
                            default_keys=["all_check_point_list"]) -> dict:
         data = copy.deepcopy(report)
+        target_keys = []
         if keys is not None:
-            keys = list(set(keys + default_keys))
-        del_report_keys(data, keys)
-        return data
+            target_keys = keys
+        return del_report_keys(data, list(set(target_keys + default_keys)))
 
 
 def description_bug_doc():
