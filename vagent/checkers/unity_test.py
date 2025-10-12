@@ -532,9 +532,11 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
         raw_report = copy.deepcopy(report)
         all_bins_test = report.get("all_check_point_list", [])
-        report = fc.clean_report_with_keys(report)
-        info_report = OrderedDict({"TEST_REPORT": report})
-        info_runtest = OrderedDict({"TEST_REPORT": report})
+        msg_report = fc.clean_report_with_keys(report,
+                                               ["tests.test_cases",
+                                                "failed_test_case_with_check_point_list"])
+        info_report = OrderedDict({"TEST_REPORT": msg_report})
+        info_runtest = OrderedDict({"TEST_REPORT": msg_report})
         self.total_tests_count = len([k for k, _ in report["tests"]["test_cases"].items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})

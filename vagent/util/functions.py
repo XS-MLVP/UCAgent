@@ -415,6 +415,31 @@ def load_toffee_report(result_json_path: str, workspace: str, run_test_success: 
     return ret_data
 
 
+def del_report_keys(report: dict, keys: List[str]) -> dict:
+    """
+    Delete specified keys from a report dictionary.
+    :param report: The report dictionary.
+    :param keys: List of keys to be deleted.
+    :return: The modified report dictionary.
+    """
+    for key in keys:
+        if "." in key:
+            sub_report = report
+            parts = key.split(".")
+            for p in parts[:-1]:
+                if p in sub_report and isinstance(sub_report[p], dict):
+                    sub_report = sub_report[p]
+                else:
+                    sub_report = None
+                    break
+            if sub_report is not None and parts[-1] in sub_report:
+                del sub_report[parts[-1]]
+        else:
+            if key in report:
+                del report[key]
+    return report
+
+
 def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     """
     Get the test case file and word from a toffee JSON item.
@@ -1254,11 +1279,13 @@ def get_str_array_diff(str_list1, str_list2):
     return only_in_1, only_in_2
 
 
-def clean_report_with_keys(report: dict, keys=["all_check_point_list"]) -> dict:
+def clean_report_with_keys(report: dict,
+                           keys: list = None,
+                           default_keys=["all_check_point_list"]) -> dict:
         data = copy.deepcopy(report)
-        for k in keys:
-            if k in data:
-                del data[k]
+        if keys is not None:
+            keys = list(set(keys + default_keys))
+        del_report_keys(data, keys)
         return data
 
 
