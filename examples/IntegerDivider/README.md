@@ -47,6 +47,11 @@ IntegerDivider (顶层)
 
 ## 3. 整体工作流程
 
+### 3.0 初始化阶段
+
+为了让模块完成初始化，需要先把 `reset` 拉高 5 个周期，随后再拉低 `reset` 1个周期。
+
+
 ### 3.1 启动阶段
 
 当io_ready为高(模块处于IDLE状态)、io_valid有效且io_flush无效时:
