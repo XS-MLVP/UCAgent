@@ -571,11 +571,13 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                 marked_bins = all_bins_test
             self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
             self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
-            return self.batch_task.do_complete(note_msg,
-                                               is_complete,
-                                               f"in file: {self.doc_func_check}",
-                                               f"in dir: {self.test_dir}",
-                                               " Please mark the check points in its related test functions using 'mark_function' correctly.")
+            ckpass, emssage = self.batch_task.do_complete(note_msg,
+                                                          is_complete,
+                                                          f"in file: {self.doc_func_check}",
+                                                          f"in dir: {self.test_dir}",
+                                                          " Please mark the check points in its related test functions using 'mark_function' correctly.")
+            if not ckpass:
+                return ckpass, emssage
 
         # complete check
         bins_not_in_docs = []
@@ -610,13 +612,10 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['test_function_with_no_check_point_mark'] > 0:
             unmarked_functions = report['test_function_with_no_check_point_mark_list']
             if len(unmarked_functions) > 0:
-                info_runtest["error"] = [f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
-                                         "In test templates, every test function must be associated with specific check points through 'mark_function' calls. " + \
-                                         "Each test function should:",
-                                        f"1. {fc.description_mark_function_doc()}",
-                                         "2. Have clear TODO comments explaining what needs to be implemented.",
-                                         "3. End with 'assert False, \"Not implemented\"' to prevent accidental passing.",
-                                         "Please add proper function markings according to the test template specification."]
+                mark_function_desc = fc.description_mark_function_doc(unmarked_functions)
+                info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
+                                         "In test templates, every test function must be associated with specific check points through 'mark_function'. " + \
+                                         mark_function_desc
                 return False, info_runtest
 
         # Success message with template-specific details
@@ -731,8 +730,10 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
-            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(report['test_function_with_no_check_point_mark_list'])}` do not have any check point marks. " + \
-                                     fc.description_mark_function_doc() + \
+            func_list = report['test_function_with_no_check_point_mark_list']
+            mark_function_desc = fc.description_mark_function_doc(func_list)
+            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(func_list)}` do not have any check point marks. " + \
+                                     mark_function_desc + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
 

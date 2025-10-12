@@ -204,8 +204,8 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                             "These check points are used in tests but not defined in documentation file '{}'. ".format(doc_file) + \
                             "Action required:",
                             "1. Add missing check points to the documentation with proper <CK-*> tags.",
-                            "2. Or remove unused check points from test implementation.",
-                            "3. Ensure consistency between test logic and functional requirements."]
+                            "2. Or remove unused check points from test implementation (defined in the function coverage groups).",
+                            "3. Ensure consistency between test logic and the documentation."]
     if check_doc_in_tc:
         ck_not_in_tc = []
         for ck in doc_checks:
@@ -213,12 +213,12 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
                 ck_not_in_tc.append(ck)
         if len(ck_not_in_tc) > 0:
             info(f"Check points in test function: {', '.join(test_case_checks)}")
-            return False, [f"Test coverage gap: Documentation({doc_file}) defines {len(ck_not_in_tc)} check points not implemented in tests: {', '.join(ck_not_in_tc)} " + \
+            return False, [f"Test coverage gap: Documentation({doc_file}) has defined {len(ck_not_in_tc)} check points, but they are not defined in the test coverage groups: {', '.join(ck_not_in_tc)} " + \
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
-                            "1. Implement test cases that cover these check points.",
-                           f"2. {fc.description_mark_function_doc()}",
-                            "3. Ensure complete functional coverage as specified in documentation."]
+                            "1. Define those check points in the function coverage groups.",
+                            "2. Or delete obsolete check points from documentation.",
+                            "3. Ensure the check points in both test cases and documentation are consistent."]
 
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
 
@@ -247,9 +247,10 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         return ret, doc_ck_list, -1
     if report["test_function_with_no_check_point_mark"] > 0:
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
+        mark_function_desc = fc.description_mark_function_doc(unmarked_functions)
         return False, [f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points: {', '.join(unmarked_functions)}. " + \
                         "Action required:",
-                       f"1. {fc.description_mark_function_doc()}",
+                       f"1. {mark_function_desc}",
                         "2. Ensure every test function validates specific documented functionality.",
                         "3. Review test organization and ensure complete traceability."], -1
 

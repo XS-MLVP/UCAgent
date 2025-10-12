@@ -52,8 +52,8 @@ mission:
   
       **必须使用的工具：**
       - `CurrentTips`: 获取当前步骤的具体指导
-      - `Check`: 检查当前步骤是否完成
-      - `Complete`: 完成当前步骤，进入下一步
+      - `Check`: 检查当前步骤是否完成，如果不通过，需要根据error中的反馈和建议调整工作
+      - `Complete`: 完成当前步骤，进入下一步，如果不允许完成，需要根据error中的反馈和建议调整工作
       - `ReadTextFile`: 读取文件内容（让工具知晓你阅读了哪些文件）
       - 其他文件操作和搜索工具按需使用
 
@@ -411,9 +411,6 @@ stage:
           ignore_ck_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
-        extra_args:
-          fail_msg: "测试模板创建不符合规范。检查：1)测试文件名以'test_'开头 2)正确导入API模块 3)包含覆盖率标记 4)有详细TODO注释 5)有防意外通过的断言。参考Guide_Doc/dut_test_template.md和examples了解正确格式。"
-          pass_msg: "测试模板创建成功！测试结构规范，覆盖率标记完整。"
     reference_files:
       - "Guide_Doc/dut_test_template.md"
 
@@ -440,7 +437,6 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
         extra_args:
-          fail_msg: "测试实现不符合要求。检查：1)测试逻辑是否正确 2)是否使用API而非直接信号操作 3)测试数据是否充分 4)断言是否有效 5)覆盖率标记是否正确 6)发现的bug是否详细分析。参考Guide_Doc/dut_test_case.md和examples了解正确方法。"
           max_try: -1
     reference_files:
       - "Guide_Doc/dut_test_case.md"

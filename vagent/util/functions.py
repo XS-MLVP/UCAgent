@@ -1322,10 +1322,22 @@ def description_func_doc():
          "          ...",
     ]
 
-def description_mark_function_doc():
-    return ("At the test functions beginning use proper `mark_function` calls to associate tests with check points. "
+def description_mark_function_doc(func_list=[], max_func=5):
+    def parse_test_case_name(tc):
+        # file.py:xx-yy::[ClassName::]test_func
+        tc_file, tc_name = tc.split("::", 1)
+        tc_file = tc_file.split(":")[0]
+        tc_file = tc_file.split("/tests/", 1)[-1]
+        return f"{tc_file}::{tc_name}"
+    run_time_error = ""
+    if len(func_list) > 0:
+        test_function_name = " ".join([parse_test_case_name(tc) for tc in func_list[:max_func]])
+        run_time_error = "If you have used `mark_function` in your test but still report this issue, "+\
+                        f"you should use tool `RunTestCases` to check if there are any runtime errors when marking like `RunTestCases('{test_function_name}')`"
+    return ("At the test functions beginning need use proper `mark_function` to associate them with the related check points. "
             "For example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
-            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times.")
+            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times. " + run_time_error
+           )
 
 
 def replace_bash_var(in_str, data: dict):
