@@ -132,6 +132,23 @@ def test_replace_bash_var():
     print("Replaced string:", result)
     print("------------------------")
 
+
+def test_check_file_block():
+    """Test the check_file_block function."""
+    # Example usage
+    print(fc.check_file_block(
+        {"test_function.py": {
+            "A": [129, 133], "B": [136, 142] # Example line ranges
+        }}, current_dir, lambda x: "usage" in x))
+    x = ".mark_function('FC-FUNCTION', 'test_function.py:129-133::test_find_files_by_glob', ['CK-CHECK1', 'CK-CHECK2'])"
+
+def test_description_mark_function_doc():
+    print(fc.description_mark_function_doc(
+        ["test_function.py:129-133::test_find_files_by_glob", "test_function.py:136-143::test_find_files_by_regex"],
+        current_dir,
+    ))
+
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -140,4 +157,6 @@ if __name__ == "__main__":
     #test_parse_marks_from_file()
     #test_parse_line_ignore_file()
     #test_parse_un_coverage_json()
-    test_replace_bash_var()
+    #test_replace_bash_var()
+    #test_check_file_block()
+    test_description_mark_function_doc()

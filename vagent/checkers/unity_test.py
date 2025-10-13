@@ -614,9 +614,8 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['test_function_with_no_check_point_mark'] > 0:
             unmarked_functions = report['test_function_with_no_check_point_mark_list']
             if len(unmarked_functions) > 0:
-                mark_function_desc = fc.description_mark_function_doc(unmarked_functions)
-                info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without check point marks: {', '.join(unmarked_functions)}. " + \
-                                         "In test templates, every test function must be associated with specific check points through 'mark_function'. " + \
+                mark_function_desc = fc.description_mark_function_doc(unmarked_functions, self.workspace)
+                info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without correct check point marks. " + \
                                          mark_function_desc
                 return False, info_runtest
 
@@ -733,8 +732,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
             func_list = report['test_function_with_no_check_point_mark_list']
-            mark_function_desc = fc.description_mark_function_doc(func_list)
-            return False, get_emsg(f"The {test_count_no_check_point_mark} functions: `{', '.join(func_list)}` do not have any check point marks. " + \
+            mark_function_desc = fc.description_mark_function_doc(func_list, self.workspace)
+            return False, get_emsg(f"Find {test_count_no_check_point_mark} functions do not have correct check point marks. " + \
                                      mark_function_desc + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")

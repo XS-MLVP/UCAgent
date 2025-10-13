@@ -1351,22 +1351,109 @@ def description_func_doc():
          "          ...",
     ]
 
-def description_mark_function_doc(func_list=[], max_func=5):
+
+def check_file_block(file_blocks, workspace, checker=None):
+    """
+    Check if the file blocks exist in the workspace.
+
+    Args:
+        file_blocks (dict): The file blocks to check. eg: {'file1.py': {"k1": [line_from, line_to], 'k2': [line_from, line_to]}, ...}
+        workspace (str): The workspace directory.
+        checker (callable, optional): A function to further check each code block. It should accept the file block string as input.
+    """
+    assert isinstance(file_blocks, dict), "file_blocks must be a dictionary."
+    ret_map = {}
+    for f, blocks in file_blocks.items():
+        fpath = os.path.abspath(os.path.join(workspace, f))
+        assert os.path.exists(fpath), f"File {f} does not exist in workspace {workspace}."
+        if not blocks:
+            continue
+        assert isinstance(blocks, dict), f"Blocks for file {f} must be a dictionary."
+        with open(fpath, 'r', encoding='utf-8') as fr:
+            lines = fr.readlines()
+            line_count = len(lines)
+        for k, v in blocks.items():
+            assert isinstance(v, list) and len(v) == 2, f"Block {k} in file {f} must be a list of two integers [line_from, line_to]."
+            line_from, line_to = v
+            assert isinstance(line_from, int) and isinstance(line_to, int), f"Block {k} in file {f} must contain integers."
+            assert 1 <= line_from <= line_count, f"Block {k} in file {f}: line_from {line_from} is out of range (1-{line_count})."
+            assert 1 <= line_to <= line_count, f"Block {k} in file {f}: line_to {line_to} is out of range (1-{line_count})."
+            assert line_from <= line_to, f"Block {k} in file {f}: line_from {line_from} must be less than or equal to line_to {line_to}."
+        def _get_code_block_key(line_index):
+            for k, v in blocks.items():
+                line_from, line_to = v
+                if line_from <= line_index <= line_to:
+                    return k
+            return None
+        record_map = {k:"" for k in blocks.keys()}
+        for index, line in enumerate(lines, start=1):
+            block_key = _get_code_block_key(index)
+            if block_key is None:
+                continue
+            # Remove comments and check if line is empty
+            line = line.split("#", 1)[0]
+            if not line.strip():
+                continue
+            if not line.endswith("\n"):
+                line += "\n"
+            record_map[block_key] += line
+        if callable(checker):
+            for k in blocks.keys():
+                record_map[k] = checker(record_map[k])
+        ret_map[f] = record_map
+    return ret_map
+
+
+def description_mark_function_doc(func_list=[], workspace=None):
+    """
+    Description for marking functions in test cases.
+    """
+    simple_msg = ("At the test functions beginning, you need use proper `mark_function` to associate them with the related check points. "
+            "For example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
+            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times. If the test case is redundant, you need to delete it. "
+           )
     def parse_test_case_name(tc):
         # file.py:xx-yy::[ClassName::]test_func
         tc_file, tc_name = tc.split("::", 1)
-        tc_file = tc_file.split(":")[0]
-        tc_file = tc_file.split("/tests/", 1)[-1]
-        return f"{tc_file}::{tc_name}"
-    run_time_error = ""
+        tc_rfile, line_range = tc_file.split(":")
+        tc_file = tc_rfile.split("/tests/", 1)[-1]
+        a, b = line_range.split("-", 1)
+        assert a.isdigit() and b.isdigit(), f"Invalid line range in test case '{tc}'."
+        return f"{tc_file}::{tc_name}", (tc_rfile, int(a), int(b))
     if len(func_list) > 0:
-        test_function_name = " ".join([parse_test_case_name(tc) for tc in func_list[:max_func]])
-        run_time_error = "If you have used `mark_function` in your test but still report this issue, "+\
-                        f"you should use tool `RunTestCases` to check if there are any runtime errors when marking like `RunTestCases('{test_function_name}')`"
-    return ("At the test functions beginning need use proper `mark_function` to associate them with the related check points. "
-            "For example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
-            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times. " + run_time_error
-           )
+        assert workspace is not None, "workspace must be provided if func_list is empty."
+        func_file_blocks = {}
+        func_test_cases = {}
+        for tc in func_list:
+            tc_name, (file_path, line_from, line_to) = parse_test_case_name(tc)
+            func_test_cases[tc] = tc_name
+            if file_path not in func_file_blocks:
+                func_file_blocks[file_path] = {}
+            func_file_blocks[file_path][tc] = [line_from, line_to]
+        blocks = {}
+        for _, v in check_file_block(func_file_blocks, workspace, lambda x: ".mark_function" in x).items():
+            blocks.update(v)
+        no_mark_tc_list = []
+        er_mark_tc_list = []
+        nf_mark_tc_list = []
+        for tc in func_list:
+            if tc not in blocks:
+                nf_mark_tc_list.append(tc)
+            elif blocks[tc] == True:
+                er_mark_tc_list.append(tc)
+            else:
+                no_mark_tc_list.append(tc)
+        if len(nf_mark_tc_list) > 0:
+            warning(f"Test cases not found in workspace {workspace}: {nf_mark_tc_list}")
+        emsg = ""
+        if len(er_mark_tc_list) > 0:
+            tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
+            emsg += f"Test cases already called function 'mark_function' ({', '.join(er_mark_tc_list)}) but has errors, you need call tool RunTestCases('{tc_to_run}') " + \
+                "to get the detail errors to check if the names of 'function point', 'test case' and 'check point' are correct. "
+        if len(no_mark_tc_list) > 0:
+            emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
+        return emsg
+    return simple_msg
 
 
 def replace_bash_var(in_str, data: dict):
