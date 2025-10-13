@@ -39,6 +39,13 @@ conversation_summary:
   use_trim_mode: true # default use trim mode to manage conversation history
   max_keep_msgs: 200  # max messages to keep in memory, older messages will be removed (not the messages to LLM)
 
+rate_limiter:
+  enabled: false
+  # The following settings are used when rate_limiter.enabled is true
+  requests_per_second: 10    # default 10 req/s
+  check_every_n_seconds: 0.1 # default 0.1s, wake up every 100 ms to check whether allowed to make a request
+  max_bucket_size: 1         # default 1, controls the maximum burst size
+
 template: unity_test
 
 un_write_dirs:

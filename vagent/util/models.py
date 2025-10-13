@@ -3,9 +3,10 @@
 
 from typing import Any
 from .config import Config
+from langchain_core.rate_limiters import InMemoryRateLimiter
 
 
-def get_chat_model_openai(cfg: Config, callbacks) -> Any:
+def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:
     """Get OpenAI chat model instance.
 
     Args:
@@ -33,10 +34,14 @@ def get_chat_model_openai(cfg: Config, callbacks) -> Any:
             "callbacks": callbacks,
             "streaming": True
             })
+    if rate_limiter:
+        kw.update({
+            "rate_limiter": rate_limiter
+        })
     return ChatOpenAI(**kw)
 
 
-def get_chat_model_anthropic(cfg: Config, callbacks) -> Any:
+def get_chat_model_anthropic(cfg: Config, callbacks, rate_limiter) -> Any:
     """Get Anthropic chat model instance.
 
     Args:
@@ -53,29 +58,52 @@ def get_chat_model_anthropic(cfg: Config, callbacks) -> Any:
     except ImportError:
         raise ImportError("Please install langchain_anthropic to use Anthropic chat model. "
                           "You can install it with: pip install langchain_anthropic")
+    kw = cfg.anthropic.as_dict()
+    if rate_limiter:
+        kw.update({
+            "rate_limiter": rate_limiter
+        })
+    if callbacks:
+        kw.update({
+            "callbacks": callbacks,
+            })
     llm = ChatAnthropic(
-        **cfg.anthropic.as_dict(),
-        callbacks=callbacks
+        **kw
     )
     return llm
 
 
-def get_chat_model_google_genai(cfg: Config, callbacks):
+def get_chat_model_google_genai(cfg: Config, callbacks, rate_limiter) -> Any:
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
     except ImportError:
         raise ImportError("Please install langchain_google_genai to use Google GenAI chat model. "
                           "You can install it with: pip install langchain_google_genai")
-    return ChatGoogleGenerativeAI(**cfg.google_genai.as_dict(),
-                                  callbacks=callbacks
-                                  )
+    kw = cfg.google_genai.as_dict()
+    if callbacks:
+        kw.update({
+            "callbacks": callbacks,
+            })
+    if rate_limiter:
+        kw.update({
+            "rate_limiter": rate_limiter
+        })
+    return ChatGoogleGenerativeAI(**kw)
 
 
 def get_chat_model(cfg: Config, callbacks: Any = None) -> Any:
+    if not cfg.rate_limiter.enabled:
+        rate_limiter = None
+    else:
+        rate_limiter = InMemoryRateLimiter(
+            requests_per_second=cfg.rate_limiter.requests_per_second,
+            check_every_n_seconds=cfg.rate_limiter.check_every_n_seconds,
+            max_bucket_size=cfg.rate_limiter.max_bucket_size,
+        )
     model_type = cfg.get_value("model_type", "openai")
     func = "get_chat_model_%s" % model_type
     if func in globals():
-        return globals()[func](cfg, callbacks)
+        return globals()[func](cfg, callbacks, rate_limiter)
     else:
         raise ValueError(f"Unsupported model type: {model_type}. Supported types are: "
                          f"{', '.join([ f.removeprefix('get_chat_model_') for f in globals().keys() if f.startswith('get_chat_model_') ])}.")
