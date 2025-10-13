@@ -718,8 +718,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                 msg["STDOUT"] = str_out
             if self.ret_std_error:
                 msg["STDERR"] = str_err
-            if "The signal that can be connected to" in str_err and \
-               "is not found in dut" in str_err:
+            if "Signal bind error" in str_err:
                 msg["WARNING"] = "The DUT signals are not handled properly by toffee Bundle, you should fix this issue first."
             return msg
         if api_un_tested:
