@@ -247,7 +247,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         return ret, doc_ck_list, -1
     if report["test_function_with_no_check_point_mark"] > 0:
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
-        mark_function_desc = fc.description_mark_function_doc(unmarked_functions)
+        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace)
         return False, f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points. " + \
                        mark_function_desc, -1
 

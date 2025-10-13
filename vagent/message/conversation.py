@@ -65,7 +65,8 @@ def remove_messages(messages, max_keep_msgs):
     if len(messages) <= max_keep_msgs:
         return messages, []
     index = (-max_keep_msgs) % len(messages)
-    return messages[index:], [RemoveMessage(id=msg.id) for msg in messages[:index]]
+    # system messages are not removed
+    return messages[index:], [RemoveMessage(id=msg.id) for msg in messages[:index] if msg.type != "system"]
 
 
 class SummarizationAndFixToolCall(SummarizationNode):
