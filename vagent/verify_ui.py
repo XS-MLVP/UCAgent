@@ -228,7 +228,9 @@ class VerifyUI:
                                 try:
                                     current_text = last_text.original_widget.get_text()[0]
                                     last_text.original_widget.set_text(current_text + line)
-                                except (AttributeError, IndexError):
+                                except Exception as e:
+                                    self.console_output.set_text(self._get_output(
+                                        YELLOW + str(e) + RESET + "\n"))
                                     # If appending fails, create a new message
                                     self.content_msgs.append(urwid.AttrMap(ANSIText(line, align='left'), None, None))
                             else:
@@ -280,7 +282,7 @@ class VerifyUI:
                 try:
                     if i < msg_count and self.content_msgs[i] is not None:
                         self.content_msgs[i].set_attr_map({None: 'body'})
-                except (IndexError, AttributeError):
+                except Exception:
                     continue
             
             # Set focus and highlight current message
@@ -290,7 +292,7 @@ class VerifyUI:
                     focused_item = self.content_msgs.get_focus()
                     if focused_item and len(focused_item) > 0 and focused_item[0] is not None:
                         focused_item[0].set_attr_map({None: 'yellow'})
-            except (IndexError, AttributeError, TypeError):
+            except Exception:
                 # If setting focus fails, try to reset to a safe state
                 if msg_count > 0:
                     self.content_msgs_focus = msg_count - 1
