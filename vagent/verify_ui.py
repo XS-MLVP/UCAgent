@@ -891,6 +891,11 @@ class ANSIText(urwid.Text):
             return fg_color
         return None
 
+    def get_line_translation(self, maxcol: int, ta=None):
+        if not self._cache_maxcol or self._cache_maxcol != maxcol or \
+            not hasattr(self, "_cache_translation"):
+            self._update_cache_translation(maxcol, ta)
+        return self._cache_translation
 
 
 import sys
