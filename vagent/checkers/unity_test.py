@@ -944,13 +944,18 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         # Parse documentation marks for validation
         zero_list = self.get_zero_bug_rate_list()
         zero_rate_msg = f"Note: The following {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list)}. " + \
-                         "You may want to review and update their occurrence rates if they were encountered during testing."
+                         "You may want to review and update their occurrence rates if they were encountered during testing. If these bugs are not applicable, you can ignore this message."
 
         ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
         if not ret:
             info_runtest["error"] = msg
             if len(zero_list) > 0:
-                info_runtest["error"].append(zero_rate_msg)
+                if isinstance(info_runtest["error"], list):
+                    info_runtest["error"].append(zero_rate_msg)
+                elif isinstance(info_runtest["error"], str):
+                    info_runtest["error"] += " " + zero_rate_msg
+                else:
+                    warning(f"Cannot append zero rate message to error of type {type(info_runtest['error'])}.")
             return ret, info_runtest
 
         # Success: All validations passed
