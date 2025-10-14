@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 
 from vagent.util.functions import load_json_file, rm_workspace_prefix
 from vagent.util.functions import get_toffee_json_test_case, load_toffee_report
-from vagent.util.log import debug, info
+from vagent.util.log import debug, info, warning
 import os
 import shutil
+import psutil
 from typing import Tuple
 import subprocess
 import json
@@ -116,6 +117,14 @@ class RunPyTest(UCTool):
                 ret_stderr = ""
             return True, ret_stdout, ret_stderr
         except subprocess.TimeoutExpired as e:
+            try:
+                worker.terminate()
+                _, alive = psutil.wait_procs([worker], timeout=3)
+                if alive:
+                    worker.kill()
+            except Exception as ex:
+                warning(f"Error terminating process: {ex}")
+            ret_stdout, ret_stderr = worker.communicate()
             return False, ret_stdout, ret_stderr + f"\nTest run timed out after {e.timeout} seconds. You may try increasing the timeout argment."
         except subprocess.CalledProcessError as e:
             if return_stdout:
