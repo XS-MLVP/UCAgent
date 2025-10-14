@@ -900,7 +900,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         zero_rate = ""
         zero_list = self.get_zero_bug_rate_list()
         if len(zero_list) > 0:
-            zero_rate = f"({len(zero_list)}: {', '.join(zero_list)})"
+            zero_rate = f"(Find {len(zero_list)}: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else ''})"
         return {
                 "BUG_ZERO_RATE_LIST": zero_rate
             }
@@ -943,7 +943,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         
         # Parse documentation marks for validation
         zero_list = self.get_zero_bug_rate_list()
-        zero_rate_msg = f"Note: The following {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list)}. " + \
+        zero_rate_msg = f"Note: Find {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '. '}" + \
                          "You may want to review and update their occurrence rates if they were encountered during testing. If these bugs are not applicable, you can ignore this message."
 
         ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
