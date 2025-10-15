@@ -1481,3 +1481,18 @@ If 'get_coverage_data_path' not find in the template, you should define it like 
 def get_coverage_data_path(request, new_path:bool):
     return get_file_in_tmp_dir(request, current_path_file("data/"), "{dut_name}.dat",  new_path=new_path)
 """
+
+
+def make_llm_tool_ret(ret):
+    """Convert the return value to a LLM tool return format."""
+    return yam_str(ret)
+
+
+def list_str_abbr(data: list, max_items=50):
+    """Convert a list to a string representation with a maximum number of items."""
+    if not isinstance(data, list):
+        return str(data)
+    subfix = ", ..."
+    if len(data) <= max_items:
+        subfix = ""
+    return ", ".join([str(d) for d in data[:max_items]]) + subfix

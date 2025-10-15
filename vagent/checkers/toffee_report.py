@@ -116,7 +116,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     # tc in pass tc
     tc_found_in_ptc_list = list(set(tc_found_in_ptc_list))
     if len(tc_found_in_ptc_list) > 0:
-        ptc_msg = ', '.join([f"{x[0]}(location: {x[1]})" for x in tc_found_in_ptc_list])
+        ptc_msg = fc.list_str_abbr([f"{x[0]}(location: {x[1]})" for x in tc_found_in_ptc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_found_in_ptc_list)} test cases ({ptc_msg}) which should be 'FAILED' but found to be 'PASSED'.",
                        "Actions required:",
                         "1. Make sure the bug analysis documentation marks the right test cases for each bug.",
@@ -128,7 +128,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     # tc not found in fail tcs
     tc_not_found_in_ftc_list = list(set(tc_not_found_in_ftc_list))
     if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
-        ftc_msg = ', '.join([f"{x[0]}(documented below {x[1]})" for x in tc_not_found_in_ftc_list])
+        ftc_msg = fc.list_str_abbr([f"{x[0]}(documented below {x[1]})" for x in tc_not_found_in_ftc_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test cases ({ftc_msg}) which are not found in the failed test cases.",
                        "Actions required:",
                           "1. Ensure the test case names in the documentation match exactly with those in the test python file.",
@@ -141,7 +141,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     # tc not mark their checkpoints
     tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
     if len(tc_not_mark_the_cks_list) > 0:
-        ftc_msg = ', '.join([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
+        ftc_msg = fc.list_str_abbr([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking their checkpoints.",
                        "Actions required:",
                           "1. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
@@ -154,7 +154,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     if not target_ck_prefix:
         failed_tc = [k for k, v in failed_tc_maps.items() if not v]
         if failed_tc:
-            return False, [f"Find undocumented failed test cases: {', '.join(failed_tc)}",
+            return False, [f"Find undocumented failed test cases: {fc.list_str_abbr(failed_tc)}",
                            *fc.description_bug_doc(),
                            "Actions required:",
                            "1. Make sure the failed test cases are properly implemented and are indeed failing due to DUT bugs.",
@@ -179,7 +179,7 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
                 un_related_tc_marks.append(ck)
         # failed checkpoints must be analyzed in bug doc
         if len(un_related_tc_marks) > 0:
-                return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {', '.join(un_related_tc_marks)}. " + \
+                return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {fc.list_str_abbr(un_related_tc_marks)}. " + \
                                f"The failed checkpoints must be properly analyzed and documented in file '{bug_analysis_file}'. Options:",
                                 "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
@@ -200,7 +200,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
             if ck not in doc_checks:
                 ck_not_in_doc.append(ck)
         if len(ck_not_in_doc) > 0:
-            return False, [f"Documentation inconsistency: Test implementation contains {len(ck_not_in_doc)} undocumented check points: {', '.join(ck_not_in_doc)}. " + \
+            return False, [f"Documentation inconsistency: Test implementation contains {len(ck_not_in_doc)} undocumented check points: {fc.list_str_abbr(ck_not_in_doc)}. " + \
                             "These check points are used in tests but not defined in documentation file '{}'. ".format(doc_file) + \
                             "Action required:",
                             "1. Add missing check points to the documentation with proper <CK-*> tags.",
@@ -212,8 +212,8 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
             if ck not in test_case_checks:
                 ck_not_in_tc.append(ck)
         if len(ck_not_in_tc) > 0:
-            info(f"Check points in test function: {', '.join(test_case_checks)}")
-            return False, [f"Test coverage gap: Documentation({doc_file}) has defined {len(ck_not_in_tc)} check points, but they are not defined in the test coverage groups: {', '.join(ck_not_in_tc)} " + \
+            info(f"Check points in test function: {fc.list_str_abbr(test_case_checks)}")
+            return False, [f"Test coverage gap: Documentation({doc_file}) has defined {len(ck_not_in_tc)} check points, but they are not defined in the test coverage groups: {fc.list_str_abbr(ck_not_in_tc)} " + \
                             "These check points are documented but missing from test implementation. " + \
                             "Action required:",
                             "1. Define those check points in the function coverage groups.",
@@ -254,7 +254,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     checks_in_tc  = [b for b in report.get("all_check_point_list", []) if b.startswith(target_ck_prefix)]
     if len(checks_in_tc) == 0:
         warning(f"No test functions found for check point prefix '{target_ck_prefix}'. Please ensure test cases are correctly marked with this prefix.")
-        warning(f"Current test check points: {', '.join(report.get('bins_all', []))}")
+        warning(f"Current test check points: {fc.list_str_abbr(report.get('bins_all', []))}")
     ret, msg = check_doc_struct(checks_in_tc, doc_ck_list, doc_file, check_tc_in_doc=check_tc_in_doc, check_doc_in_tc=check_doc_in_tc)
     if not ret:
         return ret, msg, -1
@@ -284,7 +284,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_point_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
-            return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
+            return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
                            "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                             fc.description_mark_function_doc() + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
@@ -328,7 +328,7 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                 if not ig.startswith("*/"):
                     error_igs.append((line, ig))
             if len(error_igs) > 0:
-                emessage = ', '.join([f"line {x[0]}: '{x[1]}'" for x in error_igs])
+                emessage = fc.list_str_abbr([f"line {x[0]}: '{x[1]}'" for x in error_igs])
                 return False, f"Line coverage ignore file ({file_ignore}) contains {len(error_igs)} invalid ignore patterns (must start with '*/'): `{emessage}`. " + \
                               "Please correct the ignore patterns to start with '*/', e.g., '*/{DUT}/{DUT}.v:18-20,50-50' which means the lines from 18-20 and line 50 in file {DUT}/{DUT}.v should be ignored.", \
                                 0.0
@@ -342,14 +342,14 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                             error_igs.append((line, ig))
                             break
             if len(error_igs) > 0:
-                emessage = ', '.join([f"line {x[0]}: '{x[1]}'" for x in error_igs])
+                emessage = fc.list_str_abbr([f"line {x[0]}: '{x[1]}'" for x in error_igs])
                 return False, f"Line coverage ignore file ({file_ignore}) contains {len(error_igs)} invalid ignore patterns (line number format error): `{emessage}`. " + \
                               "Please correct the ignore patterns to use the format 'line_number_start-line_number_end', e.g., '*/{DUT}/{DUT}.v:18-20,50-50' which means the lines from 18-20 and line 50 in file {DUT}/{DUT}.v should be ignored.", \
                                 0.0
             file_analyze_md_path = os.path.join(workspace, file_analyze_md)
             if not os.path.exists(file_analyze_md_path):
                 return False, f"Line coverage analysis documentation file ({file_analyze_md}) not found in workspace `{workspace}`. Please ensure the documentation is available. " + \
-                              f"Note if there are patterns (find: `{', '.join(igs)}`) in ignore file ({file_ignore}), the analysis document ({file_analyze_md}) is required to explain why these lines are ignored.", \
+                              f"Note if there are patterns (find: `{fc.list_str_abbr(igs)}`) in ignore file ({file_ignore}), the analysis document ({file_analyze_md}) is required to explain why these lines are ignored.", \
                                 0.0
             doc_igs = fc.parse_marks_from_file(file_analyze_md_path, "LINE_IGNORE").get("marks", [])
             un_doced_igs = []
@@ -357,7 +357,7 @@ def check_line_coverage(workspace, file_cover_json, file_ignore, file_analyze_md
                 if ig not in doc_igs:
                     un_doced_igs.append(ig)
             if len(un_doced_igs) > 0:
-                return False, f"Line coverage analysis documentation ({file_analyze_md}) does not contain those 'LINE_IGNORE' marks: `{', '.join(un_doced_igs)}`. " + \
+                return False, f"Line coverage analysis documentation ({file_analyze_md}) does not contain those 'LINE_IGNORE' marks: `{fc.list_str_abbr(un_doced_igs)}`. " + \
                               f"Please document the ignore patterns in the analysis document to explain why these lines are ignored by <LINE_IGNORE>pattern</LINE_IGNORE>.", \
                                 0.0
 

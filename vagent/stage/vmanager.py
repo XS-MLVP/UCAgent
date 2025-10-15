@@ -2,7 +2,7 @@
 """Verification manager for UCAgent stage execution."""
 
 import inspect
-from vagent.util.functions import yam_str
+from vagent.util.functions import make_llm_tool_ret
 from vagent.util.log import info, warning
 from collections import OrderedDict
 import vagent.util.functions as fc
@@ -162,7 +162,7 @@ class ToolDoCheck(ManagerTool):
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
             info(error_msg)
-            return yam_str({
+            return make_llm_tool_ret({
                 "check_pass": False,
                 "check_info": error_msg
             })
@@ -318,7 +318,7 @@ class StageManager(object):
         if ref_files:
             tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
-        tips = yam_str(tips)
+        tips = make_llm_tool_ret(tips)
         return self.attach_todo_summary(tips)
 
     def detail(self):
@@ -505,32 +505,32 @@ class StageManager(object):
         """
         Get the details of the current mission, including all stages and their details.
         """
-        detail = yam_str(self.detail())
+        detail = make_llm_tool_ret(self.detail())
         info("ToolDetail:\n" + detail)
         return self.attach_todo_summary(detail)
 
     def tool_status(self):
-        stat = yam_str(self.status())
+        stat = make_llm_tool_ret(self.status())
         info("ToolStatus:\n" + stat)
         return self.attach_todo_summary(stat)
 
     def tool_go_to_stage(self, index):
-        ret = yam_str(self.go_to_stage(index))
+        ret = make_llm_tool_ret(self.go_to_stage(index))
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)
 
     def tool_check(self,  timeout):
-        ret = yam_str(self.check(timeout))
+        ret = make_llm_tool_ret(self.check(timeout))
         info("ToolCheck:\n" + ret)
         return self.attach_todo_summary(ret)
 
     def tool_exit(self):
-        ret = yam_str(self.exit())
+        ret = make_llm_tool_ret(self.exit())
         info("ToolExit:\n" + ret)
         return ret
 
     def tool_complete(self, timeout):
-        ret = yam_str(self.complete(timeout))
+        ret = make_llm_tool_ret(self.complete(timeout))
         info("ToolComplete:\n" + ret)
         return self.attach_todo_summary(ret)
 
@@ -573,6 +573,6 @@ class StageManager(object):
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = yam_str(self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage)[1])
+        ret = make_llm_tool_ret(self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage)[1])
         info("RunTestCases:\n" + ret)
         return self.attach_todo_summary(ret)

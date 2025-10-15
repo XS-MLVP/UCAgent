@@ -345,9 +345,9 @@ class UnityChipCheckerCoverageGroup(Checker):
         a, b = self._compare_marks(self._groups_as_marks(func_groups, ctype), doc_groups)
         suggested_msg = "You need make those two files consist in coverage groups."
         if len(a) > 0:
-            return False, f"Coverage groups check fail: find {len(a)} {ctype} ({', '.join(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
+            return False, f"Coverage groups check fail: find {len(a)} {ctype} ({fc.list_str_abbr(a)}) in '{self.cov_file}' but not found them in '{self.doc_file}'. {suggested_msg}"
         if len(b) > 0:
-            return False, f"Coverage groups check fail: find {len(b)} {ctype} ({', '.join(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
+            return False, f"Coverage groups check fail: find {len(b)} {ctype} ({fc.list_str_abbr(b)}) in '{self.doc_file}' but not found them in '{self.cov_file}'. {suggested_msg}"
         info(f"{ctype} coverage {len(doc_groups)} marks check passed")
         return True, "Coverage groups check passed."
 
@@ -591,12 +591,12 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if b not in all_bins_test:
                 bins_not_in_test.append(b)
         if len(bins_not_in_docs) > 0:
-            info_runtest["error"] = f"The follow {len(bins_not_in_docs)} check points: {', '.join(bins_not_in_docs)} are not defined in the documentation file {self.doc_func_check} but defined in the test cover group. " + \
+            info_runtest["error"] = f"The follow {len(bins_not_in_docs)} check points: {fc.list_str_abbr(bins_not_in_docs)} are not defined in the documentation file {self.doc_func_check} but defined in the test cover group. " + \
                                      "Please ensure that all check points in the test cover group are defined in the documentation file. " + \
                                      "Review your task requirements and the test cases."
             return False, info_runtest
         if len(bins_not_in_test) > 0:
-            info_runtest["error"] = f"The follow {len(bins_not_in_test)} check points: {', '.join(bins_not_in_test)} are defined in the documentation file {self.doc_func_check} but not defined in the test cover group. " + \
+            info_runtest["error"] = f"The follow {len(bins_not_in_test)} check points: {fc.list_str_abbr(bins_not_in_test)} are defined in the documentation file {self.doc_func_check} but not defined in the test cover group. " + \
                                      "Please ensure that all check points defined in the documentation are also in the the test cover group. " + \
                                      "Review your task requirements and the test cases."
             return False, info_runtest
@@ -604,7 +604,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['unmarked_check_points'] > 0:
             unmark_check_points = report['unmarked_check_point_list']
             if len(unmark_check_points) > 0:
-                info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{', '.join(unmark_check_points)}` " + \
+                info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
                                          "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                                          fc.description_mark_function_doc() + \
                                          "This ensures proper coverage mapping between documentation and test implementation. " + \
@@ -651,7 +651,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                 passed_test.append(fv + "=" + rt)
 
         if passed_test:
-            return False, f"Test template structure validation failed: Not all test functions ({', '.join(passed_test)}) are properly failing. " + \
+            return False, f"Test template structure validation failed: Not all test functions ({fc.list_str_abbr(passed_test)}) are properly failing. " + \
                           f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_ck_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
                            "This prevents incomplete templates from being accidentally considered as passing tests. " + \
                            "Please ensure every test function ends with the required fail assertion."
@@ -725,8 +725,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             info(f"Missed APIs: {','.join(api_un_tested)}")
             info(f"Found test APIs: {','.join(test_functions)}")
             info(f"All test cases: {','.join(test_keys)}")
-            return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {', '.join(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
-                                   f"Please create the missing functions: {', '.join(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
+            return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {fc.list_str_abbr(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
+                                   f"Please create the missing functions: {fc.list_str_abbr(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
@@ -813,14 +813,14 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                 else:
                     failed_tc.append(k)
             if len(passed_tc) != 0:
-                warning(f"No test cases defined for implementation. However, {len(passed_tc)} test cases are already passing: {', '.join(passed_tc)}. ")
+                warning(f"No test cases defined for implementation. However, {len(passed_tc)} test cases are already passing: {fc.list_str_abbr(passed_tc)}. ")
             self.total_test_cases = [(self.rm_line_no(k), False) for k in sorted(failed_tc)]
             if len(self.total_test_cases) == 0:
                 return False, "No test cases found for implementation. All test cases are already passing. Nothing to do."
             info(f"Total {len(self.total_test_cases)} test cases need to be implemented.")
         if len(self.current_test_cases) == 0:
             self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
-        info(f"Current batch: {len(self.current_test_cases)} test cases to implement: {', '.join(self.current_test_cases)}")
+        info(f"Current batch: {len(self.current_test_cases)} test cases to implement: {fc.list_str_abbr(self.current_test_cases)}")
         info(f"Completed {sum([t[1] for t in self.total_test_cases])} out of {len(self.total_test_cases)} test cases.")
         return True, ""
 
@@ -833,7 +833,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return True, {"success": "All test cases have been implemented! Use tool `Complete to` finish this stage."}
         target_tests, failed_tests_files = self.get_run_args(self.test_dir)
         if len(failed_tests_files) > 0:
-            return False, {"error": f"The following test files do not exist: {', '.join(failed_tests_files)}. " + \
+            return False, {"error": f"The following test files do not exist: {fc.list_str_abbr(failed_tests_files)}. " + \
                             "Please check your test case names and ensure they are correct."}
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
@@ -851,8 +851,8 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         extends_tests = [k for k in return_tests.keys() if k not in self.current_test_cases]
         info(f"Returned {len(return_tests)} test cases, missing {len(missing_tests)}, extends {len(extends_tests)}")
         if len(missing_tests) > 0:
-            info(f"implemented cases: {', '.join(return_tests.keys())}")
-            error_msgs["error"] = f"The following test cases: `{', '.join(missing_tests)}` are missing in the tests implementation. " + \
+            info(f"implemented cases: {fc.list_str_abbr(return_tests.keys())}")
+            error_msgs["error"] = f"The following test cases: `{fc.list_str_abbr(missing_tests)}` are missing in the tests implementation. " + \
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
@@ -870,11 +870,11 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         if len(self.current_test_cases) == 0:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
         if is_complete:
-            return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {', '.join(self.current_test_cases)}. " + \
+            return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                     f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
                                      "Please continue implementing the remaining test cases before completing this stage."}
         return False, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
-                                  f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {', '.join(self.current_test_cases)}. " + \
+                                  f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                   f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
 
 
