@@ -2,6 +2,7 @@
 """Message and state utilities for UCAgent."""
 
 from vagent.util.functions import fill_dlist_none
+from vagent.util.log import warning
 
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.messages import AIMessage, RemoveMessage
@@ -60,6 +61,29 @@ def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any
                 msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
 
 
+def summarize_messages(messages, summarization_size, model):
+    """Summarize messages to reduce their token count."""
+    from langchain_core.messages import HumanMessage
+    instruction = (f"Summarize the following conversation in less than {summarization_size} tokens, keeping the important information and context. Be concise and clear. "
+                   "You must follow the rules below:\n"
+                   "1. The system message should be preserved as much as possible.\n"
+                   "2. The tool call results should be concise and clear, need removal of unnecessary details (e.g. file content, irrelevant context, code snippets).\n"
+                   "3. Record current task status if any.\n"
+                   "4. Record the verification experience you have learned.\n"
+                   "5. Record the tools behavior you have learned.\n"
+                   "6. Record the tools error handle suggestions you have learned.\n"
+                   "7. Record the important actions you have taken and their outcomes.\n"
+                   "8. Record any other important information and context.\n"
+                   "You need to define the format of the summary which should be friendly to any LLMs.\n"
+                   "Note: the first followed message may be the previous summary you provided before, you need to incorporate it into the new summary.\n"
+                   "The result you provide should be only the summary, no other explanations or additional information."
+                   )
+    warning(f"Summarizing messages({count_tokens_approximately(messages)} tokens, {len(messages)} messages) to reduce context size ...")
+    summary_response = model.invoke([HumanMessage(content=instruction)] + messages)
+    warning(f"Summarization done, summary length: {count_tokens_approximately(summary_response.content)} tokens.")
+    return summary_response
+
+
 def remove_messages(messages, max_keep_msgs):
     """Remove older messages to keep the most recent max_keep_msgs messages."""
     if len(messages) <= max_keep_msgs:
@@ -102,29 +126,45 @@ class SummarizationAndFixToolCall(SummarizationNode):
         return self.max_keep_msgs
 
 
-class TrimMessagesNode:
-    """Node to trim messages to a maximum count."""
+class UCMessagesNode:
+    """
+    Node to trim and summarize messages.
+    Messages layout:
+      local memory: role_info(system) + history_msgs
+      llm input: summary_msgs(summarized by max_summary_tokens) + role_info + history_msg
+    """
 
-    def __init__(self, max_token: int, max_keep_msgs: int):
-        self.max_token = max_token
+    def __init__(self, max_summary_tokens: int, max_keep_msgs: int, tail_keep_msgs: int, model):
+        self.max_summary_tokens = max_summary_tokens
         self.max_keep_msgs = max_keep_msgs
+        self.tail_keep_msgs = tail_keep_msgs
+        self.summary_data = []
+        self.model = model
 
     def __call__(self, state):
         fix_tool_call_args(state)
-        messages, deleted_msg = remove_messages(state["messages"], self.max_keep_msgs)
-        msg = trim_messages(
-                messages,
-                strategy="last",
-                token_counter=count_tokens_approximately,
-                max_tokens=self.max_token,
-                start_on="human",
-                end_on=("human", "tool"),
-                include_system=True,
-                allow_partial=False,
-        )
-        ret = {"llm_input_messages": msg}
-        if deleted_msg:
-            ret["messages"] = deleted_msg
+        messages = state["messages"]
+        role_info = messages[:1]
+        llm_input_msgs = messages[1:]
+        tail_msgs = llm_input_msgs
+        ret = {}
+        if len(llm_input_msgs) > self.max_keep_msgs:
+            # get init start index
+            tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
+            start_msg = llm_input_msgs[tail_msgs_start_index]
+            # search for the last not tool message
+            while start_msg.type == "tool" and tail_msgs_start_index > 0:
+                tail_msgs_start_index -= 1
+                start_msg = llm_input_msgs[tail_msgs_start_index]
+            tail_msgs = llm_input_msgs[tail_msgs_start_index:]
+            if tail_msgs_start_index > 0:
+                self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
+                deleted_msgs = [RemoveMessage(id=msg.id) for msg in llm_input_msgs[:tail_msgs_start_index]]
+                warning(f"Trimmed {len(deleted_msgs)} messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
+                ret["messages"] = deleted_msgs
+            else:
+                tail_msgs = llm_input_msgs
+        ret["llm_input_messages"] = self.summary_data + role_info + tail_msgs
         return ret
 
     def set_max_keep_msgs(self, max_keep_msgs: int):

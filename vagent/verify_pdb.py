@@ -436,6 +436,10 @@ class VerifyPDB(Pdb):
         message(yam_str(info))
 
     def do_messages_keep_latest(self, arg):
+        """
+        Keep only the latest N messages in the agent's state.
+        Usage: messages_keep_latest <size>
+        """
         size_str = arg.strip()
         if not size_str:
             echo_y("Size cannot be empty. Usage: messages_keep_latest <size>")
@@ -450,6 +454,13 @@ class VerifyPDB(Pdb):
         self.agent.message_keep_latest(size)
 
     def do_messages_print(self, arg):
+        """
+        Print messages from the agent's state.
+        Usage: messages_print [start] [size]
+        where:
+          start: The starting index of messages to print (default: -10, meaning the last 10 messages)
+          size: The number of messages to print (default: 10)
+        """
         start, size = -10, 10
         args = arg.strip().split()
         if len(args) > 0:

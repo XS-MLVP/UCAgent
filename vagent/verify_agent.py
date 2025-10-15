@@ -8,7 +8,7 @@ from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_m
 from .util.models import get_chat_model
 
 import vagent.tools
-from .message import TrimMessagesNode, SummarizationAndFixToolCall, State
+from .message import UCMessagesNode, SummarizationAndFixToolCall, State
 from .message import TokenSpeedCallbackHandler
 from .tools import *
 from .tools.planning import *
@@ -190,14 +190,16 @@ class VerifyAgent:
         self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
-        self.use_trim_mode = self.cfg.get_value("conversation_summary.use_trim_mode", False)
+        self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", True)
         self.max_keep_msgs = self.cfg.get_value("conversation_summary.max_keep_msgs", 200)
 
-        if self.use_trim_mode:
-            info("Using TrimMessagesNode for conversation summarization (max_token={})".format(self.max_token))
-            message_manage_node = TrimMessagesNode(
-                max_token=self.max_token,
-                max_keep_msgs=self.max_keep_msgs
+        if self.use_uc_mode:
+            info("Using UCMessagesNode for conversation summarization (max_summary_tokens={})".format(self.max_summary_tokens))
+            message_manage_node = UCMessagesNode(
+                max_summary_tokens=self.max_summary_tokens,
+                max_keep_msgs=self.max_keep_msgs,
+                tail_keep_msgs=self.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
+                model=self.model
             )
         else:
             info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
@@ -270,9 +272,10 @@ class VerifyAgent:
         return self.message_manage_node.get_max_keep_msgs()
 
     def summary_mode(self):
-        if self.use_trim_mode:
-            return f"Trim({self.max_token})"
-        return f"Summarize({self.max_token})"
+        name = self.message_manage_node.__class__.__name__
+        if self.use_uc_mode:
+            return f"{name}({self.max_keep_msgs})"
+        return f"{name}({self.max_token})"
 
     def summary_max_tokens(self):
         return self.max_summary_tokens
@@ -625,6 +628,7 @@ class VerifyAgent:
         return {
             "count": len(messages),
             "size": sum([len(m.content) for m in messages]),
+            "last_20type": ">".join([m.type for m in messages[-20:]]),
         }
 
     def message_get_str(self, index, count):
@@ -642,8 +646,8 @@ class VerifyAgent:
             warning(f"No messages found, cannot keep latest messages")
             return
         info(f"Latest keeping messages with size {latest_size}, total messages before: {len(values['messages'])}")
-        self.agent.get_state(self.get_work_config()).values["messages"][:] = values["messages"][-latest_size:]
-        info(f"Messages after keeping: {len(values['messages'])}")
+        self.agent.update_state(self.get_work_config(), {"messages": values["messages"][-latest_size:]})
+        info(f"Messages after keeping: {len(self.messages_get_raw())}")
 
     def do_work_values(self, instructions, config):
         last_msg_index = None
