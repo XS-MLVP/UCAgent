@@ -638,10 +638,15 @@ def find_files_by_pattern(workspace, pattern):
         if os.path.isfile(os.path.join(workspace, p)):
             ret.append(p)
             continue
+        new_p = []
         if not is_regex_pattern(p):
-            ret += find_files_by_glob(workspace, p)
+            new_p = find_files_by_glob(workspace, p)
         else:
-            ret += find_files_by_regex(workspace, p)
+            new_p = find_files_by_regex(workspace, p)
+        if len(new_p) < 1:
+            warning(f"No files found in workspace {workspace} matching pattern: {p}")
+            continue
+        ret += new_p
     return list(set(ret))
 
 

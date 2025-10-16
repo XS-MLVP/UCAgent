@@ -283,6 +283,9 @@ def get_args() -> argparse.Namespace:
         help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
     )
 
+    parser.add_argument('--ref', action='append', default=[], type=str,
+                        help='Reference files need to read on specified stages, format: [stage_index:]file_path1[,file_path2] (can be used multiple times)')
+
     parser.add_argument('--check', action='store_true', default=False,
                         help='Check current default configurations and exit')
 
@@ -300,6 +303,30 @@ def get_args() -> argparse.Namespace:
     )
     
     return parser.parse_args()
+
+
+def parse_reference_files(ref_args: List[str]) -> Dict[int, List[str]]:
+    """Parse reference file arguments into a dictionary.
+
+    Args:
+        ref_args: List of reference file arguments in the format [stage_index:]file_path1[,file_path2]
+
+    Returns:
+        Dictionary mapping stage indices to lists of file paths
+    """
+    ref_dict = {}
+    for ref in ref_args:
+        if ':' in ref:
+            stage_str, files_str = ref.split(':', 1)
+            stage_index = int(stage_str) # -1 means all stages
+        else:
+            stage_index = 0  # default the first stage
+            files_str = ref
+        file_paths = [f.strip() for f in files_str.split(',') if f.strip()]
+        if stage_index not in ref_dict:
+            ref_dict[stage_index] = []
+        ref_dict[stage_index].extend(file_paths)
+    return ref_dict
 
 
 def do_check() -> None:
@@ -401,6 +428,7 @@ def run() -> None:
         stage_skip_list=args.skip,
         stage_unskip_list=args.unskip,
         use_todo_tools=args.use_todo_tools,
+        reference_files=parse_reference_files(args.ref)
     )
     
     # Set break mode if human interaction or TUI is requested

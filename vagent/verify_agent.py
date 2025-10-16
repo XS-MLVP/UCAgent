@@ -59,6 +59,7 @@ class VerifyAgent:
                  stage_skip_list: Optional[List[int]] = None,
                  stage_unskip_list: Optional[List[int]] = None,
                  use_todo_tools: bool = False,
+                 reference_files: dict = None,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -130,7 +131,8 @@ class VerifyAgent:
         self.todo_panel = ToDoPanel()
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_todo, self.todo_panel,
                                           stage_skip_list=stage_skip_list,
-                                          stage_unskip_list=stage_unskip_list)
+                                          stage_unskip_list=stage_unskip_list,
+                                          reference_files=reference_files)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,

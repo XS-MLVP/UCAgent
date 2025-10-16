@@ -223,7 +223,9 @@ class ToolDoExit(ManagerTool):
 class StageManager(object):
     def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0, force_todo=False, todo_panel=None,
                  stage_skip_list  = None,
-                 stage_unskip_list = None):
+                 stage_unskip_list = None,
+                 reference_files   = None,
+                 ):
         """
         Initialize the StageManager with an empty list of stages.
         """
@@ -234,6 +236,17 @@ class StageManager(object):
         self.todo_panel = todo_panel
         self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
         self.stages = self.root_stage.get_substages()
+        if reference_files:
+            for si, flist in reference_files.items():
+                if 0 <= si < len(self.stages):
+                    info(f"Stage {si} try add reference files: {flist}")
+                    self.stages[si].add_reference_files(flist)
+                elif si == -1:
+                    info(f"All stages try add reference files: {flist}")
+                    for s in self.stages:
+                        s.add_reference_files(flist)
+                else:
+                    warning(f"Invalid stage index {si} in reference_files, ignored.")
         self.mission = cfg.mission
         self.agent = agent
         info(f"Initialized StageManager with {len(self.stages)} stages.")

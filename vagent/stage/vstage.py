@@ -77,6 +77,12 @@ class VerifyStage(object):
         self.time_start = None
         self.time_end = None
 
+    def add_reference_files(self, files):
+        for f in find_files_by_pattern(self.workspace, files):
+            if f not in self.reference_files:
+                self.reference_files[f] = False
+                info(f"[{self.__class__.__name__}] Reference file {f} added.")
+
     def on_init(self):
         for c in self.checker:
             c.on_init()
