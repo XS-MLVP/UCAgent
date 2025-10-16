@@ -146,9 +146,13 @@ class UnityChipCheckerDutFixture(Checker):
         if not len(dut_func) == 1:
             return False, {"error": f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."}
         dut_func = dut_func[0]
-        # check @pytest.fixture()
+        # check @pytest.fixture("function")
         if not (hasattr(dut_func, '_pytestfixturefunction') or "pytest_fixture" in str(dut_func)):
-            return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+            return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture(\"function\")."}
+        scope_value = fc.get_fixture_scope(dut_func)
+        if isinstance(scope_value, str):
+            if scope_value != "function":
+                return False, {"error": f"The 'dut' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
         # check args
         args = fc.get_func_arg_list(dut_func)
         if len(args) != 1 or args[0] != "request":
@@ -195,6 +199,10 @@ class UnityChipCheckerEnvFixture(Checker):
                 return False, {"error": f"The '{env_func.__name__}' Env fixture's first arg must be 'dut', but got ({', '.join(args)})."}
             if not (hasattr(env_func, '_pytestfixturefunction') or "pytest_fixture" in str(env_func)):
                 return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+            scope_value = fc.get_fixture_scope(env_func)
+            if isinstance(scope_value, str):
+                if scope_value != "function":
+                    return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
         if len(env_func_list) < self.min_env:
             return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
                                     f"You have defined {len(env_func_list)} env fixtures: {[f.__name__ for f in env_func_list]}."}

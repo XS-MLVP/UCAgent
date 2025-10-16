@@ -18,12 +18,16 @@ def current_path_file(file_name):
 
 def get_coverage_data_path(request, new_path:bool):
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
+    # 获取测试用例名称，为每个测试用例创建对应的代码行覆盖率文件
+    tc_name = request.node.name if request is not None else "{{DUT}}"
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.dat",  new_path=new_path)
 
 
 def get_waveform_path(request, new_path:bool):
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=new_path)
+    # 获取测试用例名称，为每个测试用例创建对应的波形
+    tc_name = request.node.name if request is not None else "{{DUT}}"
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.fst",  new_path=new_path)
 
 
 def create_dut(request):
@@ -45,7 +49,7 @@ def create_dut(request):
     return dut
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
     dut = create_dut(request)                         # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
@@ -129,14 +133,14 @@ class {{DUT}}Env:
 
 
 # 定义env fixture, 请取消下面的注释，并根据需要修改名称
-@pytest.fixture()
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
      # 一般情况下为每个test都创建全新的 env 不需要 yield
      return {{DUT}}Env(dut)
 
 
 # 定义其他Env
-# @pytest.fixture()
+# @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 # def env1(dut):
 #     return MyEnv1(dut)
 #

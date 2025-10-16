@@ -33,12 +33,16 @@ def current_path_file(file_name):
 
 def get_coverage_data_path(request, new_path:bool):
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.dat",  new_path=new_path)
+    # 获取测试用例名称，为每个测试用例创建对应的代码行覆盖率文件
+    tc_name = request.node.name if request is not None else "{{DUT}}"
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.dat",  new_path=new_path)
 
 
 def get_waveform_path(request, new_path:bool):
     # 通过toffee_test.reporter提供的get_file_in_tmp_dir方法可以让各用例产生的文件名称不重复 (获取新路径需要new_path=True，获取已有路径new_path=False)
-    return get_file_in_tmp_dir(request, current_path_file("data/"), "{{DUT}}.fst",  new_path=new_path)
+    # 获取测试用例名称，为每个测试用例创建对应的波形
+    tc_name = request.node.name if request is not None else "{{DUT}}"
+    return get_file_in_tmp_dir(request, current_path_file("data/"), f"{tc_name}.fst",  new_path=new_path)
 
 
 def create_dut(request):
@@ -48,9 +52,9 @@ def create_dut(request):
         DUT实例，已完成基本初始化
     """
     # 导入并实例化具体的DUT类
-    from {DUT} import DUT{DutClass}
+    from {{DUT}} import DUT{{DutClass}}
     
-    dut = DUT{DutClass}()
+    dut = DUT{{DutClass}}()
 
     # 设置覆盖率生成文件(必须设置覆盖率文件，否则无法统计覆盖率，导致测试失败)
     dut.SetCoverage(get_coverage_data_path(request, new_path=True))
@@ -74,7 +78,7 @@ from toffee_test.reporter import set_user_info, set_title_info
 from {DUT}_function_coverage_def import get_coverage_groups
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
     # 1. 创建DUT实例
     dut = create_dut(request)
@@ -217,7 +221,7 @@ class {{DUT}}Env:
 
 
 # 定义env fixture, 请取消下面的注释，并根据需要修改名称
-@pytest.fixture()
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
      # 一般情况下为每个test都创建全新的 env 不需要 yield
      return {{DUT}}Env(dut)
@@ -518,7 +522,7 @@ class AXI4BasedDUTEnv:
         self.dut.Step()
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
     return AXI4BasedDUTEnv(dut) # 一般情况下为每个test都创建全新的 env 不需要 yield
 ```
@@ -554,7 +558,7 @@ class TestEnv:
         return self.dut.Step(c)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
     return TestEnv(dut)
 
@@ -586,7 +590,7 @@ class DUT{{DUTClass}}:
 这是 `StepRis` 最常见的用途，在 dut fixture 中自动注册：
 
 ```python
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
     dut = create_dut(request)
     func_coverage_group = get_coverage_groups(dut)
@@ -792,7 +796,7 @@ class AXIMemoryEnv:
         return self.dut.Step(c)
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
     return AXIMemoryEnv(dut)
 

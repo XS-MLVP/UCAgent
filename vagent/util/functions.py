@@ -1496,3 +1496,44 @@ def list_str_abbr(data: list, max_items=50):
     if len(data) <= max_items:
         subfix = ""
     return ", ".join([str(d) for d in data[:max_items]]) + subfix
+
+
+
+
+
+def get_fixture_scope(dut_func_or_dut_code):
+    """Get the scope of a pytest fixture function.
+    Args:
+        dut_func_or_dut_code: The fixture function or its source code as a string.
+    Returns:
+        The scope of the fixture ('function', 'class', 'module', 'session') or None if not found.
+    """
+    if isinstance(dut_func_or_dut_code, str):
+        source_code = dut_func_or_dut_code
+        dut_func = None
+    else:
+        dut_func = dut_func_or_dut_code
+        source_code = inspect.getsource(dut_func)
+    if hasattr(dut_func, '_pytestfixturefunction'):
+        fixture_def = dut_func._pytestfixturefunction
+        scope = getattr(fixture_def, 'scope', None)
+        if scope is None:
+            # Try to get scope from the fixture definition
+            if hasattr(fixture_def, '_scope'):
+                scope = fixture_def._scope
+        return scope
+    # check fixture scope in source code
+    if "@pytest.fixture" in source_code:
+        # Extract the fixture decorator line
+        fixture_pattern = r'@pytest\.fixture\([^)]*\)'
+        matches = re.findall(fixture_pattern, source_code)
+        if matches:
+            for match in matches:
+                # Check if scope is specified
+                if 'scope' in match:
+                    # Extract scope value
+                    scope_pattern = r'scope\s*=\s*["\'](\w+)["\']'
+                    scope_match = re.search(scope_pattern, match)
+                    if scope_match:
+                        return scope_match.group(1)
+    return None
