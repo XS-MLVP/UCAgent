@@ -83,8 +83,26 @@ def get_args() -> argparse.Namespace:
 
     upgrade_ucagent = '--upgrade' in sys.argv
     if upgrade_ucagent:
-        from pip._internal import main as pip_main
-        pip_main(['install', '--upgrade', '--no-deps', '--force-reinstall', 'git+https://github.com/XS-MLVP/UCAgent@main'])
+        import subprocess
+        print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
+        print(f"Python executable: {sys.executable}")
+        try:
+            # Use the same Python interpreter that is currently running
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--upgrade',
+                 'git+https://github.com/XS-MLVP/UCAgent@main'],
+                check=True,
+                text=True
+            )
+            print("\nUCAgent upgraded successfully!")
+            print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
+        except subprocess.CalledProcessError as e:
+            print(f"\nFailed to upgrade UCAgent!")
+            print(f"Error: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\nUnexpected error during upgrade: {e}")
+            sys.exit(1)
         sys.exit(0)
 
     parser.add_argument(
