@@ -21,6 +21,26 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 
+class CheckAction(argparse.Action):
+    """Custom action for --check flag that exits after checking."""
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        do_check()
+        parser.exit()
+
+
+class UpgradeAction(argparse.Action):
+    """Custom action for --upgrade flag that exits after upgrading."""
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        upgrade()
+        parser.exit()
+
+
 def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
     """Parse override string into dictionary.
 
@@ -75,35 +95,6 @@ def get_args() -> argparse.Namespace:
         prog=prog_name,
         epilog="For more information, visit: https://github.com/XS-MLVP/UCAgent"
     )
-    
-    # First, check if --check is present in sys.argv
-    check_mode = '--check' in sys.argv
-    if check_mode:
-        do_check()
-
-    upgrade_ucagent = '--upgrade' in sys.argv
-    if upgrade_ucagent:
-        import subprocess
-        print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
-        print(f"Python executable: {sys.executable}")
-        try:
-            # Use the same Python interpreter that is currently running
-            result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '--upgrade',
-                 'git+https://github.com/XS-MLVP/UCAgent@main'],
-                check=True,
-                text=True
-            )
-            print("\nUCAgent upgraded successfully!")
-            print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
-        except subprocess.CalledProcessError as e:
-            print(f"\nFailed to upgrade UCAgent!")
-            print(f"Error: {e}")
-            sys.exit(1)
-        except Exception as e:
-            print(f"\nUnexpected error during upgrade: {e}")
-            sys.exit(1)
-        sys.exit(0)
 
     parser.add_argument(
         "workspace", 
@@ -305,9 +296,6 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--ref', action='append', default=[], type=str,
                         help='Reference files need to read on specified stages, format: [stage_index:]file_path1[,file_path2] (can be used multiple times)')
 
-    parser.add_argument('--check', action='store_true', default=False,
-                        help='Check current default configurations and exit')
-
     parser.add_argument('--skip', action='append', default=[], type=int,
                         help='Skip the specified stage index (can be used multiple times)')
 
@@ -320,8 +308,44 @@ def get_args() -> argparse.Namespace:
         action="version", 
         version="UCAgent Version: " + __version__,
     )
-    
+
+    parser.add_argument(
+        "--upgrade",
+        action=UpgradeAction,
+        help="Upgrade UCAgent to the latest version from GitHub main branch"
+    )
+
+    parser.add_argument(
+        "--check",
+        action=CheckAction,
+        help="Check current default configurations and exit"
+    )
+
     return parser.parse_args()
+
+
+def upgrade() -> None:
+    import subprocess
+    print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
+    print(f"Python executable: {sys.executable}")
+    try:
+        # Use the same Python interpreter that is currently running
+        result = subprocess.run(
+            [sys.executable, '-m', 'pip', 'install', '--upgrade',
+             'git+https://github.com/XS-MLVP/UCAgent@main'],
+            check=True,
+            text=True
+        )
+        print("\nUCAgent upgraded successfully!")
+        print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
+    except subprocess.CalledProcessError as e:
+        print(f"\nFailed to upgrade UCAgent!")
+        print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\nUnexpected error during upgrade: {e}")
+        sys.exit(1)
+    sys.exit(0)
 
 
 def parse_reference_files(ref_args: List[str]) -> Dict[int, List[str]]:
@@ -365,7 +389,7 @@ def do_check() -> None:
     # 1. Check default config file
     default_config_path = os.path.join(current_dir, "setting.yaml")
     default_user_config_path = os.path.join(os.path.expanduser("~"), ".ucagent/setting.yaml")
-    echo_g("UCAgent Check:")
+    echo_g("UCAgent version: " + __version__)
     check_exist("sys_config", default_config_path)
     check_exist("user_config", default_user_config_path)
 
