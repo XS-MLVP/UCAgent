@@ -1,3 +1,43 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=80", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "UCAgent"
+description = "UnityChip Verification Agent - AI-powered hardware verification tool"
+authors = [
+    {name = "XS-MLVP", email = "unitychip@bosc.ac.cn"},
+]
+license = {text = "MIT"}
+readme = "README.en.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "langchain>=0.3.25",
+    "langchain_community>=0.3.24",
+    "openai>=1.82.0",
+    "langgraph>=0.4.7",
+    "langchain_openai>=0.3.18",
+    "langmem>=0.0.27",
+    "urwid>=3.0.2",
+    "mem0ai>=0.1.109",
+    "langchain_mcp_adapters>=0.1.7",
+    "psutil>=7.1.0",
+    "pytoffee@git+https://github.com/XS-MLVP/toffee@master",
+    "toffee-test@git+https://github.com/XS-MLVP/toffee-test@master"
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/XS-MLVP/UCAgent"
+
+[tool.setuptools_scm]
+fallback_version = "0.9.1"
+version_file = "vagent/_version.py"
+
+[tool.setuptools]
+packages = ["vagent"]

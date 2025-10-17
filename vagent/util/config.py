@@ -310,7 +310,10 @@ def get_config(config_file=None, cfg_override=None):
         cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file)))
         info(f"Load config from '{user_config_file}' completed.")
     else:
-        info(f"User config file '{user_config_file}' not found, ignore.")
+        info(f"User config file '{user_config_file}' not found, touch an empty one.")
+        os.makedirs(os.path.dirname(user_config_file), exist_ok=True)
+        with open(user_config_file, 'w') as f:
+            f.write("# UCAgent user configuration file\n")
 
     # 3. load lang config
     lang = cfg.get_value('lang', 'zh')

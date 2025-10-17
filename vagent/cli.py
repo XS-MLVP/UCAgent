@@ -12,6 +12,7 @@ import sys
 import argparse
 import bdb
 from typing import Dict, List, Any, Optional
+from .version import __version__
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -299,7 +300,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--version", 
         action="version", 
-        version="UCAgent 1.0.0"
+        version="UCAgent Version: " + __version__,
     )
     
     return parser.parse_args()
