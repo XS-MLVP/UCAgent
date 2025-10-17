@@ -65,13 +65,19 @@ class VerifyUI:
         self.int_layout()
         self._handle_stdout_error()
 
-    def exit(self, loop, user_data=None):
+    def _exit_cleanup(self):
         """
-        Exit the application gracefully.
+        Clean up resources before exiting.
         """
         self.vpdb.agent.unset_message_echo_handler()
         self.vpdb.agent._mcps_logger = None
         self._clear_stdout_error()
+
+    def exit(self, loop, user_data=None):
+        """
+        Exit the application gracefully.
+        """
+        self._exit_cleanup()
         raise urwid.ExitMainLoop()
 
     def int_layout(self):
@@ -789,7 +795,11 @@ def enter_simple_tui(pdb):
     signal.signal(signal.SIGINT, _sigint_handler)
     loop.set_alarm_in(0.1, app.check_exec_batch_cmds)
     loop.set_alarm_in(1.0, app._auto_update_ui)
-    loop.run()
+    try:
+        loop.run()
+    except Exception as e:
+        app._exit_cleanup()
+        print(f"{YELLOW}TUI Exception: {str(e)}\n{traceback.format_exc()}{RESET}\n")
     signal.signal(signal.SIGINT, original_sigint)
 
 
