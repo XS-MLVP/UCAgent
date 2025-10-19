@@ -226,6 +226,7 @@ stage:
              - "确保Mock组件能正确工作"
              - "所有Mock组件的实现代码要写入{OUT}/tests/{DUT}_api.py中，对应Class 以Mock前缀命名，例如MockA, MockB等"
              - "Mock组件的实现要有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
+             - "请通过文件 {DUT}/__init__.py获取各个Mock组件的需要访问的引脚"
            checker:
              - name: mock_component_check
                clss: "UnityChipCheckerMockComponent"
@@ -234,11 +235,12 @@ stage:
                  min_mock: 1
            reference_files:
              - "Guide_Doc/dut_mock.md"
+             - "{DUT}/__init__.py"
            skip: $(SKIP_MOCK_COMPONENT: true)
        desc: "env fixture实现"
        task:
          - "实现env fixture，包含需要的必要引脚封装"
-         - "1. 对dut的引脚进行分析，确定哪些是输入，哪些是输出，有哪些分组"
+         - "1. 对dut的引脚进行分析，确定哪些是输入，哪些是输出，有哪些分组（请通过文件 {DUT}/__init__.py获取所有引脚）"
          - "2. 如果存在多个分组，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联, 在env中按分组命名，例如io_group1.a, io_group2.b等"
          - "3. 如果不存在分组，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联，在env中统一用io命名，例如io.a, io.b等"
          - "4. 如果需要，请务必在env fixture中添加必要的组件和功能，例如为{DUT}添加上下游依赖模块的Mock组件，并通过dut.StepRis进行Mock组件的驱动"
@@ -254,6 +256,7 @@ stage:
              force_bundle: true
        reference_files:
          - "Guide_Doc/dut_fixture.md"
+         - "{DUT}/__init__.py"
 
   - name: coverage_model_implementation
     desc: "功能覆盖率模型实现"
