@@ -102,6 +102,7 @@ class UnityChipCheckerLabelStructure(Checker):
 class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file, **kw):
         self.target_file = target_file
+        self.update_dut_name(kw["cfg"])
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT creation function for correctness."""
@@ -133,6 +134,7 @@ class UnityChipCheckerDutCreation(Checker):
 class UnityChipCheckerDutFixture(Checker):
     def __init__(self, target_file, **kw):
         self.target_file = target_file
+        self.update_dut_name(kw["cfg"])
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the fixture implementation for correctness."""
@@ -222,6 +224,32 @@ class UnityChipCheckerMockComponent(Checker):
                 }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
+
+class UnityChipCheckerBundleWrapper(Checker):
+    def __init__(self, target_file, min_bundles=1, **kw):
+        self.target_file = target_file
+        self.min_bundles = min_bundles
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Check the Bundle wrapper implementation for correctness."""
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." + \
+                           f"You need to define Bundle wrappers like: 'class Name(Bundle):' in the target file: {self.target_file}. "}
+        bundle_list = fc.get_target_from_file(self.get_path(self.target_file), "*",
+                                              ex_python_path=self.workspace,
+                                              dtype="CLASS")
+        for icls in bundle_list[:]:
+            bases = [base.__name__ for base in icls.__bases__]
+            if "Bundle" not in bases:
+                bundle_list.remove(icls)
+        if len(bundle_list) < self.min_bundles:
+            return False, {
+                "error": f"Insufficient Bundle wrapper coverage: {len(bundle_list)} Bundle classes found, minimum required is {self.min_bundles}. " +\
+                         f"You need to define Bundle wrappers like: 'class Name(Bundle):'. " + \
+                         f"Please refer to the documentation for more details."
+            }
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
 class UnityChipCheckerEnvFixture(Checker):
     def __init__(self, target_file, min_env=1, force_bundle=False, **kw):
         self.target_file = target_file
@@ -249,6 +277,72 @@ class UnityChipCheckerEnvFixture(Checker):
             return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
                                     f"You have defined {len(env_func_list)} env fixtures: {[f.__name__ for f in env_func_list]}."}
         return True, {"message": f"{self.__class__.__name__} Env fixture check for {self.target_file} passed."}
+
+
+class UnityChipCheckerEnvFixtureTest(Checker):
+    def __init__(self, target_file, test_dir, min_env_tests=1, timeout=15, **kw):
+        self.target_file = target_file
+        self.min_env_tests = max(1, min_env_tests)
+        self.run_test = RunUnityChipTest()
+        self.test_dir = test_dir
+        self.timeout = timeout
+        self.update_dut_name(kw["cfg"])
+
+    def set_workspace(self, workspace: str):
+        """
+        Set the workspace for the test case checker.
+
+        :param workspace: The workspace directory to be set.
+        """
+        super().set_workspace(workspace)
+        self.run_test.set_workspace(workspace)
+        self.test_dir = self.get_path(self.test_dir)
+        assert os.path.exists(self.test_dir), f"Test directory '{self.test_dir}' does not exist in workspace."
+        return self
+
+    def do_check(self, timeout, **kw) -> Tuple[bool, object]:
+        """Check the Env fixture test implementation for correctness."""
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"fixture test file '{self.target_file}' does not exist."}
+        env_test_func_list = fc.get_target_from_file(self.get_path(self.target_file), f"test*",
+                                             ex_python_path=self.workspace,
+                                             dtype="FUNC")
+        test_prefix = f"test_api_{self.dut_name}_env_"
+        for env_test_func in env_test_func_list:
+            if env_test_func.__name__.startswith(test_prefix) is False:
+                return False, {"error": f"The Env test function '{env_test_func.__name__}' name must start with '{test_prefix}', but got '{env_test_func.__name__}'."}
+            args = fc.get_func_arg_list(env_test_func)
+            if len(args) < 1 or args[0] != "env":
+                return False, {"error": f"The '{env_test_func.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
+        if len(env_test_func_list) < self.min_env_tests:
+            return False, {"error": f"Insufficient env fixture test coverage: {len(env_test_func_list)} env test functions found, minimum required is {self.min_env_tests}. "+\
+                                    f"You have defined {len(env_test_func_list)} env test functions: {[f.__name__ for f in env_test_func_list]}."}
+        # run test
+        self.run_test.set_pre_call_back(
+            lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
+        )
+        timeout = timeout if timeout > 0 else self.timeout
+        report, str_out, str_err = self.run_test.do(
+            self.test_dir,
+            pytest_ex_args=os.path.basename(self.target_file),
+            return_stdout=True, return_stderr=True, return_all_checks=True,
+            timeout=timeout
+        )
+        if not report or "tests" not in report:
+            return False, {
+                "error": f"Env fixture test execution failed or returned invalid report.",
+                "STD_OUT": str_out,
+                "STD_ERR": str_err,
+            }
+        tc_total = report["tests"]["total"]
+        tc_failed = report["tests"]["fails"]
+        if tc_failed > 0:
+            return False, {
+                "error": f"Env fixture test failed: {tc_failed}/{tc_total} test cases failed. Need all test cases to pass.",
+                "STD_OUT": str_out,
+                "STD_ERR": str_err,
+            }
+        return True, {"message": f"{self.__class__.__name__} Env fixture test check for {self.target_file} passed."}
 
 
 class UnityChipCheckerDutApi(Checker):
@@ -1032,11 +1126,8 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
         super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_ck_prefix, data_key, **extra_kwargs)
         self.extra_kwargs = extra_kwargs
         assert cfg is not None, "cfg is required."
-        if isinstance(cfg, dict):
-            dut_name = cfg.get("_temp_cfg", {}).get("DUT")
-        else:
-            assert isinstance(cfg, Config), f"cfg must be dict or Config, but got {type(cfg)}."
-            dut_name = cfg.get_value("_temp_cfg", {}).get("DUT")
+        self.update_dut_name(cfg)
+        dut_name = self.dut_name
         self.coverage_json =     self.extra_kwargs.get("coverage_json",    "uc_test_report/line_dat/code_coverage.json")
         self.coverage_analysis = self.extra_kwargs.get("coverage_analysis", f"unity_test/{dut_name}_line_coverage_analysis.md")
         self.coverage_ignore =   self.extra_kwargs.get("coverage_ignore",   f"unity_test/tests/{dut_name}.ignore")

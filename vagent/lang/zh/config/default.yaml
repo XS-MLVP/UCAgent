@@ -218,6 +218,22 @@ stage:
          - "Guide_Doc/dut_fixture.md"
      - name: pytest_fixture_env_implementation
        stage:
+         - name: bundle_wrapper_design
+           desc: "引脚封装设计"
+           task:
+             - "分析{DUT}的引脚定义，确定引脚封装方式"
+             - "如果存在多个分组，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联"
+             - "如果不存在分组，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联"
+             - "确保引脚封装设计合理，便于理解和使用"
+           checker:
+             - name: bundle_wrapper_check
+               clss: "UnityChipCheckerBundleWrapper"
+               args:
+                 target_file: "{OUT}/tests/{DUT}_api.py"
+                 min_bundles: 1
+           reference_files:
+             - "Guide_Doc/dut_fixture.md"
+             - "{DUT}/__init__.py"
          - name: mock_design_and_implementation
            desc: "Mock组件设计与实现"
            task:
@@ -257,6 +273,27 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "{DUT}/__init__.py"
+     - name: test_and_evaluation_env_fixture
+       desc: "env fixture实现测试与评估"
+       task:
+         - "完成env fixture的实现后，编写简单的测试用例验证其功能"
+         - "测试内容包括：引脚封装是否正确，Mock组件是否能正常工作，常用操作方法是否可用等"
+         - "确保env fixture能满足后续API和测试用例的需求"
+         - "测试函数命名格式：test_api_{DUT}_env_<Name>"
+         - "测试函数的第一个参数为env (pytest fixture)"
+         - "测试用例写入文件{OUT}/tests/test_{DUT}_env_fixture.py"
+         - "所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_env_fixture.py')运行测试"
+       checker:
+         - name: env_fixture_test_check
+           clss: "UnityChipCheckerEnvFixtureTest"
+           args:
+             target_file: "{OUT}/tests/test_{DUT}_env_fixture.py"
+             test_dir: "{OUT}/tests"
+       output_files:
+         - "{OUT}/tests/test_{DUT}_env_fixture.py"
+       reference_files:
+         - "Guide_Doc/dut_fixture.md"
+         - "Guide_Doc/dut_test_case.md"
 
   - name: coverage_model_implementation
     desc: "功能覆盖率模型实现"

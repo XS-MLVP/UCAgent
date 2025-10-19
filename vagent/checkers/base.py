@@ -3,6 +3,7 @@
 
 import os
 from typing import Tuple
+from vagent.util.config import Config
 from vagent.util.functions import render_template, rm_workspace_prefix, fill_template
 import vagent.util.functions as fc
 from vagent.util.log import info, error, warning
@@ -21,6 +22,14 @@ class Checker:
     stage_manager = None
     dut_name = None
     _is_init = False
+
+    def update_dut_name(self, cfg):
+        if isinstance(cfg, dict):
+            dut_name = cfg.get("_temp_cfg", {}).get("DUT")
+        else:
+            assert isinstance(cfg, Config), f"cfg must be dict or Config, but got {type(cfg)}."
+            dut_name = cfg.get_value("_temp_cfg", {}).get("DUT")
+        self.dut_name = dut_name
 
     def on_init(self):
         self._is_init = True
