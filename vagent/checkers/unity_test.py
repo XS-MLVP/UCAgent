@@ -180,6 +180,48 @@ class UnityChipCheckerDutFixture(Checker):
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
+class UnityChipCheckerMockComponent(Checker):
+    def __init__(self, target_file, min_mock=1, **kw):
+        self.target_file = target_file
+        self.min_mock = min_mock
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Check the Mock component implementation for correctness."""
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"Mock component file '{self.target_file}' does not exist. " + \
+                           f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the target file: {self.target_file}. "}
+        class_list = fc.get_target_from_file(self.get_path(self.target_file), "Mock*",
+                                            ex_python_path=self.workspace,
+                                            dtype="CLASS")
+        failed_mocks = []
+        for cls in class_list:
+            if not cls.__name__.startswith("Mock"):
+                failed_mocks.append(cls)
+        if len(failed_mocks) > 0:
+            return False, {
+                "error": f"The following Mock classes do not start with 'Mock':",
+                "failed_mocks": [f"{cls.__name__}" for cls in failed_mocks]
+            }
+        if len(class_list) < self.min_mock:
+            return False, {
+                "error": f"Insufficient Mock component coverage: {len(class_list)} Mock classes found, minimum required is {self.min_mock}. " +\
+                         f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. " + \
+                         f"Review your task details and ensure that the Mock components are defined correctly in the target file.",
+            }
+        # check on_clock_edge
+        for cls in class_list:
+            if not hasattr(cls, "on_clock_edge"):
+                return False, {
+                    "error": f"The Mock class '{cls.__name__}' is missing the required method 'on_clock_edge(self, cycles)'. Please implement this method to handle clock edge events."
+                }
+            method = getattr(cls, "on_clock_edge")
+            args = fc.get_func_arg_list(method)
+            if len(args) != 2 or args[0] != "self" or args[1] != "cycles":
+                return False, {
+                    "error": f"The 'on_clock_edge' method in Mock class '{cls.__name__}' must have exactly two arguments: 'self' and 'cycles', but got ({', '.join(args)})."
+                }
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
 class UnityChipCheckerEnvFixture(Checker):
     def __init__(self, target_file, min_env=1, force_bundle=False, **kw):
         self.target_file = target_file

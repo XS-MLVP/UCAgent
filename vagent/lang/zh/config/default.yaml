@@ -217,6 +217,24 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
      - name: pytest_fixture_env_implementation
+       stage:
+         - name: mock_design_and_implementation
+           desc: "Mock组件设计与实现"
+           task:
+             - "请分析{DUT}的上下游依赖模块，并针对性的设计对应的Mock组件"
+             - "Mock组件要有合理的接口，便于env通过dut.StepRis进行驱动"
+             - "确保Mock组件能正确工作"
+             - "所有Mock组件的实现代码要写入{OUT}/tests/{DUT}_api.py中，对应Class 以Mock前缀命名，例如MockA, MockB等"
+             - "Mock组件的实现要有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
+           checker:
+             - name: mock_component_check
+               clss: "UnityChipCheckerMockComponent"
+               args:
+                 target_file: "{OUT}/tests/{DUT}_api.py"
+                 min_mock: 1
+           reference_files:
+             - "Guide_Doc/dut_mock.md"
+           skip: $(SKIP_MOCK_COMPONENT: true)
        desc: "env fixture实现"
        task:
          - "实现env fixture，包含需要的必要引脚封装"
@@ -226,6 +244,7 @@ stage:
          - "4. 如果需要，请务必在env fixture中添加必要的组件和功能，例如为{DUT}添加上下游依赖模块的Mock组件，并通过dut.StepRis进行Mock组件的驱动"
          - "5. 可以按dut功能需要，添加一些常用的操作方法,例如reset, Finish, Step等"
          - "6. 引脚封装要有意义，便于理解和使用"
+         - "7. 如果定义了Mock组件，请确保在env fixture中正确实例化和使用"
        checker:
          - name: env_fixture_check
            clss: "UnityChipCheckerEnvFixture"
