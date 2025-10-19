@@ -63,8 +63,9 @@ mission:
 
       **注意：**
       - 无论是组合电路还是时序电路，都必须使用Step接口驱动电路
-      - 请用工具Check和Complete判断是否完成所有任务
+      - 请用工具Check和Complete判断是否完成当前任务
       - 需要根据Check和Complete的结果调整你的工作，目标是保证所有Check和Complete都通过
+      - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
 
       现在调用`CurrentTips`，开始你的验证工作！
 
@@ -131,8 +132,8 @@ stage:
     output_files:
       - "{OUT}/{DUT}_functions_and_checks.md"
     stage:
-      - name: functional_grouping
-        desc: "功能分组与层次划分{COUNT_FG}"
+      - name: dut_function_grouping
+        desc: "DUT功能分组与层次划分{COUNT_FG}"
         task:
           - "基于{DUT}功能，将相关功能归类成组"
           - "为每组定义<FG-组名>标签，组名要有意义"
@@ -173,8 +174,8 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
-  - name: testbench_infrastructure_design
-    desc: "测试平台基础架构设计"
+  - name: dut_wrapper_implementation
+    desc: "DUT封装"
     task:
       - "目标：创建基础接口，为后续覆盖分组创建，测试用例开发提供支撑"
       - "第1步：分析{DUT}的底层接口和工作方式"
@@ -355,7 +356,7 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "{DUT}/__init__.py"
-     - name: test_and_evaluation_env_fixture
+     - name: evaluate_env_fixture
        desc: "env fixture实现测试与评估"
        task:
          - "完成env fixture的实现后，编写简单的测试用例验证其功能"
@@ -402,7 +403,7 @@ stage:
           target_file: "{OUT}/tests/{DUT}_api.py"
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
-  - name: basic_api_function_test
+  - name: basic_api_functional_test
     desc: "基础API功能正确性测试"
     task:
       - "目标: 验证已实现的API函数功能是否正确，确保API接口质量"
@@ -454,8 +455,8 @@ stage:
   #   - Ensure the test environment is stable and reliable
   #   - This stage can be skipped if the dut is env-self-contained
 
-  - name: test_framework_scaffolding
-    desc: "测试框架脚手架构建[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
+  - name: create_test_case_templates
+    desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
     task:
       - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
@@ -484,8 +485,8 @@ stage:
     reference_files:
       - "Guide_Doc/dut_test_template.md"
 
-  - name: comprehensive_verification_execution
-    desc: "全面验证执行与缺陷分析"
+  - name: comprehensive_verification_and_bug_analysis
+    desc: "全面验证与缺陷分析"
     task:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
@@ -512,7 +513,7 @@ stage:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
     stage:
-      - name: test_case_implementation
+      - name: test_case_implementation_in_batch
         desc: "分批测试用例实现与对应bug分析[{COMPLETED_CASES}/{TOTAL_CASES}]"
         task:
           - "第1步：理解芯片完整功能和预期行为"

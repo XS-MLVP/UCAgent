@@ -413,6 +413,8 @@ class StageManager(object):
             "check_info": ck_info,
             "check_pass": ck_pass,
         })
+        if not ck_pass:
+            ret_data["action"] = "Please fix the issues reported in the check_info according to the suggestions, and then use the `Check` tool again to re-validate your work."
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
@@ -491,11 +493,14 @@ class StageManager(object):
                 self.stages[self.stage_index].on_init()
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
-        return {
+        ret = OrderedDict({
             "complete": ck_pass,
             "message": message,
             "last_check_result": self.last_check_info,
-        }
+        })
+        if not ck_pass:
+            ret["action"] = "Please fix the issues reported in the last_check_result according to the suggestions, and then use the `Complete` tool again to complete this stage."
+        return ret
 
     def exit(self):
         """

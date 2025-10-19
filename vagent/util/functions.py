@@ -1142,7 +1142,10 @@ def yam_str(data: dict) -> str:
             return dumper.represent_scalar('tag:yaml.org,2002:str', data)
     def process_strings(obj):
         if isinstance(obj, dict):
-            return {k: process_strings(v) for k, v in obj.items()}
+            ret = OrderedDict()
+            for k,v in obj.items():
+                ret[k] = process_strings(v)
+            return ret
         elif isinstance(obj, list):
             return [process_strings(item) for item in obj]
         elif isinstance(obj, str) and '\n' in obj:

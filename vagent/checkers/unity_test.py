@@ -234,7 +234,7 @@ class UnityChipCheckerBundleWrapper(Checker):
         """Check the Bundle wrapper implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." + \
-                           f"You need to define Bundle wrappers like: 'class Name(Bundle):' in the target file: {self.target_file}. "}
+                           f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. "}
         bundle_list = fc.get_target_from_file(self.get_path(self.target_file), "*",
                                               ex_python_path=self.workspace,
                                               dtype="CLASS")
@@ -245,7 +245,7 @@ class UnityChipCheckerBundleWrapper(Checker):
         if len(bundle_list) < self.min_bundles:
             return False, {
                 "error": f"Insufficient Bundle wrapper coverage: {len(bundle_list)} Bundle classes found, minimum required is {self.min_bundles}. " +\
-                         f"You need to define Bundle wrappers like: 'class Name(Bundle):'. " + \
+                         f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. " + \
                          f"Please refer to the documentation for more details."
             }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
@@ -275,7 +275,7 @@ class UnityChipCheckerEnvFixture(Checker):
                     return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
         if len(env_func_list) < self.min_env:
             return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
-                                    f"You have defined {len(env_func_list)} env fixtures: {[f.__name__ for f in env_func_list]}."}
+                                    f"You have defined {len(env_func_list)} env fixtures: {', '.join([f.__name__ for f in env_func_list])} in file '{self.target_file}'."}
         return True, {"message": f"{self.__class__.__name__} Env fixture check for {self.target_file} passed."}
 
 
@@ -316,7 +316,7 @@ class UnityChipCheckerEnvFixtureTest(Checker):
                 return False, {"error": f"The '{env_test_func.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
         if len(env_test_func_list) < self.min_env_tests:
             return False, {"error": f"Insufficient env fixture test coverage: {len(env_test_func_list)} env test functions found, minimum required is {self.min_env_tests}. "+\
-                                    f"You have defined {len(env_test_func_list)} env test functions: {[f.__name__ for f in env_test_func_list]}."}
+                                    f"You have defined {len(env_test_func_list)} env test functions: {', '.join([f.__name__ for f in env_test_func_list])} in file '{self.target_file}'."}
         # run test
         self.run_test.set_pre_call_back(
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
@@ -368,14 +368,14 @@ class UnityChipCheckerDutApi(Checker):
                 failed_apis.append(func)
         if len(failed_apis) > 0:
             return False, {
-                "error": f"The following API functions have invalid or missing arguments. The first arg must be 'dut' or 'env*'",
+                "error": f"The following API functions in file '{self.target_file}' have invalid or missing arguments. The first arg must be 'dut' or 'env*'",
                 "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
             }
         if len(func_list) < self.min_apis:
             return False, {
                 "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}. " + \
                          f"You need to define APIs like: 'def {self.api_prefix}<API_NAME>(env, ...)'. " + \
-                         f"Review your task details and ensure that the API functions are defined correctly in the target file.",
+                         f"Review your task details and ensure that the API functions are defined correctly in the target file '{self.target_file}'.",
             }
         for func in func_list:
             if not func.__doc__ or len(func.__doc__.strip()) == 0:
