@@ -846,7 +846,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                                          ex_python_path=self.workspace,
                                          dtype="FUNC")
         if len(func_list) == 0:
-            return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'."}
+            return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'. "+\
+                                     "Note: the api name is case-sensitive."}
         test_cases = report.get("tests", {}).get("test_cases", {})
         test_keys = test_cases.keys()
         test_functions = []
