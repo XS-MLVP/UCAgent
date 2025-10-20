@@ -14,6 +14,7 @@ import ast
 from pathlib import Path
 import yaml
 from collections import OrderedDict
+import traceback
 
 
 def fmt_time_deta(sec: Union[int, float, str, None], abbr: bool = False) -> str:
@@ -1462,6 +1463,73 @@ def description_mark_function_doc(func_list=[], workspace=None):
             emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
         return emsg
     return simple_msg
+
+
+def check_source_code_in_tc(workspace, report, checker, target_tc_prefix="", ignore_tc_preifx=""):
+    """Check source code in test cases"""
+    test_cases = report.get("tests", {}).get("test_cases", {})
+    if target_tc_prefix:
+        test_cases = {k : v for k, v in test_cases.items() if str(k.split("::")[-1]).startswith(target_tc_prefix)}
+    if ignore_tc_preifx:
+        test_cases = {k : v for k, v in test_cases.items() if not str(k.split("::")[-1]).startswith(ignore_tc_preifx)}
+    if not test_cases:
+        warning(f"no test cases find in test report")
+        warning("target_tc_prefix: " + target_tc_prefix)
+        warning("ignore_tc_preifx: " + ignore_tc_preifx)
+        warning("raw test cases: " + ", ".join(report.get("tests", {}).get("test_cases", {}).keys()))
+        return False, {"error": "no test cases find in test report"}
+    # file.py:line1-line2::[class::]test_case_name
+    # block fmt: {'file1.py': {"k1": [line_from, line_to], 'k2': [line_from, line_to]}, ...}
+    file_blocks = {}
+    for k in test_cases.keys():
+        p = k.split("::")[0]
+        try:
+            path, lins = p.split(":")
+            if path not in file_blocks:
+                file_blocks[path] = {}
+            line_s, line_t = lins.split("-")
+            file_blocks[path][k] = [int(line_s), int(line_t)]
+        except Exception as e:
+            raise ValueError(f"Invalid test case format '{k}'. Expected format: 'file.py:line1-line2::[class::]test_case_name'. Error: {e}")
+    ret = {}
+    for _, b in check_file_block(file_blocks, workspace, checker).items():
+        ret.update(b)
+    return True, ret
+
+
+def check_has_assert_in_tc(workspace, report, target_tc_prefix="", ignore_tc_preifx=""):
+    """Check tc has assert or not"""
+    def has_assert(text_str):
+        for key in ["assert", "pytest.raises"]:
+            if len([l for l in text_str.splitlines() \
+                           if key in l.strip()]) > 0:
+                return True
+        return False
+    try:
+        failed_tc = []
+        ret, msg = check_source_code_in_tc(workspace,
+                                           report,
+                                           has_assert,
+                                           target_tc_prefix,
+                                           ignore_tc_preifx)
+        if not ret:
+            return ret, msg
+        for k, v in msg.items():
+            if not v:
+                failed_tc.append(k)
+        if not failed_tc:
+            return True, "All test cases have assert statements."
+        failed_str = list_str_abbr(failed_tc)
+        return False, {
+            "error": f"The following {len(failed_tc)} test cases do not contain assert statements: {failed_str}. " + \
+                      "Note: A test case MUST contain at least one assert statement to verify the DUT behavior. "+\
+                      "Its format is 'assert output == expected_output, \"Error message\". or 'with pytest.raises(ExpectedException): ...'. "+\
+                      "Donot use 'self.assertEqual' or other unittest assert methods, as they are not supported in this verification framework.",
+            }
+    except Exception as e:
+        warning(f"check_has_assert_in_tc error: {e}")
+        warning(traceback.format_exc())
+        return False, {"error": str(e)}
 
 
 def replace_bash_var(in_str, data: dict):

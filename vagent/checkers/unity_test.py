@@ -342,6 +342,9 @@ class UnityChipCheckerEnvFixtureTest(Checker):
                 "STD_OUT": str_out,
                 "STD_ERR": str_err,
             }
+        ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
+        if not ret:
+            return ret, msg
         return True, {"message": f"{self.__class__.__name__} Env fixture test check for {self.target_file} passed."}
 
 
@@ -884,6 +887,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
         if not ret:
             return ret, get_emsg(msg)
+        ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
+        if not ret:
+            return ret, get_emsg(msg["error"])
         return True, {"success": f"{self.__class__.__name__} check for {self.target_file_tests} passed."}
 
 
@@ -1006,6 +1012,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         if not ret:
             error_msgs["error"] = msg
             return ret, error_msgs
+        ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
+        if not ret:
+            error_msgs["error"] = msg["error"]
+            return ret, error_msgs
         # update total test cases status
         for i, (tc, _) in enumerate(self.total_test_cases):
             if tc in return_tests:
@@ -1101,6 +1111,11 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
                 else:
                     warning(f"Cannot append zero rate message to error of type {type(info_runtest['error'])}.")
             return ret, info_runtest
+
+        ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
+        if not ret:
+            info_runtest["error"] = msg
+            return False, info_runtest
 
         # Success: All validations passed
         success_msg = ["Test case validation successful!",

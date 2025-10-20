@@ -149,6 +149,19 @@ def test_description_mark_function_doc():
     ))
 
 
+def test_check_has_assert_in_tc():
+    """Test the check_has_assert_in_tc function."""
+    has_assert = fc.check_has_assert_in_tc(current_dir,
+        {"tests":{"test_cases": {
+            "test_function.py:152-162::test_X":False,
+            "test_function.py:162-172::test_sample_function":True
+            }
+            }
+        })
+    assert True
+    print("Function 'test_sample_function' has assert:", has_assert)
+    print("------------------------")
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -159,4 +172,5 @@ if __name__ == "__main__":
     #test_parse_un_coverage_json()
     #test_replace_bash_var()
     #test_check_file_block()
-    test_description_mark_function_doc()
+    #test_description_mark_function_doc()
+    test_check_has_assert_in_tc()
