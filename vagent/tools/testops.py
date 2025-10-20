@@ -82,6 +82,8 @@ class RunPyTest(UCTool):
                     python_path_str += ":" + os.path.abspath(p)
                     debug(f"Add python path: {p}")
         env["PYTHONPATH"] = python_path_str + (":" + pythonpath if pythonpath else "")
+        if "XSPCOMM_LOG_LEVEL" not in env:
+            env["XSPCOMM_LOG_LEVEL"] = "4"  # 1-DEBUG, 2-INFO, 3-WARNING, 4-ERROR, 5-FATAL
         # Determine the correct working directory and test target
         abs_test_path = os.path.abspath(test_dir_or_file)
         if os.path.isdir(abs_test_path):
