@@ -189,10 +189,11 @@ stage:
        desc: "DUT创建函数实现"
        task:
          - "在文件{OUT}/tests/{DUT}_api.py实现create_dut(request)函数，仅完成DUT实例的创建"
-         - "在该函数中根据芯片类型配置时钟：时序电路用InitClock，组合电路不用"
-         - "根据验证需要，确定是否需要在该函数中开启波形导出、代码行覆盖率等"
-         - "确保创建函数能正常工作"
-         - "确保在create_dut(request)函数中，通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径，并传递给 dut.SetCoverage"
+         - "不要对DUT的任何引脚/接口进行赋值操作"
+         - "如果芯片有时钟引脚，必须通过 `InitClock` 方法配置时钟，进行绑定"
+         - "通过get_coverage_data_path(request, new_path=True)获取代码行覆盖率文件路径"
+         - "将覆盖率文件路径传递给dut.SetCoverage方法"
+         - "确保create_dut函数能够正常创建DUT实例并返回"
        checker:
          - name: dut_creation_check
            clss: "UnityChipCheckerDutCreation"
