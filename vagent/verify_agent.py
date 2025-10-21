@@ -129,7 +129,7 @@ class VerifyAgent:
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.todo_panel = ToDoPanel()
-        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, force_stage_index, force_todo, self.todo_panel,
+        self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, saved_info, force_stage_index, force_todo, self.todo_panel,
                                           stage_skip_list=stage_skip_list,
                                           stage_unskip_list=stage_unskip_list,
                                           reference_files=reference_files)

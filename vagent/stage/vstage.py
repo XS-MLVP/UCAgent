@@ -26,6 +26,7 @@ def convert_task_form_cfg(data):
 
 
 class VerifyStage(object):
+    from typing import Self
 
     def __init__(self,
                  cfg,
@@ -76,6 +77,7 @@ class VerifyStage(object):
         self.parent = None
         self.time_start = None
         self.time_end = None
+        self.time_prev_cost = 0.0
 
     def add_reference_files(self, files):
         for f in find_files_by_pattern(self.workspace, files):
@@ -95,10 +97,10 @@ class VerifyStage(object):
 
     def get_time_cost(self):
         if self.time_start is None:
-            return 0
+            return self.time_prev_cost
         if self.time_end is None:
-            return time.time() - self.time_start
-        return self.time_end - self.time_start
+            return time.time() - self.time_start + self.time_prev_cost
+        return self.time_end - self.time_start + self.time_prev_cost
 
     def get_time_cost_str(self):
         cost = self.get_time_cost()
@@ -214,10 +216,16 @@ class VerifyStage(object):
     def set_reached(self, reached: bool):
         self._is_reached = reached
 
+    def set_fail_count(self, prev_fail_count: int):
+        self.fail_count = prev_fail_count
+
+    def set_time_prev_cost(self, prev_time_cost: float):
+        self.time_prev_cost = prev_time_cost
+
     def clear(self):
         self.check_info = [None] * self.check_size
 
-    def get_substages(self):
+    def get_substages(self)-> list[Self]:
         ret = []
         for s in self.substages:
             ret.extend(s.get_substages())
