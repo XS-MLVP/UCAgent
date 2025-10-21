@@ -1,30 +1,31 @@
 # -*- coding: utf-8 -*-
 """Verification manager for UCAgent stage execution."""
 
-import inspect
-from vagent.util.functions import make_llm_tool_ret
-from vagent.util.log import info, warning
-from collections import OrderedDict
-import vagent.util.functions as fc
-import traceback
 import copy
 import time
+import traceback
+from collections import OrderedDict
+from typing import Optional, Callable
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
-from vagent.tools.uctool import UCTool, EmptyArgs
 from langchain_core.tools.base import ArgsSchema
-from typing import Optional, Callable
 from pydantic import BaseModel, Field
-from vagent.stage.vstage import get_root_stage
+
+import vagent.util.functions as fc
 from vagent.checkers import UnityChipCheckerTestFree
+from vagent.stage.vstage import get_root_stage
+from vagent.tools.uctool import UCTool, EmptyArgs
+from vagent.util.functions import make_llm_tool_ret
+from vagent.util.log import info, warning
 
 
 class ManagerTool(UCTool):
     # custom vars
     function: Callable = None
     args_schema: Optional[ArgsSchema] = EmptyArgs
+
     def _run(self, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function()
 
@@ -82,6 +83,7 @@ class ToolStdCheck(ManagerTool):
         "You can specify the number of lines to read, -1 means read all lines. \n"
     )
     args_schema: Optional[ArgsSchema] = ArgStdCheck
+
     def _run(self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function(lines)
 
@@ -120,14 +122,15 @@ class ToolRunTestCases(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
-    def _run(self, target="", timeout=0, return_line_coverage=False, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, target="", timeout=0, return_line_coverage=False,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
             return self.function(target, timeout, return_line_coverage)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Test execution failed: {str(e)}"
             info(error_msg)
-            return  error_msg
+            return error_msg
 
 
 class ArgTimeout(BaseModel):
@@ -145,6 +148,7 @@ class ToolDoCheck(ManagerTool):
         "The tool provides detailed feedback. Call this tool frequently to ensure continuous quality validation."
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
+
     def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
@@ -178,6 +182,7 @@ class ToolDoComplete(ManagerTool):
         "Returns the result of the completion."
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
+
     def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
             return self.function(timeout)
@@ -185,7 +190,7 @@ class ToolDoComplete(ManagerTool):
             traceback.print_exc()
             error_msg = f"Completion failed: {str(e)}"
             info(error_msg)
-            return  error_msg
+            return error_msg
 
 
 class ArgToolGoToStage(BaseModel):
@@ -206,7 +211,7 @@ class ToolGoToStage(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgToolGoToStage
 
-    def _run(self, index:int=-1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, index: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         return self.function(index)
 
 
@@ -221,14 +226,19 @@ class ToolDoExit(ManagerTool):
 
 
 class StageManager(object):
-    def __init__(self, workspace, cfg, agent, tool_read_text, force_stage_index=0, force_todo=False, todo_panel=None,
-                 stage_skip_list  = None,
-                 stage_unskip_list = None,
-                 reference_files   = None,
-                 ):
+    def __init__(
+            self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
+            force_stage_index=0,
+            force_todo=False,
+            todo_panel=None,
+            stage_skip_list=None,
+            stage_unskip_list=None,
+            reference_files=None,
+    ):
         """
         Initialize the StageManager with an empty list of stages.
         """
+        from vagent.stage import VerifyStage
         self.cfg = cfg
         self.data = {}
         self.workspace = workspace
@@ -256,6 +266,13 @@ class StageManager(object):
             if self.stages[i].is_skipped():
                 continue
             self.stages[i].set_reached(True)
+        stages_info = ucagent_info.get("stages_info", {})
+
+        for stage_idx_str, stage_info in stages_info.items():
+            idx = int(stage_idx_str)
+            stage: VerifyStage = self.stages[idx]
+            stage.set_fail_count(stage_info.get("fail_count", 0))
+            stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
@@ -318,7 +335,7 @@ class StageManager(object):
             return "Your mission is completed. No more stages available. Or you can use `GoToStage` tool to go to a specific stage."
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
-        tips["mission"]       = self.mission.name
+        tips["mission"] = self.mission.name
         tips["current_stage"] = OrderedDict({
             "index": self.stage_index,
             **cstage.detail(),
@@ -354,7 +371,7 @@ class StageManager(object):
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
             ret["stage_list"].append({
-                "index": i, 
+                "index": i,
                 "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
@@ -429,6 +446,12 @@ class StageManager(object):
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
         })
+        info["stages_info"] = {}
+        for idx in range(self.stage_index):
+            stage = self.stages[idx]
+            stage_info = stage.detail()
+            stage_info["time_cost"] = stage.get_time_cost()
+            info["stages_info"][idx] = stage_info
         fc.save_ucagent_info(self.workspace, info)
 
     def next_stage(self):
@@ -537,7 +560,7 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)
 
-    def tool_check(self,  timeout):
+    def tool_check(self, timeout):
         ret = make_llm_tool_ret(self.check(timeout))
         info("ToolCheck:\n" + ret)
         return self.attach_todo_summary(ret)
