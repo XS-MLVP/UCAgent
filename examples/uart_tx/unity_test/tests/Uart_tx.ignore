@@ -1,0 +1,13 @@
+
+# Uart_tx 覆盖率 ignore文件
+
+# 默认忽略 picker 生成的接口文件，位于`Uart_tx/`目录中，其他源文件默认位于：`*/Uart_tx_RTL/`
+*/Uart_tx/Uart_tx_top.sv
+*/Uart_tx/Uart_tx_top.v
+
+# 请此处添加其他需要忽略的文件或者行 （目标文件需要在workspace中）
+# 例如忽略整个文件:
+# */Uart_tx/Uart_tx.v:82-99,126-200
+# */Uart_tx_RTL/example1.v
+# 例如忽略文件中指定的代码段，如10到20行，30到40行(多个代码段之间用逗号隔离):
+# */Uart_tx_RTL/example2.v:10-20,30-40
