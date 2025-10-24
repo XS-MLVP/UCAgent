@@ -168,6 +168,68 @@ class VerifyStage(object):
             ret.append(f"{c.__class__.__name__}:\n{c.check_std(lines)}")
         return "\n".join(ret)
 
+    def do_hmcheck_pass(self, msg=""):
+        """
+        Call the hmcheck_pass method of all HumanChecker in this stage.
+        """
+        ret = []
+        for c in self.checker:
+            if c.is_human_check_needed():
+                ret.append(f"Set '{c.__class__.__name__}' Pass: '{c.human_set_pass_msg(msg)}'")
+            else:
+                ret.append(f"'{c.__class__.__name__}' does not need human check in stage '{self.name}'.")
+        return "\n".join(ret)
+
+    def do_hmcheck_fail(self, msg=""):
+        """
+        Call the hmcheck_fail method of all HumanChecker in this stage.
+        """
+        ret = []
+        for c in self.checker:
+            if c.is_human_check_needed():
+                ret.append(f"Set '{c.__class__.__name__}' Fail: '{c.human_set_fail_msg(msg)}'")
+            else:
+                ret.append(f"'{c.__class__.__name__}' does not need human check in stage '{self.name}'.")
+        return "\n".join(ret)
+
+    def do_get_hmcheck_result(self):
+        """
+        Get the human check result of all HumanChecker in this stage.
+        """
+        ret = []
+        for c in self.checker:
+            if c.is_human_check_needed():
+                p, m = c.get_last_human_check_result()
+                ret.append(f"'{c.__class__.__name__}' Pass: {p}, message: '{m}'.")
+            else:
+                ret.append(f"'{c.__class__.__name__}' does not need human check.")
+        return "\n".join(ret)
+
+    def do_set_hmcheck_needed(self, need: bool):
+        """
+        Set whether human check is needed for all HumanChecker in this stage.
+        """
+        ret = []
+        for c in self.checker:
+            if need is None:
+                ret.append(f"'{c.__class__.__name__}' human check needed is '{c.is_human_check_needed()}'.")
+                continue
+            if c.is_human_check_needed() != need:
+                c.set_human_check_needed(need)
+                ret.append(f"Set '{c.__class__.__name__}' human check needed to '{need}'.")
+            else:
+                ret.append(f"'{c.__class__.__name__}' human check needed is already '{need}'.")
+        return "\n".join(ret)
+
+    def is_hmcheck_needed(self) -> bool:
+        """
+        Check whether any HumanChecker in this stage needs human check.
+        """
+        for c in self.checker:
+            if c.is_human_check_needed():
+                return True
+        return False
+
     def do_check(self, *a, **kwargs):
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
@@ -177,25 +239,6 @@ class VerifyStage(object):
                     emsg["files_need_read"].append(k + f" (Not readed, need ReadTextFile('{k}'))")
             self.fail_count += 1
             return False, emsg
-        self.check_pass = True
-        for i, c in enumerate(self.checker):
-            ck_pass, ck_msg = c.check(*a, **kwargs)
-            if self.check_info[i] is None:
-                self.check_info[i] = {
-                    "name": c.__class__.__name__,
-                    "count_pass": 0,
-                    "count_fail": 0,
-                    "count_check": 0,
-                    "last_msg": "",
-                }
-            count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
-            self.check_info[i]["count_pass"] += count_pass
-            self.check_info[i]["count_fail"] += count_fail
-            self.check_info[i]["last_msg"] = ck_msg
-            self.check_info[i]["count_check"] += 1
-            if not ck_pass:
-                self.check_pass = False
-                self.fail_count += 1
         success_out_file = True
         success_out_msg = []
         for k, v in {p: len(find_files_by_pattern(self.workspace, p)) for p in self.output_files}.items():
@@ -206,6 +249,26 @@ class VerifyStage(object):
             self.fail_count += 1
             return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
                                        "failed_patterns": success_out_msg})
+        self.check_pass = True
+        for i, c in enumerate(self.checker):
+            ck_pass, ck_msg = c.check(*a, **kwargs)
+            if self.check_info[i] is None:
+                self.check_info[i] = {
+                    "name": c.__class__.__name__,
+                    "count_pass": 0,
+                    "count_fail": 0,
+                    "count_check": 0,
+                    "last_msg": "",
+                    "needs_human_check": c.is_human_check_needed(),
+                }
+            count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
+            self.check_info[i]["count_pass"] += count_pass
+            self.check_info[i]["count_fail"] += count_fail
+            self.check_info[i]["last_msg"] = ck_msg
+            self.check_info[i]["count_check"] += 1
+            if not ck_pass:
+                self.check_pass = False
+                self.fail_count += 1
         if self.check_pass:
             self.succ_count += 1
         return self.check_pass, self.check_info
@@ -255,6 +318,7 @@ class VerifyStage(object):
                 "check_pass": self.check_pass,
                 "fail_count": self.fail_count,
                 "is_skipped": self.is_skipped(),
+                "needs_human_check": self.is_hmcheck_needed(),
         })
 
     def description(self):

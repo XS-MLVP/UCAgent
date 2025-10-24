@@ -377,6 +377,7 @@ class StageManager(object):
                 "fail_count": stage.fail_count,
                 "is_skipped": stage.is_skipped(),
                 "time_cost": stage.get_time_cost_str(),
+                "needs_human_check": stage.is_hmcheck_needed(),
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
@@ -387,6 +388,14 @@ class StageManager(object):
             ret["current_task"] = cstage.task_info()
         ret["last_check_result"] = self.last_check_info
         return ret
+
+    def get_current_stage(self):
+        return self.get_stage(self.stage_index)
+
+    def get_stage(self, index):
+        if 0 <= index < len(self.stages):
+            return self.stages[index]
+        return None
 
     def go_to_stage(self, index):
         """

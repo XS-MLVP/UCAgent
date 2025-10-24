@@ -558,7 +558,7 @@ class BaseUnityChipCheckerTestCase(Checker):
     """
 
     def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="",
-                 data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, **extra_kwargs):
+                 data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, need_human_check=False, **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -571,6 +571,7 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.ret_std_out = ret_std_out
         self.batch_size = batch_size
         self.run_test = RunUnityChipTest()
+        self.set_human_check_needed(need_human_check)
 
     def set_workspace(self, workspace: str):
         """
@@ -818,7 +819,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
 
     def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=15, **kw):
-        super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout)
+        super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout, **kw)
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests

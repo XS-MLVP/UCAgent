@@ -301,6 +301,31 @@ stage:
       - "6. 实现env fixture，包含需要的必要引脚封装和Mock组件"
       - "7. 编写简单的测试用例验证env fixture功能"
     stage:
+     - name: human_check_env_specification
+       desc: "人工检查env规格说明"
+       task:
+         - "根据上一级的任务描述，编写env规格说明文档和设计思路"
+         - "1. 根据验证需求，详细描述env需要提供的功能和接口"
+         - "2. 对env中需要的各个Mock组件进行说明，包括其功能和接口"
+         - "3. 对边界条件进行说明，确保env能正确处理这些情况"
+         - "4. 生成最后的总env规格说明文档，写入文件{OUT}/{DUT}_env_specification.md，请使用{DOC_GEN_LANG}编写"
+         - "5. 针对每一个组件，需要根据文档模板Guide_Doc/env_spec_template.md进行针对性编写，文件命名格式为{OUT}/{DUT}_env_spec_<component_name>.md"
+         - "6. 告诉人类专家你编写的env规格说明文档摘要，让他们了解你的设计思路，请使用{DOC_GEN_LANG}编写"
+         - "注意："
+         - " - 后续env fixture的实现必须严格按照该规格说明进行"
+         - " - 如果后续发现规格说明不完整或者有误，需要及时修正"
+         - " - 组件的spec文档需要和总规格说明文档相互关联，确保一致性"
+       checker:
+         - name: human_check_env_specification_check
+           clss: "HumanChecker"
+       reference_files:
+         - "Guide_Doc/dut_fixture.md"
+         - "Guide_Doc/dut_mock.md"
+         - "Guide_Doc/env_spec_template.md"
+       output_files:
+         - "{OUT}/{DUT}_env_specification.md"
+         - "{OUT}/{DUT}_env_spec_*.md"
+       skip: $(SKIP_ENV_HUMAN_CHECK: true) # 复杂DUT时建议不要跳过该人工检查阶段
      - name: bundle_wrapper_design
        desc: "引脚封装设计"
        task:
@@ -378,6 +403,20 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "Guide_Doc/dut_test_case.md"
+     - name: human_check_env_implementation
+       desc: "人工检查env实现质量"
+       task:
+         - "请对已实现的env fixture和针对性测试进行总结"
+         - "1. 检查env fixture是否符合规格说明文档{OUT}/{DUT}_env_specification.md的要求"
+         - "2. 检查env fixture的代码质量，确保代码清晰、易读、有注释"
+         - "3. 总结env fixture的实现思路和测试情况，写入文件{OUT}/{DUT}_env_implementation_review.md，请使用{DOC_GEN_LANG}编写"
+         - "4. 告诉人类专家你对env fixture实现的总结和评价，让他们了解你的工作判断env fixture的质量，请使用{DOC_GEN_LANG}编写"
+       checker:
+          - name: human_check_env_implementation_check
+            clss: "HumanChecker"
+       output_files:
+         - "{OUT}/{DUT}_env_implementation_review.md"
+       skip: $(SKIP_ENV_HUMAN_CHECK: true)  # 验证复杂DUT时建议不要跳过该人工检查阶段
 
   - name: basic_api_implementation
     desc: "基础API实现"
@@ -443,6 +482,7 @@ stage:
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -483,6 +523,7 @@ stage:
           ignore_ck_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
 
@@ -508,6 +549,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
         extra_args:
           max_try: -1
     reference_files:
@@ -550,6 +592,7 @@ stage:
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
+            need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: line_coverage_analysis_and_improvement
     desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"
@@ -575,6 +618,8 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           min_line_coverage: $(MIN_LINE_COV_RATE: 0.9) # 根据需要调整覆盖率要求，例如0.7表示70%，建议初始要求不要太高，完成所有功能测试后再提升该值大于95%
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+
     reference_files:
           - "Guide_Doc/dut_line_coverage.md"
     skip: true # default skip this stage, can be enabled if needed
@@ -603,3 +648,4 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查

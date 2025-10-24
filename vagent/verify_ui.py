@@ -172,6 +172,7 @@ class VerifyUI:
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
+            needs_human_check = stage.get("needs_human_check", False)
             if time_cost:
                 time_cost = f", {time_cost}"
             color = None
@@ -185,6 +186,8 @@ class VerifyUI:
                 task_title += " (skipped)"
                 fail_count_msg = ""
             text = f"{i:2d} {task_title}{fail_count_msg}"
+            if needs_human_check:
+                text += "*"
             if color:
                 utxt = urwid.Text((color, text), align='left')
             else:

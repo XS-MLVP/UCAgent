@@ -977,3 +977,127 @@ class VerifyPDB(Pdb):
         set_message_cfg(cfg)
         echo_g(f"Message configuration updated: {key} = {value}")
         message(yam_str(get_message_cfg()))
+
+
+    def do_hmcheck_cstat(self, arg):
+        """
+        Show the hmcheck status of current stage.
+        """
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        if stage.is_hmcheck_needed():
+            message(stage.do_get_hmcheck_result())
+        else:
+            echo_y("HMCheck is not needed for the current stage.")
+
+    def do_hmcheck_pass(self, arg):
+        """
+        Call the hmcheck_pass method of the agent in current stage.
+        """
+        arg = arg.strip()
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        try:
+            message(stage.do_hmcheck_pass(arg))
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling hmcheck_pass: {e}")
+
+    def do_hmcheck_fail(self, arg):
+        """
+        Call the hmcheck_fail method of the agent in current stage.
+        """
+        arg = arg.strip()
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        try:
+            message(stage.do_hmcheck_fail(arg))
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling hmcheck_fail: {e}")
+
+    def do_hmcheck_set(self, arg):
+        """
+        Set or show the hmcheck status of the target stage.
+        Usage: hmcheck_set stage_index [true|false]
+        """
+        arg = arg.strip()
+        parts = arg.split()
+        if len(parts) == 0:
+            echo_y("Usage: hmcheck_set stage_index [true|false]")
+            return
+        if str(parts[0]).lower() == "all":
+            value = None
+            if len(parts) > 1:
+                value = parts[1].lower()
+                if value not in ["true", "false"]:
+                    echo_r("Invalid value for all stages. Use 'true' or 'false'.")
+                    return
+                value = value == "true"
+            stages = self.agent.stage_manager.stages
+            for i, stage in enumerate(stages):
+                if stage.is_skipped():
+                    echo_y(f"[{i}] {stage.title()}: Stage is skipped, ignore.")
+                    continue
+                try:
+                    stage.do_set_hmcheck_needed(value)
+                    echo_g(f"[{i}] {stage.title()}: HMCheck needed set to {value}.")
+                except Exception as e:
+                    echo_r(traceback.format_exc())
+                    echo_r(f"Error resetting hmcheck_needed for stage [{i}] {stage.title()}: {e}")
+            return
+        try:
+            stage_index = int(parts[0])
+            if len(parts) > 1:
+                hmcheck_needed = parts[1].lower() == "true"
+            else:
+                hmcheck_needed = None
+            stage = self.agent.stage_manager.get_stage(stage_index)
+            if stage is None:
+                echo_r(f"No stage found at index {stage_index}.")
+                return
+            message(stage.do_set_hmcheck_needed(hmcheck_needed))
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling hmcheck_set: {e}")
+
+    def complete_hmcheck_set(self, text, line, begidx, endidx):
+        """
+        Auto-complete the hmcheck_set command.
+        """
+        parts = line.strip().split()
+        if (len(parts) == 2 and not line.endswith(" ")) or (len(parts) == 1 and line.endswith(" ")):
+            # Complete stage index
+            stages = self.agent.stage_manager.stages
+            all_index = [str(i) for i in range(len(stages))] + ["all"]
+            if not text:
+                return all_index
+            return [str(i) for i in all_index if str(i).startswith(text.strip())]
+        elif (len(parts) == 3 and not line.endswith(" ")) or (len(parts) == 2 and line.endswith(" ")):
+            # Complete true/false
+            options = ["true", "false"]
+            if not text:
+                return options
+            return [option for option in options if option.startswith(text.strip().lower())]
+        return []
+
+    def do_hmcheck_list(self, arg):
+        """
+        List all stages which need HMCheck.
+        """
+        stages = self.agent.stage_manager.stages
+        echo_g(f"Total stages: {len(stages)}")
+        for i, stage in enumerate(stages):
+            if not stage.is_hmcheck_needed():
+                continue
+            if stage.is_skipped():
+                hmcheck_status = "Skipped"
+            else:
+                hmcheck_status = "Needed"
+            echo(f"[{i}] {stage.title()}: HMCheck {hmcheck_status}")
