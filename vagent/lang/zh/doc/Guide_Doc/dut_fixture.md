@@ -609,7 +609,7 @@ def dut(request):
 使用 `StepRis` 驱动内存模型、总线模型等 Mock 组件：
 
 ```python
-class MemoryMock:
+class MockMemory:
     def __init__(self):
         self.data = {}
         self.pending_writes = []
@@ -625,7 +625,7 @@ class MemoryMock:
 class CacheTestEnv:
     def __init__(self, dut):
         self.dut = dut
-        self.memory = MemoryMock()
+        self.memory = MockMemory()
         
         # 注册内存模型的时钟回调
         self.dut.StepRis(self.memory.on_clock_edge)

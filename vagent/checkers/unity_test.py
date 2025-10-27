@@ -191,16 +191,16 @@ class UnityChipCheckerMockComponent(Checker):
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the Mock component implementation for correctness."""
         class_count = 0
-        mock_file_list = fc.find_files_by_pattern(self.target_file)
+        mock_file_list = fc.find_files_by_pattern(self.workspace, self.target_file)
         for mock_file in mock_file_list:
             ret, msg = self.do_check_one_file(mock_file)
             if ret == False:
                 return False, msg
             class_count += ret
-        if ret < self.min_mock:
+        if class_count < self.min_mock:
             return False, {
-                "error": f"Insufficient Mock component coverage: {ret} Mock classes found, minimum required is {self.min_mock}. " +\
-                         f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. in files: {self.target_file}" + \
+                "error": f"Insufficient Mock component coverage: {class_count} Mock classes found, minimum required is {self.min_mock}. " +\
+                         f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. in files: {self.target_file}. " + \
                          f"Review your task details and ensure that the Mock components are defined correctly in the target files.",
             }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} ({len(mock_file_list)} files) passed."}
