@@ -185,9 +185,9 @@ class VerifyUI:
                 color = "yellow"
                 task_title += " (skipped)"
                 fail_count_msg = ""
-            text = f"{i:2d} {task_title}{fail_count_msg}"
             if needs_human_check:
-                text += "*"
+                task_title = "*" + task_title
+            text = f"{i:2d} {task_title}{fail_count_msg}"
             if color:
                 utxt = urwid.Text((color, text), align='left')
             else:

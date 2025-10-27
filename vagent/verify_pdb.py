@@ -1025,12 +1025,12 @@ class VerifyPDB(Pdb):
     def do_hmcheck_set(self, arg):
         """
         Set or show the hmcheck status of the target stage.
-        Usage: hmcheck_set stage_index [true|false]
+        Usage: hmcheck_set <stage_index> [true|false]
         """
         arg = arg.strip()
         parts = arg.split()
         if len(parts) == 0:
-            echo_y("Usage: hmcheck_set stage_index [true|false]")
+            echo_y("Usage: hmcheck_set <stage_index> [true|false]")
             return
         if str(parts[0]).lower() == "all":
             value = None
