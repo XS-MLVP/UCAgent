@@ -164,35 +164,12 @@ class VerifyUI:
         w_task, h_console, h_status = self.content_task_fix_width, self.console_max_height, self.status_content_fix_height
         self.content_stat.append(urwid.Text(self.vpdb.api_status() + f"\nWHH({w_task},{h_console},{h_status})"))
         # task
-        task_data = self.vpdb.api_task_list()
-        self.content_task.append(urwid.Text(f"\n{task_data['mission_name']}\n", align='center'))
-        current_index = task_data['task_index']
-        for i, stage in enumerate(task_data['task_list']["stage_list"]):
-            task_title = stage["title"]
-            fail_count = stage["fail_count"]
-            is_skipped = stage.get("is_skipped", False)
-            time_cost = stage.get("time_cost", "")
-            needs_human_check = stage.get("needs_human_check", False)
-            if time_cost:
-                time_cost = f", {time_cost}"
-            color = None
-            if i < current_index:
-                color = "success_green"
-            elif i == current_index:
-                color = "norm_red"
-            fail_count_msg = f" ({fail_count} fails{time_cost})"
-            if is_skipped:
-                color = "yellow"
-                task_title += " (skipped)"
-                fail_count_msg = ""
-            if needs_human_check:
-                task_title = "*" + task_title
-            text = f"{i:2d} {task_title}{fail_count_msg}"
-            if color:
-                utxt = urwid.Text((color, text), align='left')
-            else:
-                utxt = urwid.Text(text, align='left')
-            self.content_task.append(utxt)
+        task_data = self.vpdb.api_mission_info()
+        for i, text in enumerate(task_data):
+            if i == 0:
+                self.content_task.append(ANSIText(text, align='center'))
+                continue
+            self.content_task.append(ANSIText(text, align='left'))
         # changed files
         self.content_task.append(urwid.Text(f"\nChanged Files\n", align='center'))
         for d, t, f in self.vpdb.api_changed_files()[:self.task_box_maxfiles]:

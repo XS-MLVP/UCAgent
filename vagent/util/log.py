@@ -11,6 +11,9 @@ GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 
+L_GREEN = "\033[92m"
+L_RED = "\033[91m"
+L_YELLOW = "\033[93m"
 
 __log_logger__: Optional[logging.Logger] = None
 

@@ -8,6 +8,7 @@ from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta
 import time
 import signal
 import traceback
+from vagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
 
 
 class VerifyPDB(Pdb):
@@ -308,6 +309,42 @@ class VerifyPDB(Pdb):
             "task_index": task_index,
             "task_list": task_list
         }
+
+    def api_mission_info(self):
+        """
+        Get mission information with colored output.
+        """
+        task_data = self.api_task_list()
+        current_index = task_data['task_index']
+        ret = [f"\n{task_data['mission_name']}\n"]
+        for i, stage in enumerate(task_data['task_list']["stage_list"]):
+            task_title = stage["title"]
+            fail_count = stage["fail_count"]
+            is_skipped = stage.get("is_skipped", False)
+            time_cost = stage.get("time_cost", "")
+            needs_human_check = stage.get("needs_human_check", False)
+            if time_cost:
+                time_cost = f", {time_cost}"
+            color = None
+            if i < current_index:
+                color = f"{L_GREEN}"
+            elif i == current_index:
+                color = f"{L_RED}"
+            fail_count_msg = f" ({fail_count} fails{time_cost})"
+            if is_skipped:
+                color = f"{L_YELLOW}"
+                task_title += " (skipped)"
+                fail_count_msg = ""
+            if needs_human_check:
+                if color:
+                    task_title = f"{RESET}{L_RED}*{RESET}{color}" + task_title
+                else:
+                    task_title = f"{L_RED}*{RESET}" + task_title
+            text = f"{i:2d} {task_title}{fail_count_msg}"
+            if color:
+                text = f"{color}{text}{RESET}"
+            ret.append(text)
+        return ret
 
     def api_changed_files(self, count=10):
         """
@@ -1101,3 +1138,14 @@ class VerifyPDB(Pdb):
             else:
                 hmcheck_status = "Needed"
             echo(f"[{i}] {stage.title()}: HMCheck {hmcheck_status}")
+
+    def do_mission_info(self, arg):
+        """
+        Show mission information with colored output.
+        """
+        info = self.api_mission_info()
+        for i, line in enumerate(info):
+            if i == 0:
+                echo_g(line)
+                continue
+            echo(line)
