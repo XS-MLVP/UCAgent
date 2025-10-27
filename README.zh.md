@@ -95,6 +95,9 @@ cd output
 qwen
 ```
 
+注意：需要在工作目录（如上述例子中的output）中启动Code Agent，否则可能会出现文件路径不匹配问题
+
+
 **输入任务提示词：**
 
 > 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
@@ -109,6 +112,7 @@ qwen
 - `ctrl + 上/下/左/右`：调节界面布局
 - `shift + 上/下`：调节状态面板高度
 - `shift + 右`：清空控制台
+- `shift + 左`：清空输入
 - `esc`: 强制刷新界面
 
 ##### 常用交互命令：
@@ -136,6 +140,11 @@ cd UCAgent
 pip install .
 ```
 
+版本升级
+
+```bash
+ucagent --upgrade
+```
 
 ### 使用方式
 
@@ -262,19 +271,24 @@ UCAgent 支持在验证过程中进行人机协同，允许用户暂停 AI 执�
    - 可使用 `add_un_write_path`，`del_un_write_path` 等命令设置文件写权限，控制 AI 是否可以编辑特定文件。
    - 适用于直接接入 LLM 或强制使用 UCAgent 文件工具。
 
+提示：
+- 可通过命令`hmcheck_set <stage_index> [true|false]`强制开启指定阶段的人工检验
+- 强制人工检验阶段，需要通过命令`hmcheck_pass [message]`手动通过判断
+- 对于部分阶段的Checker，也可通过参数`need_human_check: true`开启强制人工检验
+
 ### 配置与指导文档的多语言支持
 
 目前仓库仅提供中文版本，如果需要其他语言，可通过`ucagent --check`找到`lang_dir`目录：
 
 ```bash
 ucagent --check
-UCAgent Check:
-Check   sys_config      ~/.local/lib/python3.11/site-packages/vagent/setting.yaml   [Found]
+UCAgent version: 0.9.2.dev363+g76f9f05f9
+Check   sys_config      ~/python3.11/site-packages/vagent/setting.yaml   [Found]
 Check   user_config     ~/.ucagent/setting.yaml [Found]
-Check   lang_dir        ~/.local/lib/python3.11/site-packages/vagent/lang   [Found]
-Check   'zh' config     ~/.local/lib/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
-Check   'zh' Guide_Doc  ~/.local/lib/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
-Check   'zh' template   ~/.local/lib/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
+Check   lang_dir        ~/python3.11/site-packages/vagent/lang   [Found]
+Check   'zh' config     ~/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
+Check   'zh' Guide_Doc  ~/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
+Check   'zh' template   ~/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
 ```
 
 进入`lang_dir`目录，通过命令`cp -r zh en`复制一份，然后翻译为目标语言，最后在配置文件中设置：

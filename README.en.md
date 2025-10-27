@@ -95,6 +95,8 @@ cd output
 qwen
 ```
 
+Note: The Code Agent must be launched within the working directory (e.g., the output directory in the example above), otherwise file path mismatches may occur.
+
 **Input task prompt:**
 
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
@@ -110,6 +112,7 @@ Hints:
 - `ctrl+up/down/left/right`: Adjust the UI interface layout
 - `shift+up/down`: Adjust the height of the status UI panel
 - `shift+right`: Clear console
+- `shift+left`: Clear input text
 - `esc`: Force refresh interface
 
 ##### Common interactive commands:
@@ -136,6 +139,11 @@ or
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
 pip install .
+```
+
+Upgrade
+```bash
+ucagent --upgrade
 ```
 
 ### Usage Methods
@@ -261,19 +269,24 @@ UCAgent supports human-machine collaboration during the verification process, al
 - File write permissions can be set using commands such as `add_un_writable_path` and `del_un_writable_path` to control whether AI can edit specific files.
 - Suitable for direct access to LLM or mandatory use of UCAgent file tools.
 
+Notes:
+- The Human Check for the specified stage can be forcibly enabled using the command `hmcheck_set <stage_index> [true|false]`
+- In the forced Human Check phase, manual approval is required by executing the command `hmcheck_pass [message]`
+- For certain stages of the Checker, the forced Human Check can also be enabled via the parameter `need_human_check: true`
+
 ### Multi language support for config and guid doc
 
 At present, the repo only provides Chinese version. If you need other languages, you can find the 'lang-dir' directory through `ucagent -- check`:
 
 ```bash
 ucagent --check
-UCAgent Check:
-Check   sys_config      ~/.local/lib/python3.11/site-packages/vagent/setting.yaml   [Found]
+UCAgent version: 0.9.2.dev363+g76f9f05f9
+Check   sys_config      ~/python3.11/site-packages/vagent/setting.yaml   [Found]
 Check   user_config     ~/.ucagent/setting.yaml [Found]
-Check   lang_dir        ~/.local/lib/python3.11/site-packages/vagent/lang   [Found]
-Check   'zh' config     ~/.local/lib/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
-Check   'zh' Guide_Doc  ~/.local/lib/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
-Check   'zh' template   ~/.local/lib/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
+Check   lang_dir        ~/python3.11/site-packages/vagent/lang   [Found]
+Check   'zh' config     ~/python3.11/site-packages/vagent/lang/zh/config/default.yaml    [Found]
+Check   'zh' Guide_Doc  ~/python3.11/site-packages/vagent/lang/zh/doc/Guide_Doc  [Found]
+Check   'zh' template   ~/python3.11/site-packages/vagent/lang/zh/template/unity_test    [Found]
 ```
 
 Enter the `lang_ir` directory, copy a copy using the command `cp -r zh en`, then translate it into the target language, and finally set it in the configuration file:
