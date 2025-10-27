@@ -45,7 +45,7 @@ class UnityChipCheckerMarkdownFileFormat(Checker):
 
 
 class UnityChipCheckerLabelStructure(Checker):
-    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API", data_key=None, **kw):
+    def __init__(self, doc_file, leaf_node, min_count=1, must_have_prefix="FG-API", data_key=None, need_human_check=False, **kw):
         """
         Initialize the checker with the documentation file, the specific label (leaf node) to check,
         and the minimum count required for that label.
@@ -56,6 +56,7 @@ class UnityChipCheckerLabelStructure(Checker):
         self.must_have_prefix = must_have_prefix
         self.data_key = data_key
         self.leaf_count = None
+        self.set_human_check_needed(need_human_check)
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the label structure in the documentation file."""
@@ -189,40 +190,46 @@ class UnityChipCheckerMockComponent(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the Mock component implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"Mock component file '{self.target_file}' does not exist. " + \
-                           f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the target file: {self.target_file}. "}
-        class_list = fc.get_target_from_file(self.get_path(self.target_file), "Mock*",
+        class_count = 0
+        mock_file_list = fc.find_files_by_pattern(self.target_file)
+        for mock_file in mock_file_list:
+            ret, msg = self.do_check_one_file(mock_file)
+            if ret == False:
+                return False, msg
+            class_count += ret
+        if ret < self.min_mock:
+            return False, {
+                "error": f"Insufficient Mock component coverage: {ret} Mock classes found, minimum required is {self.min_mock}. " +\
+                         f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. in files: {self.target_file}" + \
+                         f"Review your task details and ensure that the Mock components are defined correctly in the target files.",
+            }
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} ({len(mock_file_list)} files) passed."}
+
+    def do_check_one_file(self, mock_file):
+        if not os.path.exists(self.get_path(mock_file)):
+            return False, {"error": f"Mock component file '{mock_file}' does not exist. " + \
+                           f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the target file: {mock_file}. "}
+        class_list = fc.get_target_from_file(self.get_path(mock_file), "Mock*",
                                             ex_python_path=self.workspace,
                                             dtype="CLASS")
-        failed_mocks = []
-        for cls in class_list:
-            if not cls.__name__.startswith("Mock"):
-                failed_mocks.append(cls)
-        if len(failed_mocks) > 0:
+        if len(class_list) < 1:
             return False, {
-                "error": f"The following Mock classes do not start with 'Mock':",
-                "failed_mocks": [f"{cls.__name__}" for cls in failed_mocks]
-            }
-        if len(class_list) < self.min_mock:
-            return False, {
-                "error": f"Insufficient Mock component coverage: {len(class_list)} Mock classes found, minimum required is {self.min_mock}. " +\
-                         f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. " + \
-                         f"Review your task details and ensure that the Mock components are defined correctly in the target file.",
+                "error": f"No Mock component class found in file: {mock_file}, You need to define Mock components like: 'class Mock<COMPONENT_NAME>:' in the file: {mock_file}.  ",
             }
         # check on_clock_edge
         for cls in class_list:
             if not hasattr(cls, "on_clock_edge"):
                 return False, {
-                    "error": f"The Mock class '{cls.__name__}' is missing the required method 'on_clock_edge(self, cycles)'. Please implement this method to handle clock edge events."
+                    "error": f"The Mock class '{cls.__name__}' in file: {mock_file} is missing the required method 'on_clock_edge(self, cycles)'. Please implement this method to handle clock edge events."
                 }
             method = getattr(cls, "on_clock_edge")
             args = fc.get_func_arg_list(method)
             if len(args) != 2 or args[0] != "self" or args[1] != "cycles":
                 return False, {
-                    "error": f"The 'on_clock_edge' method in Mock class '{cls.__name__}' must have exactly two arguments: 'self' and 'cycles', but got ({', '.join(args)})."
+                    "error": f"The 'on_clock_edge' method in Mock class '{cls.__name__}' in file {mock_file} must have exactly two arguments: 'self' and 'cycles', but got ({', '.join(args)})."
                 }
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+        info(f"find {len(class_list)} Mock classes in file: {mock_file}.")
+        return len(class_list), {"message": f"{self.__class__.__name__} check for {mock_file} passed."}
 
 
 class UnityChipCheckerBundleWrapper(Checker):
