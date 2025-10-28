@@ -56,7 +56,7 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
     return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
 
 
-def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, passed_tc_list: list, only_marked_ckp_in_tc: bool):
+def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, passed_tc_list: list, only_marked_ckp_in_tc: bool):
     try:
         tc_list = [t for t in fc.get_unity_chip_doc_marks(os.path.join(workspace, bug_file), leaf_node="TC") \
                            if t.startswith(target_ck_prefix)]
@@ -82,6 +82,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
                 return True, fname
         return False, ""
     # fmt: FG/FC/CK/BG/TC-path/to/test_file.py::[ClassName]::test_case_name
+    ck_not_found_in_report = []
     tc_not_found_in_ftc_list = []
     tc_not_mark_the_cks_list = []
     tc_found_in_ptc_list = []
@@ -92,6 +93,10 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         tc_name_parts = tc_name.split("::")
         tc_name = "<TC-" + tc_name + ">"
         info(f"Check TC: {tc} ({tc_name}) for bug analysis")
+        if checkpoint not in checks_in_tc:
+            ck_not_found_in_report.append(checkpoint)
+            continue
+         # parse bug rate
         try:
             bug_rate = int(bug_label.split("-")[-1])
         except Exception as e:
@@ -112,6 +117,11 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
         is_pass_tc, pass_tc_name = is_in_target_tc_names(tc_name_parts, passed_tc_list)
         if is_pass_tc and not is_fail_tc and not is_zero_bug:
             tc_found_in_ptc_list.append((tc_name, pass_tc_name))
+
+    if len(ck_not_found_in_report) > 0:
+        msg = fc.list_str_abbr(ck_not_found_in_report)
+        return False, f"Bug analysis documentation '{bug_file}' contains {len(ck_not_found_in_report)} check points ({msg}) which are not found in the test report. " + \
+                       "Ensure the check point labels (include the <FG-*>, <FC-*> labels) in the bug analysis documentation are defined in the function coverage."
 
     # tc in pass tc
     tc_found_in_ptc_list = list(set(tc_found_in_ptc_list))
@@ -142,7 +152,7 @@ def check_bug_tc_analysis(workspace:str, bug_file:str, target_ck_prefix:str, fai
     tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
     if len(tc_not_mark_the_cks_list) > 0:
         ftc_msg = fc.list_str_abbr([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
-        return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking their checkpoints.",
+        return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking the checkpoints which reference them in the analysis file.",
                        "Actions required:",
                           "1. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
                           "2. If a test case is supposed to validate a bug related specific checkpoint, ensure it use 'mark_function' to mark the checkpoint.",
@@ -271,7 +281,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
 
         ret, msg = check_bug_tc_analysis(
-            workspace, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
+            workspace, checks_in_tc, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
         )
         if not ret:
             return ret, msg, -1
