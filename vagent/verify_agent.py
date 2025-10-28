@@ -104,7 +104,8 @@ class VerifyAgent:
         self.cfg = get_config(config_file, cfg_override)
         temp_args = {
             "OUT": output,
-            "DUT": dut_name
+            "DUT": dut_name,
+            "Version": __version__,
         }
         self.cfg.update_template(temp_args)
         template_overwrite = self.cfg.template_overwrite.as_dict()
