@@ -154,10 +154,11 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
         ftc_msg = fc.list_str_abbr([f"{x[0]}(need mark: {x[1]})" for x in tc_not_mark_the_cks_list])
         return False, [f"Bug analysis documentation '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test cases ({ftc_msg}) which are not marking the checkpoints which reference them in the analysis file.",
                        "Actions required:",
-                          "1. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
-                          "2. If a test case is supposed to validate a bug related specific checkpoint, ensure it use 'mark_function' to mark the checkpoint.",
-                          "3. If a test case is related to multiple function points, ensure all relevant function and checkpoint are marked (call 'mark_function' for each function point).",
-                          "4. If the test case does not relate to any specific checkpoint, consider deleting it from the bug analysis documentation.",
+                          "1. Make sure you have placed the test case analysis in the right position under the corresponding checkpoint in the bug analysis documentation.",
+                          "2. Ensure the test cases in the bug analysis documentation are marking all relevant checkpoints that they are testing.",
+                          "3. If a test case is supposed to validate a bug related specific checkpoint, ensure it use 'mark_function' to mark the checkpoint.",
+                          "4. If a test case is related to multiple function points, ensure all relevant function and checkpoint are marked (call 'mark_function' for each function point).",
+                          "5. If the test case does not relate to any specific checkpoint, consider deleting it from the bug analysis documentation.",
                         "Note: those failed test cases must mark their bug related checkpoint"
                        ]
     # fail tc not in bug doc
