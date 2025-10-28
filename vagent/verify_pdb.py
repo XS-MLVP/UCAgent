@@ -1149,3 +1149,23 @@ class VerifyPDB(Pdb):
                 echo_g(line)
                 continue
             echo(line)
+
+    def do_quit(self, arg):
+        """
+        Quit the debugger.
+        """
+        self.agent.stage_manager.save_stage_info()
+        echo_g("Stage information saved. Exiting debugger.")
+        return super().do_quit(arg)
+
+    def do_q(self, arg):
+        """
+        Quit the debugger (alias for quit).
+        """
+        return self.do_quit(arg)
+
+    def do_exit(self, arg):
+        """
+        Exit the debugger (alias for quit).
+        """
+        return self.do_quit(arg)

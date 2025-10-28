@@ -457,7 +457,9 @@ class StageManager(object):
             "is_agent_exit": self.agent.is_exit(),
         })
         info["stages_info"] = {}
-        for idx in range(self.stage_index):
+        for idx in range(self.stage_index + 1):
+            if idx >= len(self.stages):
+                break
             stage = self.stages[idx]
             stage_info = stage.detail()
             stage_info["time_cost"] = stage.get_time_cost()
