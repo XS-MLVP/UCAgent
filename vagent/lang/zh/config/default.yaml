@@ -50,9 +50,9 @@ mission:
       - 按步骤有序进行，每步完成后用`Check`工具验证
       - 测试失败时，优先怀疑是芯片设计问题，不是测试问题
       - 深入分析发现的问题
-      - 发现bug要基于源码进行详细分析：什么问题、为什么出现、如何修复
       - 触发bug对应的测试用例必须 Fail，不能误报为 Pass
-      - {DUT}源代码位于`{RTL_PATH}/{DUT}.v`，文件后缀也可能是.v、.sv、.vh、.scala等
+      - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
+      - 发现bug要基于源码（有上层语言源码如scala，则基于上层语言源码进行分析，没有则基于verilog源码进行分析）进行详细分析：什么问题、为什么出现、如何修复
       - 注重代码和文档质量，生成实用、可维护的验证代码
   
       **必须使用的工具：**
@@ -611,7 +611,7 @@ stage:
       - "第5步：补充测试完成后，重新运行Check方法，验证代码行覆盖率是否提升"
       - "第6步：重复上述过程，直到代码行覆盖率符合要求"
       - "注意："
-      - " - {DUT}源文件均位于{DUT}/目录下，依赖源文件位于{RTL_PATH}/目录下，文件后缀可能是.v、.sv、.vh、.scala等，需要你自行识别，例如：{RTL_PATH}/{DUT}.v"
+      - " - {DUT}的verilog源文件均位于{DUT}/目录下，其依赖或者上层语言源文件位于{RTL_PATH}/目录下，文件后缀可能是.v、.sv、.vh、.scala等，需要你自行识别，例如：{RTL_PATH}/{DUT}.scala"
       - " - 可编辑的代码行ignore文件位于{OUT}/tests/{DUT}.ignore，你可以根据需要进行调整"
       - " - ignore的Pattern请以*/开头，例如*/path_in_workspace/to_be_ignored.sv[:line_number_start-line_number_end, ...]，其中path_in_workspace为相对于workspace的路径，没有同名文件时可省略，例如*/to_be_ignored.sv[:line_number_start-line_number_end, ...]"
       - " - ignore Pattern中代码行的格式为line_number_start-line_number_end，单行代码也为该格式，例如第10行代码需要标记为10-10"
