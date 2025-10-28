@@ -334,6 +334,11 @@ class VerifyStage(object):
             task = c.filter_vstage_task(task)
         return task
 
+    def set_reference_file_status(self, status: dict):
+        for k, v in status.items():
+            if k in self.reference_files and "Readed" in v:
+                self.reference_files[k] = True
+
     def task_info(self, with_parent=True):
         data = OrderedDict({
             "title": self.title(),

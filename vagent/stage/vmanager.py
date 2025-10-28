@@ -273,6 +273,7 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
+            stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
