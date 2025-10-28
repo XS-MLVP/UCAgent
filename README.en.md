@@ -115,6 +115,13 @@ Hints:
 - `shift+left`: Clear input text
 - `esc`: Force refresh interface
 
+##### Stage color explanation
+- `White`: To be executed
+- `Red`: Executing
+- `Green`: Execution passed
+- `*`: This stage requires human manual inspection. The AI can only continue after command `hmcheck_mass [msg]`
+- `Yellow`: Skipped stage
+
 ##### Common interactive commands:
 
 - `q`: Exit TUI (or exit UCAgent)
@@ -301,24 +308,31 @@ Alternatively, by specifying parameters: `--config`, `--template-dir`, `--guid-d
 ### Frequently Asked Questions (FAQ)
 
 **Q: How to configure different AI models?**
+
 **A:** Modify the `openai.model_name` field in `config.yaml`, supports any OpenAI-compatible API.
 
 **Q: What to do when errors occur during verification?**
+
 **A:** Use `Ctrl+C` to enter interactive mode, use `status` to check current status, and use `help` to get debugging commands.
 
 **Q: Can verification stages be customized?**
+
 **A:** Yes, you can customize the verification workflow by modifying the `stage` configuration in `vagent/lang/zh/config/default.yaml`. You can also override stage parameters directly in config.yaml.
 
 **Q: How to add custom tools?**
+
 **A:** Create new tool classes in the `vagent/tools/` directory, inherit from the `UCTool` base class, and load them through the `--ex-tools` parameter.
 
 **Q: MCP server cannot connect?**
+
 **A:** Check if the port is occupied, confirm firewall settings, and you can specify other ports through `--mcp-server-port`.
 
 **Q: How to run long-term verification?**
+
 **A:** Please refer to CodeAgent's headless mode and the script `tests/test_nohead_loop.bash`.
 
 **Q: Why is there residual information from the last execution?**
+
 **A:** By default, UCAgent will search for the `.ucagend_info.json` file from the working directory to load the last execution information and continue executing. If historical information is not required, please delete the file or use the parameter `--no-history` to ignore the loading history.
 
 ### Contributing

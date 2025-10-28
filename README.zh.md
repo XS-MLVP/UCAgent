@@ -115,6 +115,13 @@ qwen
 - `shift + 左`：清空输入
 - `esc`: 强制刷新界面
 
+##### 阶段颜色提示
+- `白色`：待执行
+- `红色`：正在执行
+- `绿色`：执行通过
+- `*`：表示该阶段需要强制人工检查，输入命令 `hmcheck_pass [msg]`后，AI才能继续
+- `黄色`：跳过该阶段
+
 ##### 常用交互命令：
 - `q`：退出TUI（或者退出UCAgent）
 - `tui`：进入TUI
@@ -307,24 +314,31 @@ lang: "en"
 ### 常见问题 (FAQ)
 
 **Q: 如何配置不同的AI模型？**
+
 **A:** 在 `config.yaml` 中修改 `openai.model_name` 字段，支持任何OpenAI兼容的API。
 
 **Q: 验证过程中出现错误怎么办？**
+
 **A:** 使用 `Ctrl+C` 进入交互模式，通过 `status` 查看当前状态，使用 `help` 获取调试命令。
 
 **Q: 可以自定义验证阶段吗？**
+
 **A:** 可以通过修改 `vagent/lang/zh/config/default.yaml` 中的 `stage` 配置来自定义验证流程。也可直接在 config.yaml 中进行 stage 参数覆盖。
 
 **Q: 如何添加自定义工具？**
+
 **A:** 在 `vagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。
 
 **Q: MCP服务器无法连接？**
+
 **A:** 检查端口是否被占用，确认防火墙设置，可以通过 `--mcp-server-port` 指定其他端口。
 
 **Q: 如何运行长时间验证？**
+
 **A:** 请参考CodeAgent的无头模式以及脚本 `tests/test_nohead_loop.bash`。
 
 **Q: 为何有上次执行信息残留？**
+
 **A:** UCAgent默认会从工作目录中查找`.ucagent_info.json`文件，来加载上次执行信息接着执行。如果不需要历史信息，请删除该文件或者使用参数`--no-history`忽略加载历史。
 
 ### 贡献指南
