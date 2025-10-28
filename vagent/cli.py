@@ -302,6 +302,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--unskip', action='append', default=[], type=int,
                         help='Unskip the specified stage index (can be used multiple times)')
 
+    parser.add_argument("--no-history", action="store_true", default=False,
+                        help="Disable history loading from previous runs in the workspace")
+
     # Version argument
     parser.add_argument(
         "--version", 
@@ -471,7 +474,8 @@ def run() -> None:
         stage_skip_list=args.skip,
         stage_unskip_list=args.unskip,
         use_todo_tools=args.use_todo_tools,
-        reference_files=parse_reference_files(args.ref)
+        reference_files=parse_reference_files(args.ref),
+        no_history=args.no_history,
     )
     
     # Set break mode if human interaction or TUI is requested

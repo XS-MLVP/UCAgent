@@ -324,6 +324,9 @@ lang: "en"
 **Q: 如何运行长时间验证？**
 **A:** 请参考CodeAgent的无头模式以及脚本 `tests/test_nohead_loop.bash`。
 
+**Q: 为何有上次执行信息残留？**
+**A:** UCAgent默认会从工作目录中查找`.ucagent_info.json`文件，来加载上次执行信息接着执行。如果不需要历史信息，请删除该文件或者使用参数`--no-history`忽略加载历史。
+
 ### 贡献指南
 
 欢迎提交 Issue 和 Pull Request！

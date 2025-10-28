@@ -318,6 +318,9 @@ Alternatively, by specifying parameters: `--config`, `--template-dir`, `--guid-d
 **Q: How to run long-term verification?**
 **A:** Please refer to CodeAgent's headless mode and the script `tests/test_nohead_loop.bash`.
 
+**Q: Why is there residual information from the last execution?**
+**A:** By default, UCAgent will search for the `.ucagend_info.json` file from the working directory to load the last execution information and continue executing. If historical information is not required, please delete the file or use the parameter `--no-history` to ignore the loading history.
+
 ### Contributing
 
 Issues and Pull Requests are welcome!

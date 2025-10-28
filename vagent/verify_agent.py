@@ -60,6 +60,7 @@ class VerifyAgent:
                  stage_unskip_list: Optional[List[int]] = None,
                  use_todo_tools: bool = False,
                  reference_files: dict = None,
+                 no_history: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -89,7 +90,9 @@ class VerifyAgent:
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
         """
-        saved_info = fc.load_ucagent_info(workspace)
+        saved_info = {}
+        if not no_history:
+            saved_info = fc.load_ucagent_info(workspace)
         if force_stage_index == 0:
             force_stage_index = saved_info.get("stage_index",
                                                force_stage_index)
