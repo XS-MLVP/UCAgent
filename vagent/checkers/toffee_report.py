@@ -276,7 +276,11 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         failed_checks_in_tc = [b for b in failed_checks_in_tc if b in marked_checks_in_tc]
 
     failed_funcs_bins = report.get("failed_test_case_with_check_point_list", {})
-    passed_tc_list = [k for k,v in report["tests"]["test_cases"].items() if v == "PASSED"]
+    test_cases = report.get("tests", {}).get("test_cases", None)
+    if test_cases is None:
+        return False, "Test report structure validation failed: No test cases found in the report. " +\
+                      "Please ensure that the test report is generated correctly.", -1
+    passed_tc_list = [k for k,v in test_cases.items() if v == "PASSED"]
 
     bug_ck_list_size = -1
     if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:

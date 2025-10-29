@@ -692,7 +692,12 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                                 "failed_test_case_with_check_point_list"])
         info_report = OrderedDict({"TEST_REPORT": msg_report})
         info_runtest = OrderedDict({"TEST_REPORT": msg_report})
-        self.total_tests_count = len([k for k, _ in report["tests"]["test_cases"].items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
+        test_cases = report.get("tests", {}).get("test_cases", None)
+        if test_cases is None:
+            info_runtest["error"] = "No test cases found in the report. " +\
+                                    "Please ensure that the test report is generated correctly."
+            return False, info_runtest
+        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})
         if self.ret_std_error:
@@ -799,7 +804,11 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         """
         # Check that all tests failed as expected in template
         passed_test = []
-        for fv, rt in report["tests"]["test_cases"].items():
+        test_cases = report.get("tests", {}).get("test_cases", None)
+        if test_cases is None:
+            return False, "Test template structure validation failed: No test cases found in the report. " +\
+                          "Please ensure that the test report is generated correctly."
+        for fv, rt in test_cases.items():
             if self.ignore_ck_prefix and ":"+self.ignore_ck_prefix in fv:
                 continue
             if rt == "PASSED":
