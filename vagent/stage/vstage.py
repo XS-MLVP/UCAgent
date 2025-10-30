@@ -368,6 +368,10 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         skip = stage.get_value('skip', False)
+        ignore = stage.get_value('ignore', False)
+        if ignore:
+            warning(f"Stage '{stage.name}' is set to be ignored, skipping its parsing.")
+            continue
         index = i + 1
         substages = parse_vstage(root_cfg, stage.get_value('stage', None), workspace, tool_read_text, prefix + f"{index}.")
         if skip:
