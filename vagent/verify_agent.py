@@ -22,7 +22,7 @@ import random
 import signal
 import copy
 
-from langchain.globals import set_debug
+from langchain_core.globals import set_debug
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
