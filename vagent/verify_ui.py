@@ -385,7 +385,7 @@ class VerifyUI:
             else:
                 self.update_info()
                 return
-            self.console_output.set_text(self._get_output(cmd + "\n"))
+            self.console_output.set_text(self._get_output(f"(UnityChip) {cmd}\n"))
             self.process_command(cmd)
             self.update_info()
             self.last_line = cmd

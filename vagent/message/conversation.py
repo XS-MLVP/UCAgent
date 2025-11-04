@@ -1,6 +1,7 @@
 # --- coding: utf-8 ---
 """Message and state utilities for UCAgent."""
 
+from vagent.message.statistic import MessageStatistic
 from vagent.util.functions import fill_dlist_none
 from vagent.util.log import warning
 
@@ -51,6 +52,10 @@ class TokenSpeedCallbackHandler(BaseCallbackHandler):
         self.last_tokens_size = self.total_tokens_size
         return self.last_token_speed
 
+    def total(self) -> int:
+        return self.total_tokens_size
+
+
 def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
         for msg in input["messages"][-4:]:
             if not isinstance(msg, AIMessage):
@@ -96,8 +101,9 @@ def remove_messages(messages, max_keep_msgs):
 class SummarizationAndFixToolCall(SummarizationNode):
     """Custom summarization node that fixes tool call arguments."""
 
-    def set_max_keep_msgs(self, max_keep_msgs: int):
+    def set_max_keep_msgs(self, msg_stat: MessageStatistic, max_keep_msgs: int):
         self.max_keep_msgs = max_keep_msgs
+        self.msg_stat = msg_stat
         return self
 
     def _func(self, input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
@@ -109,11 +115,11 @@ class SummarizationAndFixToolCall(SummarizationNode):
         ret = super()._func(input)
         if deleted_msg:
             ret["messages"] = deleted_msg
+        if "llm_input_messages" in ret:
+            self.msg_stat.update_message(ret["llm_input_messages"])
+        else:
+            self.msg_stat.update_message(ret["messages"])
         return ret
-
-    def set_max_keep_msgs(self, max_keep_msgs: int):
-        self.max_keep_msgs = max_keep_msgs
-        return self
 
     def set_max_token(self, max_token: int):
         self.max_token = max_token
@@ -134,7 +140,8 @@ class UCMessagesNode:
       llm input: summary_msgs(summarized by max_summary_tokens) + role_info + history_msg
     """
 
-    def __init__(self, max_summary_tokens: int, max_keep_msgs: int, tail_keep_msgs: int, model):
+    def __init__(self, msg_stat: MessageStatistic, max_summary_tokens: int, max_keep_msgs: int, tail_keep_msgs: int, model):
+        self.msg_stat = msg_stat
         self.max_summary_tokens = max_summary_tokens
         self.max_keep_msgs = max_keep_msgs
         self.tail_keep_msgs = tail_keep_msgs
@@ -165,6 +172,7 @@ class UCMessagesNode:
             else:
                 tail_msgs = llm_input_msgs
         ret["llm_input_messages"] = self.summary_data + role_info + tail_msgs
+        self.msg_stat.update_message(ret["llm_input_messages"])
         return ret
 
     def set_max_keep_msgs(self, max_keep_msgs: int):

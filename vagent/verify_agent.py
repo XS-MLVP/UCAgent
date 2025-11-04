@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from vagent.message.statistic import MessageStatistic
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
-from .util.functions import fmt_time_deta, get_template_path, render_template_dir, import_and_instance_tools
+from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, render_template_dir, import_and_instance_tools
 from .util.functions import dump_as_json, get_ai_message_tool_call, yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 from .util.models import get_chat_model
@@ -27,7 +28,7 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
 
 
@@ -198,10 +199,12 @@ class VerifyAgent:
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
         self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", True)
         self.max_keep_msgs = self.cfg.get_value("conversation_summary.max_keep_msgs", 200)
+        self.message_statistic = MessageStatistic()
 
         if self.use_uc_mode:
             info("Using UCMessagesNode for conversation summarization (max_summary_tokens={})".format(self.max_summary_tokens))
             message_manage_node = UCMessagesNode(
+                msg_stat=self.message_statistic,
                 max_summary_tokens=self.max_summary_tokens,
                 max_keep_msgs=self.max_keep_msgs,
                 tail_keep_msgs=self.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
@@ -215,7 +218,7 @@ class VerifyAgent:
                 max_tokens=self.max_token,
                 max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
-            ).set_max_keep_msgs(self.max_keep_msgs)
+            ).set_max_keep_msgs(self.message_statistic, self.max_keep_msgs)
         self.message_manage_node = message_manage_node
         self.agent = create_react_agent(
             model=self.model,
@@ -618,6 +621,7 @@ class VerifyAgent:
             self._stat_msg_count_tool += 1
         elif isinstance(msg, SystemMessage):
             self._stat_msg_count_system += 1
+        self.message_statistic.update_message(msg)
 
     def messages_get_raw(self):
         """Get the messages from the agent's state."""
@@ -634,11 +638,25 @@ class VerifyAgent:
     def message_info(self):
         """Get information about the messages in the agent's state."""
         messages = self.messages_get_raw()
-        return {
+        return OrderedDict({
             "count": len(messages),
             "size": sum([len(m.content) for m in messages]),
             "last_20type": ">".join([m.type for m in messages[-20:]]),
-        }
+            "to_llm": self.message_statistic.get_statistics()
+        })
+
+    def status_info(self):
+        msg_info = self.message_info()
+        msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
+        msg_stat = self.message_statistic.get_statistics()
+        stats= OrderedDict({
+               "UCAgent": self.__version__, "LLM": self.model.model_name, "Temperature": self.model.temperature, "Stream": self.stream_output, "Seed": self.seed,
+               "SummaryMode": self.summary_mode(), "MessageCount": msg_c, "MessageSize": msg_s, "Interaction Mode": self.interaction_mode,
+               "AI-Message": self._stat_msg_count_ai, "Tool-Message": self._stat_msg_count_tool, "Sys-Message": self._stat_msg_count_system,
+               "MsgIn(bytes)": msg_stat["message_in"], "MsgOut(bytes)": msg_stat["message_out"],
+               "Start Time": fmt_time_stamp(self._time_start), "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
+              f"Token Reception({self.cb_token_speed.total()})/TPS": self.cb_token_speed.get_speed()})
+        return stats
 
     def message_get_str(self, index, count):
         values = self.agent.get_state(self.get_work_config()).values

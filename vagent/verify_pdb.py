@@ -265,16 +265,18 @@ class VerifyPDB(Pdb):
           Tools: ListPath(2) READFile(1) ...
           Start Time: 2023-10-01 12:00:00 Run Time: 00:00:01
         """
-        g = self.agent
-        m = g.model
-        delta_time = g.stage_manager.get_time_cost()
-        msg_info = g.message_info()
-        msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
-        stats= f"UCAgent: {g.__version__}  LLM: {m.model_name}  Temperature: {m.temperature} Stream: {g.stream_output} Seed: {g.seed}  \n" + \
-               f"SummaryMode: {g.summary_mode()}  MessageCount: {msg_c}  MessageSize: {msg_s} Interaction Mode: {g.interaction_mode}  \n" + \
-               f"AI-Message: {g._stat_msg_count_ai}  Tool-Message: {g._stat_msg_count_tool} Sys-Message: {g._stat_msg_count_system}\n" + \
-               f"Start Time: {fmt_time_stamp(g._time_start)} Run Time: {fmt_time_deta(delta_time)}  Token Reception: {g.cb_token_speed.get_speed():.1f} bps"
-        return stats
+        stats = self.agent.status_info()
+        stats_text = ""
+        for k,v in stats.items():
+            if isinstance(v, float):
+                v = f"{v:.2f}"
+            if stats_text.endswith("\n") or not stats_text:
+                stats_text += f"{k}: {v}"
+            else:
+                stats_text += f" {k}: {v}"
+            if len(stats_text.split("\n")[-1]) > 80:
+                stats_text += "\n"
+        return stats_text
 
     def api_tool_status(self):
         return [(tool.name, tool.call_count,
@@ -354,8 +356,28 @@ class VerifyPDB(Pdb):
         """
         return list_files_by_mtime(self.agent.output_dir, count)
 
+    def do_changed_files(self, arg):
+        """
+        Show changed files. use: changed_files [max_show_count]
+        """
+        max_show_count = -1
+        if arg.strip():
+            try:
+                max_show_count = int(arg.strip())
+            except ValueError:
+                echo_r(f"Invalid max_show_count: {arg.strip()}. It must be an integer.")
+                return
+        changed_files = self.api_changed_files()[:max_show_count]
+        for d, t, f in changed_files:
+            mtime = fmt_time_stamp(t)
+            if d < 180:
+                mtime += f" ({fmt_time_deta(d)})"
+                echo_g(f"{mtime} {f}")
+            else:
+                echo(f"{mtime} {f}")
+
     def do_status(self, arg):
-        echo(self.api_status())
+        echo(yam_str(self.api_status()))
 
     def do_task_status(self, arg):
         """
