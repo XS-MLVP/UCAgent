@@ -28,6 +28,8 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langfuse import get_client, Langfuse
+from langfuse.langchain import CallbackHandler
 from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
 
@@ -268,6 +270,21 @@ class VerifyAgent:
         self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
+        # Telemetry
+        langfuse_cfg = self.cfg.get_value("langfuse", {})
+        self.langfuse_enable = langfuse_cfg.get_value("enable", False)
+        if self.langfuse_enable:
+            public_key = langfuse_cfg.get_value("public_key", "")
+            secret_key = langfuse_cfg.get_value("secret_key", "")
+            base_url = langfuse_cfg.get_value("base_url", "")
+            self.langfuse = Langfuse(
+                public_key=public_key,
+                secret_key=secret_key,
+                base_url=base_url,
+            )
+            assert self.langfuse.auth_check(), "Can't connect to langfuse, please check your configuration"
+            self.langfuse_handler = CallbackHandler()
+
     def get_messages_cfg(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
         ret = {"__manage_class__": self.message_manage_node.__class__.__name__}
         for k in keys:
@@ -448,9 +465,13 @@ class VerifyAgent:
         self._is_exit = True
 
     def get_work_config(self):
-        return {"configurable": {"thread_id": f"{self.thread_id}"},
-                "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
-                }
+        work_config = {
+            "configurable": {"thread_id": f"{self.thread_id}"},
+            "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
+        }
+        if self.langfuse_enable:
+            work_config["callbacks"] = [self.langfuse_handler]
+        return work_config
 
     def run(self):
         self.pre_run()

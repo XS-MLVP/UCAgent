@@ -12,3 +12,9 @@
 #  openai_api_key: "$(EMBED_OPENAI_API_KEY: YOUR_API_KEY)"
 #  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://10.156.154.242:8001/v1)"
 #  dims: 4096
+
+#langfuse:
+#  enable: $(ENABLE_LANGFUSE, false)
+#  public_key: $(LANGFUSE_PUBLIC_KEY, <YOUR_LANGFUSE_PUBLIC_KEY>)
+#  secret_key: $(LANGFUSE_SECRET_KEY, <YOUR_LANGFUSE_SECRET_KEY>)
+#  base_url: $(LANGFUSE_URL, http://localhost:3000)
