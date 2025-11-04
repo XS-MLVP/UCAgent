@@ -265,17 +265,20 @@ class VerifyAgent:
         self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
-    def set_max_keep_msgs(self, max_keep_msgs: int):
-        return self.message_manage_node.set_max_keep_msgs(max_keep_msgs)
+    def get_messages_cfg(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
+        ret = {"__manage_class__": self.message_manage_node.__class__.__name__}
+        for k in keys:
+            if hasattr(self.message_manage_node, k):
+                ret[k] = getattr(self.message_manage_node, k)
+        return ret
 
-    def set_max_token(self, max_token: int):
-        return self.message_manage_node.set_max_token(max_token)
-
-    def get_max_token(self) -> int:
-        return self.message_manage_node.get_max_token()
-
-    def get_max_keep_msgs(self) -> int:
-        return self.message_manage_node.get_max_keep_msgs()
+    def set_messages_cfg(self, cfg: Dict[str, Any]):
+        success = {}
+        for k, v in cfg.items():
+            if hasattr(self.message_manage_node, k):
+                setattr(self.message_manage_node, k, v)
+                success[k] = v
+        return success
 
     def summary_mode(self):
         name = self.message_manage_node.__class__.__name__

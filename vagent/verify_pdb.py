@@ -472,24 +472,6 @@ class VerifyPDB(Pdb):
         info = self.agent.message_info()
         message(yam_str(info))
 
-    def do_messages_keep_latest(self, arg):
-        """
-        Keep only the latest N messages in the agent's state.
-        Usage: messages_keep_latest <size>
-        """
-        size_str = arg.strip()
-        if not size_str:
-            echo_y("Size cannot be empty. Usage: messages_keep_latest <size>")
-            return
-        try:
-            size = int(size_str)
-            if size <= 0:
-                raise ValueError("Size must be positive")
-        except ValueError as e:
-            echo_r(f"Invalid size: {e}. Size must be a positive integer.")
-            return
-        self.agent.message_keep_latest(size)
-
     def do_messages_print(self, arg):
         """
         Print messages from the agent's state.
@@ -980,41 +962,30 @@ class VerifyPDB(Pdb):
             return
         self.agent.stage_manager.unskip_stage(index)
 
-    def do_message_config(self, arg):
+    def do_messages_config(self, arg):
         """
         Show or set message configuration.
         Usage:
-          message_config                - Show current configuration
-          message_config <key> <value>  - Set configuration key to value
+          messages_config                - Show current configuration
+          messages_config <key> <value>  - Set configuration key to value
         """
-        def get_message_cfg():
-            return {
-                "max_keep_msgs": self.agent.get_max_keep_msgs(),
-                "max_token": self.agent.get_max_token(),
-            }
-        def set_message_cfg(cfg):
-            if "max_keep_msgs" in cfg:
-                self.agent.set_max_keep_msgs(cfg["max_keep_msgs"])
-            if "max_token" in cfg:
-                self.agent.set_max_token(cfg["max_token"])
+        keys = self.agent.cfg.get_value("conversation_summary").as_dict().keys()
         args = arg.strip().split()
         if len(args) == 0:
-            message(yam_str(get_message_cfg()))
+            message(yam_str(self.agent.get_messages_cfg(keys)))
             return
         if len(args) != 2:
-            echo_y("Usage: message_config [<key> <value>]")
+            echo_y("Usage: messages_config [<key> <value>]")
             return
         key, value = args
         try:
             value = eval(value)
         except Exception:
             pass
-        cfg = self.agent.cfg.get_value("message_cfg", {})
-        cfg[key] = value
-        set_message_cfg(cfg)
-        echo_g(f"Message configuration updated: {key} = {value}")
-        message(yam_str(get_message_cfg()))
-
+        cfg = {key: value}
+        cfg_update = {k: "Ignored" for k in cfg.keys()}
+        cfg_update.update(self.agent.set_messages_cfg(cfg))
+        message(yam_str(cfg_update))
 
     def do_hmcheck_cstat(self, arg):
         """
