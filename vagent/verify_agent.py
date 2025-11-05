@@ -521,6 +521,11 @@ class VerifyAgent:
         self.invoke_round += 1
         return self
 
+    def custom_chat(self, msg):
+        """Custom chat message to the agent."""
+        self.do_work({"messages": [HumanMessage(content=msg)]},
+                     self.get_work_config())
+
     def get_interaction_status(self):
         """Get the status of the interaction logic"""
         # Try advanced logic first

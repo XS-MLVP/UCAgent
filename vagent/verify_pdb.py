@@ -187,6 +187,17 @@ class VerifyPDB(Pdb):
         self.agent.set_force_trace(False)
         self.agent.run_loop(True, arg.strip())
 
+    def do_chat(self, arg):
+        """
+        Chat with LLM
+        """
+        arg = arg.strip()
+        if not arg:
+            message("Message cannot be empty, usage: chat <message>")
+            return
+        self.agent.set_break(False)
+        self.agent.custom_chat(arg)
+
     def do_tool_list(self, arg):
         """
         Display tools info.
