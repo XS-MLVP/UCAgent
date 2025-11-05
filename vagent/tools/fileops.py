@@ -123,6 +123,9 @@ class BaseReadWrite:
                 assert isinstance(d, str)
         info(f"{self.__class__.__name__} tool initialized with workspace: {self.workspace}")
 
+    def get_real_path(self, rpath):
+        return os.path.abspath(self.workspace+"/"+rpath)
+
     def check_file(self, path: str) -> Tuple[bool, str]:
         """Check if the file is writable."""
         if path.endswith('/'):
@@ -130,7 +133,7 @@ class BaseReadWrite:
         write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
         if not write_able:
             return False, msg, ""
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
+        real_path = self.get_real_path(path)
         if real_path.startswith(self.workspace) is False:
             return False, f"File '{path}' is not within the workspace.", ""
         if not os.path.exists(real_path):
@@ -634,15 +637,15 @@ class ReadTextFile(UCTool, BaseReadWrite):
 class ArgEditTextFile(BaseModel):
     path: str = Field(
         default=None,
-        description="Text file path to edit, relative to the workspace. Created if not exists."
+        description="Text file path to edit or create, relative to the workspace."
     )
     data: str = Field(
         default=None,
-        description="String data to edit. If None, clears the content."
+        description="String data to edit or to write. If None, clear the content."
     )
     mode: str = Field(
         default="replace",
-        description="Edit mode: 'overwrite' (replace entire file), 'append' (add to end), or 'replace' (replace lines by index)."
+        description="Edit mode: 'write' (write to a new file), 'append' (append data to the end), or 'replace' (replace lines by index)."
     )
     start: int = Field(
         default=1,
@@ -659,31 +662,45 @@ class ArgEditTextFile(BaseModel):
 
 
 class EditTextFile(UCTool, BaseReadWrite):
-    """Edit or create text file in the workspace with multiple modes (If file not exists, it will be created)."""
+    """Edit or create a text file in the workspace with multiple modes."""
     name: str = "EditTextFile"
     description: str = (
-        "Edit or create text file in the workspace. Supports multiple edit modes:\n"
+        "Edit or create a text file in the workspace. Supports multiple modes:\n"
         "- 'replace': Replace/insert lines at specific line indices (default)\n"
-        "- 'overwrite': Replace entire file content\n"
+        "- 'write': Write data to a new file (cannot be used to edit existing files)\n"
         "- 'append': Add data to the end of the file\n"
-        "Creates file if it does not exist. For 'replace' mode, supports preserving indentation.\n"
+        "For 'replace' mode, supports preserving indentation.\n"
         "When success, returns the difference summary, otherwise returns error message.\n"
-        "It is recommended to use 'replace' mode in common cases (default mode) which is token saving."
     )
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
 
     def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 1, count: int = -1, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Edit data in a text file in the workspace with specified mode."""
+        """Edit or create a text file in the workspace with specified mode."""
         start = start - 1 # Convert to 0-based index
         self.create_file = True  # ensure file is created if not exists
         # Validate mode parameter
-        valid_modes = ["overwrite", "append", "replace"]
+        valid_modes = ["write", "append", "replace"]
         if mode not in valid_modes:
             emsg = f"Invalid mode '{mode}'. Valid modes are: {valid_modes}"
             self.do_callback(False, path, emsg)
             return str_error(emsg)
+        rpath = self.get_real_path(path)
+        if os.path.isdir(rpath):
+            emsg = f"Path '{path}' is a directory, cannot edit directory."
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        if os.path.isfile(rpath):
+            if mode in ["write"]:
+                emsg = f"File '{path}' already exists, cannot use 'write' mode on existing files. Please check if this file is a template you need to fill."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+        else:
+            if mode in ["append", "replace"]:
+                emsg = f"File '{path}' does not exist, cannot use '{mode}' mode on non-existing file. Please use the 'write' mode to create it first."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
         success, msg, real_path = self.check_file(path)
 
         if not success:
@@ -697,7 +714,7 @@ class EditTextFile(UCTool, BaseReadWrite):
             return str_error(emsg)
 
         try:
-            if mode == "overwrite":
+            if mode == "write":
                 # WriteToFile functionality
                 is_existed_file = os.path.exists(real_path)
                 with open(real_path, 'w', encoding='utf-8') as f:
@@ -708,12 +725,9 @@ class EditTextFile(UCTool, BaseReadWrite):
                         info(f"Writing data to file {real_path}.")
                         f.write(data)
                     f.flush()
-                self.do_callback(True, path, data)
-                warn_msg = ""
-                if is_existed_file:
-                    warn_msg = "(Warning: You are overwriting existing file. If editing content, consider using 'replace' mode). "
-                msg = f"Write {len(data) if data else 0} characters complete. " if data else f"File({path}) content cleared. "
-                return str_info(msg + warn_msg)
+                msg = f"Write {len(data) if data else 0} characters to '{path}' complete."
+                self.do_callback(True, path, msg)
+                return str_info(msg)
 
             elif mode == "append":
                 # AppendToFile functionality
