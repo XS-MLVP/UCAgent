@@ -4,6 +4,7 @@
 from typing import Any
 from .config import Config
 from langchain_core.rate_limiters import InMemoryRateLimiter
+from vagent.util.log import echo_g
 
 
 def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:
@@ -100,8 +101,10 @@ def get_chat_model(cfg: Config, callbacks: Any = None) -> Any:
             check_every_n_seconds=cfg.rate_limiter.check_every_n_seconds,
             max_bucket_size=cfg.rate_limiter.max_bucket_size,
         )
+        echo_g("Rate limiter enabled with %d requests per minute (RPM)." % (cfg.rate_limiter.requests_per_second * 60))
     model_type = cfg.get_value("model_type", "openai")
     func = "get_chat_model_%s" % model_type
+    echo_g(f"Using model type: {model_type} in get_chat_model.")
     if func in globals():
         return globals()[func](cfg, callbacks, rate_limiter)
     else:
