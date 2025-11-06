@@ -398,6 +398,9 @@ stage:
          - "测试函数的第一个参数为env (pytest fixture)"
          - "测试用例写入文件{OUT}/tests/test_{DUT}_env_fixture.py"
          - "所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_env_fixture.py')运行测试"
+         - "注意："
+         - "  该阶段测试的是env以及其中的Mock组件（如果有的话）是否按预期工作"
+         - "  只要对{DUT}进行基本驱动，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
        checker:
          - name: env_fixture_test_check
            clss: "UnityChipCheckerEnvFixtureTest"
