@@ -8,15 +8,15 @@ AI Agent for Automated Unit Test Verification Based on Large Language Models
 
 UCAgent is an automated hardware verification AI agent based on large language models, specifically focused on unit testing verification of chip designs. This project uses AI technology to automatically analyze hardware designs, generate test cases, execute verification tasks, and generate test reports, thereby improving verification efficiency.
 
-
 **Key Focus Areas of This Project:**
+
 - Automation of chip verification workflows
 - Completeness of functional coverage and code coverage
 - Consistency between documentation, code, and reports
 
 UCAgent provides comprehensive Agent-to-LLM interaction logic, supports three intelligent modes (standard, enhanced, advanced), and integrates rich file operation tools for direct interaction with large language models through standardized APIs. Based on the Picker & Toffee framework, chip verification is essentially equivalent to software testing. **Therefore, existing programming-focused AI Agents (such as OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) can achieve deep collaboration with UCAgent through the MCP protocol, realizing better verification results and higher levels of automation.**
 
------
+---
 
 #### UCAgent Input and Output
 
@@ -25,20 +25,21 @@ ucagent <workspace> <dut_name>
 ```
 
 **Input:**
- - `workspace:` Working directory:
-   - `workspace/<DUT_DIR>:` Design Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
-   - `workspace/<DUT_DIR>/README.md:` Verification requirements and objectives for the DUT described in natural language
-   - `workspace/<DUT_DIR>/*.md:` Other reference files
-   - `workspace/<DUT_DIR>_RTL/*.v/sv/scala:` Source files for bug analysis
-   - Other verification-related files (e.g., provided test instances, requirement specifications, etc.)
- - `dut_name:` Name of the design under test, i.e., `<DUT_DIR>`
+
+- `workspace:` Working directory:
+  - `workspace/<DUT_DIR>:` Design Under Test (DUT), which is the Python package `<DUT_DIR>` exported by picker, for example: Adder
+  - `workspace/<DUT_DIR>/README.md:` Verification requirements and objectives for the DUT described in natural language
+  - `workspace/<DUT_DIR>/*.md:` Other reference files
+  - `workspace/<DUT_DIR>_RTL/*.v/sv/scala:` Source files for bug analysis
+  - Other verification-related files (e.g., provided test instances, requirement specifications, etc.)
+- `dut_name:` Name of the design under test, i.e., `<DUT_DIR>`
 
 **Output:**
+
 - `workspace/Guide_Doc:` Various requirements and guidance documents followed during the verification process
 - `workspace/uc_test_report:` Generated Toffee-test test reports
 - `workspace/unity_test/tests:` Automatically generated test cases
 - `workspace/*.md:` Generated various documents, including bug analysis, checkpoint records, verification plans, verification conclusions, etc.
-
 
 ### System Requirements
 
@@ -51,22 +52,26 @@ ucagent <workspace> <dut_name>
 ### Quick Start
 
 1. Download source code
+
 ```bash
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
 ```
 
 2. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 3. Compile DUT, using the Adder example (requires [picker](https://github.com/XS-MLVP/picker))
+
 ```bash
 make init_Adder
 ```
 
 4. Start MCP-Server, default address: http://127.0.0.1:5000
+
 ```bash
 make mcp_Adder # workspace is set to the output directory under current directory
 ```
@@ -77,19 +82,21 @@ Please refer to: [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.gi
 
 Since test cases may take longer to run when there are many of them, it's recommended to set a larger `timeout` value, such as 10 seconds. Example Qwen configuration file:
 
- `~/.qwen/settings.json` configuration file:
+`~/.qwen/settings.json` configuration file:
+
 ```json
 {
-  "mcpServers": {
-    "unitytest": {
-      "httpUrl": "http://localhost:5000/mcp",
-      "timeout": 10000
-    }
-  }
+	"mcpServers": {
+		"unitytest": {
+			"httpUrl": "http://localhost:5000/mcp",
+			"timeout": 10000
+		}
+	}
 }
 ```
 
 6. Start verification
+
 ```bash
 cd output
 qwen
@@ -102,8 +109,69 @@ Note: The Code Agent must be launched within the working directory (e.g., the ou
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
 
 Hints:
+
 - Please write a validation prompt according to the task requirements
 - When the Code Agent stops halfway, you can enter prompts: `continue and use the tools Check and Complete to determine if all tasks have been completed`
+
+### Documentation Build & Preview (MkDocs)
+
+Makefile provides helper targets for docs (MkDocs + Material):
+
+| Target              | Purpose                                              |
+| ------------------- | ---------------------------------------------------- |
+| `make docs-help`    | Show documentation-related targets help text         |
+| `make docs-install` | Install build deps from `docs/requirements-docs.txt` |
+| `make docs-serve`   | Local preview (default: 127.0.0.1:8030)              |
+| `make docs-build`   | Build static site into `./site`                      |
+| `make docs-clean`   | Remove `./site` directory                            |
+
+Quick usage:
+
+```bash
+make docs-install
+make docs-serve
+make docs-build
+make docs-clean
+```
+
+Notes:
+
+- Host/port currently fixed in Makefile; edit if you need different values.
+- After `make docs-build` you can publish `site/` via GitHub Pages/Netlify/etc.
+
+### PDF Manual Build (Pandoc + XeLaTeX)
+
+High-quality PDF (developer manual) build rules:
+
+| Target           | Purpose                                               |
+| ---------------- | ----------------------------------------------------- |
+| `make pdf`       | Build `ucagent-doc.pdf` from ordered markdown sources |
+| `make pdf-one`   | Same as `pdf` (CI convenience wrapper)                |
+| `make pdf-clean` | Remove generated PDF and LaTeX aux files              |
+
+Examples:
+
+```bash
+make pdf
+make MONO="JetBrains Mono" pdf       # override monospaced font
+make TWOSIDE=1 pdf                    # two‑sided layout (filename adds -twoside)
+make pdf-clean
+```
+
+Requirements: pandoc, XeLaTeX (TexLive), Chinese font "Noto Serif CJK SC", monospaced font (default DejaVu Sans Mono), optional filter `pandoc-crossref`.
+
+Customization vars:
+
+- `MONO` override monospaced font.
+- `TWOSIDE` non-empty enables two-sided layout.
+
+Troubleshooting:
+
+- Missing font: install CJK fonts (e.g. `fonts-noto-cjk`).
+- LaTeX errors: ensure XeLaTeX packages (consider full TexLive).
+- Crossrefs missing: ensure `pandoc-crossref` in PATH.
+
+Output file: `ucagent-doc.pdf` suitable for release distribution.
 
 #### frequency operations
 
@@ -116,6 +184,7 @@ Hints:
 - `esc`: Force refresh interface
 
 ##### Stage color explanation
+
 - `White`: To be executed
 - `Red`: Executing
 - `Green`: Execution passed
@@ -131,7 +200,7 @@ Hints:
 - `tool_invote`: Manually call the tool
 - `help`: View all available commands
 
------
+---
 
 ### Installation and Usage
 
@@ -140,6 +209,7 @@ Install the latest version directly from GitHub:
 ```bash
 pip install git+https://github.com/XS-MLVP/UCAgent@main
 ```
+
 or
 
 ```bash
@@ -149,6 +219,7 @@ pip install .
 ```
 
 Upgrade
+
 ```bash
 ucagent --upgrade
 ```
@@ -163,20 +234,22 @@ When starting UCAgent, enable the corresponding service through `mcp-server` rel
 
 ##### MCP Server Options
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--mcp-server` | Start MCP server mode | - |
-| `--mcp-server-host` | MCP server host address | `127.0.0.1` |
-| `--mcp-server-port` | MCP server port | `5000` |
-| `--mcp-server-no-file-tools` | Start MCP Sever and disable file operation tools | - |
-| `--no-embed-tools` | Disable embedded tools | - |
+| Parameter                    | Description                                      | Default     |
+| ---------------------------- | ------------------------------------------------ | ----------- |
+| `--mcp-server`               | Start MCP server mode                            | -           |
+| `--mcp-server-host`          | MCP server host address                          | `127.0.0.1` |
+| `--mcp-server-port`          | MCP server port                                  | `5000`      |
+| `--mcp-server-no-file-tools` | Start MCP Sever and disable file operation tools | -           |
+| `--no-embed-tools`           | Disable embedded tools                           | -           |
 
 Example:
+
 ```bash
 ucagent output/ Adder --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
 Parameter explanation:
+
 - `--tui` Enable text user interface for displaying progress and command line interaction
 - `--mcp-server-no-file-tools` Start MCP Sever and disable UCAgent's file editing tools, use Code Agent's built-in file tools
 - `--no-embed-tools` Disable Embed-related tools (Code Agent has optimized similar tools for itself)
@@ -186,6 +259,7 @@ Recommended task startup prompt (without file tools, i.e., `--mcp-server-no-file
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files. You need to perform file operations in the current working directory and do not go beyond this directory.
 
 Or (with file tools):
+
 > Please use the `RoleInfo` tool to get your role information and basic guidance, then complete the task. Please use the `ReadTextFile` tool to read files and `EditTextFile` to create and edit files.
 
 **Tip: Code Agents are optimized for their own models, so using them to drive UCAgent will achieve better verification results**
@@ -230,18 +304,18 @@ ucagent output/ Adder --config config.yaml -s -hm --tui -utt
 
 ##### Common Options
 
-| Parameter | Short | Description | Example |
-|-----------|-------|-------------|---------|
-| `--config` | - | Specify configuration file path | `--config config.yaml` |
-| `--interaction-mode` | `-im` | Select LLM interaction mode, supports "standard", "enhanced", "advanced" | `-im enhanced` |
-| `--stream-output` | `-s` | Enable streaming output mode | `-s` |
-| `--tui` | - | Enable terminal UI interface | `--tui` |
-| `--human` | `-hm` | Enable human interaction mode | `-hm` |
-| `--loop` | `-l` | Start execution loop immediately | `-l` |
-| `--seed` | - | Set random seed | `--seed 12345` |
-| `--log` | - | Enable logging | `--log` |
-| `--ex-tools` | - | Add external tools | `--ex-tools SqThink` |
-| `--use-todo-tools` | `-utt` | Enable ToDo-related tools | `-utt` |
+| Parameter            | Short  | Description                                                              | Example                |
+| -------------------- | ------ | ------------------------------------------------------------------------ | ---------------------- |
+| `--config`           | -      | Specify configuration file path                                          | `--config config.yaml` |
+| `--interaction-mode` | `-im`  | Select LLM interaction mode, supports "standard", "enhanced", "advanced" | `-im enhanced`         |
+| `--stream-output`    | `-s`   | Enable streaming output mode                                             | `-s`                   |
+| `--tui`              | -      | Enable terminal UI interface                                             | `--tui`                |
+| `--human`            | `-hm`  | Enable human interaction mode                                            | `-hm`                  |
+| `--loop`             | `-l`   | Start execution loop immediately                                         | `-l`                   |
+| `--seed`             | -      | Set random seed                                                          | `--seed 12345`         |
+| `--log`              | -      | Enable logging                                                           | `--log`                |
+| `--ex-tools`         | -      | Add external tools                                                       | `--ex-tools SqThink`   |
+| `--use-todo-tools`   | `-utt` | Enable ToDo-related tools                                                | `-utt`                 |
 
 ##### Frequently used commands
 
@@ -257,26 +331,32 @@ UCAgent supports human-machine collaboration during the verification process, al
 **Collaborative process:**
 
 1. Pause AI execution:
+
 - In direct access to LLM mode: Press `Ctrl+C` to pause.
 - In Code Agent collaborative mode: pause according to the pause method of the agent (such as Gemini cl using `Esc`).
 
 2. Manual intervention:
+
 - Manually edit files, test cases, or configurations.
 - Use interactive commands for debugging or tuning.
 
 3. Stage control:
+
 - Use `tool_invote Check` to check the current stage status.
 - Use `tool_invote Complete` to mark the completion of the stage and move on to the next stage.
 
 4. Continue to execute:
+
 - Use the `loop [prompt]` command to continue AI execution and provide additional prompt information.
 - In Code Agent mode, input prompts through the Agent's console.
 
 5. Permission management:
+
 - File write permissions can be set using commands such as `add_un_writable_path` and `del_un_writable_path` to control whether AI can edit specific files.
 - Suitable for direct access to LLM or mandatory use of UCAgent file tools.
 
 Notes:
+
 - The Human Check for the specified stage can be forcibly enabled using the command `hmcheck_set <stage_index> [true|false]`
 - In the forced Human Check phase, manual approval is required by executing the command `hmcheck_pass [message]`
 - For certain stages of the Checker, the forced Human Check can also be enabled via the parameter `need_human_check: true`
@@ -303,7 +383,6 @@ lang: "en"
 ```
 
 Alternatively, by specifying parameters: `--config`, `--template-dir`, `--guid-doc-path` to the target language file, a similar effect can be achieved.
-
 
 ### Frequently Asked Questions (FAQ)
 
