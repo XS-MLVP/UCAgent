@@ -1,3 +1,7 @@
+.bsp/
+.metals/
+.scala-build/
+.vscode/
 uc_test_report/
 examples/template/report/
 examples/template/uc_test_report/
