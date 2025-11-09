@@ -272,7 +272,7 @@ class VerifyAgent:
 
         # Telemetry
         langfuse_cfg = self.cfg.get_value("langfuse", {})
-        self.langfuse_enable = langfuse_cfg.get_value("enable", False)
+        self.langfuse_enable = langfuse_cfg.get_value("enable", False) is True
         if self.langfuse_enable:
             public_key = langfuse_cfg.get_value("public_key", "")
             secret_key = langfuse_cfg.get_value("secret_key", "")
