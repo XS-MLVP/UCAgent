@@ -1,0 +1,661 @@
+/***************************************************************************************
+* Copyright (c) 2020-2021 Institute of Computing Technology, Chinese Academy of Sciences
+* Copyright (c) 2020-2021 Peng Cheng Laboratory
+*
+* XiangShan is licensed under Mulan PSL v2.
+* You can use this software according to the terms and conditions of the Mulan PSL v2.
+* You may obtain a copy of Mulan PSL v2 at:
+*          http://license.coscl.org.cn/MulanPSL2
+*
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+* EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+* MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+*
+* See the Mulan PSL v2 for more details.
+***************************************************************************************/
+
+package xiangshan.cache
+
+import org.chipsalliance.cde.config.Parameters
+import chisel3._
+import chisel3.util._
+import freechips.rocketchip.tilelink.{ClientMetadata, ClientStates, TLPermissions}
+import utility.{ParallelPriorityMux, OneHot, ChiselDB, ParallelORR, ParallelMux, XSDebug, XSPerfAccumulate, HasPerfEvents}
+import xiangshan.{XSCoreParamsKey, L1CacheErrorInfo}
+import xiangshan.cache.wpu._
+import xiangshan.mem.HasL1PrefetchSourceParameter
+import xiangshan.mem.prefetch._
+import xiangshan.mem.LqPtr
+
+class LoadPfDbBundle(implicit p: Parameters) extends DCacheBundle {
+  val paddr = UInt(PAddrBits.W)
+}
+
+class LoadPipe(id: Int)(implicit p: Parameters) extends DCacheModule with HasPerfEvents with HasL1PrefetchSourceParameter {
+  val io = IO(new DCacheBundle {
+    // incoming requests
+    val lsu = Flipped(new DCacheLoadIO)
+    val dwpu = Flipped(new DwpuBaseIO(nWays = nWays, nPorts = 1))
+    val load128Req = Input(Bool())
+    // req got nacked in stage 0?
+    val nack      = Input(Bool())
+
+    // meta and data array read port
+    val meta_read = DecoupledIO(new MetaReadReq)
+    val meta_resp = Input(Vec(nWays, new Meta))
+    val extra_meta_resp = Input(Vec(nWays, new DCacheExtraMeta))
+
+    val tag_read = DecoupledIO(new TagReadReq)
+    val tag_resp = Input(Vec(nWays, UInt(encTagBits.W)))
+    val vtag_update = Flipped(DecoupledIO(new TagWriteReq))
+
+    val banked_data_read = DecoupledIO(new L1BankedDataReadReqWithMask)
+    val is128Req = Output(Bool())
+    val banked_data_resp = Input(Vec(VLEN/DCacheSRAMRowBits, new L1BankedDataReadResult()))
+    val read_error_delayed = Input(Vec(VLEN/DCacheSRAMRowBits, Bool()))
+
+    // access bit update
+    val access_flag_write = DecoupledIO(new FlagMetaWriteReq)
+    val prefetch_flag_write = DecoupledIO(new SourceMetaWriteReq)
+
+    // banked data read conflict
+    val bank_conflict_slow = Input(Bool())
+
+    // send miss request to miss queue
+    val miss_req    = DecoupledIO(new MissReq)
+    val miss_resp   = Input(new MissResp)
+
+    // send miss request to wbq
+    val wbq_conflict_check = Valid(UInt())
+    val wbq_block_miss_req = Input(Bool())
+
+    // update state vec in replacement algo
+    val replace_access = ValidIO(new ReplacementAccessBundle)
+    // find the way to be replaced
+    val replace_way = new ReplacementWayReqIO
+
+    // BtoT grow check
+    val occupy_set = Output(UInt())
+    val occupy_fail = Input(Bool())
+
+    // load fast wakeup should be disabled when data read is not ready
+    val disable_ld_fast_wakeup = Input(Bool())
+
+    // ecc error
+    val error = Output(ValidIO(new L1CacheErrorInfo))
+    val pseudo_error = Flipped(DecoupledIO(Vec(DCacheBanks, new CtrlUnitSignalingBundle)))
+    val pseudo_tag_error_inj_done = Output(Bool())
+    val pseudo_data_error_inj_done = Output(Bool())
+
+    val prefetch_info = new Bundle {
+      val naive = new Bundle {
+        val total_prefetch = Output(Bool())
+        val late_hit_prefetch = Output(Bool())
+        val late_prefetch_hit = Output(Bool())
+        val late_load_hit = Output(Bool())
+        val useless_prefetch = Output(Bool())
+        val useful_prefetch = Output(Bool())
+        val prefetch_hit = Output(Bool())
+      }
+
+      val fdp = new Bundle {
+        val useful_prefetch = Output(Bool())
+        val demand_miss = Output(Bool())
+        val pollution = Output(Bool())
+      }
+    }
+
+    val bloom_filter_query = new Bundle {
+      val query = ValidIO(new BloomQueryBundle(BLOOM_FILTER_ENTRY_NUM))
+      val resp = Flipped(ValidIO(new BloomRespBundle()))
+    }
+
+    val counter_filter_query = new CounterFilterQueryBundle
+    val counter_filter_enq = new ValidIO(new CounterFilterDataBundle())
+  })
+
+  assert(RegNext(io.meta_read.ready))
+
+  val s1_ready = Wire(Bool())
+  val s2_ready = Wire(Bool())
+  // LSU requests
+  // it you got nacked, you can directly passdown
+  val not_nacked_ready = io.meta_read.ready && io.tag_read.ready && s1_ready
+  val nacked_ready     = true.B
+
+  // Pipeline
+  // --------------------------------------------------------------------------------
+  // stage 0
+  // --------------------------------------------------------------------------------
+  // read tag
+
+  // ready can wait for valid
+  io.lsu.req.ready := (!io.nack && not_nacked_ready) || (io.nack && nacked_ready)
+  io.meta_read.valid := io.lsu.req.fire && !io.nack
+  io.tag_read.valid := io.lsu.req.fire && !io.nack
+
+  val s0_valid = io.lsu.req.fire
+  val s0_req = WireInit(io.lsu.req.bits)
+  s0_req.vaddr := Mux(io.load128Req, Cat(io.lsu.req.bits.vaddr(io.lsu.req.bits.vaddr.getWidth - 1, 4), 0.U(4.W)), io.lsu.req.bits.vaddr)
+  val s0_fire = s0_valid && s1_ready
+  val s0_vaddr = s0_req.vaddr
+  val s0_replayCarry = s0_req.replayCarry
+  val s0_load128Req = io.load128Req
+  val s0_bank_oh_64 = UIntToOH(addr_to_dcache_bank(s0_vaddr))
+  val s0_bank_oh_128 = (s0_bank_oh_64 << 1.U).asUInt | s0_bank_oh_64.asUInt
+  val s0_bank_oh = Mux(s0_load128Req, s0_bank_oh_128, s0_bank_oh_64)
+  assert(RegNext(!(s0_valid && (s0_req.cmd =/= MemoryOpConstants.M_XRD && s0_req.cmd =/= MemoryOpConstants.M_PFR && s0_req.cmd =/= MemoryOpConstants.M_PFW))), "LoadPipe only accepts load req / softprefetch read or write!")
+  dump_pipeline_reqs("LoadPipe s0", s0_valid, s0_req)
+
+  // wpu
+  // val dwpu = Module(new DCacheWpuWrapper)
+  // req in s0
+  if(dwpuParam.enWPU){
+    io.dwpu.req(0).bits.vaddr := s0_vaddr
+    io.dwpu.req(0).bits.replayCarry := s0_replayCarry
+    io.dwpu.req(0).valid := s0_valid
+  }else{
+    io.dwpu.req(0).valid := false.B
+    io.dwpu.req(0).bits := DontCare
+  }
+
+
+  val meta_read = io.meta_read.bits
+  val tag_read = io.tag_read.bits
+
+  // Tag read for new requests
+  meta_read.idx := get_idx(io.lsu.req.bits.vaddr)
+  meta_read.way_en := ~0.U(nWays.W)
+  // meta_read.tag := DontCare
+
+  tag_read.idx := get_idx(io.lsu.req.bits.vaddr)
+  tag_read.way_en := ~0.U(nWays.W)
+
+  // --------------------------------------------------------------------------------
+  // stage 1
+  // --------------------------------------------------------------------------------
+  // tag match, read data
+
+  val s1_valid = RegInit(false.B)
+  val s1_req = RegEnable(s0_req, s0_fire)
+  // in stage 1, load unit gets the physical address
+  val s1_paddr_dup_lsu = io.lsu.s1_paddr_dup_lsu
+  val s1_paddr_dup_dcache = io.lsu.s1_paddr_dup_dcache
+  val s1_load128Req = RegEnable(s0_load128Req, s0_fire)
+  val s1_is_prefetch = s1_req.instrtype === DCACHE_PREFETCH_SOURCE.U
+  // LSU may update the address from io.lsu.s1_paddr, which affects the bank read enable only.
+  val s1_vaddr_update = Cat(s1_req.vaddr(VAddrBits - 1, blockOffBits), io.lsu.s1_paddr_dup_lsu(blockOffBits - 1, 0))
+  val s1_vaddr_update_dup = Cat(s1_req.vaddr_dup(VAddrBits - 1, blockOffBits), io.lsu.s1_paddr_dup_dcache(blockOffBits - 1, 0))
+  val s1_vaddr = Mux(s1_load128Req, Cat(s1_vaddr_update(VAddrBits - 1, 4), 0.U(4.W)), s1_vaddr_update)
+  val s1_vaddr_dup = Mux(s1_load128Req, Cat(s1_vaddr_update_dup(VAddrBits - 1, 4), 0.U(4.W)), s1_vaddr_update_dup)
+  val s1_bank_oh = RegEnable(s0_bank_oh, s0_fire)
+  val s1_nack = RegNext(io.nack)
+  val s1_fire = s1_valid && s2_ready
+  s1_ready := !s1_valid || s1_fire
+
+  when (s0_fire) { s1_valid := true.B }
+  .elsewhen (s1_fire) { s1_valid := false.B }
+
+  dump_pipeline_reqs("LoadPipe s1", s1_valid, s1_req)
+
+  // tag check
+  def wayMap[T <: Data](f: Int => T) = VecInit((0 until nWays).map(f))
+  val meta_resp = io.meta_resp
+  // pseudo enc ecc tag
+  val pseudo_tag_toggle_mask = Mux(
+                                io.pseudo_error.valid && io.pseudo_error.bits(0).valid,
+                                io.pseudo_error.bits(0).mask(tagBits - 1, 0),
+                                0.U(tagBits.W)
+                            )
+  val s1_enctag_resp = Wire(io.tag_resp.cloneType)
+  s1_enctag_resp.zip(io.tag_resp).map {
+    case (pseudo_enc, real_enc) =>
+    if (cacheCtrlParamsOpt.nonEmpty && EnableTagEcc) {
+      val ecc = real_enc(encTagBits - 1, tagBits)
+      val toggleTag = real_enc(tagBits - 1, 0) ^ pseudo_tag_toggle_mask
+      pseudo_enc := Cat(ecc, toggleTag)
+    }  else {
+      pseudo_enc := real_enc
+    }
+  }
+
+  // resp in s1
+  val s1_tag_resp = s1_enctag_resp.map(encTag => encTag(tagBits - 1, 0))
+  val s1_tag_errors = wayMap((w: Int) => meta_resp(w).coh.isValid() && dcacheParameters.tagCode.decode(s1_enctag_resp(w)).error).asUInt
+  val s1_tag_match_way_dup_dc = wayMap((w: Int) => s1_tag_resp(w) === get_tag(s1_paddr_dup_dcache) && meta_resp(w).coh.isValid()).asUInt
+  val s1_tag_match_way_dup_lsu = wayMap((w: Int) => s1_tag_resp(w) === get_tag(s1_paddr_dup_lsu) && meta_resp(w).coh.isValid()).asUInt
+  val s1_wpu_pred_valid = RegEnable(io.dwpu.resp(0).valid, s0_fire)
+  val s1_wpu_pred_way_en = RegEnable(io.dwpu.resp(0).bits.s0_pred_way_en, s0_fire)
+
+  // lookup update
+  io.dwpu.lookup_upd(0).valid := s1_valid
+  io.dwpu.lookup_upd(0).bits.vaddr := s1_vaddr
+  io.dwpu.lookup_upd(0).bits.s1_real_way_en := s1_tag_match_way_dup_dc
+  io.dwpu.lookup_upd(0).bits.s1_pred_way_en := s1_wpu_pred_way_en
+  // replace / tag write
+  io.vtag_update.ready := true.B
+  // dwpu.io.tagwrite_upd.valid := io.vtag_update.valid
+  // dwpu.io.tagwrite_upd.bits.vaddr := io.vtag_update.bits.vaddr
+  // dwpu.io.tagwrite_upd.bits.s1_real_way_en := io.vtag_update.bits.way_en
+
+  val s1_direct_map_way_num = get_direct_map_way(s1_req.vaddr)
+  if(dwpuParam.enCfPred || !env.FPGAPlatform){
+    /* method1: record the pc */
+    // if (!env.FPGAPlatform){
+    //    io.dwpu.cfpred(0).s0_vaddr := io.lsu.s0_pc
+    //    io.dwpu.cfpred(0).s1_vaddr := io.lsu.s1_pc
+    // }
+
+    /* method2: record the vaddr */
+    io.dwpu.cfpred(0).s0_vaddr := s0_vaddr
+    io.dwpu.cfpred(0).s1_vaddr := s1_vaddr
+    // whether direct_map_way miss with valid tag value
+    io.dwpu.cfpred(0).s1_dm_hit := wayMap((w: Int) => w.U === s1_direct_map_way_num && s1_tag_resp(w) === get_tag(s1_paddr_dup_lsu) && meta_resp(w).coh.isValid()).asUInt.orR
+  }else{
+    io.dwpu.cfpred(0) := DontCare
+  }
+
+  val s1_pred_tag_match_way_dup_dc = Wire(UInt(nWays.W))
+  val s1_wpu_pred_fail = Wire(Bool())
+  val s1_wpu_pred_fail_and_real_hit = Wire(Bool())
+  if (dwpuParam.enWPU) {
+    when(s1_wpu_pred_valid) {
+      s1_pred_tag_match_way_dup_dc := s1_wpu_pred_way_en
+    }.otherwise {
+      s1_pred_tag_match_way_dup_dc := s1_tag_match_way_dup_dc
+    }
+    s1_wpu_pred_fail := s1_valid && s1_tag_match_way_dup_dc =/= s1_pred_tag_match_way_dup_dc
+    s1_wpu_pred_fail_and_real_hit := s1_wpu_pred_fail && s1_tag_match_way_dup_dc.orR
+  } else {
+    s1_pred_tag_match_way_dup_dc := s1_tag_match_way_dup_dc
+    s1_wpu_pred_fail := false.B
+    s1_wpu_pred_fail_and_real_hit := false.B
+  }
+
+  val s1_tag_match_dup_dc = ParallelORR(s1_tag_match_way_dup_dc)
+  val s1_tag_match_dup_lsu = ParallelORR(s1_tag_match_way_dup_lsu)
+  assert(RegNext(!s1_valid || PopCount(s1_tag_match_way_dup_dc) <= 1.U), "tag should not match with more than 1 way")
+  io.pseudo_tag_error_inj_done := s1_fire && wayMap((w: Int) => meta_resp(w).coh.isValid()).asUInt.orR
+
+  // when there are no tag match, we give it a Fake Meta
+  // this simplifies our logic in s2 stage
+  val s1_hit_meta = ParallelMux(s1_tag_match_way_dup_dc.asBools, (0 until nWays).map(w => meta_resp(w)))
+  val s1_hit_coh = s1_hit_meta.coh
+  val s1_hit_error = ParallelMux(s1_tag_match_way_dup_dc.asBools, (0 until nWays).map(w => io.extra_meta_resp(w).error))
+  val s1_hit_prefetch = ParallelMux(s1_tag_match_way_dup_dc.asBools, (0 until nWays).map(w => io.extra_meta_resp(w).prefetch))
+  val s1_hit_access = ParallelMux(s1_tag_match_way_dup_dc.asBools, (0 until nWays).map(w => io.extra_meta_resp(w).access))
+
+  // io.replace_way.set.valid := RegNext(s0_fire)
+  io.replace_way.set.valid := false.B
+  io.replace_way.set.bits := get_idx(s1_vaddr)
+  io.replace_way.dmWay := get_direct_map_way(s1_vaddr)
+  val s1_invalid_vec = wayMap(w => !meta_resp(w).coh.isValid())
+  val s1_have_invalid_way = s1_invalid_vec.asUInt.orR
+  val s1_invalid_way_en = ParallelPriorityMux(s1_invalid_vec.zipWithIndex.map(x => x._1 -> UIntToOH(x._2.U(nWays.W))))
+
+  val s1_need_replacement = !s1_tag_match_dup_dc
+
+  XSPerfAccumulate("load_using_replacement", io.replace_way.set.valid && s1_need_replacement)
+
+  // query bloom filter
+  io.bloom_filter_query.query.valid := s1_valid
+  io.bloom_filter_query.query.bits.addr := io.bloom_filter_query.query.bits.get_addr(s1_paddr_dup_dcache)
+
+  // get s1_will_send_miss_req in lpad_s1
+  val (s1_has_permission, s1_shrink_perm, s1_new_hit_coh) = s1_hit_coh.onAccess(s1_req.cmd)
+  val s1_hit = s1_tag_match_dup_dc && s1_has_permission && s1_hit_coh === s1_new_hit_coh
+  val s1_will_send_miss_req = s1_valid && !s1_nack && !s1_hit
+
+  // data read
+  io.banked_data_read.valid := s1_fire && !s1_nack && !s1_is_prefetch
+  io.banked_data_read.bits.addr := s1_vaddr
+  io.banked_data_read.bits.addr_dup := s1_vaddr_dup
+  io.banked_data_read.bits.kill := io.lsu.s1_kill_data_read
+  io.banked_data_read.bits.way_en := s1_pred_tag_match_way_dup_dc
+  io.banked_data_read.bits.bankMask := s1_bank_oh
+  io.banked_data_read.bits.lqIdx := s1_req.lqIdx
+  io.is128Req := s1_load128Req
+
+  // check ecc error
+  val s1_flag_error = Mux(s1_need_replacement, false.B, s1_hit_error) // error reported by exist dcache error bit
+
+  // --------------------------------------------------------------------------------
+  // stage 2
+  // --------------------------------------------------------------------------------
+  // return data
+
+  // val s2_valid = RegEnable(next = s1_valid && !io.lsu.s1_kill, init = false.B, enable = s1_fire)
+  val s2_valid = RegInit(false.B)
+  val s2_valid_dup = RegInit(false.B)
+  val s2_req = RegEnable(s1_req, s1_fire)
+  val s2_load128Req = RegEnable(s1_load128Req, s1_fire)
+  val s2_paddr = RegEnable(s1_paddr_dup_dcache, s1_fire)
+  val s2_vaddr = RegEnable(s1_vaddr, s1_fire)
+  val s2_bank_oh = RegEnable(s1_bank_oh, s1_fire)
+  val s2_bank_oh_dup_0 = RegEnable(s1_bank_oh, s1_fire)
+  val s2_wpu_pred_fail = RegEnable(s1_wpu_pred_fail, s1_fire)
+  val s2_real_way_en = RegEnable(s1_tag_match_way_dup_dc, s1_fire)
+  val s2_pred_way_en = RegEnable(s1_pred_tag_match_way_dup_dc, s1_fire)
+  val s2_dm_way_num = RegEnable(s1_direct_map_way_num, s1_fire)
+  val s2_wpu_pred_fail_and_real_hit = RegEnable(s1_wpu_pred_fail_and_real_hit, s1_fire)
+
+  // occupy set check, it will fail if the number of BtoT at same set great equal nWays - 1
+  io.occupy_set := addr_to_dcache_set(s2_vaddr)
+
+  s2_ready := true.B
+
+  val s2_fire = s2_valid
+
+  when (s1_fire) {
+    s2_valid := !io.lsu.s1_kill
+    s2_valid_dup := !io.lsu.s1_kill
+  }
+  .elsewhen(io.lsu.resp.fire) {
+    s2_valid := false.B
+    s2_valid_dup := false.B
+  }
+
+  dump_pipeline_reqs("LoadPipe s2", s2_valid, s2_req)
+
+
+  // hit, miss, nack, permission checking
+  // dcache side tag match
+  val s2_tag_errors = RegEnable(s1_tag_errors, s1_fire)
+  val s2_tag_match_way = RegEnable(s1_tag_match_way_dup_dc, s1_fire)
+  val s2_tag_match = RegEnable(s1_tag_match_dup_dc, s1_fire)
+
+  // lsu side tag match
+  val s2_hit_dup_lsu = RegNext(s1_tag_match_dup_lsu)
+
+  io.lsu.s2_hit := s2_hit_dup_lsu && !s2_wpu_pred_fail
+
+  val s2_hit_meta = RegEnable(s1_hit_meta, s1_fire)
+  val s2_hit_coh = RegEnable(s1_hit_coh, s1_fire)
+  val s2_has_permission = RegEnable(s1_has_permission, s1_fire)
+  val s2_new_hit_coh = RegEnable(s1_new_hit_coh, s1_fire)
+  val s2_grow_perm_btot = RegEnable(
+    s1_shrink_perm === TLPermissions.BtoT && !s1_has_permission && s1_tag_match_dup_lsu && !s2_wpu_pred_fail,
+    s1_fire
+  )
+  // BtoT occupy fail
+  val s2_btot_occupy_fail = io.occupy_fail && s2_grow_perm_btot
+
+  //
+  val s2_can_send_miss_req = RegEnable(s1_will_send_miss_req, s1_fire)
+  val s2_can_send_miss_req_dup = RegEnable(s1_will_send_miss_req, s1_fire)
+
+  val s2_miss_req_valid     = s2_valid && s2_can_send_miss_req
+  val s2_miss_req_valid_dup = s2_valid_dup && s2_can_send_miss_req_dup
+  val s2_miss_req_fire      = s2_miss_req_valid_dup && io.miss_req.ready
+
+  // when req got nacked, upper levels should replay this request
+  // nacked or not
+  val s2_nack_hit = RegEnable(s1_nack, s1_fire)
+  // can no allocate mshr for load miss
+  val s2_nack_no_mshr = s2_miss_req_valid_dup && !io.miss_req.ready
+  // block with a wbq valid req
+  val s2_nack_wbq_conflict = s2_miss_req_valid_dup && io.wbq_block_miss_req
+  // Bank conflict on data arrays
+  val s2_nack_data = RegEnable(!io.banked_data_read.ready, s1_fire)
+  val s2_nack = s2_nack_hit || s2_nack_no_mshr || s2_nack_data || s2_nack_wbq_conflict
+  // s2 miss merged
+  val s2_miss_merged = s2_miss_req_fire && !io.miss_req.bits.cancel && !io.wbq_block_miss_req && io.miss_resp.merged
+
+  val s2_bank_addr = addr_to_dcache_bank(s2_paddr)
+  dontTouch(s2_bank_addr)
+
+  val s2_instrtype = s2_req.instrtype
+
+  val s2_tag_error = WireInit(false.B)
+  val s2_flag_error = RegEnable(s1_flag_error, s1_fire)
+
+  val s2_hit_prefetch = RegEnable(s1_hit_prefetch, s1_fire)
+  val s2_hit_access = RegEnable(s1_hit_access, s1_fire)
+
+  val s2_hit = s2_tag_match && s2_has_permission && s2_hit_coh === s2_new_hit_coh && !s2_wpu_pred_fail
+
+  val s2_data128bit = Cat(io.banked_data_resp(1).raw_data, io.banked_data_resp(0).raw_data)
+  val s2_resp_data  = s2_data128bit
+
+  // only dump these signals when they are actually valid
+  dump_pipeline_valids("LoadPipe s2", "s2_hit", s2_valid && s2_hit)
+  dump_pipeline_valids("LoadPipe s2", "s2_nack", s2_valid && s2_nack)
+  dump_pipeline_valids("LoadPipe s2", "s2_nack_hit", s2_valid && s2_nack_hit)
+  dump_pipeline_valids("LoadPipe s2", "s2_nack_no_mshr", s2_valid && s2_nack_no_mshr)
+
+  if(EnableTagEcc) {
+    s2_tag_error := s2_tag_errors.orR // error reported by tag ecc check
+  }
+  io.pseudo_data_error_inj_done := s2_fire && s2_hit && !io.bank_conflict_slow
+  io.pseudo_error.ready := false.B
+
+  // send load miss to miss queue
+  io.miss_req.valid := s2_miss_req_valid
+  io.miss_req.bits := DontCare
+  io.miss_req.bits.source := s2_instrtype
+  io.miss_req.bits.pf_source := RegNext(RegNext(io.lsu.pf_source))  // TODO: clock gate
+  io.miss_req.bits.cmd := s2_req.cmd
+  io.miss_req.bits.addr := get_block_addr(s2_paddr)
+  io.miss_req.bits.vaddr := s2_vaddr
+  io.miss_req.bits.req_coh := s2_hit_coh
+  io.miss_req.bits.cancel := io.lsu.s2_kill || s2_tag_error || s2_btot_occupy_fail
+  io.miss_req.bits.pc := io.lsu.s2_pc
+  io.miss_req.bits.lqIdx := io.lsu.req.bits.lqIdx
+  io.miss_req.bits.isBtoT := s2_grow_perm_btot
+  io.miss_req.bits.occupy_way := s2_tag_match_way
+
+  //send load miss to wbq
+  io.wbq_conflict_check.valid := s2_miss_req_valid_dup
+  io.wbq_conflict_check.bits := get_block_addr(s2_paddr)
+
+  // send back response
+  val resp = Wire(ValidIO(new DCacheWordResp))
+  resp.valid := s2_valid
+  resp.bits := DontCare
+  // resp.bits.data := s2_word_decoded
+  // resp.bits.data := banked_data_resp_word.raw_data
+  // * on miss or nack, upper level should replay request
+  // but if we successfully sent the request to miss queue
+  // upper level does not need to replay request
+  // they can sit in load queue and wait for refill
+  //
+  // * report a miss if bank conflict is detected
+  val real_miss = !s2_real_way_en.orR
+
+  resp.bits.real_miss := real_miss
+  resp.bits.miss := real_miss
+  resp.bits.data := s2_resp_data
+  io.lsu.s2_first_hit := s2_req.isFirstIssue && s2_hit
+  // load pipe need replay when there is a bank conflict or wpu predict fail
+  resp.bits.replay := (resp.bits.miss && (s2_nack || io.miss_req.bits.cancel)) || io.bank_conflict_slow || s2_wpu_pred_fail || s2_btot_occupy_fail
+  resp.bits.replayCarry.valid := (resp.bits.miss && (s2_nack || io.miss_req.bits.cancel)) || io.bank_conflict_slow || s2_wpu_pred_fail || s2_btot_occupy_fail
+  resp.bits.replayCarry.real_way_en := s2_real_way_en
+  resp.bits.meta_prefetch := s2_hit_prefetch
+  resp.bits.meta_access := s2_hit_access
+  resp.bits.tag_error := false.B
+  resp.bits.mshr_id := io.miss_resp.id
+  resp.bits.handled := s2_miss_req_fire && !io.miss_req.bits.cancel && !io.wbq_block_miss_req && io.miss_resp.handled
+  resp.bits.debug_robIdx := s2_req.debug_robIdx
+  // debug info
+  io.lsu.s2_first_hit := s2_req.isFirstIssue && s2_hit
+  io.lsu.debug_s2_real_way_num := OneHot.OHToUIntStartOne(s2_real_way_en)
+  if(dwpuParam.enWPU) {
+    io.lsu.debug_s2_pred_way_num := OneHot.OHToUIntStartOne(s2_pred_way_en)
+  }else{
+    io.lsu.debug_s2_pred_way_num := 0.U
+  }
+  if(dwpuParam.enWPU && dwpuParam.enCfPred || !env.FPGAPlatform){
+    io.lsu.debug_s2_dm_way_num :=  s2_dm_way_num + 1.U
+  }else{
+    io.lsu.debug_s2_dm_way_num := 0.U
+  }
+
+
+  XSPerfAccumulate("dcache_read_bank_conflict", io.bank_conflict_slow && s2_valid)
+  XSPerfAccumulate("dcache_read_from_prefetched_line", s2_valid && isPrefetchRelated(s2_hit_prefetch) && !resp.bits.miss)
+  XSPerfAccumulate("dcache_first_read_from_prefetched_line", s2_valid && isPrefetchRelated(s2_hit_prefetch) && !resp.bits.miss && !s2_hit_access)
+
+  // if ldu0 and ldu1 hit the same, count for 1
+  val total_prefetch = s2_valid && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U)
+  val late_hit_prefetch = s2_valid && s2_hit && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U)
+  val late_load_hit = s2_valid && s2_hit && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U) && !isFromL1Prefetch(s2_hit_prefetch)
+  val late_prefetch_hit = s2_valid && s2_hit && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U) && isFromL1Prefetch(s2_hit_prefetch)
+  val useless_prefetch = s2_miss_req_fire && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U)
+  val useful_prefetch = s2_valid && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U) && resp.bits.handled && !io.miss_resp.merged
+
+  val prefetch_hit = s2_valid && (s2_req.instrtype =/= DCACHE_PREFETCH_SOURCE.U) && s2_hit && isFromL1Prefetch(s2_hit_prefetch) && s2_req.isFirstIssue
+
+  io.prefetch_info.naive.total_prefetch := total_prefetch
+  io.prefetch_info.naive.late_hit_prefetch := late_hit_prefetch
+  io.prefetch_info.naive.late_load_hit := late_load_hit
+  io.prefetch_info.naive.late_prefetch_hit := late_prefetch_hit
+  io.prefetch_info.naive.useless_prefetch := useless_prefetch
+  io.prefetch_info.naive.useful_prefetch := useful_prefetch
+  io.prefetch_info.naive.prefetch_hit := prefetch_hit
+
+  io.prefetch_info.fdp.demand_miss := s2_valid && (s2_req.instrtype =/= DCACHE_PREFETCH_SOURCE.U) && !s2_hit && s2_req.isFirstIssue
+  io.prefetch_info.fdp.pollution := io.prefetch_info.fdp.demand_miss && io.bloom_filter_query.resp.valid && io.bloom_filter_query.resp.bits.res
+
+  io.lsu.resp.valid := resp.valid
+  io.lsu.resp.bits := resp.bits
+  assert(RegNext(!(resp.valid && !io.lsu.resp.ready)), "lsu should be ready in s2")
+
+  resp.bits.dump(resp.valid)
+
+  io.lsu.debug_s1_hit_way := s1_tag_match_way_dup_dc
+  io.lsu.s1_disable_fast_wakeup := io.disable_ld_fast_wakeup
+  io.lsu.s2_bank_conflict := io.bank_conflict_slow
+  io.lsu.s2_wpu_pred_fail := s2_wpu_pred_fail_and_real_hit
+  io.lsu.s2_mq_nack       := (resp.bits.miss && (s2_nack_no_mshr || io.miss_req.bits.cancel || io.wbq_block_miss_req ) || s2_btot_occupy_fail)
+  assert(RegNext(s1_ready && s2_ready), "load pipeline should never be blocked")
+
+  // --------------------------------------------------------------------------------
+  // stage 3
+  // --------------------------------------------------------------------------------
+  // report ecc error and get selected dcache data
+
+  val s3_valid = RegNext(s2_valid)
+  val s3_load128Req = RegEnable(s2_load128Req, s2_fire)
+  val s3_vaddr = RegEnable(s2_vaddr, s2_fire)
+  val s3_paddr = RegEnable(s2_paddr, s2_fire)
+  val s3_hit = RegEnable(s2_hit, s2_fire)
+  val s3_tag_match_way = RegEnable(s2_tag_match_way, s2_fire)
+  val s3_req_instrtype = RegEnable(s2_req.instrtype, s2_fire)
+  val s3_is_prefetch = s3_req_instrtype === DCACHE_PREFETCH_SOURCE.U
+
+  val s3_banked_data_resp_word = RegEnable(s2_resp_data, s2_fire)
+  val s3_data_error = Mux(s3_load128Req, io.read_error_delayed.asUInt.orR, io.read_error_delayed(0)) && s3_hit
+  val s3_tag_error = RegEnable(s2_tag_error, s2_fire)
+  val s3_flag_error = RegEnable(s2_flag_error, s2_fire)
+  val s3_hit_prefetch = RegEnable(s2_hit_prefetch, s2_fire)
+  val s3_error = s3_tag_error || s3_flag_error || s3_data_error
+
+  // error_delayed signal will be used to update uop.exception 1 cycle after load writeback
+  resp.bits.error_delayed := s3_error && (s3_hit || s3_tag_error) && s3_valid
+  resp.bits.data_delayed := s3_banked_data_resp_word
+  resp.bits.replacementUpdated := io.replace_access.valid
+
+  // report tag / data / l2 error (with paddr) to bus error unit
+  io.error := 0.U.asTypeOf(ValidIO(new L1CacheErrorInfo))
+  io.error.bits.report_to_beu := (s3_tag_error || s3_data_error) && s3_valid
+  io.error.bits.paddr := s3_paddr
+  io.error.bits.source.tag := s3_tag_error
+  io.error.bits.source.data := s3_data_error
+  io.error.bits.source.l2 := s3_flag_error
+  io.error.bits.opType.load := true.B
+  // report tag error / l2 corrupted to CACHE_ERROR csr
+  io.error.valid := s3_error && s3_valid
+
+  io.replace_access.valid := s3_valid && s3_hit
+  io.replace_access.bits.set := RegNext(RegNext(get_idx(s1_req.vaddr)))
+  io.replace_access.bits.way := RegNext(RegNext(OHToUInt(s1_tag_match_way_dup_dc)))
+
+  // update access bit
+  io.access_flag_write.valid := s3_valid && s3_hit && !s3_is_prefetch
+  io.access_flag_write.bits.idx := get_idx(s3_vaddr)
+  io.access_flag_write.bits.way_en := s3_tag_match_way
+  io.access_flag_write.bits.flag := true.B
+
+  // clear prefetch source when prefetch hit
+  val s3_clear_pf_flag_en = s3_valid && s3_hit && !s3_is_prefetch && isFromL1Prefetch(s3_hit_prefetch)
+  io.prefetch_flag_write.valid := s3_clear_pf_flag_en && !io.counter_filter_query.resp
+  io.prefetch_flag_write.bits.idx := get_idx(s3_vaddr)
+  io.prefetch_flag_write.bits.way_en := s3_tag_match_way
+  io.prefetch_flag_write.bits.source := L1_HW_PREFETCH_CLEAR
+
+  io.counter_filter_query.req.valid := s3_clear_pf_flag_en
+  io.counter_filter_query.req.bits.idx := get_idx(s3_vaddr)
+  io.counter_filter_query.req.bits.way := OHToUInt(s3_tag_match_way)
+
+  io.counter_filter_enq.valid := io.prefetch_flag_write.valid
+  io.counter_filter_enq.bits.idx := get_idx(s3_vaddr)
+  io.counter_filter_enq.bits.way := OHToUInt(s3_tag_match_way)
+
+  io.prefetch_info.fdp.useful_prefetch := s3_clear_pf_flag_en && !io.counter_filter_query.resp
+
+  XSPerfAccumulate("s3_pf_hit", s3_clear_pf_flag_en)
+  XSPerfAccumulate("s3_pf_hit_filter", s3_clear_pf_flag_en && !io.counter_filter_query.resp)
+
+  // --------------------------------------------------------------------------------
+  // Debug logging functions
+  def dump_pipeline_reqs(pipeline_stage_name: String, valid: Bool,
+    req: DCacheWordReq ) = {
+      XSDebug(valid, s"$pipeline_stage_name: ")
+      req.dump(valid)
+  }
+
+  def dump_pipeline_valids(pipeline_stage_name: String, signal_name: String, valid: Bool) = {
+    XSDebug(valid, s"$pipeline_stage_name $signal_name\n")
+  }
+
+  val load_trace = Wire(new LoadPfDbBundle)
+  val pf_trace = Wire(new LoadPfDbBundle)
+  val miss_trace = Wire(new LoadPfDbBundle)
+  val mshr_trace = Wire(new LoadPfDbBundle)
+
+  load_trace.paddr := get_block_addr(s2_paddr)
+  pf_trace.paddr := get_block_addr(s2_paddr)
+  miss_trace.paddr := get_block_addr(s2_paddr)
+  mshr_trace.paddr := get_block_addr(s2_paddr)
+
+  val table_load = ChiselDB.createTable("LoadTrace" + id.toString + "_hart"+ p(XSCoreParamsKey).HartId.toString, new LoadPfDbBundle, basicDB = false)
+  val site_load = "LoadPipe_load" + id.toString
+  table_load.log(load_trace, s2_valid && s2_req.isFirstIssue && (s2_req.instrtype =/= DCACHE_PREFETCH_SOURCE.U), site_load, clock, reset)
+
+  val table_pf = ChiselDB.createTable("LoadPfTrace" + id.toString + "_hart"+ p(XSCoreParamsKey).HartId.toString, new LoadPfDbBundle, basicDB = false)
+  val site_pf = "LoadPipe_pf" + id.toString
+  table_pf.log(pf_trace, s2_valid && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U), site_pf, clock, reset)
+
+  val table_miss = ChiselDB.createTable("LoadTraceMiss" + id.toString + "_hart"+ p(XSCoreParamsKey).HartId.toString, new LoadPfDbBundle, basicDB = false)
+  val site_load_miss = "LoadPipe_load_miss" + id.toString
+  table_miss.log(miss_trace, s2_valid && s2_req.isFirstIssue && (s2_req.instrtype =/= DCACHE_PREFETCH_SOURCE.U) && real_miss, site_load_miss, clock, reset)
+
+  val table_mshr = ChiselDB.createTable("LoadPfMshr" + id.toString + "_hart"+ p(XSCoreParamsKey).HartId.toString, new LoadPfDbBundle, basicDB = false)
+  val site_mshr = "LoadPipe_mshr" + id.toString
+  table_mshr.log(mshr_trace, s2_valid && (s2_req.instrtype === DCACHE_PREFETCH_SOURCE.U) && io.miss_req.fire, site_mshr, clock, reset)
+
+  // performance counters
+  XSPerfAccumulate("load_req", io.lsu.req.fire)
+  XSPerfAccumulate("load_s1_kill", s1_fire && io.lsu.s1_kill)
+  XSPerfAccumulate("load_hit_way", s1_fire && s1_tag_match_dup_dc)
+  XSPerfAccumulate("load_replay", io.lsu.resp.fire && resp.bits.replay)
+  XSPerfAccumulate("load_replay_for_dcache_data_nack", io.lsu.resp.fire && resp.bits.replay && s2_nack_data)
+  XSPerfAccumulate("load_replay_for_dcache_no_mshr", io.lsu.resp.fire && resp.bits.replay && s2_nack_no_mshr)
+  XSPerfAccumulate("load_replay_for_dcache_conflict", io.lsu.resp.fire && resp.bits.replay && io.bank_conflict_slow)
+  XSPerfAccumulate("load_replay_for_dcache_wpu_pred_fail", io.lsu.resp.fire && resp.bits.replay && s2_wpu_pred_fail)
+  XSPerfAccumulate("load_hit", io.lsu.resp.fire && !real_miss)
+  XSPerfAccumulate("load_miss", io.lsu.resp.fire && real_miss)
+  XSPerfAccumulate("load_succeed", io.lsu.resp.fire && !resp.bits.miss && !resp.bits.replay)
+  XSPerfAccumulate("load_miss_or_conflict", io.lsu.resp.fire && resp.bits.miss)
+  XSPerfAccumulate("actual_ld_fast_wakeup", s1_fire && s1_tag_match_dup_dc && !io.disable_ld_fast_wakeup)
+  XSPerfAccumulate("ideal_ld_fast_wakeup", io.banked_data_read.fire && s1_tag_match_dup_dc)
+
+  val perfEvents = Seq(
+    ("load_req                 ", io.lsu.req.fire                                               ),
+    ("load_replay              ", io.lsu.resp.fire && resp.bits.replay                          ),
+    ("load_replay_for_data_nack", io.lsu.resp.fire && resp.bits.replay && s2_nack_data          ),
+    ("load_replay_for_no_mshr  ", io.lsu.resp.fire && resp.bits.replay && s2_nack_no_mshr       ),
+    ("load_replay_for_conflict ", io.lsu.resp.fire && resp.bits.replay && io.bank_conflict_slow ),
+  )
+  generatePerfEvent()
+}

@@ -1,0 +1,67 @@
+# GenSpec 示例配置文件
+
+mission:
+  name: "{DUT} Spec 文档生成"
+  prompt:
+    system: |
+		  你是一名资深芯片系统工程师，目标是在保证准确性的前提下，生成结构化、可复用的规格说明文档。
+			请严格区分功能描述、接口定义、时序行为和测试注意事项，必要时给出编号和引用来源。
+      在进行功能点描述时，一定需要做到结构化呈现。
+      你会通过Check工具判断当前阶段的完成情况，通过Complete工具完成当前阶段进入下一个阶段的，直到所有任务都完成。
+
+mcp_server:
+  init_prompt: >
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`EditTextFile`创建和编辑文件。
+
+stage:
+  - name: collect_existing_assets
+    desc: "整理已有文档并抽取核心需求"
+    task:
+      - "阅读 {DUT}/ 下的所有文字资料（*.md, *.csv）"
+      - "罗列功能概览、关键约束、外设依赖"
+      - "参考考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入 {OUT}/{DUT}_spec.md → [Functional Overview]、[Use Cases]"
+      - "注意："
+      - "  - 保持章节结构清晰，使用编号和标题区分不同部分"
+      - "  - 对于不明确的需求，标注为待确认项以便后续跟进"
+      - "  - 内容很多时，请列出目录和摘要并写入{OUT}/{DUT}_todo.md，然后按章节分批完成"
+    reference_files:
+      - "{DUT}/*.md"
+      - "{DUT}/*.csv"
+      - "Guide_Doc/dut_spec_template.md"
+    output_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "{OUT}/{DUT}_todo.md"
+
+  - name: augment_with_code
+    desc: "结合 RTL 源代码补全细节"
+    task:
+      - "解析目录{DUT}/中的RTL源码（.v/sv/scala等文件后缀）"
+      - "按模块填写接口表、输入输出约束与复位时序"
+      - "标注对外可见的行为组合：正常路径、异常/边界、性能假设"
+      - "根据源代码完善 {OUT}/{DUT}_spec.md → [Interface Definitions]、[Timing Behavior]"
+      - "注意："
+      - "  - 确保接口定义与功能描述一致"
+      - "  - 对于复杂模块，分解为子模块逐一描述"
+      - "  - 更新时序图和状态机描述，确保与代码逻辑匹配"
+      - "  - 对于参数化模块，记录参数取值限制与默认值"
+      - "  - 源代码很多时，例如多个文件，请对每个文件的分析结果分别写入{OUT}/{DUT}_code_analysis_*.md，然后逐步整合到spec中"
+    reference_files:
+      - "{DUT}/*.sv"
+      - "{DUT}/*.v"
+      - "{DUT}/*.scala"
+    output_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "{OUT}/{DUT}_code_analysis_*.md"
+
+  - name: review_with_human
+    desc: "人机协作查漏补缺"
+    task:
+      - "针对自动生成内容，列出不确定项和待确认的问题清单"
+      - "通过 `READ/EDIT` 工具逐条修订 spec，并补充引用、版本信息"
+      - "最终执行 `Complete` 校验，通过后导出 {OUT}/{DUT}_spec.md"
+      - "请给出你编写的规格说明文档的摘要，让人类审核者快速了解文档内容并给出反馈"
+    output_files:
+      - "{OUT}/{DUT}_spec.md"
+    checker:
+      - name: human_check_spec
+        clss: "HumanChecker"
