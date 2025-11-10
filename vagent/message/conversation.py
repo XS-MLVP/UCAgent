@@ -3,10 +3,10 @@
 
 from vagent.message.statistic import MessageStatistic
 from vagent.util.functions import fill_dlist_none
-from vagent.util.log import warning
+from vagent.util.log import warning, info
 
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
-from langchain_core.messages import AIMessage, RemoveMessage
+from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langmem.short_term import SummarizationNode
 from langgraph.prebuilt.chat_agent_executor import AgentState
@@ -69,7 +69,7 @@ def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any
 def summarize_messages(messages, summarization_size, model):
     """Summarize messages to reduce their token count."""
     from langchain_core.messages import HumanMessage
-    instruction = (f"Summarize the following conversation in less than {summarization_size} tokens, keeping the important information and context. Be concise and clear. "
+    instruction = (f"Summarize the conversation in less than {summarization_size} tokens, keeping the important information and context. Be concise and clear. "
                    "You must follow the rules below:\n"
                    "1. The system message should be preserved as much as possible.\n"
                    "2. The tool call results should be concise and clear, need removal of unnecessary details (e.g. file content, irrelevant context, code snippets).\n"
@@ -84,7 +84,7 @@ def summarize_messages(messages, summarization_size, model):
                    "The result you provide should be only the summary, no other explanations or additional information."
                    )
     warning(f"Summarizing messages({count_tokens_approximately(messages)} tokens, {len(messages)} messages) to reduce context size ...")
-    summary_response = model.invoke([HumanMessage(content=instruction)] + messages)
+    summary_response = model.invoke(messages + [HumanMessage(content=instruction)])
     warning(f"Summarization done, summary length: {count_tokens_approximately(summary_response.content)} tokens.")
     return summary_response
 
@@ -147,6 +147,7 @@ class UCMessagesNode:
         self.tail_keep_msgs = tail_keep_msgs
         self.summary_data = []
         self.model = model
+        self.arbit_summary_data = None
 
     def __call__(self, state):
         fix_tool_call_args(state)
@@ -155,25 +156,52 @@ class UCMessagesNode:
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
-        if len(llm_input_msgs) > self.max_keep_msgs:
-            # get init start index
-            tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
-            start_msg = llm_input_msgs[tail_msgs_start_index]
-            # search for the last not tool message
-            while start_msg.type == "tool" and tail_msgs_start_index > 0:
-                tail_msgs_start_index -= 1
+        if self.arbit_summary_data is None:
+            if len(llm_input_msgs) > self.max_keep_msgs:
+                # get init start index
+                tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
                 start_msg = llm_input_msgs[tail_msgs_start_index]
-            tail_msgs = llm_input_msgs[tail_msgs_start_index:]
-            if tail_msgs_start_index > 0:
-                self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
-                deleted_msgs = [RemoveMessage(id=msg.id) for msg in llm_input_msgs[:tail_msgs_start_index]]
-                warning(f"Trimmed {len(deleted_msgs)} messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
-                ret["messages"] = deleted_msgs
-            else:
-                tail_msgs = llm_input_msgs
+                # search for the last not tool message
+                while start_msg.type == "tool" and tail_msgs_start_index > 0:
+                    tail_msgs_start_index -= 1
+                    start_msg = llm_input_msgs[tail_msgs_start_index]
+                tail_msgs = llm_input_msgs[tail_msgs_start_index:]
+                if tail_msgs_start_index > 0:
+                    self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
+                    deleted_msgs = [RemoveMessage(id=msg.id) for msg in llm_input_msgs[:tail_msgs_start_index]]
+                    warning(f"Trimmed {len(deleted_msgs)} messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
+                    ret["messages"] = deleted_msgs
+                else:
+                    tail_msgs = llm_input_msgs
+        else:
+            warning(f"Using arbitrary provided summary.")
+            assert isinstance(self.arbit_summary_data, list), f"Need List, but find: {type(self.arbit_summary_data)}: {self.arbit_summary_data}"
+            self.summary_data = self.arbit_summary_data
+            self.arbit_summary_data = None
+            ret["messages"] = [RemoveMessage(id=msg.id) for msg in tail_msgs]
+            tail_msgs = []
         ret["llm_input_messages"] = self.summary_data + role_info + tail_msgs
         self.msg_stat.update_message(ret["llm_input_messages"])
         return ret
+
+    def set_arbit_summary(self, summary_text):
+        """Set chat summary"""
+        if isinstance(summary_text, str):
+            info("Arbit Summary:\n" + summary_text)
+            self.arbit_summary_data = [AIMessage(content=summary_text)]
+        else:
+            assert isinstance(summary_text, list)
+            for m in summary_text:
+                assert isinstance(m, BaseMessage), f"Need BaseMessage, but find: {type(m)}: {m}"
+            info("Arbit Summary:\n" + "\n".join([x.content for x in summary_text]))
+            self.arbit_summary_data = summary_text
+        return self
+
+    def force_summary(self, messages):
+        """Generate chat summary from hist messages"""
+        return self.set_arbit_summary([summarize_messages(messages,
+                                                          self.max_summary_tokens,
+                                                          self.model)])
 
     def set_max_keep_msgs(self, max_keep_msgs: int):
         self.max_keep_msgs = max_keep_msgs

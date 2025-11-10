@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from vagent.message.statistic import MessageStatistic
+from vagent.tools.context import ArbitContextSummary
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, render_template_dir, import_and_instance_tools
@@ -64,6 +65,7 @@ class VerifyAgent:
                  use_todo_tools: bool = False,
                  reference_files: dict = None,
                  no_history: bool = False,
+                 enable_context_manage_tools: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -132,6 +134,7 @@ class VerifyAgent:
         self.seed = seed if seed is not None else random.randint(1, 999999)
         self.cb_token_speed = TokenSpeedCallbackHandler()
         self.model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
+        self.sumary_model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
@@ -196,7 +199,7 @@ class VerifyAgent:
                 GetToDoSummary(self.todo_panel),
                 ToDoState(self.todo_panel),
             ]
-        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
+
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
         self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", True)
@@ -210,18 +213,24 @@ class VerifyAgent:
                 max_summary_tokens=self.max_summary_tokens,
                 max_keep_msgs=self.max_keep_msgs,
                 tail_keep_msgs=self.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
-                model=self.model
+                model=self.sumary_model
             )
         else:
             info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
             message_manage_node = SummarizationAndFixToolCall(
                 token_counter=count_tokens_approximately,
-                model=self.model,
+                model=self.sumary_model,
                 max_tokens=self.max_token,
                 max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
             ).set_max_keep_msgs(self.message_statistic, self.max_keep_msgs)
         self.message_manage_node = message_manage_node
+        self.context_tools = []
+        if enable_context_manage_tools:
+            self.context_tools = [
+                ArbitContextSummary().bind(self.message_manage_node),
+            ]
+        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
@@ -670,6 +679,15 @@ class VerifyAgent:
             "last_20type": ">".join([m.type for m in messages[-20:]]),
             "to_llm": self.message_statistic.get_statistics()
         })
+
+    def message_summary(self):
+        """Summarize all the messages"""
+        if not hasattr(self.message_manage_node, "force_summary"):
+            warning(f"{self.message_manage_node.__class__.__name__} has not function 'force_summary'")
+            return
+        self.message_manage_node.force_summary(
+            self.messages_get_raw()
+        )
 
     def status_info(self):
         msg_info = self.message_info()
