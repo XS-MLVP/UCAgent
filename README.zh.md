@@ -61,7 +61,7 @@ cd UCAgent
 2. 安装依赖：
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 3. 编译 dut，以编译 example 中的 Adder 为例（依赖[picker](https://github.com/XS-MLVP/picker)）
@@ -147,7 +147,7 @@ qwen
 直接从 GitHub 安装最新版本：
 
 ```bash
-pip install git+https://github.com/XS-MLVP/UCAgent@main
+pip3 install git+https://github.com/XS-MLVP/UCAgent@main
 ```
 
 或者
@@ -155,7 +155,7 @@ pip install git+https://github.com/XS-MLVP/UCAgent@main
 ```bash
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
-pip install .
+pip3 install .
 ```
 
 版本升级
@@ -302,28 +302,31 @@ UCAgent 支持在验证过程中进行人机协同，允许用户暂停 AI 执�
 
 Makefile 提供文档相关辅助目标（MkDocs + Material）：
 
-| 目标                | 作用                                           | 使用场景                     |
-| ------------------- | ---------------------------------------------- | ---------------------------- |
-| `make docs-help`    | 显示文档相关目标帮助                           | 查看可用命令                 |
-| `make docs-install` | 从 `docs/requirements-docs.txt` 安装构建依赖   | 首次使用或依赖更新时         |
-| `make docs-serve`   | 本地预览（默认 127.0.0.1:8030）                | 开发和预览文档时             |
-| `make docs-build`   | 构建静态站点到 `./site`                        | 本地生成生产版本             |
-| `make docs-clean`   | 删除 `./site` 目录                             | 清理构建产物时               |
+| 目标                | 作用                                         | 使用场景             |
+| ------------------- | -------------------------------------------- | -------------------- |
+| `make docs-help`    | 显示文档相关目标帮助                         | 查看可用命令         |
+| `make docs-install` | 从 `docs/requirements-docs.txt` 安装构建依赖 | 首次使用或依赖更新时 |
+| `make docs-serve`   | 本地预览（默认 127.0.0.1:8030）              | 开发和预览文档时     |
+| `make docs-build`   | 构建静态站点到 `./site`                      | 本地生成生产版本     |
+| `make docs-clean`   | 删除 `./site` 目录                           | 清理构建产物时       |
 
 #### 使用流程
 
 **第一次使用（安装依赖）：**
+
 ```bash
 make docs-install    # 安装 mkdocs 和 material 主题等依赖
 ```
 
 **日常开发（预览文档）：**
+
 ```bash
 make docs-serve      # 启动本地服务器，访问 http://127.0.0.1:8030 查看
 # 修改文档后浏览器会自动刷新
 ```
 
 **本地生成和查看（构建生产版本）：**
+
 ```bash
 make docs-build      # 生成静态网站到 ./site 目录
 # 在本地浏览器中打开 ./site/index.html 查看

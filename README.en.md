@@ -61,7 +61,7 @@ cd UCAgent
 2. Install dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 3. Compile DUT, using the Adder example (requires [picker](https://github.com/XS-MLVP/picker))
@@ -117,28 +117,31 @@ Hints:
 
 Makefile provides helper targets for docs (MkDocs + Material):
 
-| Target              | Purpose                                               | When to Use                   |
-| ------------------- | ----------------------------------------------------- | ----------------------------- |
-| `make docs-help`    | Show documentation-related targets help text          | View available commands       |
-| `make docs-install` | Install build deps from `docs/requirements-docs.txt`  | First time or deps update     |
-| `make docs-serve`   | Local preview (default: 127.0.0.1:8030)               | When developing/previewing    |
-| `make docs-build`   | Build static site into `./site`                      | Generate production version locally|
-| `make docs-clean`   | Remove `./site` directory                            | When cleaning build artifacts |
+| Target              | Purpose                                              | When to Use                         |
+| ------------------- | ---------------------------------------------------- | ----------------------------------- |
+| `make docs-help`    | Show documentation-related targets help text         | View available commands             |
+| `make docs-install` | Install build deps from `docs/requirements-docs.txt` | First time or deps update           |
+| `make docs-serve`   | Local preview (default: 127.0.0.1:8030)              | When developing/previewing          |
+| `make docs-build`   | Build static site into `./site`                      | Generate production version locally |
+| `make docs-clean`   | Remove `./site` directory                            | When cleaning build artifacts       |
 
 #### Usage Workflow
 
 **First Time Setup (Install Dependencies):**
+
 ```bash
 make docs-install    # Install mkdocs, material theme, and other dependencies
 ```
 
 **Daily Development (Preview Docs):**
+
 ```bash
 make docs-serve      # Start local server, visit http://127.0.0.1:8030 to view
 # Browser auto-refreshes when you edit docs
 ```
 
 **Local Generation (Build Production Version):**
+
 ```bash
 make docs-build      # Generate static site to ./site directory
 # Open ./site/index.html in your local browser to view
@@ -238,7 +241,7 @@ Output file: `ucagent-doc.pdf` suitable for release distribution.
 Install the latest version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/XS-MLVP/UCAgent@main
+pip3 install git+https://github.com/XS-MLVP/UCAgent@main
 ```
 
 or
@@ -246,7 +249,7 @@ or
 ```bash
 git clone https://github.com/XS-MLVP/UCAgent.git
 cd UCAgent
-pip install .
+pip3 install .
 ```
 
 Upgrade
