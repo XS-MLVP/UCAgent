@@ -117,27 +117,58 @@ Hints:
 
 Makefile provides helper targets for docs (MkDocs + Material):
 
-| Target              | Purpose                                              |
-| ------------------- | ---------------------------------------------------- |
-| `make docs-help`    | Show documentation-related targets help text         |
-| `make docs-install` | Install build deps from `docs/requirements-docs.txt` |
-| `make docs-serve`   | Local preview (default: 127.0.0.1:8030)              |
-| `make docs-build`   | Build static site into `./site`                      |
-| `make docs-clean`   | Remove `./site` directory                            |
+| Target              | Purpose                                               | When to Use                   |
+| ------------------- | ----------------------------------------------------- | ----------------------------- |
+| `make docs-help`    | Show documentation-related targets help text          | View available commands       |
+| `make docs-install` | Install build deps from `docs/requirements-docs.txt`  | First time or deps update     |
+| `make docs-serve`   | Local preview (default: 127.0.0.1:8030)               | When developing/previewing    |
+| `make docs-build`   | Build static site into `./site`                      | Generate production version locally|
+| `make docs-clean`   | Remove `./site` directory                            | When cleaning build artifacts |
 
-Quick usage:
+#### Usage Workflow
 
+**First Time Setup (Install Dependencies):**
 ```bash
-make docs-install
-make docs-serve
-make docs-build
-make docs-clean
+make docs-install    # Install mkdocs, material theme, and other dependencies
 ```
 
-Notes:
+**Daily Development (Preview Docs):**
+```bash
+make docs-serve      # Start local server, visit http://127.0.0.1:8030 to view
+# Browser auto-refreshes when you edit docs
+```
+
+**Local Generation (Build Production Version):**
+```bash
+make docs-build      # Generate static site to ./site directory
+# Open ./site/index.html in your local browser to view
+make docs-clean      # Clean build artifacts (optional)
+```
+
+#### Complete Workflow Example
+
+```bash
+# 1. Initial setup: Install dependencies
+make docs-install
+
+# 2. Development phase: Preview docs (can run repeatedly)
+make docs-serve      # Visit http://127.0.0.1:8030 in browser
+# ...edit docs...
+# Press Ctrl+C to stop server
+
+# 3. Local generation: Build production version
+make docs-build      # Generate ./site directory
+# Open ./site/index.html in your local browser to view
+
+# 4. Cleanup (optional)
+make docs-clean      # Remove ./site directory
+```
+
+#### Notes
 
 - Host/port currently fixed in Makefile; edit if you need different values.
-- After `make docs-build` you can publish `site/` via GitHub Pages/Netlify/etc.
+- `make docs-serve` is for development use, supports hot reload
+- `make docs-build` generates complete static website files to ./site directory, can be previewed locally (open ./site/index.html)
 
 ### PDF Manual Build (Pandoc + XeLaTeX)
 
