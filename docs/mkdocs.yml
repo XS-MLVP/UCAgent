@@ -4,6 +4,9 @@
 # - 支持中英文多语言切换（基于 mkdocs-static-i18n）
 # - 集成常用功能：搜索、Mermaid、KaTeX 数学公式、图片灯箱、最后更新时间等
 # - 参照 XiangShan-Design-Doc 架构组织导航与多语言
+#
+# 注意：此文件位于 docs/ 目录，所有路径都相对于 docs/ 目录
+# 输出目录设置为 ../site（在主项目根目录）
 ###############################################################
 
 # 站点基础信息
@@ -13,6 +16,10 @@ site_url: https://xs-mlvp.github.io/UCAgent/ # 站点 URL，用于生成绝对�
 repo_name: XS-MLVP/UCAgent # 顶部仓库名展示
 repo_url: https://github.com/XS-MLVP/UCAgent # 仓库地址
 edit_uri: "" # 编辑按钮地址（留空则隐藏）
+
+# 文档和输出路径配置
+docs_dir: . # 文档源文件目录（当前目录 docs/）
+site_dir: ../site # 输出目录（在上级目录）
 
 # 主题与外观设置（Material）
 theme:
