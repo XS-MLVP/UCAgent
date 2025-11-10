@@ -6,17 +6,17 @@ DOC := ucagent-doc
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null || git rev-parse --short HEAD)
 
 SRCS := \
-	docs/index.md \
-	docs/introduce.md \
-	docs/usage/mcp.md \
-	docs/usage/direct.md \
-	docs/usage/assit.md \
-	docs/usage/option.md \
-	docs/usage/tui.md \
-	docs/usage/faq.md \
-	docs/workflow.md \
-	docs/customize.md \
-	docs/workflow.md
+	docs/content/index.md \
+	docs/content/introduce.md \
+	docs/content/usage/mcp.md \
+	docs/content/usage/direct.md \
+	docs/content/usage/assit.md \
+	docs/content/usage/option.md \
+	docs/content/usage/tui.md \
+	docs/content/usage/faq.md \
+	docs/content/workflow.md \
+	docs/content/customize.md \
+	docs/content/tool_list.md
 
 # -------- Pandoc general parameters --------
 PANDOC_FLAGS += --from=markdown+table_captions+grid_tables+header_attributes+pipe_tables
@@ -24,7 +24,8 @@ PANDOC_FLAGS += --table-of-contents --toc-depth=3
 PANDOC_FLAGS += --number-sections
 PANDOC_FLAGS += --metadata=title:"UCAgent 开发者手册"
 PANDOC_FLAGS += --metadata=subtitle:"$(VERSION)"
-PANDOC_FLAGS += --resource-path=.:docs:docs/usage
+# Search paths for images/resources after content relocation
+PANDOC_FLAGS += --resource-path=.:docs:docs/content:docs/content/usage
 PANDOC_FLAGS += --highlight-style=tango
 PANDOC_FLAGS += --filter pandoc-crossref
 

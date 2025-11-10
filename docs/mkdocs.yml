@@ -3,7 +3,6 @@
 # - 采用 Material 主题
 # - 支持中英文多语言切换（基于 mkdocs-static-i18n）
 # - 集成常用功能：搜索、Mermaid、KaTeX 数学公式、图片灯箱、最后更新时间等
-# - 参照 XiangShan-Design-Doc 架构组织导航与多语言
 #
 # 注意：此文件位于 docs/ 目录，所有路径都相对于 docs/ 目录
 # 输出目录设置为 ../site（在主项目根目录）
@@ -18,7 +17,7 @@ repo_url: https://github.com/XS-MLVP/UCAgent # 仓库地址
 edit_uri: "" # 编辑按钮地址（留空则隐藏）
 
 # 文档和输出路径配置
-docs_dir: . # 文档源文件目录（当前目录 docs/）
+docs_dir: ./content # 文档源文件目录（当前目录 docs/content）
 site_dir: ../site # 输出目录（在上级目录）
 
 # 主题与外观设置（Material）
@@ -50,18 +49,18 @@ theme:
 
 # 顶部导航（默认语言：中文）。英文会通过 i18n 的 nav_translations 自动映射
 nav:
-  - 首页: index.md
-  - 介绍: introduce.md
+  - 首页: content/index.md
+  - 介绍: content/introduce.md
   - 使用:
-      - 直接使用: usage/direct.md
-      - TUI: usage/tui.md
-      - 人机协同验证: usage/assit.md
-      - MCP 集成: usage/mcp.md
-      - 参数说明: usage/option.md
-      - FAQ: usage/faq.md
-  - 工具列表: tool_list.md
-  - 定制功能: customize.md
-  - 工作流: workflow.md
+      - MCP 集成: content/usage/mcp.md
+      - 直接使用: content/usage/direct.md
+      - 人机协同验证: content/usage/assit.md
+      - 参数说明: content/usage/option.md
+      - TUI: content/usage/tui.md
+      - FAQ: content/usage/faq.md
+  - 工具列表: content/tool_list.md
+  - 定制功能: content/customize.md
+  - 工作流: content/workflow.md
 
 # 常用插件（已在 docs/requirements-docs.txt 中声明依赖）
 # - search: 内置搜索（Material 集成中文分词，若安装 jieba 会自动启用）
@@ -133,5 +132,3 @@ extra:
       name: GitHub
   generator: false
   copyright: "© 2025 XS-MLVP. All rights reserved."
-# 可选：构建严格模式（链接/锚点错误即失败）。不熟悉可保持缺省
-# strict: true
