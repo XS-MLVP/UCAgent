@@ -170,7 +170,7 @@ class VerifyAgent:
                            PathList(self.workspace),
                            GetFileInfo(self.workspace),
                            # File reading tools
-                           ReadBinFile(self.workspace),
+                           # ReadBinFile(self.workspace), # ignore Binary file read
                            # File searching tools
                            SearchText(self.workspace),
                            FindFiles(self.workspace),
