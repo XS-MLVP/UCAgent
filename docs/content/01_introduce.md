@@ -148,14 +148,15 @@
      ```bash
      ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
      ```
-
+    运行命令之后，可以看到“图1:tui界面”
+    
      ![tui界面](tui.png)
 
 
 
 8. 启动 Qwen Code
 
-   - 在`UCAgent/output`目录输入`qwen`启动 Qwen Code，看见 >QWEN 图就表示启动成功。
+   - 在`UCAgent/output`目录输入`qwen`启动 Qwen Code，看见 >QWEN 图就表示启动成功，如“图2”所示。
   
     ![qwen启动界面](qwen.png)
 
@@ -166,11 +167,11 @@
 
    ![qwen-allow](qwen-allow.png)
 
-   有时候 Qwen Code 停止了，但是我们不确定是否完成了任务，此时可以通过查看 server 的 tui 界面来确认。
+   有时候 Qwen Code 停止了，但是我们不确定是否完成了任务，此时可以通过查看 server 的 tui 界面来确认，参照“图4：tui‑pause”。
 
    ![tui-pause](tui-pause.png)
 
-   此时 Mission 部分显示阶段还在 13，所以我们还要让 Qwen Code 继续执行任务。
+   此时 Mission 部分显示阶段还在 13，所以我们还要让 Qwen Code 继续执行任务，参照“图5：qwen‑pause”。
 
    ![qwen-pause](qwen-pause.png)
 

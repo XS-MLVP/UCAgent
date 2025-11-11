@@ -6,6 +6,8 @@ UCAgent 自带基于 urwid 的终端界面（TUI），用于在本地交互式�
 
 ### 界面组成
 
+如“图6：tui界面组成所示例”
+
 ![tui界面组成](tui-part.png)
 
 - Mission 面板（左侧）
