@@ -65,3 +65,9 @@ write_dirs:
 tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
+
+# TUI layout settings
+tui:
+  task_width: 84
+  console_height: 13
+  status_height: 7
