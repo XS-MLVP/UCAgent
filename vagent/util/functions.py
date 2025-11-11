@@ -1574,9 +1574,6 @@ def list_str_abbr(data: list, max_items=50):
     return ", ".join([str(d) for d in data[:max_items]]) + subfix
 
 
-
-
-
 def get_fixture_scope(dut_func_or_dut_code):
     """Get the scope of a pytest fixture function.
     Args:
@@ -1613,3 +1610,58 @@ def get_fixture_scope(dut_func_or_dut_code):
                     if scope_match:
                         return scope_match.group(1)
     return None
+
+
+def markdown_headers(workspace, markdown_file, levels=(1,2,3,4,5,6)):
+    """Extract headers from a markdown file.
+    Args:
+        markdown_file: The path to the markdown file.
+    Returns:
+        A list of headers found in the markdown file.
+    """
+    if isinstance(levels, int):
+        levels = (levels, )
+    file_path = os.path.abspath(workspace + os.sep + markdown_file)
+    if not os.path.isfile(file_path):
+        raise Exception(f"File not found: {file_path}")
+    pattern = re.compile(r'^(#{1,6})\s+(.*)', re.MULTILINE)
+    headers = []
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+        matches = pattern.findall(content)
+        for match in matches:
+            level = len(match[0])
+            if level in levels:
+                title = match[1].strip()
+                headers.append((level, title))
+    return headers
+
+
+def markdown_get_miss_headers(workspace, markdown_file, ref_markdown_file, levels=2):
+    """Get missing headers from a markdown file.
+    Args:
+        markdown_file: The path to the markdown file.
+        ref_markdown_file: The path to the reference markdown file.
+        levels: The header levels to check (default is 2).
+    Returns:
+        A list of missing headers and diff messages.
+    """
+    def has_head(s_list, lev, t_head):
+        for k,v in s_list:
+            if k == lev and t_head in v:
+                return True
+        return False
+    missed_msg = "Target headers:\n"
+    missed_headers = []
+    source_headers = markdown_headers(workspace, markdown_file, levels)
+    for lev, head in markdown_headers(workspace, ref_markdown_file, levels):
+        if not has_head(source_headers, lev, head):
+            missed_headers.append((lev, head))
+            missed_msg += f"Level {lev}, {head}: Missed\n"
+        else:
+            missed_msg += f"Level {lev}, {head}: Present\n"
+    if missed_headers:
+        missed_msg += "Source headers:\n"
+        for lev, head in source_headers:
+            missed_msg += f"Level {lev}, {head}\n"
+    return missed_headers, missed_msg

@@ -4,8 +4,8 @@ mission:
   name: "{DUT} Spec 文档生成"
   prompt:
     system: |
-		  你是一名资深芯片系统工程师，目标是在保证准确性的前提下，生成结构化、可复用的规格说明文档。
-			请严格区分功能描述、接口定义、时序行为和测试注意事项，必要时给出编号和引用来源。
+      你是一名资深芯片系统工程师，目标是在保证准确性的前提下，生成结构化、可复用的规格说明文档。
+      请严格区分功能描述、接口定义、时序行为和测试注意事项，必要时给出编号和引用来源。
       在进行功能点描述时，一定需要做到结构化呈现。
       你会通过Check工具判断当前阶段的完成情况，通过Complete工具完成当前阶段进入下一个阶段的，直到所有任务都完成。
 
@@ -13,55 +13,185 @@ mcp_server:
   init_prompt: >
     请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`EditTextFile`创建和编辑文件。
 
+# 禁止直接修改DUT目录下的任何文件
+un_write_dirs:
+  - "{DUT}/"
+  - "Guide_Doc/"
+
+# 不使用预定义模板
+template: ""
+
+# TUI界面配置
+tui:
+  task_width: 50
+  console_height: 19
+  status_height: 10
+
 stage:
   - name: collect_existing_assets
     desc: "整理已有文档并抽取核心需求"
     task:
-      - "阅读 {DUT}/ 下的所有文字资料（*.md, *.csv）"
+      - "阅读{DUT}/目录下所有文字资料（*.md, *.csv）"
       - "罗列功能概览、关键约束、外设依赖"
-      - "参考考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入 {OUT}/{DUT}_spec.md → [Functional Overview]、[Use Cases]"
+      - "参考考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入 {OUT}/{DUT}_spec.md"
       - "注意："
-      - "  - 保持章节结构清晰，使用编号和标题区分不同部分"
+      - "  - 保持章节结构清晰，2级标题需要和参考模板一致，层级一致，文字一致"
       - "  - 对于不明确的需求，标注为待确认项以便后续跟进"
-      - "  - 内容很多时，请列出目录和摘要并写入{OUT}/{DUT}_todo.md，然后按章节分批完成"
+      - "  - 内容很多时，需要分多次编辑，逐步完善文档"
+      - "  - 如果具有功能独立的组件，请为每个组件分别创建子spec文档其命名方式为 {OUT}/{DUT}_spec_<component_name>.md"
+      - "  - 不能删除或者修改{DUT}/目录下的任何文件"
+      - "提示："
+      - "  - csv文件为文本格式，可以直接阅读"
     reference_files:
-      - "{DUT}/*.md"
-      - "{DUT}/*.csv"
+      - "{DUT}/**/*.md"
+      - "{DUT}/**/*.csv"
       - "Guide_Doc/dut_spec_template.md"
     output_files:
       - "{OUT}/{DUT}_spec.md"
-      - "{OUT}/{DUT}_todo.md"
+    checker:
+      - name: markdown_file_check
+        clss: "MarkDownHeadChecker"
+        args:
+          file_path: "{OUT}/{DUT}_spec.md"
+          template_file: "Guide_Doc/dut_spec_template.md"
+          header_levels: 2
 
   - name: augment_with_code
-    desc: "结合 RTL 源代码补全细节"
+    desc: "结合RTL源代码补全spec细节[{COMPLETE_PROGRESS}]"
     task:
       - "解析目录{DUT}/中的RTL源码（.v/sv/scala等文件后缀）"
       - "按模块填写接口表、输入输出约束与复位时序"
       - "标注对外可见的行为组合：正常路径、异常/边界、性能假设"
-      - "根据源代码完善 {OUT}/{DUT}_spec.md → [Interface Definitions]、[Timing Behavior]"
+      - "根据源代码完善{OUT}/{DUT}_spec.md"
       - "注意："
       - "  - 确保接口定义与功能描述一致"
       - "  - 对于复杂模块，分解为子模块逐一描述"
       - "  - 更新时序图和状态机描述，确保与代码逻辑匹配"
       - "  - 对于参数化模块，记录参数取值限制与默认值"
-      - "  - 源代码很多时，例如多个文件，请对每个文件的分析结果分别写入{OUT}/{DUT}_code_analysis_*.md，然后逐步整合到spec中"
-    reference_files:
-      - "{DUT}/*.sv"
-      - "{DUT}/*.v"
-      - "{DUT}/*.scala"
-    output_files:
-      - "{OUT}/{DUT}_spec.md"
-      - "{OUT}/{DUT}_code_analysis_*.md"
-
-  - name: review_with_human
-    desc: "人机协作查漏补缺"
-    task:
-      - "针对自动生成内容，列出不确定项和待确认的问题清单"
-      - "通过 `READ/EDIT` 工具逐条修订 spec，并补充引用、版本信息"
-      - "最终执行 `Complete` 校验，通过后导出 {OUT}/{DUT}_spec.md"
-      - "请给出你编写的规格说明文档的摘要，让人类审核者快速了解文档内容并给出反馈"
+      - "  - 如果源码属于子组件且该组件也需要spec文档，请把分析结果写入{OUT}/{DUT}_spec_<component_name>.md中便于后续阶段使用"
+      - "  - 子组件对应的源码文件需要记录入对应章节：RTL源文件"
+      - "当前任务："
+      - "  - 你需要根据文件:`{CURRENT_FILE_NAME}`完善`{OUT}/{DUT}_spec.md`文件，总体进度为：{COMPLETE_PROGRESS}"
+      - "  - 当你完成对该文件的分析后，请把你对该文件的分析结果写入到spec文档中"
+      - "  - 完成当前任务后，请调用Check继续下一个源代码文件的分析，直到所有源代码文件都分析完毕"
+      - "  - 当前阶段的 Check 工具仅仅用于确认是否还有未分析的源代码文件，不对spec文档内容进行检查"
     output_files:
       - "{OUT}/{DUT}_spec.md"
     checker:
+      - name: walk_rtl_source_files
+        clss: "WalkFilesOneByOne"
+        args:
+          name: "rlt_source_analysis"
+          file_pattern:
+           - "{DUT}/**/*.sv"
+           - "{DUT}/**/*.v"
+           - "{DUT}/**/*.scala"
+
+  - name: complete_subspecs
+    desc: "分批完善子组件的spec文档[{COMPLETE_PROGRESS}]"
+    task:
+      - "对于每个子组件spec文档{OUT}/{DUT}_spec_<component_name>.md："
+      - "  - 从{OUT}/{DUT}_spec_<component_name>.md找到记录的对应源码文件，分析源码"
+      - "  - 按照Guide_Doc/dut_spec_template.md模板补全spec内容"
+      - "  - 确保接口定义、功能描述与代码分析一致"
+      - "  - 标注待确认项以便后续跟进"
+      - "  - 格式要求同主spec文档，其2级标题需和参考模板一致，层级一致，文字一致"
+      - "  - 如果组件代码复杂，建议分多次编辑，逐步完善文档"
+      - "当前任务"
+      - "  - 完善文档: `{CURRENT_FILE_NAME}`，总进度为：{COMPLETE_PROGRESS}"
+    reference_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "Guide_Doc/dut_spec_template.md"
+    output_files:
+      - "{OUT}/{DUT}_spec_*.md"
+    checker:
+      - name: check_component_spec_files
+        clss: "BatchMarkDownHeadChecker"
+        args:
+          name: "component_spec_check"
+          file_pattern: "{OUT}/{DUT}_spec_*.md"
+          template_file: "Guide_Doc/dut_spec_template.md"
+          header_levels: 2
+
+  - name: human_check
+    desc: "人工检查spec文档完整性与准确性"
+    task:
+      - "请对你对生成的spec文档进行全面检查，确保其完整性与准确性："
+      - "  - 核对每个章节，确保内容详实且符合实际需求"
+      - "  - 检查接口定义与功能描述是否一致"
+      - "  - 确认时序图和状态机描述与代码逻辑匹配"
+      - "  - 标注任何不明确或待确认的需求"
+      - "  - 确保文档格式规范，符合Guide_Doc/dut_spec_template.md要求"
+      - "  - 如果发现遗漏或错误，请及时修正"
+      - "完成检查后，请给出检查摘要，同时把内容写入文件{OUT}/{DUT}_spec_summary.md，让人类专家基于你的摘要进行最终审核"
+    reference_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "{OUT}/{DUT}_spec_*.md"
+    output_files:
+      - "{OUT}/{DUT}_spec_summary.md"
+    checker:
       - name: human_check_spec
         clss: "HumanChecker"
+
+  # Copy from: vagent/lang/zh/config/default.yaml
+  - name: functional_specification_analysis
+    desc: "功能规格分析与测试点定义"
+    skip: true
+    task:
+      - "目标：将芯片功能拆解成可测试的小块，为后续测试做准备"
+      - "第1步：阅读{DUT}/下的所有相关文档，理解芯片完整待验证功能"
+      - "第2步：对待验证功能点按功能模块分组，每组用<FG-名称>标记"
+      - "第3步：每组内定义具体功能点，用<FC-名称>标记"
+      - "第4步：每个功能点设计检测点，用<CK-名称>标记"
+      - "把结果及时写入{OUT}/{DUT}_functions_and_checks.md，请使用{DOC_GEN_LANG}编写"
+      - "重要：标签格式必须正确，这是后续自动化测试的基础"
+      - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
+    reference_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "{OUT}/{DUT}_spec_*.md"
+    output_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    stage:
+      - name: dut_function_grouping
+        desc: "DUT功能分组与层次划分{COUNT_FG}"
+        task:
+          - "基于{DUT}功能，将相关功能归类成组"
+          - "为每组定义<FG-组名>标签，组名要有意义"
+          - "创建文档框架，先完成分组部分"
+          - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等，栈结构可以有<FG-PUSH>、<FG-POP>、<FG-POP-PUSH>等"
+          - "注意：必须有<FG-API>分组"
+        checker:
+          - name: group_structure_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "FG"
+      - name: function_point_definition
+        desc: "具体功能点识别与定义{COUNT_FC}"
+        task:
+          - "在每个功能分组内，定义具体的功能点"
+          - "用<FC-功能名>标签标记每个功能"
+          - "确保覆盖该组的所有功能"
+          - "例如：基础运算组可包含<FC-ADD>加法，<FC-ZERO>零值处理等"
+        checker:
+          - name: function_point_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "FC"
+      - name: check_point_design
+        desc: "检测点设计与定义{COUNT_CK}"
+        task:
+          - "为每个功能点设计具体的检测点"
+          - "用<CK-检测名>标签标记，如<CK-BASIC>基本功能，<CK-BOUNDARY>边界条件"
+          - "检测点要包含：正常情况、边界条件、异常情况"
+          - "标签独立成行，与标题用空行分隔"
+          - "完成完整的功能分析文档"
+        checker:
+          - name: check_point_check
+            clss: "UnityChipCheckerLabelStructure"
+            args:
+              doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+              leaf_node: "CK"
+              data_key: "COVER_GROUP_DOC_CK_LIST"
+              need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查

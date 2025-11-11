@@ -162,6 +162,25 @@ def test_check_has_assert_in_tc():
     print("Function 'test_sample_function' has assert:", has_assert)
     print("------------------------")
 
+
+def test_markdown_headers():
+    """Test function markdown_headers"""
+    test_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    headers = fc.markdown_headers(current_dir, test_file, levels=2)
+    print("Markdown headers in file '{}':".format(test_file))
+    for header in headers:
+        print(header)
+    print("------------------------")
+
+def test_markdown_get_miss_headers():
+    """Test function markdown_get_miss_headers"""
+    target_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    source_file = "../vagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
+    miss_headers, message = fc.markdown_get_miss_headers(current_dir, target_file, source_file, levels=2)
+    print("Missed Headers", len(miss_headers))
+    print(message)
+
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -173,4 +192,6 @@ if __name__ == "__main__":
     #test_replace_bash_var()
     #test_check_file_block()
     #test_description_mark_function_doc()
-    test_check_has_assert_in_tc()
+    #test_check_has_assert_in_tc()
+    #test_markdown_headers()
+    test_markdown_get_miss_headers()

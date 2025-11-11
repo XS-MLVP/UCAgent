@@ -255,6 +255,7 @@ class VerifyAgent:
         self._is_exit = False
         self._tip_index = 0
         self._need_break = False
+        self._need_human = False
         self._force_trace = False
         self._continue_msg = None
         self._mcps = None
@@ -496,6 +497,7 @@ class VerifyAgent:
     def run_loop(self, with_break=False, msg=None):
         if msg:
             self.set_continue_msg(msg)
+        self._need_human = False
         # conversation loop
         while not self.is_exit():
             self.one_loop()
@@ -504,6 +506,9 @@ class VerifyAgent:
             if with_break:
                 if self.is_break():
                     info("Break at loop: " + str(self.invoke_round))
+                    return
+                if self._need_human:
+                    info("Waiting for human input at loop: " + str(self.invoke_round))
                     return
             self.check_pdb_trace()
         time_end = self._time_end = time.time()
