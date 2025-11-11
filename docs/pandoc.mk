@@ -5,18 +5,9 @@
 DOC := ucagent-doc
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null || git rev-parse --short HEAD)
 
-SRCS := \
-	docs/content/index.md \
-	docs/content/introduce.md \
-	docs/content/usage/mcp.md \
-	docs/content/usage/direct.md \
-	docs/content/usage/assit.md \
-	docs/content/usage/option.md \
-	docs/content/usage/tui.md \
-	docs/content/usage/faq.md \
-	docs/content/workflow.md \
-	docs/content/customize.md \
-	docs/content/tool_list.md
+# Auto-generate SRCS by sorting filenames (by basename) with numeric prefixes
+SRCS := $(shell find docs/content -type f -name "*.md" -printf "%p\n" | sort)
+
 
 # -------- Pandoc general parameters --------
 PANDOC_FLAGS += --from=markdown+table_captions+grid_tables+header_attributes+pipe_tables
