@@ -22,12 +22,13 @@ class VerifyUI:
     """
 
     def __init__(self, vpdb, max_messages=1000, prompt="(UnityChip) ", gap_time=0.5):
+        self.cfg = vpdb.agent.cfg
         self.vpdb = vpdb
         self.console_input_cap = prompt
         # w_task, h_console, h_status
-        self.content_task_fix_width = 84
-        self.console_max_height = 13
-        self.status_content_fix_height = 7
+        self.content_task_fix_width = self.cfg.get_value("tui.task_width", 84)
+        self.console_max_height = self.cfg.get_value("tui.console_height", 13)
+        self.status_content_fix_height = self.cfg.get_value("tui.status_height", 7)
         # Content and Boxes
         self.content_task = urwid.SimpleListWalker([])
         self.content_stat = urwid.SimpleListWalker([])
