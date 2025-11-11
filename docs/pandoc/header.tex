@@ -20,3 +20,9 @@
 % Default image scaling for PDF only (does not affect website)
 % Make images 0.8x of the line width by default; explicit width on an image still overrides
 \AtBeginDocument{\setkeys{Gin}{width=.8\linewidth}}
+
+% Improve breaking of long words/URLs inside table cells and paragraphs
+\PassOptionsToPackage{hyphens}{url}
+\usepackage{microtype}
+\emergencystretch=3em
+\usepackage{seqsplit}

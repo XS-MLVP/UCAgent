@@ -16,9 +16,10 @@ PANDOC_FLAGS += --number-sections
 PANDOC_FLAGS += --metadata=title:"UCAgent 开发者手册"
 PANDOC_FLAGS += --metadata=subtitle:"$(VERSION)"
 # Search paths for images/resources after content relocation
-PANDOC_FLAGS += --resource-path=.:docs:docs/content:docs/content/usage
+PANDOC_FLAGS += --resource-path=.:docs:docs/content:docs/content/02_usage
 PANDOC_FLAGS += --highlight-style=tango
 PANDOC_FLAGS += --filter pandoc-crossref
+PANDOC_FLAGS += --lua-filter=docs/pandoc/auto_colwidth.lua
 
 # -------- LaTeX / PDF parameters --------
 PANDOC_LATEX_FLAGS += --pdf-engine=xelatex
