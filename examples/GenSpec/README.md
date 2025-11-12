@@ -14,6 +14,7 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 
 ### `genspec.yaml` 配置要点
 `genspec.yaml` 负责告诉 UCAgent 如何组织任务。如需了解具体内容请查看该文件。
+参考spec模板文件为 `SpecDoc/dut_spec_template.md`。
 
 ### 生成流程
 
@@ -49,13 +50,13 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 ```bash
 # 准备环境(创建 output目录)
 cp examples/GenSpec/
-make init
+make init_DCache
 
 # 以API方式运行UCAgent生成spec文档
-make spec
+make spec_DCache
 
 # 以MCP方式运行UCAgent
-make spec_mcp
+make spec_mcp_DCache
 ```
 
 通过以上流程，GenSpec 示例可帮助团队快速搭建结构化规格说明文档，增加git支持，可实现设计演进过程中保持文档的可追溯性和一致性。祝使用顺利！
