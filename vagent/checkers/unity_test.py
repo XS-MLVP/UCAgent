@@ -701,8 +701,10 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})
+            info_runtest.update({"STDOUT": str_out})
         if self.ret_std_error:
             info_report.update({"STDERR": str_err})
+            info_runtest.update({"STDERR": str_err})
         if report.get("tests") is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test cases are defined correctly in the workspace."
