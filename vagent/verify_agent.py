@@ -46,7 +46,7 @@ class VerifyAgent:
                  cfg_override: Optional[Dict[str, Any]] = None,
                  tmp_overwrite: bool = False,
                  template_dir: Optional[str] = None,
-                 guid_doc_path: Optional[str] = None,
+                 guid_doc_path: List[str] = [],
                  stream_output: bool = False,
                  init_cmd: Optional[List[str]] = None,
                  seed: Optional[int] = None,
@@ -125,10 +125,23 @@ class VerifyAgent:
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
         if not os.path.exists(guide_doc_path):
             doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang", self.cfg.lang, "doc", "Guide_Doc")
-            if guid_doc_path is not None:
-                assert os.path.exists(guid_doc_path), f"Specified guid_doc_path {guid_doc_path} does not exist"
-                doc_guide_path = guid_doc_path
+            doc_files_to_append = []
+            if len(guid_doc_path) > 0:
+                for gfile in guid_doc_path:
+                    if os.path.exists(gfile) is False:
+                        warning(f"Specified guid_doc_path {gfile} does not exist, ignore it")
+                        continue
+                    if os.path.isfile(gfile):
+                        doc_files_to_append.append(gfile)
+                        continue
+                    if os.path.isdir(gfile):
+                        doc_guide_path = gfile
+                        continue
+                    assert False, f"Specified guid_doc_path {gfile} is not a valid file or directory"
+                assert os.path.exists(doc_guide_path), f"Specified guid_doc_path {doc_guide_path} does not exist"
             shutil.copytree(doc_guide_path, guide_doc_path)
+            for f in doc_files_to_append:
+                shutil.copy(f, guide_doc_path)
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)

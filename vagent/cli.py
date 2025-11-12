@@ -288,9 +288,8 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--guid-doc-path",
-        type=str,
-        default=None,
-        help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
+        action='append', default=[], type=str,
+        help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
     parser.add_argument('--ref', action='append', default=[], type=str,
