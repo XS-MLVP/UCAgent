@@ -1769,7 +1769,10 @@ def get_un_mapped_lines(workspace,
     unmapped_lines = [line_num for line_num in range(1, total_lines + 1) if line_num not in mapped_lines]
     unmapped_lines = [line_num for line_num in unmapped_lines if lines[line_num -1].strip()]
     line_size = max([len(f"{line_num}") for line_num in unmapped_lines[:max_example_lines]])
-    example_str = "\n".join(f"{line_num:>{line_size}}: {lines[line_num-1].rstrip()}" for line_num in unmapped_lines[:max_example_lines])
+    tline = "line"
+    line_size = max(line_size, len(tline))
+    example_str = f"{tline}: line_content\n"
+    example_str += "\n".join(f"{line_num:>{line_size}}: {lines[line_num-1].rstrip()}" for line_num in unmapped_lines[:max_example_lines])
     if len(unmapped_lines) > max_example_lines:
         example_str += f"\n... (and {len(unmapped_lines) - max_example_lines} more lines)"
     return unmapped_lines, example_str

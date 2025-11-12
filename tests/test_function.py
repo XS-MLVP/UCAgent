@@ -189,9 +189,9 @@ def test_parse_line_CK_map_file():
     print("Marks:", marks)
     print("------------------------")
 
-    a, b = fc.get_un_mapped_lines(current_dir, test_file, marks)
+    a, b = fc.get_un_mapped_lines(current_dir, test_file, marks, 3)
     print("Unmapped lines:", a)
-    print("data:\n", b)
+    print(b)
     print("------------------------")
 
 if __name__ == "__main__":
