@@ -181,6 +181,19 @@ def test_markdown_get_miss_headers():
     print(message)
 
 
+def test_parse_line_CK_map_file():
+    """Test the parse_line_CK_map_file function."""
+    test_file = os.path.join("test_data/line_ck_maps.md")
+    marks = fc.parse_line_CK_map_file(current_dir, test_file)
+    print("Parsed CK marks from file '{}':".format(test_file))
+    print("Marks:", marks)
+    print("------------------------")
+
+    a, b = fc.get_un_mapped_lines(current_dir, test_file, marks)
+    print("Unmapped lines:", a)
+    print("data:\n", b)
+    print("------------------------")
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -194,4 +207,5 @@ if __name__ == "__main__":
     #test_description_mark_function_doc()
     #test_check_has_assert_in_tc()
     #test_markdown_headers()
-    test_markdown_get_miss_headers()
+    #test_markdown_get_miss_headers()
+    test_parse_line_CK_map_file()

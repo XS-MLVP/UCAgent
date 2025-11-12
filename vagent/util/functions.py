@@ -1665,3 +1665,111 @@ def markdown_get_miss_headers(workspace, markdown_file, ref_markdown_file, level
         for lev, head in source_headers:
             missed_msg += f"Level {lev}, {head}\n"
     return missed_headers, missed_msg
+
+
+def range_list_merge(range1: list, range2: list) -> list:
+    """Merge two lists of ranges.
+
+    Args:
+        range1 (list): The first list of ranges.
+        range2 (list): The second list of ranges.
+
+    Returns:
+        list: The merged list of ranges.
+    """
+    all_ranges = range1 + range2
+    if not all_ranges:
+        return []
+    # Sort ranges by start line
+    all_ranges.sort(key=lambda x: x[0])
+    merged_ranges = []
+    current_start, current_end = all_ranges[0]
+    for start, end in all_ranges[1:]:
+        if start <= current_end + 1:
+            current_end = max(current_end, end)
+        else:
+            merged_ranges.append((current_start, current_end))
+            current_start, current_end = start, end
+    merged_ranges.append((current_start, current_end))
+    return merged_ranges
+
+
+def parse_line_CK_map_file(workspace, file_path: str) -> dict:
+    """Parse mapped lines of CK from a file.
+
+    Args:
+        file_path (str): The path to the file to parse.
+    Returns:
+        dict: A dictionary with the CK and its mapped lines.
+    """
+    # mapped lines format:
+    # FGROUP/FC-FUNCTION/CK-CHECK: line_start1-line_end1,line_start2-line_end2,...
+    # eg:
+    #  FGROUP1/FC-FUNCTION1/CK-CHECK1: 10-20,30-40,45-45
+    ret = {}
+    real_file_path = os.path.abspath(workspace + os.sep + file_path)
+    assert os.path.exists(real_file_path), f"File {real_file_path} does not exist."
+    with open(real_file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        for i, line in enumerate(lines):
+            line = rm_blank_in_str(line).strip()
+            if not line or line.startswith("#"):
+                continue
+            value = line.split("#", 1)[0].strip()
+            assert ":" in value, f"{file_path} at line {i+1}: Missing ':' separator. Expected format 'FGROUP/FC-FUNCTION/CK-CHECK: line_start1-line_end1,...'."
+            key, line_ranges_str = value.split(":", 1)
+            key = key.strip()
+            assert "/" in key, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'."
+            assert key.count("/") == 2, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'."
+            line_ranges = line_ranges_str.split(",")
+            line_list = []
+            for lr in line_ranges:
+                lr = lr.strip()
+                assert "-" in lr, f"{file_path} at line {i+1}: Invalid line range format '{lr}'. Expected 'line_start-line_end', eg: 10-20, 14-14."
+                start_str, end_str = lr.split("-", 1)
+                assert start_str.isdigit() and end_str.isdigit(), f"{file_path} at line {i+1}: Line range '{lr}' must contain integers."
+                start_line = int(start_str)
+                end_line = int(end_str)
+                assert start_line <= end_line, f"{file_path} at line {i+1}: Line range '{lr}' start line must be less than or equal to end line."
+                line_list.append((start_line, end_line))
+            # Merge line ranges
+            pre_list = []            
+            if key in ret:
+                pre_list = ret[key]
+            ret[key] = range_list_merge(pre_list, line_list)
+    return ret
+
+
+def get_un_mapped_lines(workspace, 
+                          source_file: str, 
+                          ck_line_map: dict, max_example_lines: int=20) -> list:
+    """Get unmapped lines from a source file based on CK line mapping.
+
+    Args:
+        source_file (str): The path to the source file.
+        ck_line_map (dict): The CK line mapping.
+
+    Returns:
+        list: A list of unmapped line numbers.
+        example_str: eg: "1000: line_content\n1005: line_content\n..."
+    """
+    real_file_path = os.path.abspath(workspace + os.sep + source_file)
+    assert os.path.exists(real_file_path), f"File {real_file_path} does not exist."
+    with open(real_file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+        total_lines = len(lines)
+    range_list = []
+    for _, v in ck_line_map.items():
+        range_list.extend(v)
+    range_list = range_list_merge([], range_list)
+    mapped_lines = set()
+    for start_line, end_line in range_list:
+        for line_num in range(start_line, end_line + 1):
+            mapped_lines.add(line_num)
+    unmapped_lines = [line_num for line_num in range(1, total_lines + 1) if line_num not in mapped_lines]
+    unmapped_lines = [line_num for line_num in unmapped_lines if lines[line_num -1].strip()]
+    line_size = max([len(f"{line_num}") for line_num in unmapped_lines[:max_example_lines]])
+    example_str = "\n".join(f"{line_num:>{line_size}}: {lines[line_num-1].rstrip()}" for line_num in unmapped_lines[:max_example_lines])
+    if len(unmapped_lines) > max_example_lines:
+        example_str += f"\n... (and {len(unmapped_lines) - max_example_lines} more lines)"
+    return unmapped_lines, example_str
