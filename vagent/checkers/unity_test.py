@@ -817,7 +817,8 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             if rt == "PASSED":
                 passed_test.append(fv + "=" + rt)
 
-        if passed_test:
+        must_fail = self.extra_kwargs.get("template_must_fail", True)
+        if passed_test and must_fail:
             return False, f"Test template structure validation failed: Not all test functions ({fc.list_str_abbr(passed_test)}) are properly failing. " + \
                           f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_ck_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
                            "This prevents incomplete templates from being accidentally considered as passing tests. " + \
@@ -825,13 +826,14 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         # Check for proper TODO comments (this would require parsing the actual test files)
         # For now, we rely on the fact that properly structured templates should fail with "Not implemented"
         if self.ret_std_out and self.ret_std_error:
-            if "Not implemented" not in str_out and "Not implemented" not in str_err:
-                info(f"STDOUT: {str_out}")
-                info(f"STDERR: {str_err}")
-                return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
-                              "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
-                              "This helps distinguish between actual test failures and template placeholders. " + \
-                              "If you have implemented as the template requires, please make sure the `mark_function` works correctly."
+            if must_fail:
+                if "Not implemented" not in str_out and "Not implemented" not in str_err:
+                    info(f"STDOUT: {str_out}")
+                    info(f"STDERR: {str_err}")
+                    return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
+                                  "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
+                                  "This helps distinguish between actual test failures and template placeholders. " + \
+                                  "If you have implemented as the template requires, please make sure the `mark_function` works correctly."
         return True, "Template structure validation passed."
 
 
