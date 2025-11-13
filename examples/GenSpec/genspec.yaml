@@ -70,6 +70,7 @@ stage:
       - "  - 对于参数化模块，记录参数取值限制与默认值"
       - "  - 如果源码属于子组件且该组件也需要spec文档，请把分析结果写入{OUT}/{DUT}_spec_<component_name>.md中便于后续阶段使用"
       - "  - 子组件对应的源码文件需要记录入对应章节：RTL源文件"
+      - "  - 如果阅读源码过程中发现潜在bug或者不明确的设计，需要在spec文档中的相关位置进行说明和标注"
       - "当前任务："
       - "  - 你需要根据文件:`{CURRENT_FILE_NAME}`完善`{OUT}/{DUT}_spec.md`文件，总体进度为：{COMPLETE_PROGRESS}"
       - "  - 当你完成对该文件的分析后，请把你对该文件的分析结果写入到spec文档中"
@@ -102,8 +103,6 @@ stage:
     reference_files:
       - "{OUT}/{DUT}_spec.md"
       - "Guide_Doc/dut_spec_template.md"
-    output_files:
-      - "{OUT}/{DUT}_spec_*.md"
     checker:
       - name: check_component_spec_files
         clss: "BatchMarkDownHeadChecker"
@@ -112,6 +111,7 @@ stage:
           file_pattern: "{OUT}/{DUT}_spec_*.md"
           template_file: "Guide_Doc/dut_spec_template.md"
           header_levels: 2
+          mini_inputs: 0
 
   - name: human_check
     desc: "人工检查spec文档完整性与准确性"
@@ -136,7 +136,6 @@ stage:
   # Copy from: vagent/lang/zh/config/default.yaml
   - name: functional_specification_analysis
     desc: "功能规格分析与测试点定义"
-    skip: true
     task:
       - "目标：将芯片功能拆解成可测试的小块，为后续测试做准备"
       - "第1步：阅读{DUT}/下的所有相关文档，理解芯片完整待验证功能"
@@ -195,3 +194,27 @@ stage:
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
               need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+
+  # line map checker
+  - name: ref_function_line_map_generation
+    desc: "参考检查点新检查点差异分析"
+    task:
+      - "目标：生成参考检查点与新检查点的代码行映射，分析差异"
+      - "第1步：读取{OUT}/{DUT}_functions_and_checks.md中的参考检查点列表"
+      - "第2步：读取原来的检查点文件{DUT}/{DUT}_functions_and_checks.csv，识别新增、修改和删除的检查点"
+      - "第3步：参考 Guide_Doc/dut_line_map.md 中的格式，生成行映射文件{OUT}/{DUT}_line_func_map.txt来描述参考检查点文件中的每一行与新检查点的对应关系"
+      - "第4步：Check通过后，请总结映射结果，分析新增和修改的检查点对测试覆盖的影响并写入文件{OUT}/{DUT}_line_map_analysis.md"
+      - "第5步：最后通过Complete工具完成该阶段"
+    reference_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{DUT}/{DUT}_functions_and_checks.csv"
+      - "Guide_Doc/dut_line_map.md"
+    output_files:
+      - "{OUT}/{DUT}_line_func_map.txt"
+    checker:
+      - name: file_line_map_checker
+        clss: "FileLineMapChecker"
+        args:
+          source_file: "{DUT}/{DUT}_functions_and_checks.csv"
+          func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+          map_file: "{OUT}/{DUT}_line_func_map.txt"

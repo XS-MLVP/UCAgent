@@ -1719,8 +1719,8 @@ def parse_line_CK_map_file(workspace, file_path: str) -> dict:
             assert ":" in value, f"{file_path} at line {i+1}: Missing ':' separator. Expected format 'FGROUP/FC-FUNCTION/CK-CHECK: line_start1-line_end1,...'."
             key, line_ranges_str = value.split(":", 1)
             key = key.strip()
-            assert "/" in key, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'."
-            assert key.count("/") == 2, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'."
+            assert "/" in key, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'. key: {key}"
+            assert key.count("/") == 2, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'. key: {key}"
             line_ranges = line_ranges_str.split(",")
             line_list = []
             for lr in line_ranges:

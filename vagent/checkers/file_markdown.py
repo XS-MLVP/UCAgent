@@ -12,9 +12,10 @@ import os
 class BatchFileProcess(Checker):
     """process files in batch"""
 
-    def __init__(self, name, file_pattern, batch_size=1, need_human_check=False):
+    def __init__(self, name, file_pattern, batch_size=1, mini_inputs=1, need_human_check=False):
         self.file_pattern = file_pattern if isinstance(file_pattern, list) else [file_pattern]
         self.batch_size = batch_size
+        self.mini_inputs = mini_inputs
         self.batch_task = UnityChipBatchTask(name, self)
         self.set_human_check_needed(need_human_check)
 
@@ -53,8 +54,15 @@ class BatchFileProcess(Checker):
     def do_check(self, is_complete=False, **kw) -> tuple[bool, object]:
         """Check markdown files for headers of specified levels in batch."""
         if self.init_batch_task() is False:
-            return True, {
-                "error": "No target files find, please check your file patterns."
+            if self.mini_inputs > 0:
+                return True, {
+                    "error": "No target files find, please check your file patterns."
+                }
+            return True, "Not target files found, skip check, default pass."
+        if len(self.batch_task.source_task_list) < self.mini_inputs:
+            self.batch_task.source_task_list = []
+            return False, {
+                "error": f"Not enough target files found({len(self.batch_task.source_task_list)}) for check, need at least {self.mini_inputs} files."
             }
         # Get task file list
         if len(self.batch_task.source_task_list) == 0 and \
@@ -117,10 +125,10 @@ class WalkFilesOneByOne(BatchFileProcess):
 class BatchMarkDownHeadChecker(BatchFileProcess):
     """Checker for markdown file headers."""
 
-    def __init__(self, name:str, file_pattern:list, template_file:str, header_levels, need_human_check=False, **kw):
+    def __init__(self, name:str, file_pattern:list, template_file:str, header_levels,  mini_inputs=1, need_human_check=False, **kw):
         self.template_file = template_file
         self.header_levels = tuple(header_levels) if isinstance(header_levels, list) else header_levels
-        super().__init__(name, file_pattern, batch_size=1, need_human_check=need_human_check)
+        super().__init__(name, file_pattern, batch_size=1, mini_inputs=mini_inputs, need_human_check=need_human_check)
 
     def do_one_file_check(self, file_path):
         source_file = self.template_file

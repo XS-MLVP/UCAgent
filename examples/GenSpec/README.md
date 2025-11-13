@@ -44,6 +44,12 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 	- 在 `{OUT}/{DUT}_functions_and_checks.md` 中以 `<FG-*>`、`<FC-*>`、`<CK-*>` 标签分三步写出功能分组、功能点与检测点；
 	- 三个子阶段依次由 `UnityChipCheckerLabelStructure` 校验标签结构与覆盖情况，保证后续验证计划能够引用。
 
+6. **ref_function_line_map_generation：参考检查点新检查点差异分析**
+    - 对比检查点差异
+	- 原来的：`{DUT}/{DUT}_functions_and_checks.csv`
+	- 新建的：`{OUT}/{DUT}_functions_and_checks.md`
+	- 差异：`{OUT}/{DUT}_line_func_map.txt`
+
 ---
 
 ### 运行命令示例

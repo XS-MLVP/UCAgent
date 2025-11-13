@@ -33,15 +33,16 @@ def get_func_check_marks(workspace, func_check_file):
     return True, ck_list
 
 
-def line_map_check_one_file(workspace, source_file, ck_list, ck_list_file, map_suffix,
+def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_file, map_suffix,
                             map_location, max_example_lines: int, must_has_no_miss_match: bool):
     """Check one file for unmapped lines based on line-function mapping."""
     info(f"Checking line-function mapping for file '{source_file}'...")
     abs_source_file = os.path.abspath(workspace + os.path.sep + source_file)
     if not os.path.exists(abs_source_file):
         return False, {"error": f"Source file '{source_file}' does not exist."}
-    map_file_name = source_file.replace(os.path.sep, "_").replace(".", "_") + map_suffix
-    map_file = os.path.join(map_location + os.path.sep + map_file_name)
+    if not map_file:
+        map_file_name = source_file.replace(os.path.sep, "_").replace(".", "_") + map_suffix
+        map_file = os.path.join(map_location + os.path.sep + map_file_name)
     if not os.path.exists(os.path.abspath(workspace + os.path.sep + map_file)):
         return False, {"error": f"Mapping file '{map_file}' does not exist. You should create it first."}
     try:
@@ -96,14 +97,18 @@ def line_map_check_one_file(workspace, source_file, ck_list, ck_list_file, map_s
 class FileLineMapChecker(Checker):
     """Check unmapped lines in file based on line-function mapping."""
 
-    def __init__(self, source_file, func_check_file, map_suffix="_line_func_map.txt",
+    def __init__(self, source_file, func_check_file,
+                 map_file=None,
+                 map_suffix="_line_func_map.txt",
                  map_location="line_map",
-                 max_example_lines=20, need_human_check=False):
+                 max_example_lines=20, need_human_check=False, must_has_no_miss_match=False, **kw):
         self.source_file = source_file
         self.func_check_file = func_check_file
+        self.map_file = map_file
         self.map_suffix = map_suffix
         self.map_location = map_location
         self.max_example_lines = max_example_lines
+        self.must_has_no_miss_match = must_has_no_miss_match
         self.set_human_check_needed(need_human_check)
 
     def do_check(self, **kw) -> tuple[bool, object]:
@@ -116,9 +121,12 @@ class FileLineMapChecker(Checker):
         success, result_msg = line_map_check_one_file(
             self.workspace,
             self.source_file,
+            self.map_file,
             ck_list_or_msg,
+            self.func_check_file,
             self.map_suffix,
             self.map_location,
-            self.max_example_lines
+            self.max_example_lines,
+            self.must_has_no_miss_match
         )
         return success, result_msg
