@@ -1716,21 +1716,20 @@ def parse_line_CK_map_file(workspace, file_path: str) -> dict:
             if not line or line.startswith("#"):
                 continue
             value = line.split("#", 1)[0].strip()
-            assert ":" in value, f"{file_path} at line {i+1}: Missing ':' separator. Expected format 'FGROUP/FC-FUNCTION/CK-CHECK: line_start1-line_end1,...'."
+            assert ":" in value, f"{file_path} at line {i+1}: Missing ':' separator. Expected format 'FG-GROUP/FC-FUNCTION/CK-CHECK: line_start1-line_end1,...'"
             key, line_ranges_str = value.split(":", 1)
             key = key.strip()
-            assert "/" in key, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'. key: {key}"
-            assert key.count("/") == 2, f"{file_path} at line {i+1}: Invalid key format. Expected 'FGROUP/FC-FUNCTION/CK-CHECK'. key: {key}"
+            assert "/" in key, f"{file_path} at line {i+1}: Invalid key format. Expected 'FG-GROUP/FC-FUNCTION/CK-CHECK'. key: {key}"
             line_ranges = line_ranges_str.split(",")
             line_list = []
             for lr in line_ranges:
                 lr = lr.strip()
-                assert "-" in lr, f"{file_path} at line {i+1}: Invalid line range format '{lr}'. Expected 'line_start-line_end', eg: 10-20, 14-14."
+                assert "-" in lr, f"{file_path} at line {i+1}: Invalid line range format '{lr}'. Expected 'line_start-line_end', eg: 10-20, 14-14"
                 start_str, end_str = lr.split("-", 1)
-                assert start_str.isdigit() and end_str.isdigit(), f"{file_path} at line {i+1}: Line range '{lr}' must contain integers."
+                assert start_str.isdigit() and end_str.isdigit(), f"{file_path} at line {i+1}: Line range '{lr}' must contain integers"
                 start_line = int(start_str)
                 end_line = int(end_str)
-                assert start_line <= end_line, f"{file_path} at line {i+1}: Line range '{lr}' start line must be less than or equal to end line."
+                assert start_line <= end_line, f"{file_path} at line {i+1}: Line range '{lr}' start line must be less than or equal to end line"
                 line_list.append((start_line, end_line))
             # Merge line ranges
             pre_list = []            
@@ -1768,11 +1767,13 @@ def get_un_mapped_lines(workspace,
             mapped_lines.add(line_num)
     unmapped_lines = [line_num for line_num in range(1, total_lines + 1) if line_num not in mapped_lines]
     unmapped_lines = [line_num for line_num in unmapped_lines if lines[line_num -1].strip()]
-    line_size = max([len(f"{line_num}") for line_num in unmapped_lines[:max_example_lines]])
     tline = "line"
-    line_size = max(line_size, len(tline))
-    example_str = f"{tline}: line_content\n"
-    example_str += "\n".join(f"{line_num:>{line_size}}: {lines[line_num-1].rstrip()}" for line_num in unmapped_lines[:max_example_lines])
-    if len(unmapped_lines) > max_example_lines:
-        example_str += f"\n... (and {len(unmapped_lines) - max_example_lines} more lines)"
+    line_size = max([len(f"{line_num}") for line_num in unmapped_lines[:max_example_lines]] + [len(tline)])
+    if len(unmapped_lines) > 0:
+        example_str = f"{tline}: line_content\n"
+        example_str += "\n".join(f"{line_num:>{line_size}}: {lines[line_num-1].rstrip()}" for line_num in unmapped_lines[:max_example_lines])
+        if len(unmapped_lines) > max_example_lines:
+            example_str += f"\n... (and {len(unmapped_lines) - max_example_lines} more lines)"
+    else:
+        example_str = "All lines are mapped."
     return unmapped_lines, example_str
