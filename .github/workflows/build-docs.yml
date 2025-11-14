@@ -1,0 +1,80 @@
+name: Build Docs and PDF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_call:
+    inputs:
+      deploy_pages:
+        description: "是否在复用调用中部署 Pages"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build MkDocs site and PDF
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('docs/requirements-docs.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install docs dependencies
+        run: |
+          pip install -r docs/requirements-docs.txt
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build MkDocs site
+        run: |
+          # 使用 docs/mkdocs.yml 明确配置路径，避免默认根目录缺少 mkdocs.yml 导致失败
+          mkdocs build -f docs/mkdocs.yml --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      # No site-level PDF export (handled by Pandoc workflow)
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_call' && inputs.deploy_pages == true)
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

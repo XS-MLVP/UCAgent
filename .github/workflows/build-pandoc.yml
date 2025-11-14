@@ -1,0 +1,58 @@
+name: build-pandoc-pdf
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
+    container:
+      image: docker.io/pandoc/latex:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Install extra LaTeX & fonts & pandoc-crossref
+        run: |
+          set -eux
+          apt-get update
+          # 中文支持 + 字体 (ctex 需要 texlive-lang-chinese)，Noto 字体满足 "Noto Serif CJK SC"
+          apt-get install -y --no-install-recommends \
+            texlive-lang-chinese fonts-noto-cjk wget xz-utils
+          # 安装 pandoc-crossref (与 pandoc 配合使用的过滤器)
+          CROSSREF_VERSION=0.3.17.0
+          wget -q https://github.com/lierdakil/pandoc-crossref/releases/download/v${CROSSREF_VERSION}/pandoc-crossref-Linux.tar.xz
+          tar -xf pandoc-crossref-Linux.tar.xz
+          mv pandoc-crossref /usr/local/bin/
+          pandoc --version
+          pandoc-crossref --version || true
+          fc-list | grep -i "Noto" | head -n 5 || true
+
+      - name: Build PDF (oneside)
+        env:
+          HOME: /root
+        run: |
+          git config --global --add safe.directory $(pwd)
+          make pdf-one
+
+      - name: Build PDF (twoside)
+        env:
+          HOME: /root
+        run: |
+          git config --global --add safe.directory $(pwd)
+          make pdf-one TWOSIDE=1
+
+      - name: Upload PDFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ucagent-doc
+          path: |
+            ucagent-doc.pdf
+            ucagent-doc-twoside.pdf

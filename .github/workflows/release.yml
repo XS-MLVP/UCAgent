@@ -1,0 +1,78 @@
+name: Release PDF
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: "Release name (tag name)"
+        required: true
+        type: string
+
+jobs:
+  create-release-tag:
+    name: Create tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set tag name
+        id: vars
+        run: echo "TAG_NAME=${{ github.event.inputs.release_name }}" >> $GITHUB_ENV
+
+      - name: Create tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main || true
+          git checkout main || true
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+
+  build-docs:
+    name: Build docs via reusable workflow
+    needs: create-release-tag
+    uses: ./.github/workflows/build-docs.yml
+    with:
+      deploy_pages: true
+    secrets: inherit
+
+  build-pandoc:
+    name: Build Pandoc PDFs
+    needs: create-release-tag
+    uses: ./.github/workflows/build-pandoc.yml
+    secrets: inherit
+
+  publish-release:
+    name: Publish GitHub Release with PDFs
+    needs: [build-docs, build-pandoc]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download PDF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: pdfs
+
+      - name: Move artifacts to flat layout
+        run: |
+          mkdir -p dist
+          shopt -s globstar nullglob
+          for f in pdfs/**/**/*.pdf pdfs/**/*.pdf pdfs/*.pdf; do
+            cp "$f" dist/
+          done
+
+      - name: List PDFs (optional)
+        run: |
+          echo "PDF files:" 
+          ls -l pdfs || true
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_name }}
+          name: ${{ github.event.inputs.release_name }}
+          files: |
+            dist/*.pdf
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
