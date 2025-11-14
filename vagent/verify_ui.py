@@ -860,7 +860,7 @@ class UCText(urwid.Text):
         return self._cache_translation
 
     def __init__(self, markup='', align='left'):
-        super().__init__(markup, align=align, wrap='space')
+        super().__init__(markup, align=align, wrap='any')
 
 
 import re
@@ -890,7 +890,7 @@ class ANSIText(urwid.Text):
     ANSI_ESCAPE_RE = re.compile(r'\x1b\[(\d+)(;\d+)*m')
 
     def __init__(self, text='', align='left'):
-        super().__init__('', align=align, wrap='space')
+        super().__init__('', align=align, wrap='any')
         self.set_text(text)
 
     def set_text(self, text):
