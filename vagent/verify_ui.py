@@ -397,12 +397,6 @@ class VerifyUI:
             if cmd in ("q", "Q", "exit", "quit"):
                 self.exit(None)
                 return
-            if cmd in ("scroll", "s"):
-                if self.console_page_cache is None:
-                    self.console_page_cache = self.console_outbuffer.split("\n")
-                    self.console_page_cache_index = len(self.console_page_cache)
-                    self.console_output_page_scroll(0)
-                return
             if cmd:
                 self.last_cmd = cmd
             elif self.last_cmd:
@@ -486,6 +480,14 @@ class VerifyUI:
             except Exception as e:
                 # If this fails, just ignore the keypress
                 pass
+        elif key == "meta right":
+            self.enable_console_output_page_scroll()
+            if self.console_output_page_scroll(1):
+                return
+        elif key == "meta left":
+            self.enable_console_output_page_scroll()
+            if self.console_output_page_scroll(-1):
+                return
         elif key == "up":
             try:
                 if self.console_output_page_scroll(1):
@@ -514,6 +516,12 @@ class VerifyUI:
                 pass
         self.last_key = key
         return True
+
+    def enable_console_output_page_scroll(self):
+        if self.console_page_cache is None:
+            self.console_page_cache = self.console_outbuffer.split("\n")
+            self.console_page_cache_index = len(self.console_page_cache)
+            self.console_output_page_scroll(0)
 
     def cmd_history_get(self, index):
         current_history_length = readline.get_current_history_length()

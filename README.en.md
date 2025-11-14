@@ -215,7 +215,9 @@ Output file: `ucagent-doc.pdf` suitable for release distribution.
 - `shift+up/down`: Adjust the height of the status UI panel
 - `shift+right`: Clear console
 - `shift+left`: Clear input text
-- `esc`: Force refresh interface
+- `alt + up/down`: Scroll the content of message box
+- `alt + left/right`: Scroll the content of console box
+- `esc`: Force refresh the tui/exit scrolling
 
 ##### Stage color explanation
 
