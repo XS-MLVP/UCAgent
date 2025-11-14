@@ -67,6 +67,8 @@ class VerifyUI:
         self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
         self.deamon_cmds = OrderedDict()
         self.loop = None  # Initialize loop to None
+        # status
+        self._is_auto_updating_ui = False
         self.int_layout()
         self._handle_stdout_error()
 
@@ -383,6 +385,12 @@ class VerifyUI:
             if cmd in ("q", "Q", "exit", "quit"):
                 self.exit(None)
                 return
+            if cmd in ("scroll", "s"):
+                if self.console_page_cache is None:
+                    self.console_page_cache = self.console_outbuffer.split("\n")
+                    self.console_page_cache_index = len(self.console_page_cache)
+                    self.console_output_page_scroll(0)
+                return
             if cmd:
                 self.last_cmd = cmd
             elif self.last_cmd:
@@ -454,13 +462,13 @@ class VerifyUI:
                 pass
         elif key == 'shift left':
             self.console_input.set_edit_text("")
-        elif key == 'shift up':
+        elif key == 'meta up':
             try:
                 self.set_messages_focus(-1)
             except Exception as e:
                 # If this fails, just ignore the keypress
                 pass
-        elif key == 'shift down':
+        elif key == 'meta down':
             try:
                 self.set_messages_focus(1)
             except Exception as e:
@@ -583,11 +591,15 @@ class VerifyUI:
         Automatically update the UI at regular intervals.
         This is useful for refreshing the display without user input.
         """
+        if self._is_auto_updating_ui:
+            return
+        self._is_auto_updating_ui = True
         self.update_info()
         if self.content_msgs_scroll:
             self.update_console_ouput(True)
         else:
             self.update_console_ouput(False)
+        self._is_auto_updating_ui = False
         loop.set_alarm_in(1.0, self._auto_update_ui)
 
     def _process_batch_cmd(self):
@@ -679,6 +691,7 @@ class VerifyUI:
                 pindex = max(0, min(pindex, cache_len - 1))
                 end_index = min(cache_len, pindex + self.console_max_height)
                 text_data = "\n"+"\n".join(self.console_page_cache[pindex:end_index])
+                console_data = text_data
             else:
                 text_data = self._get_pdb_out()
                 text_lines = text_data.split("\n")
@@ -687,29 +700,15 @@ class VerifyUI:
                     self.console_page_cache = text_lines
                     self.console_page_cache_index = 0
                     text_data = "\n"+"\n".join(text_lines[:self.console_max_height])
-                    try:
-                        self.console_input.set_caption(f"<Up/Down: scroll, Esc: exit>")
-                        self.root.focus_part = None
-                    except:
-                        pass
-            
+                    self.root.focus_part = None
+                console_data = self._get_output(text_data)
+
             try:
-                self.console_output.set_text(self._get_output(text_data))
+                self.console_output.set_text(console_data)
             except:
                 # If setting text fails, try with empty string
                 self.console_output.set_text("")
-            
-            try:
-                if self.console_input_busy_index >= 0:
-                    self.console_input_busy_index += 1
-                    n = self.console_input_busy_index % len(self.console_input_busy)
-                    self.console_input.set_caption(self.console_input_busy[n])
-                else:
-                    self.console_input.set_caption(self.console_input_cap)
-            except:
-                # If setting caption fails, just ignore
-                pass
-            
+            self.update_console_caption()
             try:
                 if hasattr(self, 'loop') and self.loop is not None:
                     self.loop.screen.clear()
@@ -720,10 +719,21 @@ class VerifyUI:
         except Exception as e:
             # Complete fallback - just try to keep UI responsive
             try:
-                self.console_output.set_text("Console update error occurred")
-                self.console_input.set_caption(self.console_input_cap)
+                self.console_output.set_text("Console update error occurred: %s" % e)
+                self.update_console_caption()
             except:
                 pass
+
+    def update_console_caption(self):
+        cap = self.console_input_cap
+        if self.is_cmd_busy:
+            if self.console_input_busy_index >= 0:
+                self.console_input_busy_index += 1
+                n = self.console_input_busy_index % len(self.console_input_busy)
+                cap = self.console_input_busy[n]
+        if self.console_page_cache is not None:
+            cap = f"<Up/Down: scroll, Esc: exit>" + cap
+        self.console_input.set_caption(cap)
 
     def _get_pdb_out(self):
         self._pdio.flush()
