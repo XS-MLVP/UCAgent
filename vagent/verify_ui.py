@@ -36,6 +36,7 @@ class VerifyUI:
         self.content_msgs_focus = 0
         self.content_msgs_scroll = False
         self.content_msgs_maxln = max(100, max_messages)  # Ensure minimum value
+        self.content_msgs_buffer = None
         self.box_task = urwid.ListBox(self.content_task)
         self.box_stat = urwid.ListBox(self.content_stat)
         self.box_msgs = urwid.ListBox(self.content_msgs)
@@ -212,6 +213,17 @@ class VerifyUI:
                     return
                 
                 # Thread-safe message handling
+                if self.content_msgs_scroll:
+                    if self.content_msgs_buffer is None:
+                        self.content_msgs_buffer = ""
+                    self.content_msgs_buffer += msg
+                    max_buffer_size = 1024*self.content_msgs_maxln
+                    if len(self.content_msgs_buffer) > max_buffer_size:
+                        self.content_msgs_buffer = self.content_msgs_buffer[-max_buffer_size:]
+                    return
+                if self.content_msgs_buffer is not None:
+                    msg = self.content_msgs_buffer + msg
+                self.content_msgs_buffer = None
                 try:
                     last_text = self.content_msgs[-1] if len(self.content_msgs) > 0 else None
                     for i, line in enumerate((msg + end).split("\n")):
@@ -839,6 +851,9 @@ class UCText(urwid.Text):
             self._update_cache_translation(maxcol, ta)
         return self._cache_translation
 
+    def __init__(self, markup='', align='left'):
+        super().__init__(markup, align=align, wrap='space')
+
 
 import re
 class ANSIText(urwid.Text):
@@ -867,7 +882,7 @@ class ANSIText(urwid.Text):
     ANSI_ESCAPE_RE = re.compile(r'\x1b\[(\d+)(;\d+)*m')
 
     def __init__(self, text='', align='left'):
-        super().__init__('', align)
+        super().__init__('', align=align, wrap='space')
         self.set_text(text)
 
     def set_text(self, text):
