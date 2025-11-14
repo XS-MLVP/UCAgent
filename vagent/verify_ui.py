@@ -45,6 +45,10 @@ class VerifyUI:
         self.console_default_txt = "\n" * (self.console_max_height - 1)
         self.console_outbuffer = self.console_default_txt
         self.console_output = ANSIText(self.console_outbuffer)
+        self.console_output_box = urwid.BoxAdapter(
+            urwid.Filler(self.console_output, valign='top'),
+            self.console_max_height
+        )
         self.console_page_cache = None
         self.console_page_cache_index = 0
         self.task_box_maxfiles = max(1, 5)  # Ensure minimum value
@@ -101,7 +105,7 @@ class VerifyUI:
 
         console_box = urwid.LineBox(
             urwid.Pile([
-                ("flow", self.console_output),
+                self.console_output_box,
                 ('flow', self.console_input),
             ]),
             title="Console")
@@ -417,6 +421,7 @@ class VerifyUI:
                 new_text = self.console_outbuffer.split("\n")
                 new_text.insert(0, "")
                 self.console_outbuffer = "\n".join(new_text)
+                self.console_output_box.height = self.console_max_height
                 self.console_output.set_text(self._get_output())
             except Exception as e:
                 # If this fails, just ignore the keypress
@@ -428,6 +433,7 @@ class VerifyUI:
                 if len(new_text) > 1:  # Ensure we don't remove all text
                     new_text = new_text[1:]
                 self.console_outbuffer = "\n".join(new_text)
+                self.console_output_box.height = self.console_max_height
                 self.console_output.set_text(self._get_output())
             except Exception as e:
                 # If this fails, just ignore the keypress
