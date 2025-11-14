@@ -3,7 +3,11 @@
 整体采用“按阶段渐进推进”的方式，每个阶段都有明确目标、产出与通过标准；完成后用工具 Check 验证并用 Complete 进入下一阶段。若阶段包含子阶段，需按顺序 逐一完成子阶段并各自通过 Check。
 
 - 顶层阶段总数：11（见 `vagent/lang/zh/config/default.yaml`）
-- 推进原则：未通过的阶段不可跳转；可用工具 CurrentTips 获取当前阶段详细指导；需要回补时可用 GotoStage 回到指定阶段；命令行也可用 --skip/--unskip 控制阶段索引。
+- 推进原则：未通过的阶段不可跳转；可用工具 CurrentTips 获取当前阶段详细指导；需要回补时可用 GotoStage 回到指定阶段。
+- 三种跳/不跳过阶段方法：
+  - 在项目根 `config.yaml` 的某个 `stage` 字段下面 `-name` 元素里的 `skip` 键配置 `true/false` 来跳过/不跳过。
+  - 命令行启动时可用 `--skip/- -unskip someStage` 来控制跳过/不跳过某阶段。
+  - 在tui启动后可用 `skip_stage/unskip_stage someStage` 来控制临时跳过/不跳过某阶段。
 
 ## 整体流程概览（11 个阶段）
 
