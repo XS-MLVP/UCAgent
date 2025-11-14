@@ -22,12 +22,13 @@ class VerifyUI:
     """
 
     def __init__(self, vpdb, max_messages=1000, prompt="(UnityChip) ", gap_time=0.5):
+        self.cfg = vpdb.agent.cfg
         self.vpdb = vpdb
         self.console_input_cap = prompt
         # w_task, h_console, h_status
-        self.content_task_fix_width = 84
-        self.console_max_height = 13
-        self.status_content_fix_height = 7
+        self.content_task_fix_width = self.cfg.get_value("tui.task_width", 84)
+        self.console_max_height = self.cfg.get_value("tui.console_height", 13)
+        self.status_content_fix_height = self.cfg.get_value("tui.status_height", 7)
         # Content and Boxes
         self.content_task = urwid.SimpleListWalker([])
         self.content_stat = urwid.SimpleListWalker([])
@@ -44,6 +45,10 @@ class VerifyUI:
         self.console_default_txt = "\n" * (self.console_max_height - 1)
         self.console_outbuffer = self.console_default_txt
         self.console_output = ANSIText(self.console_outbuffer)
+        self.console_output_box = urwid.BoxAdapter(
+            urwid.Filler(self.console_output, valign='top'),
+            self.console_max_height
+        )
         self.console_page_cache = None
         self.console_page_cache_index = 0
         self.task_box_maxfiles = max(1, 5)  # Ensure minimum value
@@ -100,7 +105,7 @@ class VerifyUI:
 
         console_box = urwid.LineBox(
             urwid.Pile([
-                ("flow", self.console_output),
+                self.console_output_box,
                 ('flow', self.console_input),
             ]),
             title="Console")
@@ -162,7 +167,7 @@ class VerifyUI:
         self.content_task.clear()
         self.content_stat.clear()
         w_task, h_console, h_status = self.content_task_fix_width, self.console_max_height, self.status_content_fix_height
-        self.content_stat.append(urwid.Text(self.vpdb.api_status() + f"\nWHH({w_task},{h_console},{h_status})"))
+        self.content_stat.append(UCText(self.vpdb.api_status() + f"\nWHH({w_task},{h_console},{h_status})"))
         # task
         task_data = self.vpdb.api_mission_info()
         for i, text in enumerate(task_data):
@@ -171,16 +176,16 @@ class VerifyUI:
                 continue
             self.content_task.append(ANSIText(text, align='left'))
         # changed files
-        self.content_task.append(urwid.Text(f"\nChanged Files\n", align='center'))
+        self.content_task.append(UCText(f"\nChanged Files\n", align='center'))
         for d, t, f in self.vpdb.api_changed_files()[:self.task_box_maxfiles]:
             color = None
             mtime = fmt_time_stamp(t)
             if d < 180:
                 color = "success_green"
                 mtime += f" ({fmt_time_deta(d)})"
-            self.content_task.append(urwid.Text((color, f"{mtime}: {f}"), align='left'))
+            self.content_task.append(UCText((color, f"{mtime}: {f}"), align='left'))
         # Tools
-        self.content_task.append(urwid.Text(f"\nTools Call\n", align='center'))
+        self.content_task.append(UCText(f"\nTools Call\n", align='center'))
         tool_info = ""
         for name, count, busy in self.vpdb.api_tool_status():
             if busy:
@@ -190,9 +195,9 @@ class VerifyUI:
         self.content_task.append(ANSIText(tool_info, align='left'))
         # Deamon Commands
         if self.deamon_cmds:
-            self.content_task.append(urwid.Text(f"\nDeamon Commands\n", align='center'))
+            self.content_task.append(UCText(f"\nDeamon Commands\n", align='center'))
             ntime = time.time()
-            self.content_task.append(urwid.Text("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.deamon_cmds.items()]),
+            self.content_task.append(UCText("\n".join([f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}" for key, cmd in self.deamon_cmds.items()]),
                                                 align='left'))
 
     def message_echo(self, msg, end="\n"):
@@ -416,6 +421,7 @@ class VerifyUI:
                 new_text = self.console_outbuffer.split("\n")
                 new_text.insert(0, "")
                 self.console_outbuffer = "\n".join(new_text)
+                self.console_output_box.height = self.console_max_height
                 self.console_output.set_text(self._get_output())
             except Exception as e:
                 # If this fails, just ignore the keypress
@@ -427,6 +433,7 @@ class VerifyUI:
                 if len(new_text) > 1:  # Ensure we don't remove all text
                     new_text = new_text[1:]
                 self.console_outbuffer = "\n".join(new_text)
+                self.console_output_box.height = self.console_max_height
                 self.console_output.set_text(self._get_output())
             except Exception as e:
                 # If this fails, just ignore the keypress
@@ -808,6 +815,20 @@ palette = [
     ('light cyan',     'light cyan',  'black'),
     ('white',          'white',       'black'),
 ]
+
+
+class UCText(urwid.Text):
+
+    def get_line_translation(self, maxcol: int, ta=None):
+        try:
+            return super().get_line_translation(maxcol, ta)
+        except Exception as e:
+            pass
+        if not self._cache_maxcol or self._cache_maxcol != maxcol or \
+            not hasattr(self, "_cache_translation"):
+            self._update_cache_translation(maxcol, ta)
+        return self._cache_translation
+
 
 import re
 class ANSIText(urwid.Text):

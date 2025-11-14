@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from vagent.message.statistic import MessageStatistic
+from vagent.tools.context import ArbitContextSummary
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, render_template_dir, import_and_instance_tools
@@ -28,6 +29,8 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langfuse import get_client, Langfuse
+from langfuse.langchain import CallbackHandler
 from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
 
@@ -43,7 +46,7 @@ class VerifyAgent:
                  cfg_override: Optional[Dict[str, Any]] = None,
                  tmp_overwrite: bool = False,
                  template_dir: Optional[str] = None,
-                 guid_doc_path: Optional[str] = None,
+                 guid_doc_path: List[str] = [],
                  stream_output: bool = False,
                  init_cmd: Optional[List[str]] = None,
                  seed: Optional[int] = None,
@@ -62,6 +65,7 @@ class VerifyAgent:
                  use_todo_tools: bool = False,
                  reference_files: dict = None,
                  no_history: bool = False,
+                 enable_context_manage_tools: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -121,15 +125,29 @@ class VerifyAgent:
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
         if not os.path.exists(guide_doc_path):
             doc_guide_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang", self.cfg.lang, "doc", "Guide_Doc")
-            if guid_doc_path is not None:
-                assert os.path.exists(guid_doc_path), f"Specified guid_doc_path {guid_doc_path} does not exist"
-                doc_guide_path = guid_doc_path
+            doc_files_to_append = []
+            if len(guid_doc_path) > 0:
+                for gfile in guid_doc_path:
+                    if os.path.exists(gfile) is False:
+                        warning(f"Specified guid_doc_path {gfile} does not exist, ignore it")
+                        continue
+                    if os.path.isfile(gfile):
+                        doc_files_to_append.append(gfile)
+                        continue
+                    if os.path.isdir(gfile):
+                        doc_guide_path = gfile
+                        continue
+                    assert False, f"Specified guid_doc_path {gfile} is not a valid file or directory"
+                assert os.path.exists(doc_guide_path), f"Specified guid_doc_path {doc_guide_path} does not exist"
             shutil.copytree(doc_guide_path, guide_doc_path)
+            for f in doc_files_to_append:
+                shutil.copy(f, guide_doc_path)
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
         self.cb_token_speed = TokenSpeedCallbackHandler()
         self.model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
+        self.sumary_model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
@@ -165,7 +183,7 @@ class VerifyAgent:
                            PathList(self.workspace),
                            GetFileInfo(self.workspace),
                            # File reading tools
-                           ReadBinFile(self.workspace),
+                           # ReadBinFile(self.workspace), # ignore Binary file read
                            # File searching tools
                            SearchText(self.workspace),
                            FindFiles(self.workspace),
@@ -194,7 +212,7 @@ class VerifyAgent:
                 GetToDoSummary(self.todo_panel),
                 ToDoState(self.todo_panel),
             ]
-        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools
+
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
         self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", True)
@@ -208,18 +226,24 @@ class VerifyAgent:
                 max_summary_tokens=self.max_summary_tokens,
                 max_keep_msgs=self.max_keep_msgs,
                 tail_keep_msgs=self.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
-                model=self.model
+                model=self.sumary_model
             )
         else:
             info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
             message_manage_node = SummarizationAndFixToolCall(
                 token_counter=count_tokens_approximately,
-                model=self.model,
+                model=self.sumary_model,
                 max_tokens=self.max_token,
                 max_summary_tokens=self.max_summary_tokens,
                 output_messages_key="llm_input_messages"
             ).set_max_keep_msgs(self.message_statistic, self.max_keep_msgs)
         self.message_manage_node = message_manage_node
+        self.context_tools = []
+        if enable_context_manage_tools:
+            self.context_tools = [
+                ArbitContextSummary().bind(self.message_manage_node),
+            ]
+        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
@@ -244,6 +268,7 @@ class VerifyAgent:
         self._is_exit = False
         self._tip_index = 0
         self._need_break = False
+        self._need_human = False
         self._force_trace = False
         self._continue_msg = None
         self._mcps = None
@@ -267,6 +292,21 @@ class VerifyAgent:
             info("Using standard interaction mode")
         self.generate_instruction_file(gen_instruct_file)
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+
+        # Telemetry
+        langfuse_cfg = self.cfg.get_value("langfuse", {})
+        self.langfuse_enable = langfuse_cfg.get_value("enable", False) is True
+        if self.langfuse_enable:
+            public_key = langfuse_cfg.get_value("public_key", "")
+            secret_key = langfuse_cfg.get_value("secret_key", "")
+            base_url = langfuse_cfg.get_value("base_url", "")
+            self.langfuse = Langfuse(
+                public_key=public_key,
+                secret_key=secret_key,
+                base_url=base_url,
+            )
+            assert self.langfuse.auth_check(), "Can't connect to langfuse, please check your configuration"
+            self.langfuse_handler = CallbackHandler()
 
     def get_messages_cfg(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
         ret = {"__manage_class__": self.message_manage_node.__class__.__name__}
@@ -448,9 +488,13 @@ class VerifyAgent:
         self._is_exit = True
 
     def get_work_config(self):
-        return {"configurable": {"thread_id": f"{self.thread_id}"},
-                "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
-                }
+        work_config = {
+            "configurable": {"thread_id": f"{self.thread_id}"},
+            "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
+        }
+        if self.langfuse_enable:
+            work_config["callbacks"] = [self.langfuse_handler]
+        return work_config
 
     def run(self):
         self.pre_run()
@@ -466,6 +510,7 @@ class VerifyAgent:
     def run_loop(self, with_break=False, msg=None):
         if msg:
             self.set_continue_msg(msg)
+        self._need_human = False
         # conversation loop
         while not self.is_exit():
             self.one_loop()
@@ -474,6 +519,9 @@ class VerifyAgent:
             if with_break:
                 if self.is_break():
                     info("Break at loop: " + str(self.invoke_round))
+                    return
+                if self._need_human:
+                    info("Waiting for human input at loop: " + str(self.invoke_round))
                     return
             self.check_pdb_trace()
         time_end = self._time_end = time.time()
@@ -649,6 +697,15 @@ class VerifyAgent:
             "last_20type": ">".join([m.type for m in messages[-20:]]),
             "to_llm": self.message_statistic.get_statistics()
         })
+
+    def message_summary(self):
+        """Summarize all the messages"""
+        if not hasattr(self.message_manage_node, "force_summary"):
+            warning(f"{self.message_manage_node.__class__.__name__} has not function 'force_summary'")
+            return
+        self.message_manage_node.force_summary(
+            self.messages_get_raw()
+        )
 
     def status_info(self):
         msg_info = self.message_info()

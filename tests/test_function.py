@@ -162,6 +162,38 @@ def test_check_has_assert_in_tc():
     print("Function 'test_sample_function' has assert:", has_assert)
     print("------------------------")
 
+
+def test_markdown_headers():
+    """Test function markdown_headers"""
+    test_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    headers = fc.markdown_headers(current_dir, test_file, levels=2)
+    print("Markdown headers in file '{}':".format(test_file))
+    for header in headers:
+        print(header)
+    print("------------------------")
+
+def test_markdown_get_miss_headers():
+    """Test function markdown_get_miss_headers"""
+    target_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    source_file = "../vagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
+    miss_headers, message = fc.markdown_get_miss_headers(current_dir, target_file, source_file, levels=2)
+    print("Missed Headers", len(miss_headers))
+    print(message)
+
+
+def test_parse_line_CK_map_file():
+    """Test the parse_line_CK_map_file function."""
+    test_file = os.path.join("test_data/line_ck_maps.md")
+    marks = fc.parse_line_CK_map_file(current_dir, test_file)
+    print("Parsed CK marks from file '{}':".format(test_file))
+    print("Marks:", marks)
+    print("------------------------")
+
+    a, b = fc.get_un_mapped_lines(current_dir, test_file, marks, 3)
+    print("Unmapped lines:", a)
+    print(b)
+    print("------------------------")
+
 if __name__ == "__main__":
     #test_find_files_by_glob()
     #test_find_files_by_regex()
@@ -173,4 +205,7 @@ if __name__ == "__main__":
     #test_replace_bash_var()
     #test_check_file_block()
     #test_description_mark_function_doc()
-    test_check_has_assert_in_tc()
+    #test_check_has_assert_in_tc()
+    #test_markdown_headers()
+    #test_markdown_get_miss_headers()
+    test_parse_line_CK_map_file()

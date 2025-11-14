@@ -10,3 +10,4 @@ langchain_mcp_adapters>=0.1.7
 psutil>=7.1.0
 pytoffee@git+https://github.com/XS-MLVP/toffee@master
 toffee-test@git+https://github.com/XS-MLVP/toffee-test@master
+langfuse>=3.9.1

@@ -179,6 +179,7 @@ class Checker:
                         m = "Tools check has passed. This stage needs human check, please give a brief outcome description of this stage. " + \
                             "Then notify human to verify your work. " + \
                             "The human need use command 'hmcheck_pass [msg]' or 'hmcheck_fail [msg]' to set the check result. After that, re-run the tool 'Check' to continue."
+                    self.stage_manager.agent._need_human = True
         except Exception as e:
             self.is_in_check = False
             estack = traceback.format_exc()
@@ -261,7 +262,7 @@ class Checker:
         :return: The absolute path within the workspace.
         """
         assert not path.startswith(os.sep), f"Path '{path}' should be relative, not absolute."
-        return os.path.join(self.workspace, path)
+        return os.path.abspath(self.workspace + os.sep + path)
 
     def get_relative_path(self, path, target=None) -> str:
         if not path:

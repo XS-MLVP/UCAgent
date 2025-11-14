@@ -288,9 +288,8 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--guid-doc-path",
-        type=str,
-        default=None,
-        help="Path to the custom Guide_Doc directory. If not specified, the default Guide_Doc from the package will be used."
+        action='append', default=[], type=str,
+        help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
     parser.add_argument('--ref', action='append', default=[], type=str,
@@ -304,6 +303,9 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument("--no-history", action="store_true", default=False,
                         help="Disable history loading from previous runs in the workspace")
+
+    parser.add_argument("--enable-context-manage-tools", action="store_true", default=False,
+                        help="Enable context management tools. This is useful when you run UCAgent in the API mode.")
 
     # Version argument
     parser.add_argument(
@@ -476,6 +478,7 @@ def run() -> None:
         use_todo_tools=args.use_todo_tools,
         reference_files=parse_reference_files(args.ref),
         no_history=args.no_history,
+        enable_context_manage_tools=args.enable_context_manage_tools,
     )
     
     # Set break mode if human interaction or TUI is requested

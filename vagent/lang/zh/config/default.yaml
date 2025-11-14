@@ -532,6 +532,7 @@ stage:
           ignore_ck_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
+          template_must_fail: $(TEMPLATE_MUST_FAIL: true)
           need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"

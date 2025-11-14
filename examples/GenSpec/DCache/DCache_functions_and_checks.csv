@@ -1,0 +1,3061 @@
+No.,Spec,feature,sub feature,sub feature,sub feature,test  describtion,,,,priority,level,coverage,testcase,,,,
+,,,,,,condition,checkpoit,object,segment,,,,,,,,
+功能测试点,,,,,,,,,,,,,,,,,
+1,LOAD请求 47,,,,,,,,,,,,tc_dcache_load,,,,
+,,单个Load请求,,,,,,,,,,,,,,,
+,,,握手valid/ready 12,,,,,,,,,,,,,,
+,,,,,,Dcache LoadPipe0可接受Load请求，Load Unit向LoadPipe0发来的请求信号有效;Load Unit向LoadPipe1和LoadPipe2发来的请求信号无效,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe0可接受Load请求，Load Unit向LoadPipe0发来的请求信号无效;Load Unit向LoadPipe1和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe0不可接受Load请求，Load Unit向LoadPipe0发来的请求信号有效;Load Unit向LoadPipe1和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe0不可接受Load请求，Load Unit向LoadPipe0发来的请求信号无效;Load Unit向LoadPipe1和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe1可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效;Load Unit向LoadPipe0和LoadPipe2发来的请求信号无效,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe1可接受Load请求，Load Unit向LoadPipe1发来的请求信号无效;Load Unit向LoadPipe0和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe1不可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效;Load Unit向LoadPipe0和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=0,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe1不可接受Load请求，Load Unit向LoadPipe1发来的请求信号无效;Load Unit向LoadPipe0和LoadPipe2发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=0,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe2可接受Load请求，Load Unit向LoadPipe2发来的请求信号有效;Load Unit向LoadPipe0和LoadPipe1发来的请求信号无效,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe2可接受Load请求，Load Unit向LoadPipe2发来的请求信号无效;Load Unit向LoadPipe0和LoadPipe1发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe2不可接受Load请求，Load Unit向LoadPipe2发来的请求信号有效;Load Unit向LoadPipe0和LoadPipe1发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Dcache LoadPipe2不可接受Load请求，Load Unit向LoadPipe2发来的请求信号无效;Load Unit向LoadPipe0和LoadPipe1发来的请求信号无效,Dcache不会给Load Unit返回信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,,,,,,,,,,,,
+,,,虚地址范围  9,,,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求信号有效，请求虚地址(set部分)为min_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_0_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=0,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_0_req_bits_addr=min_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求信号有效，请求虚地址(set部分)为max_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_0_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=0,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_0_req_bits_addr=max_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求信号有效，请求虚地址(set部分)为rand_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_0_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=0,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_0_req_bits_addr=rand_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求信号有效，请求虚地址(set部分)为min_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_1_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_1_req_bits_addr=min_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求信号有效，请求虚地址(set部分)为max_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_1_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_1_req_bits_addr=max_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求信号有效，请求虚地址(set部分)为rand_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_1_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_1_req_bits_addr=rand_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求信号有效，请求虚地址(set部分)为min_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_2_req_bits_addr=min_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求信号有效，请求虚地址(set部分)为max_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_2_req_bits_addr=max_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求信号有效，请求虚地址(set部分)为rand_addr,Dcache给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=0,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=0,
+io_lsu_load_2_req_valid=0,
+io_lsu_load_2_req_bits_addr=rand_addr,",,,load_req_gp,tc_dcache_load,,,,
+,,,请求被中断 6,,,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求在s1阶段被中断,这笔请求处理取消,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_s1_kill,","io_lsu_load_0_req_ready=1，
+io_lsu_load_0_req_valid=1
+io_lsu_load_0_s1_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求在s2阶段被中断,hit正常resp，miss不进行后续处理mq_nack=1,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_s2_kill,","io_lsu_load_0_req_ready=1，
+io_lsu_load_0_req_valid=1
+io_lsu_load_0_s2_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求在s1阶段被中断,这笔请求处理取消,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_s1_kill,","io_lsu_load_1_req_ready=1，
+io_lsu_load_1_req_valid=1
+io_lsu_load_1_s1_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求在s2阶段被中断,hit正常resp，miss不进行后续处理mq_nack=1,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_s2_kill,","io_lsu_load_1_req_ready=1，
+io_lsu_load_1_req_valid=1
+io_lsu_load_1_s2_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求在s1阶段被中断,这笔请求处理取消,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_s1_kill,","io_lsu_load_2_req_ready=1，
+io_lsu_load_2_req_valid=1
+io_lsu_load_2_s1_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求在s2阶段被中断,hit正常resp，miss不进行后续处理mq_nack=1,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_s2_kill,","io_lsu_load_2_req_ready=1，
+io_lsu_load_2_req_valid=1
+io_lsu_load_2_s2_kill=1",,,load_req_gp,tc_dcache_load,,,,
+,,,is128Req,,,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求is_128Req为0,请求读取1个bank,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_is128Req,","io_lsu_load_0_req_ready=1，
+io_lsu_load_0_req_valid=1
+io_lsu_load_0_is128Req=0",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求is_128Req为1,请求读取2个bank,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_is128Req,","io_lsu_load_0_req_ready=1，
+io_lsu_load_0_req_valid=1
+io_lsu_load_0_is128Req=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求is_128Req为0,请求读取1个bank,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_is128Req,","io_lsu_load_1_req_ready=1，
+io_lsu_load_1_req_valid=1
+io_lsu_load_1_is128Req=0",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求is_128Req为1,请求读取2个bank,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_is128Req,","io_lsu_load_1_req_ready=1，
+io_lsu_load_1_req_valid=1
+io_lsu_load_1_is128Req=1",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求is_128Req为0,请求读取1个bank,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_is128Req,","io_lsu_load_2_req_ready=1，
+io_lsu_load_2_req_valid=1
+io_lsu_load_2_is128Req=0",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求is_128Req为1,请求读取2个bank,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_is128Req,","io_lsu_load_2_req_ready=1，
+io_lsu_load_2_req_valid=1
+io_lsu_load_2_is128Req=1",,,load_req_gp,tc_dcache_load,,,,
+,,,请求Miss  3,,,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求信号有效，请求未命中,"Dcache收到Miss的数据块后进行refill,然后再返回给Load unit","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求信号有效，请求未命中,"Dcache收到Miss的数据块后进行refill,然后再返回给Load Unit","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求信号有效，请求未命中,"Dcache收到Miss的数据块后进行refill,然后再返回给Load Unit","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load,,,,
+,,,,,,,,,,,,,,,,,
+,,并行多个Load请求,,,,,,,,,,,tc_dcache_load_both,,,,
+,,,握手valid/ready  4,,,,,,,,,,,,,,
+,,,,,,Dcache LoadPipe0/LoadPipe1/LoadPipe2可接受Load请求;Load Unit向LoadPipe0和LoadPipe1发来的请求信号有效同时有效,Dcache LoadPipe0和 LoadPipe1给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=0,",,,load_req_gp,tc_dcache_load_both,,,,
+,,,,,,Dcache LoadPipe0/LoadPipe1/LoadPipe2可接受Load请求;Load Unit向LoadPipe0和LoadPipe2发来的请求信号有效同时有效,Dcache LoadPipe0和 LoadPipe2给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load_both,,,,
+,,,,,,Dcache LoadPipe0/LoadPipe1/LoadPipe2可接受Load请求;Load Unit向LoadPipe1和LoadPipe2发来的请求信号有效同时有效,Dcache LoadPipe1和 LoadPipe2给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load_both,,,,
+,,,,,,Dcache LoadPipe0/LoadPipe1/LoadPipe2可接受Load请求;Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号有效同时有效,Dcache LoadPipe0、LoadPipe1和 LoadPipe2给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,load_req_gp,tc_dcache_load_both,,,,
+,,,loadpipe之间的bank冲突 9,,,,,,,,,,,,,,
+,,,,bank不同组合,,,,,,,,,,,,,
+,,,,,,bank_idx=0~7,,"io_read_*_valid,
+io_read_*_bits_addr[5:3],","io_read_*_valid=1,
+io_read_*_bits_addr[5:3]=0~7,",,,,,,,,
+,,,,,,2个请求都读取64bit，bank位相同,,"io_lsu_load_0_is128Req，
+io_lsu_load_1_is128Req，
+io_lsu_load_2_is128Req","io_lsu_load_0_is128Req=0，
+io_lsu_load_1_is128Req=0，
+io_lsu_load_2_is128Req=0,",,,,,,,,
+,,,,,,2个请求一个读取64bit，一个读取128bit，有相同的same_bank，,,"io_lsu_load_0_is128Req，
+io_lsu_load_1_is128Req，
+io_lsu_load_2_is128Req","io_lsu_load_0_is128Req=0，
+io_lsu_load_1_is128Req=1，",,,,,,,,
+,,,,,,2个请求都读取128bit，bank位相同,,"io_lsu_load_0_is128Req，
+io_lsu_load_1_is128Req，
+io_lsu_load_2_is128Req","io_lsu_load_0_is128Req=1，
+io_lsu_load_1_is128Req=1，
+io_lsu_load_2_is128Req=1,",,,,,,,,
+,,,,load通道不同组合,,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效;向LoadPipe0和LoadPipe1请求的虚地址bank部分为same_bank;向LoadPipe2请求的虚地址bank部分为diff_bank,"Dcache LoadPipe2给Load Unit返回正确的信息， LoadPipe0和LoadPipe1根据请求在LSU的id判断冲突情况
+，有冲突的请求需要重发","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr[5:3]=same_bank,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr[5:3]=same_bank,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr[5:3]=diff_bank,",,,,tc_dcache_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效;向LoadPipe0和LoadPipe2请求的虚地址bank部分为same_bank;向LoadPipe1请求的虚地址bank部分为diff_bank,"Dcache LoadPipe1给Load Unit返回正确的信息， LoadPipe0和LoadPipe2根据请求在LSU的id判断冲突情况
+，有冲突的请求需要重发","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr[5:3]=same_bank,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr[5:3]=diff_bank,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr[5:3]=same_bank,",,,,tc_dcache_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效;向LoadPipe1和LoadPipe2请求的虚地址bank部分为same_bank;向LoadPipe0请求的虚地址bank部分为diff_bank,"Dcache LoadPipe0给Load Unit返回正确的信息， LoadPipe1和LoadPipe2根据请求在LSU的id判断冲突情况
+，有冲突的请求需要重发","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr[5:3]=diff_bank,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr[5:3]=same_bank,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr[5:3]=same_bank,",,,,tc_dcache_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效;向LoadPipe0、LoadPipe1和LoadPipe2请求的虚地址bank部分为same_bank,"Dcache LoadPipe0、LoadPipe1和LoadPipe2根据请求在LSU的id判断冲突情况
+，有冲突的请求需要重发","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr[5:3]=same_bank,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr[5:3]=same_bank,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr[5:3]=same_bank,",,,,tc_dcache_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效;向LoadPipe0请求的虚地址bank部分为diff_bank0、LoadPipe1请求的虚地址bank部分为diff_bank1、LoadPipe2请求的虚地址bank部分为diff_bank2,Dcache LoadPipe0、LoadPipe1和LoadPipe2给Load Unit返回正确的信息,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr[5:3]=diff_bank0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr[5:3]=diff_bank1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr[5:3]=diff_bank2,",,,,tc_dcache_load_both,,,,
+,,,,,,,,,,,,,,,,,
+,,,请求Miss  4,,,,,,,,,,,,,,
+,,,,,,"Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效,LoadPipe0、LoadPipe1的请求未命中",Dcache MissQueue会处理LoadPipe0的请求，LoadPipe1的请求需要重发,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,,tc_dcache_load_both,,,,
+,,,,,,"Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效,LoadPipe0、LoadPipe2的请求未命中",Dcache MissQueue会处理LoadPipe0的请求，LoadPipe2的请求需要重发,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,,tc_dcache_load_both,,,,
+,,,,,,"Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效,LoadPipe1、LoadPipe2的请求未命中",Dcache MissQueue会处理LoadPipe1的请求，LoadPipe2的请求需要重发,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,,tc_dcache_load_both,,,,
+,,,,,,"Load Unit向LoadPipe0、LoadPipe1和LoadPipe2发来的请求信号同时有效,LoadPipe0、LoadPipe1和LoadPipe2的请求均未命中",Dcache MissQueue会处理LoadPipe0的请求，LoadPipe1和LoadPipe2的请求需要重发,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,,tc_dcache_load_both,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,预取请求  6,,,,,,,,,,,tc_dcache_prefetch,,,,
+,,,cmd,,,Dcache LoadPipe0可接受Load请求，Load Unit向LoadPipe0发来的请求信号有效，请求类型为M_PFR(读预取),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为B,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_cmd","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_cmd=2，
+io_lsu_load_0_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,,,,Dcache LoadPipe0可接受Load请求，Load Unit向LoadPipe0发来的请求信号有效，请求类型为M_PFW(读预写),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为T,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_cmd","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_cmd=3,
+io_lsu_load_0_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,,,,Dcache LoadPipe1可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效，请求类型为M_PFR(读预取),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为B,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_cmd","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_cmd=2
+io_lsu_load_1_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,,,,Dcache LoadPipe1可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效，请求类型为M_PFW(读预写),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为T,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_cmd","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_cmd=3
+io_lsu_load_1_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,,,,Dcache LoadPipe2可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效，请求类型为M_PFR(读预取),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为B,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_cmd","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_cmd=2
+io_lsu_load_2_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,,,,Dcache LoadPipe2可接受Load请求，Load Unit向LoadPipe1发来的请求信号有效，请求类型为M_PFW(读预写),Dcache给Load Unit返回正确的信息，从L2取回来的数据在Dcache的权限为T,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_cmd","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_cmd=3,
+io_lsu_load_2_req_bits_instrtype=3",,,load_req_gp,tc_dcache_prefetch,,,,
+,,,预取标记,,,,,,,,,,,,,,
+,,,,,,load0请求命中预取的地址,清除预取标记,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+s0_way_wen_*_0,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1
+s0_way_wen_*_0=1",,,load_inner_gp,tc_dcache_load,,,,
+,,,,,,load1请求命中预取的地址,清除预取标记,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+s0_way_wen_*_1,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1
+s0_way_wen_*_1=1,",,,load_inner_gp,tc_dcache_load,,,,
+,,,,,,load2请求命中预取的地址,清除预取标记,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+s0_way_wen_*_2,","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1
+s0_way_wen_*_2=1,",,,load_inner_gp,tc_dcache_load,,,,
+,,,,,,请求发生miss，进行回填,更新预取标记（可能是 L1_HW_PREFETCH_NULL 或其他预取源）,"s3_req_miss,
+s0_way_wen_*_3,","s3_req_miss=1，
+s0_way_wen_*_3=1,",,,load_inner_gp,tc_dcache_load,,,,
+,,,,,,,,,,,,,,,,,
+2,STORE请求  8,,,,,,,,,,,,tc_dcache_store,,,,
+,,握手valid/ready,,,,,,,,,,,,,,,
+,,,,,,Dcache可接受Store请求，Store Buffer向Dcache发来的请求信号有效,Dcache给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,Dcache可接受Store请求，Store Buffer向Dcache发来的请求信号无效,Dcache不会给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=0,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,Dcache不可接受Store请求，Store Buffer向Dcache发来的请求信号有效,Dcache不会给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,","io_lsu_store_req_ready=0,
+io_lsu_store_req_valid=1,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,Dcache不可接受Store请求，Store Buffer向Dcache发来的请求信号无效,Dcache不会给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,","io_lsu_store_req_ready=0,
+io_lsu_store_req_valid=0,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,,,,,,,,,,,,
+,,虚地址范围,,,,,,,,,,,,,,,
+,,,,,,Store Buffer向Dcache发来的请求信号有效，请求虚地址(set部分)为min_addr,Dcache给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_vaddr,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_vaddr=min_addr,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,Store Buffer向Dcache发来的请求信号有效，请求虚地址(set部分)为max_addr,Dcache给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_vaddr,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_vaddr=max_addr,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,Store Buffer向Dcache发来的请求信号有效，请求虚地址为(set部分)rand_addr,Dcache给Store Buffer返回正确的信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_vaddr,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_vaddr=rand_addr,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,,,,,,,,,,,,
+,,请求Miss,,,,,,,,,,,,,,,
+,,,,,,Store Buffer向Dcache发来的请求信号有效，请求未命中,Dcache收到Miss的数据块后与Store Buffer发来的数据块合并后写入data array，并给Store Buffer返回有效信息,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,",,,store_req_gp,tc_dcache_store,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+3,原子请求 23,,,,,,,,,,,,tc_dcache_atomics_amo,tc_dcache_atomics_lrsc,tc_dcache_miss_invalid_resv_set,,
+,,握手valid/ready  4,,,,,,,,,,,,,,,
+,,,,,,Dcache可接受原子请求，原子模块向Dcache发来的请求信号有效,Dcache给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,atomics_req_gp,,,,,
+,,,,,,Dcache可接受原子请求，原子模块向Dcache发来的请求信号无效,Dcache不会给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=0,",,,atomics_req_gp,,,,,
+,,,,,,Dcache不可接受原子请求，原子模块向Dcache发来的请求信号有效,Dcache不会给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,","io_lsu_atomics_req_ready=0,
+io_lsu_atomics_req_valid=1,",,,atomics_req_gp,,,,,
+,,,,,,Dcache不可接受原子请求，原子模块向Dcache发来的请求信号无效,Dcache不会给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,","io_lsu_atomics_req_ready=0,
+io_lsu_atomics_req_valid=0,",,,atomics_req_gp,,,,,
+,,,,,,,,,,,,,,,,,
+,,虚地址范围  3,,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，请求虚地址为min_addr,Dcache给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=min_addr,",,,atomics_req_gp,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，请求虚地址为max_addr,Dcache给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=max_addr,",,,atomics_req_gp,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，请求虚地址为rand_addr,Dcache给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=rand_addr,",,,atomics_req_gp,,,,,
+,,,,,,,,,,,,,,,,,
+,,请求Miss 1,,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，请求未命中,Dcache收到Miss的数据块并进行指令运算后写入data array，并给原子模块返回有效信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,atomics_req_gp,tc_dcache_atomics_amo,,,,
+,,,,,,,,,,,,,,,,,
+,,AMO指令  12,,,,,,,,,,,,,,,
+,,,AMO_SWAP,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为SWAP,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_SWAP,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_ADD,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为ADD,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_ADD,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_XOR,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为XOR,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_XOR,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_OR,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为OR,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_OR,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_AND,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为AND,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_AND,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_MIN,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为MIN,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_MIN,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_MAX,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为MAX,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_MAX,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_MINU,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为MINU,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_MINU,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_MAXU,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为MAXU,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_MAXU,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_CASW,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为CASW,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_CASW,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_CASD,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为CASD,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_CASD,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,,AMO_CASQ,,,,,,,,,,,,,,
+,,,,,,原子模块向Dcache发来的请求信号有效，AMO指令子类型为CASQ,Dcache读取data array相应地址的数据并进行指令运算后，将结果写回data array，并给原子模块返回正确的信息,"io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_cmd,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_cmd=M_XA_CASQ,",,,atomics_req_gp,tc_dcache_atomisc_amo,,,,
+,,LR/SC指令 3,,,,,,,,,,,,,,,
+,,,,,,"原子模块首先向Dcache发送的LR指令请求，请求虚地址为addr0;然后原子模块再向Dcache发送SC指令,请求虚地址为addr0","Dcache接收LR指令后给原子模块返回addr0的数据,并且SC指令能成功往addr0写入相应的数据","io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=addr0,",,,atomics_req_gp,tc_dcache_atomics_lrsc,,,,
+,,,,,,"原子模块首先向Dcache发送的LR指令请求，请求虚地址为addr0;然后原子模块再向Dcache发送SC指令,请求虚地址为addr1;addr0!=addr1","Dcache接收LR指令后给原子模块返回addr0的数据,但是SC指令不能往addr1写入数据","io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=addr0/addr1(addr0!=addr1),",,,atomics_req_gp,tc_dcache_atomics_lrsc,,,,
+,,,,,,原子模块先向Dcache发送LR指令请求，请求虚地址为addr0;中间收到其他请求替换了该地址，然后原子模块再向Dcache发送SC指令，请求虚地址为addr0,"Dcache接收LR指令后给原子模块返回addr0的数据,其他请求替换了addr0，SC指令不能往addr0写入数据","io_lsu_atomics_req_ready,
+io_lsu_atomics_req_valid,
+io_lsu_atomics_req_bits_vaddr,","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,
+io_lsu_atomics_req_bits_vaddr=addr0,",,,replace_gp,tc_dcache_miss_invalid_resv_set,,,,
+,,,,,,,,,,,,,,,,,
+4,Probe请求 18,,,,,,,,,,,,tc_dcache_probe,tc_dcache_ld_st_pb,tc_dcache_amo_pb,,
+,,握手信号valid/ready,,,,,,,,,,,,,,,
+,,,,,,L2 Cache向DCache发出的probe请求有效;ProbeQueue有空项,握手成功，ProbeQueue为该probe请求分配probeEntry,"io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+io_mem_probe_ready,
+io_mem_probe_valid","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=1，
+io_mem_probe_ready=1,",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,L2 Cache向DCache发出的probe请求有效;ProbeQueue无空项,握手失败，ProbeQueue不为该probe请求分配probeEntry,"io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+io_mem_probe_ready,
+io_mem_probe_valid","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=0,
+io_mem_probe_valid=1，
+io_mem_probe_ready=0,",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,L2 Cache向DCache发出的probe请求无效;ProbeQueue有空项,握手失败，ProbeQueue不为该probe请求分配probeEntry,"io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+io_mem_probe_ready,
+io_mem_probe_valid","io_probe_block=0,
+auto_client_out_b_valid=0,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=0，
+io_mem_probe_ready=1,",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,L2 Cache向DCache发出的probe请求无效;ProbeQueue无空项,握手失败，ProbeQueue不为该probe请求分配probeEntry,"io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+io_mem_probe_ready,
+io_mem_probe_valid","io_probe_block=0,
+auto_client_out_b_valid=0,
+auto_client_out_b_ready=0,
+io_mem_probe_valid=0，
+io_mem_probe_ready=0,",,,tlcb_gp,tc_dcache_probe,,,,
+,,Param,,,,,,,,,,,,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中param是Cap:toN(0)，","ProbeQueue为该probe请求分配probeEntry,entries的param值为2'h0","auto_client_out_b_ready,
+io_mem_probe_valid,
+io_mem_probe_bits_param,
+alloc_idx,
+entries_(alloc_idx):req_param
+","auto_client_out_b_ready=1,
+io_mem_probe_valid=1,
+io_mem_probe_bits_param=2'h0,
+alloc_idx=3'h0-3h7,
+entries_(alloc_idx):req_param=2'h0",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中param是Cap:toB(1)，","ProbeQueue为该probe请求分配probeEntry,entries的param值为2'h1","auto_client_out_b_ready,
+io_mem_probe_valid,
+io_mem_probe_bits_param,
+alloc_idx,
+entries_(alloc_idx):req_param
+","auto_client_out_b_ready=1,
+io_mem_probe_valid=1,
+io_mem_probe_bits_param=2'h1,
+alloc_idx=3'h0-3h7,
+entries_(alloc_idx):req_param=2'h1",,,tlcb_gp,tc_dcache_probe,,,,
+,,address,,,,,,,,,,,,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中address是min_addr,data为rand_data","ProbeQueue为该probe请求分配probeEntry,entries的addr值和vaddr值;以及needData均正确","auto_client_out_b_ready,
+io_mem_probe_valid,
+io_mem_probe_bits_address,
+io_mem_probe_bits_data,
+alloc_idx,
+entries_(alloc_idx):req_addr,
+entries_(alloc_idx):req_vaddr,
+entries_(alloc_idx):req_need_Data
+","auto_client_out_b_ready=1,
+io_mem_probe_valid=1,
+io_mem_probe_bits_address=min_addr,
+io_mem_probe_bits_data=rand_data,
+alloc_idx=3'h0-3h7,
+entries_(alloc_idx):req_addr=min_addr,
+entries_(alloc_idx):req_vaddr={3'h0,min_addr[45:14],rand_data[2:1],min_addr[11:0]},
+entries_(alloc_idx):req_need_Data=rand_data[0]
+",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中address是max_addr,data为rand_data","ProbeQueue为该probe请求分配probeEntry,entries的addr值和vaddr值;以及needData均正确","auto_client_out_b_ready,
+io_mem_probe_valid,
+io_mem_probe_bits_address,
+io_mem_probe_bits_data,
+alloc_idx,
+entries_(alloc_idx):req_addr,
+entries_(alloc_idx):req_vaddr,
+entries_(alloc_idx):req_need_Data
+","auto_client_out_b_ready=1,
+io_mem_probe_valid=1,
+io_mem_probe_bits_address=max_addr,
+io_mem_probe_bits_data=rand_data,
+alloc_idx=3'h0-3h7,
+entries_(alloc_idx):req_addr=max_addr,
+entries_(alloc_idx):req_vaddr={3'h0,max_addr[45:14],rand_data[2:1],max_addr[11:0]},
+entries_(alloc_idx):req_need_Data=rand_data[0]
+",,,tlcb_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中address是rand_addr,data为rand_data","ProbeQueue为该probe请求分配probeEntry,entries的addr值和vaddr值;以及needData均正确","auto_client_out_b_ready,
+io_mem_probe_valid,
+io_mem_probe_bits_address,
+io_mem_probe_bits_data,
+alloc_idx,
+entries_(alloc_idx):req_addr,
+entries_(alloc_idx):req_vaddr,
+entries_(alloc_idx):req_need_Data
+","auto_client_out_b_ready=1,
+io_mem_probe_valid=1,
+io_mem_probe_bits_address=rand_addr,
+io_mem_probe_bits_data=rand_data,
+alloc_idx=3'h0-3h7,
+entries_(alloc_idx):req_addr=rand_addr,
+entries_(alloc_idx):req_vaddr={3'h0,rand_addr[45:14],rand_data[2:1],rand_addr[11:0]},
+entries_(alloc_idx):req_need_Data=rand_data[0]
+",,,tlcb_gp,tc_dcache_probe,,,,
+,,data,,,,,,,,,,,,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h0（data[2:1]为alias，data[0]为needData已取消）","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAck","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=0",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h1","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAckData","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=1",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h2","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAck","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=2",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h3","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAckData","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=3",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h4","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAck","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=4",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h5","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAckData","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=5",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h6","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAck","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=6",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,,,,,"握手成功,L2 Cache发送的probe请求中data[2:0]为3’h7","ProbeQueue为该probe请求分配probeEntry,wbq产生正确的回复ProbeAckData","io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,
+auto_client_out_b_bits_data","io_probe_block=0,
+auto_client_out_b_valid=1，
+auto_client_out_b_ready=1,
+auto_client_out_b_bits_data=7",,,tlcb_gp/tlcc_gp,tc_dcache_probe,,,,
+,,异常回复,,,,,,,,,,,tc_dcache_ld_st_pb,,,,
+,,,,,,"握手成功,L2 Cache发送的probe在DCache中Miss",Dcache回复ProbeAck，并且回复的Param为NtoN,"io_probe_block,
+auto_client_out_b_valid,
+auto_client_out_b_ready,","io_probe_block,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,",,,,tc_dcache_ld_st_pb,,,,
+5,Miss缓存处理  157,,,,,,,,,,,,,,,,
+,,miss请求 11,,,,,,,,,,,tc_dcache_load,tc_dcache_store,,,
+,,,握手valid/ready,,,,,,,,,,,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid,io_req_ready=1，io_req_valid=1,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求无效,MissQueue等待下一个请求,io_req_ready，io_req_valid,io_req_ready=1，io_req_valid=0,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue不可接受来自mianpipe的miss请求，且发来的miss请求有效,MissQueue暂时忽略当前请求，等允许时再处理当前请求,io_req_ready，io_req_valid,io_req_ready=0，io_req_valid=1,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue不可接受来自mianpipe的miss请求，且发来的miss请求无效,MissQueue继续先前的处理,io_req_ready，io_req_valid,io_req_ready=0，io_req_valid=0,,,,tc_dcache_load/tc_dcache_store,,,,
+,,,物理地址,,,,,,,,,,,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求物理地址范围内随机,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_addr=rand,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求物理地址范围内min,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_paddr=min,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求物理地址范围内max,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_addr=max,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,虚地址,,,,,,,,,,,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求虚地址(set部分)取min,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_vaddr=min，,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求虚地址(set部分)取max,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_vaddr=max，,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,MissQueue可接受来自mianpipe的miss请求，且发来的miss请求有效，miss请求虚地址(set部分)取rand,MissQueue向总线发送请求，总线回复数据正确,io_req_ready，io_req_valid，io_req_bits_addr，io_req_bits_vaddr，,io_req_ready=1，io_req_valid=1，io_req_bits_vaddr=rand，,,,missq_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,Miss请求被wbq阻塞失效,,,,,,,,,,,,,,
+,,,相同set的4路最多有3路存在BTOT的miss请求,,,,,,,,,,,,,,
+,,,,,,MissQueue不可接收第4笔相同set的BTOT请求,MissQueue接收第4笔请求时应答处理失败,s2_grow_perm_fail,s2_grow_perm_fail=1,,,,tc_dcache_btot_number,,,,
+,,,,,,MissQueue有空项，发来的miss请求有效，miss请求物理地址与wbq中某非空项的物理地址相同,Miss请求失效，MissQueue无法响应该请求,io_req_ready，io_req_valid，io_req_bits_addr，io_block_miss_req，io_block_addr_valid，io_block_addr_bits,io_req_ready=1，io_req_valid=1，io_req_bits_addr=io_block_addr_bits，io_block_miss_req=1，io_block_addr_valid=1,,,missq_gp,tc_dacche_miss_ld_reject_ld/tc_dacche_miss_ld_reject_st,,,,
+,,从L2取回数据  80,,,,,,,,,,,几乎所有用例都覆盖,,,,
+,,,acquire通道ready（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,Tilelink总线取回数据正确,auto_client_out_a_valid，auto_client_out_a_ready，,auto_client_out_a_valid=1，auto_client_out_a_ready=1，,,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线acquire通道不可接受请求,等待ready后，Tilelink总线取回数据正确,auto_client_out_a_valid，auto_client_out_a_ready，,auto_client_out_a_valid=1，auto_client_out_a_ready=0，,,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道valid（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线acquire通道请求有效,Tilelink总线取回数据正确,auto_client_out_a_valid，auto_client_out_a_ready，,auto_client_out_a_valid=1，auto_client_out_a_ready=1，,,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线acquire通道请求无效,等待valid后，Tilelink总线取回数据正确,auto_client_out_a_valid，auto_client_out_a_ready，,auto_client_out_a_valid=0，auto_client_out_a_ready=1，,,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道opcode（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_opcode=6(acquireBlock需要数据)",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_opcode,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_opcode=6",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_opcode=7(acquirePerm)",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_opcode,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_opcode=7",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道param（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_param=0(NtoB)",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_param,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_param=0",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_param=1(NtoT)",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_param,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_param=1",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_param=2(BtoT)",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_param,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_param=2",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道source（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=0",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=0",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=1",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=1",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=2",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=2",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=3",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=3",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=4",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=4",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=5",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=5",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=6",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=6",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=7",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=7",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=8",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=8",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=9",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=9",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=10",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=10",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=11",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=11",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=12",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=12",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=13",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=13",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=14",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=14",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_source=15",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_source,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_source=15",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道address（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address tag部分为min",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[36:12],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[36:12]=min",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address tag部分为max",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[36:12],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[36:12]=max",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address tag部分为rand",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[36:12],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[36:12]=rand",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address pg_idx部分为min",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[11:6],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[11:6]=min",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address pg_idx部分为max",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[11:6],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[11:6]=max",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_address pg_idx部分为rand",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_address[11:6],","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_address[11:6]=rand",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道alias（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_alias=0",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_alias,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_alias=0",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_alias=1",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_alias,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_alias=1",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_alias=2",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_alias,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_alias=2",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_alias=3",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_alias,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_alias=3",,,tlca_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,acquire通道reqSource（Tilelink A通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_reqSource=2",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_reqSource,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_reqSource=2",,,tlca_gp,tc_dcache_load,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_reqSource=3",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_reqSource,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_reqSource=3",,,tlca_gp,tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_reqSource=4",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_reqSource,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_reqSource=4",,,tlca_gp,tc_dcache_atomics_amo,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求,a_reqSource=6",Tilelink总线取回数据正确,"auto_client_out_a_valid，auto_client_out_a_ready，
+auto_client_out_a_bits_user_reqSource,","auto_client_out_a_valid=1，auto_client_out_a_ready=1，
+auto_client_out_a_bits_user_reqSource=6",,,tlca_gp,tc_dcache_prefetch,,,,
+,,,grant通道valid（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效,Tilelink总线取回数据正确,auto_client_out_d_valid，auto_client_out_d_ready，,auto_client_out_d_valid=1，auto_client_out_d_ready=1，,,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求无效,等待valid后，Tilelink总线取回数据正确,auto_client_out_d_valid，auto_client_out_d_ready，,auto_client_out_d_valid=0，auto_client_out_d_ready=1，,,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道opcode（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，a_opcode=4(Grant),Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_opcode,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_opcode=4",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，a_opcode=5(GrantData),Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_opcode,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_opcode=5",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道param（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效,a_param=0(toT)",Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_param,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_param=0",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效,a_param=1(toB)",Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_param,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_param=1",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道ready（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道（通道D）可接受请求,Tilelink总线取回数据正确,auto_client_out_d_valid，auto_client_out_d_ready，,auto_client_out_d_valid=1，auto_client_out_d_ready=1，,,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线acquire通道可接受请求，Tilelink总线grant通道（通道D）不可接受请求,等待ready后，Tilelink总线取回数据正确,auto_client_out_d_valid，auto_client_out_d_ready，,auto_client_out_d_valid=1，auto_client_out_d_ready=0，,,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道source（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取0,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=0,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取1,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=1,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取2,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=2,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取3,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=3,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取4,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=4,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取5,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=5,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取6,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=6,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取7,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=7,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取8,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=8,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取9,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=9,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取10,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=10,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取11,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=11,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取12,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=12,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取13,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=13,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取14,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=14,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道来源信号取15,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_source=15,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道sink（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取min,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_sink,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_sink=min,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取max,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_sink,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_sink=max,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取rand,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_sink,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_sink=rand,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道data（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道数据取0,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_data,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_data=0,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道数据取随机值,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_data,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_data=rand,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道数据取~256'h0,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_data,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_data=~256'h0,",,,tlcd_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道denied（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道denied信号为低,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_denied,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_denied=0,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道denied信号为高,Tilelink总线无法取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_denied,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_denied=1,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,grant通道corrupt（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道corrupt信号为低,Tilelink总线取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_denied,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_corrupt=0,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道corrupt信号为高,Tilelink总线无法取回数据正确,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_bits_denied,","auto_client_out_d_valid=1，auto_client_out_d_ready=1，
+auto_client_out_d_bits_corrupt=1,",,,,tc_dcache_load/tc_dcache_store,,,,
+,,,grantAck通道valid（Tilelink E通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grantAck通道请求信号有效,Tilelink总线取回数据正确,auto_client_out_e_valid，auto_client_out_e_ready，,auto_client_out_e_valid=1，auto_client_out_e_ready=1，,,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grantAck通道请求信号无效,等待ready后，Tilelink总线取回数据正确,auto_client_out_e_valid，auto_client_out_e_ready，,auto_client_out_e_valid=0，auto_client_out_e_ready=1，,,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grantAck通道ready（Tilelink E通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grantAck通道允许接受请求信号有效,Tilelink总线取回数据正确,auto_client_out_e_valid，auto_client_out_e_ready，,auto_client_out_e_valid=1，auto_client_out_e_ready=1，,,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grantAck通道允许接受请求信号无效,等待ready后，Tilelink总线取回数据正确,auto_client_out_e_valid，auto_client_out_e_ready，,auto_client_out_e_valid=1，auto_client_out_e_ready=0，,,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,grantAck通道sink（Tilelink E通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取min,Tilelink总线取回数据正确,"auto_client_out_e_valid，auto_client_out_e_ready，
+auto_client_out_e_sink,","auto_client_out_e_valid=1，auto_client_out_e_ready=1，
+auto_client_out_e_bits_sink=min,",,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取max,Tilelink总线取回数据正确,"auto_client_out_e_valid，auto_client_out_e_ready，
+auto_client_out_e_sink,","auto_client_out_e_valid=1，auto_client_out_e_ready=1，
+auto_client_out_e_bits_sink=max,",,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,当前存在正在执行的miss重填请求时，Tilelink总线grant通道请求有效，Tilelink总线grant通道sink信号取rand,Tilelink总线取回数据正确,"auto_client_out_e_valid，auto_client_out_e_ready，
+auto_client_out_e_sink,","auto_client_out_e_valid=1，auto_client_out_e_ready=1，
+auto_client_out_e_bits_sink=rand,",,,tlce_gp,tc_dcache_load/tc_dcache_store,,,,
+,,替换cache line 9,,,,,,,,,,,,tc_dcache_release,tc_dcache_miss_invalid_resv_set,发生miss就会替换数据,
+,,,set,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求,虚地址指向的set=0",相应的cache line被正确替换,"io_replace_way_set_bits,","io_replace_way_set_bits=0,",,,replace_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss重填请求,虚地址指向的set=255",相应的cache line被正确替换,"io_replace_way_set_bits,","io_replace_way_set_bits=256,",,,replace_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss重填请求,虚地址指向的set=rand",相应的cache line被正确替换,"io_replace_way_set_bits,","io_replace_way_set_bits=rand,",,,replace_gp,tc_dcache_release,,,,
+,,,way,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss重填请求,被选出的替换路为0",相应的cache line被正确替换,"io_replace_way_way,","io_replace_way_way=0,",,,replace_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss重填请求,被选出的替换路为1",相应的cache line被正确替换,"io_replace_way_way,","io_replace_way_way=1,",,,replace_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss重填请求,被选出的替换路为2",相应的cache line被正确替换,"io_replace_way_way,","io_replace_way_way=2,",,,replace_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss重填请求,被选出的替换路为3",相应的cache line被正确替换,"io_replace_way_way,","io_replace_way_way=3,",,,replace_gp,tc_dcache_release,,,,
+,,,reservation set,,,,,,,,,,,,,,
+,,,,（与原子指令相关的特殊情况）,,"当前存在正在执行的miss重填请求,被选出的替换路为LR指令注册的reservation set",相应的cache line被正确替换，并且清空reservation set,"io_invalid_resv_set,","io_invalid_resv_set=1,",,,replace_gp,tc_dcache_miss_invalid_resv_set,,,,
+,,,Plru替换算法,,,,,,,,,,,,,,
+,,,,,,请求miss，由PLRU选择替换路,miss请求正确回填,"io_replace_way_set_bits,","io_replace_way_set_bits=rand,",,,,tc_dcache_release_ld_st/tc_dcache_release_amo,,,,
+,,数据release回L2   57,,,,,,,,,,,tc_dcache_release,发生miss就会从L2取数据,,,
+,,,release通道ready/valid（Tilelink C通道）,,,,,,"io_req_ready=1，
+io_req_valid=1，",,,,,,,,
+,,,,,,wb请求有效，Tilelink release通道可以接收请求,数据正常release回L2,auto_client_out_c_valid，auto_client_out_c_ready，,"auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,wb请求有效，Tilelink release通道不可以接收请求,等待Tilelink release通道ready后，数据正常release回L2,auto_client_out_c_valid，auto_client_out_c_ready，,"auto_client_out_c_valid=1，
+auto_client_out_c_ready=0，",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,wb请求无效，Tilelink release通道可以接收请求,等待请求,auto_client_out_c_valid，auto_client_out_c_ready，,"auto_client_out_c_valid=0，
+auto_client_out_c_ready=1，",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,wb请求无效，Tilelink release通道不可以接收请求,等待请求,auto_client_out_c_valid，auto_client_out_c_ready，,"auto_client_out_c_valid=0，
+auto_client_out_c_ready=1，",,,tlcc_gp,tc_dcache_release,,,,
+,,,release通道opcode（Tilelink C通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_opcode=6(release)",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_opcode,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_opcode=6,",,,tlcc_gp,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_opcode=7(releaseData)",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_opcode,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_opcode=7,",,,tlcc_gp,tc_dcache_release,,,,
+,,,release通道param（Tilelink C通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_opcode=1(TtoN)",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_param,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_param=1,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_opcode=2(BtoN)",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_param,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_param=2,",,,tlcc_gp,tc_dcache_release,,,,
+,,,release通道source（Tilelink C通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h11",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=17,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h12",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=18,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h13",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=19,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h14",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=20,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h15",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=21,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h16",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=22,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h17",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=23,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h18",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=24,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h19",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=25,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1a",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=26,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1b",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=27,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1c",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=28,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1d",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=29,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1e",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=30,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h1f",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=31,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h20",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=32,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h21",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=33,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_source=6'h22",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_source,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_source=34,",,,tlcc_gp,tc_dcache_release,,,,
+,,,release通道address（Tilelink C通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为min",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[36:12],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[36:12]=min",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为max",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[36:12],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[36:12]=max",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为rand",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[36:12],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[36:12]=rand",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为min",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[11:6],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[11:6]=min",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为max",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[11:6],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[11:6]=max",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线acquire通道可接受请求,c_address pg_idx部分为rand",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_address[11:6],","auto_client_out_c_valid=1，auto_client_out_c_ready=1，
+auto_client_out_c_bits_address[11:6]=rand",,,tlcc_gp,tc_dcache_release,,,,
+,,,release通道data（Tilelink C通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_data=min",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_data,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_data=min,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_data=max",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_data,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_data=max,",,,tlcc_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线release通道可接受请求,c_data=rand",Tilelink总线写回数据正确,"auto_client_out_c_valid，auto_client_out_c_ready，
+auto_client_out_c_bits_data,","auto_client_out_c_valid=1，
+auto_client_out_c_ready=1，
+auto_client_out_c_bits_data=rand,",,,tlcc_gp,tc_dcache_release,,,,
+,,,releaseAck通道ready/valid（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道可接受请求,请求有效",releaseAck回复正常,auto_client_out_d_valid，auto_client_out_d_ready，,"auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道可接受请求,请求无效",等待releaseAck,auto_client_out_d_valid，auto_client_out_d_ready，,"auto_client_out_d_valid=0，
+auto_client_out_d_ready=1，",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道不可接受请求,请求有效",等待通道空闲后，releaseAck正常回复,auto_client_out_d_valid，auto_client_out_d_ready，,"auto_client_out_d_valid=1，
+auto_client_out_d_ready=0，",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,"当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道不可接受请求,请求无效",等待releaseAck,auto_client_out_d_valid，auto_client_out_d_ready，,"auto_client_out_d_valid=0，
+auto_client_out_d_ready=0，",,,tlcd_gp,tc_dcache_release,,,,
+,,,releaseAck通道source（Tilelink D通道）,,,,,,,,,,,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为‘h11,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=17",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h12,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=18",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h13,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=19",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h14,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=20",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h15,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=21",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h16,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=22",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h17,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=23",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h18,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=24",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h19,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=25",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1a,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=26",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1b,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=27",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1c,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=28",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1d,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=29",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1e,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=30",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h1f,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=31",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h20,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=32",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h21,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=33",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,当前存在正在执行的miss写回请求时，Tilelink总线releaseAck通道soure为'h22,releaseAck回复正常,"auto_client_out_d_valid，auto_client_out_d_ready，
+auto_client_out_d_source","auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+auto_client_out_d_source=34",,,tlcd_gp,tc_dcache_release,,,,
+,,,,,,,,,,,,,,,,,
+6,多个请求组合 45,,,,,,,,,,,,,,,,
+,,Probe被阻塞,,,,,,,,,,,tc_dcache_miss_block,tc_dcache_full_block,tc_dcache_atom_block,,
+,,,,,,当MissQueue中存在被Probe相同的物理地址(req_addr)，Probe被阻塞,MissQueue完成对req_addr的数据获取操作后，Probe指令才会正常执行,"auto_client_out_b_valid,
+auto_client_out_b_valid_bits_addr,
+MissEntry_i.req_addr,","auto_client_out_b_valid=1,
+auto_client_out_b_valid_bits_addr=MissEntry_i.req_addr,",,,block_probe_gp,tc_dcache_miss_block,,,,
+,,,,,,当probeEntry满后，Probe被阻塞,当probeEntry有空项后，后续的probe指令才会正常执行,"auto_client_out_b_valid,
+io_mem_probe_ready","auto_client_out_b_valid=1,
+io_mem_probe_ready=0",,,block_probe_gp,tc_dcache_full_block,,,,
+,,,,,,当AMO LR指令设置reservation set，访问reservation set的Probe指令会被阻塞,当reservation set失效后，probe指令才会正常执行,"auto_client_out_b_valid,
+auto_client_out_b_valid_bits_addr,
+io_lrsc_locked_block_valid,
+io_lrsc_locked_block_bits","auto_client_out_b_valid=1,
+auto_client_out_b_valid_bits_addr=io_lrsc_locked_block_bits,
+io_lrsc_locked_block_valid=1,
+
+",,,block_probe_gp,tc_dcache_atom_block,,,,
+,,D请求被阻塞,,,,,,,,,,,,,,,
+,,,,,,"A请求tag存在 missQ,权限BTOT，另外存在missB请求替换该路，并且probe地址B",当probe处理结束才会回复A的grant,"auto_client_out_b_valid,
+auto_client_out_b_valid_bits_addr,","auto_client_out_b_valid=1
+auto_client_out_b_valid_bits_addr,",,,,"tc_dcache_probe_replace_block;
+tc_dcache_probe_replcace_block_prefetch",,,,
+,,,,,,"cacheline里存在别名A, PA=PA1。发送别名B请求miss, PA=PA1。一个回填C请求, PA=PA2。再发生一个probe D, PA=PA2",C请求miss需要替换别名A，但是别名A的PA1在missQueue里面，导致替换失败，重发，probe PA2先于Grant B发出，需等待probe处理完成，才能发Grant B，,"auto_client_out_b_valid,
+auto_client_out_b_valid_bits_addr,","auto_client_out_b_valid=1
+auto_client_out_b_valid_bits_addr,",,,,tc_alias_miss_block,,,,
+,,Miss Entry合并/拒绝  ,,,,,,,,,,,tc_dacche_miss_ld_merge_ld,tc_dacche_miss_ld_merge_st,tc_dacche_miss_st_merge_ld,tc_dacche_miss_ld_reject_ld,tc_dacche_miss_ld_reject_st
+,,,Miss Entry合并,,,,,,,,,,,,,,
+,,,,,,"A是load0请求,B是load0请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load1请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load2请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load0请求,B是load1请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load0请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load0请求,B是load2请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load0请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load2请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load1请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load0请求,B是store请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_st,,,,
+,,,,,,"A是load1请求,B是store请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_st,,,,
+,,,,,,"A是load2请求,B是store请求,请求地址都为rand_same,向L2的acquire还没握手,A已分配Miss Entry,B请求再发起并且Miss","A合并B,Tilelink总线取回数据正确","io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=0，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_ld_merge_st,,,,
+,,,,,,"A是load0请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Queue,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load0请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load0请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load1请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是load2请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_ld_merge_ld,,,,
+,,,,,,"A是store请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+auto_client_out_d_valid=0，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_st_merge_ld,,,,
+,,,,,,"A是store请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_d_valid=0，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_st_merge_ld,,,,
+,,,,,,"A是store请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)但还没转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss","A在refill前合并B,Tilelink总线取回数据正确","io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+refillPipe_io_req_ready,
+refillPipe_io_req_valid,","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=0，
+auto_client_out_d_ready=1，
+refillPipe_io_req_ready=1,
+refillPipe_io_req_valid=0,",,,missq_gp,tc_dcache_miss_st_merge_ld,,,,
+,,,,,,,,,,,,,,,,,
+,,,Miss Entry拒绝,,,,,,,,,,,,,,
+,,,,,,"A是load0请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load1请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，
+io_refill_to_ldq_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load2请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，
+io_refill_to_ldq_valid,","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load0请求,B是load1请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load1请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load0请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load2请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load1请求,B是load2请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load1请求,B是load0请求,请求地址都为rand_same,收到Grant(Data)并在转发给Load Unit,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_d_valid，auto_client_out_d_ready，
+io_refill_to_ldq_valid,","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+auto_client_out_d_valid=1，
+auto_client_out_d_ready=1，
+io_refill_to_ldq_valid=1,",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,,,,,"A是load0请求,B是store请求,请求地址都为rand_same,向L2的acquire已发出,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_reject_st,,,,
+,,,,,,"A是load1请求,B是store请求,请求地址都为rand_same,向L2的acquire已发出,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_reject_st,,,,
+,,,,,,"A是load2请求,B是store请求,请求地址都为rand_same,向L2的acquire已发出,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand_same,
+io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand_same,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_reject_st,,,,
+,,,,,,"A是store请求,B是store请求,请求地址都为rand_same,向L2的acquire已发出,A已分配Miss Entry,B请求再发起并且Miss",B被拒绝分配Miss Entry,"io_lsu_store_req_ready,
+io_lsu_store_req_valid,
+io_lsu_store_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+io_lsu_store_req_bits_addr=rand,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=1，",,,missq_gp,tc_dcache_miss_reject_st,,,,
+,,,,,,发送多个请求，16项Miss Entry满，无法分配MSHR id,请求拒绝分配Miss Entry,"io_lsu_load_0_req_ready,
+io_lsu_load_0_req_valid,
+io_lsu_load_0_req_bits_addr,
+io_lsu_load_1_req_ready,
+io_lsu_load_1_req_valid,
+io_lsu_load_1_req_bits_addr,
+io_lsu_load_2_req_ready,
+io_lsu_load_2_req_valid,
+io_lsu_load_2_req_bits_addr,
+auto_client_out_a_valid，auto_client_out_a_ready，","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_0_req_bits_addr=rand
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_1_req_bits_addr=rand,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+io_lsu_load_2_req_bits_addr=rand,
+auto_client_out_a_valid=1，
+auto_client_out_a_ready=0，",,,missq_gp,tc_dcache_miss_reject_ld,,,,
+,,mainpipe各个请求之间仲裁  ,,,,,,,,,,,,tc_dcache_amo_pb,tx_dcache_ld_st_pb,,
+,,,,,,probe_req和refill_req同时有效,mainpipe先处理probe_req，后处理refill_req,"io_probe_req_valid,
+io_refill_req_valid,
+io_store_req_valid,
+io_atmoics_req_valid,","io_probe_req_valid=1,
+io_refill_req_valid=1,
+io_store_req_valid=0,
+io_atmoics_req_valid=0,",,,arbit_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,probe_req和store_req同时有效,mainpipe先处理probe_req，后处理store_req,"io_probe_req_valid,
+io_refill_req_valid,
+io_store_req_valid,
+io_atmoics_req_valid,","io_probe_req_valid=1,
+io_refill_req_valid=0,
+io_store_req_valid=1,
+io_atmoics_req_valid=0,",,,arbit_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,probe_req和atmoics_req同时有效,mainpipe先处理probe_req，后处理atomics_req,"io_probe_req_valid,
+io_refill_req_valid,
+io_store_req_valid,
+io_atmoics_req_valid,","io_probe_req_valid=1,
+io_refill_req_valid=0,
+io_store_req_valid=0,
+io_atmoics_req_valid=1,",,,arbit_gp,tc_dcache_amo_pb,,,,
+,,,,,,probe_req、refill_req和store_req同时有效,mainpipe先处理probe_req，接着处理refill_req，最后处理store_req,"io_probe_req_valid,
+io_refill_req_valid,
+io_store_req_valid,
+io_atmoics_req_valid,","io_probe_req_valid=1,
+io_refill_req_valid=1,
+io_store_req_valid=1,
+io_atmoics_req_valid=0,",,,arbit_gp,tc_dcache_ld_st_pb,,,,
+7,SRAM读写测试    41                                                        ,,,,,,,,,,,,,,,,
+,,metaArray 11,,,,,,,,,,,,tc_load覆盖,,,
+,,,set_idx,,,,,,,,,,,,,,
+,,,,,,读取meta，set_idx=0~255,meta array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,写入meta，set_idx=0~255,meta array可正常写,"io_write_*_valid,
+io_write_*_bits_idx,","io_write_*_valid=1,
+io_write_*_bits_idx=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,way_oh,,,,,,,,,,,,,,
+,,,,,,写入meta，way_on=1/2/4/8,meta array可正常写,"io_write_*_valid,
+io_write_*_bits_way_en","io_write_*_valid=1,
+io_write_*_bits_way_en=1/2/4/8,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,一致性状态,,,,,,,,,,,,,,
+,,,,,,"meta array一致性状态读出为Nothing, set_idx=0~255，",meta array可正常读,"io_read_*_valid,
+io_read_*_bits_idx，
+io_resp_*_*_coh_state","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*_coh_state=0",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"meta array一致性状态写入为Nothing, set_idx=255，way_oh=1/2/4/8",meta array可正常写,"io_write_*_valid,
+io_write_*_bits_idx，
+io_write_*_bits_way_en，
+io_write_*_*_meta_coh_state","io_write_*_valid=1,
+io_write_*_bits_idx=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_*_*_meta_coh_state=0",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"meta array一致性状态读出为Branch, set_idx=0~255",meta array可正常读,"io_read_*_valid,
+io_read_*_bits_idx，
+io_resp_*_*_coh_state","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*_coh_state=1",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"meta array一致性状态写入为Branch, set_idx=255，way_oh=1/2/4/8",meta array可正常写,"io_write_*_valid,
+io_write_*_bits_idx，
+io_write_*_bits_way_en，
+io_write_*_*_meta_coh_state","io_write_*_valid=1,
+io_write_*_bits_idx=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_*_*_meta_coh_state=1",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,meta array一致性状态读出为Trunk set_idx=0~255,meta array可正常读,"io_read_*_valid,
+io_read_*_bits_idx，
+io_resp_*_*_coh_state","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*_coh_state=2",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"meta array一致性状态写入为Trunk, set_idx=255，way_oh=1/2/4/8",meta array可正常写,"io_write_*_valid,
+io_write_*_bits_idx，
+io_write_*_bits_way_en，
+io_write_*_*_meta_coh_state","io_write_*_valid=1,
+io_write_*_bits_idx=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_*_*_meta_coh_state=2",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,meta array一致性状态读出为Dirty set_idx=0~255,meta array可正常读,"io_read_*_valid,
+io_read_*_bits_idx，
+io_resp_*_*_coh_state","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,，
+io_resp_*_*_coh_state=3",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"meta array一致性状态写入为Dirty, set_idx=255，way_oh=1/2/4/8",meta array可正常写,"io_write_*_valid,
+io_write_*_bits_idx，
+io_write_*_bits_way_en，
+io_write_*_*_meta_coh_state","io_write_*_valid=1,
+io_write_*_bits_idx=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_*_*_meta_coh_state=3",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,tagArray  11,,,,,,,,,,,tc_dcache_load,tc_dcache_store,,,
+,,,set_idx,,,,,,,,,,,,,,
+,,,,,,读取tag，set_idx=0~255,tag array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,写入tag，set_idx=0~255,tag array可正常写,"io_write_valid,
+io_write_bits_idx,","io_write_valid=1,
+io_write_bits_idx=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,way_ne_oh,,,,,,,,,,,,,,
+,,,,,,写入tag，way_en_oh=1/2/4/8,tag array可正常写,"io_write_valid,
+io_write_bits_way_en,","io_write_valid=1,
+io_write_bits_way_en=1/2/4/8,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,tag内容,,,,,,,,,,,,,,
+,,,,,,"读取的tag内容为min, set_idx=0~255",tag array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,
+io_resp_*_*,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*=min,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的tag内容为min, set_idx=0~255，way_en_on=1/2/4/8",tag array可正常写,"io_write_valid,
+io_write_bits_idx,
+io_write_bits_way_en,
+io_write_bits_tag","io_write_valid=1,
+io_write_bits_idx=0~255,
+io_write_bits_way_en=1/2/4/8,
+io_write_bits_tag=min",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的tag内容为max, set_idx=0~255",tag array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,
+io_resp_*_*,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*=max,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的tag内容为max, set_idx=0~255，way_en_on=1/2/4/8",tag array可正常写,"io_write_valid,
+io_write_bits_idx,
+io_write_bits_way_en,
+io_write_bits_tag","io_write_valid=1,
+io_write_bits_idx=0~255,
+io_write_bits_way_en=1/2/4/8,
+io_write_bits_tag=max",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的tag内容为special, set_idx=0~255",tag array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,
+io_resp_*_*,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*=special,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的tag内容为special, set_idx=0~255，way_en_on=1/2/4/8",tag array可正常写,"io_write_valid,
+io_write_bits_idx,
+io_write_bits_way_en,
+io_write_bits_tag","io_write_valid=1,
+io_write_bits_idx=0~255,
+io_write_bits_way_en=1/2/4/8,
+io_write_bits_tag=special",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的tag内容为rand, set_idx=0~255",tag array可正常读,"io_read_*_valid,
+io_read_*_bits_idx,
+io_resp_*_*,","io_read_*_valid=1,
+io_read_*_bits_idx=0~255,
+io_resp_*_*=rand,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的tag内容为rand, set_idx=0~255，way_en_on=1/2/4/8",tag array可正常写,"io_write_valid,
+io_write_bits_idx,
+io_write_bits_way_en,
+io_write_bits_tag","io_write_valid=1,
+io_write_bits_idx=0~255,
+io_write_bits_way_en=1/2/4/8,
+io_write_bits_tag=rand",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,data  19,,,,,,,,,,,tc_dcache_ld_st_pb,,,,
+,,,set_idx,,,,,,,,,,,,,,
+,,,,,,读取data，set_idx=0~255,data array可正常读,"io_read*_valid,
+io_read*_bits_addr[13:6],","io_read*_valid=1,
+io_read*_bits_addr[13:6]=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,写入data，set_idx=0~255,data array可正常写,"io_write_*_valid,
+io_write_*_bits_addr[13:6],","io_write_*_valid=1,
+io_write_*_bits_addr[13:6]=0~255,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,bank_idx,,,,,,,,,,,,,,
+,,,,,,读取data，bank_idx=0~7,data array可正常读,"io_read_*_valid,
+io_read_*_bits_addr[5:3],","io_read_*_valid=1,
+io_read_*_bits_addr[5:3]=0~7,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,way_en_oh,,,,,,,,,,,,,,
+,,,,,,读取data，way_en_on=1/2/4/8,data array可正常读,"io_read*_valid,
+io_read*_bits_way_en,","io_read*_valid=1,
+io_read*_bits_way_en=1/2/4/8,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,写入data，way_en_on=1/2/4/8,data array可正常写,"io_write_*_valid,
+io_write_*_bits_way_en,","io_write_*_valid=1,
+io_write_*_bits_way_en=1/2/4/8,",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,,,,,,,,,,,,
+,,,data内容,,,,,,,,,,,,,,
+,,,,,,"读取的data内容为min，set_idx=0~255, bank_idx=0~7，way_en_on=1/2/4/8",data array可正常读,"io_read*_valid,
+io_read*_bits_addr[13:6],
+io_read_*_bits_addr[5:3],
+io_read*_bits_way_en,
+io_resp_*_data","io_read*_valid=1,
+io_read*_bits_addr[13:6]=0~255,
+io_read_*_bits_addr[5:3]=0~7,
+io_read*_bits_way_en=1/2/4/8,
+io_resp_*_data=min",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的data内容为min，set_idx=0~255, way_en_on=1/2/4/8",data array可正常写,"io_write_*_valid,
+io_write_*_bits_addr[13:6],
+io_write_*_bits_way_en，
+io_write_bits_data*","io_write_*_valid=1,
+io_write_*_bits_addr[13:6]=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_bits_data*=min",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的data内容为max，set_idx=0~255, bank_idx=0~7，way_en_on=1/2/4/8",data array可正常读,"io_read*_valid,
+io_read*_bits_addr[13:6],
+io_read_*_bits_addr[5:3],
+io_read*_bits_way_en,
+io_resp_*_data","io_read*_valid=1,
+io_read*_bits_addr[13:6]=0~255,
+io_read_*_bits_addr[5:3]=0~7,
+io_read*_bits_way_en=1/2/4/8,
+io_resp_*_data=max",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的data内容为max，set_idx=0~255, way_en_on=1/2/4/8",data array可正常写,"io_write_*_valid,
+io_write_*_bits_addr[13:6],
+io_write_*_bits_way_en，
+io_write_bits_data*","io_write_*_valid=1,
+io_write_*_bits_addr[13:6]=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_bits_data*=max",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的data内容为special，set_idx=0~255, bank_idx=0~7，way_en_on=1/2/4/8",data array可正常读,"io_read*_valid,
+io_read*_bits_addr[13:6],
+io_read_*_bits_addr[5:3],
+io_read*_bits_way_en,
+io_resp_*_data","io_read*_valid=1,
+io_read*_bits_addr[13:6]=0~255,
+io_read_*_bits_addr[5:3]=0~7,
+io_read*_bits_way_en=1/2/4/8,
+io_resp_*_data=max",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的data内容为special，set_idx=0~255, way_en_on=1/2/4/8",data array可正常写,"io_write_*_valid,
+io_write_*_bits_addr[13:6],
+io_write_*_bits_way_en，
+io_write_bits_data*","io_write_*_valid=1,
+io_write_*_bits_addr[13:6]=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_bits_data*=special",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"读取的data内容为rand，set_idx=0~255, bank_idx=0~7，way_en_on=1/2/4/8",data array可正常读,"io_read*_valid,
+io_read*_bits_addr[13:6],
+io_read_*_bits_addr[5:3],
+io_read*_bits_way_en,
+io_resp_*_data","io_read*_valid=1,
+io_read*_bits_addr[13:6]=0~255,
+io_read_*_bits_addr[5:3]=0~7,
+io_read*_bits_way_en=1/2/4/8,
+io_resp_*_data=rand",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,,,,"写入的data内容为rand，set_idx=0~255, way_en_on=1/2/4/8",data array可正常写,"io_write_*_valid,
+io_write_*_bits_addr[13:6],
+io_write_*_bits_way_en，
+io_write_bits_data*","io_write_*_valid=1,
+io_write_*_bits_addr[13:6]=0~255,
+io_write_*_bits_way_en=1/2/4/8，
+io_write_bits_data*=rand",,,array_read_write_gp,tc_dcache_load/tc_dcache_store,,,,
+,,,读写冲突,,,,,,,,,,,,,,
+,,,,,,loadpipe0和写入dataarray的操作发生读写冲突,写操作正常执行，loadpipe0读操作被replay,"io_lsu_load_0_valid,
+io_write_*_valid","io_lsu_load_0_valid=1,
+io_write_*_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,loadpipe1和写入dataarray的操作发生读写冲突,写操作正常执行，loadpipe1读操作被replay,"io_lsu_load_0_valid,
+io_write_*_valid","io_lsu_load_1_valid=1,
+io_write_*_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,loadpipe2和写入dataarray的操作发生读写冲突,写操作正常执行，loadpipe2读操作被replay,"io_lsu_load_0_valid,
+io_write_*_valid","io_lsu_load_2_valid=1,
+io_write_*_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,loadpipe0和mainpipe的读操作发生冲突,mainpipe读操作正常执行，loadpipe0/1/2读操作被replay,"io_lsu_load_0_valid,
+io_readline_valid","io_lsu_load_0_valid=1,
+io_readline_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,loadpipe1和mainpipe的读操作发生冲突,mainpipe读操作正常执行，loadpipe0/1/2读操作被replay,"io_lsu_load_0_valid,
+io_readline_valid","io_lsu_load_1_valid=1,
+io_readline_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+,,,,,,loadpipe2和mainpipe的读操作发生冲突,mainpipe读操作正常执行，loadpipe0/1/2读操作被replay,"io_lsu_load_0_valid,
+io_readline_valid","io_lsu_load_2_valid=1,
+io_readline_valid=1",,,array_read_write_gp,tc_dcache_ld_st_pb,,,,
+8,数据前递  30,,,,,,,,,,,,,,,,
+,,LoadUnit0,,,,,,,,,,,tc_dcache_forward,,,,
+,,,mshr_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache向LoadUnit0回复匹配的数据,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_mshrid,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_mshrid,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,mshr_paddr,,,,,,,,,,,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为max。,Dcache向LoadUnit0回复匹配的数据,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为max。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为min。,Dcache向LoadUnit0回复匹配的数据,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为min。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为rand。,Dcache向LoadUnit0回复匹配的数据,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，paddr为rand。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_0_valid,
+io_lsu_forward_mshr_0_paddr,","io_lsu_forward_mshr_0_valid=1,
+io_lsu_forward_mshr_0_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,D_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道向LoadUnit0回复匹配的数据,"io_lsu_forward_D_0_valid;
+io_lsu_forward_D_0_mshrid;","io_lsu_forward_D_0_valid-1,
+io_lsu_forward_D_0_mshrid=0-15;",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit0向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道里面没有匹配的数据，前递失败,"io_lsu_forward_D_0_valid;
+io_lsu_forward_D_0_mshrid;","io_lsu_forward_D_0_valid-1,
+io_lsu_forward_D_0_mshrid=0-15;",,,forward_req_gp,tc_dcache_forward,,,,
+,,LoadUnit1,,,,,,,,,,,,,,,
+,,,mshr_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache向LoadUnit1回复匹配的数据,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_mshrid,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_mshrid,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,mshr_paddr,,,,,,,,,,,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为max。,Dcache向LoadUnit1回复匹配的数据,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为max。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为min。,Dcache向LoadUnit1回复匹配的数据,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为min。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为rand。,Dcache向LoadUnit1回复匹配的数据,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，paddr为rand。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_1_valid,
+io_lsu_forward_mshr_1_paddr,","io_lsu_forward_mshr_1_valid=1,
+io_lsu_forward_mshr_1_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,D_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道向LoadUnit1回复匹配的数据,"io_lsu_forward_D_1_valid;
+io_lsu_forward_D_1_mshrid;","io_lsu_forward_D_1_valid-1,
+io_lsu_forward_D_1_mshrid=0-15;",,,forward_req_gp,,,,,
+,,,,,,LoadUnit1向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道里面没有匹配的数据，前递失败,"io_lsu_forward_D_1_valid;
+io_lsu_forward_D_1_mshrid;","io_lsu_forward_D_1_valid-1,
+io_lsu_forward_D_1_mshrid=0-15;",,,forward_req_gp,,,,,
+,,LoadUnit2,,,,,,,,,,,,,,,
+,,,mshr_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache向LoadUnit2回复匹配的数据,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_mshrid,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，mshrid遍历0~15。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_mshrid,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_mshrid=0-15,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,mshr_paddr,,,,,,,,,,,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为max。,Dcache向LoadUnit2回复匹配的数据,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为max。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=max,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为min。,Dcache向LoadUnit2回复匹配的数据,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为min。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=min,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为rand。,Dcache向LoadUnit2回复匹配的数据,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，paddr为rand。,Dcache里面没有匹配的数据，前递失败,"io_lsu_forward_mshr_2_valid,
+io_lsu_forward_mshr_2_paddr,","io_lsu_forward_mshr_2_valid=1,
+io_lsu_forward_mshr_2_paddr=rand,",,,forward_req_gp,tc_dcache_forward,,,,
+,,,D_mshrid,,,,,,,,,,,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道向LoadUnit2回复匹配的数据,"io_lsu_forward_D_2_valid;
+io_lsu_forward_D_2_mshrid;","io_lsu_forward_D_2_valid-1,
+io_lsu_forward_D_2_mshrid=0-15;",,,forward_req_gp,tc_dcache_forward,,,,
+,,,,,,LoadUnit2向Dcache发来的数据前递请求有效，tilelink的D通道返回mshrid遍历0~15。,Dcache的D通道里面没有匹配的数据，前递失败,"io_lsu_forward_D_2_valid;
+io_lsu_forward_D_2_mshrid;","io_lsu_forward_D_2_valid-1,
+io_lsu_forward_D_2_mshrid=0-15;",,,forward_req_gp,tc_dcache_forward,,,,
+9,cmo 请求  15,,,,,,,,,,,,,,,,
+,,请求的握手信号valid/ready,,,,,,,,,,,,,,,
+,,,,,,Dcache missQueue可接受cmo请求，LSU向Dcache发来的请求信号有效。,Dcache向L2cache发送正确信号；,"io_cmoOpReq_ready,
+io_cmoOpReq_valid,","io_cmoOpReq_ready=1，
+io_cmoOpReq_valid=1，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue不可接受cmo请求，LSU向Dcache发来的请求信号有效。,Dcache不会向L2cache发送正确信号；,"io_cmoOpReq_ready,
+io_cmoOpReq_valid,","io_cmoOpReq_ready=0，
+io_cmoOpReq_valid=1，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue可接受cmo请求，LSU向Dcache发来的请求信号无效。,Dcache不会向L2cache发送正确信号；,"io_cmoOpReq_ready,
+io_cmoOpReq_valid,","io_cmoOpReq_ready=1，
+io_cmoOpReq_valid=0，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue不可接受cmo请求，LSU向Dcache发来的请求信号无效。,Dcache不会向L2cache发送正确信号；,"io_cmoOpReq_ready,
+io_cmoOpReq_valid,","io_cmoOpReq_ready=0，
+io_cmoOpReq_valid=0，",,,misc_gp,tc_dcahce_cmo,,,,
+,,响应的握手信号valid/ready,,,,,,,,,,,,,,,
+,,,,,,Dcache missQueue可接受cmo响应请求，L2cache向Dcache发来的响应请求信号有效。,Dcache可接收L2cache发送的响应信号；,"io_cmoOpResp_ready,
+io_cmoOpResp_valid,","io_cmoOpResp_ready=1，
+io_cmoOpResp_valid=1，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue不可接受cmo响应请求，L2cache向Dcache发来的响应请求信号有效。,Dcache不可接收L2cache发送的响应信号；,"io_cmoOpResp_ready,
+io_cmoOpResp_valid,","io_cmoOpResp_ready=0，
+io_cmoOpResp_valid=1，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue可接受cmo响应请求，L2cache向Dcache发来的响应请求信号无效。,Dcache不可接收L2cache发送的响应信号；,"io_cmoOpResp_ready,
+io_cmoOpResp_valid,","io_cmoOpResp_ready=1，
+io_cmoOpResp_valid=0，",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,Dcache missQueue不可接受cmo响应请求，L2cache向Dcache发来的响应请求信号无效。,Dcache不可接收L2cache发送的响应信号；,"io_cmoOpResp_ready,
+io_cmoOpResp_valid,","io_cmoOpResp_ready=0，
+io_cmoOpResp_valid=0，",,,misc_gp,tc_dcahce_cmo,,,,
+,,opcode,,,,,,,,,,,,,,,
+,,,,,,LSU向Dcache发送cmo请求，cmo_opcode=2,Tilelink a_opcode='hE发送给L2cache，返回d_opcode='h8,io_cmoOpResp_bits_opcode；,io_cmoOpReq_bits_opcode=’h2；,,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,LSU向Dcache发送cmo请求，cmo_opcode=1,Tilelink a_opcode='hD发送给L2cache，返回d_opcode='h8,io_cmoOpResp_bits_opcode；,io_cmoOpReq_bits_opcode=’h1；,,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,LSU向Dcache发送cmo请求，cmo_opcode=0,Tilelink a_opcode='hC发送给L2cache，返回d_opcode='h8,io_cmoOpResp_bits_opcode；,io_cmoOpReq_bits_opcode='h0；,,,misc_gp,tc_dcahce_cmo,,,,
+,,address,,,,,,,,,,,,,,,
+,,,,,,请求地址内容为min_addr,通过Tilelink a_address发送给L2cache,"io_cmoOpRsp_ready;
+io_cmoOpReq_valid;
+io_cmoOpResp_bits_address；","io_cmoOpRsp_ready=1，
+io_cmoOpReq_valid=1，
+io_cmoOpReq_bits_address=min_addr;",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,请求地址内容为max_addr,通过Tilelink a_address发送给L2cache,"io_cmoOpRsp_ready;
+io_cmoOpReq_valid;
+io_cmoOpResp_bits_address；","io_cmoOpRsp_ready=1，
+io_cmoOpReq_valid=1，
+io_cmoOpReq_bits_address=max_addr;",,,misc_gp,tc_dcahce_cmo,,,,
+,,,,,,请求地址内容为rand_addr,通过Tilelink a_address发送给L2cache,"io_cmoOpRsp_ready;
+io_cmoOpReq_valid;
+io_cmoOpResp_bits_address；","io_cmoOpRsp_ready=1，
+io_cmoOpReq_valid=1，
+io_cmoOpReq_bits_address=rand_addr;",,,misc_gp,tc_dcahce_cmo,,,,
+10,时钟与复位  5,,,,,,,,,,,,,,,,
+,,时钟,,,,,,,,,,,,,,,
+,,,,,,时钟频率在正常范围,正常工作,,,,,,tc_dcache_clk,,,,
+,,,,,,关闭时钟,不能正常工作,,,,,,tc_dcache_clk,,,,
+,,复位,,,,,,,,,,,,,,,
+,,,硬复位,,,,,,,,,,,,,,
+,,,,,,硬复位rstn,可以正常复位,,,,,,tc_dcache_rst,,,,
+,,,解复位,,,,,,,,,,,,,,
+,,,,,,先复位，再解除复位,解复位后可以正常工作,,,,,,tc_dcache_rst,,,,
+11,别名  1,,,,,,,,,,,,,,,,
+,,,,,,L2Cache会维护DCache中保存的每个物理块对应别名位，发起Probe请求将DCache中原有的别名块Probe下来。,,,,,,tlca_gp,tc_dcache_alias,,,,
+12,ECC  69,,,,,,,,,,,,,,,,
+,,load请求 28,,,,,,,,,,,,,,,
+,,,单个load请求  ,,,,,,,,,,,,,,
+,,,,load0 tag,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发送请求命中。但命中set部分（4路）都没有error，其他set部分注入tag error。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,miss,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发来的请求miss。但是对应的set部分（4路）没有error，其他set行注入tag enter,报miss，不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe0发送请求。对应的set部分（4路）存在tag error。,报miss，mq_nack为1。向loadunit和l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,load0 data,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0发送请求命中。且命中的cache line没有error，其他路注入data error,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe0发送请求命中。且命中的cache line有data error，命中的bank（比如bank1)不注入ecc，其他bank部分任意注入ecc（比如bank4）,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe0发送请求命中。但是命中的bank注入data error,向loadunit和 l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe0发送请求命中。但是命中的cacheline存在flag_error,向loadunit和l2报 error，,,,,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,load1 tag,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe1发送请求命中。但命中set部分（4路）都没有error，其他set部分注入tag error。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,miss,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe1发来的请求miss。但是对应的set部分（4路）没有error，其他set行注入tag enter,报miss，不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe1发送请求。对应的set部分（4路）存在tag error。,报miss，mq_nack为1。向loadunit和l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,load1 data,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe1发送请求命中。且命中的cache line没有error，其他路注入data error。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe1发送请求命中。且命中的cache line有data error，命中的bank（比如bank1)不注入ecc，其他bank部分任意注入ecc（比如bank4）,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe1发送请求命中。但是命中的bank注入data error,向loadunit和 l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=?,
+io_lsu_load_2_req_valid=0,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe1发送请求命中。但是命中的cacheline存在flag_error,向loadunit和l2报 error，,,,,,,tc_dcache_ecc_load,,,,
+,,,,load2 tag,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe2发送请求命中。但命中set部分（4路）都没有error，其他set部分注入tag error。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,miss,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe2发来的请求miss。但是对应的set部分（4路）没有error，其他set行注入tag enter,报miss，不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe2发送请求。对应的set部分（4路）存在tag error。,报miss，mq_nack为1。向loadunit和l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready=1,
+auto_cacheCtrlOpt_in_a_valid=1,
+auto_cacheCtrlOpt_in_a_bits_data[3]=0,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,load2 data,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe2发送请求命中。且命中的cache line没有error，其他路注入data error,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe2发送请求命中。且命中的cache line有data error，命中的bank（比如bank1)不注入ecc，其他bank部分任意注入ecc（比如bank4）,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe2发送请求命中。但是命中的bank注入data error,向loadunit和 l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=?,
+io_lsu_load_0_req_valid=0,
+io_lsu_load_1_req_ready=?,
+io_lsu_load_1_req_valid=0,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1,",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,Load Unit向LoadPipe2发送请求命中。但是命中的cacheline存在flag_error,向loadunit和l2报 error，,,,,,misc_gp,tc_dcache_ecc_load,,,,
+,,,并行多个load请求,,,,,,,,,,,,,,
+,,,,tag,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求，请求的虚地址bank部分为same_bank。但命中set部分（4路）都没有error，其他set部分注入tag error。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,,miss,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求，请求的虚地址bank部分为same_bank。对应set部分（4路）都没有error，其他set部分注入tag error。,报miss，不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求，请求的虚地址bank部分为same_bank。对应set部分（4路）存在tag error。,报miss，mq_nack为1。向loadunit和l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,data,,,,,,,,,,,,,
+,,,,,hit,,,,,,,,,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求。且命中的cache line没有data error，其他cacheline部分任意注入ecc。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求。且命中的cache line有data error，命中的bank不注入ecc，其他bank部分任意注入ecc。,不报ecc error,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求。但是命中的bank注入data error。,向loadunit和 l2 (BEU) 报 error，,"io_lsu_load_0_req_ready；
+io_lsu_load_0_req_valid；
+io_lsu_load_1_req_ready；
+io_lsu_load_1_req_valid；
+io_lsu_load_2_req_ready；
+io_lsu_load_2_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_load_0_req_ready=1,
+io_lsu_load_0_req_valid=1,
+io_lsu_load_1_req_ready=1,
+io_lsu_load_1_req_valid=1,
+io_lsu_load_2_req_ready=1,
+io_lsu_load_2_req_valid=1,",,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,,,,,Load Unit向LoadPipe0、LoadPipe1、LoadPipe2同时发送请求。但是命中的bcacheline存在flag error。,向loadunit和l2报 error，,,,,,misc_gp,tc_dcache_ecc_load_both,,,,
+,,sbuffer向dcache发送的store 请求  5,,,,,,,,,,,,,,,
+,,,tag,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中set部分（4路）都没有error，其他set部分注入tag error。,不报ecc error,"io_lsu_store_req_ready；
+io_lsu_store_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=0",,,misc_gp,tc_dcache_ecc_store,,,,
+,,,,miss,,,,,,,,,,,,,
+,,,,,,miss但是对应的set部分（4路）没有error，其他set行注入tag error,报miss，不报ecc error,"io_lsu_store_req_ready；
+io_lsu_store_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=0",,,misc_gp,tc_dcache_ecc_store,,,,
+,,,,,,miss但是对应的set部分（4路）存在tag error,报miss，不报ecc error，根据 Repalce/Evict 流程释放 cacheline，并将数据写入 dcache 中，不向 l2 报送错误。在将error tag替换时才会报error,"io_lsu_store_req_ready；
+io_lsu_store_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data[3]=0",,,misc_gp,tc_dcache_ecc_store,,,,
+,,,data,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中且命中的cache line没有error，其他路注入data error,不报ecc error,"io_lsu_store_req_ready；
+io_lsu_store_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1，",,,misc_gp,tc_dcache_ecc_store,,,,
+,,,,,,命中且命中的cache line注入data error,不报ecc error，直接写入数据，不向l2报错,"io_lsu_store_req_ready；
+io_lsu_store_req_valid；
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_store_req_ready=1,
+io_lsu_store_req_valid=1,
+auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1，",,,misc_gp,tc_dcache_ecc_store,,,,
+,,atomic请求  12,,,,,,,,,,,,,,,
+,,,lr tag,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中且命中way没有error，其他3个way注入tag error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,,miss,,,,,,,,,,,,,
+,,,,,,miss但是对应的set部分（4路）没有error，其他set行注入tag enter,报miss，不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,,,,miss但是对应的set部分（4路）存在tag error,向 l2 (beu)报miss ，报ecc error，并且io_lsu_atomics_resp_bits_error拉高,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,lr data,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中且命中的cache line没有error，其他路注入data error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,,,,命中且命中的cache line注入data error,向l2 (beu) 报error，并且io_lsu_atomics_resp_bits_error拉高,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,,,,命中且命中的cache line存在flag_error,向l2报ecc error，并且io_lsu_atomics_resp_bits_error拉高,,,,,misc_gp,tc_dcache_ecc_atomics_lrsc,,,,
+,,,AMO/SC tag,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中但命中set部分（4路）都没有error，其他set部分注入tag error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,,,miss,,,,,,,,,,,,,
+,,,,,,miss但是对应的set部分（4路）没有error，其他set行注入tag enter,报miss，不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,,,,,miss但是对应的set部分（4路）存在tag error,不向 l2 (beu)报miss ，不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,,AMO/SC data,,,,,,,,,,,,,,
+,,,,hit,,,,,,,,,,,,,
+,,,,,,命中且命中的cache line没有error，其他路注入data error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,,,,,命中且命中的cache line注入data error,不向l2 (beu) 报error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_lsu_atomics_req_ready=1,
+io_lsu_atomics_req_valid=1,",,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,,,,,命中且命中的cache line存在flag_error,不向l2报ecc error,,,,,misc_gp,"tc_dcache_ecc_atomics_amo,tc_dcache_ecc_atomics_lrsc",,,,
+,,probe请求  5,,,,,,,,,,,,,,,
+,,,tag,,,,,,,,,,,,,,
+,,,,,,命中cache line没有error，其他路注入tag error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=1，
+io_mem_probe_ready=1,",,,misc_gp,tc_dcache_ecc_probe,,,,
+,,,,,,命中路tag部分存在error,报ecc error，不更改cache状态，并且需要向 l2 返回 corrupt=1 的 ProbeAck。,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=1，
+io_mem_probe_ready=1,",,,misc_gp,tc_dcache_ecc_probe,,,,
+,,,data,,,,,,,,,,,,,,
+,,,,,,命中的cache line没有error，其他路注入data error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=1，
+io_mem_probe_ready=1,",,,misc_gp,tc_dcache_ecc_probe,,,,
+,,,,,,命中且命中的cache line注入data error,报ecc error，按规则更改cache状态，如果需要返回数据，则需要向 l2 返回 corrupt=1。,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","io_probe_block=0,
+auto_client_out_b_valid=1,
+auto_client_out_b_ready=1,
+io_mem_probe_valid=1，
+io_mem_probe_ready=1,",,,misc_gp,tc_dcache_ecc_probe,,,,
+,,,,,,命中且命中的cache line存在flag_error,向BEU报error,,,,,misc_gp,tc_dcache_ecc_probe,,,,
+,,refill请求替换cache line  6,,,,,,,,,,,,,,,
+,,,tag,,,,,,,,,,,,,,
+,,,,,,对应的替换 way没有error，其他3路注入tag error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","auto_cacheCtrlOpt_in_a_read=1;
+auto_cacheCtrlOpt_in_a_valid=1;
+auto_cacheCtrlOpt_in_a_bits_data[3]=0;",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,对应的set部分命中way存在tag error,向 l2 (beu) 报ecc error，并且需要向 l2 返回 corrupt=1。,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","auto_cacheCtrlOpt_in_a_read=1;
+auto_cacheCtrlOpt_in_a_valid=1;
+auto_cacheCtrlOpt_in_a_bits_data[3]=0;",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,data,,,,,,,,,,,,,,
+,,,,,,替换路cache line 没有error，其他路注入data error,不报ecc error,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","auto_cacheCtrlOpt_in_a_read=1;
+auto_cacheCtrlOpt_in_a_valid=1;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1;",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,替换路cache line 注入data error,向 l2 (beu) 报ecc error，并且需要向 l2 返回 corrupt=1。,"auto_cacheCtrlOpt_in_a_ready;
+auto_cacheCtrlOpt_in_a_valid;
+auto_cacheCtrlOpt_in_a_bits_data;","auto_cacheCtrlOpt_in_a_read=1;
+auto_cacheCtrlOpt_in_a_valid=1;
+auto_cacheCtrlOpt_in_a_bits_data[3]=1;",,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,命中且命中的cache line存在flag_error,向l2报error,,,,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,回填的数据存在l2_error,向l2报error,,,,,misc_gp,tc_dcache_ecc_load,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,寄存器读写,,,,,,,,,,,,,,,
+,,,,,,读取寄存器的值，检查是否与写入值一致。,,,,,,(断言）,tc_dcache_ecc_reg,,,,
+,,边界条件验证,,,,,,,,,,,,,,,
+,,,,,,ECCEID 写入最大值（如64位全1）,,,,,,misc_gp,tc_dcache_ecc_reg,,,,
+,,,,,,ECCMASK 写入全1,翻转所有位,,,,,misc_gp,tc_dcache_ecc_reg,,,,
+,,ECCCTL控制寄存器,,,,,,,,,,,,,,,
+,,,ese注入有效标志,,,设置为1，验证是否使能ECC错误注入。,注入成功后，ese将拉低,,,,,(断言）,tc_dcache_ecc_reg,,,,
+,,,ece:counter有效标志,,,,,,,,,,,,,,
+,,,,,,ese == 1 并且 ece == 0,error 注入立即有效。,,,,,(断言）,tc_dcache_ecc_reg,,,,
+,,,,,,ese == 1 并且 ece == 1，启用计数器延迟注入,则需要等到 ECCEID 递减到 0 之后，注入才有效。,,,,,(断言）,tc_dcache_ecc_counter,,,,
+,,,cmp:注入对象,,,,,,,,,,,,,,
+,,,,tag,,验证是否能够正确选择注入对象，cmp的值为1‘b0，tag注入error,成功触发tag错误注入,,,,,(断言）,tc_dcache_ecc_store,,,,
+,,,,data,,验证是否能够正确选择注入对象，cmp的值为1‘b1，data注入error,成功触发data错误注入,,,,,(断言）,tc_dcache_ecc_store,,,,
+,,,pst,,,"pst=1,支持重复注入。ECCEID计时器减到0并且成功注入之后，注入计时器会恢复上一次设置。",,,,,,(断言）,tc_dcache_ecc_reg,,,,
+,,,bank,,,bank 中的位置位时，对应 mask 有效，寄存器读写功能,,,,,,(断言）,tc_dcache_ecc_reg,,,,
+,,ECCEID注入延迟寄存器,,,,,,,,,,,,,,,
+,,,,,,当 ese==1 并且 ece==1 时，给ECCEID一个值，开始递减，直至减为 0。,在预期时间，成功触发错误注入,,,,,(断言）,tc_dcache_ecc_counter,,,,
+,,,,,,当 ese==1 并且 ece==1 时，给ECCEID值为0。,立即触发错误注入,,,,,(断言）,tc_dcache_ecc_counter,,,,
+,,ECCMASK注入掩码寄存器,,,,,,,,,,,,,,,
+,,,,,,0 表示不反转，1 表示翻转。令某一位为1。,仅该位翻转,,,,,misc_gp,tc_dcache_ecc_reg,,,,
+,,,,,,令多位为1,同时翻转多位,,,,,misc_gp,tc_dcache_ecc_reg,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+维测测试点,,,         ,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+寄存器测试点,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+,,,,,,,,,,,,,,,,,
+性能测试点,,,,,,,,,,,,,,,,,

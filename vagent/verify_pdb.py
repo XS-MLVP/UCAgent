@@ -1020,6 +1020,10 @@ class VerifyPDB(Pdb):
         cfg_update.update(self.agent.set_messages_cfg(cfg))
         message(yam_str(cfg_update))
 
+    def do_messages_summary(self, arg):
+        """Summarize the chat history"""
+        self.agent.message_summary()
+
     def do_hmcheck_cstat(self, arg):
         """
         Show the hmcheck status of current stage.

@@ -146,7 +146,10 @@ class BaseReadWrite:
                 with open(real_path, 'w', encoding='utf-8') as f:
                     pass
             else:
-                return False, f"File {path} does not exist in workspace. Please create it first.", ""
+                ex_msg = ""
+                if path.startswith("/"):
+                    ex_msg = " Note: Leading '/' indicates an absolute path. Please provide a relative path within the workspace."
+                return False, f"File {path} does not exist in workspace. Please create it first.{ex_msg}", ""
         return True, "", real_path
 
     def check_dir(self, path: str) -> Tuple[bool, str, str]:
