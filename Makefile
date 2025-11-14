@@ -20,6 +20,8 @@ init_%:
 		fi; \
 		if [ -f output/$*_RTL/$*.v ]; then \
 			picker export output/$*_RTL/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
+		elif [ -f output/$*_RTL/$*.sv ]; then \
+			picker export output/$*_RTL/$*.sv --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
 	cp examples/$*/*.md output/$*/  | true
@@ -50,3 +52,6 @@ clean_test:
 
 continue:
 	python3 ucagent.py output/ ${DUT} --config config.yaml ${ARGS}
+
+# Include docs Makefile
+-include docs/Makefile
