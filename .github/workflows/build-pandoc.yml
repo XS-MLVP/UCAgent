@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
     container:
-      image: docker.io/pandoc/latex:latest
+      image: docker.io/pandoc/latex:latest-ubuntu
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
           apt-get update
           # 中文支持 + 字体 (ctex 需要 texlive-lang-chinese)，Noto 字体满足 "Noto Serif CJK SC"
           apt-get install -y --no-install-recommends \
-            texlive-lang-chinese fonts-noto-cjk wget xz-utils
+            texlive-lang-chinese fonts-noto-cjk wget xz-utils make
           # 安装 pandoc-crossref (与 pandoc 配合使用的过滤器)
           CROSSREF_VERSION=0.3.17.0
           wget -q https://github.com/lierdakil/pandoc-crossref/releases/download/v${CROSSREF_VERSION}/pandoc-crossref-Linux.tar.xz
