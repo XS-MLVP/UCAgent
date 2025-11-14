@@ -4,11 +4,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/**'
+      - "docs/**"
   pull_request:
     branches: [main]
     paths:
-      - 'docs/**'
+      - "docs/**"
   workflow_call:
     inputs:
       deploy_pages:
@@ -64,7 +64,9 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          # MkDocs 使用 -f docs/mkdocs.yml，默认输出目录为该配置文件所在目录下的 site
+          # 因此需要上传 docs/site 才能正确部署
+          path: docs/site
 
       # No site-level PDF export (handled by Pandoc workflow)
 
