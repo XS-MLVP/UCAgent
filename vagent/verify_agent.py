@@ -678,10 +678,12 @@ class VerifyAgent:
 
     def messages_get_raw(self):
         """Get the messages from the agent's state."""
-        values = self.agent.get_state(self.get_work_config()).values
-        if "messages" not in values:
-            return []
-        return values["messages"]
+        try:
+            values = self.agent.get_state(self.get_work_config()).values
+            return values.get("messages", [])
+        except Exception as e:
+            warning(f"Failed to get messages from agent state: {e}")
+        return []
 
     def messages_count(self):
         """Get the count of messages in the agent's state."""
@@ -721,22 +723,12 @@ class VerifyAgent:
         return stats
 
     def message_get_str(self, index, count):
-        values = self.agent.get_state(self.get_work_config()).values
-        if "messages" not in values:
-            warning(f"No messages found, cannot get message")
+        messages = self.messages_get_raw()
+        if len(messages) == 0:
+            warning(f"No messages found, cannot get message. Please try later.")
             return []
-        index = index % len(values["messages"])
-        return [m.pretty_repr() for m in values["messages"][index:index+count]]
-
-    def message_keep_latest(self, latest_size):
-        # FIXME: Unable to delete messages in langgraph agent state
-        values = self.agent.get_state(self.get_work_config()).values
-        if "messages" not in values:
-            warning(f"No messages found, cannot keep latest messages")
-            return
-        info(f"Latest keeping messages with size {latest_size}, total messages before: {len(values['messages'])}")
-        self.agent.update_state(self.get_work_config(), {"messages": values["messages"][-latest_size:]})
-        info(f"Messages after keeping: {len(self.messages_get_raw())}")
+        index = index % len(messages)
+        return [m.pretty_repr() for m in messages[index:index+count]]
 
     def do_work_values(self, instructions, config):
         last_msg_index = None
