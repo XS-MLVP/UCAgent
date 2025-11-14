@@ -12,28 +12,40 @@ jobs:
     runs-on: ubuntu-latest
     # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
     container:
-      image: docker.io/pandoc/latex:latest-ubuntu
+      image: docker.io/pandoc/latex:3.6.4-ubuntu
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-tags: true
-
-      - name: Install extra LaTeX & fonts & pandoc-crossref
+      - name: Install git, LaTeX extras, fonts, and pandoc-crossref
         run: |
           set -eux
           apt-get update
-          # 中文支持 + 字体 (ctex 需要 texlive-lang-chinese)，Noto 字体满足 "Noto Serif CJK SC"
+          # 基础工具与字体（Noto CJK 字体满足中文主字体需求）
           apt-get install -y --no-install-recommends \
-            texlive-lang-chinese fonts-noto-cjk wget xz-utils make git
-          # 安装 pandoc-crossref (与 pandoc 配合使用的过滤器)
+            fonts-noto-cjk wget xz-utils make git ca-certificates
+
+          # 优先使用 tlmgr 安装 ctex（保证 ctexart.cls 可用，与镜像自带 TeX Live 一致）
+          if command -v tlmgr >/dev/null 2>&1; then
+            tlmgr option repository http://mirror.ctan.org/systems/texlive/tlnet
+            tlmgr update --self
+            tlmgr install ctex
+          else
+            # 兜底方案（不推荐）：通过 apt 安装中文支持
+            apt-get install -y --no-install-recommends texlive-lang-chinese
+          fi
+
+          # 安装 pandoc-crossref（与 pandoc 3.6.x 兼容）
           CROSSREF_VERSION=0.3.17.0
           wget -q https://github.com/lierdakil/pandoc-crossref/releases/download/v${CROSSREF_VERSION}/pandoc-crossref-Linux.tar.xz
           tar -xf pandoc-crossref-Linux.tar.xz
           mv pandoc-crossref /usr/local/bin/
+          fc-cache -fv || true
           pandoc --version
           pandoc-crossref --version || true
           fc-list | grep -i "Noto" | head -n 5 || true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - name: Build PDF (oneside)
         env:
