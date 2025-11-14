@@ -27,6 +27,8 @@ jobs:
             tlmgr option repository http://mirror.ctan.org/systems/texlive/tlnet
             tlmgr update --self
             tlmgr install ctex
+            # Pandoc 常用代码环境依赖，缺少会触发 fvextra.sty 等错误
+            tlmgr install fvextra fancyvrb upquote xstring etoolbox zref
           else
             # 兜底方案（不推荐）：通过 apt 安装中文支持
             apt-get install -y --no-install-recommends texlive-lang-chinese
