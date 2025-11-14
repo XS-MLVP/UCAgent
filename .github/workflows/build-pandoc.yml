@@ -12,9 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
     container:
-      image: docker.io/pandoc/latex:3.6.4-ubuntu
+      image: docker.io/pandoc/extra:3.6.4-ubuntu
     steps:
-      - name: Install git, LaTeX extras, fonts, and pandoc-crossref
+      - name: Install git, LaTeX extras, fonts
         run: |
           set -eux
           apt-get update
@@ -34,14 +34,10 @@ jobs:
             apt-get install -y --no-install-recommends texlive-lang-chinese
           fi
 
-          # 安装 pandoc-crossref（与 pandoc 3.6.x 兼容）
-          CROSSREF_VERSION=0.3.17.0
-          wget -q https://github.com/lierdakil/pandoc-crossref/releases/download/v${CROSSREF_VERSION}/pandoc-crossref-Linux.tar.xz
-          tar -xf pandoc-crossref-Linux.tar.xz
-          mv pandoc-crossref /usr/local/bin/
           fc-cache -fv || true
           pandoc --version
-          pandoc-crossref --version || true
+          # pandoc/extra 自带 pandoc-crossref，版本与 pandoc 匹配
+          pandoc-crossref --version
           fc-list | grep -i "Noto" | head -n 5 || true
 
       - name: Checkout repository
@@ -52,6 +48,7 @@ jobs:
       - name: Build PDF (oneside)
         env:
           HOME: /root
+          PDF_ENGINE: tectonic
         run: |
           git config --global --add safe.directory $(pwd)
           make pdf-one
@@ -59,6 +56,7 @@ jobs:
       - name: Build PDF (twoside)
         env:
           HOME: /root
+          PDF_ENGINE: tectonic
         run: |
           git config --global --add safe.directory $(pwd)
           make pdf-one TWOSIDE=1
