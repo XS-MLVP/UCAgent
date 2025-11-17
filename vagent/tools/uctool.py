@@ -79,6 +79,10 @@ class UCTool(BaseTool):
         default=False,
         description="send block message to client"
     )
+    async_lock: asyncio.Lock = Field(
+        default_factory=asyncio.Lock,
+        description="Asynchronous lock for thread safety."
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -190,13 +194,36 @@ class UCTool(BaseTool):
         self.is_alive_loop = False
 
     async def ainvoke(self, input, config = None, **kwargs):
+        try:
+            await asyncio.wait_for(self.async_lock.acquire(), timeout=self.call_time_out)
+        except asyncio.TimeoutError:
+            error_msg = {"error": f"Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."}
+            fc.warning(str(error_msg))
+            return error_msg
+        except Exception as e:
+            error_msg = {"error": f"Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"}
+            fc.warning(str(error_msg))
+            return error_msg
+        try:
+            data, alive_thread = await self._ainvoke(input, config, **kwargs)
+            return data
+        except Exception as e:
+            error_msg = {"error": f"Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"}
+            fc.warning(str(error_msg))
+            return error_msg
+        finally:
+            if alive_thread is not None:
+                alive_thread.join()
+            self.async_lock.release()
+
+    async def _ainvoke(self, input, config = None, **kwargs):
         self.call_count += 1
         self.last_call_time = time.time()
         ctx = input.get("ctx", None)
         if not isinstance(ctx, Context):
             try:
                 self.is_in_call = True
-                return await super().ainvoke(input, config, **kwargs)
+                return await super().ainvoke(input, config, **kwargs), None
             finally:
                 self.is_in_call = False
                 self.last_call_time = time.time()
@@ -208,11 +235,11 @@ class UCTool(BaseTool):
         if self.is_in_streaming:
             error_msg = {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
             fc.info(str(error_msg))
-            return error_msg
+            return error_msg, None
         if self.is_alive_loop:
             error_msg = {"error": f"Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."}
             fc.info(str(error_msg))
-            return error_msg
+            return error_msg, None
         self.is_in_streaming = True
         self.last_call_time = time.time()
         self.reset_force_exit()
@@ -228,7 +255,7 @@ class UCTool(BaseTool):
         self.is_in_streaming = False
         self.last_call_time = time.time()
         fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")
-        return data
+        return data, alive_thread
 
     def pre_call(self, *args, **kwargs):
         if self.pre_call_back is None:
