@@ -71,3 +71,9 @@ tui:
   task_width: 84
   console_height: 13
   status_height: 7
+
+
+hooks:
+  continue: >
+    You have not completed all the tasks yet. Please continue. Use the `Check` and `Complete` tools to determine whether you have finished the current stage's tasks.
+    Please verify the results of the `Check` and `Complete` tool calls, and adjust your work based on the feedback until all `Check` and `Complete` calls are passed.
