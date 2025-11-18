@@ -77,3 +77,11 @@ hooks:
   continue: >
     You have not completed all the tasks yet. Please continue. Use the `Check` and `Complete` tools to determine whether you have finished the current stage's tasks.
     Please verify the results of the `Check` and `Complete` tool calls, and adjust your work based on the feedback until all `Check` and `Complete` calls are passed.
+
+  cagent_init: >
+    Please get your role information and basic guidance through tool `RoleInfo`, and then complete the task.
+    Please make sure to use the tool `ReadTextFile` to read the file, so that UCAgent can know which files you have read.
+
+  quit: "/quit"
+
+  exit: "/exit"

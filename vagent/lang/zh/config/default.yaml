@@ -8,6 +8,9 @@ hooks:
   continue: >
     你还没有完成所有任务，请继续。请通过Check和Complete工具来判断你是否完成了当前阶段的任务。
     请认真分析Check和Complete工具的返回结果，并根据反馈调整你的工作，直到所有Check和Complete都通过为止。
+  cagent_init: >
+    请通过工具RoleInfo获取你的角色信息和基本指导，然后完成任务。请使务必用工具ReadTextFile读取文件，这样才能让UCAgent知晓你阅读了哪些文件。
+
 
 mission:
   name: "{DUT}芯片验证任务"

@@ -36,42 +36,14 @@ class HookMessageAction(argparse.Action):
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, nargs=1, **kwargs)
 
-    def is_ucagent_complete(self):
-        from vagent.util.functions import load_ucagent_info
-        status_data = load_ucagent_info(".")
-        return status_data.get("all_completed", False)
-
-    def get_messages(self, key):
-        # [config_file.yaml::]continue_prompt_keys[|stop_prompt_keys]
-        from .util.config import get_config
-        import os
-        config_file = None
-        if '::' in key:
-            config_file, key = key.split('::', 1)
-            if not os.path.isfile(config_file):
-                print(f"Config file '{config_file}' not found.")
-                return False, None, None
-        continue_key = key
-        if '|' in key:
-            continue_key, stop_key = key.split('|', 1)
-        else:
-            stop_key = None
-        cfg = get_config(config_file)
-        continue_value = os.environ.get(continue_key, None)
-        if continue_value is None:
-            continue_value = cfg.get_value('hooks.'+continue_key, None)
-        stop_value = os.environ.get(stop_key, None) if stop_key else None
-        if stop_value is None and stop_key:
-            stop_value = cfg.get_value('hooks.'+stop_key, None)
-        return True, continue_value, stop_value
-
     def __call__(self, parser, namespace, values, option_string=None):
         import vagent.util.log as log
+        import vagent.util.functions as fc
         log.info = lambda msg, end="\n": None
-        success, continue_msg, stop_msg = self.get_messages(values[0])
+        success, continue_msg, stop_msg = fc.get_interaction_messages(values[0])
         if not success:
             parser.exit(1)
-        if self.is_ucagent_complete():
+        if fc.is_ucagent_complete():
             if stop_msg:
                 print(stop_msg.strip())
                 sys.exit(0)

@@ -1777,3 +1777,35 @@ def get_un_mapped_lines(workspace,
     else:
         example_str = "All lines are mapped."
     return unmapped_lines, example_str
+
+
+def is_ucagent_complete(workspace="."):
+    """Check UCAgent is complete from file"""
+    status_data = load_ucagent_info(workspace)
+    return status_data.get("all_completed", False)
+
+
+def get_interaction_messages(key, config_file=None):
+    """Get interaction prompts from default cfg"""
+    # [config_file.yaml::]continue_prompt_keys[|stop_prompt_keys]
+    from vagent.util.config import get_config
+    import os
+    if '::' in key:
+        config_file, key = key.split('::', 1)
+    if config_file:
+        if not os.path.isfile(config_file):
+            print(f"Config file '{config_file}' not found.")
+            return False, None, None
+    continue_key = key
+    if '|' in key:
+        continue_key, stop_key = key.split('|', 1)
+    else:
+        stop_key = None
+    cfg = get_config(config_file)
+    continue_value = os.environ.get(continue_key, None)
+    if continue_value is None:
+        continue_value = cfg.get_value('hooks.'+continue_key, None)
+    stop_value = os.environ.get(stop_key, None) if stop_key else None
+    if stop_value is None and stop_key:
+        stop_value = cfg.get_value('hooks.'+stop_key, None)
+    return True, continue_value, stop_value
