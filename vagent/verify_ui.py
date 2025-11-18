@@ -378,6 +378,9 @@ class VerifyUI:
         lines = self.console_outbuffer.split("\n")
         return "\n".join(lines[-self.console_max_height:])
 
+    def is_cmd_exit(self, cmd):
+        return cmd in ("q", "Q", "exit", "quit")
+
     def handle_input(self, key):
         """
         Handle user input from the console.
@@ -394,7 +397,7 @@ class VerifyUI:
             self.focus_footer()
         elif key == 'enter':
             self.console_input.set_edit_text("")
-            if cmd in ("q", "Q", "exit", "quit"):
+            if self.is_cmd_exit(cmd):
                 self.exit(None)
                 return
             if cmd:
@@ -628,6 +631,9 @@ class VerifyUI:
             cmd = self.vpdb.init_cmd.pop(0)
             if cmd.startswith("tui"):
                 continue
+            if self.is_cmd_exit(cmd):
+                self.exit(None)
+                break
             self.console_input.set_edit_text(cmd)
             time.sleep(self.gap_time)
             self.console_input.set_edit_text("")
@@ -638,7 +644,9 @@ class VerifyUI:
         self.console_output.set_text(self._get_output(f"\n\n{YELLOW}Processed {p_count} commands in batch mode.{RESET}\n"))
 
     def check_exec_batch_cmds(self, loop, user_data=None):
-        self._process_batch_cmd()
+        if len(self.vpdb.init_cmd) > 0:
+            self._process_batch_cmd()
+        loop.set_alarm_in(1.0, self.check_exec_batch_cmds)
 
     def complete_cmd(self, line):
         if self.last_key == "tab" and self.last_line == line:

@@ -66,6 +66,7 @@ class VerifyAgent:
                  reference_files: dict = None,
                  no_history: bool = False,
                  enable_context_manage_tools: bool = False,
+                 exit_on_completion: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -275,6 +276,7 @@ class VerifyAgent:
         self._mcps_logger = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
+        self._exit_on_completion = exit_on_completion
         self.handle_sigint()
         
         # Initialize interaction logic based on mode
@@ -486,6 +488,11 @@ class VerifyAgent:
 
     def exit(self):
         self._is_exit = True
+
+    def try_exit_on_completion(self):
+        if self._exit_on_completion:
+            self.set_break(False)
+            self.pdb.add_cmds(["quit"]*3)
 
     def get_work_config(self):
         work_config = {

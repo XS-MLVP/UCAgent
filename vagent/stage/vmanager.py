@@ -545,6 +545,7 @@ class StageManager(object):
             self.time_end = time.time()
             self.agent.exit()  # Exit the agent if all stages are completed
             self.save_stage_info()
+            self.agent.try_exit_on_completion()
             return {
                 "exit": True,
                 "message": "All stages completed. Exiting the mission."

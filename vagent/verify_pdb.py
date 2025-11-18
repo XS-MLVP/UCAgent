@@ -40,6 +40,22 @@ class VerifyPDB(Pdb):
                 self.onecmd(cmd)
         return super().interaction(frame, traceback)
 
+    def add_cmds(self, cmds):
+        """
+        Add commands to the Pdb.
+        Args:
+            cmds (list or str): Command or list of commands to add.
+        """
+        if isinstance(cmds, str):
+            cmds = [cmds]
+        if self._in_tui:
+            if self.init_cmd is None:
+                self.init_cmd = cmds
+            else:
+                self.init_cmd.extend(cmds)
+        else:
+            self.cmdqueue.extend(cmds)
+
     def _sigint_handler(self, signum, frame):
         """
         Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
@@ -475,6 +491,9 @@ class VerifyPDB(Pdb):
             import traceback
             echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())
         self._in_tui = False
+        if self.init_cmd:
+            self.cmdqueue.extend(self.init_cmd)
+            self.init_cmd = None
         message("Exited TUI mode. Returning to PDB.")
 
     def do_export_agent(self, arg):

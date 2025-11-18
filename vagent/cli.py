@@ -325,7 +325,7 @@ def get_args() -> argparse.Namespace:
         help="Force the stage index to start from a specific stage"
     )
     parser.add_argument(
-        "--no-write", "--nw", 
+        "--no-write", "-nw", 
         type=str, 
         nargs="+", 
         default=None, 
@@ -359,6 +359,9 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument("--enable-context-manage-tools", action="store_true", default=False,
                         help="Enable context management tools. This is useful when you run UCAgent in the API mode.")
+
+    parser.add_argument("--exit-on-completion", "-eoc", action="store_true", default=False,
+                        help="Exit the agent automatically when all tasks are completed (after tool Exit called successfully).")
 
     # Version argument
     parser.add_argument(
@@ -542,6 +545,7 @@ def run() -> None:
         reference_files=parse_reference_files(args.ref),
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
+        exit_on_completion=args.exit_on_completion,
     )
     
     # Set break mode if human interaction or TUI is requested
