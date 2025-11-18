@@ -74,9 +74,13 @@ class HookMessageAction(argparse.Action):
         if self.is_ucagent_complete():
             if stop_msg:
                 print(stop_msg.strip())
+                sys.exit(0)
+            sys.exit(-1)
         else:
             if continue_msg:
                 print(continue_msg.strip())
+                sys.exit(0)
+            sys.exit(-1)
         parser.exit()
 
 
