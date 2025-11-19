@@ -1,43 +1,47 @@
+
+# Current Workspace Dir
+CWD ?= output
+
 all: clean test
 
 init:
 	pip3 install -r requirements.txt
 
 reset_%:
-	rm output/unity_test -rf  | true
+	rm $(CWD)/unity_test -rf  | true
 
 init_%:
-	mkdir -p output/$*_RTL
-	cp examples/$*/*.v output/$*_RTL/ | true
-	cp examples/$*/*.sv output/$*_RTL/ | true
-	cp examples/$*/*.vh output/$*_RTL/ | true
-	cp examples/$*/*.scala output/$*_RTL/ | true
-	cp examples/$*/filelist.txt output/$*_RTL/ | true
-	@if [ ! -d output/$* ]; then \
+	mkdir -p $(CWD)/$*_RTL
+	cp examples/$*/*.v $(CWD)/$*_RTL/ | true
+	cp examples/$*/*.sv $(CWD)/$*_RTL/ | true
+	cp examples/$*/*.vh $(CWD)/$*_RTL/ | true
+	cp examples/$*/*.scala $(CWD)/$*_RTL/ | true
+	cp examples/$*/filelist.txt $(CWD)/$*_RTL/ | true
+	@if [ ! -d $(CWD)/$* ]; then \
 		option_fs=""; \
-		if [ -f output/$*_RTL/filelist.txt ]; then \
-			option_fs="--fs output/$*_RTL/filelist.txt"; \
+		if [ -f $(CWD)/$*_RTL/filelist.txt ]; then \
+			option_fs="--fs $(CWD)/$*_RTL/filelist.txt"; \
 		fi; \
-		if [ -f output/$*_RTL/$*.v ]; then \
-			picker export output/$*_RTL/$*.v --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
-		elif [ -f output/$*_RTL/$*.sv ]; then \
-			picker export output/$*_RTL/$*.sv --rw 1 --sname $* --tdir output/ -c -w output/$*/$*.fst $$option_fs; \
+		if [ -f $(CWD)/$*_RTL/$*.v ]; then \
+			picker export $(CWD)/$*_RTL/$*.v --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
+		elif [ -f $(CWD)/$*_RTL/$*.sv ]; then \
+			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
-	cp examples/$*/*.md output/$*/  | true
-	cp examples/$*/*.py output/$*/  | true
+	cp examples/$*/*.md $(CWD)/$*/  | true
+	cp examples/$*/*.py $(CWD)/$*/  | true
 
 test_%: init_%
-	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui -l ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui -l ${ARGS}
 
 mcp_%: init_%
-	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
 mcp_all_tools_%: init_%
-	python3 ucagent.py output/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
 
 clean:
-	rm -rf output
+	rm -rf $(CWD)
 	rm -rf .pytest_cache
 	rm -rf UCAgent.egg-info
 	rm -rf build
@@ -48,10 +52,10 @@ clean:
 	find ./ -name __pycache__|xargs rm -rf
 
 clean_test:
-	rm -rf output/unity_test
+	rm -rf $(CWD)/unity_test
 
 continue:
-	python3 ucagent.py output/ ${DUT} --config config.yaml ${ARGS}
+	python3 ucagent.py $(CWD)/ ${DUT} --config config.yaml ${ARGS}
 
 # Include docs Makefile
 -include docs/Makefile
