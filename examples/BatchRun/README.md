@@ -1,9 +1,7 @@
 
 ## 以批处理的方式运行 UCAgent
 
-### 无交互模式
-
-#### UCAgent API 模式
+#### UCAgent API 方式
 
 正常情况下，验证完成后（LLM 调用 Exit 工具完成 Mission）UCAgent 会保持运行，方便人工查看最后状态。若 UT 验证任务较多且无需人工介入，可启用自动退出，让代理在完成后方便直接进入下一项任务。
 
@@ -14,7 +12,7 @@
 
 - 建议结合调度脚本使用，UCAgent退出后触发下一任务。
 
-#### UCAgent-MCP + iFlow + TMux 实现
+#### UCAgent-MCP 方式 + iFlow + TMux
 
 iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hooks) 功能，可在 LLM 停止工作时调用自定义命令，因此可以用来驱动 tmux 自动推送“继续”指令。
 
@@ -40,8 +38,7 @@ iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hoo
 
 配置说明：
 
-- `SessionStart` 会在 Session 开始时触发，通过 tmux 将初始化提示词写入 iFlow。
-- `Stop` 会在每次 LLM 停止时触发，再次通过 tmux 发送命令让代理继续执行；`timeout` 防止命令挂起。
+- `Stop` 会在每次 LLM 停止时触发command：通过 tmux 发送命令让代理继续执行；`timeout` 防止命令挂起。
 - `ucagent --hook-message [config.yaml::]continue_key[|stop_key]` 从配置文件读取提示词，`|` 右侧可选 `stop_key` 以便优雅退出iFlow。
 - `tmux` 的`-t`参数需要根据实际情况进行填写。
 
@@ -49,9 +46,18 @@ iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hoo
 提示：可直接运行 `ucagent --hook-message <key>` 查看具体提示词，例如 `ucagent --hook-message continue`。其中`key`可以是环境变量。
 
 
-### 批处理
+#### 其他 CodeAgent
 
-基于无交互模式实现批处理验证。可直接参考本目录下 Makefile 的实现：
+除了iFlow CLI支持 hooks，其他 CodeAgent也有类似支持，例如：
+
+- Claude Code：[https://code.claude.com/docs/en/hooks-guide](https://code.claude.com/docs/en/hooks-guide)
+- Gemini CLI: [https://geminicli.com/docs/get-started/configuration/#hooks](https://geminicli.com/docs/get-started/configuration/#hooks)
+
+### 批处理示例
+
+基于无交互模式实现批处理验证，可直接参考本目录下 Makefile 的实现。
+
+通过以下命令进行测试：
 
 ```bash
 # API 模式批处理示例 (需要配置API参数或者环境变量)
@@ -69,4 +75,4 @@ tmux
 make iflow_batch
 ```
 
-提示：`api_batch`、`mcp_batch`、`iflow_batch` 等目标的具体命令可在 Makefile 中查看，并可根据项目需要调整 DUT、配置路径或日志等。
+示例中的`api_batch`、`mcp_batch`、`iflow_batch` 等目标的具体命令可在 Makefile 中查看，并可根据项目需要调整 DUT、配置路径或日志等。
