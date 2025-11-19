@@ -26,7 +26,7 @@ iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hoo
         "hooks": [
           {
             "type": "command",
-            "command": "M=`ucagent --hook-message 'continue|quit'` && (tmux send-keys -t 0 $M; sleep 1; tmux send-keys -t 0 Enter)",
+            "command": "M=`ucagent --hook-message 'continue|quit'` && (tmux send-keys $M; sleep 1; tmux send-keys Enter)",
             "timeout": 3
           }
         ]
@@ -40,7 +40,7 @@ iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hoo
 
 - `Stop` 会在每次 LLM 停止时触发command：通过 tmux 发送命令让代理继续执行；`timeout` 防止命令挂起。
 - `ucagent --hook-message [config.yaml::]continue_key[|stop_key]` 从配置文件读取提示词，`|` 右侧可选 `stop_key` 以便优雅退出iFlow。
-- `tmux` 的`-t`参数需要根据实际情况进行填写。
+- `tmux`通过`send-keys`发送命令到当前窗口
 
 
 提示：可直接运行 `ucagent --hook-message <key>` 查看具体提示词，例如 `ucagent --hook-message continue`。其中`key`可以是环境变量。
