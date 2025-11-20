@@ -546,9 +546,12 @@ class StageManager(object):
             self.agent.exit()  # Exit the agent if all stages are completed
             self.save_stage_info()
             self.agent.try_exit_on_completion()
+            ex_msg = ""
+            if self.agent._exit_on_completion:
+                ex_msg = " UCAgent has quit. The MCP server is shutting down — all MCP tools will become unavailable. You need to stop Now!"
             return {
                 "exit": True,
-                "message": "All stages completed. Exiting the mission."
+                "message": "All stages completed. Exiting the mission." + ex_msg
             }
         return {
             "exit": False,

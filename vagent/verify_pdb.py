@@ -1196,3 +1196,13 @@ class VerifyPDB(Pdb):
         Exit the debugger (alias for quit).
         """
         return self.do_quit(arg)
+
+    def do_sleep(self, arg):
+        """sleep <float>: time to sleep
+        """
+        try:
+            t = float(arg.strip())
+            time.sleep(t)
+        except Exception as e:
+            echo_y(e)
+            echo_r("usage: sleep <seconds>")

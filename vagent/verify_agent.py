@@ -492,7 +492,7 @@ class VerifyAgent:
     def try_exit_on_completion(self):
         if self._exit_on_completion:
             self.set_break(False)
-            self.pdb.add_cmds(["quit"]*3)
+            self.pdb.add_cmds(["sleep 5"]+["quit"]*3)
 
     def get_work_config(self):
         work_config = {
