@@ -27,6 +27,7 @@ mcp_one_%:
 	@while [ ! -f "../../output/exited.txt" ]; do \
 		sleep 5; \
 	done
+	make -C ../../ clean
 
 mcp_batch: init
 	@$(MAKE) mcp_one_Adder
@@ -34,8 +35,9 @@ mcp_batch: init
 	@$(MAKE) mcp_one_FSM
 
 iflow_once:
-	#  iflow 通过 -i 参数传递初始 prompt 有bug，等待iflow修复
-	#  替代方案：通过 bash 间接传递初始 prompt
+	@while [ -f "../../output/.ucagent_info.json" ]; do \
+		sleep 5; \
+	done
 	@while [ ! -f "../../output/Guide_Doc/dut_fixture.md" ]; do \
 		sleep 5; \
 	done
@@ -50,3 +52,11 @@ iflow_batch:
 	@$(MAKE) iflow_once # Adder
 	@$(MAKE) iflow_once # Mux
 	@$(MAKE) iflow_once # FSM
+
+iflow_batch_auto_tmux:
+	tmux kill-session -t my_batch_iflow_session_$(APORT) || true
+	tmux new-session -d -s my_batch_iflow_session_$(APORT)
+	tmux send-keys -t my_batch_iflow_session_$(APORT):0.0 "make mcp_batch" C-m
+	tmux split-window -h -t my_batch_iflow_session_$(APORT):0.0
+	tmux send-keys -t my_batch_iflow_session_$(APORT):0.1 "make iflow_batch" C-m
+	tmux attach-session -t my_batch_iflow_session_$(APORT)

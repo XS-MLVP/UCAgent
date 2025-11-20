@@ -63,16 +63,8 @@ iFlow 等 CodeAgent 提供了 [Hooks](https://platform.iflow.cn/cli/examples/hoo
 # API 模式批处理示例 (需要配置API参数或者环境变量)
 make api_batch
 
-# MCP 模式批处理示例
-# 第一步
-make mcp_batch
-
-# 第二步：在另外一个控制台启动 tmux
-tmux
-
-# 第三步：在tmux中启动 iflow （需要提前完成认证）
-#   确保该tmux是第一个session 或者在hook中修改对应 -t 参数的值
-make iflow_batch
+# MCP 模式批处理示例（需要提前完成iflow登录认证）
+make iflow_batch_auto_tmux
 ```
 
-示例中的`api_batch`、`mcp_batch`、`iflow_batch` 等目标的具体命令可在 Makefile 中查看，并可根据项目需要调整 DUT、配置路径或日志等。
+示例中的`api_batch`、`iflow_batch_auto_tmux` 目标的具体命令可在 Makefile 中查看，并可根据项目需要调整 DUT、配置路径或日志等。
