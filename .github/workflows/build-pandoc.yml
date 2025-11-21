@@ -1,0 +1,73 @@
+name: build-pandoc-pdf
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/build-pandoc.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/build-pandoc.yml"
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
+    container:
+      image: docker.io/pandoc/extra:3.6.4-ubuntu
+    steps:
+      - name: Install git, LaTeX extras, fonts
+        run: |
+          set -eux
+          apt-get update
+          # 基础工具与字体（Noto CJK 字体满足中文主字体需求）
+          apt-get install -y --no-install-recommends \
+            fonts-noto-cjk wget xz-utils make git ca-certificates
+
+          # 优先使用 tlmgr 安装 ctex（保证 ctexart.cls 可用，与镜像自带 TeX Live 一致）
+          if command -v tlmgr >/dev/null 2>&1; then
+            tlmgr option repository http://mirror.ctan.org/systems/texlive/tlnet
+            tlmgr update --self
+            tlmgr install ctex
+            # Pandoc 常用代码环境依赖，缺少会触发 fvextra.sty 等错误
+            tlmgr install fvextra fancyvrb upquote xstring etoolbox zref lineno
+          else
+            # 兜底方案（不推荐）：通过 apt 安装中文支持
+            apt-get install -y --no-install-recommends texlive-lang-chinese
+          fi
+
+          fc-cache -fv || true
+          pandoc --version
+          # pandoc/extra 自带 pandoc-crossref，版本与 pandoc 匹配
+          pandoc-crossref --version
+          fc-list | grep -i "Noto" | head -n 5 || true
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Fix repository ownership
+        run: |
+          # 修复容器中的文件所有权问题，避免 git safe.directory 警告
+          chown -R $(id -u):$(id -g) .
+
+      - name: Build PDF (oneside)
+        env:
+          HOME: /root
+          PDF_ENGINE: tectonic
+          LANG: C.UTF-8
+          LC_ALL: C.UTF-8
+        run: |
+          make pdf-one
+
+      - name: Upload PDFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: ucagent-doc
+          path: |
+            ucagent-doc.pdf

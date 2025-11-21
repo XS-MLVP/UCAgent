@@ -74,6 +74,8 @@ embed:
 
 ### 开始使用
 
+**注：以下输出目录以`output`为例，可自行修改为其他目录**。
+
 - 第一步和 MCP 模式相同，准备 RTL 和对应的 SPEC 文档放入`examples/{dut}`文件夹。`{dut}`是模块的名称，如果是`Adder`，目录则为`examples/Adder`。
 - 第二步开始就不同了，打包 RTL，将文档放入工作目录并启动 UCAgent TUI：`make test_{dut}`，`{dut}`为对应的模块。若使用 `Adder`，命令为 `make test_Adder`（可在 `Makefile` 查看全部目标）。该命令会：
   - 将 `examples/{dut}` 下文件拷贝到 `output/{dut}`（含 .v/.sv/.md/.py 等）
