@@ -335,6 +335,9 @@ class UnityChipCheckerEnvFixtureTest(Checker):
             return_stdout=True, return_stderr=True, return_all_checks=True,
             timeout=timeout
         )
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         if not report or "tests" not in report:
             return False, {
                 "error": f"Env fixture test execution failed or returned invalid report.",
@@ -619,6 +622,9 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
     def do_check(self, pytest_args="", timeout=0, return_line_coverage=False, **kw):
         """call pytest to run the test cases."""
         report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         # refine report:
         free_report = OrderedDict({
             "run_test_success": report.get("run_test_success", False),
@@ -686,6 +692,9 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                               and the second element is a message string.
         """
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         raw_report = copy.deepcopy(report)
         all_bins_test = report.get("all_check_point_list", [])
         msg_report = fc.clean_report_with_keys(report,
@@ -863,6 +872,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             pytest_ex_args=targets,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
         )
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         report_copy = fc.clean_report_with_keys(report)
         func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
                                          ex_python_path=self.workspace,
@@ -1010,6 +1022,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                             "Please check your test case names and ensure they are correct."}
         info(f"Checking {len(self.current_test_cases)} test cases: {target_tests}")
         report, str_out, str_err = super().do_check(pytest_args=target_tests, timeout=timeout, **kw)
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         error_msgs = {}
         if self.ret_std_out:
             error_msgs["STDOUT"] = str_out
@@ -1088,6 +1103,9 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         """
         # Execute tests and get comprehensive report
         report, str_out, str_err = super().do_check(timeout=timeout, **kw)
+        test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+        if not test_pass:
+            return False, test_msg
         abs_report = copy.deepcopy(report)
         all_bins_test = report.get("all_check_point_list", [])
         abs_report = fc.clean_report_with_keys(report)

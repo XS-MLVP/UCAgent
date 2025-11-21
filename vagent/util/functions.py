@@ -1809,3 +1809,10 @@ def get_interaction_messages(key, config_file=None):
     if stop_value is None and stop_key:
         stop_value = cfg.get_value('hooks.'+stop_key, None)
     return True, continue_value, stop_value
+
+
+def is_run_report_pass(report, stdout, stderr):
+    run_pass = report.get("run_test_success", False)
+    if run_pass:
+        return True, ""
+    return False, {"error": "Run test cases/generate report fail!", "STDOUT": stdout, "STDERR": stderr}
