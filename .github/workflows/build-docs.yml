@@ -1,4 +1,4 @@
-name: Build Docs and PDF
+name: Build Docs and Deploy
 
 on:
   push:
@@ -14,9 +14,7 @@ on:
   workflow_call: # workflow_call 不使用 paths 过滤，确保 release 时能正常调用
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   # PR 使用独立的并发组，部署使用 pages 组
@@ -58,13 +56,10 @@ jobs:
           mkdocs build -f docs/mkdocs.yml --strict
 
   deploy:
-    name: Build and Deploy to GitHub Pages
+    name: Build and Deploy to gh-pages
     runs-on: ubuntu-latest
     # PR 时跳过，其他情况（push/workflow_dispatch/workflow_call）都部署
     if: github.event_name != 'pull_request'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,18 +83,16 @@ jobs:
         run: |
           pip install -r docs/requirements-docs.txt
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
       - name: Build MkDocs site
         run: |
           mkdocs build -f docs/mkdocs.yml --strict
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy to gh-pages
+        run: |
+          cd site
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Deploy docs from ${{ github.sha }}"
+          git push -f https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:gh-pages
