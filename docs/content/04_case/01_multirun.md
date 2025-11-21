@@ -384,7 +384,7 @@ ucagent output/Adder/ Adder \
   --no-embed-tools
 ```
 
-更多批处理使用方式请参考 [批处理执行文档](../examples/BatchRun/README.md)。
+更多批处理使用方式请参考 [批处理执行文档](./02_batchrun.md)。
 
 ### 5. 监控与告警
 
