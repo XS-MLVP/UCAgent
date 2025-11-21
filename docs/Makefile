@@ -27,7 +27,6 @@ docs-clean:
 # Docs (Pandoc PDF) build
 # =============================
 
-# 把所有 Pandoc 相关的变量与配置拆到独立文件
 include docs/pandoc.mk
 
 pdf: $(DOC).pdf

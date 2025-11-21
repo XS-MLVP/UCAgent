@@ -50,17 +50,22 @@ theme:
 # 顶部导航（默认语言：中文）。英文会通过 i18n 的 nav_translations 自动映射
 nav:
   - 首页: content/00_index.md
-  - 介绍: content/01_introduce.md
-  - 使用:
+  - 工具介绍: content/01_introduce.md
+  - 功能使用:
       - MCP 集成: content/02_usage/00_mcp.md
       - 直接使用: content/02_usage/01_direct.md
       - 人机协同验证: content/02_usage/02_assit.md
       - 参数说明: content/02_usage/03_option.md
       - TUI: content/02_usage/04_tui.md
       - FAQ: content/02_usage/05_faq.md
-  - 工作流: content/03_workflow.md
-  - 定制功能: content/04_customize.md
-  - 工具列表: content/05_tool_list.md
+  - 定制开发:
+      - 工作流: content/03_develop/00_workflow.md
+      - 定制功能: content/03_develop/01_customize.md
+      - 工具列表: content/03_develop/02_tool_list.md
+  - 实践案例:
+      - GenSpec 规范生成: content/04_case/00_genspec.md
+      - 多实例并发执行: content/04_case/01_multirun.md
+      - 批处理执行: content/04_case/02_batchrun.md
 
 # 常用插件（已在 docs/requirements-docs.txt 中声明依赖）
 # - search: 内置搜索（Material 集成中文分词，若安装 jieba 会自动启用）
@@ -73,6 +78,8 @@ plugins:
   - mermaid2
   - git-revision-date-localized:
       enable_creation_date: true
+      fallback_to_build_date: true
+      enable_parallel_processing: false
   - glightbox
   - minify:
       minify_html: true

@@ -22,7 +22,10 @@ PANDOC_FLAGS += --filter pandoc-crossref
 PANDOC_FLAGS += --lua-filter=docs/pandoc/auto_colwidth.lua
 
 # -------- LaTeX / PDF parameters --------
-PANDOC_LATEX_FLAGS += --pdf-engine=xelatex
+# 允许通过环境变量覆盖 PDF 引擎，默认使用 xelatex；
+# 在 CI 中可设置 PDF_ENGINE=tectonic 以自动拉取依赖包，避免缺包。
+PDF_ENGINE ?= xelatex
+PANDOC_LATEX_FLAGS += --pdf-engine=$(PDF_ENGINE)
 PANDOC_LATEX_FLAGS += -V documentclass=ctexart
 PANDOC_LATEX_FLAGS += -V geometry:margin=2.2cm
 PANDOC_LATEX_FLAGS += -V mainfont="Noto Serif CJK SC"

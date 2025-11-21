@@ -2,6 +2,8 @@
 
 ## MCP 集成（推荐）集成 Code Agent
 
+**注：以下输出目录以`output`为例，可自行修改为其他目录**。
+
 基于 MCP 的外部编程 CLI 协作方式。该模式能与所有支持 MCP-Server 调用的 LLM 客户端进行协同验证，例如：Cherry Studio、Claude Code、 Gemini-CLI、VS Code Copilot、Qwen-Code 等。
 平常使用是直接使用`make`命令的，要看详细命令可参考[快速开始](../01_introduce.md)，也可以直接查看项目根目录的`Makefile`文件。
 
