@@ -31,6 +31,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langfuse import get_client, Langfuse
 from langfuse.langchain import CallbackHandler
+from uuid import uuid4
 from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
 
@@ -296,6 +297,7 @@ class VerifyAgent:
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
         # Telemetry
+        self.session_id = uuid4()
         langfuse_cfg = self.cfg.get_value("langfuse", {})
         self.langfuse_enable = langfuse_cfg.get_value("enable", False) is True
         if self.langfuse_enable:
@@ -501,6 +503,11 @@ class VerifyAgent:
         }
         if self.langfuse_enable:
             work_config["callbacks"] = [self.langfuse_handler]
+            work_config["metadata"] = {
+                # "langfuse_user_id": "user_id",
+                "langfuse_session_id": self.session_id.hex,
+                # "langfuse_tags": ["some-tag",]
+            }
         return work_config
 
     def run(self):
