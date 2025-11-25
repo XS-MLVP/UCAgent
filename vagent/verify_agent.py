@@ -31,8 +31,34 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langfuse import get_client, Langfuse
 from langfuse.langchain import CallbackHandler
+from langfuse.langchain.CallbackHandler import _parse_usage
 from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
+from langchain_core.outputs import LLMResult
+from uuid import UUID
+
+class CustomLangfuseCallbackHandler(CallbackHandler):
+    def __init__(
+        self, *, public_key: Optional[str] = None, update_trace: bool = False
+    ) -> None:
+        super().__init__(public_key=public_key, update_trace=update_trace)
+        self.llm_usage={"call_count":0}
+
+    def on_llm_end(
+        self,
+        response: LLMResult,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
+    ) -> Any:
+        llm_usage = _parse_usage(response)
+        for key in llm_usage:
+            if key in self.llm_usage:
+                self.llm_usage[key]+=llm_usage[key]
+            else:
+                self.llm_usage[key]=llm_usage[key]
+        self.llm_usage["call_count"]+=1
 
 
 class VerifyAgent:
@@ -309,6 +335,7 @@ class VerifyAgent:
             )
             assert self.langfuse.auth_check(), "Can't connect to langfuse, please check your configuration"
             self.langfuse_handler = CallbackHandler()
+            self.custom_langfuse_handler = CustomLangfuseCallbackHandler()
 
     def get_messages_cfg(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
         ret = {"__manage_class__": self.message_manage_node.__class__.__name__}
@@ -500,7 +527,7 @@ class VerifyAgent:
             "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
         }
         if self.langfuse_enable:
-            work_config["callbacks"] = [self.langfuse_handler]
+            work_config["callbacks"] = [self.langfuse_handler,self.custom_langfuse_handler]
         return work_config
 
     def run(self):

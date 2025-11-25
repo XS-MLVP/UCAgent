@@ -148,16 +148,27 @@ class UCMessagesNode:
         self.summary_data = []
         self.model = model
         self.arbit_summary_data = None
+        self.old_stage_index=0
+        self.manager_data={}
 
     def __call__(self, state):
         fix_tool_call_args(state)
+
+        # 获取当前的stage index
+        if "stage_index" in self.manager_data:
+            stage_index = self.manager_data["stage_index"]
+        else:
+            stage_index = 0
+
+        print("stage_index: ",stage_index)
+
         messages = state["messages"]
         role_info = messages[:1]
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
         if self.arbit_summary_data is None:
-            if len(llm_input_msgs) > self.max_keep_msgs:
+            if len(llm_input_msgs) > self.max_keep_msgs or ((stage_index>self.old_stage_index) and len(llm_input_msgs) > 3*self.tail_keep_msgs):
                 # get init start index
                 tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
                 start_msg = llm_input_msgs[tail_msgs_start_index]
@@ -182,6 +193,7 @@ class UCMessagesNode:
             tail_msgs = []
         ret["llm_input_messages"] = self.summary_data + role_info + tail_msgs
         self.msg_stat.update_message(ret["llm_input_messages"])
+        self.old_stage_index=stage_index
         return ret
 
     def set_arbit_summary(self, summary_text):
@@ -216,6 +228,11 @@ class UCMessagesNode:
 
     def get_max_keep_msgs(self) -> int:
         return self.max_keep_msgs
+    
+    def set_manager_data(self,data:dict):
+        """Set stage data from outside."""
+        for key in data:
+            self.manager_data[key]=data[key]
 
 
 class State(AgentState):

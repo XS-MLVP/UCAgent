@@ -293,6 +293,7 @@ class StageManager(object):
         info("Current stage index is " + str(self.stage_index) + ".")
         self.time_begin = time.time()
         self.time_end = None
+        self.old_llm_usage={}
 
     def get_time_cost(self):
         if self.time_end is None:
@@ -444,7 +445,12 @@ class StageManager(object):
             ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
-            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+            llm_usage=self.agent.custom_langfuse_handler.llm_usage
+            now_llm_usage={}
+            for key in llm_usage:
+                now_llm_usage[key]=llm_usage[key]-self.old_llm_usage.get(key, 0)
+                self.old_llm_usage[key]=llm_usage[key]
+            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage. Cost is {now_llm_usage}"
         return ret_data
 
     def save_stage_info(self):
@@ -468,6 +474,7 @@ class StageManager(object):
 
     def next_stage(self):
         self.stage_index += 1
+        self.agent.message_manage_node.set_manager_data({"stage_index": self.stage_index})
         self._go_skip_stage()
         self.save_stage_info()
 
@@ -517,7 +524,8 @@ class StageManager(object):
             self.stages[self.stage_index].on_complete()
             self.next_stage()
             if self.stage_index >= len(self.stages):
-                message = ("All stages completed successfully. "
+                llm_usage=self.agent.custom_langfuse_handler.llm_usage
+                message = (f"All stages completed successfully. All cost is {llm_usage} "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "
                            "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
