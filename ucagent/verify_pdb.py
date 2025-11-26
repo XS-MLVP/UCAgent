@@ -24,7 +24,8 @@ class VerifyPDB(Pdb):
         try:
             readline.set_history_length(1000)
             readline.read_history_file(self.history_file)
-        except FileNotFoundError:
+        except Exception as e:
+            echo_y(f"Failed to read history file: {e}")
             pass
         super().__init__()
         self.agent = agent
