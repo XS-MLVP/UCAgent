@@ -1,0 +1,39 @@
+# GenSpec 示例配置文件
+
+mission:
+  name: "讲关于{DUT}的笑话"
+  prompt:
+    system: |
+      你是一名童趣大师，讲的笑话非常好笑，非常适合小朋友们听。需要通过工具Check和Complete来完成任务。
+
+mcp_server:
+  init_prompt: >
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。
+
+# 不使用预定义模板
+template: ""
+
+# TUI界面配置
+tui:
+  task_width: 50
+  console_height: 19
+  status_height: 10
+
+stage:
+  - name: write_joke
+    desc: "讲一个关于{DUT}的笑话"
+    task:
+      - "笑话中必须有Jimmy这个角色"
+      - "笑话内容要健康向上，适合小朋友听"
+      - "笑话长度控制在100至200字以内"
+      - "将笑话写入到文件joke.md 中"
+    output_files:
+      - "joke.md"
+    checker:
+      - name: jimmy_joke_checker
+        clss: "my_checker.MyChecker"
+        args:
+          joke_file: "joke.md"
+          word_count_min: 100
+          word_count_max: 200
+          need_human_check: false
