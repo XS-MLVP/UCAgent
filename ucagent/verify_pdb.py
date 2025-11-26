@@ -113,6 +113,12 @@ class VerifyPDB(Pdb):
         ret = [f + ("/" if os.path.isdir(os.path.join(path, f)) else "") for f in ret]
         return [f[wk_size + 1:] for f in ret]
 
+    def completedefault(self, text, line, begidx, endidx):
+        """
+        Auto-complete default command.
+        """
+        return self.api_complite_workspace_file(text)
+
     def api_parse_args(self, arg):
         """Parse arguments for the command
 
