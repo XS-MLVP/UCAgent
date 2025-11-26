@@ -8,15 +8,15 @@ init:
 	pip3 install -r requirements.txt
 
 reset_%:
-	rm $(CWD)/unity_test -rf  | true
+	rm $(CWD)/unity_test -rf  || true
 
 init_%:
 	mkdir -p $(CWD)/$*_RTL
-	cp examples/$*/*.v $(CWD)/$*_RTL/ | true
-	cp examples/$*/*.sv $(CWD)/$*_RTL/ | true
-	cp examples/$*/*.vh $(CWD)/$*_RTL/ | true
-	cp examples/$*/*.scala $(CWD)/$*_RTL/ | true
-	cp examples/$*/filelist.txt $(CWD)/$*_RTL/ | true
+	cp examples/$*/*.v $(CWD)/$*_RTL/ || true
+	cp examples/$*/*.sv $(CWD)/$*_RTL/ || true
+	cp examples/$*/*.vh $(CWD)/$*_RTL/ || true
+	cp examples/$*/*.scala $(CWD)/$*_RTL/ || true
+	cp examples/$*/filelist.txt $(CWD)/$*_RTL/ || true
 	@if [ ! -d $(CWD)/$* ]; then \
 		option_fs=""; \
 		if [ -f $(CWD)/$*_RTL/filelist.txt ]; then \
@@ -28,8 +28,8 @@ init_%:
 			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
-	cp examples/$*/*.md $(CWD)/$*/  | true
-	cp examples/$*/*.py $(CWD)/$*/  | true
+	cp examples/$*/*.md $(CWD)/$*/  || true
+	cp examples/$*/*.py $(CWD)/$*/  || true
 
 test_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui -l ${ARGS}
@@ -46,10 +46,10 @@ clean:
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist
-	find ./ -name '*.dat'|xargs rm -f
-	find ./ -name '*.vcd'|xargs rm -f
-	find ./ -name '*.fst'|xargs rm -f
-	find ./ -name __pycache__|xargs rm -rf
+	find ./ -name '*.dat'||xargs rm -f
+	find ./ -name '*.vcd'||xargs rm -f
+	find ./ -name '*.fst'||xargs rm -f
+	find ./ -name __pycache__||xargs rm -rf
 
 clean_test:
 	rm -rf $(CWD)/unity_test
