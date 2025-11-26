@@ -2,9 +2,9 @@
 """File operations tools for UCAgent."""
 
 from typing import Optional, List, Tuple
-from vagent.util.log import info, str_info, str_return, str_error, str_data, warning
-from vagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from, rm_workspace_prefix
-from vagent.util.functions import get_diff
+from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
+from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from, rm_workspace_prefix
+from ucagent.util.functions import get_diff
 from .uctool import UCTool
 
 from langchain_core.callbacks import (

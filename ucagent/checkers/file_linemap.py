@@ -3,9 +3,9 @@
 
 import os
 import traceback
-from vagent.checkers.base import Checker
-import vagent.util.functions as fc
-from vagent.util.log import info, warning
+from ucagent.checkers.base import Checker
+import ucagent.util.functions as fc
+from ucagent.util.log import info, warning
 
 
 def get_func_check_marks(workspace, func_check_file):

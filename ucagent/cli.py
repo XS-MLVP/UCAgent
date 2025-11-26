@@ -37,8 +37,8 @@ class HookMessageAction(argparse.Action):
         super().__init__(option_strings, dest, nargs=1, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
-        import vagent.util.log as log
-        import vagent.util.functions as fc
+        import ucagent.util.log as log
+        import ucagent.util.functions as fc
         log.info = lambda msg, end="\n": None
         success, continue_msg, stop_msg = fc.get_interaction_messages(values[0])
         if not success:
@@ -317,6 +317,9 @@ def get_args() -> argparse.Namespace:
         help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
+    parser.add_argument('--append-py-path', '-app', action='append', default=[], type=str,
+                        help='Append additional Python paths or files for module loading (can be used multiple times)')
+
     parser.add_argument('--ref', action='append', default=[], type=str,
                         help='Reference files need to read on specified stages, format: [stage_index:]file_path1[,file_path2] (can be used multiple times)')
 
@@ -461,6 +464,7 @@ def run() -> None:
 
     from .verify_agent import VerifyAgent
     from .util.log import init_log_logger, init_msg_logger
+    from .util.functions import append_python_path
 
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
@@ -489,7 +493,10 @@ def run() -> None:
     
     if args.loop:
         init_cmds += ["loop " + args.loop_msg]
-    
+
+    if args.append_py_path:
+        append_python_path(args.append_py_path)
+
     # Create and configure the agent
     agent = VerifyAgent(
         workspace=args.workspace,

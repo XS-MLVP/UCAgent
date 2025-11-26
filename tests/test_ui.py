@@ -8,12 +8,12 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 
-from vagent.verify_ui import enter_simple_tui
+from ucagent.verify_ui import enter_simple_tui
 
 
 def test_enter_simple_tui():
     """Test entering the simple TUI."""
-    from vagent.verify_pdb import VerifyPDB
+    from ucagent.verify_pdb import VerifyPDB
     agent = None  # Replace with an actual agent instance if needed
     pdb = VerifyPDB(agent)
     

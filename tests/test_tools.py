@@ -1,4 +1,4 @@
-#code: utf-8
+w#code: utf-8
 
 import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 import time
 
-from vagent.tools import *
+from ucagent.tools import *
 
 def print_tool_info(tool):
     print("Tool Name    :", tool.name)
@@ -18,21 +18,21 @@ def print_tool_info(tool):
 
 def test_list_path():
     print("============== test_list_path ==============")
-    tool = PathList(workspace=os.path.join(current_dir, "../vagent"))
+    tool = PathList(workspace=os.path.join(current_dir, "../ucagent"))
     result = tool.invoke({"path": ".", "depth":-1})
     print_tool_info(tool)
     print("result:\n%s"%result)
 
 def test_read_file():
     print("============== test_read_file ==============")
-    tool = ReadBinFile(workspace=os.path.join(current_dir, "../vagent"))
+    tool = ReadBinFile(workspace=os.path.join(current_dir, "../ucagent"))
     print_tool_info(tool)
     result = tool.invoke({"path": "config/default.yaml", "start": 0, "end": 100})
     print("result:\n%s"%result)
 
 def test_read_text_file():
     print("============== test_read_text_file ==============")
-    tool = ReadTextFile(workspace=os.path.join(current_dir, "../vagent"))
+    tool = ReadTextFile(workspace=os.path.join(current_dir, "../ucagent"))
     print_tool_info(tool)
     result = tool.invoke({"path": "config/default.yaml", "start": 2, "end": 100})
     print("result:\n%s"%result)
@@ -53,7 +53,7 @@ def test_edit_multil_line():
     print("result:\n%s"%result)
 
 def test_ref_mem():
-    from vagent.util.config import get_config
+    from ucagent.util.config import get_config
     cfg = get_config(os.path.join(current_dir, "../config.yaml"))
     tool = SemanticSearchInGuidDoc(cfg.embed, workspace=os.path.join(current_dir, "../doc"), doc_path="Guide_Doc")
     print(tool.invoke({"query": "import", "limit": 3}))

@@ -11,7 +11,7 @@ import unittest
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.tools.fileops import *
+from ucagent.tools.fileops import *
 
 
 class TestFileOpsTools(unittest.TestCase):

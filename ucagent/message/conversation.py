@@ -1,9 +1,9 @@
 # --- coding: utf-8 ---
 """Message and state utilities for UCAgent."""
 
-from vagent.message.statistic import MessageStatistic
-from vagent.util.functions import fill_dlist_none
-from vagent.util.log import warning, info
+from ucagent.message.statistic import MessageStatistic
+from ucagent.util.functions import fill_dlist_none
+from ucagent.util.log import warning, info
 
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage

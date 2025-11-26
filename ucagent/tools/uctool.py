@@ -9,12 +9,12 @@ from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
 from mcp.server.fastmcp.tools import Tool as FastMCPTool
-import vagent.util.functions as fc
+import ucagent.util.functions as fc
 
 import threading
 import concurrent.futures
 import asyncio
-from vagent.util.cqueque import CircularOverwriteQueue
+from ucagent.util.cqueque import CircularOverwriteQueue
 import time
 
 

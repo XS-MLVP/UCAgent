@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Verification stage management for UCAgent."""
 
-from vagent.util.functions import import_class_from_str, find_files_by_pattern
-from vagent.util.log import info, warning
-from vagent.util.config import Config
-import vagent.checkers as checkers
+from ucagent.util.functions import import_class_from_str, find_files_by_pattern
+from ucagent.util.log import info, warning
+from ucagent.util.config import Config
+import ucagent.checkers as checkers
 from collections import OrderedDict
 import copy
 import time

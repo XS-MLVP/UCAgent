@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Test module for vagent.tools.planning
+Test module for ucagent.tools.planning
 
 This module contains comprehensive tests for the planning tools including:
 - ToDoPanel functionality
@@ -21,7 +21,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, ".."))
 sys.path.insert(0, project_root)
 
-from vagent.tools.planning import (
+from ucagent.tools.planning import (
     ToDoPanel, 
     CreateToDo, 
     CompleteToDoSteps, 

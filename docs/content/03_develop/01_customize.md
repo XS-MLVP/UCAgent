@@ -10,10 +10,10 @@
 
 涉及关键位置：
 
-- `vagent/tools/uctool.py`：工具基类 UCTool、to_fastmcp（LangChain Tool → FastMCP Tool）
-- `vagent/util/functions.py`：`import_and_instance_tools`（按名称导入实例）、`create_verify_mcps`（启动 FastMCP）
-- `vagent/verify_agent.py`：装配工具清单，`start_mcps` 组合并启动 Server
-- `vagent/cli.py` / `vagent/verify_pdb.py`：命令行与 TUI 内的 MCP 启动命令
+- `ucagent/tools/uctool.py`：工具基类 UCTool、to_fastmcp（LangChain Tool → FastMCP Tool）
+- `ucagent/util/functions.py`：`import_and_instance_tools`（按名称导入实例）、`create_verify_mcps`（启动 FastMCP）
+- `ucagent/verify_agent.py`：装配工具清单，`start_mcps` 组合并启动 Server
+- `ucagent/cli.py` / `ucagent/verify_pdb.py`：命令行与 TUI 内的 MCP 启动命令
 
 ### 1) 工具体系与装配
 
@@ -27,7 +27,7 @@
   - 阶段工具：由 StageManager 按工作流动态提供
   - 外部工具：来自配置项 `ex_tools` 与 CLI `--ex-tools`（通过 `import_and_instance_tools` 零参实例化）
 - 名称解析：
-  - 短名：类/工厂函数需在 `vagent/tools/__init__.py` 导出（例如 `from .mytool import HelloTool`），即可在 `ex_tools` 写 `HelloTool`
+  - 短名：类/工厂函数需在 `ucagent/tools/__init__.py` 导出（例如 `from .mytool import HelloTool`），即可在 `ex_tools` 写 `HelloTool`
   - 全路径：`mypkg.mytools.HelloTool` / `mypkg.mytools.Factory`
 
 ### 2) 添加一个新工具（本地/Agent 内）
@@ -42,7 +42,7 @@
 
 ```python
 from pydantic import BaseModel, Field
-from vagent.tools.uctool import UCTool
+from ucagent.tools.uctool import UCTool
 
 class HelloArgs(BaseModel):
 		who: str = Field(..., description="要问候的人")
@@ -66,13 +66,13 @@ ex_tools:
 	- mypkg.mytools.HelloTool
 ```
 
-（可选）短名注册：在 `vagent/tools/__init__.py` 导出 `HelloTool` 后，可写 `--ex-tools HelloTool`。
+（可选）短名注册：在 `ucagent/tools/__init__.py` 导出 `HelloTool` 后，可写 `--ex-tools HelloTool`。
 
 示例 2：异步流式工具（ctx.info + 超时）
 
 ```python
 from pydantic import BaseModel, Field
-from vagent.tools.uctool import UCTool
+from ucagent.tools.uctool import UCTool
 import asyncio
 
 class ProgressArgs(BaseModel):
@@ -94,7 +94,7 @@ class ProgressTool(UCTool):
 
 ### 3) 暴露为 MCP Server 工具
 
-工具 → MCP 转换（`vagent/tools/uctool.py::to_fastmcp`）：
+工具 → MCP 转换（`ucagent/tools/uctool.py::to_fastmcp`）：
 
 - 必须：args_schema 继承 BaseModel；不支持“注入参数”签名。
 - UCTool 子类会得到 context_kwarg="ctx" 的 FastMCP 工具，具备流式交互能力。
@@ -102,7 +102,7 @@ class ProgressTool(UCTool):
 Server 端启动：
 
 - VerifyAgent.start_mcps 组合工具：`tool_list_base + tool_list_task + tool_list_ext + [tool_list_file]`
-- `vagent/util/functions.py::create_verify_mcps` 将工具序列转换为 FastMCP 工具并启动 uvicorn（`mcp.streamable_http_app()`）。
+- `ucagent/util/functions.py::create_verify_mcps` 将工具序列转换为 FastMCP 工具并启动 uvicorn（`mcp.streamable_http_app()`）。
 
 如何选择暴露范围：
 
@@ -141,7 +141,7 @@ IDE/Agent（Claude Code、Copilot、Qwen Code 等）：将 `httpUrl` 指向 `htt
 
 #### 通过环境变量注入外部工具（EX_TOOLS）
 
-配置文件支持 Bash 风格环境变量占位：`$(VAR: default)`。你可以让 `ex_tools` 从环境变量注入工具类列表（支持模块全名或 `vagent.tools` 下的短名）。
+配置文件支持 Bash 风格环境变量占位：`$(VAR: default)`。你可以让 `ex_tools` 从环境变量注入工具类列表（支持模块全名或 `ucagent.tools` 下的短名）。
 
 1. 在项目的 `config.yaml` 或用户级 `~/.ucagent/setting.yaml` 中写入：
 
@@ -154,10 +154,10 @@ ex_tools: $(EX_TOOLS: [])
 ```zsh
 export EX_TOOLS='["SqThink","HumanHelp"]'
 # 或使用完整类路径：
-# export EX_TOOLS='["vagent.tools.extool.SqThink","vagent.tools.human.HumanHelp"]'
+# export EX_TOOLS='["ucagent.tools.extool.SqThink","ucagent.tools.human.HumanHelp"]'
 ```
 
-3. 启动后本地对话与 MCP Server 中都会出现这些工具。短名需要在 `vagent/tools/__init__.py` 导出；否则请使用完整模块路径。
+3. 启动后本地对话与 MCP Server 中都会出现这些工具。短名需要在 `ucagent/tools/__init__.py` 导出；否则请使用完整模块路径。
 
 4. 与 CLI 的 `--ex-tools` 选项是合并关系（两边都会被装配）。
 
@@ -166,4 +166,4 @@ export EX_TOOLS='["SqThink","HumanHelp"]'
 - 工具未出现在 MCP 列表：未被装配（ex_tools 未配置/未导出）、args_schema 非 BaseModel、Server 未按预期启动。
 - 调用报“注入参数不支持”：工具定义包含 LangChain 的 injected args；请改成显式 args_schema 参数。
 - 超时：调大 `call_time_out` 或客户端 timeout；在长任务中输出进度维持心跳。
-- 短名无效：未在 `vagent/tools/__init__.py` 导出；改用全路径或补导出。
+- 短名无效：未在 `ucagent/tools/__init__.py` 导出；改用全路径或补导出。

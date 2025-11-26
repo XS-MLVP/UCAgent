@@ -133,7 +133,7 @@ stage:
       - name: human_check_spec
         clss: "HumanChecker"
 
-  # Copy from: vagent/lang/zh/config/default.yaml
+  # Copy from: ucagent/lang/zh/config/default.yaml
   - name: functional_specification_analysis
     desc: "功能规格分析与测试点定义"
     task:

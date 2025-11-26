@@ -11,8 +11,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # Insert workspace path at the beginning to ensure we use local code
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.checkers import BashScriptChecker
-from vagent.util.functions import yam_str
+from ucagent.checkers import BashScriptChecker
+from ucagent.util.functions import yam_str
 
 
 def test_bash_script_success():

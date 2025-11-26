@@ -2,9 +2,9 @@
 """Markdown file checkers for UCAgent."""
 
 
-from vagent.checkers.base import Checker, UnityChipBatchTask
-import vagent.util.functions as fc
-from vagent.util.log import info
+from ucagent.checkers.base import Checker, UnityChipBatchTask
+import ucagent.util.functions as fc
+from ucagent.util.log import info
 import copy
 import os
 

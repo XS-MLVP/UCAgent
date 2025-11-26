@@ -10,7 +10,7 @@ from typing import Optional, List, Union
 from pydantic import BaseModel, Field
 
 import os
-from vagent.util.log import info
+from ucagent.util.log import info
 
 
 from langgraph.store.memory import InMemoryStore

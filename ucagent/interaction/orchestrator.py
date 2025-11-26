@@ -8,7 +8,7 @@ import copy
 import time
 from typing import Dict, Any, List, Optional, Set, Tuple
 from enum import Enum
-from vagent.util.log import info, warning, error
+from ucagent.util.log import info, warning, error
 
 
 class ToolCategory(Enum):

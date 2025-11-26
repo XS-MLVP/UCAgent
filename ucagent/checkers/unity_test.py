@@ -3,10 +3,10 @@
 
 import re
 from typing import Tuple
-import vagent.util.functions as fc
-from vagent.util.config import Config
-from vagent.util.log import info, warning
-from vagent.tools.testops import RunUnityChipTest
+import ucagent.util.functions as fc
+from ucagent.util.config import Config
+from ucagent.util.log import info, warning
+from ucagent.tools.testops import RunUnityChipTest
 import os
 import glob
 import traceback
@@ -14,8 +14,8 @@ import copy
 import inspect
 import ast
 
-from vagent.checkers.base import Checker, UnityChipBatchTask
-from vagent.checkers.toffee_report import check_report, check_line_coverage
+from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
 class UnityChipCheckerMarkdownFileFormat(Checker):

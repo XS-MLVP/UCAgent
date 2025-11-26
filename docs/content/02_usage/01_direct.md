@@ -25,12 +25,12 @@ embed:
 
 UCAgent 的配置文件支持 Bash 风格的环境变量占位：`$(VAR: default)`。加载时会用当前环境变量 `VAR` 的值替换；若未设置，则使用 `default`。
 
-- 例如在内置配置 `vagent/setting.yaml` 中：
+- 例如在内置配置 `ucagent/setting.yaml` 中：
   - `openai.model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"`
   - `openai.openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"`
   - `openai.openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"`
   - `embed.model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"`
-  - 也支持其他提供商：`model_type` 可选 `openai`、`anthropic`、`google_genai`（详见 `vagent/setting.yaml`）。
+  - 也支持其他提供商：`model_type` 可选 `openai`、`anthropic`、`google_genai`（详见 `ucagent/setting.yaml`）。
 
 你可以仅通过导出环境变量完成模型与端点切换，而无需改动配置文件。
 
@@ -91,7 +91,7 @@ embed:
 - 安装为命令后：
   - `ucagent output/ Adder --config config.yaml -s -hm --tui -l`
 
-参数对齐 `vagent/cli.py`：
+参数对齐 `ucagent/cli.py`：
 
 - `workspace`：工作区目录（此处为 `output/`）
 - `dut`：DUT 名称（工作区子目录名，如 `Adder`）

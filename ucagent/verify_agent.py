@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from vagent.message.statistic import MessageStatistic
-from vagent.tools.context import ArbitContextSummary
+from ucagent.message.statistic import MessageStatistic
+from ucagent.tools.context import ArbitContextSummary
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, render_template_dir, import_and_instance_tools
@@ -9,7 +9,7 @@ from .util.functions import dump_as_json, get_ai_message_tool_call, yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 from .util.models import get_chat_model
 
-import vagent.tools
+import ucagent.tools
 from .message import UCMessagesNode, SummarizationAndFixToolCall, State
 from .message import TokenSpeedCallbackHandler
 from .tools import *
@@ -199,8 +199,8 @@ class VerifyAgent:
                            CreateDirectory(self.workspace,          write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
-        self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), vagent.tools) \
-                           + import_and_instance_tools(ex_tools, vagent.tools)
+        self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), ucagent.tools) \
+                           + import_and_instance_tools(ex_tools, ucagent.tools)
 
         # Initialize planning tools
         self.planning_tools = []

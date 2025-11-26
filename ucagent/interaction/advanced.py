@@ -10,8 +10,8 @@ import statistics
 from typing import Dict, Any, List, Optional, Tuple
 from enum import Enum
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from vagent.util.log import info, warning, error
-from vagent.util.functions import yam_str
+from ucagent.util.log import info, warning, error
+from ucagent.util.functions import yam_str
 
 
 class ContextComplexity(Enum):
@@ -360,7 +360,7 @@ class AdvancedInteractionLogic:
     def _init_components(self):
         """Initialize planning tools and tool orchestrator"""
         try:
-            from vagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
+            from ucagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
             # Create shared plan panel
             self.todo_panel = ToDoPanel()
             self.planning_tools = {

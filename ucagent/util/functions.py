@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import copy
-from vagent.util.log import info, warning
+from ucagent.util.log import info, warning
 import os
 from typing import List, Dict, Any, Optional, Tuple, Union
 import json
@@ -512,6 +512,24 @@ def import_class_from_str(class_path: str, modue: None = None):
     return getattr(module, class_name)
 
 
+def append_python_path(py_path: list):
+    """
+    Append paths to sys.path for Python module imports.
+    :param py_path: List of paths to be added to sys.path.
+    """
+    import sys
+    if isinstance(py_path, str):
+        py_path = [py_path]
+    for p in py_path:
+        if not os.path.exists(p):
+            raise FileNotFoundError(f"Path {p} does not exist.")
+        if os.path.isfile(p):
+            p = os.path.dirname(p)
+        p = os.path.abspath(p)
+        if p not in sys.path:
+            sys.path.append(p)
+
+
 def import_python_file(file_path: str, py_path:list = []):
     """
     Import a Python file as a module.
@@ -522,12 +540,7 @@ def import_python_file(file_path: str, py_path:list = []):
         raise FileNotFoundError(f"File {file_path} does not exist.")
     module_name = os.path.splitext(os.path.basename(file_path))[0]
     if py_path:
-        import sys
-        for p in py_path:
-            if not os.path.exists(p):
-                raise FileNotFoundError(f"Path {p} does not exist.")
-            if p not in sys.path:
-                sys.path.append(p)
+        append_python_path(py_path)
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -1057,8 +1070,8 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
     if logger:
         logging.getLogger = __getLogger
     from mcp.server.fastmcp import FastMCP
-    from vagent.tools.uctool import to_fastmcp
-    from vagent.util.log import info
+    from ucagent.tools.uctool import to_fastmcp
+    from ucagent.util.log import info
     fastmcp_tools = []
     for tool in mcp_tools:
         fastmcp_tools.append(to_fastmcp(tool))
@@ -1082,7 +1095,7 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
 
 def start_verify_mcps(server, old_getLogger):
     import logging
-    from vagent.util.log import info
+    from ucagent.util.log import info
     import anyio
     async def _run():
         await server.serve()
@@ -1095,7 +1108,7 @@ def start_verify_mcps(server, old_getLogger):
 
 
 def stop_verify_mcps(server):
-    from vagent.util.log import info
+    from ucagent.util.log import info
     if server is not None:
         info("Stopping FastMCP server...")
         server.should_exit = True
@@ -1788,7 +1801,7 @@ def is_ucagent_complete(workspace="."):
 def get_interaction_messages(key, config_file=None):
     """Get interaction prompts from default cfg"""
     # [config_file.yaml::]continue_prompt_keys[|stop_prompt_keys]
-    from vagent.util.config import get_config
+    from ucagent.util.config import get_config
     import os
     if '::' in key:
         config_file, key = key.split('::', 1)

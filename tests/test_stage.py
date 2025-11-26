@@ -7,9 +7,9 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.config import get_config
-from vagent.stage import StageManager
-from vagent.tools import ReadTextFile
+from ucagent.util.config import get_config
+from ucagent.stage import StageManager
+from ucagent.tools import ReadTextFile
 
 def test_run_stage():
     cfg = get_config()

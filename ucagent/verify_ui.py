@@ -11,8 +11,8 @@ import signal
 import time
 import threading
 
-from vagent.util.functions import fmt_time_stamp, fmt_time_deta
-from vagent.util.log import YELLOW, RESET
+from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
+from ucagent.util.log import YELLOW, RESET
 from collections import OrderedDict
 
 class VerifyUI:

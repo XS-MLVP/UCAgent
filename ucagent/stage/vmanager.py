@@ -13,12 +13,12 @@ from langchain_core.callbacks import (
 from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
-import vagent.util.functions as fc
-from vagent.checkers import UnityChipCheckerTestFree
-from vagent.stage.vstage import get_root_stage
-from vagent.tools.uctool import UCTool, EmptyArgs
-from vagent.util.functions import make_llm_tool_ret
-from vagent.util.log import info, warning
+import ucagent.util.functions as fc
+from ucagent.checkers import UnityChipCheckerTestFree
+from ucagent.stage.vstage import get_root_stage
+from ucagent.tools.uctool import UCTool, EmptyArgs
+from ucagent.util.functions import make_llm_tool_ret
+from ucagent.util.log import info, warning
 
 
 class ManagerTool(UCTool):
@@ -238,7 +238,7 @@ class StageManager(object):
         """
         Initialize the StageManager with an empty list of stages.
         """
-        from vagent.stage import VerifyStage
+        from ucagent.stage import VerifyStage
         self.cfg = cfg
         self.data = {}
         self.workspace = workspace

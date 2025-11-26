@@ -4,7 +4,7 @@
 from typing import Any
 from .config import Config
 from langchain_core.rate_limiters import InMemoryRateLimiter
-from vagent.util.log import echo_g
+from ucagent.util.log import echo_g
 
 
 def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:

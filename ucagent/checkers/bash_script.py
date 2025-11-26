@@ -2,7 +2,7 @@
 """Bash script checkers for UCAgent."""
 
 
-from vagent.checkers.base import Checker
+from ucagent.checkers.base import Checker
 from typing import Tuple
 import re
 import fnmatch

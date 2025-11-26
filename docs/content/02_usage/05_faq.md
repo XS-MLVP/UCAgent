@@ -5,8 +5,8 @@
 - 模型切换：在 `config.yaml` 改 `openai.model_name`
 - 验证过程中出现错误怎么办：使用 `Ctrl+C` 进入交互模式，通过 `status` 查看当前状态，使用 `help` 获取调试命令。
 - Check 失败：先 `ReadTextFile` 阅读 reference_files；再按返回信息修复，循环 RunTestCases → Check
-- 自定义阶段：修改 `vagent/lang/zh/config/default.yaml` 的 `stage`；或用 `--override` 临时覆盖
-- 添加工具：`vagent/tools/` 下新建类，继承 `UCTool`，运行时 `--ex-tools YourTool`
+- 自定义阶段：修改 `ucagent/lang/zh/config/default.yaml` 的 `stage`；或用 `--override` 临时覆盖
+- 添加工具：`ucagent/tools/` 下新建类，继承 `UCTool`，运行时 `--ex-tools YourTool`
 - MCP 连接失败：检查端口/防火墙，改 `--mcp-server-port`；无嵌入可加 `--no-embed-tools`
 - 只读保护：通过 `--no-write/--nw` 指定路径限制写入（必须位于 workspace 内）
 

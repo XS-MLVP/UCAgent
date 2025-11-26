@@ -9,8 +9,8 @@ import copy
 import time
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from vagent.util.log import info, warning, error
-from vagent.util.functions import yam_str
+from ucagent.util.log import info, warning, error
+from ucagent.util.functions import yam_str
 
 
 class InteractionState:
@@ -66,7 +66,7 @@ class EnhancedInteractionLogic:
     def _init_planning_tools(self):
         """Initialize planning tools"""
         try:
-            from vagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
+            from ucagent.tools.planning import CreateToDo, CompleteToDoSteps, UndoToDoSteps, ResetToDo, GetToDoSummary, ToDoPanel
             # Create shared plan panel
             self.todo_panel = ToDoPanel()
             self.planning_tools = {

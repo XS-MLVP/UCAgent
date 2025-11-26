@@ -7,8 +7,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from vagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir
-import vagent.util.functions as fc
+from ucagent.util.functions import find_files_by_glob, find_files_by_regex, find_files_by_pattern, render_template_dir
+import ucagent.util.functions as fc
 
 
 def test_find_files_by_glob():
@@ -77,7 +77,7 @@ def test_render_template_dir():
     workspace = os.path.join(current_dir, "../output")
     if not os.path.exists(workspace):
         os.makedirs(workspace)
-    template = os.path.join(current_dir, "../vagent/template/unity_test")
+    template = os.path.join(current_dir, "../ucagent/template/unity_test")
     context = {"DUT": "alu"}
 
     # Call the function to render templates
@@ -93,7 +93,7 @@ def test_render_template_dir():
 
 def test_parse_marks_from_file():
     """Test the parse_marks_from_file function."""
-    test_file = os.path.join(current_dir, "../vagent/template/unity_test/{{DUT}}_line_coverage_analysis.md")
+    test_file = os.path.join(current_dir, "../ucagent/template/unity_test/{{DUT}}_line_coverage_analysis.md")
     marks = fc.parse_marks_from_file(test_file, "LINE_IGNORE")
     print("Parsed marks from file '{}':".format(test_file))
     print("Marks:", marks)
@@ -102,7 +102,7 @@ def test_parse_marks_from_file():
 
 def test_parse_line_ignore_file():
     """Test the parse_line_ignore_file function."""
-    test_file = os.path.join(current_dir, "../vagent/template/unity_test/tests/{{DUT}}.ignore")
+    test_file = os.path.join(current_dir, "../ucagent/template/unity_test/tests/{{DUT}}.ignore")
     marks = fc.parse_line_ignore_file(test_file)
     print("Parsed line ignore marks from file '{}':".format(test_file))
     print("Marks:", marks)
@@ -165,7 +165,7 @@ def test_check_has_assert_in_tc():
 
 def test_markdown_headers():
     """Test function markdown_headers"""
-    test_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    test_file = "../ucagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
     headers = fc.markdown_headers(current_dir, test_file, levels=2)
     print("Markdown headers in file '{}':".format(test_file))
     for header in headers:
@@ -174,8 +174,8 @@ def test_markdown_headers():
 
 def test_markdown_get_miss_headers():
     """Test function markdown_get_miss_headers"""
-    target_file = "../vagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
-    source_file = "../vagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
+    target_file = "../ucagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
+    source_file = "../ucagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
     miss_headers, message = fc.markdown_get_miss_headers(current_dir, target_file, source_file, levels=2)
     print("Missed Headers", len(miss_headers))
     print(message)

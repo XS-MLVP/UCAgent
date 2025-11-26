@@ -34,16 +34,16 @@ dependencies = [
 dynamic = ["version"]
 
 [project.scripts]
-ucagent = "vagent.cli:main"
+ucagent = "ucagent.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/XS-MLVP/UCAgent"
 
 [tool.setuptools_scm]
 fallback_version = "0.9.1"
-version_file = "vagent/_version.py"
+version_file = "ucagent/_version.py"
 version_scheme = "guess-next-dev"
 local_scheme = "node-and-date"
 
 [tool.setuptools]
-packages = ["vagent"]
+packages = ["ucagent"]

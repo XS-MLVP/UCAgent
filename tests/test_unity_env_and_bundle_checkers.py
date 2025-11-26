@@ -9,7 +9,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 import pytest
-from vagent.checkers.unity_test import UnityChipCheckerBundleWrapper, UnityChipCheckerEnvFixtureTest
+from ucagent.checkers.unity_test import UnityChipCheckerBundleWrapper, UnityChipCheckerEnvFixtureTest
 
 
 def wpath(rel):

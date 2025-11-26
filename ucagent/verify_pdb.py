@@ -3,12 +3,12 @@
 
 from pdb import Pdb
 import os
-from vagent.util.log import echo_g, echo_y, echo_r, echo, info, message
-from vagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
+from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
+from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
 import time
 import signal
 import traceback
-from vagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
+from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
 
 
 class VerifyPDB(Pdb):
@@ -483,7 +483,7 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
-        from vagent.verify_ui import enter_simple_tui
+        from ucagent.verify_ui import enter_simple_tui
         self._in_tui = True
         try:
             enter_simple_tui(self)
@@ -846,7 +846,7 @@ class VerifyPDB(Pdb):
         Returns:
             dict: Parsed Toffee report data.
         """
-        from vagent.util.functions import load_toffee_report
+        from ucagent.util.functions import load_toffee_report
         assert os.path.exists(path), f"File '{path}' does not exist."
         return load_toffee_report(path, workspace, True, True)
 

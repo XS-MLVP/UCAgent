@@ -8,8 +8,8 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 
-from vagent.checkers import *
-from vagent.util.functions import yam_str
+from ucagent.checkers import *
+from ucagent.util.functions import yam_str
 
 
 def test_markdown_checker():

@@ -2,7 +2,7 @@
 
 整体采用“按阶段渐进推进”的方式，每个阶段都有明确目标、产出与通过标准；完成后用工具 Check 验证并用 Complete 进入下一阶段。若阶段包含子阶段，需按顺序 逐一完成子阶段并各自通过 Check。
 
-- 顶层阶段总数：11（见 `vagent/lang/zh/config/default.yaml`）
+- 顶层阶段总数：11（见 `ucagent/lang/zh/config/default.yaml`）
 - 推进原则：未通过的阶段不可跳转；可用工具 CurrentTips 获取当前阶段详细指导；需要回补时可用 GotoStage 回到指定阶段。
 - 三种跳/不跳过阶段方法：
   - 在项目根 `config.yaml` 的某个 `stage` 字段下面 `-name` 元素里的 `skip` 键配置 `true/false` 来跳过/不跳过。
@@ -295,7 +295,7 @@ TC bug 标注规范与一致性（与文档/报告强关联）：
 
 ### 原理说明
 
-- 工作流定义在语言配置 `vagent/lang/zh/config/default.yaml` 的顶层 `stage:` 列表。
+- 工作流定义在语言配置 `ucagent/lang/zh/config/default.yaml` 的顶层 `stage:` 列表。
 - 配置加载顺序：setting.yaml → ~/.ucagent/setting.yaml → 语言默认（含 stage）→ 项目根 `config.yaml` → CLI `--override`。
 - 注意：列表类型（如 stage 列表）在合并时是“整体覆盖”，不是元素级合并；因此要“增删改”阶段，建议把默认的 stage 列表复制到你的项目 `config.yaml`，在此基础上编辑。
 - 临时不执行某阶段：优先使用 CLI `--skip` 跳过该索引；持久跳过可在你的 `config.yaml` 中把该阶段条目的 `skip: true` 写上（同样需要提供完整的 stage 列表）。
@@ -355,7 +355,7 @@ stage:
 
 - 仅需临时跳过：用 `--skip`/`--unskip` 最快，无需改配置文件。
 - 需要永久增删：复制默认 `stage:` 列表到项目 `config.yaml`，编辑后提交到仓库；注意列表是整体覆盖，别只贴新增/删减的片段。
-- 新增阶段的检查器可复用现有类（如 Markdown/Fixture/API/Coverage/TestCase 等），也可以扩展自定义检查器（放在 `vagent/checkers/` 并以可导入路径填写到 `clss`）。
+- 新增阶段的检查器可复用现有类（如 Markdown/Fixture/API/Coverage/TestCase 等），也可以扩展自定义检查器（放在 `ucagent/checkers/` 并以可导入路径填写到 `clss`）。
 
 ## 定制校验器（checker）
 
@@ -364,10 +364,10 @@ stage:
 - 每个（子）阶段下的 `checker:` 是一个列表；执行 `Check` 时会依次运行该列表里的所有检查器。
 - 配置字段：
   - `name`: 该检查器在阶段内的标识（便于阅读/日志）
-  - `clss`: 检查器类名；短名默认从 `vagent.checkers` 命名空间导入，也可写完整模块路径（如 `mypkg.mychk.MyChecker`）
+  - `clss`: 检查器类名；短名默认从 `ucagent.checkers` 命名空间导入，也可写完整模块路径（如 `mypkg.mychk.MyChecker`）
   - `args`: 传给检查器构造函数的参数，支持模板变量（如 `{OUT}`、`{DUT}`）
   - `extra_args`: 可选，部分检查器支持自定义提示/策略（如 `fail_msg`、`batch_size`、`pre_report_file` 等）
-- 解析与实例化：`vagent/stage/vstage.py` 会读取 `checker:`，按 `clss/args` 生成实例；运行期由 `ToolStdCheck/Check` 调用其 `do_check()`。
+- 解析与实例化：`ucagent/stage/vstage.py` 会读取 `checker:`，按 `clss/args` 生成实例；运行期由 `ToolStdCheck/Check` 调用其 `do_check()`。
 - 合并语义：配置合并时列表是“整体替换”，要在项目 `config.yaml` 修改某个阶段的 `checker:`，建议复制该阶段条目并完整替换其 `checker:` 列表。
 
 ### 增加 checker
@@ -391,23 +391,23 @@ stage:
 		# ...子阶段 FG/FC/CK 原有配置...
 ```
 
-（可扩展）自定义检查器（最小实现，放在 `vagent/checkers/unity_test.py`）
+（可扩展）自定义检查器（最小实现，放在 `ucagent/checkers/unity_test.py`）
 
 很多场景下“增加的 checker”并非复用已有检查器，而是需要自己实现一个新的检查器。最小实现步骤：
 
-1. 新建类并继承基类 `vagent.checkers.base.Checker`
+1. 新建类并继承基类 `ucagent.checkers.base.Checker`
 2. 在 `__init__` 里声明你需要的参数（与 YAML args 对应）
 3. 实现 `do_check(self, timeout=0, **kw) -> tuple[bool, object]`，返回 (是否通过, 结构化消息)
 4. 如需读/写工作区文件，使用 `self.get_path(rel)` 获取绝对路径；如需跨阶段共享数据，使用 `self.smanager_set_value/get_value`
-5. 若想用短名 `clss` 引用，请在 `vagent/checkers/__init__.py` 导出该类（或在 `clss` 写完整模块路径）
+5. 若想用短名 `clss` 引用，请在 `ucagent/checkers/__init__.py` 导出该类（或在 `clss` 写完整模块路径）
 
 最小代码骨架（示例）：
 
 ```python
-# 文件：vagent/checkers/unity_test.py
+# 文件：ucagent/checkers/unity_test.py
 from typing import Tuple
 import os
-from vagent.checkers.base import Checker
+from ucagent.checkers.base import Checker
 
 class UnityChipCheckerMyCustomCheck(Checker):
 		def __init__(self, target_file: str, threshold: int = 1, **kw):
@@ -475,13 +475,13 @@ checker:
 
 可选：自定义检查器类
 
-- 在 `vagent/checkers/` 新增类，继承 `vagent.checkers.base.Checker` 并实现 `do_check()`；
-- 在 `vagent/checkers/__init__.py` 导出类后，可在 `clss` 用短名；或直接写完整模块路径；
+- 在 `ucagent/checkers/` 新增类，继承 `ucagent.checkers.base.Checker` 并实现 `do_check()`；
+- 在 `ucagent/checkers/__init__.py` 导出类后，可在 `clss` 用短名；或直接写完整模块路径；
 - `args` 中的字符串支持模板变量渲染；`extra_args` 可用于自定义提示文案（具体视检查器实现而定）。
 
 ### 常用 checker 参数（结构化）
 
-以下参数均来自实际代码实现（`vagent/checkers/unity_test.py`），名称、默认值与类型与代码保持一致；示例片段可直接放入阶段 YAML 的 `checker[].args`。
+以下参数均来自实际代码实现（`ucagent/checkers/unity_test.py`），名称、默认值与类型与代码保持一致；示例片段可直接放入阶段 YAML 的 `checker[].args`。
 
 #### UnityChipCheckerMarkdownFileFormat
 

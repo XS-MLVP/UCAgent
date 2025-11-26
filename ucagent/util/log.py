@@ -39,8 +39,8 @@ def get_msg_logger() -> Optional[logging.Logger]:
     return __msg_logger__
 
 
-def init_log_logger(name: str = "vagent-log", level: int = logging.DEBUG,
-                log_file:str="log/vagent-log.log"):
+def init_log_logger(name: str = "ucagent-log", level: int = logging.DEBUG,
+                log_file:str="log/ucagent-log.log"):
     """Initializes the logger with the given name and level."""
     global __log_logger__
     __log_logger__ = logging.getLogger(name)
@@ -56,8 +56,8 @@ def init_log_logger(name: str = "vagent-log", level: int = logging.DEBUG,
     __log_logger__.addHandler(fh)
 
 
-def init_msg_logger(name: str = "vagent-msg", level: int = logging.INFO,
-                log_file:str="log/vagent-msg.log"):
+def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
+                log_file:str="log/ucagent-msg.log"):
     """Initializes the message logger with the given name and level."""
     global __msg_logger__
     __msg_logger__ = logging.getLogger(name)
