@@ -217,10 +217,9 @@ def get_args() -> argparse.Namespace:
         help="System tips to be used in the agent"
     )
     parser.add_argument(
-        "--ex-tools", 
-        type=get_list_from_str, 
-        default=None, 
-        help="List of external tools to be used by the agent, e.g., --ex-tools SqThink"
+        "--ex-tools", "-et",
+        action='append', default=[], type=str,
+        help="List of external tools to be used by the agent, supported multiple times. E.g., --ex-tools my_tools.MyCustomTool,my_tools.AnotherTool"
     )
     parser.add_argument(
         "--no-embed-tools",
@@ -497,6 +496,11 @@ def run() -> None:
     if args.append_py_path:
         append_python_path(args.append_py_path)
 
+    ex_tools = []
+    if args.ex_tools:
+        for tool_str in args.ex_tools:
+            ex_tools.extend(get_list_from_str(tool_str))
+
     # Create and configure the agent
     agent = VerifyAgent(
         workspace=args.workspace,
@@ -511,7 +515,7 @@ def run() -> None:
         seed=args.seed,
         init_cmd=init_cmds,
         sys_tips=args.sys_tips,
-        ex_tools=args.ex_tools,
+        ex_tools=ex_tools,
         no_embed_tools=args.no_embed_tools,
         force_stage_index=args.force_stage_index,
         force_todo=args.force_todo,
