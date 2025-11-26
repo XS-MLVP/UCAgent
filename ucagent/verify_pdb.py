@@ -9,6 +9,7 @@ import time
 import signal
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
+import readline
 
 
 class VerifyPDB(Pdb):
@@ -18,6 +19,13 @@ class VerifyPDB(Pdb):
     """
 
     def __init__(self, agent, prompt = "(UnityChip) ", init_cmd=None):
+        # default cmd history file
+        self.history_file = os.path.expanduser("~/.ucagent/pdb_cmd_history")
+        try:
+            readline.set_history_length(1000)
+            readline.read_history_file(self.history_file)
+        except FileNotFoundError:
+            pass
         super().__init__()
         self.agent = agent
         self.prompt = prompt
@@ -1182,6 +1190,10 @@ class VerifyPDB(Pdb):
         Quit the debugger.
         """
         self.agent.stage_manager.save_stage_info()
+        try:
+            readline.write_history_file(self.history_file)
+        except Exception:
+            pass
         echo_g("Stage information saved. Exiting debugger.")
         return super().do_quit(arg)
 
