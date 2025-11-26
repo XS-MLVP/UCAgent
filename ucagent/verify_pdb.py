@@ -389,6 +389,19 @@ class VerifyPDB(Pdb):
             ret.append(text)
         return ret
 
+    def api_all_cmds(self, prefix=""):
+        """
+        List all available commands in the current workspace.
+        Returns:
+            list: List of command names.
+        """
+        ret = []
+        for cmd in self.get_names():
+            if cmd.startswith("do_"):
+                text = cmd[3:]
+                ret.append(text)
+        return [c for c in ret if c.startswith(prefix)]
+
     def api_changed_files(self, count=10):
         """
         List all changed files in the current workspace.

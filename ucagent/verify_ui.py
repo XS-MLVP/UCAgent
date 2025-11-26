@@ -56,9 +56,6 @@ class VerifyUI:
         self.last_cmd = None
         self.last_key = None
         self.last_line = ""
-        self.complete_remain = []
-        self.complete_maxshow = max(10, 100)  # Ensure minimum value
-        self.complete_tips = "\nAvailable commands:\n"
         self.cmd_history_index = readline.get_current_history_length() + 1
         self._pdio = io.StringIO()
         self._ui_lock = threading.Lock()  # Add lock for thread safety
@@ -376,7 +373,70 @@ class VerifyUI:
                 if len(obuffer) > self.content_msgs_maxln:
                     self.console_outbuffer = "\n".join(obuffer[-self.content_msgs_maxln:])
         lines = self.console_outbuffer.split("\n")
+        width = self._get_console_width()
+        if width is not None:
+            wrapped = []
+            for line in lines:
+                if not line:
+                    wrapped.append("")
+                    continue
+                wrapped.extend(self._wrap_console_line(line, width))
+            lines = wrapped
         return "\n".join(lines[-self.console_max_height:])
+
+    def _get_console_width(self):
+        if getattr(self, "loop", None) is None:
+            return None
+        if getattr(self.loop, "screen", None) is None:
+            return None
+        try:
+            cols, _ = self.loop.screen.get_cols_rows()
+        except Exception:
+            return None
+        width = max(1, cols - 2)
+        return width
+
+    def _wrap_console_line(self, line, width):
+        if width <= 0:
+            return [line]
+        pattern = ANSIText.ANSI_ESCAPE_RE
+        tokens = []
+        idx = 0
+        for match in pattern.finditer(line):
+            if match.start() > idx:
+                tokens.append(("text", line[idx:match.start()]))
+            tokens.append(("ansi", match.group(0)))
+            idx = match.end()
+        if idx < len(line):
+            tokens.append(("text", line[idx:]))
+        if not tokens:
+            return [""]
+        result = []
+        current = []
+        current_len = 0
+        for kind, value in tokens:
+            if kind == "ansi":
+                current.append(value)
+                continue
+            segment = value
+            while segment:
+                remaining = width - current_len
+                if remaining <= 0:
+                    result.append("".join(current))
+                    current = []
+                    current_len = 0
+                    remaining = width
+                take = segment[:remaining]
+                current.append(take)
+                current_len += len(take)
+                segment = segment[remaining:]
+                if current_len >= width:
+                    result.append("".join(current))
+                    current = []
+                    current_len = 0
+        if current or not result:
+            result.append("".join(current))
+        return result
 
     def is_cmd_exit(self, cmd):
         return cmd in ("q", "Q", "exit", "quit")
@@ -649,35 +709,17 @@ class VerifyUI:
         loop.set_alarm_in(1.0, self.check_exec_batch_cmds)
 
     def complete_cmd(self, line):
-        if self.last_key == "tab" and self.last_line == line:
-            end_text = ""
-            cmd = self.complete_remain
-            if not cmd:
-                return
-            if len(cmd) > self.complete_maxshow:
-                end_text = f"\n...({len(cmd) - self.complete_maxshow} more)"
-            self.console_output.set_text(self._get_output() + self.complete_tips + " ".join(cmd[:self.complete_maxshow]) + end_text)
-            self.complete_remain = cmd[self.complete_maxshow:]
-            return
-        self.complete_remain = []
-        state = 0
         cmp = []
         cmd, args, _ = self.vpdb.parseline(line)
         if " " in line:
-            complete_func = getattr(self.vpdb, f"complete_{cmd}", None)
-            if complete_func:
-                arg = args
-                if " " in args:
-                    arg = args.split()[-1]
-                idbg = line.find(arg)
-                cmp = complete_func(arg, line, idbg, len(line))
+            complete_func = getattr(self.vpdb, f"complete_{cmd}", self.vpdb.completedefault)
+            arg = args
+            if " " in args:
+                arg = args.split()[-1]
+            idbg = line.find(arg)
+            cmp = complete_func(arg, line, idbg, len(line))
         else:
-            while True:
-                cmp_item = self.vpdb.complete(line, state)
-                if not cmp_item:
-                    break
-                state += 1
-                cmp.append(cmp_item)
+            cmp = self.vpdb.api_all_cmds(line)
         if cmp:
             prefix = os.path.commonprefix(cmp)
             full_cmd = line[:line.rfind(" ") + 1] if " " in line else ""
@@ -687,11 +729,7 @@ class VerifyUI:
                 full_cmd = line
             self.console_input.set_edit_text(full_cmd)
             self.console_input.set_edit_pos(len(full_cmd))
-            end_text = ""
-            if len(cmp) > self.complete_maxshow:
-                self.complete_remain = cmp[self.complete_maxshow:]
-                end_text = f"\n...({len(self.complete_remain)} more)"
-            self.console_output.set_text(self._get_output() + self.complete_tips + " ".join(cmp[:self.complete_maxshow]) + end_text)
+            self.console_output.set_text(self._get_output(self.console_input_cap + full_cmd + "\n" + " ".join(cmp) + "\n"))
 
     def console_output_page_scroll(self, deta):
         if self.console_page_cache is None:
