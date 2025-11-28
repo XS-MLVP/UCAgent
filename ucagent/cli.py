@@ -35,6 +35,7 @@ class HookMessageAction(argparse.Action):
     """Custom action for --hook-message flag."""
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, nargs=1, **kwargs)
+        self.need_agent_exit = kwargs.get("need_agent_exit", True)
 
     def __call__(self, parser, namespace, values, option_string=None):
         import ucagent.util.log as log
@@ -43,7 +44,7 @@ class HookMessageAction(argparse.Action):
         success, continue_msg, stop_msg = fc.get_interaction_messages(values[0])
         if not success:
             parser.exit(1)
-        if fc.is_ucagent_complete():
+        if fc.is_ucagent_complete(need_agent_exit=self.need_agent_exit):
             if stop_msg:
                 print(stop_msg.strip())
                 sys.exit(0)

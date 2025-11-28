@@ -1792,10 +1792,14 @@ def get_un_mapped_lines(workspace,
     return unmapped_lines, example_str
 
 
-def is_ucagent_complete(workspace="."):
+def is_ucagent_complete(workspace=".", need_agent_exit=False):
     """Check UCAgent is complete from file"""
     status_data = load_ucagent_info(workspace)
-    return status_data.get("all_completed", False)
+    if not status_data.get("all_completed", False):
+        return False
+    if need_agent_exit:
+        return status_data.get("is_agent_exit", False)
+    return True
 
 
 def get_interaction_messages(key, config_file=None):
