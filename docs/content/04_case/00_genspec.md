@@ -1,8 +1,10 @@
-# GenSpec 规范文档生成模式
+# GenSpec 规范生成
 
-## GenSpec 模式介绍
+## GenSpec 工作流介绍
 
-GenSpec (Specification Generation) 是 UCAgent 提供的一种特殊工作模式,专门用于从分散的设计资料(如源码、文档、注释等)中提取、整理和生成结构化的功能规范文档。
+GenSpec (Specification Generation) 是 UCAgent 自定义工作流的一个案例,专门用于从分散的设计资料(如源码、文档、注释等)中提取、整理和生成结构化的功能规范文档。
+
+如果有其他的自定义工作流的需求，可以参考[定制工作流（增删阶段/子阶段）](../03_develop/03_workflow.md#定制工作流增删阶段子阶段)
 
 ### 应用场景
 
@@ -312,6 +314,8 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 ### Q4: GenSpec 和 Unity Test 模式有什么区别?
 
 **A**:
+
+都是在 UCAgent 这个大框架下的工作流。只是一个用于文档生成，一个用于验证生成。可以通过修改`config.yaml`自行转换或者同时使用。
 
 | 特性     | GenSpec 模式       | Unity Test 模式              |
 | -------- | ------------------ | ---------------------------- |
