@@ -1,10 +1,11 @@
-# GenSpec 规范生成
+# 规范生成
 
-## GenSpec 工作流介绍
+## 工作流介绍
 
-GenSpec (Specification Generation) 是 UCAgent 自定义工作流的一个案例,专门用于从分散的设计资料(如源码、文档、注释等)中提取、整理和生成结构化的功能规范文档。
+规范生成是 UCAgent 自定义工作流的一个案例,专门用于从分散的设计资料(如源码、文档、注释等)中提取、整理和生成结构化的功能规范文档。
+通过修改`config.yaml`中的流程定义，达到了一个规范生成的效果。
 
-如果有其他的自定义工作流的需求，可以参考[定制工作流（增删阶段/子阶段）](../03_develop/03_workflow.md#定制工作流增删阶段子阶段)
+如果有其他的自定义工作流的需求，可以参考[定制工作流（增删阶段/子阶段）](../03_develop/03_workflow.md#定制工作流增删阶段子阶段)来自定义阶段从而满足实际的需要。
 
 ### 应用场景
 
@@ -13,9 +14,9 @@ GenSpec (Specification Generation) 是 UCAgent 自定义工作流的一个案例
 - **模块理解辅助**:通过自动生成的规范文档快速理解复杂设计模块
 - **验证前准备**:在进行单元测试验证前,先生成完整的功能规范作为验证基准
 
-### GenSpec 工作流程
+### 工作流程
 
-GenSpec 采用六阶段流水线式工作流,每个阶段专注于特定的文档生成任务:
+本流程采用六阶段流水线式工作流,每个阶段专注于特定的文档生成任务:
 
 ```
 收集现有资料 → 源码增强 → 完善子规范 → 人工检查 → 功能规范分析 → 功能行映射
@@ -84,7 +85,7 @@ GenSpec 采用六阶段流水线式工作流,每个阶段专注于特定的文�
 
 **Checker**: `FileLineMapChecker` - 验证映射文件的差异和完整性
 
-## 使用 GenSpec 模式
+## 使用规范生成流程
 
 ### 前置条件
 
@@ -126,9 +127,9 @@ ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-ser
 ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui -s --no-embed-tools -l --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
 ```
 
-### GenSpec 配置说明
+### 规范生成流程配置说明
 
-GenSpec 使用独立的 `genspec.yaml` 配置文件,主要配置项包括:
+规范生成流程使用独立的 `genspec.yaml` 配置文件自定义了一套规范生成流程，主要配置项包括:
 
 ```yaml
 # 任务使命描述
@@ -283,9 +284,9 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 
 ## 常见问题
 
-### Q1: GenSpec 生成的规范不完整怎么办?
+### Q1: 生成的规范不完整怎么办?
 
-**A**: GenSpec 设计了 `human_check` 阶段专门用于人工补充:
+**A**: 规范生成流程设计了 `human_check` 阶段专门用于人工补充:
 
 1. 在 `human_check` 阶段暂停时,手动编辑 `output/{DUT}_spec.md`
 2. 补充 AI 遗漏的关键信息(如特殊约束、边界条件)
@@ -300,9 +301,9 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 - 如有设计文档(Word/PDF),转换为 Markdown 放入模块目录
 - 在 `genspec.yaml` 的 `mission` 中明确特殊要求
 
-### Q3: GenSpec 支持哪些 HDL 语言?
+### Q3: 支持哪些 HDL 语言?
 
-**A**: GenSpec 支持常见的硬件描述语言:
+**A**: 规范生成流程支持常见的硬件描述语言:
 
 - Verilog (.v)
 - SystemVerilog (.sv)
@@ -311,13 +312,13 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 
 源码分析依赖于 LLM 的代码理解能力,对语法无严格限制。
 
-### Q4: GenSpec 和 Unity Test 模式有什么区别?
+### Q4: 规范生成流程和默认的验证生成流程有什么区别?
 
 **A**:
 
 都是在 UCAgent 这个大框架下的工作流。只是一个用于文档生成，一个用于验证生成。可以通过修改`config.yaml`自行转换或者同时使用。
 
-| 特性     | GenSpec 模式       | Unity Test 模式              |
+| 特性     | 规范生成      | 验证生成          |
 | -------- | ------------------ | ---------------------------- |
 | 目标     | 生成功能规范文档   | 生成并执行测试用例           |
 | 输出     | Markdown 规范文档  | Python 测试代码 + 覆盖率报告 |
@@ -325,9 +326,9 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 | 阶段数   | 6 (文档生成流水线) | 14+ (验证完整流程)           |
 | 适用场景 | 规范缺失/文档整理  | 单元测试验证                 |
 
-典型工作流: **先用 GenSpec 生成规范 → 再用 Unity Test 进行验证**
+典型工作流: **先用规范生成流程生成规范 → 再用验证生成流程进行验证**
 
-### Q5: 如何复用 GenSpec 配置?
+### Q5: 如何复用规范生成流程配置?
 
 **A**:
 
@@ -337,12 +338,12 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 
 优先级: 模块级 > 项目级 > 默认配置
 
-### Q6: GenSpec 能否增量更新规范?
+### Q6: 规范生成流程能否增量更新规范?
 
-**A**: 当前 GenSpec 采用全量生成模式。增量更新建议流程:
+**A**: 当前规范生成流程采用全量生成模式。增量更新建议流程:
 
 1. 保存旧版本规范: `cp output/{DUT}_spec.md output/{DUT}_spec.md.backup`
-2. 重新运行 GenSpec 生成新规范
+2. 重新运行规范生成流程生成新规范
 3. 使用 `diff` 或 Copilot Chat 比较变更:
    ```bash
    diff output/{DUT}_spec.md.backup output/{DUT}_spec.md
