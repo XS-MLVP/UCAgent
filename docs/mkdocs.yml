@@ -67,7 +67,7 @@ nav:
       - 工具列表: content/03_develop/02_tool_list.md
       - 工作流: content/03_develop/03_workflow.md
   - 实践案例:
-      - GenSpec 规范生成: content/04_case/00_genspec.md
+      - 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md
       - 批处理执行: content/04_case/02_batchrun.md
 
