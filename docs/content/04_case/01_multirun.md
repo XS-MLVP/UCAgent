@@ -19,7 +19,39 @@ UCAgent 支持两种并发执行方式：
 
 ### 基本用法
 
-最简单的方式是在不同终端窗口中分别启动 UCAgent：
+#### 准备工作
+
+在运行 UCAgent 之前，需要先准备好 DUT 文件和工作目录。如果你克隆了 UCAgent 仓库，Makefile 会自动完成这些初始化工作（`init_Adder` 目标）：
+
+1. 创建 RTL 目录并复制设计文件（.v/.sv/.scala 等）
+2. 使用 picker 工具生成波形配置文件
+3. 复制相关文档和环境文件
+
+如果你是通过 pip 安装的 ucagent，需要手动准备工作目录：
+
+```bash
+# 创建工作目录
+mkdir -p output/Adder output/Adder_RTL
+
+# 复制你的 RTL 设计文件到 RTL 目录
+cp /path/to/your/Adder.v output/Adder_RTL/
+
+# （可选）如果有 filelist.txt
+cp /path/to/your/filelist.txt output/Adder_RTL/
+
+# 使用 picker 生成 DUT 配置（如果安装了 picker）
+picker export output/Adder_RTL/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+
+# 复制其他必要文件（README、环境脚本等）
+cp /path/to/your/*.py output/Adder/ 2>/dev/null || true
+```
+
+在不同工作区的 `config.yaml` 中配置好模型、API_KEY 和 API_BASE 之后，就可以启动 UCAgent 了。
+**注：`config.yaml` 文件可从 UCAgent 官方仓库根目录获取。**
+
+#### 多终端窗口方式
+
+准备好工作目录后，最简单的方式是在不同终端窗口中分别启动 UCAgent：
 
 ```bash
 # 终端窗口 1
@@ -31,38 +63,77 @@ cd workspace_B
 ucagent output/ Mux --config config.yaml -s -hm --tui -l
 ```
 
-### 使用不同 API Key
-
-如果需要使用不同的 API Key（例如避免速率限制或使用不同模型），可以通过环境变量进行配置：
-
-```bash
-# 终端窗口 1 - 使用第一个 API Key
-export OPENAI_API_KEY=sk-6ba91a522d9fx8dfc458b3a0c7074b66
-ucagent output/ Adder --config config.yaml -s -hm --tui -l
-
-# 终端窗口 2 - 使用第二个 API Key
-export OPENAI_API_KEY=sk-55h9aa522d9fx8dfc458b3a0c8074b34
-ucagent output/ Mux --config config.yaml -s -hm --tui -l
-```
-
 ### 使用 Tmux 管理多实例
 
-为了更方便地管理多个并发实例，推荐使用 tmux 工具。tmux 允许在单个终端中创建和管理多个会话窗口：
+为了更方便地管理多个并发实例，推荐使用 tmux 工具（ Debian / Ubuntu 可直接 apt 安装）。tmux 允许在单个终端中创建和管理多个会话窗口。
+
+#### 完整流程（包含初始化）
 
 ```bash
+# 进工作目录
+cd your_workspace
+
+# 配置环境变量（模型、API_KEY 和 API_BASE），下面是iflow的例子
+export OPENAI_MODEL=glm-4.6
+export OPENAI_API_KEY=<your_key>
+export OPENAI_API_BASE=https://apis.iflow.cn/v1
+
+# 清理旧输出
+rm -rf output
+
+# 初始化工作目录 A (Adder)
+mkdir -p output/A output/A_RTL
+cp /path/to/examples/Adder/*.v output/A_RTL/ 2>/dev/null
+cp /path/to/examples/Adder/*.sv output/A_RTL/ 2>/dev/null
+cp /path/to/examples/Adder/filelist.txt output/A_RTL/ 2>/dev/null
+# 导出python包
+picker export output/A_RTL/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/A/Adder.fst 2>/dev/null
+cp /path/to/examples/Adder/*.md output/A/ 2>/dev/null
+cp /path/to/examples/Adder/*.py output/A/ 2>/dev/null
+
+# 初始化工作目录 B (Mux)
+mkdir -p output/B output/B_RTL
+cp /path/to/examples/Mux/*.v output/B_RTL/ 2>/dev/null
+cp /path/to/examples/Mux/*.sv output/B_RTL/ 2>/dev/null
+cp /path/to/examples/Mux/filelist.txt output/B_RTL/ 2>/dev/null
+picker export output/B_RTL/Mux.v --rw 1 --sname Mux --tdir output/ -c -w output/B/Mux.fst 2>/dev/null
+cp /path/to/examples/Mux/*.md output/B/ 2>/dev/null
+cp /path/to/examples/Mux/*.py output/B/ 2>/dev/null
+
+# 杀掉可能存在的旧会话
+tmux kill-session -t my_multi_api_session 2>/dev/null
+
 # 创建新的 tmux 会话
-tmux new-session -d -s my_multirun
+tmux new-session -d -s my_multi_api_session
 
-# 在第一个窗格启动 Adder 验证
-tmux send-keys -t my_multirun:0.0 "cd workspace_A && ucagent output/ Adder -s -hm --tui -l" C-m
+# 在第一个窗格启动 Adder 验证（如果使用了虚拟环境，需要在tmux窗口里手动激活）
+tmux send-keys -t my_multi_api_session:0.0 "ucagent output/A/ Adder --config config.yaml -s -hm --tui -l --no-embed-tools" C-m
 
-# 分割窗口并在第二个窗格启动 Mux 验证
-tmux split-window -h -t my_multirun:0.0
-tmux send-keys -t my_multirun:0.1 "cd workspace_B && ucagent output/ Mux -s -hm --tui -l" C-m
+# 水平分割窗口
+tmux split-window -h -t my_multi_api_session:0.0
+
+# 在第二个窗格启动 Mux 验证（延迟 10 秒避免同时启动冲突，如果使用了虚拟环境，需要在tmux窗口里手动激活）
+tmux send-keys -t my_multi_api_session:0.1 "sleep 10 && ucagent output/B/ Mux --config config.yaml -s -hm --tui -l --no-embed-tools" C-m
 
 # 附加到 tmux 会话查看
-tmux attach-session -t my_multirun
+tmux attach-session -t my_multi_api_session
 ```
+
+!!! info "关于 Makefile 自动化"
+如果你克隆了 UCAgent 仓库，`Makefile` 中的 `test_Adder` 目标会自动完成上述初始化步骤（通过 `init_Adder` 依赖）：
+
+- 创建 `output/Adder_RTL` 目录并复制 RTL 文件
+- 使用 picker 生成波形配置文件
+- 复制相关文档和环境文件
+
+在 `examples/MultiRun/Makefile` 中提供了完整的自动化实现：
+
+```bash
+cd examples/MultiRun
+make api_mul  # 自动初始化并启动 tmux 多实例
+```
+
+等效于手动执行：`make test_Adder ARGS='--no-embed-tools' CWD=output/A`
 
 tmux 常用快捷键：
 
@@ -71,33 +142,6 @@ tmux 常用快捷键：
 - `Ctrl+b 方向键`：在窗格间切换
 - `Ctrl+b d`：分离会话（后台运行）
 - `Ctrl+b x`：关闭当前窗格
-
-### Makefile 批量执行示例
-
-在 `examples/MultiRun/Makefile` 中提供了 API 模式的批量执行示例：
-
-```makefile
-api_mul: clean
-	tmux kill-session -t my_multi_api_session || true
-	tmux new-session -d -s my_multi_api_session
-	tmux send-keys -t my_multi_api_session:0.0 ". IFLOW_env.bash;make -C ../../ test_Adder ARGS='--no-embed-tools' CWD=output/A" C-m
-	tmux split-window -h -t my_multi_api_session:0.0
-	tmux send-keys -t my_multi_api_session:0.1 "sleep 10; . IFLOW_env.bash;make -C ../../ test_Mux ARGS='--no-embed-tools' CWD=output/B" C-m
-	tmux attach-session -t my_multi_api_session
-```
-
-使用方法：
-
-```bash
-# 进入 examples/MultiRun 目录
-cd examples/MultiRun
-
-# 配置环境变量（编辑 IFLOW_env.bash）
-vim IFLOW_env.bash
-
-# 执行并发验证
-make api_mul
-```
 
 ## MCP 模式并发
 
@@ -341,69 +385,6 @@ qwen
 
 参考：[VS Code MCP 扩展配置](https://marketplace.visualstudio.com/items?itemName=modelcontextprotocol.mcp)
 
-## 最佳实践
-
-### 1. 资源规划
-
-- **CPU 核心数**：建议每个 UCAgent 实例分配 1-2 个 CPU 核心
-- **内存使用**：每个实例建议预留 2-4GB 内存（取决于 DUT 复杂度）
-- **并发数量**：根据机器配置合理设置，避免资源耗尽导致所有任务变慢
-
-示例：8 核 16GB 内存的机器，建议同时运行 3-4 个 UCAgent 实例。
-
-### 2. 日志管理
-
-为每个实例配置独立的日志目录：
-
-```bash
-# 使用工作目录作为日志前缀
-ucagent output/Adder_5001/ Adder --tui \
-  --mcp-server-port 5001 \
-  --log-dir output/Adder_5001/logs
-```
-
-### 3. 错误处理
-
-在批量执行时，建议添加错误处理逻辑：
-
-```bash
-# 捕获 UCAgent 退出状态
-if ! ucagent output/Adder/ Adder -s -l --exit-on-completion; then
-    echo "Adder 验证失败" | tee -a failure.log
-fi
-```
-
-### 4. 使用批处理模式
-
-结合 `--exit-on-completion` 参数实现无人值守批处理：
-
-```bash
-ucagent output/Adder/ Adder \
-  -s -l \
-  --exit-on-completion \
-  --no-embed-tools
-```
-
-更多批处理使用方式请参考 [批处理执行文档](./02_batchrun.md)。
-
-### 5. 监控与告警
-
-使用脚本监控各实例状态：
-
-```bash
-#!/bin/bash
-# monitor_ucagent.sh
-
-while true; do
-    for port in 5001 5002 5003; do
-        if ! curl -s http://localhost:$port/health > /dev/null; then
-            echo "$(date): Port $port UCAgent 无响应" | tee -a monitor.log
-        fi
-    done
-    sleep 60
-done
-```
-
 ## 故障排查
 
 ### 端口被占用
@@ -469,66 +450,9 @@ kill -9 <PID>
 3. 为系统配置 swap 空间
 4. 使用 `ulimit` 限制单个进程内存使用
 
-## 进阶应用
-
-### 分布式多节点并发
-
-在多台机器上分别运行 UCAgent 实例：
-
-```bash
-# 节点 1 (192.168.1.10)
-ucagent output/DUT1/ DUT1 -s -hm --tui --mcp-server-port 5001
-
-# 节点 2 (192.168.1.11)
-ucagent output/DUT2/ DUT2 -s -hm --tui --mcp-server-port 5001
-
-# 节点 3 (192.168.1.12)
-ucagent output/DUT3/ DUT3 -s -hm --tui --mcp-server-port 5001
-```
-
-在控制节点配置 Code Agent 连接到不同节点：
-
-```json
-{
-	"mcpServers": {
-		"dut1": {
-			"httpUrl": "http://192.168.1.10:5001/mcp",
-			"timeout": 10000
-		},
-		"dut2": {
-			"httpUrl": "http://192.168.1.11:5001/mcp",
-			"timeout": 10000
-		},
-		"dut3": {
-			"httpUrl": "http://192.168.1.12:5001/mcp",
-			"timeout": 10000
-		}
-	}
-}
-```
-
 ## 相关文档
 
 - [API 直接使用模式](../02_usage/01_direct.md)
-- [MCP 集成模式](../02_usage//00_mcp.md)
-- [批处理执行](./02_batchrun.md)
+- [MCP 集成模式](../02_usage/00_mcp.md)
+- [批处理执行](../04_case/02_batchrun.md)
 - [TUI 使用指南](../02_usage/04_tui.md)
-
-## 示例代码
-
-完整的示例代码和 Makefile 位于：
-
-- `examples/MultiRun/Makefile`：包含 API 和 MCP 两种模式的完整实现
-- `examples/MultiRun/IFLOW_env.bash`：环境变量配置模板
-- `examples/MultiRun/README.md`：简要说明文档
-
-## 总结
-
-UCAgent 的多实例并发执行能力为大规模验证工作提供了有力支持：
-
-- **API 模式**：简单直接，适合独立工作区的并发任务
-- **MCP 模式**：灵活强大，适合与 Code Agent 深度集成的场景
-- **工具支持**：tmux/Makefile 等工具简化了多实例管理
-- **可扩展性**：支持单机多实例和多节点分布式部署
-
-合理使用并发执行功能，可以显著提升验证效率，缩短项目周期。

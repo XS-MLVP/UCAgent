@@ -16,7 +16,7 @@ UCAgent 是一个基于大语言模型的自动化硬件验证 AI 代理，专�
 - 支持 MCP 协议与主流 Code Agent（OpenHands、Copilot、Claude Code、Gemini-CLI、Qwen-Code 等）深度协同
 - 提供三种智能交互模式（standard、enhanced、advanced）
 
-更多详细介绍请参考 [UCAgent 在线文档](https://ucagent.open-verify.cc)
+更多**详细介绍请参考 [UCAgent 在线文档](https://ucagent.open-verify.cc)**
 
 ---
 
@@ -51,6 +51,7 @@ pip3 install -r requirements.txt
 
 ```bash
 make init_Adder
+# picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
 ```
 
 ### 4. 启动 MCP-Server
@@ -59,6 +60,7 @@ make init_Adder
 
 ```bash
 make mcp_Adder  # workspace 设置为当前目录下的 output
+# ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools 
 ```
 
 ### 5. 安装配置 Qwen Code CLI
@@ -98,7 +100,7 @@ qwen
 - 请根据任务需要编写验证 Prompt
 - 当 Code Agent 中途停止时，可输入 `继续，请通过工具Check和Complete判断是否完成所有任务`
 
-> 💡 **更多使用方式：** 除了 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/usage/)
+> 💡 **更多使用方式：** 除了 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
 ---
 
@@ -110,8 +112,8 @@ qwen
 - `shift + 上/下`：调节状态面板高度
 - `shift + 右`：清空控制台
 - `shift + 左`：清空输入
-- `alt + 上/下`：滚动Message界面内容
-- `alt + 左/右`：滚动Console界面内容
+- `alt + 上/下`：滚动 Message 界面内容
+- `alt + 左/右`：滚动 Console 界面内容
 - `esc`: 强制刷新界面/退出滚动
 
 ### 阶段颜色提示
@@ -131,7 +133,7 @@ qwen
 - `help`：查看所有命令帮助
 - `loop [prompt]`：继续当前任务
 
-> 📖 **详细操作说明：** 查看 [TUI 使用文档](https://ucagent.open-verify.cc/usage/tui/)
+> 📖 **详细操作说明：** 查看 [TUI 使用文档](https://ucagent.open-verify.cc/content/02_usage/04_tui/)
 
 ---
 
@@ -139,7 +141,7 @@ qwen
 
 **Q: 如何配置不同的 AI 模型？**
 
-A: 在 `config.yaml` 中修改 `openai.model_name` 字段，支持任何 OpenAI 兼容的 API。详见[配置文档](https://ucagent.open-verify.cc/usage/direct/)。
+A: 在 `config.yaml` 中修改 `openai.model_name` 字段，支持任何 OpenAI 兼容的 API。详见[配置文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)。
 
 **Q: 验证过程中出现错误怎么办？**
 
@@ -159,13 +161,13 @@ A: 请参考 CodeAgent 的无头模式以及脚本 `tests/test_nohead_loop.bash`
 
 **Q: 可以自定义验证阶段吗？**
 
-A: 可以，详见[自定义文档](https://ucagent.open-verify.cc/develop/customize/)。
+A: 可以，详见[自定义文档](https://ucagent.open-verify.cc/content/03_develop/01_customize/)。
 
 **Q: 如何添加自定义工具？**
 
-A: 在 `ucagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。详见[工具列表文档](https://ucagent.open-verify.cc/develop/tool_list/)。
+A: 在 `ucagent/tools/` 目录下创建新的工具类，继承 `UCTool` 基类，并通过 `--ex-tools` 参数加载。详见[工具列表文档](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/)。
 
-> 🔍 **更多问题：** 查看完整 [FAQ 文档](https://ucagent.open-verify.cc/usage/faq/)
+> 🔍 **更多问题：** 查看完整 [FAQ 文档](https://ucagent.open-verify.cc/content/02_usage/05_faq/)
 
 ---
 
@@ -276,9 +278,9 @@ make pdf-clean
 ## 获取更多帮助
 
 - 📚 [UCAgent 在线文档](https://ucagent.open-verify.cc)
-- 🚀 [快速开始指南](https://ucagent.open-verify.cc/usage/)
-- 🔧 [自定义配置](https://ucagent.open-verify.cc/develop/customize/)
-- 🛠️ [工具列表](https://ucagent.open-verify.cc/develop/tool_list/)
+- 🚀 [快速开始指南](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
+- 🔧 [自定义配置](https://ucagent.open-verify.cc/content/03_develop/01_customize/)
+- 🛠️ [工具列表](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/)
 - 💬 [GitHub Issues](https://github.com/XS-MLVP/UCAgent/issues)
 
 ### 贡献指南

@@ -2,7 +2,7 @@
 
 AI-powered automated UT verification agent based on large language models
 
-[中文介绍](/README.zh.md) | [UCAgent Online Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/)
+[中文介绍](/README.zh.md) | [UCAgent Online Documentation](https://ucagent.open-verify.cc/)
 
 ## Introduction
 
@@ -16,7 +16,7 @@ UCAgent is an automated hardware verification AI agent based on large language m
 - Deep collaboration with mainstream Code Agents (OpenHands, Copilot, Claude Code, Gemini-CLI, Qwen-Code, etc.) via MCP protocol
 - Three intelligent interaction modes (standard, enhanced, advanced)
 
-For more details, please refer to [UCAgent Online Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/)
+**For more details, please refer to [UCAgent Online Documentation](https://ucagent.open-verify.cc/)**
 
 ---
 
@@ -51,6 +51,7 @@ Example: Compile the Adder in examples (requires [picker](https://github.com/XS-
 
 ```bash
 make init_Adder
+# picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
 ```
 
 ### 4. Start MCP-Server
@@ -59,6 +60,7 @@ Default address: http://127.0.0.1:5000
 
 ```bash
 make mcp_Adder  # workspace is set to output directory
+# ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
 ### 5. Install and Configure Qwen Code CLI
@@ -98,7 +100,7 @@ qwen
 - Write verification prompts according to task requirements
 - When Code Agent stops midway, you can input: `Continue, please use tools Check and Complete to determine if all tasks are finished`
 
-> 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/usage/)
+> 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
 ---
 
@@ -131,7 +133,7 @@ qwen
 - `help`: View all command help
 - `loop [prompt]`: Continue current task
 
-> 📖 **Detailed Operations:** See [TUI Usage Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/usage/tui/)
+> 📖 **Detailed Operations:** See [TUI Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/04_tui/)
 
 ---
 
@@ -139,7 +141,7 @@ qwen
 
 **Q: How to configure different AI models?**
 
-A: Modify the `openai.model_name` field in `config.yaml`, which supports any OpenAI-compatible API. See [Configuration Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/usage/direct/).
+A: Modify the `openai.model_name` field in `config.yaml`, which supports any OpenAI-compatible API. See [Configuration Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/).
 
 **Q: What to do when errors occur during verification?**
 
@@ -159,13 +161,13 @@ A: Please refer to CodeAgent's headless mode and the script `tests/test_nohead_l
 
 **Q: Can verification stages be customized?**
 
-A: Yes, see [Customization Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/customize/).
+A: Yes, see [Customization Documentation](https://ucagent.open-verify.cc/content/03_develop/01_customize/).
 
 **Q: How to add custom tools?**
 
-A: Create a new tool class in the `ucagent/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/tool_list/).
+A: Create a new tool class in the `ucagent/tools/` directory, inherit from the `UCTool` base class, and load it with the `--ex-tools` parameter. See [Tool List Documentation](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/).
 
-> 🔍 **More Questions:** Check the complete [FAQ Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/usage/faq/)
+> 🔍 **More Questions:** Check the complete [FAQ Documentation](https://ucagent.open-verify.cc/content/02_usage/05_faq/)
 
 ---
 
@@ -275,10 +277,10 @@ Output: `ucagent-doc.pdf` can be distributed with version releases.
 
 ## Get More Help
 
-- 📚 [UCAgent Online Documentation](https://open-verify.cc/mlvp/en/docs/ucagent/)
-- 🚀 [Quick Start Guide](https://open-verify.cc/mlvp/en/docs/ucagent/usage/)
-- 🔧 [Custom Configuration](https://open-verify.cc/mlvp/en/docs/ucagent/customize/)
-- 🛠️ [Tool List](https://open-verify.cc/mlvp/en/docs/ucagent/tool_list/)
+- 📚 [UCAgent Online Documentation](https://ucagent.open-verify.cc)
+- 🚀 [Quick Start Guide](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
+- 🔧 [Custom Configuration](https://ucagent.open-verify.cc/content/03_develop/01_customize/)
+- 🛠️ [Tool List](https://ucagent.open-verify.cc/content/03_develop/02_tool_list/)
 - 💬 [GitHub Issues](https://github.com/XS-MLVP/UCAgent/issues)
 
 ### Contributing

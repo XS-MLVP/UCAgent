@@ -50,8 +50,11 @@ theme:
 # 顶部导航（默认语言：中文）。英文会通过 i18n 的 nav_translations 自动映射
 nav:
   - 首页: content/00_index.md
-  - 工具介绍: content/01_introduce.md
-  - 功能使用:
+  - 开始使用:
+      - 工具介绍: content/01_start/00_introduce.md
+      - 工具安装: content/01_start/01_installation.md
+      - 快速入门: content/01_start/02_quickstart.md
+  - 功能介绍:
       - MCP 集成: content/02_usage/00_mcp.md
       - 直接使用: content/02_usage/01_direct.md
       - 人机协同验证: content/02_usage/02_assit.md
@@ -59,9 +62,10 @@ nav:
       - TUI: content/02_usage/04_tui.md
       - FAQ: content/02_usage/05_faq.md
   - 定制开发:
-      - 工作流: content/03_develop/00_workflow.md
+      - 模板文件: content/03_develop/00_template.md
       - 定制功能: content/03_develop/01_customize.md
       - 工具列表: content/03_develop/02_tool_list.md
+      - 工作流: content/03_develop/03_workflow.md
   - 实践案例:
       - GenSpec 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md
@@ -73,6 +77,7 @@ nav:
 # - git-revision-date-localized: 在页脚展示 Git 最后修改时间（pip: mkdocs-git-revision-date-localized-plugin）
 # - glightbox: 图片灯箱（pip: mkdocs-glightbox）
 # - minify: HTML 压缩（pip: mkdocs-minify-plugin）
+# - redirects: 页面重定向（pip: mkdocs-redirects）
 plugins:
   - search
   - mermaid2
@@ -83,6 +88,9 @@ plugins:
   - glightbox
   - minify:
       minify_html: true
+  - redirects:
+      redirect_maps:
+        "index.md": "content/00_index.md"
 
 # Markdown 扩展（pymdown 系列增强）
 markdown_extensions:
@@ -90,6 +98,7 @@ markdown_extensions:
   - admonition # 提示块（!!! note / warning / danger 等）
   - toc: # 目录生成
       permalink: true # 为标题添加永久链接锚点
+      slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
   - attr_list # 属性列表，可为元素添加 CSS 类和属性 {.class #id}
   - def_list # 定义列表（术语：定义）
   - footnotes # 脚注支持 [^1]

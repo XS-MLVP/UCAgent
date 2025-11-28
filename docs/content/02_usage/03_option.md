@@ -26,7 +26,7 @@ ucagent <workspace> <dut_name> {参数与选项}
   - workspace/unity_test/tests： 自动生成的测试用例
   - workspace/\*.md： 生成的各类文档，包括 Bug 分析、检查点记录、验证计划、验证结论等
 
-> 对输出的详细解释可以参考[快速开始的结果分析](../01_introduce.md#详细输出)
+> 对输出的详细解释可以参考[快速开始的结果分析](../01_start/02_quickstart.md/#结果分析)
 
 ### 位置参数
 
