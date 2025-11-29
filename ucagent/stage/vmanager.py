@@ -335,7 +335,7 @@ class StageManager(object):
 
     def get_current_tips(self):
         if self.stage_index >= len(self.stages):
-            return "Your mission is completed. No more stages available. Or you can use `GoToStage` tool to go to a specific stage."
+            return "Your mission is completed. No more stages available. You can use `Exit` tool to exit the mission or `GoToStage` tool to go to a specific stage to review."
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
         tips["mission"] = self.mission.name
