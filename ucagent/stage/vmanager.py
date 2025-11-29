@@ -125,6 +125,8 @@ class ToolRunTestCases(ManagerTool):
     def _run(self, target="", timeout=0, return_line_coverage=False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(target, timeout, return_line_coverage)
         except Exception as e:
             traceback.print_exc()
