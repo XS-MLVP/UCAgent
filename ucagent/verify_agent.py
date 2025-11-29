@@ -356,6 +356,7 @@ class VerifyAgent:
         template_context = {"DUT": self.dut_name,
                             "Version": __version__,
                             "Email": __email__,
+                            "CWD": self.workspace,
                             }
         if self.template is not None:
             tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))

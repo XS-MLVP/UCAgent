@@ -261,6 +261,7 @@ class RunUnityChipTest(RunPyTest):
             "report-dump-json": True,
             "report-name": "index.html",
         })
+        self.result_dir = report_dir
         if workspace is None:
             return
         self.set_workspace(workspace)
