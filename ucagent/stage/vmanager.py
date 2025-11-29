@@ -104,7 +104,7 @@ class ArgCheck(BaseModel):
     )
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
     )
     return_line_coverage: bool = Field(
         default=False,
@@ -136,7 +136,7 @@ class ToolRunTestCases(ManagerTool):
 class ArgTimeout(BaseModel):
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
     )
 
 

@@ -260,6 +260,49 @@ class VerifyPDB(Pdb):
             return [tool.name for tool in self.agent.test_tools]
         return [tool.name for tool in self.agent.test_tools if tool.name.startswith(text.strip())]
 
+    def do_tool_timeout_list(self, arg):
+        """
+        Display tool timeout info.
+        """
+        echo_g("Tool Timeouts:")
+        max_name_len = max(len(tool.name) for tool in self.agent.test_tools)
+        for tool_name, timeout in self.agent.list_tool_call_time_out().items():
+            echo(f"{tool_name:<{max_name_len}}: {timeout:<4} seconds")
+
+    def do_tool_timeout_set(self, arg):
+        """
+        Set tool timeout.
+        Usage: tool_timeout_set <tool_name> <timeout_in_seconds>
+        """
+        args = arg.strip().split()
+        if len(args) != 2:
+            echo("Usage: tool_timeout_set <tool_name> <timeout_in_seconds>")
+            return
+        tool_name = args[0]
+        try:
+            timeout = int(args[1])
+        except ValueError:
+            echo_r(f"Invalid timeout value: {args[1]}. It must be an integer.")
+            return
+        if tool_name == "*":
+            self.agent.set_tool_call_time_out(timeout)
+            echo_g(f"Set timeout for all tools to {timeout} seconds.")
+            return
+        tool = [tool for tool in self.agent.test_tools if tool.name == tool_name]
+        if not tool:
+            echo_y(f"Tool '{tool_name}' not found.")
+            return
+        self.agent.set_one_tool_call_time_out(tool_name, timeout)
+        echo_g(f"Set timeout for tool '{tool_name}' to {timeout} seconds.")
+
+    def complete_tool_timeout_set(self, text, line, begidx, endidx):
+        """
+        Auto-complete the tool_timeout_set command.
+        """
+        if not text:
+            return [tool.name for tool in self.agent.test_tools] + ["*"]
+        return [tool.name for tool in self.agent.test_tools if tool.name.startswith(text.strip())]
+
     def do_tool_invoke(self, arg):
         """
         Invoke a tool with the specified arguments.

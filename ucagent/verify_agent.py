@@ -253,6 +253,7 @@ class VerifyAgent:
             pre_model_hook=message_manage_node,
             state_schema=State,
         )
+        self.set_tool_call_time_out(self.cfg.get_value("call_time_out", 300))
         self.message_echo_handler = None
         self.update_handler = None
         self._time_start = time.time()
@@ -782,6 +783,40 @@ class VerifyAgent:
                     self.check_tool_call_error(msg)
                     continue
                 self.message_echo("\n"+msg.pretty_repr())
+
+    def set_tool_call_time_out(self, time_out: int):
+        """Set the tool call timeout in seconds."""
+        if not isinstance(time_out, int) or time_out <= 0:
+            raise ValueError("Tool call timeout must be a positive integer")
+        for tool in self.test_tools:
+            if hasattr(tool, "set_call_time_out"):
+                tool.set_call_time_out(time_out)
+            else:
+                warning(f"Tool {tool.name} does not support setting call timeout")
+        info(f"Tool call timeout set to {time_out} seconds")
+
+    def set_one_tool_call_time_out(self, tool_name: str, time_out: int):
+        """Set the tool call timeout for a specific tool in seconds."""
+        if not isinstance(time_out, int) or time_out <= 0:
+            raise ValueError("Tool call timeout must be a positive integer")
+        tool = next((tool for tool in self.test_tools if tool.name == tool_name), None)
+        if tool is None:
+            raise ValueError(f"Tool {tool_name} not found")
+        if hasattr(tool, "set_call_time_out"):
+            tool.set_call_time_out(time_out)
+            info(f"Tool {tool_name} call timeout set to {time_out} seconds")
+        else:
+            raise ValueError(f"Tool {tool_name} does not support setting call timeout")
+
+    def list_tool_call_time_out(self):
+        """List the tool call timeouts for all tools."""
+        timeouts = OrderedDict()
+        for tool in self.test_tools:
+            if hasattr(tool, "get_call_time_out"):
+                timeouts[tool.name] = tool.get_call_time_out()
+            else:
+                timeouts[tool.name] = None
+        return timeouts
 
     def check_tool_call_error(self, msg):
         if not isinstance(msg, AIMessage):
