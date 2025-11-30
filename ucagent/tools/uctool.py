@@ -35,6 +35,10 @@ class UCTool(BaseTool):
         default=None,
         description="A callback function to be executed before each call to the tool."
     )
+    lock_time_out: int = Field(
+        default=20,
+        description="Maximum time in seconds to wait for acquiring the lock."
+    )
     call_time_out: int = Field(
         default=20,
         description="Maximum time in seconds to allow the tool to run."
@@ -87,6 +91,7 @@ class UCTool(BaseTool):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.call_time_out = kwargs.get("call_time_out", 20)
+        self.lock_time_out = kwargs.get("lock_time_out", 20)
         self.stream_queue = CircularOverwriteQueue(kwargs.get("stream_queue_size", 1024))
         self.stream_queue_buffer = CircularOverwriteQueue(kwargs.get("stream_queue_size", 1024))
         self.is_in_streaming = False
@@ -195,7 +200,7 @@ class UCTool(BaseTool):
 
     async def ainvoke(self, input, config = None, **kwargs):
         try:
-            await asyncio.wait_for(self.async_lock.acquire(), timeout=self.call_time_out)
+            await asyncio.wait_for(self.async_lock.acquire(), timeout=self.lock_time_out)
         except asyncio.TimeoutError:
             error_msg = {"error": f"Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."}
             fc.warning(str(error_msg))
@@ -229,9 +234,11 @@ class UCTool(BaseTool):
                 self.last_call_time = time.time()
         fc.info(f"call {self.__class__.__name__} in Stream-MPC mode")
         timeout = input.get("timeout", None)
-        if timeout is not None:
-            timeout = int(timeout) + self.call_time_out
-            fc.info(f"force set tool ({self.__class__.__name__}) timeout to {timeout} (timeout + call_time_out) seconds")
+        if timeout is None or timeout <= 0:
+            fc.info(f"no timeout ({timeout}) set in input, use tool default call_time_out: {self.call_time_out} seconds")
+            timeout = self.call_time_out
+        fc.info(f"set tool ({self.__class__.__name__}) timeout to {timeout + self.lock_time_out} (timeout:{timeout} + lock_time_out:{self.lock_time_out}) seconds")
+        timeout = timeout + self.lock_time_out
         if self.is_in_streaming:
             error_msg = {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
             fc.info(str(error_msg))
@@ -243,7 +250,7 @@ class UCTool(BaseTool):
         self.is_in_streaming = True
         self.last_call_time = time.time()
         self.reset_force_exit()
-        alive_thread = threading.Thread(target=self.__alive_loop, args=(self.call_time_out if not timeout else timeout, ctx), daemon=True)
+        alive_thread = threading.Thread(target=self.__alive_loop, args=(timeout, ctx), daemon=True)
         alive_thread.start()
         try:
             data = await super().ainvoke(input, config, **kwargs)
