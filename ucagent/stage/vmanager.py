@@ -163,6 +163,8 @@ class ToolDoCheck(ManagerTool):
             str: Comprehensive validation report in JSON format
         """
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(timeout)
         except Exception as e:
             traceback.print_exc()
@@ -187,6 +189,8 @@ class ToolDoComplete(ManagerTool):
 
     def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(timeout)
         except Exception as e:
             traceback.print_exc()
