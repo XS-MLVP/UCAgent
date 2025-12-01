@@ -8,6 +8,7 @@ from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, re
 from .util.functions import dump_as_json, get_ai_message_tool_call, yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
 from .util.models import get_chat_model
+from .util.test_tools import ucagent_lib_path
 
 import ucagent.tools
 from .message import UCMessagesNode, SummarizationAndFixToolCall, State
@@ -357,6 +358,7 @@ class VerifyAgent:
                             "Version": __version__,
                             "Email": __email__,
                             "CWD": self.workspace,
+                            "UC_LIB_PATH": ucagent_lib_path(),
                             }
         if self.template is not None:
             tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
