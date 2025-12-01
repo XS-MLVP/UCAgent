@@ -244,7 +244,6 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         doc_file: The documentation file to check against.
         bug_file: The bug analysis file to check against.
         target_ck_prefix: The target check point prefix to filter checks.
-        need_check_bug_analysis: Whether to check bug analysis.
         check_tc_in_doc: Whether to check test cases in documentation.
         check_doc_in_tc: Whether to check documentation in test cases.
         post_checker: An optional post-checker function.
@@ -300,8 +299,8 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_point_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
-            return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
-                           "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
+            return False, f"Test case validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
+                           "in the test cases. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                             fc.description_mark_function_doc() + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
                            "Review your task requirements and complete the check point markings. ", -1
