@@ -104,7 +104,7 @@ class ArgCheck(BaseModel):
     )
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
     )
     return_line_coverage: bool = Field(
         default=False,
@@ -125,6 +125,8 @@ class ToolRunTestCases(ManagerTool):
     def _run(self, target="", timeout=0, return_line_coverage=False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(target, timeout, return_line_coverage)
         except Exception as e:
             traceback.print_exc()
@@ -136,7 +138,7 @@ class ToolRunTestCases(ManagerTool):
 class ArgTimeout(BaseModel):
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.timeout."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
     )
 
 
@@ -161,6 +163,8 @@ class ToolDoCheck(ManagerTool):
             str: Comprehensive validation report in JSON format
         """
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(timeout)
         except Exception as e:
             traceback.print_exc()
@@ -185,6 +189,8 @@ class ToolDoComplete(ManagerTool):
 
     def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            if timeout <= 0:
+                timeout = self.get_call_time_out()
             return self.function(timeout)
         except Exception as e:
             traceback.print_exc()
@@ -333,7 +339,7 @@ class StageManager(object):
 
     def get_current_tips(self):
         if self.stage_index >= len(self.stages):
-            return "Your mission is completed. No more stages available. Or you can use `GoToStage` tool to go to a specific stage."
+            return "Your mission is completed. No more stages available. You can use `Exit` tool to exit the mission or `GoToStage` tool to go to a specific stage to review."
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
         tips["mission"] = self.mission.name

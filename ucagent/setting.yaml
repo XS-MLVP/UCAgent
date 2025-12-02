@@ -66,6 +66,9 @@ tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
 
+# Tool call timeout
+call_time_out: 300  # seconds
+
 # TUI layout settings
 tui:
   task_width: 84
