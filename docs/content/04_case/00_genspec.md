@@ -204,38 +204,38 @@ GenSpec 支持通过 MCP 协议与外部 Code Agent 协作:
 
 1. **配置 MCP Client** (以 Qwen Code 为例)
 
-```json
-{
-	"mcpServers": {
-		"genspec": {
-			"httpUrl": "http://localhost:5000/mcp",
-			"timeout": 10000
-		}
-	}
-}
-```
+  ```json
+  {
+	  "mcpServers": {
+		  "genspec": {
+			  "httpUrl": "http://localhost:5000/mcp",
+			  "timeout": 10000
+		  }
+	  }
+  }
+  ```
 
-2. **启动 GenSpec Server**
+2. **启动 MCP Server**
 
-```bash
-ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
-```
+  ```bash
+  ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
+  ```
 
 3. **在 MCP Client 中启动协作**
 
-在`output`文件夹启动code agent，然后输入提示词：
+  在`output`文件夹启动code agent，然后输入提示词：
 
-```
-> 请通过工具 RoleInfo 获取你的角色信息和基本指导,然后完成任务。使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作,不要超出该目录。
-```
+  ```
+  > 请通过工具 RoleInfo 获取你的角色信息和基本指导,然后完成任务。使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作,不要超出该目录。
+  ```
 
 4. **流程监控**
 
-在 UCAgent TUI 界面中可以实时查看:
+  在 UCAgent TUI 界面中可以实时查看:
 
-- 当前执行阶段
-- 工具调用情况
-- 文档生成进度
+  - 当前执行阶段
+  - 工具调用情况
+  - 文档生成进度
 
 
 ## 高级用法
