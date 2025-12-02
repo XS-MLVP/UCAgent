@@ -14,7 +14,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
 
     This checker verifies the presence and correctness of random test cases
     in Unity test files. It performs the following checks:
-    1. Ensures test files match the pattern 'test_random_*.py'.
+    1. Ensures test files match the pattern 'test_{DUT}_random*.py'.
     2. Ensures test functions match the pattern 'test_random_<name>'.
     3. Checks that the first argument of test functions is 'env'.
     4. Verifies the use of 'ucagent.repeat_count' for setting repeat counts.
@@ -22,14 +22,14 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
     6. Runs the random test cases and checks the test report.
 
     Attributes:
-        target_file (str): Pattern to match target test files.
+        target_test_file (str): Pattern to match target test files.
         mini_file_count (int): Minimum number of test files required.
         min_test_count (int): Minimum number of test cases required.
         test_case_name_pattern (str): Pattern to match test case function names.
         must_func_code_snippet (dict): Required code snippets in test functions.
     """
 
-    def __init__(self, target_file, mini_file_count=1, min_test_count=1,
+    def __init__(self, target_test_file, mini_file_count=1, min_test_count=1,
                  test_case_name_pattern="test_random_*",
                  must_func_code_snippet={"ucagent.repeat_count": "you must use this function to set the repeat count for random test cases.",
                                          ".mark_function": "you must use this function to mark the function coverage and check points."
@@ -37,17 +37,18 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                  **kw):
         kw["min_tests"] = min_test_count
         super().__init__(**kw)
-        self.target_file = target_file
+        self.target_test_file = target_test_file
         self.mini_file_count = mini_file_count
         self.min_test_count = min_test_count
         self.test_case_name_pattern = test_case_name_pattern
         self.must_func_code_snippet = must_func_code_snippet
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        test_files = fc.find_files_by_pattern(self.workspace, self.target_file)
+        """Check random test cases"""
+        test_files = fc.find_files_by_pattern(self.workspace, self.target_test_file)
         if len(test_files) < self.mini_file_count:
             return False, f"Random test cases check fail: found {len(test_files)} test files, " \
-                          f"expected at least {self.mini_file_count} files."
+                          f"expected at least {self.mini_file_count} files with pattern: {self.target_test_file}."
         total_test_count = 0
         for tfile in test_files:
             random_tc_list = fc.get_target_from_file(self.get_path(tfile), self.test_case_name_pattern,
@@ -57,7 +58,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
             for tfunc in random_tc_list:
                 args = fc.get_func_arg_list(tfunc)
                 if len(args) < 1 or args[0] != "env":
-                    return False, {"error": f"The '{tfile + ":" + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
+                    return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
                 func_source = inspect.getsource(tfunc)
                 for mc, v in self.must_func_code_snippet.items():
                     if mc not in func_source:
@@ -66,8 +67,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         if total_test_count < self.min_test_count:
             return False, f"Random test cases check fail: found {total_test_count} test cases, " \
                           f"expected at least {self.min_test_count} cases."
-        # run test cases
-        pytest_args = " ".join(test_files)
+        # Run test cases
+        pytest_args = " ".join([str(f).split("/")[-1] for f in test_files])
         report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:

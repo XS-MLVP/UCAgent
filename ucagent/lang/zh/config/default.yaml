@@ -530,6 +530,9 @@ stage:
       - "  - 确保每个功能点<FC-*>至少有一个测试用例"
       - "  - 测试用例应当具有针对性，不要冗余，不要一个测试用例关联过多功能点、测试点"
       - "  - 如果测试用例和多个功能点关联，需要多次调用mark_function()"
+      - "  - 按需要，测试用例文件可以有多个，请确保文件名和测试函数名有意义"
+      - "    - 好的测试用例文件名示例：test_{DUT}_arithmetic.py, test_{DUT}_stack_operations.py"
+      - "    - 差的测试用例文件名示例：test_{DUT}_part1.py, test_{DUT}_misc.py, test_{DUT}_template1.py"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
@@ -644,6 +647,37 @@ stage:
     reference_files:
           - "Guide_Doc/dut_line_coverage.md"
     skip: true # default skip this stage, can be enabled if needed
+
+  - name: generate_random_test_cases
+    desc: "随机测试用例生成"
+    task:
+      - "目标：针对{DUT}中需要进行随机测试的功能点，编写随机测试用例"
+      - "第1步：根据{OUT}/{DUT}_functions_and_checks.md确定哪些功能点需要进行随机测试"
+      - "第2步：写入随机测试用例到文件{OUT}/tests/test_{DUT}_random_<name>.py"
+      - "第3步：编写随机测试用例过程中，如果发现bug需要进行记录和分析"
+      - "注意："
+      - " - <name>需要合理，例如按功能点命名"
+      - " - 一个随机测试用例可以覆盖多个测点、功能点"
+      - " - 多个随机测试用例之间尽可能的不要有过多覆盖点上的交叉"
+      - " - 测试用例必须用 ucagent.repeat_count() 获取当前随机循环次数"
+      - " - 如果用例有测试区间，需要通过pytes的参数化模式进行区间控制"
+      - " - 其他用例要求请参考文档 Guide_Doc/dut_test_case.md"
+    checker:
+      - name: random_test_check
+        clss: "RandomTestCasesChecker"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    output_files:
+      - "{OUT}/tests/test_{DUT}_random*.py"
+    reference_files:
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_case_random.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
 
   - name: verification_review_and_summary
     desc: "验证审查与总结"
