@@ -13,7 +13,7 @@
 2. 安装 Qwen Code CLI
 
    - 直接使用`npm`全局安装`sudo npm install -g @qwen-code/qwen-code`。（需要本地有[nodejs 环境](https://nodejs.org/zh-cn/download/)）
-   - 其他安装方式请参考：[Qwen Code 执行与部署](https://qwenlm.github.io/qwen-code-docs/zh/deployment/)
+   - 其他安装方式请参考：[Qwen Code 安装](https://qwenlm.github.io/qwen-code-docs/zh/#%E5%AE%89%E8%A3%85)
 
 3. 准备 DUT（待测模块）
 
