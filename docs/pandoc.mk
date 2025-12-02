@@ -33,6 +33,10 @@ PANDOC_LATEX_FLAGS += --pdf-engine=$(PDF_ENGINE)
 PANDOC_LATEX_FLAGS += -V documentclass=ctexart
 PANDOC_LATEX_FLAGS += -V geometry:margin=2.2cm
 PANDOC_LATEX_FLAGS += -V mainfont="Noto Serif CJK SC"
+PANDOC_LATEX_FLAGS += -V colorlinks=true
+PANDOC_LATEX_FLAGS += -V linkcolor=blue
+PANDOC_LATEX_FLAGS += -V urlcolor=cyan
+PANDOC_LATEX_FLAGS += -V citecolor=green
 
 MONO ?= DejaVu Sans Mono
 PANDOC_LATEX_FLAGS += -V monofont="$(MONO)"
