@@ -662,6 +662,7 @@ stage:
       - " - 测试用例必须用 ucagent.repeat_count() 获取当前随机循环次数"
       - " - 如果用例有测试区间，需要通过pytes的参数化模式进行区间控制"
       - " - 其他用例要求请参考文档 Guide_Doc/dut_test_case.md"
+      - " - 需要有合理的断言来检查输出是否符合预期，是否正确，例如 `assert result == a + b, 'Addition result incorrect'`"
     checker:
       - name: random_test_check
         clss: "RandomTestCasesChecker"

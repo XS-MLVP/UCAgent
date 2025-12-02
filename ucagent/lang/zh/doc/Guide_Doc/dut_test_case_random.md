@@ -59,6 +59,9 @@ def test_random_basic_functionality(env):
   - 好的assert示例：
     - `assert output == excepted_output, description`
     - `assert output == 0x123, description`
+    - `assert output['c'] == 0x456, description`
+    - `assert output['sig'] == 2, description`
   - 不好的assert示例：
     - `assert output is not None, description`
     - `assert hasattr(output, "sig"), description`
+    - `assert "sig" in output, description`
