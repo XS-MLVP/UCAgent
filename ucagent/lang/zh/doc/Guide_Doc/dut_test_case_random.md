@@ -49,10 +49,16 @@ def test_random_basic_functionality(env):
 ## 设计原则
 - 必须通过`ucagent.repeat_count()`获取循环次数
 - 测试用例名称的命名格式为`test_random_<test_name>`
-- 测试文件名称的命名格式为`test_random_<group_name>.py`
+- 测试文件名称的命名格式为`test_{DUT}_random_<group_name>.py`
 - 测试用例应该只依赖DUT提供的API接口
 - 传递给DUT API的值，必须是符合API要求，合理且随机的
 - 根据需要可以增加边界情况输入的概率
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
 - 每个测试用例都应该有合理的assert判断：assert output==excepted_output, assert_message
+  - 好的assert示例：
+    - `assert output == excepted_output, description`
+    - `assert output == 0x123, description`
+  - 不好的assert示例：
+    - `assert output is not None, description`
+    - `assert hasattr(output, "sig"), description`
