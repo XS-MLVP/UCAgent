@@ -67,7 +67,7 @@ make mcp_Adder  # workspace 设置为当前目录下的 output
 
 请参考：[https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/)
 
-由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 10 秒。
+由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 300 秒。
 
 `~/.qwen/settings.json` 配置文件示例：
 
@@ -76,7 +76,7 @@ make mcp_Adder  # workspace 设置为当前目录下的 output
 	"mcpServers": {
 		"unitytest": {
 			"httpUrl": "http://localhost:5000/mcp",
-			"timeout": 10000
+			"timeout": 300000
 		}
 	}
 }
