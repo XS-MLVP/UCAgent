@@ -8,7 +8,7 @@
 - 内存：建议 4GB+
 - 依赖：
   - [picker](https://github.com/XS-MLVP/picker)（将 Verilog DUT 导出为 Python 包）
-  - Code Agent：[Qwen Code CLI](https://qwenlm.github.io/qwen-code-docs/zh/deployment/)(使用UCAgent提供的工作流和工具)
+  - Code Agent：[Qwen Code CLI](https://qwenlm.github.io/qwen-code-docs/zh/cli/)(使用UCAgent提供的工作流和工具)
 
 
 ## 安装方式
