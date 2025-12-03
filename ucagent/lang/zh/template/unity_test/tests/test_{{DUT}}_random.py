@@ -12,6 +12,6 @@ import ucagent
 #        a = random.randint(0, 100)
 #        b = random.randint(0, 100)
 #        out, _ = api_alu_operation(env, 0, a, b)
-#        assert out == 3, f"ALU add fail: {a} + {b} expcet out==3, but find: {out}"
+#        assert out == 3, f"ALU add fail: {a} + {b} expect out==3, but find: {out}"
 
 # 其他随机测试用例

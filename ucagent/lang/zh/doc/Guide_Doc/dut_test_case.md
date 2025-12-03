@@ -19,7 +19,7 @@ import pytest
 - 测试用例应该只依赖DUT提供的API接口
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
-- 每个测试用例都应该有合理的assert判断：assert output==excepted_output, assert_message
+- 每个测试用例都应该有合理的assert判断：assert output==expected_output, assert_message
 
 ### 基本测试函数结构
 
@@ -328,7 +328,7 @@ def test_comprehensive_data_coverage(env):
         for b in typical_values[:2]:  # 限制组合数量
             result = api_operation(env, a, b)
             correct_result = golden_result(a, b)
-            assert result == correct_result, f"操作失败: a={a}, b={b}, except: {correct_result}, but find: {result}"
+            assert result == correct_result, f"操作失败: a={a}, b={b}, expect: {correct_result}, but find: {result}"
 
 ```
 
@@ -363,7 +363,7 @@ def test_mathematical_properties(env):
     
     for a, b in test_pairs:
         result = verify_operation_properties(env, a, b)
-        assert result == excepted_result, ...
+        assert result == expected_result, ...
 ```
 
 ## 质量保证检查清单
@@ -390,9 +390,9 @@ def test_mathematical_properties(env):
 **注意：**
 - 所有测试函数（test case function）都必须有合理assert：
   - 就算调用函数中有合理的assert，最外层test函数也需要有
-  - assert 的基本格式为 assert output == excepted_output, description
+  - assert 的基本格式为 assert output == expected_output, description
   - 合理的assert示例：
-    - `assert output == excepted_output, description`
+    - `assert output == expected_output, description`
     - `assert output == 0x123, description`
     - `assert output['c'] == 0x456, description`
     - `assert output['sig'] == 2, description`
