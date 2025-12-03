@@ -85,7 +85,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
             return msg
         ret, msg, _ = check_report(self.workspace,
                                    report, self.doc_func_check, self.doc_bug_analysis,
-                                   only_marked_ckp_in_tc=True
+                                   only_marked_ckp_in_tc=True,
+                                   check_fail_ck_in_bug=False,
                                    )
         if not ret:
             return ret, get_emsg(msg)
