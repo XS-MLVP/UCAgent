@@ -55,9 +55,9 @@ def test_random_basic_functionality(env):
 - 根据需要可以增加边界情况输入的概率
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
-- 每个测试用例都应该有合理的assert判断：assert output==excepted_output, assert_message
+- 每个测试用例都应该有合理的assert判断：assert output==expected_output, assert_message
   - 合理的assert示例：
-    - `assert output == excepted_output, description`
+    - `assert output == expected_output, description`
     - `assert output == 0x123, description`
     - `assert output['c'] == 0x456, description`
     - `assert output['sig'] == 2, description`

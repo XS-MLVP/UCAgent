@@ -16,5 +16,5 @@ def repeat_count():
     try:
         return int(n)
     except Exception as e:
-        warning(f"convert os.env['UC_TEST_RCOUNT']({n}) to Int value fail: {e}, use defalt 3")
+        warning(f"convert os.env['UC_TEST_RCOUNT']({n}) to Int value fail: {e}, use default 3")
         return default_v
