@@ -389,17 +389,18 @@ def test_mathematical_properties(env):
 
 **注意：**
 - 所有测试函数（test case function）都必须有合理assert：
-  - 就算调用函数中有assert，最外层test函数也需要有
+  - 就算调用函数中有合理的assert，最外层test函数也需要有
   - assert 的基本格式为 assert output == excepted_output, description
-  - 好的assert示例：
+  - 合理的assert示例：
     - `assert output == excepted_output, description`
     - `assert output == 0x123, description`
     - `assert output['c'] == 0x456, description`
     - `assert output['sig'] == 2, description`
-  - 不好的assert示例：
+  - 不合理assert示例：
     - `assert output is not None, description`
     - `assert hasattr(output, "sig"), description`
     - `assert "sig" in output, description`
+    - `assert isinstance(output, int), description`
 - 一个检测点最好对应一个测试函数（如果可以的话）
 - 如果测试用例和多个功能点相关，则需要调用多次 mark_function 分别进行标记
 - 功能尽量单一
