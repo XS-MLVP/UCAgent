@@ -56,12 +56,13 @@ def test_random_basic_functionality(env):
 - 避免直接操作DUT的底层实现细节
 - 通过API封装保证测试用例的稳定性和可维护性
 - 每个测试用例都应该有合理的assert判断：assert output==excepted_output, assert_message
-  - 好的assert示例：
+  - 合理的assert示例：
     - `assert output == excepted_output, description`
     - `assert output == 0x123, description`
     - `assert output['c'] == 0x456, description`
     - `assert output['sig'] == 2, description`
-  - 不好的assert示例：
+  - 不合理assert示例：
     - `assert output is not None, description`
     - `assert hasattr(output, "sig"), description`
     - `assert "sig" in output, description`
+    - `assert isinstance(output, int), description`
