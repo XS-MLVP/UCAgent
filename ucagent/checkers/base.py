@@ -25,6 +25,12 @@ class Checker:
     _need_human_check = False
     _human_check_passed = None
     _human_check_message = ""
+    _human_check_count = 0
+
+    def is_wait_human_check(self):
+        return self._need_human_check and \
+               self._human_check_count > 0 and \
+               self._human_check_passed is not True
 
     def human_set_pass_msg(self, msg: str):
         self._human_check_passed = True
@@ -180,6 +186,8 @@ class Checker:
                             "Then notify human to verify your work. " + \
                             "The human need use command 'hmcheck_pass [msg]' or 'hmcheck_fail [msg]' to set the check result. After that, re-run the tool 'Check' to continue."
                     self.stage_manager.agent._need_human = True
+                    self._human_check_count += 1
+                    self.stage_manager.save_stage_info()
         except Exception as e:
             self.is_in_check = False
             estack = traceback.format_exc()

@@ -1802,6 +1802,22 @@ def is_ucagent_complete(workspace=".", need_agent_exit=False):
     return True
 
 
+def get_ucagent_hook_msg(msg_continue, msg_cmp, msg_exit, msg_init,
+                         msg_wait_hm="", workspace=".", need_agent_exit=False):
+    """Get UCAgent hook message from file"""
+    status_data = load_ucagent_info(workspace)
+    if not status_data:
+        return msg_init
+    if status_data.get("is_agent_exit", False):
+        return msg_exit
+    if not need_agent_exit:
+        if status_data.get("all_completed", False):
+            return msg_cmp
+    if status_data.get("is_wait_human_check", False):
+        return msg_wait_hm
+    return msg_continue
+
+
 def get_interaction_messages(key, config_file=None):
     """Get interaction prompts from default cfg"""
     # [config_file.yaml::]continue_prompt_keys[|stop_prompt_keys]

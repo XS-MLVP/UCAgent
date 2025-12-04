@@ -1190,6 +1190,9 @@ class VerifyPDB(Pdb):
         try:
             stage_index = int(parts[0])
             if len(parts) > 1:
+                if parts[1].lower() not in ["true", "false"]:
+                    echo_r("Invalid value. Use 'true' or 'false'.")
+                    return
                 hmcheck_needed = parts[1].lower() == "true"
             else:
                 hmcheck_needed = None
