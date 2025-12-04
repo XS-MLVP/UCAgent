@@ -470,6 +470,11 @@ class StageManager(object):
             stage_info = stage.detail()
             stage_info["time_cost"] = stage.get_time_cost()
             info["stages_info"][idx] = stage_info
+        stage = self.get_current_stage()
+        is_wait_human_check = False
+        if stage:
+            is_wait_human_check = stage.is_wait_human_check()
+        info["is_wait_human_check"] = is_wait_human_check
         fc.save_ucagent_info(self.workspace, info)
 
     def next_stage(self):

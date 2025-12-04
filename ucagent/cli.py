@@ -44,17 +44,19 @@ class HookMessageAction(argparse.Action):
         success, continue_msg, stop_msg = fc.get_interaction_messages(values[0])
         if not success:
             parser.exit(1)
-        if fc.is_ucagent_complete(need_agent_exit=self.need_agent_exit):
-            if stop_msg:
-                print(stop_msg.strip())
-                sys.exit(0)
-            sys.exit(-1)
-        else:
-            if continue_msg:
-                print(continue_msg.strip())
-                sys.exit(0)
-            sys.exit(-1)
-        parser.exit()
+        msg = fc.get_ucagent_hook_msg(
+            msg_continue=continue_msg,
+            msg_cmp=stop_msg,
+            msg_exit=stop_msg,
+            msg_init=continue_msg,
+            msg_wait_hm="",
+            workspace=".",
+            need_agent_exit=self.need_agent_exit,
+        )
+        if msg:
+            print(msg.strip())
+            sys.exit(0)
+        parser.exit(1)
 
 
 class UpgradeAction(argparse.Action):

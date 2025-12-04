@@ -9,7 +9,7 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 
 
-from ucagent.util.functions import load_json_file, rm_workspace_prefix
+from ucagent.util.test_tools import ucagent_lib_path
 from ucagent.util.functions import get_toffee_json_test_case, load_toffee_report
 from ucagent.util.log import debug, info, warning
 import os
@@ -75,13 +75,13 @@ class RunPyTest(UCTool):
         ret_stdout, ret_stderr = "", ""
         env = os.environ.copy()
         pythonpath = env.get("PYTHONPATH", "")
-        python_path_str = os.path.abspath(os.getcwd())
+        python_path_str = os.path.abspath(os.getcwd()) + ":" + ucagent_lib_path()
         if python_paths is not None:
             for p in python_paths:
                 if os.path.exists(p):
                     python_path_str += ":" + os.path.abspath(p)
                     debug(f"Add python path: {p}")
-        env["PYTHONPATH"] = python_path_str + (":" + pythonpath if pythonpath else "")
+        env["PYTHONPATH"] = python_path_str + ((":" + pythonpath) if pythonpath else "")
         if "XSPCOMM_LOG_LEVEL" not in env:
             env["XSPCOMM_LOG_LEVEL"] = "4"  # 1-DEBUG, 2-INFO, 3-WARNING, 4-ERROR, 5-FATAL
         # Determine the correct working directory and test target

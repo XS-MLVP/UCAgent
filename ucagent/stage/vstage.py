@@ -168,6 +168,12 @@ class VerifyStage(object):
             ret.append(f"{c.__class__.__name__}:\n{c.check_std(lines)}")
         return "\n".join(ret)
 
+    def is_wait_human_check(self):
+        for c in self.checker:
+            if c.is_wait_human_check():
+                return True
+        return False
+
     def do_hmcheck_pass(self, msg=""):
         """
         Call the hmcheck_pass method of all HumanChecker in this stage.
@@ -210,6 +216,9 @@ class VerifyStage(object):
         Set whether human check is needed for all HumanChecker in this stage.
         """
         ret = []
+        if len(self.checker) == 0:
+            ret.append("No checker in this stage.")
+            return "\n".join(ret)
         for c in self.checker:
             if need is None:
                 ret.append(f"'{c.__class__.__name__}' human check needed is '{c.is_human_check_needed()}'.")

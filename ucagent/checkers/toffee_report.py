@@ -176,14 +176,14 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     return True, ""
 
 def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
-                          check_tc_in_doc=True, target_ck_prefix:str =""):
+                          check_fail_ck_in_bug=True, target_ck_prefix:str =""):
     """Check failed checkpoint in bug analysis documentation."""
 
     ret, marked_bug_checks = get_bug_ck_list_from_doc(workspace, bug_analysis_file, target_ck_prefix)
     if not ret:
         return False, marked_bug_checks, -1
 
-    if check_tc_in_doc:
+    if check_fail_ck_in_bug:
         un_related_tc_marks = []
         for ck in failed_check:
             if ck not in marked_bug_checks:
@@ -235,7 +235,9 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
     return True, f"Function/check points documentation ({doc_file}) is consistent with test cases."
 
 
-def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False):
+def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
+                 check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
+                 check_fail_ck_in_bug=True):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -244,12 +246,11 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
         doc_file: The documentation file to check against.
         bug_file: The bug analysis file to check against.
         target_ck_prefix: The target check point prefix to filter checks.
-        need_check_bug_analysis: Whether to check bug analysis.
         check_tc_in_doc: Whether to check test cases in documentation.
         check_doc_in_tc: Whether to check documentation in test cases.
         post_checker: An optional post-checker function.
         only_marked_ckp_in_tc: Whether to only consider marked check points in test cases (enable this in batch testing mode).
-
+        check_fail_ck_in_bug: Whether to check failed check points in bug analysis document.
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
@@ -293,15 +294,15 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="", che
             return ret, msg, -1
 
         ret, msg, bug_ck_list_size = check_bug_ck_analysis(workspace, bug_file, failed_checks_in_tc,
-                                                           check_tc_in_doc=check_tc_in_doc, target_ck_prefix=target_ck_prefix)
+                                                           check_fail_ck_in_bug=check_fail_ck_in_bug, target_ck_prefix=target_ck_prefix)
         if not ret:
             return ret, msg, -1
 
     if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
         unmark_check_points = [ck for ck in report['unmarked_check_point_list'] if ck.startswith(target_ck_prefix)]
         if len(unmark_check_points) > 0:
-            return False, f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
-                           "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
+            return False, f"Test case validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
+                           "in the test cases. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
                             fc.description_mark_function_doc() + \
                            "This ensures proper coverage mapping between documentation and test implementation. " + \
                            "Review your task requirements and complete the check point markings. ", -1
