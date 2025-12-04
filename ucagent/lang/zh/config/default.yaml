@@ -202,6 +202,8 @@ stage:
       - "第4步：实现dut fixture - 管理测试的完整生命周期"
       - "需要将结果及时写入{OUT}/tests/{DUT}_api.py，请使用{DOC_GEN_LANG}编写注释"
       - "参考Guide_Doc/dut_fixture.md了解标准写法"
+    output_files:
+      - "{OUT}/tests/{DUT}_api.py"
     stage:
      - name: dut_creation_implementation
        desc: "DUT创建函数实现"
