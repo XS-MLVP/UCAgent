@@ -7,7 +7,7 @@
 - 三种跳/不跳过阶段方法：
   - 在项目根 `config.yaml` 的某个 `stage` 字段下面 `-name` 元素里的 `skip` 键配置 `true/false` 来跳过/不跳过。
   - 命令行启动时可用 `--skip/- -unskip someStage` 来控制跳过/不跳过某阶段。
-  - 在tui启动后可用 `skip_stage/unskip_stage someStage` 来控制临时跳过/不跳过某阶段。
+  - 在 tui 启动后可用 `skip_stage/unskip_stage someStage` 来控制临时跳过/不跳过某阶段。
 
 ## 整体流程概览（11 个阶段）
 
@@ -290,6 +290,123 @@ TC bug 标注规范与一致性（与文档/报告强关联）：
 
 - 随时用工具：Detail/Status 查看 Mission 进度与当前阶段；CurrentTips 获取步骤级指导；Check/Complete 推进阶段。
 - TUI 左侧 Mission 会显示阶段序号、跳过状态与失败计数；可结合命令行 `--skip/--unskip/--force-stage-index` 控制推进。
+
+## 阶段跳过与强制人工检查
+
+在验证复杂 DUT（如 PTW 等）时，建议开启关键阶段的人工检查，以确保验证质量。本节说明如何控制阶段跳过与强制人工检查。
+
+### 打开默认跳过的阶段
+
+部分阶段在默认配置中被跳过（`skip: true`），可通过以下方式启用：
+
+#### 方法一：环境变量（推荐）
+
+在运行前设置对应的环境变量：
+
+```bash
+# 6.1 人工检查env规格说明 / 6.6 人工检查ENV实现质量
+export SKIP_ENV_HUMAN_CHECK=false
+
+# 6.3 Mock组件设计与实现
+export SKIP_MOCK_COMPONENT=false
+```
+
+环境变量与阶段对应关系：
+
+| 环境变量               | 控制的阶段                                           | 默认值 | 说明                               |
+| ---------------------- | ---------------------------------------------------- | ------ | ---------------------------------- |
+| `SKIP_ENV_HUMAN_CHECK` | 6.1 人工检查 env 规格说明、6.6 人工检查 ENV 实现质量 | `true` | 验证复杂 DUT 时建议设为 `false`    |
+| `SKIP_MOCK_COMPONENT`  | 6.3 Mock 组件设计与实现                              | `true` | 需要 Mock 上下游依赖时设为 `false` |
+
+#### 方法二：命令行参数
+
+启动时使用 `--unskip` 参数指定阶段索引：
+
+```bash
+ucagent verify --unskip 13 --unskip 15 --unskip 18  # 取消跳过阶段 13、15、18
+```
+
+#### 方法三：TUI 命令
+
+在 TUI 界面中使用命令：
+
+```bash
+unskip_stage 13   # 取消跳过阶段 13
+```
+
+### 设置强制人工检查
+
+对于关键阶段，可设置强制人工检查，AI 必须等待人工确认后才能继续：
+
+#### TUI 命令方式
+
+```bash
+# 设置特定阶段需要人工审核
+hmcheck_set <阶段索引> true
+
+# 设置所有阶段都需要人工审核
+hmcheck_set all true
+
+# 取消某阶段的人工审核要求
+hmcheck_set <阶段索引> false
+
+# 查看当前阶段的审核状态
+hmcheck_cstat
+
+# 列出所有需要人工审核的阶段
+hmcheck_list
+```
+
+#### 配置文件方式
+
+在阶段的 checker 配置中设置 `need_human_check: true`：
+
+```yaml
+checker:
+  - name: check_point_check
+    clss: "UnityChipCheckerLabelStructure"
+    args:
+      doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+      leaf_node: "CK"
+      need_human_check: true # 设置为 true 启用人工检查
+```
+
+### 推荐开启人工检查的阶段
+
+验证复杂 DUT 时，建议开启以下阶段的人工检查：
+
+| 阶段索引 | 阶段名称                             | 推荐理由                                                           |
+| -------- | ------------------------------------ | ------------------------------------------------------------------ |
+| 5        | 3.3 检测点设计与定义                 | 确认检测点是否满足验证需求，避免遗漏关键功能                       |
+| 11       | 5.2.1 分批功能点检查函数实现         | 确认覆盖率检查点实现是否正确                                       |
+| 13       | 6.1 人工检查 env 规格说明            | 确认 env 设计满足验证需求（需先设置 `SKIP_ENV_HUMAN_CHECK=false`） |
+| 15       | 6.3 Mock 组件设计与实现              | 确认 Mock 组件设计正确（需先设置 `SKIP_MOCK_COMPONENT=false`）     |
+| 18       | 6.6 人工检查 ENV 实现质量            | 确认 env 实现质量（需先设置 `SKIP_ENV_HUMAN_CHECK=false`）         |
+| 24       | 10.1 分批测试用例实现与对应 bug 分析 | AI 可能跳过实际实现，需人工确认用例质量                            |
+| 26       | 12 随机测试用例生成                  | 按需开启，确认随机测试覆盖范围                                     |
+
+操作示例（以 PTW 验证为例）：
+
+```bash
+# 1. 设置环境变量打开跳过的阶段
+export SKIP_ENV_HUMAN_CHECK=false
+export SKIP_MOCK_COMPONENT=false
+
+# 2. 启动 UCAgent
+ucagent verify PTW
+
+# 3. 在 TUI 中设置强制人工检查
+hmcheck_set 5 true    # 3.3 检测点设计与定义
+hmcheck_set 11 true   # 5.2.1 分批功能点检查函数实现
+hmcheck_set 13 true   # 6.1 人工检查env规格说明
+hmcheck_set 15 true   # 6.3 Mock组件设计与实现
+hmcheck_set 18 true   # 6.6 人工检查ENV实现质量
+hmcheck_set 24 true   # 10.1 分批测试用例实现与对应bug分析
+```
+
+**注意**：阶段索引是展平后的序号，可通过 `hmcheck_list` 查看所有阶段及其索引。不同配置下阶段索引可能有所不同，请以实际运行时显示的索引为准。
+
+更多人工交互命令请参考 [人机交互与辅助](../02_usage/02_assit.md)。
 
 ## 定制工作流（增删阶段/子阶段）
 
