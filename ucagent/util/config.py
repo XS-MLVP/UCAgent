@@ -280,52 +280,63 @@ def get_config(config_file=None, cfg_override=None):
     :param config_file: Path to the configuration file.
     :return: Configuration dictionary.
     """
-    user_config_file = config_file
-    if user_config_file is None:
-        user_config_file = 'config.yaml'  # Default configuration file
-    user_config_file_path = find_file_in_paths(user_config_file, [os.getcwd(),
-                                                             os.path.join(os.path.dirname(__file__), "../config/")
-                                                      ])
-    if config_file is not None:
-        assert user_config_file_path is not None, f"Config file '{user_config_file}' not found in current directory or default config path."
-    if user_config_file_path is None:
-        info(f"Default user config file '{user_config_file}' not found, ignore.")
-
     def load_yaml_with_env_vars(file_path):
         with open(file_path, 'r') as file:
             content = file.read()
             rendered_content = replace_bash_var(content, os.environ)
             return yaml.safe_load(rendered_content)
 
+    # ignore repeated loaded configs
+    loaded_configs = []
+
     # 1. load default config
-    default_config_file = os.path.join(os.path.dirname(__file__), "../setting.yaml")
+    default_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "../setting.yaml"))
     assert os.path.isfile(default_config_file), f"Default configuration file '{default_config_file}' not found."
     cfg = Config(load_yaml_with_env_vars(default_config_file))
     info(f"Load config from '{default_config_file}' completed.")
+    loaded_configs.append(default_config_file)
 
     # 2. load user config
     user_home = os.path.expanduser('~')
-    user_config_file = os.path.join(user_home, '.ucagent/setting.yaml')
+    user_config_file = os.path.abspath(os.path.join(user_home, '.ucagent/setting.yaml'))
     if os.path.isfile(user_config_file):
         cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file)))
         info(f"Load config from '{user_config_file}' completed.")
+        loaded_configs.append(user_config_file)
     else:
         info(f"User config file '{user_config_file}' not found, touch an empty one.")
         os.makedirs(os.path.dirname(user_config_file), exist_ok=True)
         with open(user_config_file, 'w') as f:
             f.write("# UCAgent user configuration file\n")
+        loaded_configs.append(user_config_file)
 
     # 3. load lang config
     lang = cfg.get_value('lang', 'zh')
-    lang_config_file = os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml")
+    lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml"))
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
     cfg.merge_from(Config(load_yaml_with_env_vars(lang_config_file)))
+    loaded_configs.append(lang_config_file)
 
-    # 4. load user specified config
-    if user_config_file_path is not None:
-        cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file_path)))
-        info(f"Load config from '{user_config_file_path}' completed.")
+    # 4. find user specified config file
+    target_file = config_file
+    if config_file is None:
+        target_file = 'config.yaml'  # Default configuration file
+    user_config_file_path = find_file_in_paths(target_file, [os.getcwd(),
+                                                             os.path.join(user_home, '.ucagent/'),
+                                                             os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/")
+                                                      ])
+    if config_file is not None:
+        assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
+    if user_config_file_path is None:
+        info(f"Default user config file '{config_file}' not found, ignore.")
+    else:
+        user_config_file_path = os.path.abspath(user_config_file_path)
+        if user_config_file_path not in loaded_configs:
+            cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file_path)))
+            info(f"Load config from '{user_config_file_path}' completed.")
+        else:
+            info(f"Config file '{user_config_file_path}' already loaded, ignore.")
 
     # set override values
     return cfg.set_values(cfg_override).freeze()
