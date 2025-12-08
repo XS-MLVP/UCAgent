@@ -1849,3 +1849,19 @@ def is_run_report_pass(report, stdout, stderr):
     if run_pass:
         return True, ""
     return False, {"error": "Run test cases/generate report fail!", "STDOUT": stdout, "STDERR": stderr}
+
+
+def get_tools_from_cfg(tool_list, cfg: dict):
+    """Get tools from configuration"""
+    ignore_tools = cfg.get("ignore_tools", [])
+    selected_tools = cfg.get("selected_tools", [])
+    tools = []
+    for t in tool_list:
+        if t.name in ignore_tools:
+            warning(f"Tool {t.name} is ignored by configuration.")
+            continue
+        if selected_tools and t.name not in selected_tools:
+            warning(f"Tool {t.name} is not selected by configuration.")
+            continue
+        tools.append(t)
+    return tools

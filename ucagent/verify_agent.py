@@ -246,7 +246,8 @@ class VerifyAgent:
             self.context_tools = [
                 ArbitContextSummary().bind(self.message_manage_node),
             ]
-        self.test_tools = self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools
+        self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
+                                                self.cfg.tools.as_dict())
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
