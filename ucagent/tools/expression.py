@@ -348,7 +348,7 @@ class ExpressionArgs(BaseModel):
 class ExpressionTool(UCTool):
         name: str = "Expression"
         description: str = (
-            "Evaluate an expression and output the result in specified format. The expressions are evaluated with signed integers of arbitary preciesion."
+            "Evaluate an expression and output the result in specified format. The expressions are evaluated with signed integers of arbitrary precision.."
             "Numbers can be specified in binary (with the 0b prefix), octal, (with the 0o prefix), decimal (with no prefix) or hexadecimal (with the 0x prefix)."
             "Supported operators (same semantics as C): ~ ! * / % + - >> << > < >= <= == != & | ^"
             "Use parentheses to avoid ambiguity in precedence."
