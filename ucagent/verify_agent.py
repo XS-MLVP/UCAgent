@@ -15,6 +15,7 @@ from .message import UCMessagesNode, SummarizationAndFixToolCall, State
 from .message import TokenSpeedCallbackHandler
 from .tools import *
 from .tools.planning import *
+from .tools.expression import ExpressionTool
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
 from .interaction import EnhancedInteractionLogic, AdvancedInteractionLogic
@@ -162,7 +163,8 @@ class VerifyAgent:
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
             self.tool_read_text,
-            RoleInfo(self._default_system_prompt)
+            RoleInfo(self._default_system_prompt),
+            ExpressionTool()
         ]
         if not no_embed_tools:
             self.tool_reference = SemanticSearchInGuidDoc(self.cfg.embed, workspace=self.workspace, doc_path="Guide_Doc")
