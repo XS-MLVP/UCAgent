@@ -1,0 +1,67 @@
+
+mission:
+  name: "{DUT}芯片增量验证任务"
+
+stage:
+  - name: study_workspace
+    desc: "分析当前工作空间，了解{DUT}芯片的设计目标，功能需求和验证情况"
+    task:
+      - "阅读文件："
+      - " {OUT}/{DUT}_basic_info.md"
+      - " {OUT}/{DUT}_functions_and_checks.md"
+      - " {OUT}/{DUT}_verification_needs_and_plan.md"
+      - " {OUT}/{DUT}_test_summary.md"
+      - " {OUT}/{DUT}_bug_analysis.md"
+      - "理解芯片的基本信息、功能模块以及验证需求"
+      - "给出一份简要的工作空间分析报告，然后获取人工给出的具体验证任务清单"
+      - "获取到的任务为": "{HM_TASK}"
+    reference_files:
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+      - "{OUT}/{DUT}_basic_info.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_test_summary.md"
+      - "{OUT}/{DUT}_bug_analysis.md"
+    checker:
+      - name: task_from_human
+        clss: "HumanInput"
+        args:
+          task_key: "HM_TASK"
+
+  - name: understand_task_and_plan
+    desc: "理解任务要求，制定详细的验证计划"
+    task:
+      - "分析并理解人工给出的验证任务清单"
+      - "制定详细的验证计划，包括测试用例设计、覆盖率目标等"
+      - "输出："
+      - " 请在文件 {OUT}/{DUT}_verification_needs_and_plan.md 增加你的验证计划部分，内容包括但不限于："
+      - " 1. 详细的测试用例设计思路"
+      - " 2. 预期的覆盖率目标"
+      - " 3. 可能遇到的挑战和解决方案"
+      - " 4. 由于需求变更导致原始计划需要调整的，也请在该文件中进行更新"
+      - " 如果{DUT}的设计有变化，也需要在文件 {OUT}/{DUT}_basic_info.md 中进行更新"
+      - "用户可能直接修改了相关文件，例如 {OUT}/{DUT}_functions_and_checks.md等，你可通过工具`WorkDiff`来了解这些变更"
+    output_files:
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+      - "{OUT}/{DUT}_basic_info.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+
+  - name: update_functions_and_checks
+    desc: "根据最新的设计变更，更新芯片功能和检查点"
+    task:
+      - "分析最新的设计变更"
+      - "更新文件 {OUT}/{DUT}_functions_and_checks.md，确保其反映当前芯片设计的功能和检查点"
+      - "完成更新后，请进行自我检查，确保文件内容的准确性和完整性"
+      - "调用工具`Check`判断更新后的文件格式是否符合要求"
+      - "如果不需要更新，则直接通过Complete工具结束该阶段"
+    output_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    checker:
+      - name: check_point_check
+        clss: "UnityChipCheckerLabelStructure"
+        args:
+          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          leaf_node: "CK"
+          data_key: "COVER_GROUP_DOC_CK_LIST_NEW"
+          need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+
+# TBD: coverage group, test env, api, testcases, linecoverage, random test cases, test report etc.

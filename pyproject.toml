@@ -30,6 +30,7 @@ dependencies = [
     "pytoffee@git+https://github.com/XS-MLVP/toffee@master",
     "toffee-test@git+https://github.com/XS-MLVP/toffee-test@master",
     "langfuse>=3.9.1",
+    "gitpython>=3.1.43",
 ]
 dynamic = ["version"]
 

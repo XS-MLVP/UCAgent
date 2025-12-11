@@ -1857,11 +1857,35 @@ def get_tools_from_cfg(tool_list, cfg: dict):
     selected_tools = cfg.get("selected_tools", [])
     tools = []
     for t in tool_list:
-        if t.name in ignore_tools:
-            warning(f"Tool {t.name} is ignored by configuration.")
+        ignored = False
+        for ig_t in ignore_tools:
+            if "*" in ig_t:
+                if fnmatch.fnmatch(t.name, ig_t):
+                    warning(f"Tool {t.name} is ignored by configuration.")
+                    ignored = True
+                    break
+            else:
+                if t.name == ig_t:
+                    warning(f"Tool {t.name} is ignored by configuration.")
+                    ignored = True
+                    break
+        if ignored:
             continue
-        if selected_tools and t.name not in selected_tools:
-            warning(f"Tool {t.name} is not selected by configuration.")
-            continue
-        tools.append(t)
+        if selected_tools:
+            selected = False
+            for sg_t in selected_tools:
+                if "*" in sg_t:
+                    if fnmatch.fnmatch(t.name, sg_t):
+                        tools.append(t)
+                        selected = True
+                        break
+                else:
+                    if t.name == sg_t:
+                        tools.append(t)
+                        selected = True
+                        break
+            if not selected:
+                warning(f"Tool {t.name} is not selected by configuration.")
+        else:
+            tools.append(t)
     return tools

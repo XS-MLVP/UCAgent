@@ -30,7 +30,14 @@ class UCTool(BaseTool):
         default=0,
         description="Number of times the tool has been called."
     )
-
+    is_disabled: bool = Field(
+        default=False,
+        description="Indicates if the tool is disabled."
+    )
+    disable_reason: str = Field(
+        default="",
+        description="Reason for disabling the tool."
+    )
     pre_call_back: Optional[Callable] = Field(
         default=None,
         description="A callback function to be executed before each call to the tool."
@@ -102,6 +109,11 @@ class UCTool(BaseTool):
         self.last_call_time = 0.0
         self.sync_block_log_to_client = kwargs.get("sync_block_log_to_client", False)
 
+    def set_disabled(self, value: bool, reason: str = ""):
+        self.is_disabled = value
+        self.disable_reason = reason
+        return self
+
     def set_force_exit(self, value):
         if value:
             self.cb_force_exit()
@@ -143,6 +155,8 @@ class UCTool(BaseTool):
                 "logs":  data}
 
     def invoke(self, input, config = None, **kwargs):
+        if self.is_disabled:
+            return {"error": f"Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"}
         self.call_count += 1
         self.is_in_call = True
         try:
@@ -199,6 +213,8 @@ class UCTool(BaseTool):
         self.is_alive_loop = False
 
     async def ainvoke(self, input, config = None, **kwargs):
+        if self.is_disabled:
+            return {"error": f"Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"}
         try:
             await asyncio.wait_for(self.async_lock.acquire(), timeout=self.lock_time_out)
         except asyncio.TimeoutError:
