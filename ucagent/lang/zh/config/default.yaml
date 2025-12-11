@@ -88,7 +88,7 @@ mission:
 
 mcp_server:
   init_prompt: >
-    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`EditTextFile`创建和编辑文件。
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。
 
 stage:
   - name: requirement_analysis_and_planning
