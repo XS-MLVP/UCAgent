@@ -7,3 +7,4 @@ from .testops import *
 from .uctool import *
 from .memory import *
 from .planning import *
+from .expression import ExpressionArgs, ExpressionTool
