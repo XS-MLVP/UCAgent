@@ -920,12 +920,16 @@ def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="
     def find_f(source_dir, workspace):
         files = []
         for file_path in Path(source_dir).rglob('*'):
-            if file_path.is_file():
-                mtime = os.path.getmtime(file_path)
-                file_path = os.path.abspath(str(file_path)).replace(workspace + os.sep, "")
-                if any(fnmatch.fnmatch(file_path, pattern) for pattern in ignore_patterns.split(',')):
-                    continue
-                files.append((ntime - mtime, mtime, file_path))
+            try:
+                if file_path.is_file():
+                    mtime = os.path.getmtime(file_path)
+                    file_path = os.path.abspath(str(file_path)).replace(workspace + os.sep, "")
+                    if any(fnmatch.fnmatch(file_path, pattern) for pattern in ignore_patterns.split(',')):
+                        continue
+                    files.append((ntime - mtime, mtime, file_path))
+            except Exception as e:
+                warning(f"Error processing file {file_path}: {e}")
+                continue
         return files
     directory = os.path.abspath(directory)
     files = []
