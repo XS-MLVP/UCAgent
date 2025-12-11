@@ -422,18 +422,18 @@ def parse_reference_files(ref_args: List[str]) -> Dict[int, List[str]]:
 
 def do_check() -> None:
     """Check current default configurations."""
-
+    import glob
     def echo_g(msg: str):
         print(f"\033[92m{msg}\033[0m")
     def echo_r(msg: str):
         print(f"\033[91m{msg}\033[0m")
     def check_exist(msg, file_path: str, indent=0):
         indent_str = '  ' * indent
-        if os.path.exists(file_path):
-            echo_g(f"{indent_str}Check\t{msg}\t{file_path}\t[Found]")
-        else:
+        file_list = glob.glob(file_path)  # expand wildcards
+        for f in file_list:
+            echo_g(f"{indent_str}Check\t{msg}\t{f}\t[Found]")
+        if len(file_list) == 0:
             echo_r(f"{indent_str}Check\t{msg}\t{file_path}\t[Error, Not Found]")
-
     # 1. Check default config file
     default_config_path = os.path.join(current_dir, "setting.yaml")
     default_user_config_path = os.path.join(os.path.expanduser("~"), ".ucagent/setting.yaml")
@@ -448,7 +448,7 @@ def do_check() -> None:
         for lang in os.listdir(default_lang_dir):
             lang_dir = os.path.join(default_lang_dir, lang)
             if os.path.isdir(lang_dir):
-                check_exist(f"'{lang}' config", os.path.join(lang_dir, "config/default.yaml"))
+                check_exist(f"'{lang}' config", os.path.join(lang_dir, "config/*.yaml"))
                 check_exist(f"'{lang}' Guide_Doc", os.path.join(lang_dir, "doc/Guide_Doc"))
                 templates_dir = os.path.join(lang_dir, "template")
                 if os.path.isdir(templates_dir):
