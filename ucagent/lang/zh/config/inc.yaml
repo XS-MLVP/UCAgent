@@ -1,21 +1,30 @@
 
 mission:
-  name: "{DUT}芯片增量验证任务"
+  name: "{DUT} 增量验证任务"
+
 
 stage:
-  - name: study_workspace
-    desc: "分析当前工作空间，了解{DUT}芯片的设计目标，功能需求和验证情况"
+  - name: study_workspace # 在该阶段启动的时候，会自动初始化Git，并进行版本控制。分支命名为：ucagent/incremental
+    desc: "工作区分析与任务理解"
     task:
-      - "阅读文件："
-      - " {OUT}/{DUT}_basic_info.md"
-      - " {OUT}/{DUT}_functions_and_checks.md"
-      - " {OUT}/{DUT}_verification_needs_and_plan.md"
-      - " {OUT}/{DUT}_test_summary.md"
-      - " {OUT}/{DUT}_bug_analysis.md"
-      - "理解芯片的基本信息、功能模块以及验证需求"
-      - "给出一份简要的工作空间分析报告，然后获取人工给出的具体验证任务清单"
-      - "获取到的任务为": "{HM_TASK}"
+      - "目标：在开始改动前，先形成对当前 DUT 设计与验证状态的一致理解，避免在信息不全时凭空假设。"
+      - "步骤："
+      - " 1) 扫描当前工作目录结构，识别 DUT 源码、输出目录 {OUT}/、测试目录 {OUT}/tests/ 以及既有文档资产。"
+      - " 2) 阅读并理解以下关键文件（至少应覆盖这些；如存在同类补充文档也要阅读）："
+      - "    - {OUT}/{DUT}_basic_info.md（DUT 基本信息/接口/版本/依赖）"
+      - "    - {OUT}/{DUT}_functions_and_checks.md（功能点 FG/FC 与检查点 CK 的定义）"
+      - "    - {OUT}/{DUT}_verification_needs_and_plan.md（验证需求与当前计划/进度）"
+      - "    - {OUT}/{DUT}_test_summary.md（测试现状、通过率、覆盖率摘要）"
+      - "    - {OUT}/{DUT}_bug_analysis.md（已知问题、风险点、复现方式/回归策略）"
+      - " 3) 输出给用户一份“工作空间现状摘要”，必须包含："
+      - "    - 你读到的 DUT 关键信息（接口/功能边界/关键约束）"
+      - "    - 当前已有的测试/覆盖点/文档的成熟度与明显缺口（用可执行语言描述）"
+      - "    - 你需要人工确认的 3~5 个关键问题（如果存在歧义/缺失信息）"
+      - " 4) 然后进入等待：由人工提供本轮增量任务清单（必须是可执行条目）。"
+      - "注意：本阶段不涉及任何代码或文档改动，仅做信息收集与理解。"
     reference_files:
+      - "{DUT}/*.md"
+      - "{DUT}/__init__.py"
       - "{OUT}/{DUT}_verification_needs_and_plan.md"
       - "{OUT}/{DUT}_basic_info.md"
       - "{OUT}/{DUT}_functions_and_checks.md"
@@ -23,36 +32,60 @@ stage:
       - "{OUT}/{DUT}_bug_analysis.md"
     checker:
       - name: task_from_human
-        clss: "HumanInput"
+        clss: "IncVerifyHumanInput"
         args:
-          task_key: "HM_TASK"
+          branch_name: ucagent/incremental
+          data_key: "HM_TASK"
 
-  - name: understand_task_and_plan
-    desc: "理解任务要求，制定详细的验证计划"
+
+  - name: update_task_and_plan
+    desc: "更新验证计划"
     task:
-      - "分析并理解人工给出的验证任务清单"
-      - "制定详细的验证计划，包括测试用例设计、覆盖率目标等"
-      - "输出："
-      - " 请在文件 {OUT}/{DUT}_verification_needs_and_plan.md 增加你的验证计划部分，内容包括但不限于："
-      - " 1. 详细的测试用例设计思路"
-      - " 2. 预期的覆盖率目标"
-      - " 3. 可能遇到的挑战和解决方案"
-      - " 4. 由于需求变更导致原始计划需要调整的，也请在该文件中进行更新"
-      - " 如果{DUT}的设计有变化，也需要在文件 {OUT}/{DUT}_basic_info.md 中进行更新"
-      - "用户可能直接修改了相关文件，例如 {OUT}/{DUT}_functions_and_checks.md等，你可通过工具`WorkDiff`来了解这些变更"
+      - "规划人工任务": "{HM_TASK}"
+      - "步骤："
+      - " 1) 将任务拆解为可执行的子任务：每条至少包含【要改什么/为何要改/改到哪里/如何验收】。"
+      - " 2) 运行工具 `WorkDiff` 获取相对基线（原始验证仓库）的变更摘要：重点关注 DUT RTL/接口、测试框架、文档是否有改动。"
+      - " 3) 形成“增量验证计划”，要求可直接驱动后续阶段执行："
+      - "    - 要新增/修改/删除哪些 FG/FC/CK（与 {OUT}/{DUT}_functions_and_checks.md 对齐）"
+      - "    - 要更新哪些覆盖点/哪些测试文件（定向/随机/API/环境）"
+      - "    - 覆盖率目标（功能覆盖/检查点覆盖等）与达成方式"
+      - "    - 风险与回退策略（若 DUT 变更不确定，先做最小可验证闭环）"
+      - "输出（必须落盘到文件，便于后续阶段引用）："
+      - " - 更新 {OUT}/{DUT}_verification_needs_and_plan.md：新增/删除/修改对应条目，并清晰标记‘本轮增量’范围与验收标准。"
+      - " - 如发现 DUT 设计/接口发生变化，同步更新 {OUT}/{DUT}_basic_info.md（只写确定信息；不确定处写‘待确认’与问题）。"
+      - "记录：如果有可用的记忆/记录工具，请把人工任务原文与你的结构化理解都记录下来（例如：需求条目→影响范围→预期产物/验收方式）。"
     output_files:
       - "{OUT}/{DUT}_verification_needs_and_plan.md"
       - "{OUT}/{DUT}_basic_info.md"
-      - "{OUT}/{DUT}_functions_and_checks.md"
+    checker:
+      - name: update_task_template
+        clss: "UpdataTempFromData"
+        args:
+          data_key:
+            - "HM_TASK"
+          ex_ignore:
+            - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v"]
+            - ["data/*", "*.json", "*.ini", "{DUT}.ignore"]
+    reference_files:
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
+      - "{OUT}/{DUT}_basic_info.md"
+
 
   - name: update_functions_and_checks
-    desc: "根据最新的设计变更，更新芯片功能和检查点"
+    desc: "更新功能检查"
     task:
-      - "分析最新的设计变更"
-      - "更新文件 {OUT}/{DUT}_functions_and_checks.md，确保其反映当前芯片设计的功能和检查点"
-      - "完成更新后，请进行自我检查，确保文件内容的准确性和完整性"
-      - "调用工具`Check`判断更新后的文件格式是否符合要求"
-      - "如果不需要更新，则直接通过Complete工具结束该阶段"
+      - "前置：如果上一阶段计划指出需要更新 FG/FC/CK，本阶段必须执行；否则可跳过。"
+      - "步骤："
+      - " 1) 使用 `WorkDiff` 阅读设计/接口变更点，明确哪些功能边界/行为/时序被修改。"
+      - " 2) 增量更新 {OUT}/{DUT}_functions_and_checks.md："
+      - "    - 新增：把新增功能拆成可测试的 FG/FC，并给出可观测的 CK。"
+      - "    - 修改：对已有条目更新约束/边界/触发条件/检查方法，避免与实现不一致。"
+      - "    - 删除：对已删除或不再适用的功能/检查点做删除或显式标注弃用原因。"
+      - " 3) 自检：确保每个 CK 都是可验证、可观测、可落到测试或覆盖点的。"
+      - " 4) 运行工具 `Check` 进行格式与结构校验；若失败，按提示修复直至通过。"
+      - "跳过条件：若 `WorkDiff` 与人工任务均表明无需更新，则调用 `Complete` 结束本阶段。"
+    reference_files:
+      - "Guide_Doc/dut_functions_and_checks.md"
     output_files:
       - "{OUT}/{DUT}_functions_and_checks.md"
     checker:
@@ -61,7 +94,188 @@ stage:
         args:
           doc_file: "{OUT}/{DUT}_functions_and_checks.md"
           leaf_node: "CK"
-          data_key: "COVER_GROUP_DOC_CK_LIST_NEW"
+          data_key: "COVER_GROUP_DOC_CK_LIST_INC"
           need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
 
-# TBD: coverage group, test env, api, testcases, linecoverage, random test cases, test report etc.
+
+  - name: update_coverage_group_in_batch
+    desc: "更新覆盖点[{COMPLETED_POINTS}/{TOTAL_POINTS}]"
+    task:
+      - "输入：最新的 {OUT}/{DUT}_functions_and_checks.md 与设计变更（通过 `WorkDiff('{OUT}/{DUT}_functions_and_checks.md')` 获取）。"
+      - "步骤："
+      - " 1) 明确 DUT 引脚/接口/关键状态是否变化；将变化映射到 FG/FC/CK 影响范围。"
+      - " 2) 按批次更新 {OUT}/tests/{DUT}_function_coverage_def.py："
+      - "    - 新增覆盖点：为新增功能/检查点提供可统计的覆盖定义。"
+      - "    - 修改覆盖点：对接口/约束变化进行同步调整，避免覆盖统计与事实不符。"
+      - "    - 删除覆盖点：移除不再适用的定义，并说明原因（如有文档位置可引用）。"
+      - " 3) 一致性要求：覆盖点条目必须能对应回文档中的 CK，且检查方法与 API/环境能力匹配。"
+      - " 4) 让批量实现检查器驱动你迭代：每批次完成后根据 checker 反馈修正，直到通过。"
+      - "跳过条件：若 `WorkDiff` 与人工任务均表明无需更新，则调用 `Complete` 结束本阶段。"
+      - "需要覆盖的检查点": "{LIST_CURRENT_POINTS}"
+      - "实现进度": "{COMPLETED_POINTS}/{TOTAL_POINTS}"
+    reference_files:
+      - "Guide_Doc/dut_function_coverage_def.md"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    output_files:
+      - "{OUT}/tests/{DUT}_function_coverage_def.py"
+    checker:
+      - name: batch_coverage_points_implementation_check
+        clss: "UnityChipCheckerCoverageGroupBatchImplementation"
+        args:
+          test_dir: "{OUT}/tests"
+          cov_file: "{OUT}/tests/{DUT}_function_coverage_def.py"
+          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          batch_size: 20
+          data_key: "COVER_GROUP_DOC_CK_LIST_INC"
+
+
+  - name: update_test_env_and_api
+    desc: "更新测试环境与API"
+    task:
+      - "输入：设计/需求变更（`WorkDiff`）与 {OUT}/{DUT}_functions_and_checks.md。"
+      - "步骤："
+      - " 1) 检查 {OUT}/tests/{DUT}_api.py：定位环境 fixture、DUT 初始化、常用 helper、对外 API 函数。"
+      - " 2) 根据增量需求更新/新增："
+      - "    - 环境 fixture：能稳定构建最小可复现环境（时钟/复位/接口绑定/必要配置）。"
+      - "    - API：为新增/变化的功能提供清晰可复用的调用入口；API 命名必须满足前缀约束 `api_{DUT}_`。"
+      - " 3) 自检：确保 API 的输入/输出/副作用明确，异常场景有可预期行为（至少能被测试断言）。"
+      - " 4) 调用工具 `Check` 进行代码/结构校验；若无需更新则调用 `Complete` 结束本阶段。"
+    reference_files:
+      - "{OUT}/tests/{DUT}_api.py"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "Guide_Doc/dut_api_instruction.md"
+      - "Guide_Doc/dut_mock.md"
+    checker:
+      - name: env_fixture_check
+        clss: "UnityChipCheckerEnvFixture"
+        args:
+          target_file: "{OUT}/tests/{DUT}_api.py"
+          min_env: 1
+          force_bundle: true
+      - name: api_check
+        clss: "UnityChipCheckerDutApi"
+        args:
+          api_prefix: "api_{DUT}_"
+          target_file: "{OUT}/tests/{DUT}_api.py"
+
+
+  - name: update_env_and_api_test
+    desc: "更新环境与API测试用例"
+    task:
+      - "输入：更新后的 {OUT}/tests/{DUT}_api.py，通过工具`WorkDiff('{OUT}/tests/{DUT}_api.py')`获取更新差异。"
+      - "步骤："
+      - " 1) 通过 `WorkDiff` 确认 API/fixture 的变更点。"
+      - " 2) 更新/新增测试："
+      - "    - 扫描 {OUT}/tests/test_{DUT}_api_*.py：为新增/变化的 API 添加覆盖测试；必要时修正旧测试的断言与期望。"
+      - "    - 若存在 test_{DUT}_env_fixture.py：确保 fixture 构建、清理、资源复用等行为有明确测试。"
+      - " 3) 运行验证（按需选择更精准的目标）："
+      - "    - `RunTestCases('test_{DUT}_api_*.py::your_test_function')` 用于快速定位 API 单测问题"
+      - "    - `RunTestCases('test_{DUT}_env_fixture.py')` 用于验证环境 fixture（若存在）"
+      - " 4) 失败处理："
+      - "    - API用例失败，先确认是测试问题还是 API/fixture 问题，分别修正后重跑。"
+      - "    - env用例测试不能失败，否则说明环境搭建有问题，必须修正环境代码后重跑。"
+      - "    - env用例仅仅用来验证环境搭建的正确性，不应当涉及 DUT 行为验证。"
+      - " 5) 调用 `Check` 做静态/结构校验；若无需更新则 `Complete`。"
+    checker:
+      - name: api_test_check
+        clss: "UnityChipCheckerDutApiTest"
+        args:
+          api_prefix: "api_{DUT}_"
+          target_file_api: "{OUT}/tests/{DUT}_api.py"
+          target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    reference_files:
+      - "Guide_Doc/dut_api_instruction.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_fixture.md"
+
+
+  - name: update_directed_testing_test_cases
+    desc: "更新定向用例"
+    task:
+      - "输入：覆盖点定义 {OUT}/tests/{DUT}_function_coverage_def.py 与文档 {OUT}/{DUT}_functions_and_checks.md。"
+      - "步骤："
+      - " 1) 通过 `WorkDiff` 确认需求/覆盖点/接口的变化，明确要补齐的 directed 场景列表。"
+      - " 2) 扫描 {OUT}/tests/ 下所有与 {DUT} 相关的定向测试文件：定位需要修改/新增的测试。"
+      - " 3) 批量实现：按覆盖点/检查点逐条补齐测试，必要时创建新的测试文件；确保测试可读、可复现、断言明确。"
+      - " 4) 运行验证：`RunTestCases('tests/test_{DUT}_*.py')`（可先跑更小范围再逐步扩大）。"
+      - " 5) 失败处理："
+      - "    - 若失败源于测试实现不合理/断言错误：先修正测试逻辑。"
+      - "    - 若失败源于 DUT 行为与规格/预期不符：按 Guide_Doc/dut_bug_analysis.md 流程提交/跟踪缺陷，并补齐最小复现。"
+      - " 6) 如果没实现完所有新增/修改的测试用例，请回到第3步继续补齐。"
+      - " 7) 调用 `Check` 检查所有测试用例；若无需更新则 `Complete`。"
+      - "范围说明：本阶段只处理定向（directed）测试用例；随机测试在下一阶段单独处理。"
+    checker:
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+        extra_args:
+          max_try: -1
+    reference_files:
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+
+
+  - name: update_random_test_cases
+    desc: "更新随机用例"
+    task:
+      - "目标：基于最新验证需求/覆盖策略与设计变更（`WorkDiff`）完善或增加随机测试用例。"
+      - "步骤："
+      - " 1) 分析已有 {OUT}/tests/test_{DUT}_random_*.py。"
+      - " 2) 增量更新随机测试："
+      - "    - 若接口/寄存器/状态空间变化：同步调整随机约束与合法值空间。"
+      - "    - 若新增功能：增加能触发该功能的随机生成策略与必要的定向 bias。"
+      - "    - 若新增检查点：补齐断言/覆盖收集等，使随机测试能观测并判定结果。"
+      - "    - 有需要请增加测试用例文件，命名需要合理。"
+      - " 3) 运行验证：`RunTestCases('tests/test_{DUT}_random_*.py')`，必要时控制随机种子以便复现。"
+      - " 4) 失败处理同上：先判定是测试问题还是 DUT 问题，再分别修复或走缺陷流程。"
+      - " 5) 调用 `Check` 检查所有测试用例；若无需更新则 `Complete`。"
+    checker:
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+        extra_args:
+          max_try: -1
+    reference_files:
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_case_random.md"
+
+
+  - name: final_verification_and_report
+    desc: "验证审查与总结"
+    task:
+      - "目标：查漏补缺，对测试过程进行回顾，提炼经验教训"
+      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
+      - "第2步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
+      - "第3步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"
+      - "第4步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
+      - "第5步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
+      - "第6步：根据需要判断是否进行验证补充，或者调整验证规划"
+      - "第7步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
+      - "注意：任务中涉及到的文档和注释，主体需要用{DOC_GEN_LANG}编写"
+    checker:
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+        extra_args:
+          max_try: -1
+    reference_files:
+      - "Guide_Doc/dut_test_summary.md"
+    output_files:
+      - "{OUT}/{DUT}_test_summary.md"
