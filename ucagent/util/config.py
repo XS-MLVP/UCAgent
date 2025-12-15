@@ -77,17 +77,23 @@ class Config:
         }
         """
         self.un_freeze()  # Ensure the configuration is mutable
+        def _update_list(list_val):
+            for i, itm in enumerate(list_val):
+                if isinstance(itm, Config):
+                    itm.update_template(template_dict)
+                elif isinstance(itm, str):
+                    nval = render_template(itm, template_dict)
+                    if nval != itm:
+                        list_val[i] = nval
+                elif isinstance(itm, list):
+                    _update_list(itm)
+                else:
+                    assert False, f"Unsupported list item type: {type(itm)}"
         for key, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.update_template(template_dict)
             elif isinstance(value, list):
-                for i, item in enumerate(value):
-                    if isinstance(item, Config):
-                        item.update_template(template_dict)
-                    elif isinstance(item, str):
-                        nval = render_template(item, template_dict)
-                        if nval != item:
-                            value[i] = nval
+                _update_list(value)
             elif isinstance(value, str):
                 nval = render_template(value, template_dict)
                 if nval != value:
