@@ -914,7 +914,9 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
         raise ImportError(f"Failed to import and process {target_file}: {e}")
 
 
-def list_files_by_mtime(directory, max_files=100, subdir=None, ignore_patterns="*.pyc,*.log,*.tmp"):
+def list_files_by_mtime(directory, max_files=100, subdir=None,
+                        ignore_patterns="*.pyc,*.log,*.tmp,*.fst,*.dat,*.vcd,*.bin,*.ini,.*"
+                        ):
     """列出目录中的文件并按修改时间倒序排列"""
     ntime = time.time()
     def find_f(source_dir, workspace):

@@ -36,22 +36,15 @@ class IncVerifyHumanInputChecker(Checker):
             diff_ops.git_add_and_commit(self.workspace,
                                         f"Init increment verification ({func.fmt_time_stamp(time.time())}).")
         if diff_ops.is_dirty(self.workspace) or diff_ops.has_untracked_files(self.workspace):
-            info("Auto-committing uncommitted changes before increment verification.")
-            diff_ops.git_add_and_commit(self.workspace,
-                                        f"Auto-commit before increment verification ({func.fmt_time_stamp(time.time())}).")
-        else:
-            warning("No changes to commit before increment verification.")
+            warning(f"Workspace is dirty or has untracked files at the start of increment verification. "+
+                    "Please ensure a clean state before proceeding.")
         return super().on_init()
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Check if human input is needed for increment verification."""
-        if diff_ops.is_dirty(self.workspace):
-            warning("Workspace has uncommitted changes. Please commit or stash them before proceeding.")
-            return False, {"error": "Workspace has uncommitted changes. You cannot do any changes before getting human instructions. Please checkout to a clean state."}
         hm_pass, hm_message = self.get_last_human_check_result()
-        if not hm_pass:
-            return False, {"error": "Previous human check failed, human message: " + hm_message}
-        self.smanager_set_value(self.data_key, hm_message)
+        if hm_pass is True:
+            self.smanager_set_value(self.data_key, hm_message)
         return True, f"Human input is received, please use tool Complete to go on."
 
 

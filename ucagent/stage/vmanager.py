@@ -244,16 +244,26 @@ class StageManager(object):
         """
         Initialize the StageManager with an empty list of stages.
         """
-        from ucagent.stage import VerifyStage
         self.cfg = cfg
         self.data = {}
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
-        self.root_stage = get_root_stage(cfg, workspace, tool_read_text)
+        self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        self.agent = agent
+        self.tool_read_text = tool_read_text
+        self.ucagent_info = ucagent_info
+        self.force_stage_index = force_stage_index
+        self.stage_skip_list = stage_skip_list
+        self.stage_unskip_list = stage_unskip_list
+        self.reference_files = reference_files
+
+    def init_stage(self):
+        from ucagent.stage import VerifyStage
+        self.root_stage = get_root_stage(self.cfg, self.workspace, self.tool_read_text)
         self.stages = self.root_stage.get_substages()
-        if reference_files:
-            for si, flist in reference_files.items():
+        if self.reference_files:
+            for si, flist in self.reference_files.items():
                 if 0 <= si < len(self.stages):
                     info(f"Stage {si} try add reference files: {flist}")
                     self.stages[si].add_reference_files(flist)
@@ -263,19 +273,20 @@ class StageManager(object):
                         s.add_reference_files(flist)
                 else:
                     warning(f"Invalid stage index {si} in reference_files, ignored.")
-        self.mission = cfg.mission
-        self.agent = agent
+        self.mission = self.cfg.mission
         info(f"Initialized StageManager with {len(self.stages)} stages.")
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
-        self.stage_index = min(max(0, force_stage_index), len(self.stages) - 1)
+        self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
         for i in range(self.stage_index + 1):
             if self.stages[i].is_skipped():
                 continue
             self.stages[i].set_reached(True)
-        stages_info = ucagent_info.get("stages_info", {})
+        stages_info = self.ucagent_info.get("stages_info", {})
 
         for stage_idx_str, stage_info in stages_info.items():
             idx = int(stage_idx_str)
+            if idx >= len(self.stages):
+                continue
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
@@ -285,15 +296,13 @@ class StageManager(object):
             s.set_stage_manager(self)
         self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.tool_read_text = tool_read_text
         self.all_completed = False
-        self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
-        if stage_skip_list:
-            for si in stage_skip_list:
+        if self.stage_skip_list:
+            for si in self.stage_skip_list:
                 self.skip_stage(si)
                 info(f"Stage {si} is set to be skipped.")
-        if stage_unskip_list:
-            for sui in stage_unskip_list:
+        if self.stage_unskip_list:
+            for sui in self.stage_unskip_list:
                 self.unskip_stage(sui)
                 info(f"Stage {sui} is set to be unskipped.")
         info("Current stage index is " + str(self.stage_index) + ".")

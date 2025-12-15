@@ -186,12 +186,12 @@ class Checker:
                 if self._human_check_passed is not True:
                     p = False
                     if self._human_check_passed is False:
-                        m = f"Human check failed: `{self._human_check_message if self._human_check_message else 'No additional message.'}`. " + \
-                             "If you have fixed the issue, you should notify human to set pass and then re-run the tool 'Check' to continue."
+                        m = {"error": f"Human check failed: `{self._human_check_message if self._human_check_message else 'No additional message.'}`. " + \
+                             "If you have fixed the issue, you should notify human to set pass and then re-run the tool 'Check' to continue."}
                     else:
-                        m = "Tools check has passed. This stage needs human check, please give a brief outcome description of this stage. " + \
-                            "Then notify human to verify your work. " + \
-                            "The human need use command 'hmcheck_pass [msg]' or 'hmcheck_fail [msg]' to set the check result. After that, re-run the tool 'Check' to continue."
+                        m = {"error": f"Tool({self.__class__.__name__}) check has passed. But this stage needs human check, please give a brief outcome description of this stage. " + \
+                            "Then notify human to verify your work and wait until human confirmation. " + \
+                            "The human need use command 'hmcheck_pass [msg]' or 'hmcheck_fail [msg]' to set the check result. After that, re-run the tool 'Check' to continue."}
                     self.stage_manager.agent._need_human = True
                     self._human_check_count += 1
                     self.stage_manager.save_stage_info()
@@ -578,4 +578,5 @@ class UpdataTempFromDataChecker(Checker):
         return {self.data_key: self.smanager_get_value(self.data_key)}
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
+        """Update temporary files from data by KEYs."""
         return True, "Temporary files updated from data."

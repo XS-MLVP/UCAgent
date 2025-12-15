@@ -2,6 +2,12 @@
 mission:
   name: "{DUT} 增量验证任务"
 
+# TUI layout settings
+tui:
+  console_height: 42
+
+tools:
+  ignore_tools: [] # enable tools ["WorkDiff", "WorkCommit"] which is disabled by default
 
 stage:
   - name: study_workspace # 在该阶段启动的时候，会自动初始化Git，并进行版本控制。分支命名为：ucagent/incremental
@@ -16,12 +22,15 @@ stage:
       - "    - {OUT}/{DUT}_verification_needs_and_plan.md（验证需求与当前计划/进度）"
       - "    - {OUT}/{DUT}_test_summary.md（测试现状、通过率、覆盖率摘要）"
       - "    - {OUT}/{DUT}_bug_analysis.md（已知问题、风险点、复现方式/回归策略）"
-      - " 3) 输出给用户一份“工作空间现状摘要”，必须包含："
+      - " 3) 通过工具 `WorkDiff` 获取相对基线（原始验证仓库）的变更摘要，重点关注 DUT RTL/接口、测试框架、文档是否有改动。"
+      - " 4) 输出给用户一份“工作空间现状摘要”，必须包含："
       - "    - 你读到的 DUT 关键信息（接口/功能边界/关键约束）"
       - "    - 当前已有的测试/覆盖点/文档的成熟度与明显缺口（用可执行语言描述）"
       - "    - 你需要人工确认的 3~5 个关键问题（如果存在歧义/缺失信息）"
-      - " 4) 然后进入等待：由人工提供本轮增量任务清单（必须是可执行条目）。"
-      - "注意：本阶段不涉及任何代码或文档改动，仅做信息收集与理解。"
+      - " 5) 然后进入等待：由人工提供本轮增量任务清单。"
+      - "注意："
+      - "   - 本阶段不涉及任何代码或文档改动，仅做信息收集与理解。"
+      - "   - 如果`WorkDiff` 没有获取到相对基线用户的变更，则等待人工确认/变更。"
     reference_files:
       - "{DUT}/*.md"
       - "{DUT}/__init__.py"
@@ -37,16 +46,17 @@ stage:
           branch_name: ucagent/incremental
           data_key: "HM_TASK"
           repo_ignore:
-            - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v"]
-            - ["data/*", "*.json", "*.ini", "{DUT}.ignore"]
+            - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v", "!{DUT}/*.md"]
+            - ["data", "uc_test_report", "*.json", "*.ini", "{DUT}.ignore"]
+            - ["*.fst", "*.dat", "*.vcd", "*.bin", "*.log", "*.tmp", "*.pyc", ]
 
   - name: update_task_and_plan
     desc: "更新验证计划"
     task:
       - "规划人工任务": "{HM_TASK}"
       - "步骤："
-      - " 1) 将任务拆解为可执行的子任务：每条至少包含【要改什么/为何要改/改到哪里/如何验收】。"
-      - " 2) 运行工具 `WorkDiff` 获取相对基线（原始验证仓库）的变更摘要：重点关注 DUT RTL/接口、测试框架、文档是否有改动。"
+      - " 1) 运行工具 `WorkDiff` 获取相对基线（原始验证仓库）的变更摘要：重点关注 DUT RTL/接口、测试框架、文档是否有改动。"
+      - " 2) 将任务拆解为可执行的子任务：每条至少包含【要改什么/为何要改/改到哪里/如何验收】。"
       - " 3) 形成“增量验证计划”，要求可直接驱动后续阶段执行："
       - "    - 要新增/修改/删除哪些 FG/FC/CK（与 {OUT}/{DUT}_functions_and_checks.md 对齐）"
       - "    - 要更新哪些覆盖点/哪些测试文件（定向/随机/API/环境）"
@@ -174,6 +184,7 @@ stage:
       - "    - env用例测试不能失败，否则说明环境搭建有问题，必须修正环境代码后重跑。"
       - "    - env用例仅仅用来验证环境搭建的正确性，不应当涉及 DUT 行为验证。"
       - " 5) 调用 `Check` 做静态/结构校验；若无需更新则 `Complete`。"
+      - "注意：如果原来的bug已经修复，需要更新{OUT}/{DUT}_bug_analysis.md中对应的内容，例如删除已解决的bug记录等"
     checker:
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
@@ -206,6 +217,7 @@ stage:
       - " 6) 如果没实现完所有新增/修改的测试用例，请回到第3步继续补齐。"
       - " 7) 调用 `Check` 检查所有测试用例；若无需更新则 `Complete`。"
       - "范围说明：本阶段只处理定向（directed）测试用例；随机测试在下一阶段单独处理。"
+      - "注意：如果原来的bug已经修复，需要更新{OUT}/{DUT}_bug_analysis.md中对应的内容，例如删除已解决的bug记录等"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -235,6 +247,7 @@ stage:
       - " 3) 运行验证：`RunTestCases('tests/test_{DUT}_random_*.py')`，必要时控制随机种子以便复现。"
       - " 4) 失败处理同上：先判定是测试问题还是 DUT 问题，再分别修复或走缺陷流程。"
       - " 5) 调用 `Check` 检查所有测试用例；若无需更新则 `Complete`。"
+      - "注意：如果原来的bug已经修复，需要更新{OUT}/{DUT}_bug_analysis.md中对应的内容，例如删除已解决的bug记录等"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"

@@ -216,7 +216,7 @@ class VerifyPDB(Pdb):
         """
         self.agent.set_break(False)
         self.agent.set_force_trace(False)
-        self.agent.run_loop(True, arg.strip())
+        self.agent.run_loop(arg.strip())
 
     def do_chat(self, arg):
         """
