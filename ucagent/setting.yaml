@@ -65,7 +65,7 @@ write_dirs:
 tools:
   RunTestCases:
     test_dir: "{OUT}/tests"
-  ignore_tools: []       # List of tool names to ignore
+  ignore_tools: ["WorkDiff", "WorkCommit"] # List of tool names to ignore
   selected_tools: []     # List of tool names to enable, if empty, all tools are enabled except those in ignore_tools
 
 # Tool call timeout

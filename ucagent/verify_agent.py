@@ -251,6 +251,7 @@ class VerifyAgent:
             ]
         self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
                                                 self.cfg.tools.as_dict())
+        self.stage_manager.init_stage()
         self.agent = create_react_agent(
             model=self.model,
             tools=self.test_tools,
@@ -529,7 +530,7 @@ class VerifyAgent:
         self.check_pdb_trace()
         return self
 
-    def run_loop(self, with_break=False, msg=None):
+    def run_loop(self, msg=None):
         if msg:
             self.set_continue_msg(msg)
         self._need_human = False
@@ -538,13 +539,12 @@ class VerifyAgent:
             self.one_loop()
             if self.is_exit():
                 break
-            if with_break:
-                if self.is_break():
-                    info("Break at loop: " + str(self.invoke_round))
-                    return
-                if self._need_human:
-                    info("Waiting for human input at loop: " + str(self.invoke_round))
-                    return
+            if self.is_break():
+                info("Break at loop: " + str(self.invoke_round))
+                return
+            if self._need_human:
+                info("Waiting for human input at loop: " + str(self.invoke_round))
+                return
             self.check_pdb_trace()
         time_end = self._time_end = time.time()
         info("Verify Agent finished at: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time_end)))

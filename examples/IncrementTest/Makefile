@@ -1,6 +1,6 @@
 # First try ../../ucagent.py then fallback to system installed ucagent
 UCAGENT_PY := $(wildcard ../../ucagent.py)
-
+CONT ?= false
 ifdef UCAGENT_PY
 CMD ?= python3 ../../ucagent.py
 else
@@ -8,14 +8,24 @@ CMD ?= ucagent
 endif
 
 
-init:
-	@if [ ! -d ../output ]; then \
+init_workspace:
+	@if [ ! -d ../../output ]; then \
 		echo "Error: Please complete Adder verification first."; \
 		exit 1; \
 	fi
-	rm output -rf || true
-	cp -r ../output output
+	@if [ $CONT = false ]; then \
+		rm output -rf || true; \
+		cp -r ../../output output; \
+		rm output/.ucagent_info.json -f || true; \
+	fi
+
+# default init with mcp server no file tools
+init: init_workspace
 	$(CMD) output/ Adder --config inc.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools $(ARGS)
+
+
+init_test: init_workspace
+	$(CMD) output/ Adder --config inc.yaml -s -hm --tui --no-embed-tools $(ARGS)
 
 
 diff:
