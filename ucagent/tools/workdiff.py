@@ -7,13 +7,14 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field
 from typing import Optional
 import ucagent.util.diff_ops as diff_ops
-import os
 from ucagent.util.log import info
 
+import os
+import glob
 
 class ArgsWorkDiff(BaseModel):
     """Arguments for workdiff tool"""
-    file_path: str = Field(".", description="The file path to check for differences, default is current workspace directory")
+    file_path: str = Field(".", description="The file path to check for differences, default is current workspace directory. Supports glob patterns.")
     show_diff: bool = Field(False, description="Whether to show detailed diff output, default is False")
 
 
@@ -40,16 +41,15 @@ class WorkDiff(UCTool):
         run_manager=None,
     ) -> str:
         """Run the workdiff tool."""
-        rpath = os.path.abspath(self.workspace, os.path.sep, file_path)
-        if not os.path.exists(rpath):
-            return f"Path {rpath} does not exist in workspace."
+        rpath = os.path.abspath(self.workspace + os.path.sep + file_path)
+        if not glob.glob(rpath):
+            return f"Path pattern: '{rpath}' does not exist in workspace."
         if not diff_ops.is_git_repo(self.workspace):
             info(f"Workspace {self.workspace} is not a Git repository.")
             return f"The workspace is not a Git repository."
         repo = diff_ops.git.Repo(self.workspace)
-        changed_files = [item.a_path for item in repo.index.diff(None)]
+        changed_files = [item.a_path for item in repo.index.diff(None, paths=file_path)]
         untracked_files = repo.untracked_files
-        diff_output = repo.git.diff()
         if not changed_files and not untracked_files:
             return "No changes detected in the workspace."
         result = "Changes detected in the workspace:\n"
@@ -59,11 +59,11 @@ class WorkDiff(UCTool):
             result += "\nUntracked files:\n" + "\n".join(untracked_files) + "\n"
         # detail diff output
         if show_diff and changed_files:
-            result += "\nDetailed diff output:\n"
+            result += "\n----------------------- Detailed diff output: -----------------------\n"
             for dfile in changed_files:
                 file_diff = repo.git.diff(dfile)
                 result += f"\nDiff for {dfile}:\n{file_diff}\n"
-        result += "\nDiff output:\n" + diff_output
+            result += "----------------------- End of Detailed diff  -----------------------\n"
         return result
 
 
@@ -77,7 +77,7 @@ class WorkCommit(UCTool):
 
     name: str = "WorkCommit"
     description: str = (
-        "Commit changes in workspace files (only support *.md, *.py, *.v, *.sv, *.scala files) using Git. "
+        "Commit all changes in the workspace (only support *.md, *.py, *.v, *.sv, *.scala files) using Git. "
         "This tool stages all modified and untracked files and creates a commit with the provided message. "
         "Use this tool to save your changes to the local repository."
     )
@@ -118,4 +118,4 @@ class WorkCommit(UCTool):
         for file in target_files:
             repo.git.add(file)
         repo.index.commit(commit_message)
-        return f"Committed changes to {len(target_files)} files with message: '{commit_message}'."
+        return f"Committed changes to {len(target_files)} files ({', '.join(target_files)})."
