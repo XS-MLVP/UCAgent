@@ -13,7 +13,8 @@ init_workspace:
 		echo "Error: Please complete Adder verification first."; \
 		exit 1; \
 	fi
-	@if [ $CONT = false ]; then \
+	@if [ $(CONT) = false ]; then \
+		echo "clean output"; \
 		rm output -rf || true; \
 		cp -r ../../output output; \
 		rm output/.ucagent_info.json -f || true; \

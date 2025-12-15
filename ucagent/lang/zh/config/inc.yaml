@@ -71,7 +71,7 @@ stage:
       - "{OUT}/{DUT}_basic_info.md"
     checker:
       - name: update_task_template
-        clss: "UpdataTempFromDataChecker"
+        clss: "UpdateTempFromDataChecker"
         args:
           data_key: "HM_TASK"
     reference_files:

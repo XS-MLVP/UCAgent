@@ -88,7 +88,10 @@ class Config:
                 elif isinstance(itm, list):
                     _update_list(itm)
                 else:
-                    assert False, f"Unsupported list item type: {type(itm)}"
+                    assert False, (
+                        f"Unsupported list item type: {type(itm)}. "
+                        "Supported types are: str, Config, str, and list."
+                    )
         for key, value in self.__dict__.items():
             if isinstance(value, Config):
                 value.update_template(template_dict)
