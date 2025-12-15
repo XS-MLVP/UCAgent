@@ -198,6 +198,9 @@ class VerifyAgent:
                            CopyFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            MoveFile(self.workspace,                 write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
                            CreateDirectory(self.workspace,          write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
+                           # Workspace git management tools
+                           WorkDiff(self.workspace),
+                           WorkCommit(self.workspace),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), ucagent.tools) \
@@ -787,6 +790,11 @@ class VerifyAgent:
                     self.check_tool_call_error(msg)
                     continue
                 self.message_echo("\n"+msg.pretty_repr())
+
+    def get_tool_by_name(self, tool_name: str):
+        """Get a tool by its name."""
+        tool = next((tool for tool in self.test_tools if tool.name == tool_name), None)
+        return tool
 
     def set_tool_call_time_out(self, time_out: int):
         """Set the tool call timeout in seconds."""

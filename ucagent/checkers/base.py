@@ -63,6 +63,13 @@ class Checker:
         self._is_init = True
         return self
 
+    def get_tool_by_name(self, tool_name: str):
+        """Get a tool by its name."""
+        if self.stage_manager is None:
+            raise RuntimeError("Stage Manager is not set for this checker, cannot get tool.")
+        tool = self.stage_manager.agent.get_tool_by_name(tool_name)
+        return tool
+
     def get_template_data(self):
         return None
 
@@ -557,3 +564,18 @@ class HumanChecker(Checker):
                               and the second element is a message string.
         """
         return True, "Waiting for human check to set pass or fail."
+
+
+class UpdataTempFromDataChecker(Checker):
+    """Update Temporary Files from Data Checker."""
+
+    def __init__(self, data_key: str, **kw):
+        self.data_key = data_key
+
+    def get_template_data(self):
+        if self.stage_manager is None:
+            return None
+        return {self.data_key: self.smanager_get_value(self.data_key)}
+
+    def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
+        return True, "Temporary files updated from data."
