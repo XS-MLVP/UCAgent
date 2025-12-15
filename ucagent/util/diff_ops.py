@@ -76,7 +76,8 @@ def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]
         else:
             for suffix in target_suffix_list:
                 repo.git.add(f'*.{suffix}')
-        repo.index.commit(message)
+        if repo.is_dirty(untracked_files=True) or repo.untracked_files:
+            repo.index.commit(message)
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
@@ -158,6 +159,8 @@ def get_current_branch(path: str) -> str:
         return repo.active_branch.name
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
+    except Exception as e:
+        raise ValueError(f"Could not get current branch: {str(e)}")
 
 
 def get_latest_commit_hash(path: str) -> str:

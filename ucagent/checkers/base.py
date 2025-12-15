@@ -566,7 +566,7 @@ class HumanChecker(Checker):
         return True, "Waiting for human check to set pass or fail."
 
 
-class UpdataTempFromDataChecker(Checker):
+class UpdateTempFromDataChecker(Checker):
     """Update Temporary Files from Data Checker."""
 
     def __init__(self, data_key: str, **kw):

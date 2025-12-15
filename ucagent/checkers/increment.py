@@ -56,6 +56,7 @@ class GitNotDirtyChecker(Checker):
         self.commit_tool = commit_tool
 
     def on_init(self):
+        info(f"Enable {self.commit_tool} tool by {self.__class__.__name__}.")
         self.get_tool_by_name(self.commit_tool).set_disabled(False, "Enabled by GitNotDirtyChecker.")
         return super().on_init()
 

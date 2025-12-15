@@ -88,7 +88,7 @@ class WorkCommit(UCTool):
     def __init__(self, workspace: str, subfix_list: tuple = (".md", ".py", ".v", ".sv", ".scala")):
         super().__init__()
         self.workspace = os.path.abspath(workspace)
-        self.subfix_list = subfix_list
+        self.subfix_list = tuple(subfix_list)
         self.set_disabled(True, "WorkCommit is disabled by default.")
 
     def _run(
