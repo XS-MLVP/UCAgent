@@ -138,7 +138,11 @@ stage:
       - "第3步：每组内定义具体功能点，用<FC-名称>标记"
       - "第4步：每个功能点设计检测点，用<CK-名称>标记"
       - "把结果及时写入{OUT}/{DUT}_functions_and_checks.md，请使用{DOC_GEN_LANG}编写"
-      - "重要：标签格式必须正确，这是后续自动化测试的基础"
+      - "重要："
+      - "   标签格式必须正确，这是后续自动化测试的基础"
+      - "   必须覆盖所有功能点和边界条件"
+      - "   功能点尽可能细化，检测点要具体"
+      - "   检查点需要具有可测性，确保能通过测试用例验证"
       - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
