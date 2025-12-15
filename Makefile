@@ -1,6 +1,7 @@
 
 # Current Workspace Dir
 CWD ?= output
+CFG ?= config.yaml
 
 all: clean test
 
@@ -32,13 +33,13 @@ init_%:
 	cp examples/$*/*.py $(CWD)/$*/  || true
 
 test_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui -l ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
 
 mcp_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
 mcp_all_tools_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config config.yaml -s -hm --tui --mcp-server ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}
 
 clean:
 	rm -rf $(CWD)
