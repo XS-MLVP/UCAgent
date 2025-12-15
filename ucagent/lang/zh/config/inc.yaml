@@ -5,9 +5,9 @@ mission:
 
 stage:
   - name: study_workspace # 在该阶段启动的时候，会自动初始化Git，并进行版本控制。分支命名为：ucagent/incremental
-    desc: "工作区分析与任务理解"
+    desc: "原始工作区分析与理解"
     task:
-      - "目标：在开始改动前，先形成对当前 DUT 设计与验证状态的一致理解，避免在信息不全时凭空假设。"
+      - "目标：在开始增量验证前，先形成对当前 DUT 设计与验证状态的一致理解，避免在信息不全时凭空假设。"
       - "步骤："
       - " 1) 扫描当前工作目录结构，识别 DUT 源码、输出目录 {OUT}/、测试目录 {OUT}/tests/ 以及既有文档资产。"
       - " 2) 阅读并理解以下关键文件（至少应覆盖这些；如存在同类补充文档也要阅读）："
@@ -32,11 +32,13 @@ stage:
       - "{OUT}/{DUT}_bug_analysis.md"
     checker:
       - name: task_from_human
-        clss: "IncVerifyHumanInput"
+        clss: "IncVerifyHumanInputChecker"
         args:
           branch_name: ucagent/incremental
           data_key: "HM_TASK"
-
+          repo_ignore:
+            - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v"]
+            - ["data/*", "*.json", "*.ini", "{DUT}.ignore"]
 
   - name: update_task_and_plan
     desc: "更新验证计划"
@@ -59,13 +61,9 @@ stage:
       - "{OUT}/{DUT}_basic_info.md"
     checker:
       - name: update_task_template
-        clss: "UpdataTempFromData"
+        clss: "UpdataTempFromDataChecker"
         args:
-          data_key:
-            - "HM_TASK"
-          ex_ignore:
-            - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v"]
-            - ["data/*", "*.json", "*.ini", "{DUT}.ignore"]
+          data_key: "HM_TASK"
     reference_files:
       - "{OUT}/{DUT}_verification_needs_and_plan.md"
       - "{OUT}/{DUT}_basic_info.md"
@@ -279,3 +277,23 @@ stage:
       - "Guide_Doc/dut_test_summary.md"
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
+
+
+  - name: commit_changes
+    desc: "提交变更"
+    task:
+      - "目标：将本次增量验证的所有变更提交到 Git 仓库，形成清晰的变更记录。"
+      - "步骤："
+      - " 1) 使用工具 `WorkDiff` 查看变更"
+      - " 2) 确认所有变更均符合预期，且无遗漏，然后调用 `WorkCommit` 提交变更。"
+      - "    - 本次增量验证的主要目标与范围（简要描述）。"
+      - "    - 关键变更点列表（如新增/修改的 FG/FC/CK，新增的测试用例数量等）。"
+      - "    - 任何需要后续跟进的问题或注意事项。"
+      - " 2) 确认提交成功，调用Complete完成该阶段，然后调用Exit工具完成所有工作。"
+      - "注意："
+      - "  - 必须使用工具`WorkCommit`提交变更，不能直接使用git相关的命令。"
+      - "  - 提交信息应简洁明了，便于后续审查与追踪。"
+    checker:
+      - name: commit_check
+        clss: "GitNotDirtyChecker"
+

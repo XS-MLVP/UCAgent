@@ -2,6 +2,7 @@
 """Diff and version operations utility functions."""
 
 import git
+import os
 
 
 def is_git_repo(path: str) -> bool:
@@ -53,6 +54,8 @@ def append_ignore_file(path: str, patterns: list[str]) -> None:
         patterns (list[str]): List of patterns to append to the .gitignore file.
     """
     gitignore_path = f"{path}/.gitignore"
+    if os.path.exists(gitignore_path) is False:
+        return add_ignore_file(path, patterns)
     with open(gitignore_path, 'a') as gitignore_file:
         for pattern in patterns:
             gitignore_file.write(f"{pattern}\n")
@@ -78,6 +81,21 @@ def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
 
+def has_untracked_files(path: str) -> bool:
+    """Check if the Git repository at the given path has untracked files.
+
+    Args:
+        path (str): The file system path of the Git repository.
+    Returns:
+        bool: True if there are untracked files, False otherwise.
+    """
+    try:
+        repo = git.Repo(path)
+        return len(repo.untracked_files) > 0
+    except git.exc.InvalidGitRepositoryError:
+        raise ValueError(f"The path '{path}' is not a valid Git repository.")
+
+
 def is_dirty(path: str) -> bool:
     """Check if the Git repository at the given path has uncommitted changes.
 
@@ -89,6 +107,22 @@ def is_dirty(path: str) -> bool:
     try:
         repo = git.Repo(path)
         return repo.is_dirty()
+    except git.exc.InvalidGitRepositoryError:
+        raise ValueError(f"The path '{path}' is not a valid Git repository.")
+
+
+def get_dirty_files(path: str) -> list[str]:
+    """Get the list of dirty (modified) files in the Git repository at the given path.
+
+    Args:
+        path (str): The file system path of the Git repository.
+    Returns:
+        list[str]: A list of dirty file paths.
+    """
+    try:
+        repo = git.Repo(path)
+        dirty_files = [item.a_path for item in repo.index.diff(None)]
+        return dirty_files
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
