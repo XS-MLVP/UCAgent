@@ -47,10 +47,11 @@ clean:
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist
-	find ./ -name '*.dat'||xargs rm -f
-	find ./ -name '*.vcd'||xargs rm -f
-	find ./ -name '*.fst'||xargs rm -f
-	find ./ -name __pycache__||xargs rm -rf
+	find ./ -name '*.dat'|xargs rm -f
+	find ./ -name '*.vcd'|xargs rm -f
+	find ./ -name '*.fst'|xargs rm -f
+	find ./ -name __pycache__|xargs rm -rf
+	find ./ -name output|xargs rm -rf
 
 clean_test:
 	rm -rf $(CWD)/unity_test
