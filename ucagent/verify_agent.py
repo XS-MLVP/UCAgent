@@ -764,6 +764,12 @@ class VerifyAgent:
             msg = step["messages"][-1]
             self.check_tool_call_error(msg)
             self.state_record_mesg(msg)
+            try:
+                from ucagent import headless_bus  # type: ignore
+                if isinstance(msg, AIMessage):
+                    headless_bus.emit_chat("agent", msg.content)
+            except Exception:
+                pass
             self.message_echo(msg.pretty_repr())
 
     def do_work_stream(self, instructions, config):
@@ -786,6 +792,11 @@ class VerifyAgent:
                 msg = data["messages"][-1]
                 self.state_record_mesg(msg)
                 if isinstance(msg, AIMessage):
+                    try:
+                        from ucagent import headless_bus  # type: ignore
+                        headless_bus.emit_chat("agent", msg.content)
+                    except Exception:
+                        pass
                     self.message_echo(get_ai_message_tool_call(msg))
                     self.check_tool_call_error(msg)
                     continue

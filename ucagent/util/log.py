@@ -100,6 +100,12 @@ def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
             logger.error(msg, extra=extra)
         elif level == logging.CRITICAL:
             logger.critical(msg, extra=extra)
+    try:
+        from ucagent import headless_bus  # type: ignore
+        headless_bus.emit_log({"level": level, "msg": msg})
+    except Exception:
+        # headless bus is optional; ignore if unavailable
+        pass
 
 
 def debug(msg: str):

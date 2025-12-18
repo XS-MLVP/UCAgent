@@ -1,0 +1,119 @@
+{
+  "name": "ucagent-headless",
+  "displayName": "UCAgent Headless (Preview)",
+  "description": "VSCode front-end for UCAgent headless mode with chat panel on the right and status/console at the bottom.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:ucagent.startHeadless",
+    "onCommand:ucagent.connectSession",
+    "onCommand:ucagent.sendContinue",
+    "onCommand:ucagent.sendQuit",
+    "onCommand:ucagent.startIflow"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ucagent.startHeadless",
+        "title": "UCAgent: 启动 Headless 会话"
+      },
+      {
+        "command": "ucagent.connectSession",
+        "title": "UCAgent: 连接已存在的 Headless 会话"
+      },
+      {
+        "command": "ucagent.sendContinue",
+        "title": "UCAgent: 发送 Continue"
+      },
+      {
+        "command": "ucagent.sendQuit",
+        "title": "UCAgent: 发送 Quit"
+      },
+      {
+        "command": "ucagent.startIflow",
+        "title": "UCAgent: 启动 iFlow 并绑定当前会话"
+      }
+    ],
+    "configuration": {
+      "title": "UCAgent",
+      "properties": {
+        "ucagent.workspace": {
+          "type": "string",
+          "default": "output",
+          "description": "默认工作区路径 (传给 ucagent 的 workspace)."
+        },
+        "ucagent.configPath": {
+          "type": "string",
+          "default": "config.yaml",
+          "description": "默认 config.yaml 路径."
+        },
+        "ucagent.wsPort": {
+          "type": "number",
+          "default": 5123,
+          "description": "Headless TCP 端口 (自动加1如被占用)."
+        },
+        "ucagent.mcpPort": {
+          "type": "number",
+          "default": 5000,
+          "description": "MCP Server 端口 (可选)."
+        },
+        "ucagent.iflowSettingsPath": {
+          "type": "string",
+          "default": "~/.iflow/settings.json",
+          "description": "iFlow settings.json 模板位置."
+        },
+        "ucagent.autoContinue": {
+          "type": "boolean",
+          "default": true,
+          "description": "检测到等待/暂停时自动发送 continue."
+        },
+        "ucagent.autoContinueDebounceMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "自动继续的最小间隔（毫秒），避免重复发送。"
+        },
+        "ucagent.pollInterval": {
+          "type": "number",
+          "default": 1.0,
+          "description": "headless 轮询 .ucagent_info.json 的间隔（秒）。"
+        },
+        "ucagent.consoleBuffer": {
+          "type": "number",
+          "default": 8000,
+          "description": "控制台最大保留字符数（超过会截断）。"
+        },
+        "ucagent.maxChatMessages": {
+          "type": "number",
+          "default": 50,
+          "description": "对话面板最多保留的消息条数。"
+        },
+        "ucagent.reconnectAttempts": {
+          "type": "number",
+          "default": 3,
+          "description": "Socket 断线时的重试次数（0 为不重连）。"
+        },
+        "ucagent.reconnectDelayMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "断线重连的延迟（毫秒）。"
+        },
+        "ucagent.chatHistoryLimit": {
+          "type": "number",
+          "default": 50,
+          "description": "对话面板保留的最大消息数量."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p ."
+  }
+}

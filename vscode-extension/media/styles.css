@@ -1,0 +1,180 @@
+:root {
+  color-scheme: dark;
+  font-family: "Consolas", "SFMono-Regular", monospace;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: #0f1115;
+  color: #e4e7ed;
+}
+
+#layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+#main {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 8px;
+}
+
+#status, #artifacts, #controls, #console, #chat {
+  background: #161922;
+  border: 1px solid #202534;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+#status .title, #chat .title {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+#stateView {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+#artifactList {
+  list-style: none;
+  padding-left: 0;
+  margin: 0 0 6px 0;
+  max-height: 120px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+#artifactList li {
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+#artifactList li:hover {
+  background: #202534;
+}
+
+#console {
+  overflow: hidden;
+  background: #0f1115;
+  border: 1px solid #202534;
+}
+
+#xterm {
+  width: 100%;
+  height: 100%;
+}
+
+#controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+#controls input {
+  flex: 1;
+  background: #0f1115;
+  color: #e4e7ed;
+  border: 1px solid #202534;
+  padding: 4px 6px;
+}
+
+button {
+  background: #1f6feb;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #388bfd;
+}
+
+#chat {
+  grid-row: 1 / span 2;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+}
+
+#chatList {
+  overflow: auto;
+  background: #0f1115;
+  border: 1px solid #202534;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.chat {
+  padding: 4px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+}
+
+.chat-agent { background: #203040; }
+.chat-me { background: #264d3b; }
+
+#chatInput {
+  display: flex;
+  gap: 6px;
+}
+
+#chatInput input {
+  flex: 1;
+  background: #0f1115;
+  color: #e4e7ed;
+  border: 1px solid #202534;
+  padding: 6px;
+  border-radius: 4px;
+}
+
+#consoleBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+#consoleSearch {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+#consoleSearch input {
+  background: #0f1115;
+  color: #e4e7ed;
+  border: 1px solid #202534;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.ansi-bold { font-weight: 700; }
+.ansi-30 { color: #6e7681; }
+.ansi-31 { color: #f47067; }
+.ansi-32 { color: #3fb950; }
+.ansi-33 { color: #d29922; }
+.ansi-34 { color: #58a6ff; }
+.ansi-35 { color: #bc8cff; }
+.ansi-36 { color: #39c5cf; }
+.ansi-37 { color: #e6edf3; }
+.ansi-90 { color: #8b949e; }
+.ansi-91 { color: #ff7b72; }
+.ansi-92 { color: #7ee787; }
+.ansi-93 { color: #e3b341; }
+.ansi-94 { color: #79c0ff; }
+.ansi-95 { color: #d2a8ff; }
+.ansi-96 { color: #56d4dd; }
+.ansi-97 { color: #f0f6fc; }

@@ -485,6 +485,11 @@ class StageManager(object):
             is_wait_human_check = stage.is_wait_human_check()
         info["is_wait_human_check"] = is_wait_human_check
         fc.save_ucagent_info(self.workspace, info)
+        try:
+            from ucagent import headless_bus  # type: ignore
+            headless_bus.emit_state(info)
+        except Exception:
+            pass
 
     def next_stage(self):
         self.stage_index += 1

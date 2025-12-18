@@ -339,6 +339,14 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument("--exit-on-completion", "-eoc", action="store_true", default=False,
                         help="Exit the agent automatically when all tasks are completed (after tool Exit called successfully).")
+    parser.add_argument("--headless", action="store_true", default=False,
+                        help="Run in headless mode with built-in JSON TCP server (no TUI).")
+    parser.add_argument("--ws-host", default="127.0.0.1",
+                        help="Headless server host (default: 127.0.0.1).")
+    parser.add_argument("--ws-port", type=int, default=5123,
+                        help="Headless server port (default: 5123).")
+    parser.add_argument("--ws-token", default="",
+                        help="Optional token for headless server authentication.")
 
     # Version argument
     parser.add_argument(
@@ -533,6 +541,36 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
     )
+    
+    # Headless mode: start built-in JSON TCP server (no TUI)
+    if args.headless:
+        from .headless_server import HeadlessServer, HeadlessRunner
+        runner = HeadlessRunner(agent)
+        def handle_cmd(msg):
+            cmd = msg.get("cmd")
+            if cmd == "continue":
+                runner.kick()
+            elif cmd == "loop":
+                runner.kick(msg.get("prompt", ""))
+            elif cmd == "send_chat":
+                prompt = msg.get("prompt", "")
+                runner.kick(prompt)
+                server.emit_chat("user", prompt)
+            elif cmd == "quit":
+                agent.exit()
+                runner.server.emit_exit(0)  # type: ignore[attr-defined]
+                runner.server.stop()        # type: ignore[attr-defined]
+        server = HeadlessServer(args.ws_host, args.ws_port, args.ws_token, cmd_handler=handle_cmd)
+        runner.server = server  # attach for quit handling
+        try:
+            server.start()
+            runner.start()
+            server.join()
+        except Exception as e:
+            print(f"Headless server error: {e}")
+        finally:
+            server.stop()
+        return
     
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:
