@@ -45,22 +45,23 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. Compile DUT
-
-Example: Compile the Adder in examples (requires [picker](https://github.com/XS-MLVP/picker)):
+### 3. Clean Environment
 
 ```bash
-make init_Adder
-# picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+make clean
 ```
 
 ### 4. Start MCP-Server
+
+Example: Compile the Adder in examples (requires [picker](https://github.com/XS-MLVP/picker)):
 
 Default address: http://127.0.0.1:5000
 
 ```bash
 make mcp_Adder  # workspace is set to output directory
-# ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+# Calls the following commands:
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
 ### 5. Install and Configure Qwen Code CLI
@@ -89,7 +90,9 @@ cd output
 qwen
 ```
 
-**Note:** Start the Code Agent in the working directory (e.g., output in the example above), otherwise file path mismatch issues may occur.
+**Note:**
+- Start the Code Agent in the working directory (e.g., output in the example above), otherwise file path mismatch issues may occur.
+- If the DUT is complex and has peripheral component dependencies, you need to open the default skipped stages via ucagent interaction commands.
 
 **Input Task Prompt:**
 

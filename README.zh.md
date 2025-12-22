@@ -30,7 +30,7 @@ UCAgent 是一个基于大语言模型的自动化硬件验证 AI 代理，专�
 
 ---
 
-## 快速入门
+## 快速开始
 
 ### 1. 下载源码
 
@@ -45,22 +45,23 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. 编译 DUT
-
-以编译 example 中的 Adder 为例（依赖 [picker](https://github.com/XS-MLVP/picker)）：
+### 3. 清空环境
 
 ```bash
-make init_Adder
-# picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+make clean
 ```
 
 ### 4. 启动 MCP-Server
+
+以 example 中的 Adder 为例（依赖 [picker](https://github.com/XS-MLVP/picker)）：
 
 默认地址为：http://127.0.0.1:5000
 
 ```bash
 make mcp_Adder  # workspace 设置为当前目录下的 output
-# ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools 
+# 调用了如下命令：
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
+#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
 ### 5. 安装配置 Qwen Code CLI
@@ -89,7 +90,9 @@ cd output
 qwen
 ```
 
-**注意：** 需要在工作目录（如上述例子中的 output）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
+**注意：**
+- 需要在工作目录（如上述例子中的 output）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
+- 如果DUT比较复杂，有外围组件依赖，需要通过ucagent交互命令打开默认skip的阶段。
 
 **输入任务提示词：**
 
