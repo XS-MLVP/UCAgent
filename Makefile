@@ -33,7 +33,7 @@ init_%:
 	cp examples/$*/*.py $(CWD)/$*/  || true
 
 test_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --no-embed-tools ${ARGS}
 
 mcp_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
