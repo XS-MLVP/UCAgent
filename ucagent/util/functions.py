@@ -459,7 +459,8 @@ def get_toffee_json_test_case(workspace:str, item: dict) -> str:
     return ret
 
 
-def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 0) -> list:
+def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 0,
+                             error_char_list=["*", "?"]) -> list:
     """
     Get the Unity chip documentation marks from a file.
     :param path: Path to the file containing Unity chip documentation.
@@ -478,6 +479,17 @@ def get_unity_chip_doc_marks(path: str, leaf_node:str, mini_leaf_count:int = 0) 
     fmsg = ", ".join([f"{b[1]} at line {b[2]} need sub node '<{leaf_node}-*>'" for b in blist])
     assert len(blist) == 0, f"Incomplete label '<{leaf_node}-*>' detected: `{fmsg}`, delete the incomplete labels or fix it according to the format requirements: " + \
                             f"{' '.join([x+'*>' for x in prefix[:tindex+1]])}"
+    invalid_char_keys = []
+    finded_keys = set()
+    for k in klist:
+        for ec in error_char_list:
+            if ec in k:
+                invalid_char_keys.append(k)
+                finded_keys.add(k)
+    if len(invalid_char_keys) > 0:
+        invalid_char_keys = ", ".join(invalid_char_keys)
+        finded_keys = ", ".join(finded_keys)
+        raise ValueError(f"Invalid characters {finded_keys} found in keys: {invalid_char_keys}")
     return klist
 
 
