@@ -202,13 +202,13 @@ stage:
       - "目标：生成参考检查点与新检查点的代码行映射，分析差异"
       - "第1步：读取{OUT}/{DUT}_functions_and_checks.md中的参考检查点列表"
       - "第2步：读取原来的检查点文件{DUT}/{DUT}_functions_and_checks.csv，识别新增、修改和删除的检查点"
-      - "第3步：参考 Guide_Doc/dut_line_map.md 中的格式，生成行映射文件{OUT}/{DUT}_line_func_map.txt来描述参考检查点文件中的每一行与新检查点的对应关系"
+      - "第3步：参考 Guide_Doc/dut_line_func_map.md 中的格式，生成行映射文件{OUT}/{DUT}_line_func_map.txt来描述参考检查点文件中的每一行与新检查点的对应关系"
       - "第4步：Check通过后，请总结映射结果，分析新增和修改的检查点对测试覆盖的影响并写入文件{OUT}/{DUT}_line_map_analysis.md"
       - "第5步：最后通过Complete工具完成该阶段"
     reference_files:
       - "{OUT}/{DUT}_functions_and_checks.md"
       - "{DUT}/{DUT}_functions_and_checks.csv"
-      - "Guide_Doc/dut_line_map.md"
+      - "Guide_Doc/dut_line_func_map.md"
     output_files:
       - "{OUT}/{DUT}_line_func_map.txt"
     checker:
