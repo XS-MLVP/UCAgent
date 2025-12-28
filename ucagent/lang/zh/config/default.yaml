@@ -83,6 +83,7 @@ mission:
       - 请用工具Check和Complete判断是否完成当前任务
       - 需要根据Check和Complete的结果调整你的工作，目标是保证所有Check和Complete都通过
       - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
+      - 除非Check或者Complete工具要求等待人工确认，否则不需要人工介入，不需要询问任何问题
 
       现在调用`CurrentTips`，开始你的验证工作！
 
