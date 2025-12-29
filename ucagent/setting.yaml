@@ -2,6 +2,9 @@
 # default basic settings for UCAgent
 lang: "zh"
 
+# init commands to run at the start of the agent
+init_cmds: []
+
 # Model support: openai, anthropic, google_genai
 model_type: openai
 

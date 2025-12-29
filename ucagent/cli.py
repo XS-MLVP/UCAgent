@@ -331,6 +331,9 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--unskip', action='append', default=[], type=int,
                         help='Unskip the specified stage index (can be used multiple times)')
 
+    parser.add_argument("--icmd", action="append", default=[], type=str,
+                        help="Initial command(s) to run at the start of the agent (can be used multiple times)")
+
     parser.add_argument("--no-history", action="store_true", default=False,
                         help="Disable history loading from previous runs in the workspace")
 
@@ -492,6 +495,9 @@ def run() -> None:
         mcp_cmd = "start_mcp_server_no_file_ops"
     if mcp_cmd is not None:
         init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+
+    if args.icmd:
+        init_cmds += args.icmd
     
     if args.loop:
         init_cmds += ["loop " + args.loop_msg]

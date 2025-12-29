@@ -301,6 +301,11 @@ class VerifyAgent:
         else:
             info("Using standard interaction mode")
         self.generate_instruction_file(gen_instruct_file)
+        cfg_icmds = self.cfg.get_value("init_cmds", [])
+        if cfg_icmds:
+            if init_cmd is None:
+                init_cmd = []
+            init_cmd = init_cmd + cfg_icmds
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
 
         # Telemetry
