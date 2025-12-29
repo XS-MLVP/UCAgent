@@ -645,11 +645,14 @@ class StageManager(object):
         info("Tips:\n" + tips)
         return tips
 
-    def tool_run_test_cases(self, pytest_args="", timeout=0, return_line_coverage=False):
+    def tool_run_test_cases(self, pytest_args="", timeout=0, return_line_coverage=False, raw_return=False, detail=False):
         """
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = make_llm_tool_ret(self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage)[1])
+        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        if raw_return:
+            return ret
+        ret = make_llm_tool_ret(ret[1])
         info("RunTestCases:\n" + ret)
         return self.attach_todo_summary(ret)

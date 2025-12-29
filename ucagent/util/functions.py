@@ -1444,7 +1444,7 @@ def check_file_block(file_blocks, workspace, checker=None):
     return ret_map
 
 
-def description_mark_function_doc(func_list=[], workspace=None):
+def description_mark_function_doc(func_list=[], workspace=None, func_RunTestCases=None, timeout_RunTestCases=0):
     """
     Description for marking functions in test cases.
     """
@@ -1488,8 +1488,13 @@ def description_mark_function_doc(func_list=[], workspace=None):
         emsg = ""
         if len(er_mark_tc_list) > 0:
             tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
-            emsg += f"Test cases already called function 'mark_function' ({', '.join(er_mark_tc_list)}) but has errors, you need call tool RunTestCases('{tc_to_run}') " + \
-                "to get the detail errors to check if the names of 'function point', 'test case' and 'check point' are correct. "
+            tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors, you need call tool RunTestCases('{tc_to_run}') " + \
+                    "to get the detail errors to check if the names of 'function point', 'test case' and 'check point' are correct. "
+            if func_RunTestCases is not None:
+                warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
+                _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
+                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors:\n STD_OUT:\n{run_msg['STDOUT']}\nSTD_ERR:\n{run_msg['STDERR']}\n"
+            emsg += tc_msg
         if len(no_mark_tc_list) > 0:
             emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
         return emsg

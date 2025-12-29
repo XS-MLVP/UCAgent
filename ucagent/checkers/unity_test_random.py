@@ -87,6 +87,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
                                    check_fail_ck_in_bug=False,
+                                   func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout
                                    )
         if not ret:
             return ret, get_emsg(msg)

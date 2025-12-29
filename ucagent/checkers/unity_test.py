@@ -619,7 +619,7 @@ class BaseUnityChipCheckerTestCase(Checker):
 
 class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
-    def do_check(self, pytest_args="", timeout=0, return_line_coverage=False, **kw):
+    def do_check(self, pytest_args="", timeout=0, return_line_coverage=False, detail=False, **kw):
         """call pytest to run the test cases."""
         report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
@@ -652,10 +652,16 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
                     line_coverage_data["error"] = f"Failed to parse line coverage file '{line_coverage_file}': {str(e)}."
         ret = OrderedDict({
             "REPORT": free_report})
-        if self.ret_std_out:
-            ret.update({"STDOUT": str_out})
-        if self.ret_std_error:
-            ret.update({"STDERR": str_err})
+        if not detail:
+            if self.ret_std_out:
+                ret.update({"STDOUT": str_out})
+            if self.ret_std_error:
+                ret.update({"STDERR": str_err})
+        else:
+            ret.update({
+                "STDOUT": str_out,
+                "STDERR": str_err,
+            })
         if return_line_coverage:
             ret["LINE_COVERAGE"] = line_coverage_data
         return True, ret
@@ -786,7 +792,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if report['test_function_with_no_check_point_mark'] > 0:
             unmarked_functions = report['test_function_with_no_check_point_mark_list']
             if len(unmarked_functions) > 0:
-                mark_function_desc = fc.description_mark_function_doc(unmarked_functions, self.workspace)
+                mark_function_desc = fc.description_mark_function_doc(unmarked_functions, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
                 info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without correct check point marks. " + \
                                          mark_function_desc
                 return False, info_runtest
@@ -913,13 +919,13 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
         if test_count_no_check_point_mark > 0:
             func_list = report['test_function_with_no_check_point_mark_list']
-            mark_function_desc = fc.description_mark_function_doc(func_list, self.workspace)
+            mark_function_desc = fc.description_mark_function_doc(func_list, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
             return False, get_emsg(f"Find {test_count_no_check_point_mark} functions do not have correct check point marks. " + \
                                      mark_function_desc + \
                                     "This ensures proper coverage mapping between documentation and test implementation. " + \
                                     "Review your task requirements and complete the check point markings. ")
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/")
+        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/", func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
         if not ret:
             return ret, get_emsg(msg)
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
@@ -1044,7 +1050,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True)
+        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
         report  = fc.clean_report_with_keys(report, ["all_check_point_list", "unmarked_check_points", "unmarked_check_point_list", "failed_check_point_list"])
         error_msgs["REPORT"] = report
         if not ret:
@@ -1141,7 +1147,7 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         zero_rate_msg = f"Note: Find {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '. '}" + \
                          "You may want to review and update their occurrence rates if they were encountered during testing. If these bugs are not applicable, you can ignore this message."
 
-        ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis)
+        ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
         if not ret:
             info_runtest["error"] = msg
             if len(zero_list) > 0:

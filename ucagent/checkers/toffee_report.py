@@ -237,7 +237,7 @@ def check_doc_struct(test_case_checks:list, doc_checks:list, doc_file:str, check
 
 def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
                  check_tc_in_doc=True, check_doc_in_tc=True, post_checker=None, only_marked_ckp_in_tc=False,
-                 check_fail_ck_in_bug=True):
+                 check_fail_ck_in_bug=True, func_RunTestCases=None, timeout_RunTestCases=0):
     """Check the test report against documentation and bug analysis.
 
     Args:
@@ -260,7 +260,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         return ret, doc_ck_list, -1
     if report["test_function_with_no_check_point_mark"] > 0:
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
-        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace)
+        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace, func_RunTestCases=func_RunTestCases, timeout_RunTestCases=timeout_RunTestCases)
         return False, f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points. " + \
                        mark_function_desc, -1
 
