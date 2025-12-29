@@ -374,14 +374,16 @@ class UnityChipCheckerDutApi(Checker):
         failed_apis = []
         for func in func_list:
             args = fc.get_func_arg_list(func)
-            if not args or len(args) < 1:
+            if not args or len(args) < 2:
                 failed_apis.append(func)
                 continue
-            if not (args[0] == "dut" or args[0].startswith("env")):
+            if not args[0].startswith("env"):
+                failed_apis.append(func)
+            if not args[-1].startswith("max_cycles"):
                 failed_apis.append(func)
         if len(failed_apis) > 0:
             return False, {
-                "error": f"The following API functions in file '{self.target_file}' have invalid or missing arguments. The first arg must be 'dut' or 'env*'",
+                "error": f"The following API functions in file '{self.target_file}' have invalid or missing arguments. The first arg must be 'env' and the last arg must be 'max_cycles=default_value'",
                 "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
             }
         if len(func_list) < self.min_apis:

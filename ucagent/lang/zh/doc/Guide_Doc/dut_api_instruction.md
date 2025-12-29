@@ -14,6 +14,7 @@ DUT API的设计应遵循以下原则：
 3. **通用性**：API应覆盖主要功能，避免过度细化
 4. **一致性**：命名和参数传递保持统一风格
 5. **可测试性**：便于单元测试和集成测试
+6. **参数要求**：第一个参数必须为 env，最后一个参数必须为 max_cycles=default_value （default_value具体值按需要填写）
 
 ### 命名规范
 
@@ -24,14 +25,14 @@ API函数命名格式：`api_{DUT}_{function_name}`
 
 ```python
 # 良好的命名示例
-api_adder_add(env, a, b, cin)           # 加法器执行加法
-api_cache_read(env, address)            # 缓存读取
-api_uart_send(env, data)                # UART发送数据
-api_cpu_execute(env, instruction)       # CPU执行指令
+api_adder_add(env, a, b, cin, max_cycles=100)           # 加法器执行加法
+api_cache_read(env, address, max_cycles=200)            # 缓存读取
+api_uart_send(env, data, max_cycles=100)                # UART发送数据
+api_cpu_execute(env, instruction, max_cycles=300)       # CPU执行指令
 
 # 避免的命名
-api_test_func(env)                      # 命名不明确
-api_adder_do_something(env)             # 功能描述模糊
+api_test_func(env, max_cycles=10)                      # 命名不明确
+api_adder_do_something(env, max_cycles=20)             # 功能描述模糊
 ```
 
 #### 详尽的注释
@@ -43,7 +44,7 @@ api_adder_do_something(env)             # 功能描述模糊
 ```python
 from typing import Tuple
 
-def api_demo_op(env, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
+def api_demo_op(env, a: int, b: int, mode: str = "add", max_cycles=100) -> Tuple[int, bool]:
     """对API的功能进行详细描述，说明其作用、适用场景和注意事项
 
     详细描述API的工作原理、时序要求、边界条件等重要信息。
@@ -53,7 +54,8 @@ def api_demo_op(env, a: int, b: int, mode: str = "add") -> Tuple[int, bool]:
         env: Env 实例，必须是已初始化的 Env 实例
         a (int): 第一个操作数，取值范围[0, 2^32-1]，表示输入A的数值
         b (int): 第二个操作数，取值范围[0, 2^32-1]，表示输入B的数值
-        mode (str, optional): 操作模式，可选值为"add"/"sub"/"mul"，默认为"add"
+        mode (str): 操作模式，可选值为"add"/"sub"/"mul"，默认为"add"
+        max_cycles (int): 最大超时Cycle
 
     Returns:
         Tuple[int, bool]: 包含两个元素的元组
@@ -112,7 +114,7 @@ API函数的docstring应包含以下几个部分：
 
 ```python
 def api_memory_access(env, address: int, data: Optional[int] = None,
-                     read_enable: bool = True, timeout: float = 1.0) -> Union[int, None]:
+                     read_enable: bool = True, max_cycles: int = 100) -> Union[int, None]:
     """访问DUT内存接口，支持读写操作
 
     Args:
@@ -122,7 +124,7 @@ def api_memory_access(env, address: int, data: Optional[int] = None,
                              写入时取值范围[0, 2^32-1]
         read_enable (bool): 读使能信号，True表示读操作，False表示写操作
                            当data不为None时，该参数被忽略
-        timeout (float): 操作超时时间，单位秒，范围[0.1, 10.0]
+        max_cycles (int): 最大超时Cycle
 
     Returns:
         Union[int, None]:
@@ -139,7 +141,8 @@ from typing import Union, Optional, List, Dict, Tuple, Any
 
 def api_batch_operation(env,
                        operations: List[Dict[str, Any]],
-                       config: Optional[Dict[str, Union[int, str]]] = None) -> List[Tuple[bool, Any]]:
+                       config: Optional[Dict[str, Union[int, str]]] = None,
+                       max_cycles: int = 100) -> List[Tuple[bool, Any]]:
     """批量执行多个操作
 
     Args:
@@ -148,6 +151,7 @@ def api_batch_operation(env,
                                           字典格式: {"type": str, "params": Dict, "id": int}
         config (Optional[Dict[str, Union[int, str]]]): 可选配置参数
                                                       键为配置名，值为配置值
+        max_cycles (int): 最大超时Cycle
 
     Returns:
         List[Tuple[bool, Any]]: 结果列表，每个元素为(成功标志, 结果数据)的元组
@@ -160,7 +164,7 @@ def api_batch_operation(env,
 #### 1. 基础操作API
 
 ```python
-def api_adder_add(env, a, b, cin=0):
+def api_adder_add(env, a, b, cin=0, max_cycles=100):
     """执行加法操作
     
     Args:
@@ -168,6 +172,7 @@ def api_adder_add(env, a, b, cin=0):
         a: 操作数A 
         b: 操作数B
         cin: 进位输入，默认为0
+        max_cycles: 最大超时Cycle
         
     Returns:
         tuple: (sum_result, carry_out) 求和结果和进位输出
@@ -187,13 +192,13 @@ def api_adder_add(env, a, b, cin=0):
 #### 2. 复杂时序API
 
 ```python
-def api_cache_read(env, address, timeout_cycles=100):
+def api_cache_read(env, address, max_cycles=100):
     """从缓存读取数据
     
     Args:
         env: Env 实例
         address: 读取地址
-        timeout_cycles: 超时周期数
+        max_cycles: 超时周期数
         
     Returns:
         int: 读取的数据值
@@ -209,7 +214,7 @@ def api_cache_read(env, address, timeout_cycles=100):
     # 等待响应
     cycles = 0
     while not env.data_valid.value:
-        if cycles >= timeout_cycles:
+        if cycles >= max_cycles:
             raise TimeoutError(f"缓存读取超时，地址: 0x{address:x}")
         env.Step(1)
         cycles += 1
@@ -427,25 +432,25 @@ API测试应该覆盖以下几个方面：
 """DUT API模块 - 提供高级接口函数"""
 
 # 基础操作
-def api_{DUT}_reset(env):
+def api_{DUT}_reset(env, max_cycles=100):
     """复位DUT"""
     pass
 
-def api_{DUT}_init(env, config=None):
+def api_{DUT}_init(env, config=None, max_cycles=100):
     """初始化DUT"""  
     pass
 
 # 数据操作
-def api_{DUT}_read(env, addr):
+def api_{DUT}_read(env, addr, max_cycles=100):
     """读取数据"""
     pass
 
-def api_{DUT}_write(env, addr, data):
+def api_{DUT}_write(env, addr, data, max_cycles=100):
     """写入数据"""
     pass
 
 # 状态查询
-def api_{DUT}_status(env):
+def api_{DUT}_status(env, max_cycles=100):
     """获取状态"""
     pass
 ```
@@ -459,7 +464,7 @@ def api_processor_execute(
     env: Any, 
     instruction: int, 
     operands: Optional[List[int]] = None,
-    timeout: int = 1000
+    max_cycles: int = 1000
 ) -> Tuple[int, Dict[str, Any]]:
     """执行处理器指令
     
@@ -469,7 +474,7 @@ def api_processor_execute(
         env: 处理器 Env 实例
         instruction: 指令编码
         operands: 操作数列表，可选
-        timeout: 执行超时时间（周期数）
+        max_cycles: 执行超时时间（周期数）
         
     Returns:
         Tuple包含:
@@ -503,13 +508,14 @@ def api_processor_execute(
 ```python
 # 良好的API示例
 def api_cache_invalidate(env, address_range: Tuple[int, int],
-                        invalidate_type: str = "data") -> bool:
+                        invalidate_type: str = "data", max_cycles: int = 100) -> bool:
     """使指定地址范围的缓存失效
 
     Args:
         env: 缓存Env实例
         address_range: 地址范围元组(start_addr, end_addr)
         invalidate_type: 失效类型，"data"或"instruction"
+        max_cycles: 最大超时Cycle
 
     Returns:
         bool: 操作是否成功
@@ -536,12 +542,12 @@ def api_cache_invalidate(env, address_range: Tuple[int, int],
         env.cache_invalidate_enable.value = 0
 
         # 等待操作完成
-        timeout = 100
-        while env.cache_invalidate_busy.value and timeout > 0:
+        cycles = 0
+        while env.cache_invalidate_busy.value and cycles < max_cycles:
             env.Step(1)
-            timeout -= 1
+            cycles += 1
 
-        if timeout == 0:
+        if cycles >= max_cycles:
             raise TimeoutError("缓存失效操作超时")
 
         return not bool(env.cache_invalidate_error.value)
