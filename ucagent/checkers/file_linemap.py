@@ -34,7 +34,7 @@ def get_func_check_marks(workspace, func_check_file):
 
 
 def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_file, map_suffix,
-                            map_location, max_example_lines: int, must_has_no_miss_match: bool):
+                            map_location, max_example_lines: int, must_has_no_miss_match: bool, cb_unmatch_ck=None, cb_match_ck=None):
     """Check one file for unmapped lines based on line-function mapping."""
     info(f"Checking line-function mapping for file '{source_file}'...")
     abs_source_file = os.path.abspath(workspace + os.path.sep + source_file)
@@ -63,6 +63,11 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
                 miss_matched_lines.append((k, line_ck_map[k]))
                 continue
             erro_lines_keys.append((k, line_ck_map[k]))
+            if cb_unmatch_ck:
+                cb_unmatch_ck(k, line_ck_map[k])
+        else:
+            if cb_match_ck:
+                cb_match_ck(k, line_ck_map[k])
     if len(erro_lines_keys) > 0:
         emsg = [f"Found {len(erro_lines_keys)} line block(s) in mapping file '{map_file}' that do not have corresponding CK tags:"]
         for ck_name, _ in erro_lines_keys[:max_example_lines]:
