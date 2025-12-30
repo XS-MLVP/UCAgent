@@ -62,25 +62,34 @@ class UnityChipCheckerLabelStructure(Checker):
         """Check the label structure in the documentation file."""
         self.leaf_count = None
         msg = f"{self.__class__.__name__} check {self.leaf_node} pass."
-        if not os.path.exists(self.get_path(self.doc_file)):
-            return False, {"error": f"Documentation file '{self.doc_file}' does not exist."}
-        try:
-            data = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), self.leaf_node, self.min_count)
-        except Exception as e:
-            error_details = str(e)
-            warning(f"Error occurred while checking {self.doc_file}: {error_details}")
-            warning(traceback.format_exc())
-            emsg = [f"Documentation parsing failed for file '{self.doc_file}': {error_details}."]
-            if "\\n" in error_details:
-                emsg.append("Literal '\\n' characters detected - use actual line breaks instead of escaped characters")
-            emsg.append({"check_list": [
-                "Malformed tags: Ensure proper format. e.g., <FG-NAME>, <FC-NAME>, <CK-NAME>",
-                *fc.description_func_doc(),
-                "Invalid characters: Use only alphanumeric and hyphen in tag names",
-                "Missing tag closure: All tags must be properly closed",
-                "Encoding issues: Ensure file is saved in UTF-8 format",
-            ]})
-            return False, {"error": emsg}
+        data = []
+        data_fmap = {}
+        for dfile in fc.find_files_by_pattern(self.workspace, self.doc_file): # Suport multiple doc files
+            if not os.path.exists(self.get_path(dfile)):
+                return False, {"error": f"Documentation file '{dfile}' does not exist."}
+            try:
+                data_sub = fc.get_unity_chip_doc_marks(self.get_path(dfile), self.leaf_node, self.min_count)
+            except Exception as e:
+                error_details = str(e)
+                warning(f"Error occurred while checking {dfile}: {error_details}")
+                warning(traceback.format_exc())
+                emsg = [f"Documentation parsing failed for file '{dfile}': {error_details}."]
+                if "\\n" in error_details:
+                    emsg.append("Literal '\\n' characters detected - use actual line breaks instead of escaped characters")
+                emsg.append({"check_list": [
+                    "Malformed tags: Ensure proper format. e.g., <FG-NAME>, <FC-NAME>, <CK-NAME>",
+                    *fc.description_func_doc(),
+                    "Invalid characters: Use only alphanumeric and hyphen in tag names",
+                    "Missing tag closure: All tags must be properly closed",
+                    "Encoding issues: Ensure file is saved in UTF-8 format",
+                ]})
+                return False, {"error": emsg}
+            for d in data_sub:
+                if d in data_fmap:
+                    return False, {"error": f"Duplicate {self.leaf_node} '{d}' found in documentation files: '{data_fmap[d]}' and '{dfile}'." + \
+                                            f"All labels must be unique across documentation files ({self.doc_file})."}
+                data.append(d)
+                data_fmap[d] = dfile
         if self.must_have_prefix:
             find_prefix = False
             for mark in data:
