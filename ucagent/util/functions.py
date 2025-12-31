@@ -1493,7 +1493,8 @@ def description_mark_function_doc(func_list=[], workspace=None, func_RunTestCase
             if func_RunTestCases is not None:
                 warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
                 _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
-                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors:\n STD_OUT:\n{run_msg['STDOUT']}\nSTD_ERR:\n{run_msg['STDERR']}\n"
+                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors:\n STD_OUT:\n{run_msg['STDOUT']}\nSTD_ERR:\n{run_msg['STDERR']}\n" + \
+                         f"Note:\nIf you cannot find the root cause, you can call tool RunTestCases('{tc_to_run}') to get more detail information. "
             emsg += tc_msg
         if len(no_mark_tc_list) > 0:
             emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
