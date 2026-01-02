@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 
-from ucagent.message.statistic import MessageStatistic
-from ucagent.tools.context import ArbitContextSummary
+from .tools.context import ArbitContextSummary
 from .util.config import get_config
 from .util.log import info, message, warning, error, msg_msg
 from .util.functions import fmt_time_deta, fmt_time_stamp, get_template_path, render_template_dir, import_and_instance_tools
-from .util.functions import dump_as_json, get_ai_message_tool_call, yam_str
+from .util.functions import yam_str
 from .util.functions import start_verify_mcps, create_verify_mcps, stop_verify_mcps, rm_workspace_prefix
-from .util.models import get_chat_model
 from .util.test_tools import ucagent_lib_path
 
 import ucagent.tools
-from .message import UCMessagesNode, SummarizationAndFixToolCall, State
-from .message import TokenSpeedCallbackHandler
 from .tools import *
 from .tools.planning import *
 from .stage import StageManager
@@ -25,12 +21,8 @@ import random
 import signal
 import copy
 
-from langchain_core.globals import set_debug
-from langchain_core.messages.utils import count_tokens_approximately
-from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
-from langfuse import get_client, Langfuse
+from .abackend import get_backend
+from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 from uuid import uuid4
 from typing import Any, Dict, List, Optional, OrderedDict
@@ -107,8 +99,6 @@ class VerifyAgent:
             if force_stage_index > 0:
                 warning(f"Resuming from saved stage index: {force_stage_index}")
         self.__version__ = __version__
-        if debug:
-            set_debug(True)
         self.cfg = get_config(config_file, cfg_override)
         temp_args = {
             "OUT": output,
@@ -148,9 +138,6 @@ class VerifyAgent:
         self.thread_id = thread_id if thread_id is not None else random.randint(100000, 999999)
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
-        self.cb_token_speed = TokenSpeedCallbackHandler()
-        self.model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
-        self.sumary_model = get_chat_model(self.cfg, [self.cb_token_speed] if stream_output else None)
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
@@ -223,43 +210,6 @@ class VerifyAgent:
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
         self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", True)
         self.max_keep_msgs = self.cfg.get_value("conversation_summary.max_keep_msgs", 200)
-        self.message_statistic = MessageStatistic()
-
-        if self.use_uc_mode:
-            info("Using UCMessagesNode for conversation summarization (max_summary_tokens={})".format(self.max_summary_tokens))
-            message_manage_node = UCMessagesNode(
-                msg_stat=self.message_statistic,
-                max_summary_tokens=self.max_summary_tokens,
-                max_keep_msgs=self.max_keep_msgs,
-                tail_keep_msgs=self.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
-                model=self.sumary_model
-            )
-        else:
-            info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(self.max_token, self.max_summary_tokens))
-            message_manage_node = SummarizationAndFixToolCall(
-                token_counter=count_tokens_approximately,
-                model=self.sumary_model,
-                max_tokens=self.max_token,
-                max_summary_tokens=self.max_summary_tokens,
-                output_messages_key="llm_input_messages"
-            ).set_max_keep_msgs(self.message_statistic, self.max_keep_msgs)
-        self.message_manage_node = message_manage_node
-        self.context_tools = []
-        if enable_context_manage_tools:
-            self.context_tools = [
-                ArbitContextSummary().bind(self.message_manage_node),
-            ]
-        self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
-                                                self.cfg.tools.as_dict())
-        self.stage_manager.init_stage()
-        self.agent = create_react_agent(
-            model=self.model,
-            tools=self.test_tools,
-            checkpointer=MemorySaver(),
-            pre_model_hook=message_manage_node,
-            state_schema=State,
-        )
-        self.set_tool_call_time_out(self.cfg.get_value("call_time_out", 300))
         self.message_echo_handler = None
         self.update_handler = None
         self._time_start = time.time()
@@ -267,9 +217,6 @@ class VerifyAgent:
         # state
         self._msg_buffer = ""
         self._system_message = self._default_system_prompt
-        self._stat_msg_count_ai = 0
-        self._stat_msg_count_tool = 0
-        self._stat_msg_count_system = 0
         # flags
         self.stream_output = stream_output
         self.invoke_round = 0
@@ -306,8 +253,24 @@ class VerifyAgent:
             if init_cmd is None:
                 init_cmd = []
             init_cmd = init_cmd + cfg_icmds
+        # PDB and backend
+        self.backend = get_backend(self, self.cfg)
+        self.message_manage_node = self.backend.get_message_manage_node()
+        self.context_tools = []
+        if enable_context_manage_tools:
+            if self.message_manage_node is not None:
+                self.context_tools = [
+                    ArbitContextSummary().bind(self.message_manage_node),
+                ]
+            else:
+                warning("Context management tools are enabled but no message management node is available.")
+        self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
+                                                self.cfg.tools.as_dict())
         self.pdb = VerifyPDB(self, init_cmd=init_cmd)
-
+        self.backend.init()
+        self.backend.set_debug(debug)
+        self.set_tool_call_time_out(self.cfg.get_value("call_time_out", 300))
+        self.stage_manager.init_stage()
         # Telemetry
         self.session_id = uuid4()
         langfuse_cfg = self.cfg.get_value("langfuse", {})
@@ -325,6 +288,8 @@ class VerifyAgent:
             self.langfuse_handler = CallbackHandler()
 
     def get_messages_cfg(self, keys: Optional[List[str]] = None) -> Dict[str, Any]:
+        if self.message_manage_node is None:
+            return {}
         ret = {"__manage_class__": self.message_manage_node.__class__.__name__}
         for k in keys:
             if hasattr(self.message_manage_node, k):
@@ -333,6 +298,8 @@ class VerifyAgent:
 
     def set_messages_cfg(self, cfg: Dict[str, Any]):
         success = {}
+        if self.message_manage_node is None:
+            return success
         for k, v in cfg.items():
             if hasattr(self.message_manage_node, k):
                 setattr(self.message_manage_node, k, v)
@@ -340,6 +307,8 @@ class VerifyAgent:
         return success
 
     def summary_mode(self):
+        if self.message_manage_node is None:
+            return "None"
         name = self.message_manage_node.__class__.__name__
         if self.use_uc_mode:
             return f"{name}({self.max_keep_msgs})"
@@ -434,6 +403,7 @@ class VerifyAgent:
                 return
             info("SIGINT received")
             self.set_break(True)
+            self.backend.interrupt_handler()
         signal.signal(signal.SIGINT, _sigint_handler)
 
     def set_force_trace(self, value):
@@ -465,9 +435,9 @@ class VerifyAgent:
         assert isinstance(tips, str), "StageManager should return a str type tips"
         msg = []
         if self._system_message:
-            msg.append(SystemMessage(content=copy.copy(self._system_message)))
+            msg.append(self.backend.get_system_message(copy.copy(self._system_message)))
             self._system_message = None
-        msg.append(HumanMessage(content=tips))
+        msg.append(self.backend.get_human_message(tips))
         return {"messages": msg}
 
     def set_system_message(self, msg: str):
@@ -511,18 +481,7 @@ class VerifyAgent:
             self.pdb.add_cmds(["sleep 5"]+["quit"]*3)
 
     def get_work_config(self):
-        work_config = {
-            "configurable": {"thread_id": f"{self.thread_id}"},
-            "recursion_limit": self.cfg.get_value("recursion_limit", 100000),
-        }
-        if self.langfuse_enable:
-            work_config["callbacks"] = [self.langfuse_handler]
-            work_config["metadata"] = {
-                # "langfuse_user_id": "user_id",
-                "langfuse_session_id": self.session_id.hex,
-                # "langfuse_tags": ["some-tag",]
-            }
-        return work_config
+        return self.backend.get_work_config()
 
     def run(self):
         self.pre_run()
@@ -598,7 +557,7 @@ class VerifyAgent:
 
     def custom_chat(self, msg):
         """Custom chat message to the agent."""
-        self.do_work({"messages": [HumanMessage(content=msg)]},
+        self.do_work({"messages": [self.backend.get_human_message(msg)]},
                      self.get_work_config())
 
     def get_interaction_status(self):
@@ -694,23 +653,9 @@ class VerifyAgent:
         else:
             self.do_work_values(instructions, config)
 
-    def state_record_mesg(self, msg):
-        if isinstance(msg, AIMessage):
-            self._stat_msg_count_ai += 1
-        elif isinstance(msg, ToolMessage):
-            self._stat_msg_count_tool += 1
-        elif isinstance(msg, SystemMessage):
-            self._stat_msg_count_system += 1
-        self.message_statistic.update_message(msg)
-
     def messages_get_raw(self):
         """Get the messages from the agent's state."""
-        try:
-            values = self.agent.get_state(self.get_work_config()).values
-            return values.get("messages", [])
-        except Exception as e:
-            warning(f"Failed to get messages from agent state: {e}")
-        return []
+        return self.backend.messages_get_raw()
 
     def messages_count(self):
         """Get the count of messages in the agent's state."""
@@ -724,11 +669,14 @@ class VerifyAgent:
             "count": len(messages),
             "size": sum([len(m.content) for m in messages]),
             "last_20type": ">".join([m.type for m in messages[-20:]]),
-            "to_llm": self.message_statistic.get_statistics()
+            "to_llm": self.backend.get_statistics()
         })
 
     def message_summary(self):
         """Summarize all the messages"""
+        if self.message_manage_node is None:
+            warning("No message management node available for summarization")
+            return
         if not hasattr(self.message_manage_node, "force_summary"):
             warning(f"{self.message_manage_node.__class__.__name__} has not function 'force_summary'")
             return
@@ -739,14 +687,14 @@ class VerifyAgent:
     def status_info(self):
         msg_info = self.message_info()
         msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
-        msg_stat = self.message_statistic.get_statistics()
+        msg_stat = self.backend.get_statistics()
         stats= OrderedDict({
-               "UCAgent": self.__version__, "LLM": self.model.model_name, "Temperature": self.model.temperature, "Stream": self.stream_output, "Seed": self.seed,
+               "UCAgent": self.__version__, "LLM": self.backend.model_name(), "Temperature": self.backend.temperature(), "Stream": self.stream_output, "Seed": self.seed,
                "SummaryMode": self.summary_mode(), "MessageCount": msg_c, "MessageSize": msg_s, "Interaction Mode": self.interaction_mode,
-               "AI-Message": self._stat_msg_count_ai, "Tool-Message": self._stat_msg_count_tool, "Sys-Message": self._stat_msg_count_system,
+               "AI-Message": self.backend._stat_msg_count_ai, "Tool-Message": self.backend._stat_msg_count_tool, "Sys-Message": self.backend._stat_msg_count_system,
                "MsgIn(bytes)": msg_stat["message_in"], "MsgOut(bytes)": msg_stat["message_out"],
                "Start Time": fmt_time_stamp(self._time_start), "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
-              f"Token Reception({self.cb_token_speed.total()})/TPS": self.cb_token_speed.get_speed()})
+              f"Token Reception({self.backend.token_total()})/TPS": self.backend.token_speed()})
         return stats
 
     def message_get_str(self, index, count):
@@ -758,43 +706,10 @@ class VerifyAgent:
         return [m.pretty_repr() for m in messages[index:index+count]]
 
     def do_work_values(self, instructions, config):
-        last_msg_index = None
-        for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
-            if self._need_break:
-                break
-            index = len(step["messages"])
-            if index == last_msg_index:
-                continue
-            last_msg_index = index
-            msg = step["messages"][-1]
-            self.check_tool_call_error(msg)
-            self.state_record_mesg(msg)
-            self.message_echo(msg.pretty_repr())
+        return self.backend.do_work_values(instructions, config)
 
     def do_work_stream(self, instructions, config):
-        last_msg_index = None
-        fist_ai_message = True
-        for v, data in self.agent.stream(instructions, config, stream_mode=["values", "messages"]):
-            if self._need_break:
-                    break
-            if v == "messages":
-                if fist_ai_message:
-                    fist_ai_message = False
-                    self.message_echo("\n\n================================== AI Message ==================================")
-                msg = data[0]
-                self.message_echo(msg.content, end="")
-            else:
-                index = len(data["messages"])
-                if index == last_msg_index:
-                    continue
-                last_msg_index = index
-                msg = data["messages"][-1]
-                self.state_record_mesg(msg)
-                if isinstance(msg, AIMessage):
-                    self.message_echo(get_ai_message_tool_call(msg))
-                    self.check_tool_call_error(msg)
-                    continue
-                self.message_echo("\n"+msg.pretty_repr())
+        return self.backend.do_work_stream(instructions, config)
 
     def get_tool_by_name(self, tool_name: str):
         """Get a tool by its name."""
@@ -834,32 +749,3 @@ class VerifyAgent:
             else:
                 timeouts[tool.name] = None
         return timeouts
-
-    def check_tool_call_error(self, msg):
-        if not isinstance(msg, AIMessage):
-            return
-        if not hasattr(msg, "invalid_tool_calls"):
-            return
-        if len(msg.invalid_tool_calls) < 1:
-            return
-        for call in msg.invalid_tool_calls:
-            name = call.get("name")
-            tool = next((tool for tool in self.test_tools if tool.name == name), None)
-            args = call.get("args") or {}
-            status = "success"
-            try:
-                assert tool is not None, f"Tool {name} not found"
-                result = tool._run(*(), **args)
-            except Exception as e:
-               error(f"Error executing tool {call}: {e}")
-               result = str(e)
-               status = "error"
-            if not isinstance(result, str):
-                result = dump_as_json(result)
-            self._tool__call_error.append(ToolMessage(
-                content=result,
-                tool_call_id=call["id"],
-                name=name,
-                status=status
-            ))
-        warning(f"Tool call error: {msg.invalid_tool_calls}, have re-called them in custom way")

@@ -25,7 +25,7 @@ class MessageStatistic:
 
     def get_message_text_size(self, msg: BaseMessage) -> int:
         """Get the text size of a message."""
-        return len(msg.text())
+        return len(msg.text)
 
     def update_message(self, messages):
         """Update message statistics based on the provided messages."""
