@@ -5,6 +5,12 @@ lang: "zh"
 # init commands to run at the start of the agent
 init_cmds: []
 
+# backend
+backend:
+  key_name: "langchain"  # options: langchain, iflow_cli, gemini_cli, etc.
+  langchain:
+    clss: ucagent.abackend.langchain.UCAgentLangChainBackend
+
 # Model support: openai, anthropic, google_genai
 model_type: openai
 

@@ -1,7 +1,7 @@
 # --- coding: utf-8 ---
 """Message and state utilities for UCAgent."""
 
-from ucagent.message.statistic import MessageStatistic
+from .statistic import MessageStatistic
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import warning, info
 
