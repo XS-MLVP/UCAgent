@@ -1,0 +1,29 @@
+#sidebar {
+    dock: left;
+    width: 30%;
+    height: 100%;
+
+    .mission {
+        height: 2fr;
+    }
+    .status {
+        height: 1fr;
+    }
+}
+
+#body {
+    height: 100%;
+    width: 100%;
+
+    .message {
+        height: 1fr;
+    }
+
+    .command {
+        height: 1fr;
+    }
+
+    #input {
+        height: 1fr;
+    }
+}
