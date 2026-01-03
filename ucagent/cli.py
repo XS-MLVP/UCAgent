@@ -281,13 +281,13 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--mcp-server-host", 
         type=str, 
-        default="127.0.0.1", 
+        default=None,
         help="Host for the MCP server"
     )
     parser.add_argument(
         "--mcp-server-port", 
         type=int, 
-        default=5000, 
+        default=None,
         help="Port for the MCP server"
     )
     
@@ -495,6 +495,14 @@ def run() -> None:
         mcp_cmd = "start_mcp_server_no_file_ops"
     if mcp_cmd is not None:
         init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+
+    if args.mcp_server_port is not None:
+        args.override = args.override or {}
+        args.override["mcp_server.port"] = args.mcp_server_port
+
+    if args.mcp_server_host is not None:
+        args.override = args.override or {}
+        args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.icmd:
         init_cmds += args.icmd

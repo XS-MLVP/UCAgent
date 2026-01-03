@@ -629,10 +629,12 @@ class VerifyPDB(Pdb):
         """
         args = arg.strip().split()
         if len(args) > 0:
-            kwargs["host"] = args[0]
+            if args[0] != "None":
+                kwargs["host"] = args[0]
         if len(args) > 1:
             try:
-                kwargs["port"] = int(args[1])
+                if args[1] != "None":
+                    kwargs["port"] = int(args[1])
             except ValueError:
                 echo_r(f"Invalid port number: {args[1]}. Port must be an integer.\n Usage: start_mcp_server [host] [port]")
                 return
