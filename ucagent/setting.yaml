@@ -7,9 +7,22 @@ init_cmds: []
 
 # backend
 backend:
-  key_name: "langchain"  # options: langchain, iflow_cli, gemini_cli, etc.
+  key_name: "langchain"  # options: langchain, iflow_cli, claude_code, etc.
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
+  claude_code:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "claude --dangerously-skip-permissions -p < {MSG_FILE}"
+      cli_cmd_ctx: "claude --dangerously-skip-permissions -c -p < {MSG_FILE}"
+      pre_bash_cmd:
+        - "mkdir -p {CWD}/.claude/"
+        - "cp ~/.claude/settings.json {CWD}/.claude/"
+        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.claude/settings.json"
+
+mcp_server:
+  host: 127.0.0.1
+  port: 5000
 
 # Model support: openai, anthropic, google_genai
 model_type: openai
