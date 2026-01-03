@@ -350,7 +350,11 @@ class VerifyAgent:
                     error(f"Failed to render template from {self.template} to {tmp_dir}: {e}")
                     raise e
 
-    def start_mcps(self, no_file_ops=False, host="127.0.0.1", port=5000):
+    def start_mcps(self, no_file_ops=False, host=None, port=None):
+        if host is None:
+            host = self.cfg.mcp_server.host
+        if port is None:
+            port = self.cfg.mcp_server.port
         tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
         if not no_file_ops:
             tools += self.tool_list_file
