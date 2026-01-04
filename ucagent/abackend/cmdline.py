@@ -12,7 +12,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
     """
 
     def __init__(self, vagent, config,
-                 cli_cmd_new, cli_cmd_ctx,
+                 cli_cmd_ctx, cli_cmd_new=None,
                  pre_bash_cmd=None, post_bash_cmd=None, abort_pattern=None,
                  max_continue_fails=20,
                  **kwargs):
@@ -94,7 +94,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             with open(self.MSG_FILE, "w+") as f:
                 f.write(m)
         cli_cmd = self.cli_cmd_ctx
-        if self._call_count == 0:
+        if self._call_count == 0 and self.cli_cmd_new:
             cli_cmd = self.cli_cmd_new
         self._call_count += 1
         self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
