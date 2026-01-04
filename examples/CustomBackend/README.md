@@ -81,3 +81,16 @@ backend:
 
 通过这种配置驱动的方式，你可以轻松地将 iFlow CLI、Gemini CLI 等任何支持标准输入/输出交互的 Agent 集成到 UCAgent 生态中。
 
+
+#### 举例（使用ClaudeCode驱动UCAgent）
+
+先配置好claude，确保以下命令可用。
+```
+claude --dangerously-skip-permissions -c -p 'Ni hao'
+```
+
+然后在UCAgent目录中运行
+
+```bash
+make mcp_Adder ARGS="--backend=claude_code -l"
+```
