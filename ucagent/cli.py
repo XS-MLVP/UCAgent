@@ -319,6 +319,13 @@ def get_args() -> argparse.Namespace:
         help="Path to the custom Guide_Doc directory or file to append (can be used multiple times). If no path specified, the default Guide_Doc from the package will be used."
     )
 
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=None,
+        help="Specify the backend to use (overrides config file setting)"
+    )
+
     parser.add_argument('--append-py-path', '-app', action='append', default=[], type=str,
                         help='Append additional Python paths or files for module loading (can be used multiple times)')
 
@@ -503,6 +510,10 @@ def run() -> None:
     if args.mcp_server_host is not None:
         args.override = args.override or {}
         args.override["mcp_server.host"] = args.mcp_server_host
+
+    if args.backend:
+        args.override = args.override or {}
+        args.override["backend.key_name"] = args.backend
 
     if args.icmd:
         init_cmds += args.icmd

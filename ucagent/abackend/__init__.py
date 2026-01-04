@@ -13,7 +13,10 @@ def get_backend(vagent, cfg: Config) -> AgentBackendBase:
 
     :return: The AgentBackendBase instance.
     """
-    backend_conf = cfg.backend.get_value(cfg.backend.key_name).as_dict()
+    backend_conf = cfg.backend.get_value(cfg.backend.key_name, None)
+    if backend_conf is None:
+        raise ValueError(f"Backend configuration for '{cfg.backend.key_name}' not found.")
+    backend_conf = backend_conf.as_dict()
     backend_clss = backend_conf.get("clss", "ucagent.abackend.langchain.UCAgentLangChainBackend")
     backend_args = backend_conf.get("args", {})
     from importlib import import_module
