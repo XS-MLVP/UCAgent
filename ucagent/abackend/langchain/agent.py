@@ -44,6 +44,10 @@ class UCAgentLangChainBackend(AgentBackendBase):
             ).set_max_keep_msgs(self.message_statistic, vagent.max_keep_msgs)
         self.message_manage_node = message_manage_node
 
+    def set_debug(self, debug):
+        from langchain_core.globals import set_debug
+        set_debug(debug)
+
     def init(self):
         self.agent = create_react_agent(
             model=self.model,
