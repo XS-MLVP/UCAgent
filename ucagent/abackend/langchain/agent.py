@@ -103,7 +103,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
     def do_work_values(self, instructions, config):
         last_msg_index = None
         for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
-            if self._need_break:
+            if self.vagent._need_break:
                 break
             index = len(step["messages"])
             if index == last_msg_index:
