@@ -40,6 +40,7 @@ class VerifyAgent:
                  cfg_override: Optional[Dict[str, Any]] = None,
                  tmp_overwrite: bool = False,
                  template_dir: Optional[str] = None,
+                 template_cfg: Optional[Dict[str, Any]] = None,
                  guid_doc_path: List[str] = [],
                  stream_output: bool = False,
                  init_cmd: Optional[List[str]] = None,
@@ -139,7 +140,7 @@ class VerifyAgent:
         self.dut_name = dut_name
         self.seed = seed if seed is not None else random.randint(1, 999999)
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
-        self.render_template(tmp_overwrite=tmp_overwrite)
+        self.render_template(template_cfg=template_cfg, tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
         self.todo_panel = ToDoPanel()
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, saved_info, force_stage_index, force_todo, self.todo_panel,
@@ -332,13 +333,15 @@ class VerifyAgent:
             f.write("# Verification Instruction\n")
             f.write(self._default_system_prompt + "\n")
 
-    def render_template(self, tmp_overwrite=False):
+    def render_template(self, template_cfg=None, tmp_overwrite=False):
         template_context = {"DUT": self.dut_name,
                             "Version": __version__,
                             "Email": __email__,
                             "CWD": self.workspace,
                             "UC_LIB_PATH": ucagent_lib_path(),
                             }
+        if template_cfg is not None:
+            template_context.update(template_cfg)
         if self.template is not None:
             tmp_dir = os.path.join(self.workspace, os.path.basename(self.template))
             info(f"Rendering template from {self.template} to {tmp_dir}")

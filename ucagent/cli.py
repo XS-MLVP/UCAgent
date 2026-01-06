@@ -156,6 +156,13 @@ def get_args() -> argparse.Namespace:
         help="Overwrite existing templates in the workspace"
     )
     parser.add_argument(
+        "--template-cfg-override",
+        action="append",
+        default=[],
+        type=str,
+        help="Override template configuration settings from yaml file (can be used multiple times)"
+    )
+    parser.add_argument(
         "--output", 
         type=str, 
         default="unity_test", 
@@ -515,6 +522,15 @@ def run() -> None:
         args.override = args.override or {}
         args.override["backend.key_name"] = args.backend
 
+    template_cfg_overrides = {}
+    if args.template_cfg_override:
+        for cfg_file in args.template_cfg_override:
+            import yaml
+            assert os.path.isfile(cfg_file), f"Template config override file not found: {cfg_file}"
+            with open(cfg_file, 'r') as f:
+                cfg_data = yaml.safe_load(f)
+                template_cfg_overrides.update(cfg_data)
+
     if args.icmd:
         init_cmds += args.icmd
     
@@ -538,6 +554,7 @@ def run() -> None:
         cfg_override=args.override,
         tmp_overwrite=args.template_overwrite,
         template_dir=args.template_dir,
+        template_cfg=template_cfg_overrides,
         guid_doc_path=args.guid_doc_path,
         stream_output=args.stream_output,
         seed=args.seed,
