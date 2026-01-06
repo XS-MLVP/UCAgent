@@ -295,7 +295,7 @@ def get_args() -> argparse.Namespace:
         "--mcp-server-port", 
         type=int, 
         default=None,
-        help="Port for the MCP server"
+        help="Port for the MCP server. Use -1 to auto-select an available port."
     )
     
     # Advanced arguments
@@ -483,7 +483,7 @@ def run() -> None:
 
     from .verify_agent import VerifyAgent
     from .util.log import init_log_logger, init_msg_logger
-    from .util.functions import append_python_path
+    from .util.functions import append_python_path, find_available_port
 
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
@@ -502,6 +502,8 @@ def run() -> None:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
+    if args.mcp_server_port == -1:
+        args.mcp_server_port = find_available_port()
     mcp_cmd = None
     if args.mcp_server:
         mcp_cmd = "start_mcp_server"

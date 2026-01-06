@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import copy
+import socket
 from ucagent.util.log import info, warning
 import os
 from typing import List, Dict, Any, Optional, Tuple, Union
@@ -1913,3 +1914,15 @@ def get_tools_from_cfg(tool_list, cfg: dict):
         else:
             tools.append(t)
     return tools
+
+
+def find_available_port(start_port=5000, end_port=65000):
+    """Find an available port in the given range."""
+    for port in range(start_port, end_port + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("", port))
+                return port
+            except OSError:
+                continue
+    raise RuntimeError(f"No available port found in range {start_port}-{end_port}.")
