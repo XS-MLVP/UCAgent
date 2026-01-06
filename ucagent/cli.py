@@ -393,24 +393,27 @@ def upgrade() -> None:
     import subprocess
     print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
     print(f"Python executable: {sys.executable}")
-    try:
-        # Use the same Python interpreter that is currently running
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'install', '--upgrade',
-             'git+https://github.com/XS-MLVP/UCAgent@main'],
-            check=True,
-            text=True
-        )
-        print("\nUCAgent upgraded successfully!")
-        print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
-    except subprocess.CalledProcessError as e:
-        print(f"\nFailed to upgrade UCAgent!")
-        print(f"Error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nUnexpected error during upgrade: {e}")
-        sys.exit(1)
-    sys.exit(0)
+    for url in ["https://github.com",
+                "https://www.gitlink.org.cn",
+                "https://gitee.com/XS-MLVP"
+                ]:
+        try:
+            # Use the same Python interpreter that is currently running
+            source_url = f'git+{url}/XS-MLVP/UCAgent@main'
+            print(f"Trying to upgrade from {source_url} ...")
+            result = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--upgrade',
+                source_url],
+                check=True,
+                text=True
+            )
+            print("\nUCAgent upgraded successfully!")
+            print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\nUnexpected error during upgrade: {e}")
+            print(f"Failed to upgrade UCAgent from {url}. Trying next source...")
+    sys.exit(1)
 
 
 def parse_reference_files(ref_args: List[str]) -> Dict[int, List[str]]:

@@ -17,20 +17,20 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "langchain>=0.3.25",
-    "langchain_community>=0.3.24",
-    "openai>=1.82.0",
-    "langgraph>=0.4.7",
-    "langchain_openai>=0.3.18",
-    "langmem>=0.0.29",
-    "urwid>=3.0.2",
-    "mem0ai>=0.1.109",
-    "langchain_mcp_adapters>=0.1.7",
+    "langchain>=1.2.0",
+    "langchain_community>=0.3.31",
+    "openai>=1.109.1",
+    "langgraph>=1.0.5",
+    "langchain_openai>=1.1.6",
+    "langmem>=0.0.30",
+    "urwid>=3.0.3",
+    "mem0ai>=0.1.118",
+    "langchain_mcp_adapters>=0.1.11",
     "psutil>=7.1.0",
-    "pytoffee@git+https://github.com/XS-MLVP/toffee@master",
-    "toffee-test@git+https://github.com/XS-MLVP/toffee-test@master",
     "langfuse>=3.9.1",
     "gitpython>=3.1.43",
+    "pytoffee@git+https://github.com/XS-MLVP/toffee@master",
+    "toffee-test@git+https://github.com/XS-MLVP/toffee-test@master",
 ]
 dynamic = ["version"]
 
