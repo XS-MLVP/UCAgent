@@ -7,7 +7,7 @@ init_cmds: []
 
 # backend
 backend:
-  key_name: "langchain"  # options: langchain, iflow_cli, claude_code, etc.
+  key_name: "langchain"  # options: langchain, claude_code, opencode, etc.
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
   claude_code:
@@ -17,8 +17,13 @@ backend:
       cli_cmd_ctx: "claude --dangerously-skip-permissions -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
-        - "cp ~/.claude/settings.json {CWD}/.claude/"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.claude/settings.json"
+        - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # Add a project-scoped server claude mcp add --scope project ...., then backup the config to ~/.claude/.mcp.json
+        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.mcp.json" # modify the mcp port (5000) to the configured port
+  opencode:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "opencode run < {MSG_FILE}"
+      cli_cmd_ctx: "opencode run -c < {MSG_FILE}"
 
 mcp_server:
   host: 127.0.0.1
