@@ -24,6 +24,9 @@ backend:
     args:
       cli_cmd_new: "opencode run < {MSG_FILE}"
       cli_cmd_ctx: "opencode run -c < {MSG_FILE}"
+    pre_bash_cmd:
+      - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # You need to setup opencode config first
+      - "sed -i \"s/5000/{PORT}/\" {CWD}/opencode.json" # modify the server port (5000) to the configured port
 
 mcp_server:
   host: 127.0.0.1
