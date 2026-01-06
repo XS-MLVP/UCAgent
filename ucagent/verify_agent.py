@@ -189,6 +189,8 @@ class VerifyAgent:
                            # Workspace git management tools
                            WorkDiff(self.workspace),
                            WorkCommit(self.workspace),
+                           # bash tool
+                           RunBashCommand(self.workspace),
         ]
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(self.cfg.get_value("ex_tools", []), ucagent.tools) \
