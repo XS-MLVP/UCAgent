@@ -1144,6 +1144,22 @@ class VerifyPDB(Pdb):
             echo_r(traceback.format_exc())
             echo_r(f"Error calling hmcheck_pass: {e}")
 
+    def do_hmcheck_pass_and_continue(self, arg):
+        """
+        Set hmcheck_pass and continue to the next stage.
+        """
+        arg = arg.strip()
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        try:
+            message(stage.do_hmcheck_pass(arg))
+            self.do_loop(f"Human expert check passed, complete the stage and continue. {arg if arg else ''}")
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling hmcheck_pass_and_continue: {e}")
+
     def do_hmcheck_fail(self, arg):
         """
         Call the hmcheck_fail method of the agent in current stage.
