@@ -108,7 +108,7 @@
 如果未安装命令，则执行命令（项目内运行）应为：
 
 ```bash
-python3 ucagent.py ...
+python3 ../ucagent.py ...
 ```
 
 以 Adder 模块为例:
