@@ -7,7 +7,7 @@ UCAgent 内置了 `langchain` 后端用于与 LLM 进行交互（需配置 OPENA
 
 ```yaml
 backend:
-  key_name: "langchain"  # 可选值: langchain, claude_code 等
+  key_name: "langchain"  # 可选值: langchain, claude_code, opencode 等
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
   claude_code:
@@ -17,8 +17,16 @@ backend:
       cli_cmd_ctx: "claude --dangerously-skip-permissions -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
-        - "cp ~/.claude/settings.json {CWD}/.claude/"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.claude/settings.json"
+        - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # 确保已使用 claude mcp add --scope project ... 添加server，并备份到了 ~/.claude/.mcp.json
+        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.mcp.json" # 动态修改mcp端口(5000)为配置的端口
+  opencode:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "opencode run < {MSG_FILE}"
+      cli_cmd_ctx: "opencode run -c < {MSG_FILE}"
+    pre_bash_cmd:
+      - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # 需提前准备好 opencode 配置文件
+      - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/opencode.json"
 ```
 
 
@@ -63,11 +71,12 @@ backend:
       
       # 后端初始化前执行的预处理命令列表
       # 支持变量替换：{CWD} (当前工作目录), {PORT} (MCP 服务器端口)
+      # 示例逻辑：将预先配置好的 .mcp.json (含 UCAgent server 配置) 复制到当前项目并在启动前替换端口
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
-        - "cp ~/.claude/settings.json {CWD}/.claude/"
+        - "cp ~/.claude/.mcp.json {CWD}/.mcp.json"
         # 动态修改配置中的端口号，确保 MCP 连接正确
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.claude/settings.json"
+        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.mcp.json"
 ```
 
 **配置参数详解：**
@@ -92,5 +101,5 @@ claude --dangerously-skip-permissions -c -p 'Ni hao'
 然后在UCAgent目录中运行
 
 ```bash
-make mcp_Adder ARGS="--backend=claude_code -l"
+make mcp_Adder ARGS="--backend=claude_code --loop"
 ```
