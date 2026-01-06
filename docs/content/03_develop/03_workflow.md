@@ -414,7 +414,7 @@ hmcheck_set 24 true   # 10.1 分批测试用例实现与对应bug分析
 
 - 工作流定义在语言配置 `ucagent/lang/zh/config/default.yaml` 的顶层 `stage:` 列表。
 - 配置加载顺序：setting.yaml → ~/.ucagent/setting.yaml → 语言默认（含 stage）→ 项目根 `config.yaml` → CLI `--override`。
-- 注意：列表类型（如 stage 列表）在合并时是“整体覆盖”，不是元素级合并；因此要“增删改”阶段，建议把默认的 stage 列表复制到你的项目 `config.yaml`，在此基础上编辑。
+- 重要：列表类型（如 `stage` 列表）在合并时是“整体替换”，不是元素级合并；因此要“增删改”阶段，需要把默认的 `stage` 列表复制到你的项目 `config.yaml`，在此基础上编辑。
 - 临时不执行某阶段：优先使用 CLI `--skip` 跳过该索引；持久跳过可在你的 `config.yaml` 中把该阶段条目的 `skip: true` 写上（同样需要提供完整的 stage 列表）。
 
 ### 增加阶段
