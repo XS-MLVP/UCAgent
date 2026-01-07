@@ -48,6 +48,9 @@ class RunBashCommand(UCTool):
             "shutdown", "reboot",   # system state
             ":(){ :|:& };:",       # fork bomb
             "mv /"                  # move root
+            "sudo ", "sudo\t", "sudo\n",     # elevated privileges
+            "chmod ", "chmod\t", "chmod\n",  # change permissions
+            "chown ", "chown\t", "chown\n",  # change ownership
         ]
         
         cmd_check = command.strip()

@@ -1279,6 +1279,7 @@ class VerifyPDB(Pdb):
         except Exception:
             pass
         echo_g("Stage information saved. Exiting debugger.")
+        self.agent.exit()
         return super().do_quit(arg)
 
     def do_q(self, arg):

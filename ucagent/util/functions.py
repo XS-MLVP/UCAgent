@@ -2,9 +2,10 @@
 
 import copy
 import socket
+import stat
 from ucagent.util.log import info, warning
 import os
-from typing import List, Dict, Any, Optional, Tuple, Union
+from typing import List, Tuple, Union
 import json
 import importlib
 import re
@@ -1926,3 +1927,75 @@ def find_available_port(start_port=5000, end_port=65000):
             except OSError:
                 continue
     raise RuntimeError(f"No available port found in range {start_port}-{end_port}.")
+
+
+def chmode_ro(workspace, pattern_list: str, ignore_list: list = ["__pycache__"]) -> list:
+    """Change file mode to read-only."""
+    file_list = []
+    path_list = []
+    for file_path_pattern in pattern_list:
+        for p in find_files_by_pattern(workspace, file_path_pattern):
+            file_path = os.path.abspath(os.path.join(workspace, p))
+            if os.path.exists(file_path):
+                if os.path.isdir(file_path):
+                    for dirpath, dirnames, filenames in os.walk(file_path):
+                        for filename in filenames:
+                            file_full_path =  os.path.join(dirpath, filename)
+                            file_list.append(file_full_path)
+                        for dirname in dirnames:
+                            dir_full_path = os.path.join(dirpath, dirname)
+                            path_list.append(dir_full_path)
+                    path_list.append(file_path)
+                else:
+                    file_list.append(file_path)
+            else:
+                warning(f"File not found for: {file_path}")
+    mfile = stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH
+    mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    all_list = file_list + path_list
+    for file_path in all_list:
+        ignored = False
+        for ig in ignore_list:
+            if ig in file_path:
+                ignored = True
+                break
+            if "*" in ig:
+                if fnmatch.fnmatch(os.path.basename(file_path), ig):
+                    ignored = True
+                    break
+        if ignored:
+            info(f"File ignored for setting mode to read-only: {file_path}")
+            continue
+        if os.path.isdir(file_path):
+            os.chmod(file_path, mpath)
+        else:
+            os.chmod(file_path, mfile)
+    info(f"Set file mode to read-only completed ({len(all_list)} files).")
+    return all_list
+
+
+def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
+    """Set file mode to read-write."""
+    mfile = stat.S_IREAD | stat.S_IWRITE | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH
+    mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    for file_path in path_list:
+        ignored = False
+        for ig in ignore_list:
+            if ig in file_path:
+                ignored = True
+                break
+            if "*" in ig:
+                if fnmatch.fnmatch(os.path.basename(file_path), ig):
+                    ignored = True
+                    break
+        if ignored:
+            info(f"File ignored for setting mode to read-write: {file_path}")
+            continue
+        if os.path.exists(file_path):
+            if os.path.isdir(file_path):
+                os.chmod(file_path, mpath)
+            else:
+                os.chmod(file_path, mfile)
+        else:
+            warning(f"File not found for setting mode to read-write: {file_path}")
+    info(f"Set file mode to read-write completed ({len(path_list)} files).")

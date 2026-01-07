@@ -169,6 +169,7 @@ class VerifyAgent:
                 assert abs_f.startswith(os.path.abspath(self.workspace)), \
                     f"Specified no-write target {abs_f} must be under the workspace {self.workspace}"
                 self.cfg.un_write_dirs.append(rm_workspace_prefix(self.workspace, abs_f))
+        self.cwd_read_only_files = fc.chmode_ro(self.workspace, self.cfg.get_value("un_write_dirs", []))
         self.tool_list_file = [
                            # Directory and file listing tools
                            PathList(self.workspace),
@@ -482,7 +483,10 @@ class VerifyAgent:
         return self._is_exit
 
     def exit(self):
+        if self.is_exit():
+            return
         self._is_exit = True
+        fc.chmode_rw(self.cwd_read_only_files)
 
     def try_exit_on_completion(self):
         if self._exit_on_completion:
