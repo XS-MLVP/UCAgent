@@ -180,7 +180,6 @@
       ├── Adder # picker导出的Adder包
       │   ├── ...
       │   └── xspcomm
-      ├── Adder  # 打包好的python DUT
       ├── Guide_Doc # 各种模板文件
       ├── uc_test_report # 跑完的测试报告，包含可以直接网页运行的index.html
       └── unity_test # 各种生成的文档和测试用例文件
@@ -200,7 +199,7 @@
   对文件的详细解读可参照[生成的代码](../03_develop/00_template.md/#unity_testtests)
 
 - unity_test/\*.md：验证相关文档
-  对文件的详细解讻可参照[生成的文档](../03_develop/00_template.md/#unity_test.md)
+  对文件的详细解读可参照[生成的文档](../03_develop/00_template.md/#unity_test.md)
 
 ## 流程总结
 
