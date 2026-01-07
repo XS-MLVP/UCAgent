@@ -463,6 +463,7 @@ stage:
       - "  - 第一个参数必须为：env (pytest fixture)"
       - "  - 最后一个参数必须为：max_cycles=default_value(根据需要调整默认值大小，无论是组合电路还是时序电路都需要该参数)"
       - "  - 其他参数根据测试需求添加"
+      - "  API函数底层必须使用Step接口驱动DUT，无论是组合电路还是时序电路"
       - "  对于总线类DUT，建议基于 dut.StepRis 实现总线事务级驱动"
       - "  有需要时，请在Env中通过 dut.StepRis 实现对关联Mock组件的驱动"
     checker:
