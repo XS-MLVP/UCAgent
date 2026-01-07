@@ -289,3 +289,26 @@ Output: `ucagent-doc.pdf` can be distributed with version releases.
 ### Contributing
 
 Issues and Pull Requests are welcome!
+
+## 📜 Compliance & Licensing
+
+UCAgent is an open-source project committed to maintainable, legal, and transparent operations. By contributing to this project, you agree to abide by our licensing and contribution terms.
+
+### 1. License
+The Project is licensed under the [Apache License, Version 2.0](LICENSE). You may obtain a copy of the License at [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0).
+
+### 2. Contributor License Agreements (CLA)
+To ensure long-term sustainability and protect both contributors and users, we require a signed Contributor License Agreement (CLA) for all non-trivial contributions.
+
+* **Individual Contributors:** If you are contributing as an individual, please refer to our [Individual CLA (ICLA)](CLA.md).
+* **Corporate Contributors:** If you are contributing on behalf of an entity (e.g., a corporation or foundation), please refer to our [Corporate CLA (CCLA)](CCLA.md).
+
+> **Note:** For individual contributors, submitting a Pull Request and checking the CLA box in the [PR Template](.github/PULL_REQUEST_TEMPLATE.md) constitutes your agreement to the ICLA terms.
+
+### 3. Developer Certificate of Origin (DCO)
+We encourage contributors to sign off their commits to certify that they have the right to submit the code under the project's license. 
+To do this, simply add the following line to your commit message (or use `git commit -s`):
+`Signed-off-by: Random J Developer <random@developer.example.org>`
+
+---
+*For any legal inquiries regarding UCAgent, please contact the Project Maintainers.*
