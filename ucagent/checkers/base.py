@@ -2,6 +2,7 @@
 """Base checker class for UCAgent verification checkers."""
 
 import os
+import sys
 from typing import Tuple
 from ucagent.util.config import Config
 from ucagent.util.functions import render_template, rm_workspace_prefix, fill_template
@@ -580,3 +581,28 @@ class UpdateTempFromDataChecker(Checker):
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Update temporary files from data by KEYs."""
         return True, "Temporary files updated from data."
+
+
+class OrginFileMustExistChecker(Checker):
+    """File Must Exist Checker."""
+
+    def __init__(self, files, **kw):
+        self.file_path_list = files if isinstance(files, list) else [files]
+
+    def set_stage_manager(self, stage_manager):
+        super().set_stage_manager(stage_manager)
+        file_not_exist = []
+        for i in range(len(self.file_path_list)):
+            fpath = self.get_path(self.file_path_list[i])
+            if not os.path.exists(fpath):
+                file_not_exist.append(self.file_path_list[i])
+        if len(file_not_exist) > 0:
+            self.stage_manager.agent.exit()
+            error(f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}.")
+            sys.exit(1)
+            assert False, f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}."
+        return self
+
+    def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
+        """Check if the specified file exists."""
+        return True, f"File exist check passed."

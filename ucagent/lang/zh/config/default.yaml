@@ -109,6 +109,11 @@ stage:
             args:
               markdown_file_list: "{OUT}/{DUT}_verification_needs_and_plan.md"
               no_line_break: true
+          - name: dut_must_exist_check
+            clss: "OrginFileMustExistChecker"
+            args:
+              files:
+                - "{DUT}/__init__.py"
 
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
