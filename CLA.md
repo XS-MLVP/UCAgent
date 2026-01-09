@@ -5,7 +5,7 @@ Thank you for your interest in **UCAgent** (the "Project"). In order to clarify 
 ### 1. Definitions
 **"You" (or "Your")** shall mean the copyright owner or legal entity authorized by the copyright owner that is making this Agreement. 
 
-**"Contribution"** shall mean any source code, object code, documentation, or other rights of authorship that is intentionally submitted by You for inclusion in the Project.
+**"Contribution"** shall mean any source code, object code, documentation, or other original works of authorship that is intentionally submitted by You for inclusion in the Project.
 
 ### 2. Grant of Copyright License
 Subject to the terms and conditions of this Agreement, You hereby grant to the **UCAgent Project Maintainers** and to recipients of software distributed by the Project a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense, and distribute Your Contributions and such derivative works.
