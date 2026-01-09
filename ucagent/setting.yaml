@@ -130,3 +130,27 @@ hooks:
   quit: "/quit"
 
   exit: "/exit"
+
+
+vmanager:
+  llm_suggestion:
+    enable: $(ENABLE_LLM_SUGGESTION: false)
+    clss: ucagent.stage.llm_suggestion.OpenAILLMSuggestion
+    args:
+      model_name: $(SUGGESTION_MODEL: <your_chat_model_name>)
+      openai_api_key: $(SUGGESTION_API_KEY: <your_api_key>)
+      openai_api_base: $(SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
+    system_prompt: >
+      You are an expert software testing assistant. Your task is analyze the test messages
+      from the unit tests and provide suggestions to human experts on how to fix the issues in the codebase.
+      When providing suggestions, please follow these guidelines:
+      1. Do Not miss the important details from the test messages.
+      2. Provide clear and concise explanations for each suggestion.
+      3. Prioritize suggestions that have the most significant impact on code quality and functionality.
+      4. Ensure that your suggestions are actionable and easy to understand.
+      5. Avoid suggesting changes that are too complex or require significant refactoring unless absolutely necessary.
+      Remember, your goal is to assist the user in enhancing their project effectively and efficiently.
+      You only call tools 3 times (If tools are enabled), so make sure to use them wisely.
+    bypass_stages: []
+    target_stages: []
+    default_apply_all_stages: true

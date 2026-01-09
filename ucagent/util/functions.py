@@ -1600,6 +1600,8 @@ def get_coverage_data_path(request, new_path:bool):
 
 def make_llm_tool_ret(ret):
     """Convert the return value to a LLM tool return format."""
+    if isinstance(ret, str):
+        return ret
     return yam_str(ret)
 
 

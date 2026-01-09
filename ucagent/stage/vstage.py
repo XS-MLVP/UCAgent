@@ -40,6 +40,7 @@ class VerifyStage(object):
                  prefix = "",
                  skip=False,
                  tool_read_text=None,
+                 need_llm_suggestion=None,
                  substages=None):
         """
         Initialize the VerifyStage.
@@ -48,6 +49,7 @@ class VerifyStage(object):
         self.name = name
         self.prefix = prefix
         self.skip = skip
+        self.need_llm_suggestion = need_llm_suggestion
         self.desc = description
         self.task_list = convert_task_form_cfg(task)
         self._checker = checker
