@@ -1,5 +1,5 @@
 UCAgent
-Copyright © 2024 The UCAgent Project Maintainers
+Copyright © 2024 - Present The UCAgent Project Maintainers
 
 This product includes software developed by the UCAgent Project.
 The copyright holders may include individual contributors
