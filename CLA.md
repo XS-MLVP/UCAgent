@@ -17,7 +17,7 @@ Subject to the terms and conditions of this Agreement, You hereby grant to the *
 You acknowledge and agree that the **UCAgent Project Maintainers** may, **as part of the governance of the Project**, assign or transfer this Agreement and all rights granted hereunder to a successor legal entity (e.g., a corporation, foundation, or other legal organization) established for the purpose of managing or commercializing the Project. Such transfer shall be effective upon public notice within the Project repository, without requiring further consent or re-signing.
 
 ### 5. Representations and Warranties
-You represent that You are legally entitled to grant the above licenses. If Your employer(s) has rights to intellectual property that You create that includes Your Contributions, You represent that You have received permission to make Contributions on behalf of that employer or that Your employer has waived such rights for Your Contributions to the Project.
+You represent that You are legally entitled to grant the above licenses. If Your employer(s) have rights to intellectual property that You create that includes Your Contributions, You represent that You have received permission to make Contributions on behalf of that employer or those employers, or that Your employer(s) have waived such rights for Your Contributions to the Project.
 
 You represent that each of Your Contributions is Your original creation.
 
