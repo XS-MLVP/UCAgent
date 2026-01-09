@@ -142,10 +142,13 @@ class VerifyAgent:
         self.template = get_template_path(self.cfg.template, self.cfg.lang, template_dir)
         self.render_template(template_cfg=template_cfg, tmp_overwrite=tmp_overwrite)
         self.tool_read_text = ReadTextFile(self.workspace)
+        self.tool_list_dir = PathList(self.workspace)
+        self.tool_search_text = SearchText(self.workspace)
         self.todo_panel = ToDoPanel()
         self.stage_manager = StageManager(self.workspace, self.cfg, self, self.tool_read_text, saved_info, force_stage_index, force_todo, self.todo_panel,
                                           stage_skip_list=stage_skip_list,
                                           stage_unskip_list=stage_unskip_list,
+                                          tool_inspect_file=[self.tool_read_text, self.tool_list_dir, self.tool_search_text],
                                           reference_files=reference_files)
         self._default_system_prompt = sys_tips if sys_tips else self.get_default_system_prompt()
         self.tool_list_base = [
@@ -172,12 +175,12 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro(self.workspace, self.cfg.get_value("un_write_dirs", []))
         self.tool_list_file = [
                            # Directory and file listing tools
-                           PathList(self.workspace),
+                           self.tool_list_dir,
                            GetFileInfo(self.workspace),
                            # File reading tools
                            # ReadBinFile(self.workspace), # ignore Binary file read
                            # File searching tools
-                           SearchText(self.workspace),
+                           self.tool_search_text,
                            FindFiles(self.workspace),
                            # File writing and editing tools (require permissions)
                            DeleteFile(self.workspace,               write_dirs=self.cfg.write_dirs, un_write_dirs=self.cfg.un_write_dirs),
