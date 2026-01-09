@@ -1,0 +1,150 @@
+###############################################################
+# MkDocs 主配置（含详细注释）
+# - 采用 Material 主题
+# - 支持中英文多语言切换（基于 mkdocs-static-i18n）
+# - 集成常用功能：搜索、Mermaid、KaTeX 数学公式、图片灯箱、最后更新时间等
+#
+# 注意：此文件位于 docs/ 目录，所有路径都相对于 docs/ 目录
+# 输出目录设置为 ../site（在主项目根目录）
+###############################################################
+
+# 站点基础信息
+site_name: UCAgent 开发者手册 # 站点名称，导航左上角展示
+site_description: 面向开发者的 UCAgent 文档与扩展指南 # 站点描述（SEO）
+site_url: https://xs-mlvp.github.io/UCAgent/ # 站点 URL，用于生成绝对链接
+repo_name: XS-MLVP/UCAgent # 顶部仓库名展示
+repo_url: https://github.com/XS-MLVP/UCAgent # 仓库地址
+edit_uri: "" # 编辑按钮地址（留空则隐藏）
+
+# 文档和输出路径配置
+docs_dir: . # 文档源文件目录（当前目录 docs/）
+site_dir: ../site # 输出目录（在上级目录）
+
+# 主题与外观设置（Material）
+theme:
+  name: material
+  # 注：语言由 i18n 插件动态注入，此处保持默认（不强制写 zh）
+  language: en
+  features:
+    - navigation.instant
+    - navigation.expand
+    - navigation.tracking
+    - search.highlight
+    - search.suggest
+    - content.tabs.link
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# 顶部导航（默认语言：中文）。英文会通过 i18n 的 nav_translations 自动映射
+nav:
+  - 首页: content/00_index.md
+  - 开始使用:
+      - 工具介绍: content/01_start/00_introduce.md
+      - 工具安装: content/01_start/01_installation.md
+      - 快速入门: content/01_start/02_quickstart.md
+  - 功能介绍:
+      - MCP 集成: content/02_usage/00_mcp.md
+      - 直接使用: content/02_usage/01_direct.md
+      - 人机协同验证: content/02_usage/02_assit.md
+      - 参数说明: content/02_usage/03_option.md
+      - TUI: content/02_usage/04_tui.md
+      - FAQ: content/02_usage/05_faq.md
+  - 定制开发:
+      - 模板文件: content/03_develop/00_template.md
+      - 定制功能: content/03_develop/01_customize.md
+      - 工具列表: content/03_develop/02_tool_list.md
+      - 工作流: content/03_develop/03_workflow.md
+  - 实践案例:
+      - 规范生成: content/04_case/00_genspec.md
+      - 多实例并发执行: content/04_case/01_multirun.md
+      - 批处理执行: content/04_case/02_batchrun.md
+
+# 常用插件（已在 docs/requirements-docs.txt 中声明依赖）
+# - search: 内置搜索（Material 集成中文分词，若安装 jieba 会自动启用）
+# - mermaid2: 时序图/流程图支持（pip: mkdocs-mermaid2-plugin）
+# - git-revision-date-localized: 在页脚展示 Git 最后修改时间（pip: mkdocs-git-revision-date-localized-plugin）
+# - glightbox: 图片灯箱（pip: mkdocs-glightbox）
+# - minify: HTML 压缩（pip: mkdocs-minify-plugin）
+# - redirects: 页面重定向（pip: mkdocs-redirects）
+plugins:
+  - search
+  - mermaid2
+  - git-revision-date-localized:
+      enable_creation_date: true
+      fallback_to_build_date: true
+      enable_parallel_processing: false
+  - glightbox
+  - minify:
+      minify_html: true
+  - redirects:
+      redirect_maps:
+        "index.md": "content/00_index.md"
+
+# Markdown 扩展（pymdown 系列增强）
+markdown_extensions:
+  # 基础功能扩展
+  - admonition # 提示块（!!! note / warning / danger 等）
+  - toc: # 目录生成
+      permalink: true # 为标题添加永久链接锚点
+      slugify: !!python/object/apply:pymdownx.slugs.slugify { kwds: { case: lower } }
+  - attr_list # 属性列表，可为元素添加 CSS 类和属性 {.class #id}
+  - def_list # 定义列表（术语：定义）
+  - footnotes # 脚注支持 [^1]
+  - md_in_html # 在 HTML 标签内编写 Markdown
+
+  # PyMdown 扩展套件
+  - pymdownx.details # 可折叠详情块（<details>）
+  - pymdownx.tabbed # 选项卡内容组织
+  - pymdownx.tasklist: # 任务列表增强
+      custom_checkbox: true # 使用自定义复选框样式（与 Material 主题协调）
+
+  # 代码高亮扩展 - 修正后的配置
+  - pymdownx.highlight:
+      linenums: true # 启用行号显示（全局）
+      anchor_linenums: true # 允许链接到特定行号
+      line_spans: __span # 为每行添加 span 元素，便于 CSS 定位
+      pygments_lang_class: true # 添加语言对应的 CSS 类
+
+  - pymdownx.inlinehilite # 行内代码高亮 `code`{.lang}
+  - pymdownx.superfences # 高级围栏代码块（支持嵌套、mermaid 等）
+
+  # 其他功能扩展
+  - pymdownx.emoji: # 表情符号支持 :smile:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.arithmatex: # 数学公式渲染（LaTeX）
+      generic: true # 使用通用模式，与 KaTeX/MathJax 兼容
+
+  # 列表行为修正
+  - mdx_truly_sane_lists # 规范列表嵌套行为，修复缩进问题
+
+# 额外资源（KaTeX 样式与脚本）
+extra_css:
+  - https://unpkg.com/katex@0.16.9/dist/katex.min.css
+  - stylesheets/extra.css # 建议放最后，确保自定义色覆盖主题色
+
+extra_javascript:
+  - https://unpkg.com/katex@0.16.9/dist/katex.min.js
+  - https://unpkg.com/katex@0.16.9/dist/contrib/auto-render.min.js
+  - javascripts/math.js
+
+# 页脚版权信息（可按需替换）
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/XS-MLVP/UCAgent
+      name: GitHub
+  generator: false
+  copyright: "© 2025 XS-MLVP. All rights reserved."
