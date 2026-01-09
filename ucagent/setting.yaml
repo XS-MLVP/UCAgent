@@ -7,7 +7,7 @@ init_cmds: []
 
 # backend
 backend:
-  key_name: "langchain"  # options: langchain, claude_code, opencode, etc.
+  key_name: "langchain"  # options: langchain, claude_code, opencode, copilot_cli, etc.
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
   claude_code:
@@ -27,6 +27,15 @@ backend:
     pre_bash_cmd:
       - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # You need to setup opencode config first
       - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/opencode.json" # modify the server port (5000) to the configured port
+  copilot_cli:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "copilot --allow-all-tools -p < {MSG_FILE}"
+      cli_cmd_ctx: "copilot --allow-all-tools --continue -p < {MSG_FILE}"
+    pre_bash_cmd:
+      - "mkdir -p {CWD}/.copilot/"
+      - "cp ~/.copilot/mcp-config.json {CWD}/.copilot/mcp-config.json"
+      - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.copilot/mcp-config.json" # modify the mcp port (5000) to the configured port
 
 mcp_server:
   host: 127.0.0.1
