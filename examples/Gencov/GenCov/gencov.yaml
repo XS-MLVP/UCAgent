@@ -1,0 +1,171 @@
+# GenCov 示例配置文件
+
+mission:
+  name: "{DUT} Coverage 生成"
+  prompt:
+    system: |
+      你是一名验证工程师，目标是将 HVP 测试点翻译成可实现的功能覆盖率逻辑。
+      输入：HVP、Verilog/RTL、相关说明文档（md）。
+      输出：功能覆盖率 Verilog 文件（含 TP 标签注释），以及一致性检查报告。
+      过程需拆分为细粒度步骤，便于检查与复用。
+
+mcp_server:
+  init_prompt: >
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`EditTextFile`创建和编辑文件。
+    工作区根目录为 UCAgent 启动时传入的 workspace，所有路径必须使用配置中给出的相对路径（如 {HVP_FILE}、{RTL_DIR}），不要使用 ../ 或绝对路径，也不要用 Bash 读文件。
+
+# 禁止直接修改 HVP、RTL、文档目录
+un_write_dirs:
+  - "{HVP_DIR}/"
+  - "{RTL_DIR}/"
+  - "{DOC_DIR}/"
+  - "{CHISEL_DIR}/"
+
+# 不使用预定义模板
+template: ""
+
+# TUI 界面配置
+tui:
+  task_width: 50
+  console_height: 19
+  status_height: 10
+
+stage:
+  - name: collect_inputs
+    desc: "收集输入与上下文"
+    task:
+      - "阅读 {HVP_FILE}，了解测试点层级结构"
+      - "明确 TOP 模块为 {DUT}，覆盖入口与 IO 以 Verilog 顶层接口为准"
+      - "从 {RTL_DIR} 提取顶层 IO 端口与接口定义（以 Verilog 为准）"
+      - "基于顶层 IO 生成 SystemVerilog interface/modport 文件 {OUT}/{DUT}_io_modport.sv，便于覆盖模块/环境接入"
+      - "阅读 {CHISEL_DIR} 下相关 Scala 源码，理解逻辑功能与时序"
+      - "阅读 {DOC_DIR} 下相关说明文档（*.md）并提取关键约束/术语"
+      - "输出输入梳理摘要 {OUT}/input_context.md"
+    reference_files:
+      - "{HVP_FILE}"
+      - "{RTL_DIR}/**/*.sv"
+      - "{CHISEL_DIR}/**/*.scala"
+      - "{DOC_DIR}/**/*.md"
+    output_files:
+      - "{OUT}/input_context.md"
+      - "{OUT}/{DUT}_io_modport.sv"
+
+  - name: hvp_parse
+    desc: "解析 HVP 并抽取测试点"
+    task:
+      - "识别 plan/feature/endfeature 层级"
+      - "抽取所有测试点标签（例如 TP_ 开头），记录层级路径与中文描述"
+      - "输出测试点清单 {OUT}/tp_list.yaml"
+    reference_files:
+      - "{HVP_FILE}"
+    output_files:
+      - "{OUT}/tp_list.yaml"
+
+  - name: tp_grouping
+    desc: "按接口/功能分组测试点"
+    task:
+      - "根据 {OUT}/tp_list.yaml 将测试点按接口/功能分组"
+      - "为每组指定目标覆盖文件与模块边界"
+      - "输出分组结果 {OUT}/tp_group.yaml"
+    reference_files:
+      - "{OUT}/tp_list.yaml"
+    output_files:
+      - "{OUT}/tp_group.yaml"
+
+  - name: signal_inventory
+    desc: "整理 RTL 信号与时序约束"
+    task:
+      - "从 {RTL_DIR} 提取与测试点相关的接口信号（IO 以 Verilog 为准）"
+      - "结合 {CHISEL_DIR} 理解内部逻辑/时序，记录采样时钟、复位条件、valid/ready 触发关系"
+      - "若接口存在多通道/多指令槽，记录完整索引范围与数量参数（如 INSTR_COUNT）"
+      - "输出信号字典 {OUT}/signal_dict.yaml"
+    reference_files:
+      - "{RTL_DIR}/**/*.sv"
+      - "{CHISEL_DIR}/**/*.scala"
+      - "{OUT}/tp_group.yaml"
+    output_files:
+      - "{OUT}/signal_dict.yaml"
+
+  - name: tp_to_cov_mapping
+    desc: "建立测试点到覆盖点的映射关系"
+    task:
+      - "基于 {OUT}/signal_dict.yaml 为每个测试点定义采样条件（iff）与表达式"
+      - "确定 covergroup/coverpoint/cross 名称与归属"
+      - "映射必须覆盖所有索引/通道，禁止只写示例或省略项"
+      - "输出映射文件 {OUT}/tp_to_cov_map.yaml"
+    reference_files:
+      - "{OUT}/tp_group.yaml"
+      - "{OUT}/signal_dict.yaml"
+    output_files:
+      - "{OUT}/tp_to_cov_map.yaml"
+
+  - name: coverage_skeleton
+    desc: "生成覆盖率代码骨架"
+    task:
+      - "根据 {OUT}/tp_to_cov_map.yaml 生成 covergroup/coverpoint/cross 框架"
+      - "在每个覆盖点上方写入 TP 标签注释（例如 // TP_xxx）"
+      - "接口/函数实现必须完整展开，禁止出现 \"...省略\" 或占位实现"
+      - "可优先使用参数化/生成语句（如 INSTR_COUNT、generate）减少重复；若工具不支持则显式展开但不省略"
+      - "输出覆盖率 Verilog 文件 {COV_FILE}"
+    reference_files:
+      - "{OUT}/tp_to_cov_map.yaml"
+    output_files:
+      - "{COV_FILE}"
+
+  - name: coverage_refine
+    desc: "完善 bins/cross 与边界条件"
+    task:
+      - "为 coverpoint 增加 bins/ignore_bins/illegal_bins"
+      - "补充 cross 覆盖与必要的过滤条件"
+      - "添加必要的自检逻辑（例如计数一致性、接口宽度断言）"
+      - "更新 {COV_FILE}"
+    reference_files:
+      - "{COV_FILE}"
+    output_files:
+      - "{COV_FILE}"
+
+  - name: consistency_checker_codegen
+    desc: "一致性脚本（预置）"
+    task:
+      - "使用预置脚本 {CHECK_SCRIPT}，禁止生成或修改"
+      - "阅读 {CHECK_SCRIPT}，理解检查规则与输出格式"
+      - "测试点与映射关系由前序阶段产出，此处仅固定规则与使用方式"
+    reference_files:
+      - "{CHECK_SCRIPT}"
+    output_files: []
+
+  - name: consistency_check
+    desc: "一致性检查（代码方式）"
+    task:
+      - "运行 {CHECK_SCRIPT} 比较 {HVP_FILE} 与 {COV_FILE} 的 TP 标签"
+      - "示例：python {CHECK_SCRIPT} --hvp {HVP_FILE} --cov {COV_FILE} --out {OUT}/tp_consistency_report.md"
+      - "输出一致性报告 {OUT}/tp_consistency_report.md"
+      - "建议在 {COV_FILE} 初版生成后先行运行一次，以便尽早暴露问题"
+      - "若脚本返回非零，需回退修正覆盖代码或映射关系后再检查"
+    reference_files:
+      - "{HVP_FILE}"
+      - "{COV_FILE}"
+      - "{CHECK_SCRIPT}"
+    output_files:
+      - "{OUT}/tp_consistency_report.md"
+    checker:
+      - name: tp_consistency_check
+        clss: "BashScriptChecker"
+        args:
+          cmd: "python"
+          arguments:
+            - "{CHECK_SCRIPT}"
+            - "--hvp"
+            - "{HVP_FILE}"
+            - "--cov"
+            - "{COV_FILE}"
+            - "--out"
+            - "{OUT}/tp_consistency_report.md"
+
+  - name: finalize
+    desc: "收尾与交付"
+    task:
+      - "确认中间产物与 {COV_FILE} 生成完毕"
+      - "输出交付摘要 {OUT}/hvp_to_coverage_summary.md"
+    output_files:
+      - "{OUT}/hvp_to_coverage_summary.md"
