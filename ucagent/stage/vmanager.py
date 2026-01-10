@@ -333,12 +333,17 @@ class StageManager(object):
         need_suggestion = stage.need_llm_suggestion if stage.need_llm_suggestion is not None else is_apply_to_all
         if need_suggestion != True:
             return error_msg
-        suggestion_msg =  self.llm_suggestion.suggest([
-            self.cfg.vmanager.llm_suggestion.system_prompt,
-            stage.task_info(),
-            error_msg],
-            stage.fail_count)
-        return suggestion_msg
+        try:
+            suggestion_msg =  self.llm_suggestion.suggest([
+                stage.task_info(),
+                error_msg],
+                stage.fail_count)
+            return suggestion_msg
+        except Exception as e:
+            traceback.print_exc()
+            warning(f"LLM suggestion failed: {str(e)}")
+            warning("Use original error message instead.")
+            return error_msg
 
     def get_time_cost(self):
         if self.time_end is None:
