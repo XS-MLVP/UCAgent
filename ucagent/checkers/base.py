@@ -98,6 +98,14 @@ class Checker:
     def filter_vstage_task(self, stage_detail):
         return fill_template(stage_detail, self.get_template_data())
 
+    def reset_continue_fail_count(self):
+        if self.stage_manager is None:
+            return
+        vstage = self.stage_manager.get_current_stage()
+        if vstage is None:
+            return
+        vstage.reset_continue_fail_count()
+
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."
         self.stage_manager = manager
@@ -546,6 +554,7 @@ class UnityChipBatchTask:
                 f" Now the next {len(self.tbd_task_list)} {self.name}: "
                 f"{', '.join(self.tbd_task_list)} need to be completed.{exmsg}"
             )
+            self.checker.reset_continue_fail_count()
 
         return False, success_msg
 

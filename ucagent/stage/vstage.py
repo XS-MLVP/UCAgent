@@ -65,6 +65,7 @@ class VerifyStage(object):
         self.fail_count = 0
         self.succ_count = 0
         self.check_pass = False
+        self.continue_fail_count = 0
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
@@ -249,6 +250,7 @@ class VerifyStage(object):
                 if not v:
                     emsg["files_need_read"].append(k + f" (Not readed, need ReadTextFile('{k}'))")
             self.fail_count += 1
+            self.continue_fail_count += 1
             return False, emsg
         success_out_file = True
         success_out_msg = []
@@ -258,6 +260,7 @@ class VerifyStage(object):
                 success_out_msg.append(k)
         if not success_out_file:
             self.fail_count += 1
+            self.continue_fail_count += 1
             return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
                                        "failed_patterns": success_out_msg})
         self.check_pass = True
@@ -282,7 +285,13 @@ class VerifyStage(object):
                 self.fail_count += 1
         if self.check_pass:
             self.succ_count += 1
+            self.continue_fail_count = 0
+        else:
+            self.continue_fail_count += 1
         return self.check_pass, self.check_info
+
+    def reset_continue_fail_count(self):
+        self.continue_fail_count = 0
 
     def is_reached(self):
         return self._is_reached
