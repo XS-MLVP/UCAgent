@@ -3,6 +3,7 @@
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.config import Config
 from ucagent.util.log import info
+from ucagent.stage.vstage import VerifyStage
 
 
 class BaseLLMSuggestion:
@@ -19,7 +20,7 @@ class BaseLLMSuggestion:
     def bind_tools(self, tools: list, system_prompt: str): # return self
         raise NotImplementedError("Subclasses must implement this method. return self.")
 
-    def suggest(self, prompts: list, fail_count:int) -> str:
+    def suggest(self, prompts: list, stage: VerifyStage) -> str:
         raise NotImplementedError("Subclasses must implement this method.")
 
 

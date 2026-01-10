@@ -337,7 +337,7 @@ class StageManager(object):
             suggestion_msg =  self.llm_suggestion.suggest([
                 stage.task_info(),
                 error_msg],
-                stage.fail_count)
+                stage)
             return suggestion_msg
         except Exception as e:
             traceback.print_exc()

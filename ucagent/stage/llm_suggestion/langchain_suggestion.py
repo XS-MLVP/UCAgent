@@ -3,6 +3,7 @@
 from ucagent.stage.llm_suggestion.base_suggestion import BaseLLMSuggestion
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
+from ucagent.stage.vstage import VerifyStage
 from ucagent.util.functions import make_llm_tool_ret
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.messages import RemoveMessage
@@ -68,6 +69,8 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
                               openai_api_base=self.openai_api_base,
                               **kwargs)
         self.agent = None
+        self.mem_saver = MemorySaver()
+        self.current_vstage = None
 
     def bind_tools(self, tools: list, system_prompt: str):
         if tools and self.use_inspect_tool:
@@ -81,24 +84,36 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
                                             ),
                                       ],
                                       system_prompt=system_prompt,
-                                      checkpointer=MemorySaver(),
+                                      checkpointer=self.mem_saver,
                                     )
         self.system_prompt = system_prompt
         return self
 
-    def suggest(self, prompts: list, fail_count:int) -> str:
-        if fail_count < self.min_fail_count:
-            return prompts[1]  # return error_str directly
-        # current_task + error_str
-        user_text = "Task Information:\n" + make_llm_tool_ret(prompts[0]) + \
-                    "Error Information:\n" + make_llm_tool_ret(prompts[1]) + \
-                    "\n\nplease provide your suggestions based on the above information."
+    def get_work_cfg(self):
+        return {"configurable": {"thread_id": self.get_thread_id()}}
+
+    def get_thread_id(self):
+        return f"suggestion_agent_{id(self)}"
+
+    def suggest(self, prompts: list, vstage: VerifyStage) -> str:
+        if vstage.continue_fail_count < self.min_fail_count:
+            return prompts[1]  # return test_info directly
+        if self.current_vstage != vstage and self.current_vstage is not None:
+            if self.agent:
+                self.mem_saver.delete_thread(self.get_thread_id())
+        self.current_vstage = vstage
+        # current_task + test_info
+        user_text = "Task Information:\n<task>\n" + make_llm_tool_ret(prompts[0]) + \
+                    "\n</task>\n\nTest Information:\n<report>\n" + make_llm_tool_ret(prompts[1]) + \
+                    "\n</report>\n\n" + \
+                    "Please tell the LLM expert what to do based on the above information (He cannot see the Test Information)."
         messages = [
             ("system", self.system_prompt),
             ("user", user_text),
         ]
         if self.agent:
-            result = self.agent.invoke({"messages": messages})
+            result = self.agent.invoke({"messages": messages},
+                                       config=self.get_work_cfg())
             sg_msg = result['messages'][-1].text
         else:
             sg_msg = self.llm.invoke(messages).text

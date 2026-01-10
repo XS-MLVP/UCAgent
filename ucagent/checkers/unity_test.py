@@ -1082,6 +1082,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             return False, {"error": f"There are still {len(self.current_test_cases)} test cases remaining to be implemented: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                     f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. " + \
                                      "Please continue implementing the remaining test cases before completing this stage."}
+        self.reset_continue_fail_count()
         return False, {"success": f"Great! {len(self.current_test_cases)} test cases have been successfully implemented. " + \
                                   f"Next, please proceed to implement the following {len(self.current_test_cases)} test cases: {fc.list_str_abbr(self.current_test_cases)}. " + \
                                   f"Test case implemention progress: {sum([t[1] for t in self.total_test_cases])}/{len(self.total_test_cases)}. "}
