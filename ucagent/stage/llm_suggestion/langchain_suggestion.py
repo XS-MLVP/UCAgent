@@ -4,7 +4,45 @@ from ucagent.stage.llm_suggestion.base_suggestion import BaseLLMSuggestion
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 from ucagent.util.functions import make_llm_tool_ret
+from langchain.agents.middleware import SummarizationMiddleware
+from langchain_core.messages import RemoveMessage
+from langgraph.runtime import Runtime
+from langchain.agents.middleware.types import AgentState
+from typing import Any
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langgraph.checkpoint.memory import MemorySaver
 
+
+class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
+    def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: ARG002
+        """Process messages before model invocation, potentially triggering summarization."""
+        messages = state["messages"]
+        self._ensure_message_ids(messages)
+        total_tokens = self.token_counter(messages)
+        if (
+            self.max_tokens_before_summary is not None
+            and total_tokens < self.max_tokens_before_summary
+        ):
+            return None
+
+        cutoff_index = self._find_safe_cutoff(messages)
+
+        if cutoff_index <= 0:
+            return None
+
+        messages_to_summarize, preserved_messages = self._partition_messages(messages, cutoff_index)
+
+        summary = self._create_summary(messages_to_summarize)
+        new_messages = self._build_new_messages(summary)
+
+        return {
+            "messages": [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                messages_to_summarize[0],  # keep the very first message
+                *new_messages,
+                *preserved_messages,
+            ]
+        }
 
 class OpenAILLMSuggestion(BaseLLMSuggestion):
 
@@ -14,6 +52,8 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
                  ignore_labels: list = [("<think>", "</think>")],
                  use_inspect_tool: bool = True,
                  min_fail_count: int = 3,
+                 summary_trigger_tokens: int = 32*1024,
+                 summary_keep_messages: int = 10,
                  **kwargs):
         self.model_name = model_name
         self.openai_api_key = openai_api_key
@@ -21,31 +61,44 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
         self.ignore_labels = ignore_labels
         self.use_inspect_tool = use_inspect_tool
         self.min_fail_count = min_fail_count
+        self.summary_trigger_tokens = summary_trigger_tokens
+        self.summary_keep_messages = summary_keep_messages
         self.llm = ChatOpenAI(model_name=self.model_name,
                               openai_api_key=self.openai_api_key,
                               openai_api_base=self.openai_api_base,
                               **kwargs)
         self.agent = None
 
-    def bind_tools(self, tools: list):
+    def bind_tools(self, tools: list, system_prompt: str):
         if tools and self.use_inspect_tool:
             self.agent = create_agent(self.llm,
-                                      tools=tools)
+                                      tools=tools,
+                                      middleware=[
+                                            KeepFirstSummarizationMiddleware(
+                                              model=self.llm,
+                                              max_tokens_before_summary=self.summary_trigger_tokens,
+                                              messages_to_keep=self.summary_keep_messages,
+                                            ),
+                                      ],
+                                      system_prompt=system_prompt,
+                                      checkpointer=MemorySaver(),
+                                    )
+        self.system_prompt = system_prompt
         return self
 
     def suggest(self, prompts: list, fail_count:int) -> str:
         if fail_count < self.min_fail_count:
-            return prompts[2]  # return error_str directly
-        # system prompt + current_task + error_str
-        user_text = "Task Information:\n" + make_llm_tool_ret(prompts[1]) + \
-                    "Error Information:\n" + make_llm_tool_ret(prompts[2]) + \
+            return prompts[1]  # return error_str directly
+        # current_task + error_str
+        user_text = "Task Information:\n" + make_llm_tool_ret(prompts[0]) + \
+                    "Error Information:\n" + make_llm_tool_ret(prompts[1]) + \
                     "\n\nplease provide your suggestions based on the above information."
         messages = [
-            ("system", prompts[0]),
+            ("system", self.system_prompt),
             ("user", user_text),
         ]
         if self.agent:
-            result = self.agent.invoke({"messages":messages})
+            result = self.agent.invoke({"messages": messages})
             sg_msg = result['messages'][-1].text
         else:
             sg_msg = self.llm.invoke(messages).text
