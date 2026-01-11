@@ -19,7 +19,7 @@ from ucagent.stage.vstage import get_root_stage
 from ucagent.tools.uctool import UCTool, EmptyArgs
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
-from ucagent.stage.llm_suggestion.base_suggestion import get_llm_suggestion_instance
+from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_fail_refinement_instance
 
 
 class ManagerTool(UCTool):
@@ -311,30 +311,31 @@ class StageManager(object):
         info("Current stage index is " + str(self.stage_index) + ".")
         self.time_begin = time.time()
         self.time_end = None
-        self.llm_suggestion = get_llm_suggestion_instance(self.cfg, self)
+        self.llm_fail_suggestion = get_llm_check_fail_refinement_instance(self.cfg, self)
 
-    def gen_suggestion(self, error_msg) -> str:
-        if not self.llm_suggestion:
+    def gen_fail_suggestion(self, error_msg) -> str:
+        if not self.llm_fail_suggestion:
             return error_msg
         stage = self.get_current_stage()
         if stage is None:
             return error_msg
+        suggestion_cfg = self.cfg.vmanager.llm_suggestion.check_fail_refinement
         # filter stages
-        bypass_stages = self.cfg.vmanager.llm_suggestion.as_dict().get("bypass_stages", [])
+        bypass_stages = suggestion_cfg.as_dict().get("bypass_stages", [])
         if bypass_stages:
             if stage.name in bypass_stages:
                 return error_msg
-        target_stages = self.cfg.vmanager.llm_suggestion.as_dict().get("target_stages", [])
+        target_stages = suggestion_cfg.as_dict().get("target_stages", [])
         if target_stages:
             if stage.name not in target_stages:
                 return error_msg
         # need suggestion
-        is_apply_to_all = self.cfg.vmanager.llm_suggestion.as_dict().get("default_apply_all_stages", True)
+        is_apply_to_all = suggestion_cfg.as_dict().get("default_apply_all_stages", True)
         need_suggestion = stage.need_llm_suggestion if stage.need_llm_suggestion is not None else is_apply_to_all
         if need_suggestion != True:
             return error_msg
         try:
-            suggestion_msg =  self.llm_suggestion.suggest([
+            suggestion_msg =  self.llm_fail_suggestion.suggest([
                 stage.task_info(),
                 error_msg],
                 stage)
@@ -497,7 +498,7 @@ class StageManager(object):
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         else:
-            return self.gen_suggestion(ret_data)
+            return self.gen_fail_suggestion(ret_data)
         return ret_data
 
     def save_stage_info(self):
@@ -593,7 +594,7 @@ class StageManager(object):
         })
         if not ck_pass:
             ret["action"] = "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
-            return self.gen_suggestion(ret)
+            return self.gen_fail_suggestion(ret)
         return ret
 
     def exit(self):

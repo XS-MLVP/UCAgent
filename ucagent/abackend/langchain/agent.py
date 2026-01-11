@@ -30,6 +30,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 msg_stat=self.message_statistic,
                 max_summary_tokens=vagent.max_summary_tokens,
                 max_keep_msgs=vagent.max_keep_msgs,
+                max_tokens=vagent.max_token,
                 tail_keep_msgs=vagent.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
                 model=self.sumary_model
             )

@@ -5,7 +5,7 @@ from .statistic import MessageStatistic
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import warning, info
 
-from langchain_core.messages.utils import count_tokens_approximately, trim_messages
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langmem.short_term import SummarizationNode
@@ -140,10 +140,12 @@ class UCMessagesNode:
       llm input: summary_msgs(summarized by max_summary_tokens) + role_info + history_msg
     """
 
-    def __init__(self, msg_stat: MessageStatistic, max_summary_tokens: int, max_keep_msgs: int, tail_keep_msgs: int, model):
+    def __init__(self, msg_stat: MessageStatistic, max_summary_tokens: int,
+                 max_keep_msgs: int, max_tokens: int, tail_keep_msgs: int, model):
         self.msg_stat = msg_stat
         self.max_summary_tokens = max_summary_tokens
         self.max_keep_msgs = max_keep_msgs
+        self.max_tokens = max_tokens
         self.tail_keep_msgs = tail_keep_msgs
         self.summary_data = []
         self.model = model
@@ -156,8 +158,12 @@ class UCMessagesNode:
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
+        current_token_size = count_tokens_approximately(messages)
+        is_exceed = current_token_size > self.max_tokens
         if self.arbit_summary_data is None:
-            if len(llm_input_msgs) > self.max_keep_msgs:
+            if len(llm_input_msgs) > self.max_keep_msgs or is_exceed:
+                if (is_exceed):
+                    warning(f"Messages token size {current_token_size} exceed max tokens {self.max_tokens}.")
                 # get init start index
                 tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
                 start_msg = llm_input_msgs[tail_msgs_start_index]
