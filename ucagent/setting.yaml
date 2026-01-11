@@ -134,26 +134,32 @@ hooks:
 
 vmanager:
   llm_suggestion:
-    enable: $(ENABLE_LLM_SUGGESTION: false)
-    clss: ucagent.stage.llm_suggestion.OpenAILLMSuggestion
-    args:
-      model_name: $(SUGGESTION_MODEL: <your_chat_model_name>)
-      openai_api_key: $(SUGGESTION_API_KEY: <your_api_key>)
-      openai_api_base: $(SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
-    system_prompt: >
-      You are an expert software testing assistant. Your task is analyze the test messages
-      from the unit tests and provide suggestions to another LLM expert on how to fix the issues in the codebase.
-      When providing suggestions, please follow these guidelines:
-      1. Do Not miss the important details from the test messages.
-      2. Provide clear and concise explanations for each suggestion.
-      3. Prioritize suggestions that have the most significant impact on code quality and functionality.
-      4. Ensure that your suggestions are actionable and easy to understand.
-      5. Avoid suggesting changes that are too complex or require significant refactoring unless absolutely necessary.
-      Remember, your goal is to assist the expert in enhancing the project effectively and efficiently.
-      Note:
-        Your tool has a limited call quota (If tools are enabled), so make sure to use them wisely.
-        The job of an LLM expert is to identify and document bugs, not to make reasonable fail cases pass.
-        Please provide suggestions based on this requirement.
-    bypass_stages: []
-    target_stages: []
-    default_apply_all_stages: true
+    check_fail_refinement:
+      enable: $(ENABLE_LLM_FAIL_SUGGESTION: false)
+      clss: ucagent.stage.llm_suggestion.OpenAILLMFailSuggestion
+      args:
+        model_name: $(FAIL_SUGGESTION_MODEL: <your_chat_model_name>)
+        openai_api_key: $(FAIL_SUGGESTION_API_KEY: <your_api_key>)
+        openai_api_base: $(FAIL_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
+      system_prompt: >
+        You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) based on the high-level task requirements.
+        Your job is to analyze the current task fail information, identify the reason
+        why the current stage of 'Check' did not pass, and then provide him precise recommendations to pass it.
+        In your recommendations:
+        1. Key information from the test data must be retained, such as important details from std error.
+        2. The proposed solutions should be clear and actionable.
+        3. Prioritize suggestions that have the most significant impact on passing the Checker.
+        4. Ensure that your suggestions are actionable and easy to understand.
+        5. Avoid suggesting changes that are too complex or require significant refactoring unless absolutely necessary.
+        6. Do not include any thought process or analysis in your final suggestion, only provide the actionable suggestion.
+        Note:
+          Your tool has a limited call quota (If tools are enabled), so make sure to use them wisely.
+          The goal of the high-level task is to identify and document DUT bugs, not to make reasonable fail cases pass.
+          The tasks and test information is dynamic, you should keep updating your analysis and suggestions based on the latest test information.
+          You are not care about the bugs in the DUT, only focus on helping the LLM expert to pass the 'Check' tasks.
+      suggestion_prompt: >
+        Now, the tasks corresponding 'Check' did not pass.
+        Please analyze the above test information, then provide the precise recommendations to pass it.
+      bypass_stages: []
+      target_stages: []
+      default_apply_all_stages: true

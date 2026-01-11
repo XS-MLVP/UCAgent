@@ -12,6 +12,7 @@ from langchain.agents.middleware.types import AgentState
 from typing import Any
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.checkpoint.memory import MemorySaver
+from collections import OrderedDict
 
 
 class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
@@ -45,7 +46,7 @@ class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
             ]
         }
 
-class OpenAILLMSuggestion(BaseLLMSuggestion):
+class OpenAILLMFailSuggestion(BaseLLMSuggestion):
 
     def __init__(self, model_name,
                  openai_api_key,
@@ -71,8 +72,14 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
         self.agent = None
         self.mem_saver = MemorySaver()
         self.current_vstage = None
+        self.system_prompt = None
+        self.suggestion_prompt = "Extract key details from the test information above (such as critical errors or important prompts) and present them to the tester."
 
-    def bind_tools(self, tools: list, system_prompt: str):
+    def bind_tools(self, tools: list,
+                   system_prompt: str,
+                   suggestion_prompt: str):  # return self
+        self.system_prompt = system_prompt
+        self.suggestion_prompt = suggestion_prompt
         if tools and self.use_inspect_tool:
             self.agent = create_agent(self.llm,
                                       tools=tools,
@@ -86,7 +93,6 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
                                       system_prompt=system_prompt,
                                       checkpointer=self.mem_saver,
                                     )
-        self.system_prompt = system_prompt
         return self
 
     def get_work_cfg(self):
@@ -106,7 +112,7 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
         user_text = "Task Information:\n<task>\n" + make_llm_tool_ret(prompts[0]) + \
                     "\n</task>\n\nTest Information:\n<report>\n" + make_llm_tool_ret(prompts[1]) + \
                     "\n</report>\n\n" + \
-                    "Please tell the LLM expert what to do based on the above information (He cannot see the Test Information)."
+                    self.suggestion_prompt
         messages = [
             ("system", self.system_prompt),
             ("user", user_text),
@@ -117,7 +123,30 @@ class OpenAILLMSuggestion(BaseLLMSuggestion):
             sg_msg = result['messages'][-1].text
         else:
             sg_msg = self.llm.invoke(messages).text
-        return self._remove_ignore_labels(sg_msg)
+        sg_msg = self._remove_ignore_labels(sg_msg)
+        ret_text = ""
+        err_data = self.get_uc_raw_error(prompts[1])
+        if err_data:
+            ret_text += f"Check_Fail_Message:\n{make_llm_tool_ret(err_data)}\n"
+        ret_text += f"Assistant_Suggestion:\n{sg_msg}\n"
+        return ret_text
+
+    def get_uc_raw_error(self, data, main_key="check_info", key="last_msg.error"):
+        d_list = data.get(main_key, [])
+        if not d_list:
+            return None
+        if not isinstance(d_list, list):
+            d_list = [d_list]
+        error_list = []
+        for d in d_list:
+            err = d
+            for k in key.split('.'):
+                err = err.get(k, {})
+            if err:
+                error_list.append(err)
+        if not error_list:
+            return None
+        return error_list
 
     def _remove_ignore_labels(self, text: str) -> str:
         for start_label, end_label in self.ignore_labels:
