@@ -124,7 +124,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
         else:
             sg_msg = self.llm.invoke(messages).text
         sg_msg = self._remove_ignore_labels(sg_msg)
-        ret_text = ""
+        ret_text = "\n\n"
         err_data = self.get_uc_raw_error(prompts[1])
         if err_data:
             ret_text += f"Check_Fail_Message:\n{make_llm_tool_ret(err_data)}\n"
