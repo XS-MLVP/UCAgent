@@ -10,6 +10,7 @@ import signal
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
 import readline
+import random
 
 
 class VerifyPDB(Pdb):
@@ -18,7 +19,10 @@ class VerifyPDB(Pdb):
     to ensure that the PDB file is valid and contains the expected structure.
     """
 
-    def __init__(self, agent, prompt = "(UnityChip) ", init_cmd=None):
+    def __init__(self, agent, prompt = "(UnityChip) ", init_cmd=None,
+                 max_loop_retry=10,
+                 retry_delay=[5,10],
+                 loop_alive_time=120):
         # default cmd history file
         self.history_file = os.path.expanduser("~/.ucagent/pdb_cmd_history")
         try:
@@ -40,6 +44,9 @@ class VerifyPDB(Pdb):
         self._in_tui = False
         # Control whether empty line repeats last command
         self._repeat_last_command = True
+        self.max_loop_retry = max_loop_retry
+        self.retry_delay_start, self.retry_delay_end = retry_delay
+        self.loop_alive_time = loop_alive_time
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -216,7 +223,27 @@ class VerifyPDB(Pdb):
         """
         self.agent.set_break(False)
         self.agent.set_force_trace(False)
-        self.agent.run_loop(arg.strip())
+        try_count = 0
+        while True:
+            start_time = time.time()
+            try:
+                self.agent.run_loop(arg.strip())
+                return None
+            except Exception as e:
+                echo_y(f"Error during loop execution: {e}\n{traceback.format_exc()}")
+                delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
+                while delay_time > 0:
+                    echo_y(f"Retrying in {delay_time} seconds...")
+                    time.sleep(1)
+                    delay_time -= 1
+                try_count += 1
+                if time.time() - start_time > self.loop_alive_time:
+                    try_count = 0  # reset try count if loop has been alive for a while
+                    echo_g("Loop has been alive for a while, resetting retry count.")
+            # check max retry
+            if try_count >= self.max_loop_retry:
+                echo_r("Max loop retry reached. Exiting loop.")
+                return None
 
     def do_chat(self, arg):
         """

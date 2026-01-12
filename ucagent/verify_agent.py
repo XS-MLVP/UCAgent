@@ -273,7 +273,12 @@ class VerifyAgent:
                 warning("Context management tools are enabled but no message management node is available.")
         self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
                                                 self.cfg.tools.as_dict())
-        self.pdb = VerifyPDB(self, init_cmd=init_cmd)
+        self.pdb = VerifyPDB(self,
+                             init_cmd=init_cmd,
+                             max_loop_retry=self.cfg.loop_settings.max_loop_retry,
+                             retry_delay=(self.cfg.loop_settings.retry_delay_start, self.cfg.loop_settings.retry_delay_end),
+                             loop_alive_time=self.cfg.loop_settings.loop_alive_time
+                             )
         self.backend.init()
         self.backend.set_debug(debug)
         self.set_tool_call_time_out(self.cfg.get_value("call_time_out", 300))

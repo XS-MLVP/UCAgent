@@ -118,6 +118,11 @@ tui:
   console_height: 13
   status_height: 7
 
+loop_settings:
+  max_loop_retry: 10       # maximum number of retries for a loop
+  retry_delay_start: 5     # initial delay time in seconds before retrying
+  retry_delay_end: 10      # maximum delay time in seconds before retrying
+  loop_alive_time: 120     # time in seconds to consider a loop alive before resetting retry count
 
 hooks:
   continue: >
