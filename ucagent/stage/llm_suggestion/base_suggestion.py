@@ -25,10 +25,20 @@ class BaseLLMSuggestion:
     def suggest(self, prompts: list, stage: VerifyStage) -> str:
         raise NotImplementedError("Subclasses must implement this method.")
 
+    def _remove_ignore_labels(self, text: str, ignore_labels: list) -> str:
+        for start_label, end_label in ignore_labels:
+            while True:
+                start_idx = text.find(start_label)
+                end_idx = text.find(end_label, start_idx + len(start_label))
+                if start_idx != -1 and end_idx != -1:
+                    text = text[:start_idx] + text[end_idx + len(end_label):]
+                else:
+                    break
+        return text
 
-def get_llm_check_fail_refinement_instance(cfg: Config, vmanager) -> BaseLLMSuggestion:
+
+def get_llm_check_instance(fail_refinement_cfg: Config, vmanager, tools) -> BaseLLMSuggestion:
     import ucagent.stage.llm_suggestion as llm_suggestion_module
-    fail_refinement_cfg = cfg.vmanager.llm_suggestion.check_fail_refinement
     if fail_refinement_cfg.enable != True:
         return None
     class_name = fail_refinement_cfg.clss
@@ -37,6 +47,6 @@ def get_llm_check_fail_refinement_instance(cfg: Config, vmanager) -> BaseLLMSugg
     info(f"Instantiate LLM Suggestion: {class_name}")
     system_prompt = fail_refinement_cfg.system_prompt
     suggestion_prompt = fail_refinement_cfg.suggestion_prompt
-    return clss(**args).set_vmanager(vmanager).bind_tools(vmanager.tool_inspect_file,
+    return clss(**args).set_vmanager(vmanager).bind_tools(tools,
                                                           system_prompt=system_prompt,
                                                           suggestion_prompt=suggestion_prompt)

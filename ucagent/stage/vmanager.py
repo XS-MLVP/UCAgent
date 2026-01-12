@@ -19,7 +19,7 @@ from ucagent.stage.vstage import get_root_stage
 from ucagent.tools.uctool import UCTool, EmptyArgs
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
-from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_fail_refinement_instance
+from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 
 
 class ManagerTool(UCTool):
@@ -33,6 +33,25 @@ class ManagerTool(UCTool):
     def set_function(self, func):
         self.function = func
         return self
+
+
+class ArgApproveStagePass(BaseModel):
+    pass_or_not: bool = Field(
+        default=True,
+        description="Indicates whether to pass or not current stage task, True means pass and False means fail. Default is True."
+    )
+
+
+class ApproveStagePass(ManagerTool):
+    """Approve the current stage as passed."""
+    name: str = "ApproveStagePass"
+    args_schema: Optional[ArgsSchema] = ArgApproveStagePass
+    description: str = (
+        "Approve the current stage as passed. \n"
+        "This tool is used when you have verified that the current stage has been properly completed. \n"
+    )
+    def _run(self, pass_or_not: bool = True, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(pass_or_not)
 
 
 class ToolStatus(ManagerTool):
@@ -311,40 +330,85 @@ class StageManager(object):
         info("Current stage index is " + str(self.stage_index) + ".")
         self.time_begin = time.time()
         self.time_end = None
-        self.llm_fail_suggestion = get_llm_check_fail_refinement_instance(self.cfg, self)
+        self.llm_fail_suggestion = get_llm_check_instance(
+            self.cfg.vmanager.llm_suggestion.check_fail_refinement,
+            self,
+            self.tool_inspect_file
+        )
+        self.llm_pass_suggestion = get_llm_check_instance(
+            self.cfg.vmanager.llm_suggestion.check_pass_refinement,
+            self,
+            self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve)]
+        )
+
+    def tool_stage_approve(self, pass_or_not: bool = True) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        vstage.set_approved(pass_or_not)
+        return f"Stage '{vstage.name}' approved status set to {pass_or_not}."
 
     def gen_fail_suggestion(self, error_msg) -> str:
-        if not self.llm_fail_suggestion:
-            return error_msg
         stage = self.get_current_stage()
         if stage is None:
             return error_msg
-        suggestion_cfg = self.cfg.vmanager.llm_suggestion.check_fail_refinement
+        try:
+            return self.gen_llm_suggestion(
+                error_msg,
+                stage,
+                self.llm_fail_suggestion,
+                self.cfg.vmanager.llm_suggestion.check_fail_refinement,
+                stage.need_fail_llm_suggestion,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            warning(f"Generate fail suggestion failed: {str(e)}")
+            return error_msg
+
+    def gen_pass_suggestion(self, raw_msg) -> str:
+        stage = self.get_current_stage()
+        if stage is None:
+            return raw_msg
+        try:
+            stage.set_approved(False)
+            return self.gen_llm_suggestion(
+                raw_msg,
+                stage,
+                self.llm_pass_suggestion,
+                self.cfg.vmanager.llm_suggestion.check_pass_refinement,
+                stage.need_pass_llm_suggestion,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            warning(f"Generate pass suggestion failed: {str(e)}")
+            warning("Set stage as approved due to exception in generating pass suggestion.")
+            stage.set_approved(True)
+            return raw_msg
+
+    def gen_llm_suggestion(self, raw_msg, stage, suggestion_instance, suggestion_cfg, need_llm_suggestion) -> str:
+        assert stage is not None, "stage can not be None"
+        if need_llm_suggestion is not None and need_llm_suggestion != True:
+            return raw_msg
+        if not suggestion_instance:
+            return raw_msg
         # filter stages
         bypass_stages = suggestion_cfg.as_dict().get("bypass_stages", [])
         if bypass_stages:
             if stage.name in bypass_stages:
-                return error_msg
+                return raw_msg
         target_stages = suggestion_cfg.as_dict().get("target_stages", [])
         if target_stages:
             if stage.name not in target_stages:
-                return error_msg
+                return raw_msg
         # need suggestion
         is_apply_to_all = suggestion_cfg.as_dict().get("default_apply_all_stages", True)
-        need_suggestion = stage.need_llm_suggestion if stage.need_llm_suggestion is not None else is_apply_to_all
+        need_suggestion = need_llm_suggestion if need_llm_suggestion is not None else is_apply_to_all
         if need_suggestion != True:
-            return error_msg
-        try:
-            suggestion_msg =  self.llm_fail_suggestion.suggest([
+            return raw_msg
+        return suggestion_instance.suggest([
                 stage.task_info(),
-                error_msg],
+                raw_msg],
                 stage)
-            return suggestion_msg
-        except Exception as e:
-            traceback.print_exc()
-            warning(f"LLM suggestion failed: {str(e)}")
-            warning("Use original error message instead.")
-            return error_msg
 
     def get_time_cost(self):
         if self.time_end is None:
@@ -567,6 +631,9 @@ class StageManager(object):
                 "last_check_result": self.last_check_info,
             }
         ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "is_complete": True})
+        if ck_pass:
+            ck_info = self.gen_pass_suggestion(ck_info)
+            ck_pass = self.stages[self.stage_index].get_approved()
         self.last_check_info = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
