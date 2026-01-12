@@ -91,7 +91,7 @@ conversation_summary:
 rate_limiter:
   enabled: false
   # The following settings are used when rate_limiter.enabled is true
-  requests_per_second: 10    # default 10 req/s
+  requests_per_second: $(LLM_MAX_RPS: 10)    # default 10 req/s
   check_every_n_seconds: 0.1 # default 0.1s, wake up every 100 ms to check whether allowed to make a request
   max_bucket_size: 1         # default 1, controls the maximum burst size
 
