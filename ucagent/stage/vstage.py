@@ -40,7 +40,8 @@ class VerifyStage(object):
                  prefix = "",
                  skip=False,
                  tool_read_text=None,
-                 need_llm_suggestion=None,
+                 need_fail_llm_suggestion=None,
+                 need_pass_llm_suggestion=None,
                  substages=None):
         """
         Initialize the VerifyStage.
@@ -49,7 +50,8 @@ class VerifyStage(object):
         self.name = name
         self.prefix = prefix
         self.skip = skip
-        self.need_llm_suggestion = need_llm_suggestion
+        self.need_fail_llm_suggestion = need_fail_llm_suggestion
+        self.need_pass_llm_suggestion = need_pass_llm_suggestion
         self.desc = description
         self.task_list = convert_task_form_cfg(task)
         self._checker = checker
@@ -81,6 +83,7 @@ class VerifyStage(object):
         self.time_start = None
         self.time_end = None
         self.time_prev_cost = 0.0
+        self.llm_approved = True
 
     def add_reference_files(self, files):
         for f in find_files_by_pattern(self.workspace, files):
@@ -97,6 +100,13 @@ class VerifyStage(object):
         if self.time_end is not None:
             return
         self.time_end = time.time()
+
+    def set_approved(self, approved: bool):
+        self.llm_approved = approved
+        return approved
+
+    def get_approved(self):
+        return self.llm_approved
 
     def get_time_cost(self):
         if self.time_start is None:

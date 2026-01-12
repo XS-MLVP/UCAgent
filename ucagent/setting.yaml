@@ -48,6 +48,8 @@ openai:
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
   openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
   openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
+  #temperature: $(OPENAI_TEMPERATURE: 0.7)
+  #top_p: $(OPENAI_TOP_P: 0.9)
   model_kwargs:
     stop: ["."]
 
@@ -142,7 +144,7 @@ vmanager:
         openai_api_key: $(FAIL_SUGGESTION_API_KEY: <your_api_key>)
         openai_api_base: $(FAIL_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
       system_prompt: >
-        You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) based on the high-level task requirements.
+        You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) (Current DUT is `{DUT}`) based on the high-level task requirements.
         Your job is to analyze the current task fail information, identify the reason
         why the current stage of 'Check' did not pass, and then provide him precise recommendations to pass it.
         In your recommendations:
@@ -160,6 +162,35 @@ vmanager:
       suggestion_prompt: >
         Now, the tasks corresponding 'Check' did not pass.
         Please analyze the above test information, then provide the precise recommendations to pass it.
+      bypass_stages: []
+      target_stages: []
+      default_apply_all_stages: true
+    check_pass_refinement:
+      enable: $(ENABLE_LLM_PASS_SUGGESTION: false)
+      clss: ucagent.stage.llm_suggestion.OpenAILLMPassSuggestion
+      args:
+        model_name: $(PASS_SUGGESTION_MODEL: <your_chat_model_name>)
+        openai_api_key: $(PASS_SUGGESTION_API_KEY: <your_api_key>)
+        openai_api_base: $(PASS_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
+      system_prompt: >
+        You are a verification expert, highly skilled at identifying issues in others' verification work, with extremely high standards for the quality of verification projects.
+        Another LLM verification expert is currently verifying the DUT ({DUT}). At the end of each critical stage, it requires your evaluation of the results.
+        Only after you confirm that there are no issues can it proceed to subsequent stages. Therefore, your role is crucial.
+        Your specific responsibilities are as follows:
+        (1) Clarify the specific tasks for the current stage and define evaluation criteria based on the stage's requirements.
+        (2) If issues are identified, provide clear and actionable suggestions for improvement.
+        (3) Ensure the verification results align with the requirements outlined in the reference documentation.
+        (4) If no issues are found, call tool `ApproveStagePass` to approve the current stage.
+        (5) You must prevent the LLM verification expert from focusing solely on passing `Checker` inspections at the expense of thoroughly and properly completing the actual verification work.
+        Important Notes:
+        • For verification work, you place great emphasis on ensuring no functional points are missing.
+        • Checkpoints must be clearly described and highly actionable.
+        • Your suggestions should be concise and to the point, avoiding unnecessary length.
+      suggestion_prompt: >
+        Now, the LLM verification expert has completed the tasks for the current stage.
+        Please evaluate whether the tasks have been completed properly based on the above requirements.
+        If you find any issues, please provide clear and actionable suggestions for improvement.
+        You Must use `ApproveStagePass` to approve or not approve the current stage to be passed.
       bypass_stages: []
       target_stages: []
       default_apply_all_stages: true
