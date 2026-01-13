@@ -391,6 +391,7 @@ def get_args() -> argparse.Namespace:
 
 def upgrade() -> None:
     import subprocess
+    exargs = sys.argv[2:]
     print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
     print(f"Python executable: {sys.executable}")
     for url in ["https://github.com/XS-MLVP",
@@ -401,9 +402,11 @@ def upgrade() -> None:
             # Use the same Python interpreter that is currently running
             source_url = f'git+{url}/UCAgent@main'
             print(f"Trying to upgrade from {source_url} ...")
+            cmd = [sys.executable, '-m', 'pip', 'install', '--timeout', '5', '--upgrade',
+                source_url] + exargs
+            print(f"Running command: {' '.join(cmd)}")
             result = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '--upgrade',
-                source_url],
+                cmd,
                 check=True,
                 text=True
             )
