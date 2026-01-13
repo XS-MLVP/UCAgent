@@ -107,6 +107,16 @@ qwen
 
 ---
 
+### 7. How to Improve Effectiveness (Optional)
+
+By default, UCAgent only enables the internal `Python Checker` for stage result checking, which is heuristic. If you need verification effectiveness improvement, you can introduce `LLM Stage Result Checking`. If you need to reach "delivery level", you further need to introduce `Human Stage Checking`.
+
+1. To enable LLM stage result checking, please refer to: [examples/LLMCheck/README.md](examples/LLMCheck/README.md)
+
+2. To enable human stage result checking, please refer to: [examples/GenSpec/genspec.yaml](examples/GenSpec/genspec.yaml)
+
+Default stage checking order: Python Checker -> LLM -> Human
+
 ## Basic Operations
 
 ### TUI Shortcuts
