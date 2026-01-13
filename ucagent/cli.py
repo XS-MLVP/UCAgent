@@ -393,13 +393,13 @@ def upgrade() -> None:
     import subprocess
     print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
     print(f"Python executable: {sys.executable}")
-    for url in ["https://github.com",
-                "https://www.gitlink.org.cn",
-                "https://gitee.com/XS-MLVP"
+    for url in ["https://github.com/XS-MLVP",
+                "https://www.gitlink.org.cn/XS-MLVP",
+                "https://gitee.com/mirrors/"
                 ]:
         try:
             # Use the same Python interpreter that is currently running
-            source_url = f'git+{url}/XS-MLVP/UCAgent@main'
+            source_url = f'git+{url}/UCAgent@main'
             print(f"Trying to upgrade from {source_url} ...")
             result = subprocess.run(
                 [sys.executable, '-m', 'pip', 'install', '--upgrade',
