@@ -30,7 +30,7 @@ def do_work_values(self, instructions, config):
     last_msg_index = None
     msg = "LLM Suggestion in progress..."
     for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
-        if self.is_interrupted():
+        if self.is_interrupted() or self.is_break():
             warning("LLM Suggestion interrupted during streaming.")
             msg = "\n\n=== LLM Suggestion Interrupted ===\n\n"
             break

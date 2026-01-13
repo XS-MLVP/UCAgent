@@ -28,12 +28,14 @@ class BaseLLMSuggestion:
                     break
         return text
 
-    def interrupt_handler(self):
-        warning("LLM Suggestion interrupt received.")
-        self._interrupted = True
-
     def is_interrupted(self):
         return hasattr(self, '_interrupted') and self._interrupted
+
+    def is_break(self):
+        vmanager = self.get_vmanager()
+        if vmanager:
+            return vmanager.is_break()
+        return False
 
     def unset_interrupted(self):
         self._interrupted = False

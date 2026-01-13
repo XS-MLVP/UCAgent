@@ -23,7 +23,6 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.post_bash_cmd = post_bash_cmd or []
         self.abort_pattern = abort_pattern or []
         self.max_continue_fails = max_continue_fails
-        self._abort = False
         self._fail_count = 0
 
     def _echo_message(self, txt):
@@ -44,7 +43,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             if output:
                 output_lines.append(output.strip())
                 self._echo_message(output.strip())
-            if self._abort:
+            if self.vagent.is_break():
                 process.terminate()
                 info(f"Bash command '{cmd}' aborted.")
                 break
@@ -71,10 +70,6 @@ class UCAgentCmdLineBackend(AgentBackendBase):
 
     def model_name(self):
         return self.config.backend.key_name
-
-    def interrupt_handler(self, *args, **kwargs):
-        self._abort = True
-        warning("Command-line backend received interrupt signal. Aborting operations.")
 
     def get_human_message(self, text: str):
         return "[Human]: " + text

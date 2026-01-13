@@ -341,10 +341,8 @@ class StageManager(object):
             self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve)]
         )
 
-    def interrupt_handler(self):
-        for m in [self.llm_fail_suggestion, self.llm_pass_suggestion]:
-            if m:
-                m.interrupt_handler()
+    def is_break(self):
+        return self.agent.is_break()
 
     def tool_stage_approve(self, pass_or_not: bool = True) -> str:
         vstage = self.get_current_stage()
