@@ -2,7 +2,7 @@
 
 from ucagent.util.functions import import_class_from_str
 from ucagent.util.config import Config
-from ucagent.util.log import info
+from ucagent.util.log import info, warning
 from ucagent.stage.vstage import VerifyStage
 
 
@@ -17,14 +17,6 @@ class BaseLLMSuggestion:
             raise None
         return self.vmanager
 
-    def bind_tools(self, tools: list,
-                   system_prompt: str,
-                   suggestion_prompt: str): # return self
-        raise NotImplementedError("Subclasses must implement this method. return self.")
-
-    def suggest(self, prompts: list, stage: VerifyStage) -> str:
-        raise NotImplementedError("Subclasses must implement this method.")
-
     def _remove_ignore_labels(self, text: str, ignore_labels: list) -> str:
         for start_label, end_label in ignore_labels:
             while True:
@@ -36,17 +28,40 @@ class BaseLLMSuggestion:
                     break
         return text
 
+    def interrupt_handler(self):
+        warning("LLM Suggestion interrupt received.")
+        self._interrupted = True
 
-def get_llm_check_instance(fail_refinement_cfg: Config, vmanager, tools) -> BaseLLMSuggestion:
+    def is_interrupted(self):
+        return hasattr(self, '_interrupted') and self._interrupted
+
+    def unset_interrupted(self):
+        self._interrupted = False
+
+    def message_echo(self, msg: str):
+        vmanager = self.get_vmanager()
+        if vmanager:
+            vmanager.agent.message_echo(msg)
+
+    def bind_tools(self, tools: list,
+                   system_prompt: str,
+                   suggestion_prompt: str): # return self
+        raise NotImplementedError("Subclasses must implement this method. return self.")
+
+    def suggest(self, prompts: list, stage: VerifyStage) -> str:
+        raise NotImplementedError("Subclasses must implement this method.")
+
+
+def get_llm_check_instance(refinement_cfg: Config, vmanager, tools) -> BaseLLMSuggestion:
     import ucagent.stage.llm_suggestion as llm_suggestion_module
-    if fail_refinement_cfg.enable != True:
+    if refinement_cfg.enable != True:
         return None
-    class_name = fail_refinement_cfg.clss
+    class_name = refinement_cfg.clss
     clss = import_class_from_str(class_name, llm_suggestion_module)
-    args = fail_refinement_cfg.args.as_dict()
+    args = refinement_cfg.args.as_dict()
     info(f"Instantiate LLM Suggestion: {class_name}")
-    system_prompt = fail_refinement_cfg.system_prompt
-    suggestion_prompt = fail_refinement_cfg.suggestion_prompt
+    system_prompt = refinement_cfg.system_prompt
+    suggestion_prompt = refinement_cfg.suggestion_prompt
     return clss(**args).set_vmanager(vmanager).bind_tools(tools,
                                                           system_prompt=system_prompt,
                                                           suggestion_prompt=suggestion_prompt)

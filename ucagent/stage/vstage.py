@@ -42,6 +42,7 @@ class VerifyStage(object):
                  tool_read_text=None,
                  need_fail_llm_suggestion=None,
                  need_pass_llm_suggestion=None,
+                 need_human_check=False,
                  substages=None):
         """
         Initialize the VerifyStage.
@@ -52,6 +53,9 @@ class VerifyStage(object):
         self.skip = skip
         self.need_fail_llm_suggestion = need_fail_llm_suggestion
         self.need_pass_llm_suggestion = need_pass_llm_suggestion
+        self.need_human_check = need_human_check
+        self._hum_check_passed = None
+        self._hum_check_msg = ""
         self.desc = description
         self.task_list = convert_task_form_cfg(task)
         self._checker = checker
@@ -62,6 +66,11 @@ class VerifyStage(object):
                 **c.extra_args.as_dict()
             ).set_workspace(workspace) for c in self._checker
         ]
+        if not self.need_human_check:
+            for c in self.checker:
+                if c.is_human_check_needed():
+                    self.need_human_check = True
+                    break
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
         self.fail_count = 0
@@ -182,75 +191,67 @@ class VerifyStage(object):
         return "\n".join(ret)
 
     def is_wait_human_check(self):
-        for c in self.checker:
-            if c.is_wait_human_check():
-                return True
-        return False
+        """
+        Check whether this stage is waiting for human check.
+        """
+        if not self.need_human_check:
+            return False
+        return self._hum_check_passed is not True
 
     def do_hmcheck_pass(self, msg=""):
         """
         Call the hmcheck_pass method of all HumanChecker in this stage.
         """
-        ret = []
-        for c in self.checker:
-            if c.is_human_check_needed():
-                ret.append(f"Set '{c.__class__.__name__}' Pass: '{c.human_set_pass_msg(msg)}'")
-            else:
-                ret.append(f"'{c.__class__.__name__}' does not need human check in stage '{self.name}'.")
-        return "\n".join(ret)
+        if not self.need_human_check:
+            return f"This stage({self.name}) does not need human check."
+        self._hum_check_passed = True
+        self._hum_check_msg = msg
+        return f"set stage '{self.name}' human check passed."
 
     def do_hmcheck_fail(self, msg=""):
         """
         Call the hmcheck_fail method of all HumanChecker in this stage.
         """
-        ret = []
-        for c in self.checker:
-            if c.is_human_check_needed():
-                ret.append(f"Set '{c.__class__.__name__}' Fail: '{c.human_set_fail_msg(msg)}'")
-            else:
-                ret.append(f"'{c.__class__.__name__}' does not need human check in stage '{self.name}'.")
-        return "\n".join(ret)
+        if not self.need_human_check:
+            return f"This stage({self.name}) does not need human check."
+        self._hum_check_passed = False
+        self._hum_check_msg = msg
+        return f"set stage '{self.name}' human check failed."
 
     def do_get_hmcheck_result(self):
         """
         Get the human check result of all HumanChecker in this stage.
         """
-        ret = []
-        for c in self.checker:
-            if c.is_human_check_needed():
-                p, m = c.get_last_human_check_result()
-                ret.append(f"'{c.__class__.__name__}' Pass: {p}, message: '{m}'.")
-            else:
-                ret.append(f"'{c.__class__.__name__}' does not need human check.")
-        return "\n".join(ret)
+        if not self.need_human_check:
+            return f"This stage({self.name}) does not need human check."
+        if self._hum_check_passed:
+            return f"This stage({self.name}) human check passed."
+        else:
+            return f"This stage({self.name}) human check failed."
 
     def do_set_hmcheck_needed(self, need: bool):
         """
         Set whether human check is needed for all HumanChecker in this stage.
         """
-        ret = []
-        if len(self.checker) == 0:
-            ret.append("No checker in this stage.")
-            return "\n".join(ret)
-        for c in self.checker:
-            if need is None:
-                ret.append(f"'{c.__class__.__name__}' human check needed is '{c.is_human_check_needed()}'.")
-                continue
-            if c.is_human_check_needed() != need:
-                c.set_human_check_needed(need)
-                ret.append(f"Set '{c.__class__.__name__}' human check needed to '{need}'.")
-            else:
-                ret.append(f"'{c.__class__.__name__}' human check needed is already '{need}'.")
-        return "\n".join(ret)
+        self.need_human_check = need
+        if need:
+            return f"set stage '{self.name}' need human check."
+        else:
+            return f"set stage '{self.name}' do not need human check."
 
     def is_hmcheck_needed(self) -> bool:
         """
         Check whether any HumanChecker in this stage needs human check.
         """
-        for c in self.checker:
-            if c.is_human_check_needed():
-                return True
-        return False
+        return self.need_human_check
+
+    def get_hmcheck_state(self) -> tuple[bool|None, str]:
+        """
+        Get the human check state of this stage.
+        Returns a tuple of (bool|None, str), where bool indicates pass/fail/None for not checked,
+        and str is the message associated with the human check.
+        """
+        return self._hum_check_passed, self._hum_check_msg
 
     def do_check(self, *a, **kwargs):
         self._is_reached = True
@@ -283,7 +284,6 @@ class VerifyStage(object):
                     "count_fail": 0,
                     "count_check": 0,
                     "last_msg": "",
-                    "needs_human_check": c.is_human_check_needed(),
                 }
             count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
             self.check_info[i]["count_pass"] += count_pass
@@ -349,6 +349,8 @@ class VerifyStage(object):
                 "fail_count": self.fail_count,
                 "is_skipped": self.is_skipped(),
                 "needs_human_check": self.is_hmcheck_needed(),
+                "last_human_check_result": self._hum_check_passed,
+                "last_human_check_msg": self._hum_check_msg,
         })
 
     def description(self):

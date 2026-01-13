@@ -422,6 +422,7 @@ class VerifyAgent:
             info("SIGINT received")
             self.set_break(True)
             self.backend.interrupt_handler()
+            self.stage_manager.interrupt_handler()
         signal.signal(signal.SIGINT, _sigint_handler)
 
     def set_force_trace(self, value):

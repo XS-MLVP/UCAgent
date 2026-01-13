@@ -24,13 +24,29 @@ class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
         return ret
 
 
+def do_work_values(self, instructions, config):
+    self.unset_interrupted()
+    last_msg_index = None
+    msg = "LLM Suggestion in progress..."
+    for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
+        if self.is_interrupted():
+            msg = "\n\n=== LLM Suggestion Interrupted ===\n\n"
+            break
+        index = len(step["messages"])
+        if index == last_msg_index:
+            continue
+        last_msg_index = index
+        msg = step["messages"][-1]
+        self.message_echo(msg.pretty_repr())
+    return msg
+
+
 class OpenAILLMFailSuggestion(BaseLLMSuggestion):
 
     def __init__(self, model_name,
                  openai_api_key,
                  openai_api_base,
                  ignore_labels: list = [("<think>", "</think>")],
-                 use_inspect_tool: bool = True,
                  min_fail_count: int = 3,
                  summary_trigger_tokens: int = 32*1024,
                  summary_keep_messages: int = 10,
@@ -39,7 +55,6 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
         self.openai_api_key = openai_api_key
         self.openai_api_base = openai_api_base
         self.ignore_labels = ignore_labels
-        self.use_inspect_tool = use_inspect_tool
         self.min_fail_count = min_fail_count
         self.summary_trigger_tokens = summary_trigger_tokens
         self.summary_keep_messages = summary_keep_messages
@@ -58,19 +73,18 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
                    suggestion_prompt: str):  # return self
         self.system_prompt = system_prompt
         self.suggestion_prompt = suggestion_prompt
-        if tools and self.use_inspect_tool:
-            self.agent = create_agent(self.llm,
-                                      tools=tools,
-                                      middleware=[
-                                            KeepFirstSummarizationMiddleware(
-                                              model=self.llm,
-                                              max_tokens_before_summary=self.summary_trigger_tokens,
-                                              messages_to_keep=self.summary_keep_messages,
-                                            ),
-                                      ],
-                                      system_prompt=system_prompt,
-                                      checkpointer=self.mem_saver,
-                                    )
+        self.agent = create_agent(self.llm,
+                                  tools=tools,
+                                  middleware=[
+                                        KeepFirstSummarizationMiddleware(
+                                          model=self.llm,
+                                          max_tokens_before_summary=self.summary_trigger_tokens,
+                                          messages_to_keep=self.summary_keep_messages,
+                                        ),
+                                  ],
+                                  system_prompt=system_prompt,
+                                  checkpointer=self.mem_saver,
+                                )
         return self
 
     def get_work_cfg(self):
@@ -83,8 +97,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
         if vstage.continue_fail_count < self.min_fail_count:
             return prompts[1]  # return test_info directly
         if self.current_vstage != vstage and self.current_vstage is not None:
-            if self.agent:
-                self.mem_saver.delete_thread(self.get_thread_id())
+            self.mem_saver.delete_thread(self.get_thread_id())
         self.current_vstage = vstage
         # current_task + test_info
         user_text = "Task Information:\n<task>\n" + make_llm_tool_ret(prompts[0]) + \
@@ -95,12 +108,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
             ("system", self.system_prompt),
             ("user", user_text),
         ]
-        if self.agent:
-            result = self.agent.invoke({"messages": messages},
-                                       config=self.get_work_cfg())
-            sg_msg = result['messages'][-1].text
-        else:
-            sg_msg = self.llm.invoke(messages).text
+        sg_msg = do_work_values(self, {"messages": messages}, self.get_work_cfg())
         sg_msg = self._remove_ignore_labels(sg_msg, self.ignore_labels)
         ret_text = "\n\n"
         err_data = self.get_uc_raw_error(prompts[1])
@@ -194,9 +202,7 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
             ("system", self.system_prompt),
             ("user", user_text),
         ]
-        result = self.agent.invoke({"messages": messages},
-                                   config=self.get_work_cfg())
-        sg_msg = result['messages'][-1].text
+        sg_msg = do_work_values(self, {"messages": messages}, self.get_work_cfg())
         sg_msg = self._remove_ignore_labels(sg_msg, self.ignore_labels)
         ret_text = f"\n\nTool_Check_Pass_Message:\n{test_info}\n"
         ret_text += "\n\nAssistant_Suggestion:\n" + sg_msg + "\n"

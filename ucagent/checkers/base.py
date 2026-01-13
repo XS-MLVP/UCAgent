@@ -24,33 +24,12 @@ class Checker:
     dut_name = None
     _is_init = False
     _need_human_check = False
-    _human_check_passed = None
-    _human_check_message = ""
-    _human_check_count = 0
-
-    def is_wait_human_check(self):
-        return self._need_human_check and \
-               self._human_check_count > 0 and \
-               self._human_check_passed is not True
-
-    def human_set_pass_msg(self, msg: str):
-        self._human_check_passed = True
-        self._human_check_message = msg
-        return True
-
-    def human_set_fail_msg(self, msg: str):
-        self._human_check_passed = False
-        self._human_check_message = msg
-        return True
 
     def set_human_check_needed(self, need: bool):
         self._need_human_check = need
 
     def is_human_check_needed(self) -> bool:
         return self._need_human_check
-
-    def get_last_human_check_result(self) -> Tuple[bool, str]:
-        return self._human_check_passed, self._human_check_message
 
     def update_dut_name(self, cfg):
         if isinstance(cfg, dict):
@@ -190,20 +169,6 @@ class Checker:
         self.time_start = time.time()
         try:
             p, m = self.do_check(*a, **w)
-            # Handle human check result
-            if self.is_human_check_needed() and p:
-                if self._human_check_passed is not True:
-                    p = False
-                    if self._human_check_passed is False:
-                        m = {"error": f"Human check failed: `{self._human_check_message if self._human_check_message else 'No additional message.'}`. " + \
-                             "If you have fixed the issue, you should notify human to set pass and then re-run the tool 'Check' to continue."}
-                    else:
-                        m = {"error": f"Tool({self.__class__.__name__}) check has passed. But this stage needs human check, please give a brief outcome description of this stage. " + \
-                            "Then notify human to verify your work and wait until human confirmation. " + \
-                            "The human need use command 'hmcheck_pass [msg]' or 'hmcheck_fail [msg]' to set the check result. After that, re-run the tool 'Check' to continue."}
-                    self.stage_manager.agent._need_human = True
-                    self._human_check_count += 1
-                    self.stage_manager.save_stage_info()
         except Exception as e:
             self.is_in_check = False
             estack = traceback.format_exc()

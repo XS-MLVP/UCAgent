@@ -223,7 +223,7 @@ class VerifyPDB(Pdb):
         """
         self.agent.set_break(False)
         self.agent.set_force_trace(False)
-        try_count = 0
+        try_count = self.max_loop_retry
         while True:
             start_time = time.time()
             try:
@@ -233,17 +233,22 @@ class VerifyPDB(Pdb):
                 echo_y(f"Error during loop execution: {e}\n{traceback.format_exc()}")
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
-                    echo_y(f"Retrying in {delay_time} seconds...")
+                    echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
                     time.sleep(1)
                     delay_time -= 1
-                try_count += 1
+                    if self.agent.is_break():
+                        break
+                try_count -= 1
                 if time.time() - start_time > self.loop_alive_time:
-                    try_count = 0  # reset try count if loop has been alive for a while
+                    try_count = self.max_loop_retry  # reset try count if loop has been alive for a while
                     echo_g("Loop has been alive for a while, resetting retry count.")
             # check max retry
-            if try_count >= self.max_loop_retry:
+            if try_count <= 0:
                 echo_r("Max loop retry reached. Exiting loop.")
                 return None
+            if self.agent.is_break():
+                echo_y("Loop execution interrupted by user. Exiting loop.")
+                break
 
     def do_chat(self, arg):
         """
