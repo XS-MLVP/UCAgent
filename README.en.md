@@ -105,7 +105,6 @@ qwen
 
 > 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
----
 
 ### 7. How to Improve Effectiveness (Optional)
 
@@ -116,6 +115,8 @@ By default, UCAgent only enables the internal `Python Checker` for stage result 
 2. To enable human stage result checking, please refer to: [examples/GenSpec/genspec.yaml](examples/GenSpec/genspec.yaml)
 
 Default stage checking order: Python Checker -> LLM -> Human
+
+---
 
 ## Basic Operations
 

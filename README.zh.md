@@ -105,7 +105,6 @@ qwen
 
 > 💡 **更多使用方式：** 除了 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
----
 
 ### 7. 如何提升效果(可选)
 
@@ -117,6 +116,7 @@ qwen
 
 阶段默认检查顺序：Python Checker -> LLM -> 人工
 
+---
 
 ## 基本操作
 
