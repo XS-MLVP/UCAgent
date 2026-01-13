@@ -12,6 +12,7 @@ from langchain.agents.middleware.types import AgentState
 from typing import Any
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.checkpoint.memory import MemorySaver
+from ucagent.util.log import warning
 
 
 class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
@@ -30,14 +31,16 @@ def do_work_values(self, instructions, config):
     msg = "LLM Suggestion in progress..."
     for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
         if self.is_interrupted():
+            warning("LLM Suggestion interrupted during streaming.")
             msg = "\n\n=== LLM Suggestion Interrupted ===\n\n"
             break
         index = len(step["messages"])
         if index == last_msg_index:
             continue
         last_msg_index = index
-        msg = step["messages"][-1]
-        self.message_echo(msg.pretty_repr())
+        ret_msg = step["messages"][-1]
+        msg = ret_msg.text
+        self.message_echo(ret_msg.pretty_repr())
     return msg
 
 

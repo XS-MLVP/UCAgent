@@ -649,16 +649,16 @@ class StageManager(object):
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
-                ck_pass = False
-                ck_info = {"last_msg": {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
-                                                  "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
-                                                  "Then wait for human review and approval.")}}
                 self.agent._need_human = True
+                return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
+                                  "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
+                                  "Then wait for human review and approval.")}
             elif hm_passed is False:
-                ck_pass = False
-                ck_info = {"last_msg": {"error": ("Human check did not approve your work for this stage. "
-                                                  "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
-                                        "human_review_msg": ck_msg}}
+                self.agent._need_human = True
+                return {"error": ("Human check did not approve your work for this stage. "
+                                  "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
+                         "human_review_msg": ck_msg
+                        }
             else:
                 assert hm_passed is True, "hm_passed should be True here"
                 info("Human check approved for stage " + stage.name)

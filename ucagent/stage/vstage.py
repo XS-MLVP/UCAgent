@@ -384,6 +384,9 @@ class VerifyStage(object):
             if self.substages:
                 data["notes"] = f"You have complete this stage's submissions ({', '.join([s.title() for s in self.substages])}), " + \
                                  "now you need to check this stage is complete or not."
+        if self.need_human_check and self._hum_check_msg:
+            data["last_human_check_result"] = self._hum_check_passed
+            data["last_human_check_msg"] = self._hum_check_msg
         return data
 
 
