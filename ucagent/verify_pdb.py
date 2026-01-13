@@ -672,6 +672,12 @@ class VerifyPDB(Pdb):
                 return
         self.agent.start_mcps(**kwargs)
 
+    def do_stop_mcp_server(self, arg):
+        """
+        Stop the MCP server.
+        """
+        self.agent.stop_mcps()
+
     def do_start_mcp_server_no_file_ops(self, arg):
         """
         Start the MCP server without file operations.

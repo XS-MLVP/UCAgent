@@ -20,6 +20,7 @@ import time
 import random
 import signal
 import copy
+import threading
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -365,6 +366,9 @@ class VerifyAgent:
                     raise e
 
     def start_mcps(self, no_file_ops=False, host=None, port=None):
+        if self._mcps is not None:
+            warning(f"MCPs server is already running ({self._mcps.config.host}:{self._mcps.config.port}).")
+            return
         if host is None:
             host = self.cfg.mcp_server.host
         if port is None:
@@ -377,12 +381,19 @@ class VerifyAgent:
         })
         self._mcps, glogger = create_verify_mcps(tools, host=host, port=port, logger=self._mcps_logger)
         info("Init Prompt:\n" + self.cfg.mcp_server.init_prompt)
-        start_verify_mcps(self._mcps, glogger)
-        self._mcps = None
+        def run_cmd():
+            start_verify_mcps(self._mcps, glogger)
+        self._mcp_server_thread = threading.Thread(target=run_cmd)
+        self._mcp_server_thread.daemon = True
+        self._mcp_server_thread.start()
 
     def stop_mcps(self):
         """Stop the MCPs server if it is running."""
-        stop_verify_mcps(self._mcps)
+        if self._mcps is not None:
+            stop_verify_mcps(self._mcps)
+            self._mcps = None
+        else:
+            warning("MCPs server is not running.")
 
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""
@@ -434,8 +445,6 @@ class VerifyAgent:
 
     def set_break(self, value=True):
         self._need_break = value
-        if value and self._mcps is not None:
-            self.stop_mcps()
 
     def is_break(self):
         return self._need_break
