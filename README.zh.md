@@ -110,9 +110,9 @@ qwen
 
 默认情况下，UCAgent只是启用内部的`Python Checker`进行阶段结果检查，属于启发式。如果需要验证效果提升，可以引入 `LLM 阶段结果检查`，如果需要达到“交付级”，还需要进一步引入`人工阶段检查`。
 
-1. 开启LLM阶段结果检查，请参考：[examples/LLMCheck/README.md](examples/LLMCheck/README.md)
+1. [开启LLM阶段结果检查](/examples/LLMCheck/README.md)
 
-2. 开启人工阶段结果检查，请参考：[examples/GenSpec/genspec.yaml](examples/GenSpec/genspec.yaml)
+2. [开启人工阶段结果检查](https://ucagent.open-verify.cc/content/02_usage/02_assit/)
 
 阶段默认检查顺序：Python Checker -> LLM -> 人工
 
