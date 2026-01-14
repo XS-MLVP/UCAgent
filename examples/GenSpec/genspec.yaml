@@ -28,20 +28,22 @@ tui:
   status_height: 10
 
 stage:
-  - name: collect_existing_assets
-    desc: "整理已有文档并抽取核心需求"
+  - name: draft_main_spec
+    desc: "编写主spec文档初稿"
     task:
       - "阅读{DUT}/目录下所有文字资料（*.md, *.csv）"
       - "罗列功能概览、关键约束、外设依赖"
-      - "参考考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入 {OUT}/{DUT}_spec.md"
+      - "参考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入 {OUT}/{DUT}_spec.md"
       - "注意："
       - "  - 保持章节结构清晰，2级标题需要和参考模板一致，层级一致，文字一致"
       - "  - 对于不明确的需求，标注为待确认项以便后续跟进"
       - "  - 内容很多时，需要分多次编辑，逐步完善文档"
-      - "  - 如果具有功能独立的组件，请为每个组件分别创建子spec文档其命名方式为 {OUT}/{DUT}_spec_<component_name>.md"
+      - "  - 如果具有功能独立的组件，请为每个组件分别创建空的子spec文档，其命名方式为 {OUT}/{DUT}_spec_<component_name>.md"
       - "  - 不能删除或者修改{DUT}/目录下的任何文件"
       - "提示："
       - "  - csv文件为文本格式，可以直接阅读"
+      - "  - 子组件需要在主spec文档中进行描述和明确文件路径引用"
+      - "  - 子模块的spec文档在该阶段只是创建空文件，后续阶段再补全内容"
     reference_files:
       - "{DUT}/**/*.md"
       - "{DUT}/**/*.csv"
@@ -55,6 +57,32 @@ stage:
           file_path: "{OUT}/{DUT}_spec.md"
           template_file: "Guide_Doc/dut_spec_template.md"
           header_levels: 2
+
+  - name: draft_component_spec
+    desc: "分批编写组件spec文档初稿[{COMPLETE_PROGRESS}]"
+    task:
+      - "找到子模块的文字资料（*.md, *.csv等）"
+      - "罗列功能概览、关键约束、外设依赖"
+      - "参考模板 Guide_Doc/dut_spec_template.md 将spec初稿写入{OUT}/{DUT}_spec_<component_name>.md"
+      - "注意："
+      - "  - 保持章节结构清晰，2级标题需要和参考模板一致，层级一致，文字一致"
+      - "  - 对于不明确的需求，标注为待确认项以便后续跟进"
+      - "  - 内容很多时，需要分多次编辑，逐步完善文档"
+      - "  - 不能删除或者修改{DUT}/目录下的任何文件"
+      - "当前任务："
+      - "  - 完善文档: `{CURRENT_FILE_NAME}`，总进度为：{COMPLETE_PROGRESS}"
+    reference_files:
+      - "{OUT}/{DUT}_spec.md"
+      - "Guide_Doc/dut_spec_template.md"
+    checker:
+      - name: check_component_spec_files
+        clss: "BatchMarkDownHeadChecker"
+        args:
+          name: "component_draft_check"
+          file_pattern: "{OUT}/{DUT}_spec_*.md"
+          template_file: "Guide_Doc/dut_spec_template.md"
+          header_levels: 2
+          mini_inputs: 0
 
   - name: augment_with_code
     desc: "结合RTL源代码补全spec细节[{COMPLETE_PROGRESS}]"
@@ -98,7 +126,7 @@ stage:
       - "  - 标注待确认项以便后续跟进"
       - "  - 格式要求同主spec文档，其2级标题需和参考模板一致，层级一致，文字一致"
       - "  - 如果组件代码复杂，建议分多次编辑，逐步完善文档"
-      - "当前任务"
+      - "当前任务："
       - "  - 完善文档: `{CURRENT_FILE_NAME}`，总进度为：{COMPLETE_PROGRESS}"
     reference_files:
       - "{OUT}/{DUT}_spec.md"
