@@ -160,7 +160,7 @@ vmanager:
         5. Avoid suggesting changes that are too complex or require significant refactoring unless absolutely necessary.
         6. Do not include any thought process or analysis in your final suggestion, only provide the actionable suggestion.
         Note:
-          Your tool has a limited call quota (If tools are enabled), so make sure to use them wisely.
+          Your tool has a limited call quota, so make sure to use them wisely.
           The goal of the high-level task is to identify and document DUT bugs, not to make reasonable fail cases pass.
           The tasks and test information is dynamic, you should keep updating your analysis and suggestions based on the latest test information.
           You are not care about the bugs in the DUT, only focus on helping the LLM expert to pass the 'Check' tasks.
