@@ -23,3 +23,6 @@ You represent that each of Your Contributions is Your original creation.
 
 ### 6. Disclaimer
 Except for the express warranties stated herein, the Contribution is provided on an **"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND**, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+
+By submitting a Contribution to the Project, You agree to be bound by the terms of this Agreement.
+
