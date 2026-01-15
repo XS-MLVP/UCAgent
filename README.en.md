@@ -300,8 +300,8 @@ The Project is licensed under the [Apache License, Version 2.0](LICENSE). You ma
 ### 2. Contributor License Agreements (CLA)
 To ensure long-term sustainability and protect both contributors and users, we require a signed Contributor License Agreement (CLA) for all non-trivial contributions.
 
-* **Individual Contributors:** If you are contributing as an individual, please refer to our [Individual CLA (ICLA)](CLA.md).
-* **Corporate Contributors:** If you are contributing on behalf of an entity (e.g., a corporation or foundation), please refer to our [Corporate CLA (CCLA)](CCLA.md).
+* **Individual Contributors:** If you are contributing as an individual, please refer to our [Individual CLA (ICLA)](https://github.com/XS-MLVP/UCAgent/blob/main/CLA.md).
+* **Corporate Contributors:** If you are contributing on behalf of an entity (e.g., a corporation or foundation), please refer to our [Corporate CLA (CCLA)](https://github.com/XS-MLVP/UCAgent/blob/main/CCLA.md).
 
 > **Note:** For individual contributors, submitting a Pull Request and checking the CLA box in the [PR Template](.github/PULL_REQUEST_TEMPLATE.md) constitutes your agreement to the ICLA terms.
 
