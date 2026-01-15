@@ -99,26 +99,6 @@
 2. **中优先级** (置信度 70-89%): {MEDIUM_PRIORITY_BUGS}
 3. **低优先级** (置信度 < 70%): {LOW_PRIORITY_BUGS}
 
-## 验证工具使用统计
-
-### Check工具使用情况
-- **Check工具调用次数**: {CHECK_TOOL_CALLS}
-- **成功检查次数**: {CHECK_SUCCESS_COUNT}
-- **失败检查次数**: {CHECK_FAILURE_COUNT}
-- **检查成功率**: {CHECK_SUCCESS_RATE}%
-
-### API使用效率分析
-- **API函数总数**: {TOTAL_API_FUNCTIONS}
-- **实际使用的API函数**: {USED_API_FUNCTIONS}
-- **API使用率**: {API_USAGE_RATE}%
-- **平均每测试API调用次数**: {AVG_API_CALLS_PER_TEST}
-
-### 测试数据质量评估
-- **典型值测试覆盖**: {TYPICAL_VALUE_COVERAGE}%
-- **边界值测试覆盖**: {BOUNDARY_VALUE_COVERAGE}%
-- **特殊值测试覆盖**: {SPECIAL_VALUE_COVERAGE}%
-- **随机值测试覆盖**: {RANDOM_VALUE_COVERAGE}%
-
 ## 测试质量评估
 
 ### 测试完整性评估
@@ -133,36 +113,11 @@
 - **测试用例质量得分**: {TEST_CASE_QUALITY}/10
 - **断言覆盖率**: {ASSERTION_COVERAGE}%
 
-### 自动化程度评估
-- **测试用例自动化率**: {AUTOMATION_RATE}%
-- **结果分析自动化程度**: {ANALYSIS_AUTOMATION}
-- **报告生成自动化程度**: {REPORT_AUTOMATION}
-- **CI/CD集成程度**: {CICD_INTEGRATION}
-
 ### 代码质量评估
 - **测试代码可读性**: {CODE_READABILITY}/10
 - **API设计合理性**: {API_DESIGN_QUALITY}/10
 - **覆盖率定义准确性**: {COVERAGE_DEFINITION_ACCURACY}/10
 - **文档完整性**: {DOCUMENTATION_COMPLETENESS}/10
-
-## AI辅助验证效果
-
-### AI模型性能
-- **使用模型**: {AI_MODEL_NAME}
-- **总Token消耗**: {TOTAL_TOKENS}
-- **平均响应时间**: {AVG_RESPONSE_TIME}s
-- **任务完成准确率**: {AI_ACCURACY}%
-
-### AI自动生成内容质量
-- **测试用例生成质量**: {TEST_GENERATION_QUALITY}/10
-- **API设计合理性**: {API_DESIGN_AI_QUALITY}/10
-- **缺陷分析准确性**: {BUG_ANALYSIS_AI_QUALITY}/10
-- **文档生成完整性**: {DOC_GENERATION_QUALITY}/10
-
-### 人工干预情况
-- **需要人工调整的阶段**: {MANUAL_INTERVENTION_STAGES}
-- **人工干预次数**: {MANUAL_INTERVENTION_COUNT}
-- **自动化完成率**: {AUTOMATION_COMPLETION_RATE}%
 
 ## 改进建议
 
@@ -215,4 +170,3 @@
 - *UCAgent框架版本*: {UCAGENT_VERSION}
 - *使用的AI模型*: {AI_MODEL_INFO}
 - *验证配置*: {VERIFICATION_CONFIG}
-- *报告模板版本*: v2.0

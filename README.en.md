@@ -101,7 +101,7 @@ qwen
 **Tips:**
 
 - Write verification prompts according to task requirements
-- When Code Agent stops midway, you can input: `Continue, please use tools Check and Complete to determine if all tasks are finished`
+- When Code Agent stops midway, you can input: `Continue, please use tool 'Complete' to determine if all tasks are finished`
 
 > 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 

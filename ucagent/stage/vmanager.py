@@ -167,7 +167,7 @@ class ToolDoCheck(ManagerTool):
     name: str = "Check"
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
-        "The tool provides detailed feedback. Call this tool frequently to ensure continuous quality validation."
+        "The tool provides detailed feedback."
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
 
@@ -200,10 +200,8 @@ class ToolDoComplete(ManagerTool):
     """Tell the manager that you have completed the current stage."""
     name: str = "Complete"
     description: str = (
-        "Tell the manager that you have completed the current stage. \n"
-        "When you complete a stage, your should have passed all checks in the stage. \n"
-        "You should double check your work before calling this tool. \n"
-        "Returns the result of the completion."
+        "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
+        "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
 
@@ -688,7 +686,7 @@ class StageManager(object):
         })
         if not ck_pass:
             ret["action"] = "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
-            return self.gen_fail_suggestion(ret)
+            return self.gen_fail_suggestion(self.last_check_info)
         return ret
 
     def exit(self):
