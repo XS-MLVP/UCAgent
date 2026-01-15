@@ -306,7 +306,7 @@ To ensure long-term sustainability and protect both contributors and users, we r
 > **Note:** For individual contributors, submitting a Pull Request and checking the CLA box in the [PR Template](.github/PULL_REQUEST_TEMPLATE.md) constitutes your agreement to the ICLA terms.
 
 ### 3. Developer Certificate of Origin (DCO)
-We encourage contributors to sign off their commits to certify that they have the right to submit the code under the project's license. 
+We encourage contributors to sign off their commits to certify that they have the right to submit the code under the project's license.
 To do this, simply add the following line to your commit message (or use `git commit -s`):
 `Signed-off-by: Random J Developer <random@developer.example.org>`
 
