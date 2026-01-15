@@ -34,4 +34,15 @@ Thanks for your interest in contributing to UCAgent! This document explains how 
 - Use GitHub Discussions or issues for questions that others may share.
 - Be respectful, constructive, and patient in all interactions, consistent with our Code of Conduct.
 
+## Contributor License Agreement (CLA)
+
+By submitting a contribution to UCAgent, you agree that your contribution
+is made under the terms of the applicable Contributor License Agreement.
+
+- Individual contributors must agree to the Individual Contributor License Agreement ([ICLA](https://github.com/XS-MLVP/UCAgent/blob/main/CLA.md)).
+- Contributions made on behalf of an organization may be covered by a Corporate Contributor License Agreement ([CCLA](https://github.com/XS-MLVP/UCAgent/blob/main/CCLA.md)).
+
+Individuals may contribute under either the ICLA or an applicable CCLA.
+
+
 We appreciate your help in improving UCAgent. Happy contributing!
