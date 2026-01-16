@@ -61,6 +61,7 @@ nav:
       - 参数说明: content/02_usage/03_option.md
       - TUI: content/02_usage/04_tui.md
       - FAQ: content/02_usage/05_faq.md
+      - LLM Check & Refinement: content/02_usage/06_llm_check.md
   - 定制开发:
       - 模板文件: content/03_develop/00_template.md
       - 定制功能: content/03_develop/01_customize.md
