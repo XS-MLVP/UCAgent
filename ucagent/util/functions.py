@@ -2001,3 +2001,26 @@ def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
         else:
             warning(f"File not found for setting mode to read-write: {file_path}")
     info(f"Set file mode to read-write completed ({len(path_list)} files).")
+
+
+def get_xml_tag_list(workspace, xml_file, tag_name: str) -> list:
+    """Get list of tag values from an XML file.
+
+    Args:
+        xml_file (str): The path to the XML file.
+        tag_name (str): The name of the tag to extract.
+
+    Returns:
+        list: A list of tag values.
+    """
+    import xml.etree.ElementTree as ET
+    target = os.path.abspath(workspace + os.path.sep + xml_file)
+    if os.path.exists(target) == False:
+        raise Exception(f"XML file not found in workspace: {xml_file}")
+    content = "<root>" + open(target, 'r', encoding='utf-8').read() + "</root>"
+    ret = []
+    tree = ET.ElementTree(ET.fromstring(content))
+    root = tree.getroot()
+    for elem in root.iter(tag_name):
+        ret.append(elem.text.strip())
+    return ret

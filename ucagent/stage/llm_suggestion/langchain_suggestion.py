@@ -127,10 +127,19 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
         if not isinstance(d_list, list):
             d_list = [d_list]
         error_list = []
-        for d in d_list:
-            err = d
+        for err in d_list:
+            need_continue = False
+            if not isinstance(err, dict):
+                error_list.append(err)
+                continue
             for k in key.split('.'):
                 err = err.get(k, {})
+                if err and not isinstance(err, dict):
+                    error_list.append(err)
+                    need_continue = True
+                    break
+            if need_continue:
+                continue
             if err:
                 error_list.append(err)
         if not error_list:

@@ -9,6 +9,41 @@ import copy
 import os
 
 
+def check_file_path_xml_tags(workspace, target_files) -> list:
+    """Check for XML tags in the specified files and return a list of file paths found within those tags."""
+    ret_files = {}
+    check_passed = True
+    for pfile in target_files:
+        if pfile not in ret_files:
+            ret_files[pfile] = []
+        try:
+            file_list = fc.get_xml_tag_list(workspace, pfile, "ref_file")
+        except Exception as e:
+            info(f"Error parsing XML in file '{pfile}': {e}")
+            ret_files[pfile].append(f"Error parsing XML: {e}")
+            check_passed = False
+            continue
+        for f in file_list:
+            fpath, _ = f, None
+            try:
+                if ':' in f:
+                    fpath, line_part = f.split(':', 1)
+                    start_line, end_line = line_part.split('-', 1)
+                    lines = (int(start_line), int(end_line))
+                    assert lines[0] > 0 and lines[1] >= lines[0], "Line numbers must be positive and in correct order."
+            except Exception as e:
+                info(f"Error parsing line numbers in tag '{f}' in file '{pfile}': {e}")
+                ret_files[pfile].append(f"Parse '{f}' with lines  failed: {e}, please check format '<ref_file>relative_path[:line-line]</ref_file>'")
+                check_passed = False
+                continue
+            abs_path = os.path.abspath(workspace + os.path.sep + fpath)
+            if not os.path.isfile(abs_path):
+                info(f"Referenced file '{abs_path}' does not exist.")
+                ret_files[pfile].append(f"Referenced file '{fpath}' does not exist.")
+                check_passed = False
+    return check_passed, ret_files
+
+
 class BatchFileProcess(Checker):
     """process files in batch"""
 
@@ -139,6 +174,14 @@ class BatchMarkDownHeadChecker(BatchFileProcess):
             return False, {
                 "error" f"File '{file_path}' is missing {len(missed_headers)} headers from template '{source_file}'. " + note_msg
             }
+        file_ref_pass, file_ref_msg = check_file_path_xml_tags(
+            self.workspace, [file_path]
+        )
+        if not file_ref_pass:
+            return False, {
+                "error": f"File '{file_path}' has invalid file references",
+                "details": file_ref_msg
+            }
         return True, ""
 
 
@@ -167,6 +210,14 @@ class MarkDownHeadChecker(Checker):
         if len(missed_headers) > 0:
             return False, {
                 "error": f"File '{self.file_path}' is missing {len(missed_headers)} headers from template '{self.template_file}'. " + note_msg
+            }
+        file_ref_pass, file_ref_msg = check_file_path_xml_tags(
+            self.workspace, [self.file_path]
+        )
+        if not file_ref_pass:
+            return False, {
+                "error": f"File '{self.file_path}' has invalid file references",
+                "details": file_ref_msg
             }
         return True, {
             "note": f"File '{self.file_path}' contains all required headers from template '{self.template_file}'."

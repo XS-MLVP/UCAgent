@@ -10,6 +10,7 @@ import traceback
 import signal
 import time
 import threading
+import queue # Added for thread-safe UI updates
 
 from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
 from ucagent.util.log import YELLOW, RESET
@@ -59,6 +60,13 @@ class VerifyUI:
         self.cmd_history_index = readline.get_current_history_length() + 1
         self._pdio = io.StringIO()
         self._ui_lock = threading.Lock()  # Add lock for thread safety
+        self.msg_queue = queue.Queue()
+        self._pipe_r, self._pipe_w = os.pipe()
+        # Set non-blocking for pipe read
+        import fcntl
+        fl = fcntl.fcntl(self._pipe_r, fcntl.F_GETFL)
+        fcntl.fcntl(self._pipe_r, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self.gap_time = max(0.1, gap_time)  # Ensure minimum gap time
         self.is_cmd_busy = False
@@ -201,6 +209,37 @@ class VerifyUI:
                                                 align='left'))
 
     def message_echo(self, msg, end="\n"):
+        if getattr(self, 'loop', None) is None:
+            self._update_ui_impl(msg, end)
+            return
+
+        self.msg_queue.put((msg, end))
+        try:
+            os.write(self._pipe_w, b'u')
+        except (OSError, IOError):
+            pass
+
+    def _process_queued_updates(self):
+        try:
+            os.read(self._pipe_r, 65536)
+        except (OSError, IOError):
+            pass
+        msgs = []
+        while True:
+            try:
+                msgs.append(self.msg_queue.get_nowait())
+            except queue.Empty:
+                break
+        for msg, end in msgs:
+            self._update_ui_impl(msg, end)
+        if msgs and hasattr(self, 'loop') and self.loop:
+            # Force screen redraw after batch update
+            try:
+                self.loop.draw_screen()
+            except:
+                pass
+
+    def _update_ui_impl(self, msg, end="\n"):
         # Use lock to prevent concurrent modifications
         with self._ui_lock:
             try:
@@ -858,6 +897,7 @@ def enter_simple_tui(pdb):
     signal.signal(signal.SIGINT, _sigint_handler)
     loop.set_alarm_in(0.1, app.check_exec_batch_cmds)
     loop.set_alarm_in(1.0, app._auto_update_ui)
+    loop.watch_file(app._pipe_r, app._process_queued_updates)
     try:
         loop.run()
     except Exception as e:
