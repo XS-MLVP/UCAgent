@@ -58,10 +58,13 @@ Spec 文档是进行芯片验证与回归管理的基础。很多团队在项目
 cp examples/GenSpec/
 make init_DCache
 
-# 以API方式运行UCAgent生成spec文档
-make spec_DCache
+# 以API方式运行UCAgent生成spec文档，如果不需要自动开始，请去掉 ARGS="--loop"
+make spec_DCache ARGS="--loop"
 
-# 以MCP方式运行UCAgent
+# 或者通初始化ucagent命令取消人工检查和最后一个阶段
+make spec_DCache ARGS="--icmd 'hmcheck_set 4 false' --icmd 'skip_stage 9' --icmd 'loop'"
+
+# 或者以MCP方式运行UCAgent
 make spec_mcp_DCache
 ```
 

@@ -18,9 +18,9 @@
 对涉及文件进行简要说明。
 
 文件列表：
-- relative/path/to/xxx.scala 主TOP文件
-- relative/path/to/zzz.scala 组件zzz
-- relative/path/to/sss.scala 组件sss
+- <ref_file>relative/path/to/xxx.scala</ref_file> 主TOP文件
+- <ref_file>relative/path/to/zzz.scala</ref_file> 组件zzz
+- <ref_file>relative/path/to/sss.scala</ref_file> 组件sss
 
 ## 顶层接口概览
 - **模块名称**：`{DUT}` 顶层实体名/模块名。
@@ -58,13 +58,13 @@
 
 功能1的概要描述
 
-具体请参考文档 `{DUT}_spec_Component1.md`
+具体请参考文档 `<ref_file>{DUT}_spec_Component1.md</ref_file>`
 
 #### 组件 Component2
 
 功能2的概要描述
 
-具体请参考文档 `{DUT}_spec_Component2.md`
+具体请参考文档 `<ref_file>{DUT}_spec_Component2.md</ref_file>`
 
 ### 状态机与时序
 - **状态机列表**：逐一定义状态名称、进入条件、退出条件、输出行为，必要时附带状态转移表或图示。
@@ -115,7 +115,7 @@
   ### 示例问题标题（置信度 70%）
   - 触发条件：...
   - 影响范围：...
-  - 关联位置：`path/to/module.v:123` / 状态机 `STATE_ERR`
+  - 关联位置：`<ref_file>path/to/module.v:123-124</ref_file>` / 状态机 `STATE_ERR`
   - 验证建议：新增边界输入测试、对比参考模型输出等
 
 - **示例条目**：
@@ -123,7 +123,7 @@
   ### 跨时钟域同步缺失导致脉冲丢失（置信度 60%）
   - 触发条件：高速域 `clk_core` 在 500 MHz 运行，向低速域 `clk_cfg` 发送单周期 `start_pulse`，未经过多级同步。
   - 影响范围：配置寄存器更新请求偶发丢失，导致后续计算使用旧参数；在压力测试中表现为输出结果间歇性错误。
-  - 关联位置：`rtl/top_control.v:210-245`，状态机 `CFG_WAIT_ACK` 中的握手机制缺少 ACK 信号反馈；仿真日志 `sim/cases/cfg_random.log` 中可见断续 WARNING。
+  - 关联位置：`<ref_file>rtl/top_control.v:210-245</ref_file>`，状态机 `CFG_WAIT_ACK` 中的握手机制缺少 ACK 信号反馈；仿真日志 `<ref_file>sim/cases/cfg_random.log</ref_file>` 中可见断续 WARNING。
   - 验证建议：
     1. 在 `clk_cfg` 域增加双触发同步器或脉冲展宽逻辑。
     2. 新增跨时钟握手序列的断言，验证请求/确认配对完整性。

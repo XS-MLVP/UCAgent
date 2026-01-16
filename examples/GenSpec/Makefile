@@ -17,7 +17,7 @@ init_%: clean
 	cp -r $* output/
 
 spec_%:
-	$(CMD) output/ $* --config ./genspec.yaml -hm --tui -s --no-embed-tools -l --guid-doc-path ./SpecDoc/dut_spec_template.md $(ARGS)
+	$(CMD) output/ $* --config ./genspec.yaml -hm --tui -s --no-embed-tools --guid-doc-path ./SpecDoc/dut_spec_template.md $(ARGS)
 
 spec_mcp_%:
 	$(CMD) output/ $* --config ./genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path ./SpecDoc/dut_spec_template.md $(ARGS)
