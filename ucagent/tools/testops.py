@@ -68,6 +68,7 @@ class RunPyTest(UCTool):
              return_stdout: bool = False,
              return_stderr: bool = False,
              timeout: int = 15,
+             pytest_ex_env: dict = {},
              run_manager: CallbackManagerForToolRun = None, python_paths: list = None) -> Tuple[int, str, str]:
         """Run the Python tests."""
         assert os.path.exists(test_dir_or_file), \
@@ -84,6 +85,7 @@ class RunPyTest(UCTool):
         env["PYTHONPATH"] = python_path_str + ((":" + pythonpath) if pythonpath else "")
         if "XSPCOMM_LOG_LEVEL" not in env:
             env["XSPCOMM_LOG_LEVEL"] = "4"  # 1-DEBUG, 2-INFO, 3-WARNING, 4-ERROR, 5-FATAL
+        env.update(pytest_ex_env)
         # Determine the correct working directory and test target
         abs_test_path = os.path.abspath(test_dir_or_file)
         if os.path.isdir(abs_test_path):
@@ -210,6 +212,7 @@ class RunUnityChipTest(RunPyTest):
              return_stdout: bool = False,
              return_stderr: bool = False,
              timeout: int = 15,
+             pytest_ex_env:dict = {},
              run_manager: CallbackManagerForToolRun = None, return_all_checks=False) -> dict:
         """Run the Unity chip tests."""
         shutil.rmtree(self.result_dir, ignore_errors=True)
@@ -219,6 +222,7 @@ class RunUnityChipTest(RunPyTest):
                                           return_stdout,
                                           return_stderr,
                                           timeout,
+                                          pytest_ex_env,
                                           run_manager,
                                           python_paths = [self.workspace, os.path.join(self.workspace, test_dir_or_file)])
         result_json_path = os.path.join(self.result_dir, self.result_json_path)

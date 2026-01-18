@@ -86,6 +86,8 @@ mission:
       - 需要根据Complete（或者Check）的结果调整你的工作，目标是保证所有Complete都通过
       - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
       - 除非Complete工具（或者Check工具）要求等待人工确认，否则不需要人工介入，不需要询问任何问题
+      - 非必要情况下，不要尝试获取{DUT}的内部信号状态，除非Complete工具（或者Check工具）要求你这么做
+      - 你要通过{DUT}的输入输出端口去验证其功能，而不是通过内部信号状态去验证，更不要尝试验证其内部子模块的功能
 
       现在调用`CurrentTips`，开始你的验证工作！
 
@@ -196,6 +198,7 @@ stage:
           - "检测点要包含：正常情况、边界条件、异常情况"
           - "标签独立成行，与标题用空行分隔"
           - "完成完整的功能分析文档"
+          - "列出的检查点必须具有可测试性，即能通过端口的输入输出进行验证"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -393,6 +396,30 @@ stage:
          - "Guide_Doc/dut_mock.md"
          - "{DUT}/__init__.py"
        skip: $(SKIP_MOCK_COMPONENT: true)
+     - name: mock_functional_test
+       desc: "Mock组件功能测试与评估"
+       task:
+         - "请对已实现的Mock组件进行测试与评估"
+         - "1. 为每个Mock组件编写测试用例，确保其功能正确"
+         - "2. 测试用例写入文件{OUT}/tests/test_{DUT}_mock_<Name>.py中，测试函数命名格式为test_api_{DUT}_mock_<TestName>"
+         - "3. 所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_mock_<Name>.py')运行指定测试"
+         - "4. 注意："
+         - " - 该阶段测试的是Mock组件本身的功能，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
+         - " - 通过测试发现Mock组件的bug时，需要及时修正Mock组件代码，确保测试通过"
+         - " - Mock组件的测试用例请用函数式编写，不要使用类"
+       checker:
+         - name: mock_functional_test_check
+           clss: "UnityChipCheckerTestMustPass"
+           args:
+             target_file: "{OUT}/tests/test_{DUT}_mock_*.py"
+             test_dir: "{OUT}/tests"
+             test_prefix: "test_api_{DUT}_mock_"
+       reference_files:
+         - "Guide_Doc/dut_test_case.md"
+       output_files:
+         - "{OUT}/tests/test_{DUT}_mock_*.py"
+       skip: $(SKIP_MOCK_COMPONENT: true)
+
      - name: env_fixture_implementation
        desc: "env fixture实现"
        task:
@@ -429,10 +456,12 @@ stage:
          - "  只要对{DUT}进行基本驱动，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
        checker:
          - name: env_fixture_test_check
-           clss: "UnityChipCheckerEnvFixtureTest"
+           clss: "UnityChipCheckerTestMustPass"
            args:
              target_file: "{OUT}/tests/test_{DUT}_env_fixture.py"
              test_dir: "{OUT}/tests"
+             test_prefix: "test_api_{DUT}_env_"
+             first_arg: "env"
        output_files:
          - "{OUT}/tests/test_{DUT}_env_fixture.py"
        reference_files:
@@ -528,13 +557,6 @@ stage:
       - "Guide_Doc/dut_function_coverage_def.md"
       - "Guide_Doc/dut_test_case.md"
 
-  # FIXME: TBD
-  # Optimal stage (setup_env):
-  #   - Create test environment based on the DUT API and fixtures
-  #   - Provide a ready-to-use test environment and APIs for subsequent test case implementation
-  #   - Ensure the test environment is stable and reliable
-  #   - This stage can be skipped if the dut is env-self-contained
-
   - name: create_test_case_templates
     desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
     task:
@@ -547,6 +569,7 @@ stage:
       - "  - 3) 添加详细的TODO注释说明要测什么"
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "注意："
+      - "  - 该阶段env和dut fixture都为fake值，仅用于执行加速，因此请仅仅编写用例模板，不要去测试DUT"
       - "  - 测试函数模板不要实现具体的测试逻辑，只需添加TODO注释，功能覆盖标记和assert False语句"
       - "  - 确保每个功能点<FC-*>至少有一个测试用例"
       - "  - 测试用例应当具有针对性，不要冗余，不要一个测试用例关联过多功能点、测试点"

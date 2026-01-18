@@ -112,6 +112,13 @@ class UnityChipCheckerLabelStructure(Checker):
 class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file, **kw):
         self.target_file = target_file
+        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
+                      "    return ucagent.get_fake_dut()`\n in 'create_dut' function."
+        self.source_code_need = {
+            "get_coverage_data_path": (f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=True)' to get a new coverage file path.", fc.tips_of_get_coverage_data_path),
+            "ucagent.is_imp_test_template": (ucagent_msg, None),
+            "ucagent.get_fake_dut":(ucagent_msg, None)
+        }
         self.update_dut_name(kw["cfg"])
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
@@ -135,8 +142,12 @@ class UnityChipCheckerDutCreation(Checker):
             assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
         # check 'get_coverage_data_path'
         func_source = inspect.getsource(cdut_func)
-        if "get_coverage_data_path" not in func_source:
-            return False, {"error": f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=True)' to get a new coverage file path. {fc.tips_of_get_coverage_data_path(self.dut_name)}"}
+        for k, (v, f) in self.source_code_need.items():
+            message = v
+            if f:
+                message += f" {f(self.dut_name)}"
+            if k not in func_source:
+                return False, {"error":  message}
         # Additional checks can be implemented here
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
@@ -271,6 +282,12 @@ class UnityChipCheckerEnvFixture(Checker):
         self.target_file = target_file
         self.min_env = max(1, min_env)
         self.force_bundle = force_bundle # FIXME: currently not used
+        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
+                      "    return ucagent.get_fake_env()`\n in 'env*' function."
+        self.source_code_need = {
+            "ucagent.is_imp_test_template": (ucagent_msg, None),
+            "ucagent.get_fake_env":(ucagent_msg, None)
+        }
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the Env fixture implementation for correctness."""
@@ -289,20 +306,32 @@ class UnityChipCheckerEnvFixture(Checker):
             if isinstance(scope_value, str):
                 if scope_value != "function":
                     return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
+            func_source = inspect.getsource(env_func)
+            for k, (v, f) in self.source_code_need.items():
+                message = v
+                if f:
+                    message += f" {f(self.dut_name)}"
+                if k not in func_source:
+                    return False, {"error":  message}
         if len(env_func_list) < self.min_env:
             return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
                                     f"You have defined {len(env_func_list)} env fixtures: {', '.join([f.__name__ for f in env_func_list])} in file '{self.target_file}'."}
         return True, {"message": f"{self.__class__.__name__} Env fixture check for {self.target_file} passed."}
 
 
-class UnityChipCheckerEnvFixtureTest(Checker):
-    def __init__(self, target_file, test_dir, min_env_tests=1, timeout=15, **kw):
-        self.target_file = target_file
-        self.min_env_tests = max(1, min_env_tests)
+class UnityChipCheckerTestMustPass(Checker):
+    def __init__(self, target_file, test_dir, test_prefix,
+                 first_arg="",
+                 last_arg="",
+                 min_file_tests=1, timeout=300, **kw):
+        self.target_file_list = target_file if isinstance(target_file, list) else [target_file]
+        self.min_file_tests = max(1, min_file_tests)
         self.run_test = RunUnityChipTest()
         self.test_dir = test_dir
+        self.first_arg = first_arg
+        self.last_arg = last_arg
         self.timeout = timeout
-        self.update_dut_name(kw["cfg"])
+        self.test_prefix = test_prefix
 
     def set_workspace(self, workspace: str):
         """
@@ -312,35 +341,52 @@ class UnityChipCheckerEnvFixtureTest(Checker):
         """
         super().set_workspace(workspace)
         self.run_test.set_workspace(workspace)
-        self.test_dir = self.get_path(self.test_dir)
-        assert os.path.exists(self.test_dir), f"Test directory '{self.test_dir}' does not exist in workspace."
         return self
 
     def do_check(self, timeout, **kw) -> Tuple[bool, object]:
-        """Check the Env fixture test implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"fixture test file '{self.target_file}' does not exist."}
-        env_test_func_list = fc.get_target_from_file(self.get_path(self.target_file), f"test*",
-                                             ex_python_path=self.workspace,
-                                             dtype="FUNC")
-        test_prefix = f"test_api_{self.dut_name}_env_"
-        for env_test_func in env_test_func_list:
-            if env_test_func.__name__.startswith(test_prefix) is False:
-                return False, {"error": f"The Env test function '{env_test_func.__name__}' name must start with '{test_prefix}', but got '{env_test_func.__name__}'."}
-            args = fc.get_func_arg_list(env_test_func)
-            if len(args) < 1 or args[0] != "env":
-                return False, {"error": f"The '{env_test_func.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
-        if len(env_test_func_list) < self.min_env_tests:
-            return False, {"error": f"Insufficient env fixture test coverage: {len(env_test_func_list)} env test functions found, minimum required is {self.min_env_tests}. "+\
-                                    f"You have defined {len(env_test_func_list)} env test functions: {', '.join([f.__name__ for f in env_test_func_list])} in file '{self.target_file}'."}
+        """Check the ptest test implementation for correctness."""
+        test_dir_full_path = self.get_path(self.test_dir)
+        if not os.path.exists(test_dir_full_path):
+            return False, {"error": f"test directory '{self.test_dir}' does not exist in workspace."}
+        test_files = fc.find_files_by_pattern(self.workspace, self.target_file_list)
+        if len(test_files) == 0:
+            tfiles = ', '.join(self.target_file_list)
+            return False, {"error": f"target test files '{tfiles}' does not exist."}
+        error_cases = []
+        for tfile in test_files:
+            if test_dir_full_path not in self.get_path(tfile):
+                error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
+                continue
+            test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
+                                                         ex_python_path=self.workspace,
+                                                         dtype="FUNC")
+            for test_func in test_func_list:
+                if test_func.__name__.startswith(self.test_prefix) is False:
+                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
+                    continue
+                args = fc.get_func_arg_list(test_func)
+                if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
+                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
+                if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
+                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
+            if len(test_func_list) < self.min_file_tests:
+                error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
+                                    "Please ensure you have implemented enough test cases (need pytest function based not class based).")
+        if len(error_cases) > 0:
+            return False, {
+                "error": "Check test functions failed.",
+                "details": error_cases
+            }
         # run test
-        self.run_test.set_pre_call_back(
-            lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
-        )
         timeout = timeout if timeout > 0 else self.timeout
+        self.run_test.set_pre_call_back(
+            lambda p: self.set_check_process(p, timeout + 10)  # Set the process for the checker
+        )
+        py_case_files = [fc.rm_workspace_prefix(test_dir_full_path,
+                                                self.get_path(t)) for t in test_files]
         report, str_out, str_err = self.run_test.do(
-            self.test_dir,
-            pytest_ex_args=os.path.basename(self.target_file),
+            test_dir_full_path,
+            pytest_ex_args=" ".join(py_case_files),
             return_stdout=True, return_stderr=True, return_all_checks=True,
             timeout=timeout
         )
@@ -349,7 +395,7 @@ class UnityChipCheckerEnvFixtureTest(Checker):
             return False, test_msg
         if not report or "tests" not in report:
             return False, {
-                "error": f"Env fixture test execution failed or returned invalid report.",
+                "error": f"Test execution failed or returned invalid report.",
                 "STD_OUT": str_out,
                 "STD_ERR": str_err,
             }
@@ -357,14 +403,14 @@ class UnityChipCheckerEnvFixtureTest(Checker):
         tc_failed = report["tests"]["fails"]
         if tc_failed > 0:
             return False, {
-                "error": f"Env fixture test failed: {tc_failed}/{tc_total} test cases failed. Need all test cases to pass.",
+                "error": f"Test failed: {tc_failed}/{tc_total} test cases failed. Need all test cases to pass.",
                 "STD_OUT": str_out,
                 "STD_ERR": str_err,
             }
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
             return ret, msg
-        return True, {"message": f"{self.__class__.__name__} Env fixture test check for {self.target_file} passed."}
+        return True, {"message": f"{self.__class__.__name__} check passed."}
 
 
 class UnityChipCheckerDutApi(Checker):
@@ -624,7 +670,8 @@ class BaseUnityChipCheckerTestCase(Checker):
         return self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
-            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
+            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout,
+            **kw
         )
 
 
@@ -708,7 +755,8 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             Tuple[bool, str]: A tuple where the first element is a boolean indicating success or failure,
                               and the second element is a message string.
         """
-        report, str_out, str_err = super().do_check(timeout=timeout, **kw)
+        pytest_ex_env={"UC_IS_IMP_TEMPLATE":"true"}
+        report, str_out, str_err = super().do_check(pytest_ex_env=pytest_ex_env, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg

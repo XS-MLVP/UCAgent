@@ -23,6 +23,7 @@ DUT fixture负责：
 在实现 dut Fixture 之前，需要先实现 `create_dut(request)` 函数，它的作用是创建 DUT。其基本结构如下：
 
 ```python
+import ucagent
 import os
 from toffee_test.reporter import get_file_in_tmp_dir
 
@@ -51,6 +52,10 @@ def create_dut(request):
     Returns:
         DUT实例，已完成基本初始化
     """
+    # 如果是正在生成测试模板，返回fake DUT用于提速（模板中不会真运行DUT）
+    if ucagent.is_imp_test_template():
+        return ucagent.get_fake_dut()
+
     # 导入并实例化具体的DUT类
     from {{DUT}} import DUT{{DutClass}}
     
@@ -72,6 +77,7 @@ def create_dut(request):
 dut Fixture 参考如下：
 
 ```python
+import ucagent
 import pytest
 from toffee_test.reporter import set_func_coverage, set_line_coverage, get_file_in_tmp_dir
 from toffee_test.reporter import set_user_info, set_title_info
@@ -223,6 +229,9 @@ class {{DUT}}Env:
 # 定义env fixture, 请取消下面的注释，并根据需要修改名称
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
+    # 如果是正在生成测试模板，返回fake Env用于提速（模板中不会真运行Env）
+    if ucagent.is_imp_test_template():
+        return ucagent.get_fake_env(dut)
      # 一般情况下为每个test都创建全新的 env 不需要 yield
      return {{DUT}}Env(dut)
 ```
@@ -524,6 +533,9 @@ class AXI4BasedDUTEnv:
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
+    # 如果是正在生成测试模板，返回fake Env用于提速（模板中不会真运行Env）
+    if ucagent.is_imp_test_template():
+        return ucagent.get_fake_env(dut)
     return AXI4BasedDUTEnv(dut) # 一般情况下为每个test都创建全新的 env 不需要 yield
 ```
 
@@ -560,6 +572,9 @@ class TestEnv:
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
+    # 如果是正在生成测试模板，返回fake Env用于提速（模板中不会真运行Env）
+    if ucagent.is_imp_test_template():
+        return ucagent.get_fake_env(dut)
     return TestEnv(dut)
 
 
@@ -759,6 +774,7 @@ def test_clear_env(env):
 ##### 完整示例
 
 ```python
+import ucagent
 from toffee import Bundle, Signals
 import pytest
 
@@ -798,6 +814,9 @@ class AXIMemoryEnv:
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
+    # 如果是正在生成测试模板，返回fake Env用于提速（模板中不会真运行Env）
+    if ucagent.is_imp_test_template():
+        return ucagent.get_fake_env(dut)
     return AXIMemoryEnv(dut)
 
 
@@ -818,3 +837,6 @@ def test_axi_transactions(env):
 - 建议在环境类中实现自检和调试功能
 - 环境类应该负责自己的资源管理和清理
 - 考虑使用async/await支持异步操作（如果需要）
+- 需要通过ucagent.is_imp_test_template判断当前是否是测试模板生成阶段
+-  -是则需要通过ucagent.get_fake_dut和ucagent.get_fake_env返回fake对象用于提速
+-  -否则正常返回dut和env
