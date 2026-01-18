@@ -2,6 +2,7 @@
 # Current Workspace Dir
 CWD ?= output
 CFG ?= config.yaml
+BBV ?= false
 
 all: clean test
 
@@ -31,6 +32,18 @@ init_%:
 	fi
 	cp examples/$*/*.md $(CWD)/$*/  || true
 	cp examples/$*/*.py $(CWD)/$*/  || true
+	@if [ $(BBV) = "true" ]; then \
+		echo "Enable BBV mode: clear RTL files"; \
+		for f in $(CWD)/$*/$*.v $(CWD)/$*/$*.sv $(CWD)/$*/$*.vh; do \
+			if [ -f $$f ]; then \
+				echo "clear file $$f"; \
+				echo "" > $$f; \
+			fi; \
+		done; \
+		for f in `find $(CWD)/$*_RTL/*|grep -v '.scala'`; do \
+			echo "" > $$f; \
+		done; \
+	fi
 
 test_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --no-embed-tools ${ARGS}
