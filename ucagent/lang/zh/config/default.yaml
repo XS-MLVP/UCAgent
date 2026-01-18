@@ -559,6 +559,7 @@ stage:
 
   - name: create_test_case_templates
     desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
+    need_pass_llm_suggestion: false
     task:
       - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
@@ -596,6 +597,7 @@ stage:
 
   - name: comprehensive_verification_and_bug_analysis
     desc: "全面验证与缺陷分析"
+    need_pass_llm_suggestion: false
     task:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"

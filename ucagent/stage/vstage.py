@@ -145,6 +145,20 @@ class VerifyStage(object):
         for sb in self.substages:
             sb.set_skip(is_skip)
 
+    def set_llm_pass_suggestion(self, value):
+        self.need_pass_llm_suggestion = value
+        if value is None:
+            return
+        for sb in self.substages:
+            sb.set_llm_pass_suggestion(value)
+
+    def set_llm_fail_suggestion(self, value):
+        self.need_fail_llm_suggestion = value
+        if value is None:
+            return
+        for sb in self.substages:
+            sb.set_llm_fail_suggestion(value)
+
     def is_skipped(self):
         return self.skip
 
@@ -404,6 +418,9 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         reference_files = stage.get_value('reference_files', [])
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
+        need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
+        need_pass_llm_suggestion=stage.get_value('need_pass_llm_suggestion', None)
+
         if ignore:
             warning(f"Stage '{stage.name}' is set to be ignored, skipping its parsing.")
             continue
@@ -413,6 +430,12 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             warning(f"Stage '{stage.name}' is set to be skipped.")
             for sb in substages:
                 sb.set_skip(True)
+        if need_fail_llm_suggestion is not None:
+            for sb in substages:
+                sb.set_llm_fail_suggestion(need_fail_llm_suggestion)
+        if need_pass_llm_suggestion is not None:
+            for sb in substages:
+                sb.set_llm_pass_suggestion(need_pass_llm_suggestion)
         ret.append(VerifyStage(
             cfg=root_cfg,
             workspace=workspace,
@@ -426,6 +449,8 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             substages=substages,
             prefix=prefix + f"{index}",
             skip=skip,
+            need_fail_llm_suggestion=need_fail_llm_suggestion,
+            need_pass_llm_suggestion=need_pass_llm_suggestion,
         ))
     return ret
 

@@ -1296,6 +1296,120 @@ class VerifyPDB(Pdb):
                 hmcheck_status = "Needed"
             echo(f"[{i}] {stage.title()}: HMCheck {hmcheck_status}")
 
+    def do_lmcheck_plist(self, arg):
+        """
+        List all stages which need LMCheck when Pass Complete/Check.
+        """
+        stages = self.agent.stage_manager.stages
+        echo_g(f"Total stages: {len(stages)}")
+        default_v = self.agent.stage_manager.llm_pass_suggestion is not None
+        for i, stage in enumerate(stages):
+            lmcheck_status = stage.need_pass_llm_suggestion
+            if lmcheck_status is None:
+                lmcheck_status = f"{default_v}*"
+            if stage.is_skipped():
+                lmcheck_status = "Skipped"
+            echo(f"[{i}] {lmcheck_status} {stage.title()}")
+
+    def do_lmcheck_flist(self, arg):
+        """
+        List all stages which need LMCheck when Check Fail.
+        """
+        stages = self.agent.stage_manager.stages
+        echo_g(f"Total stages: {len(stages)}")
+        default_v = self.agent.stage_manager.llm_fail_suggestion is not None
+        for i, stage in enumerate(stages):
+            lmcheck_status = stage.need_fail_llm_suggestion
+            if lmcheck_status is None:
+                lmcheck_status = f"{default_v}*"
+            if stage.is_skipped():
+                lmcheck_status = "Skipped"
+            echo(f"[{i}] {lmcheck_status} {stage.title()}")
+
+    def do_lmcheck_pset(self, arg):
+        """
+        Set or show the LMCheck on Pass Complete/Check status of the target stage.
+        Usage: lmcheck_pset <stage_index> [true|false|None]
+        """
+        arg = arg.strip()
+        parts = arg.split()
+        if len(parts) == 0:
+            echo_y("Usage: lmcheck_pset <stage_index> [true|false|None]")
+            return
+        try:
+            stage_index = int(parts[0])
+            if len(parts) > 1:
+                if parts[1].lower() not in ["true", "false", "none"]:
+                    echo_r("Invalid value. Use 'true', 'false', or 'None'.")
+                    return
+                lmcheck_needed = {"true": True, "false": False, "none": None}.get(parts[1].lower())
+            else:
+                lmcheck_needed = None
+            stage = self.agent.stage_manager.get_stage(stage_index)
+            if stage is None:
+                echo_r(f"No stage found at index {stage_index}.")
+                return
+            stage.set_llm_pass_suggestion(lmcheck_needed)
+            echo_g(f"LMCheck on Pass Complete/Check for stage [{stage_index}] '{stage.title()}' set to {lmcheck_needed}.")
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling lmcheck_pset: {e}")
+
+    def do_lmcheck_fset(self, arg):
+        """
+        Set or show the LMCheck on Fail Check status of the target stage.
+        Usage: lmcheck_fset <stage_index> [true|false|None]
+        """
+        arg = arg.strip()
+        parts = arg.split()
+        if len(parts) == 0:
+            echo_y("Usage: lmcheck_fset <stage_index> [true|false|None]")
+            return
+        try:
+            stage_index = int(parts[0])
+            if len(parts) > 1:
+                if parts[1].lower() not in ["true", "false", "none"]:
+                    echo_r("Invalid value. Use 'true', 'false', or 'None'.")
+                    return
+                lmcheck_needed = {"true": True, "false": False, "none": None}.get(parts[1].lower())
+            else:
+                lmcheck_needed = None
+            stage = self.agent.stage_manager.get_stage(stage_index)
+            if stage is None:
+                echo_r(f"No stage found at index {stage_index}.")
+                return
+            stage.set_llm_fail_suggestion(lmcheck_needed)
+            echo_g(f"LMCheck on Fail Check for stage [{stage_index}] '{stage.title()}' set to {lmcheck_needed}.")
+        except Exception as e:
+            echo_r(traceback.format_exc())
+            echo_r(f"Error calling lmcheck_fset: {e}")
+
+    def complete_lmcheck_pset(self, text, line, begidx, endidx):
+        """
+        Auto-complete the lmcheck_pset command.
+        """
+        parts = line.strip().split()
+        if (len(parts) == 2 and not line.endswith(" ")) or (len(parts) == 1 and line.endswith(" ")):
+            # Complete stage index
+            stages = self.agent.stage_manager.stages
+            all_index = [str(i) for i in range(len(stages))]
+            if not text:
+                return all_index
+            return [str(i) for i in all_index if str(i).startswith(text.strip())]
+        elif (len(parts) == 3 and not line.endswith(" ")) or (len(parts) == 2 and line.endswith(" ")):
+            # Complete true/false/None
+            options = ["true", "false", "None"]
+            if not text:
+                return options
+            return [option for option in options if option.startswith(text.strip().lower())]
+        return []
+
+    def complete_lmcheck_fset(self, text, line, begidx, endidx):
+        """
+        Auto-complete the lmcheck_fset command.
+        """
+        return self.complete_lmcheck_pset(text, line, begidx, endidx)
+
     def do_mission_info(self, arg):
         """
         Show mission information with colored output.
