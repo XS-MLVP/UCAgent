@@ -298,8 +298,6 @@ class StageManager(object):
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
         self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
         for i in range(self.stage_index + 1):
-            if self.stages[i].is_skipped():
-                continue
             self.stages[i].set_reached(True)
         stages_info = self.ucagent_info.get("stages_info", {})
 

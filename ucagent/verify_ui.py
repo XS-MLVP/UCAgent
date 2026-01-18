@@ -77,6 +77,8 @@ class VerifyUI:
         self._is_auto_updating_ui = False
         self.int_layout()
         self._handle_stdout_error()
+        # local caches
+        self._data_changed_files = None
 
     def _exit_cleanup(self):
         """
@@ -171,6 +173,22 @@ class VerifyUI:
                 # If this also fails, just ignore - the layout will remain as is
                 pass
 
+    def _get_changed_files(self):
+        try:
+            changed_files = []
+            changed_files.append(UCText(f"\nChanged Files\n", align='center'))
+            for d, t, f in self.vpdb.api_changed_files()[:self.task_box_maxfiles]:
+                color = None
+                mtime = fmt_time_stamp(t)
+                if d < 180:
+                    color = "success_green"
+                    mtime += f" ({fmt_time_deta(d)})"
+                changed_files.append(UCText((color, f"{mtime}: {f}"), align='left'))
+            self._data_changed_files = changed_files
+        except Exception as e:
+            self.message_echo(e)
+        return self._data_changed_files
+
     def update_info(self):
         self.content_task.clear()
         self.content_stat.clear()
@@ -184,14 +202,9 @@ class VerifyUI:
                 continue
             self.content_task.append(ANSIText(text, align='left'))
         # changed files
-        self.content_task.append(UCText(f"\nChanged Files\n", align='center'))
-        for d, t, f in self.vpdb.api_changed_files()[:self.task_box_maxfiles]:
-            color = None
-            mtime = fmt_time_stamp(t)
-            if d < 180:
-                color = "success_green"
-                mtime += f" ({fmt_time_deta(d)})"
-            self.content_task.append(UCText((color, f"{mtime}: {f}"), align='left'))
+        changed_files = self._get_changed_files()
+        if changed_files:
+            self.content_task.extend(changed_files)
         # Tools
         self.content_task.append(UCText(f"\nTools Call\n", align='center'))
         tool_info = ""
