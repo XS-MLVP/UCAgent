@@ -319,6 +319,16 @@ class UnityChipBatchTask:
             current_tasks: self.tbd_task_list,
         }
 
+    def get_process_str(self) -> str:
+        """Get a string representation of the current task process.
+
+        Returns:
+            String summarizing the task progress.
+        """
+        total = "-" if not self.source_task_list else len(self.source_task_list)
+        completed = "-" if not self.source_task_list else len(self.gen_task_list)
+        return f"{completed}/{total}"
+
     def update_tbd_from_source(self) -> None:
         """Update to-be-done task list by removing tasks not in source list."""
         tasks_to_remove = []
@@ -459,6 +469,7 @@ class UnityChipBatchTask:
                 if exmsg:
                     note_msg.append(exmsg)
 
+                note_msg.append(f"Process status: {self.get_process_str()}")
                 return False, {"error": note_msg}
 
             if is_complete:
@@ -467,7 +478,7 @@ class UnityChipBatchTask:
 
         if is_complete:
             return False, (
-                f"Not all {self.name} in this batch have been completed. "
+                f"Not all {self.name} in this batch have been completed ({self.get_process_str()}). "
                 f"{', '.join(self.tbd_task_list)} are still to be done.{exmsg}"
             )
 
@@ -491,7 +502,7 @@ class UnityChipBatchTask:
 
         if remaining_tasks:
             msg = {
-                "error": f"Not all {self.name} in this batch have been completed. "
+                "error": f"Not all {self.name} in this batch have been completed ({self.get_process_str()}). "
                         f"{', '.join(remaining_tasks)} are still to be done.{exmsg}"
             }
             if note_msg:
@@ -518,6 +529,7 @@ class UnityChipBatchTask:
             success_msg["success"] += (
                 f" Now the next {len(self.tbd_task_list)} {self.name}: "
                 f"{', '.join(self.tbd_task_list)} need to be completed.{exmsg}"
+                f" Process status: {self.get_process_str()}"
             )
             self.checker.reset_continue_fail_count()
 

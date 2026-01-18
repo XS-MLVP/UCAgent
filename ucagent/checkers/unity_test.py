@@ -653,7 +653,7 @@ class BaseUnityChipCheckerTestCase(Checker):
                 warning(f"Test directory '{self.test_dir}' does not exist in workspace.")
         return self
 
-    def do_check(self, pytest_args="", timeout=0, **kw) -> Tuple[bool, str]:
+    def do_check(self, pytest_args="", timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
         """
         Perform the check for test cases.
 

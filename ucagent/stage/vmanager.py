@@ -373,13 +373,13 @@ class StageManager(object):
         if self.llm_pass_suggestion is None:
             return raw_msg
         try:
-            stage.set_approved(False)
             return self.gen_llm_suggestion(
                 raw_msg,
                 stage,
                 self.llm_pass_suggestion,
                 self.cfg.vmanager.llm_suggestion.check_pass_refinement,
                 stage.need_pass_llm_suggestion,
+                pre_llm_cb = lambda: stage.set_approved(False),
             )
         except Exception as e:
             traceback.print_exc()
@@ -388,7 +388,10 @@ class StageManager(object):
             stage.set_approved(True)
             return raw_msg
 
-    def gen_llm_suggestion(self, raw_msg, stage, suggestion_instance, suggestion_cfg, need_llm_suggestion) -> str:
+    def gen_llm_suggestion(self, raw_msg, stage,
+                           suggestion_instance, suggestion_cfg,
+                           need_llm_suggestion,
+                           pre_llm_cb=None) -> str:
         assert stage is not None, "stage can not be None"
         if need_llm_suggestion is not None and need_llm_suggestion != True:
             return raw_msg
@@ -408,6 +411,8 @@ class StageManager(object):
         need_suggestion = need_llm_suggestion if need_llm_suggestion is not None else is_apply_to_all
         if need_suggestion != True:
             return raw_msg
+        if callable(pre_llm_cb):
+            pre_llm_cb()
         return suggestion_instance.suggest([
                 stage.task_info(),
                 raw_msg],
@@ -639,7 +644,9 @@ class StageManager(object):
             llm_msg = self.gen_pass_suggestion(ck_info)
             ck_pass = stage.get_approved()
             if not ck_pass:
-                return "Stage Complete Fail:\n\n" + llm_msg
+                if isinstance(llm_msg, str):
+                    return "Stage Complete Fail:\n\n" + llm_msg
+                return {"Stage Complete Fail": llm_msg}
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
