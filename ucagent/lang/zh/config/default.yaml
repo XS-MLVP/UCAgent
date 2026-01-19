@@ -565,6 +565,7 @@ stage:
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
+      - "  - 0) 每个测试文件开头都需要用 from {DUT}_api import * 来导入env(pytest fixture)"
       - "  - 1) 每个测试函数以test_开头，第一个参数为env(pytest fixture)，可以根据需要添加其他参数"
       - "  - 2) 每个测试函数的最开始添加功能覆盖标记：env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ', ...])"
       - "  - 3) 添加详细的TODO注释说明要测什么"
@@ -582,6 +583,12 @@ stage:
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
     checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
       - name: template_check
         clss: "UnityChipCheckerTestTemplate"
         args:

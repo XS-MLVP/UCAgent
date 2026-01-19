@@ -592,3 +592,27 @@ class OrginFileMustExistChecker(Checker):
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Check if the specified file exists."""
         return True, f"File exist check passed."
+
+
+class FilesMustNotExist(Checker):
+    """Files Must not exist"""
+
+    def __init__(self, target_files, **kw):
+        self.file_maps = {}
+        target_files = target_files if isinstance(target_files, (tuple, list)) else [target_files]
+        for f,m in target_files:
+            self.file_maps[f]=m
+            info(f"{self.__class__.__name__} -> {f}")
+
+    def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
+        """Check if the specified file not exists."""
+        emsg = []
+        tfile = []
+        for f, m in self.file_maps.items():
+            flist = fc.find_files_by_pattern(self.workspace, f)
+            emsg.append({f:{"error":m, "find": flist}})
+            tfile.append(f)
+        if emsg:
+            return False, {"error": f"{self.__class__.__name__} check fail, files: {','.join(tfile)} must not exist, but find them.",
+                           "detail": emsg}
+        return True, f"File no exist check passed."
