@@ -414,6 +414,12 @@ stage:
              target_file: "{OUT}/tests/test_{DUT}_mock_*.py"
              test_dir: "{OUT}/tests"
              test_prefix: "test_api_{DUT}_mock_"
+         - name: no_conftest_file
+           clss: FilesMustNotExist
+           args:
+             target_files:
+               - ["{OUT}/**/conftest.py",
+                  "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
        reference_files:
          - "Guide_Doc/dut_test_case.md"
        output_files:
@@ -462,6 +468,12 @@ stage:
              test_dir: "{OUT}/tests"
              test_prefix: "test_api_{DUT}_env_"
              first_arg: "env"
+         - name: no_conftest_file
+           clss: FilesMustNotExist
+           args:
+             target_files:
+               - ["{OUT}/**/conftest.py",
+                  "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
        output_files:
          - "{OUT}/tests/test_{DUT}_env_fixture.py"
        reference_files:
@@ -551,6 +563,12 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           need_human_check: false # 验证复杂DUT时建议开启该人工检查
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -673,6 +691,12 @@ stage:
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
             need_human_check: false # 验证复杂DUT时建议开启该人工检查
+        - name: no_conftest_file
+          clss: FilesMustNotExist
+          args:
+            target_files:
+             - ["{OUT}/**/conftest.py",
+                "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
 
   - name: line_coverage_analysis_and_improvement
     desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"
@@ -736,6 +760,12 @@ stage:
           test_dir: "{OUT}/tests"
           target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
           need_human_check: false # 验证复杂DUT时建议开启该人工检查
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
     output_files:
       - "{OUT}/tests/test_{DUT}_random*.py"
     reference_files:
