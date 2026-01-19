@@ -41,3 +41,7 @@ make api_mul
 #  可以在多个终端下运行多次
 make mcp_mul
 ```
+
+## 运行Pytest时启用多核
+
+可通过参数`PYTEST_ADDOPTS="-n auto"`环境变量进行多核配置，具体可参考：[https://pytest-xdist.readthedocs.io/en/stable/](https://pytest-xdist.readthedocs.io/en/stable/)
