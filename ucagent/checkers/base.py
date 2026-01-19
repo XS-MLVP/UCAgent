@@ -610,8 +610,9 @@ class FilesMustNotExist(Checker):
         tfile = []
         for f, m in self.file_maps.items():
             flist = fc.find_files_by_pattern(self.workspace, f)
-            emsg.append({f:{"error":m, "find": flist}})
-            tfile.append(f)
+            if len(flist) > 0:
+                emsg.append({f:{"error":m, "find": flist}})
+                tfile.append(f)
         if emsg:
             return False, {"error": f"{self.__class__.__name__} check fail, files: {','.join(tfile)} must not exist, but find them.",
                            "detail": emsg}

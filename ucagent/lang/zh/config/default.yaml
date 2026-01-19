@@ -579,6 +579,7 @@ stage:
       - "  - 按需要，测试用例文件可以有多个，请确保文件名和测试函数名有意义"
       - "    - 好的测试用例文件名示例：test_{DUT}_arithmetic.py, test_{DUT}_stack_operations.py"
       - "    - 差的测试用例文件名示例：test_{DUT}_part1.py, test_{DUT}_misc.py, test_{DUT}_template1.py"
+      - "  - 请忽略test_{DUT}_api_*.py和test_{DUT}_mock_*.py中的测试用例（前缀为test_api_{DUT}_），他们已经在之前阶段实现完成"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
