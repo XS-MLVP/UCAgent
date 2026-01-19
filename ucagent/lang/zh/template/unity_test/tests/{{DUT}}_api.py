@@ -90,6 +90,9 @@ def dut(request):
         g.clear()                                        # 清空统计
     dut.Finish()                                         # 清理DUT，每个DUT class 都有 Finish 方法
 
+@pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的 Mock DUT
+def mock_dut():
+    return ucagent.get_mock_dut_from(DUT{{DUT}})
 
 # 根据需要定义子Bundle
 # class MyPort(Bundle):

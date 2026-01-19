@@ -377,6 +377,8 @@ stage:
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "{DUT}/__init__.py"
+
+     # Mock 组件设计、实现与测试， 默认ignore相关阶段，可以通过设置IGNORE_MOCK_COMPONENT变量来控制是启用
      - name: mock_design_and_implementation
        desc: "Mock组件设计与实现"
        task:
@@ -386,6 +388,11 @@ stage:
          - "通常情况下，需要把Class名为MockA的Mock组件写入文件{OUT}/tests/{DUT}_mock_A.py, 但如果组件简单，可以把多个同类别的Mock组件写入同一个文件，例如{OUT}/tests/{DUT}_mock_basic.py"
          - "Mock组件的实现要有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
          - "请通过文件 {DUT}/__init__.py获取各个Mock组件的需要访问的引脚"
+         - "具体例子请参考文档Guide_Doc/dut_mock.md"
+         - "注意："
+         - " - Mock组件中不要包含复杂的逻辑，只需模拟必要的行为"
+         - " - Mock组件的主要功能需要通过on_clock_edge方法进行驱动"
+         - " - Mock组件的基础功能中需要有必要的assert检查，确保输入输出合理"
        checker:
          - name: mock_component_check
            clss: "UnityChipCheckerMockComponent"
@@ -395,7 +402,20 @@ stage:
        reference_files:
          - "Guide_Doc/dut_mock.md"
          - "{DUT}/__init__.py"
-       skip: $(SKIP_MOCK_COMPONENT: true)
+       ignore: $(IGNORE_MOCK_COMPONENT: true)
+     - name: mock_fixture_implementation
+       desc: "Mock fixture实现"
+       task:
+        - "请参考文档：Guide_Doc/dut_mock_test.md，实现mock_dut fixture"
+        - "- 需要在文件{OUT}/tests/{DUT}_api.py中实现mock_dut fixture"
+       reference_files:
+         - "Guide_Doc/dut_mock_test.md"
+       checker:
+         - name: mock_fixture_check
+           clss: "UnityChipCheckerMockFixture"
+           args:
+             target_file: "{OUT}/tests/{DUT}_api.py"
+       ignore: $(IGNORE_MOCK_COMPONENT: true)
      - name: mock_functional_test
        desc: "Mock组件功能测试与评估"
        task:
@@ -407,24 +427,26 @@ stage:
          - " - 该阶段测试的是Mock组件本身的功能，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
          - " - 通过测试发现Mock组件的bug时，需要及时修正Mock组件代码，确保测试通过"
          - " - Mock组件的测试用例请用函数式编写，不要使用类"
+         - " - 测试函数的第一个参数为mock_dut (pytest fixture)"
+         - " - 本阶段的测试用例中，不能有mock_dut.fc_cover['FG-API'].mark_function,因为这里只测试Mock组件本身功能，不涉及DUT功能覆盖"
        checker:
-         - name: mock_functional_test_check
-           clss: "UnityChipCheckerTestMustPass"
-           args:
-             target_file: "{OUT}/tests/test_{DUT}_mock_*.py"
-             test_dir: "{OUT}/tests"
-             test_prefix: "test_api_{DUT}_mock_"
          - name: no_conftest_file
            clss: FilesMustNotExist
            args:
              target_files:
                - ["{OUT}/**/conftest.py",
                   "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+         - name: mock_functional_test_check
+           clss: "UnityChipCheckerTestMustPass"
+           args:
+             target_file: "{OUT}/tests/test_{DUT}_mock_*.py"
+             test_dir: "{OUT}/tests"
+             test_prefix: "test_api_{DUT}_mock_"
        reference_files:
-         - "Guide_Doc/dut_test_case.md"
+         - "Guide_Doc/dut_mock_test.md"
        output_files:
          - "{OUT}/tests/test_{DUT}_mock_*.py"
-       skip: $(SKIP_MOCK_COMPONENT: true)
+       ignore: $(IGNORE_MOCK_COMPONENT: true)
 
      - name: env_fixture_implementation
        desc: "env fixture实现"
@@ -442,8 +464,6 @@ stage:
            clss: "UnityChipCheckerEnvFixture"
            args:
              target_file: "{OUT}/tests/{DUT}_api.py"
-             min_env: 1
-             force_bundle: true
        reference_files:
          - "Guide_Doc/dut_fixture.md"
          - "{DUT}/__init__.py"
@@ -461,6 +481,12 @@ stage:
          - "  该阶段测试的是env以及其中的Mock组件（如果有的话）是否按预期工作"
          - "  只要对{DUT}进行基本驱动，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
        checker:
+         - name: no_conftest_file
+           clss: FilesMustNotExist
+           args:
+             target_files:
+               - ["{OUT}/**/conftest.py",
+                  "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
          - name: env_fixture_test_check
            clss: "UnityChipCheckerTestMustPass"
            args:
@@ -468,12 +494,6 @@ stage:
              test_dir: "{OUT}/tests"
              test_prefix: "test_api_{DUT}_env_"
              first_arg: "env"
-         - name: no_conftest_file
-           clss: FilesMustNotExist
-           args:
-             target_files:
-               - ["{OUT}/**/conftest.py",
-                  "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
        output_files:
          - "{OUT}/tests/test_{DUT}_env_fixture.py"
        reference_files:
@@ -554,6 +574,12 @@ stage:
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
       - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
     checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
         args:
@@ -563,12 +589,6 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           need_human_check: false # 验证复杂DUT时建议开启该人工检查
-      - name: no_conftest_file
-        clss: FilesMustNotExist
-        args:
-          target_files:
-           - ["{OUT}/**/conftest.py",
-              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -680,6 +700,12 @@ stage:
           - "Guide_Doc/dut_test_case.md"
           - "Guide_Doc/dut_bug_analysis.md"
         checker:
+        - name: no_conftest_file
+          clss: FilesMustNotExist
+          args:
+            target_files:
+             - ["{OUT}/**/conftest.py",
+                "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
         - name: batch_test_cases_implementation_check
           clss: "UnityChipCheckerBatchTestsImplementation"
           args:
@@ -691,12 +717,6 @@ stage:
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
             need_human_check: false # 验证复杂DUT时建议开启该人工检查
-        - name: no_conftest_file
-          clss: FilesMustNotExist
-          args:
-            target_files:
-             - ["{OUT}/**/conftest.py",
-                "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
 
   - name: line_coverage_analysis_and_improvement
     desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"
@@ -752,6 +772,12 @@ stage:
       - " - 其他用例要求请参考文档 Guide_Doc/dut_test_case.md"
       - " - 需要有合理的断言来检查输出是否符合预期，是否正确"
     checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
       - name: random_test_check
         clss: "RandomTestCasesChecker"
         args:
@@ -760,12 +786,6 @@ stage:
           test_dir: "{OUT}/tests"
           target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
           need_human_check: false # 验证复杂DUT时建议开启该人工检查
-      - name: no_conftest_file
-        clss: FilesMustNotExist
-        args:
-          target_files:
-           - ["{OUT}/**/conftest.py",
-              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
     output_files:
       - "{OUT}/tests/test_{DUT}_random*.py"
     reference_files:

@@ -152,57 +152,6 @@ class UnityChipCheckerDutCreation(Checker):
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
 
-class UnityChipCheckerDutFixture(Checker):
-    def __init__(self, target_file, **kw):
-        self.target_file = target_file
-        self.update_dut_name(kw["cfg"])
-
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the fixture implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"fixture file '{self.target_file}' does not exist."}
-        dut_func = fc.get_target_from_file(self.get_path(self.target_file), "dut",
-                                           ex_python_path=self.workspace,
-                                           dtype="FUNC")
-        if not dut_func:
-            return False, {"error": f"No 'dut' fixture found in '{self.target_file}'."}
-        if not len(dut_func) == 1:
-            return False, {"error": f"Multiple 'dut' fixtures found in '{self.target_file}'. Expected only one."}
-        dut_func = dut_func[0]
-        # check @pytest.fixture("function")
-        if not (hasattr(dut_func, '_pytestfixturefunction') or "pytest_fixture" in str(dut_func)):
-            return False, {"error": f"The 'dut' fixture in '{self.target_file}' is not decorated with @pytest.fixture(\"function\")."}
-        scope_value = fc.get_fixture_scope(dut_func)
-        if isinstance(scope_value, str):
-            if scope_value != "function":
-                return False, {"error": f"The 'dut' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
-        # check args
-        args = fc.get_func_arg_list(dut_func)
-        if len(args) != 1 or args[0] != "request":
-            return False, {"error": f"The 'dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
-        # check yield - first check if it's a generator function
-        try:
-            source_lines = inspect.getsourcelines(dut_func)[0]
-            source_code = ''.join(source_lines)
-            # check 'get_coverage_data_path'
-            if "get_coverage_data_path" not in source_code:
-                return False, {"error": f"The 'dut' fixture in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=False)' to get existed coverage file path. {fc.tips_of_get_coverage_data_path(self.dut_name)}"}
-            tree = ast.parse(source_code)
-            
-            has_yield = False
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Yield) or isinstance(node, ast.YieldFrom):
-                    has_yield = True
-                    break
-            if not has_yield:
-                return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
-        except Exception as e:
-            # If we can't parse the source code, fall back to the generator function check
-            # which should be sufficient in most cases
-            pass
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
-
-
 class UnityChipCheckerMockComponent(Checker):
     def __init__(self, target_file, min_mock=1, **kw):
         self.target_file = target_file
@@ -219,7 +168,7 @@ class UnityChipCheckerMockComponent(Checker):
             class_count += ret
         if class_count < self.min_mock:
             return False, {
-                "error": f"Insufficient Mock component coverage: {class_count} Mock classes found, minimum required is {self.min_mock}. " +\
+                "error": f"Insufficient Mock component coverage: {class_count} Mock classes found, minimum required is {self.min_mock}. " + \
                          f"You need to define Mock components like: 'class Mock<COMPONENT_NAME>:'. in files: {self.target_file}. " + \
                          f"Review your task details and ensure that the Mock components are defined correctly in the target files.",
             }
@@ -277,46 +226,107 @@ class UnityChipCheckerBundleWrapper(Checker):
             }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
 
-class UnityChipCheckerEnvFixture(Checker):
-    def __init__(self, target_file, min_env=1, force_bundle=False, **kw):
+
+class UnityChipCheckerBaseFixture(Checker):
+    def __init__(self, target_file,
+                 fixture_name,
+                 first_arg=None,
+                 last_arg=None,
+                 scope="function",
+                 min_count=1,
+                 fix_count=-1,
+                 **kw):
         self.target_file = target_file
-        self.min_env = max(1, min_env)
-        self.force_bundle = force_bundle # FIXME: currently not used
-        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
-                      "    return ucagent.get_fake_env()`\n in 'env*' function."
-        self.source_code_need = {
-            "ucagent.is_imp_test_template": (ucagent_msg, None),
-            "ucagent.get_fake_env":(ucagent_msg, None)
-        }
+        self.fixture_name = fixture_name
+        self.first_arg = first_arg
+        self.last_arg = last_arg
+        self.scope = scope
+        self.min_count = max(1, min_count)
+        self.fix_count = fix_count
+        self.source_code_need = {}
+        self.source_code_cb = None
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the Env fixture implementation for correctness."""
+        """Check the fixture implementation for correctness."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"fixture file '{self.target_file}' does not exist."}
-        env_func_list = fc.get_target_from_file(self.get_path(self.target_file), "env*",
+        fixture_func_list = fc.get_target_from_file(self.get_path(self.target_file), self.fixture_name,
                                              ex_python_path=self.workspace,
                                              dtype="FUNC")
-        for env_func in env_func_list:
-            args = fc.get_func_arg_list(env_func)
-            if len(args) < 1 or args[0] != "dut":
-                return False, {"error": f"The '{env_func.__name__}' Env fixture's first arg must be 'dut', but got ({', '.join(args)})."}
-            if not (hasattr(env_func, '_pytestfixturefunction') or "pytest_fixture" in str(env_func)):
-                return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
-            scope_value = fc.get_fixture_scope(env_func)
+        for fx_func in fixture_func_list:
+            args = fc.get_func_arg_list(fx_func)
+            if self.first_arg is not None and (len(args) < 1 or args[0] != self.first_arg):
+                return False, {"error": f"The '{fx_func.__name__}' fixture's first arg must be '{self.first_arg}', but got ({', '.join(args)})."}
+            if self.last_arg is not None and (len(args) < 1 or args[-1] != self.last_arg):
+                return False, {"error": f"The '{fx_func.__name__}' fixture's last arg must be '{self.last_arg}', but got ({', '.join(args)})."}
+            if not (hasattr(fx_func, '_pytestfixturefunction') or "pytest_fixture" in str(fx_func)):
+                return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
+            scope_value = fc.get_fixture_scope(fx_func)
             if isinstance(scope_value, str):
-                if scope_value != "function":
-                    return False, {"error": f"The '{env_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is 'function'."}
-            func_source = inspect.getsource(env_func)
+                if scope_value != self.scope:
+                    return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is '{self.scope}'."}
+            func_source = inspect.getsource(fx_func)
             for k, (v, f) in self.source_code_need.items():
                 message = v
                 if f:
                     message += f" {f(self.dut_name)}"
                 if k not in func_source:
+                    info(f"[{self.__class__.__name__}]Check source code of fixture '{fx_func.__name__}' in file '{self.target_file}': missing '{k}' in source:\n{func_source}\n.")
                     return False, {"error":  message}
-        if len(env_func_list) < self.min_env:
-            return False, {"error": f"Insufficient env fixture coverage: {len(env_func_list)} env fixtures found, minimum required is {self.min_env}. "+\
-                                    f"You have defined {len(env_func_list)} env fixtures: {', '.join([f.__name__ for f in env_func_list])} in file '{self.target_file}'."}
-        return True, {"message": f"{self.__class__.__name__} Env fixture check for {self.target_file} passed."}
+            if self.source_code_cb:
+                ret, msg = self.source_code_cb(func_source, fx_func)
+                if not ret:
+                    return False, msg
+        if len(fixture_func_list) < self.min_count:
+            return False, {"error": f"Insufficient fixture coverage: {len(fixture_func_list)} fixtures found, minimum required is {self.min_count}. "+\
+                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
+        if self.fix_count > 0 and len(fixture_func_list) != self.fix_count:
+            return False, {"error": f"Incorrect fixture count: {len(fixture_func_list)} fixtures found, expected exactly {self.fix_count}. "+\
+                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
+        return True, {"message": f"{self.__class__.__name__} fixture check for {self.target_file} passed."}
+
+
+class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
+    def __init__(self, target_file, min_count=1, **kw):
+        super().__init__(target_file, "dut", first_arg="request", min_count=min_count, **kw)
+        self.update_dut_name(kw["cfg"])
+        msg = f"The 'dut' fixture in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=False)' to get existed coverage file path. {fc.tips_of_get_coverage_data_path(self.dut_name)}"
+        self.source_code_need = {
+            "get_coverage_data_path": (msg, None)
+        }
+        self.source_code_cb = self._check_yield
+
+    def _check_yield(self, source_code, dut_func):
+        tree = ast.parse(source_code)
+        has_yield = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Yield) or isinstance(node, ast.YieldFrom):
+                has_yield = True
+                break
+        if not has_yield:
+            return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
+        return True, {}
+
+
+class UnityChipCheckerEnvFixture(UnityChipCheckerBaseFixture):
+    def __init__(self, target_file, min_count=1, **kw):
+        super().__init__(target_file, "env*", first_arg="dut", min_count=min_count, **kw)
+        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
+                      "    return ucagent.get_fake_env()`\n in 'env*' fixture."
+        self.source_code_need = {
+            "ucagent.is_imp_test_template": (ucagent_msg, None),
+            "ucagent.get_fake_env":(ucagent_msg, None)
+        }
+
+
+class UnityChipCheckerMockFixture(UnityChipCheckerBaseFixture):
+    def __init__(self, target_file, min_count=1, **kw):
+        super().__init__(target_file, "mock_dut", min_count=min_count, **kw)
+        self.update_dut_name(kw["cfg"])
+        ucagent_msg = f"You need use:\n`def mock_dut():\n    return ucagent.get_mock_dut_from(DUT{self.dut_name})\n` in 'mock_dut' fixture."
+        self.source_code_need = {
+            "ucagent.get_mock_dut_from": (ucagent_msg, None)
+        }
 
 
 class UnityChipCheckerTestMustPass(Checker):
