@@ -240,6 +240,7 @@ class VerifyAgent:
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self._exit_on_completion = exit_on_completion
+        self._is_work_busy = False
         self.handle_sigint()
         
         # Initialize interaction logic based on mode
@@ -676,11 +677,17 @@ class VerifyAgent:
 
     def do_work(self, instructions, config):
         """Perform the work using the agent."""
+        self._is_work_busy = True
         self._tool__call_error = []
         if self.stream_output:
             self.do_work_stream(instructions, config)
         else:
             self.do_work_values(instructions, config)
+        self._is_work_busy = False
+
+    def is_work_busy(self):
+        """Check if the agent is currently busy with work."""
+        return self._is_work_busy
 
     def messages_get_raw(self):
         """Get the messages from the agent's state."""

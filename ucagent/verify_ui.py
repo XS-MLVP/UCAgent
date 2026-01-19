@@ -41,6 +41,8 @@ class VerifyUI:
         self.box_task = urwid.ListBox(self.content_task)
         self.box_stat = urwid.ListBox(self.content_stat)
         self.box_msgs = urwid.ListBox(self.content_msgs)
+        self.console_prefix_busy =  ['⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽', '⣾']
+        self.console_prefix_index = 0
         self.console_input = urwid.Edit(self.console_input_cap)
         self.console_input_busy = ["(wait.  )", "(wait.. )", "(wait...)"]
         self.console_input_busy_index = -1
@@ -188,6 +190,14 @@ class VerifyUI:
         except Exception as e:
             self.message_echo(e)
         return self._data_changed_files
+
+    def get_console_prefix(self):
+        if self.vpdb.agent.is_work_busy():
+            n = self.console_prefix_index % len(self.console_prefix_busy)
+            self.console_prefix_index = n + 1
+            return self.console_prefix_busy[n]
+        else:
+            return ""
 
     def update_info(self):
         self.content_task.clear()
@@ -791,7 +801,7 @@ class VerifyUI:
                 self.console_page_cache = None
                 self.console_page_cache_index = 0
                 self.console_output.set_text(self._get_output())
-                self.console_input.set_caption(self.console_input_cap)
+                self.console_input.set_caption(self.get_console_prefix() + self.console_input_cap)
                 self.root.focus_part = 'footer'
         else:
             self.console_page_cache_index += deta
@@ -851,7 +861,7 @@ class VerifyUI:
                 cap = self.console_input_busy[n]
         if self.console_page_cache is not None:
             cap = f"<Up/Down: scroll, Esc: exit>" + cap
-        self.console_input.set_caption(cap)
+        self.console_input.set_caption(self.get_console_prefix() + cap)
 
     def _get_pdb_out(self):
         self._pdio.flush()
