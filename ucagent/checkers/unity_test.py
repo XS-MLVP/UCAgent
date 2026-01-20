@@ -781,18 +781,18 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                                 "failed_test_case_with_check_point_list"])
         info_report = OrderedDict({"TEST_REPORT": msg_report})
         info_runtest = OrderedDict({"TEST_REPORT": msg_report})
-        test_cases = report.get("tests", {}).get("test_cases", None)
-        if test_cases is None:
-            info_runtest["error"] = "No test cases found in the report. " +\
-                                    "Please ensure that the test report is generated correctly."
-            return False, info_runtest
-        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_tc_prefix in k or ":"+self.ignore_tc_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})
             info_runtest.update({"STDOUT": str_out})
         if self.ret_std_error:
             info_report.update({"STDERR": str_err})
             info_runtest.update({"STDERR": str_err})
+        test_cases = report.get("tests", {}).get("test_cases", None)
+        if test_cases is None:
+            info_runtest["error"] = "No test cases found in the report. " +\
+                                    "Please ensure that the test report is generated correctly."
+            return False, info_runtest
+        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_tc_prefix in k or ":"+self.ignore_tc_prefix in k)])
         if report.get("tests") is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test cases are defined correctly in the workspace."
