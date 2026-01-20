@@ -87,6 +87,50 @@ class ToolKillCheck(ManagerTool):
     )
 
 
+class ToolStageJournal(ManagerTool):
+    """Get the journal of the current stage."""
+    name: str = "StageJournal"
+    description: str = (
+        "Get the journal of the current stage. "
+    )
+
+
+class ToolAllStageJournal(ManagerTool):
+    """get the journal of the all stages."""
+    name: str = "AllStageJournal"
+    description: str = (
+        "Get the journal of all stages. \n"
+        "This tool is used to when continue a previous mission or the LLM context is compressed and other similar situations. "
+    )
+
+
+class ArgSetCurrentStageJournal(BaseModel):
+    journal: str = Field(
+        description="The journal content to set for the current stage. Cannot be empty."
+    )
+
+
+class ToolSetCurrentStageJournal(ManagerTool):
+    """set the journal of the current stage."""
+    name: str = "SetCurrentStageJournal"
+    description: str = (
+        "Set the journal of the current stage. \n"
+        "This tool is used to record important information during the current stage. When completing the stage, the journal should be set. \n"
+        "The journal content should be concise and clear and only the necessary information should be included.\n"
+        "eg: - What you have done in this stage.\n"
+        "    - What problems you have encountered and how you solved them.\n"
+        "    - Experience or lessons learned during this stage.\n"
+        "    - Files and its comments you have created or modified in this stage.\n"
+        "    - Things to note when re-continuing this stage in the future.\n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgSetCurrentStageJournal
+
+    def _run(self, journal: str = "",
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not journal:
+            return "Journal content cannot be empty."
+        return self.function(journal)
+
 class ArgStdCheck(BaseModel):
     lines: int = Field(
         default=-1,
@@ -309,6 +353,8 @@ class StageManager(object):
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
+            if "meta_data" in stage_info:
+                stage.meta_data = copy.deepcopy(stage_info["meta_data"])
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
@@ -452,6 +498,9 @@ class StageManager(object):
             ToolDoComplete().set_function(self.tool_complete),
             ToolGoToStage().set_function(self.tool_go_to_stage),
             ToolDoExit().set_function(self.tool_exit),
+            ToolStageJournal().set_function(self.tool_get_current_journal),
+            ToolAllStageJournal().set_function(self.tool_get_all_journal),
+            ToolSetCurrentStageJournal().set_function(self.tool_set_journal),
         ]
         return tools
 
@@ -516,6 +565,25 @@ class StageManager(object):
 
     def get_current_stage(self):
         return self.get_stage(self.stage_index)
+
+    def set_current_stage_journal(self, journal):
+        stage = self.get_current_stage()
+        if stage:
+            stage.meta_set_journal(journal)
+            return "Set journal success."
+        return "No current stage available."
+
+    def get_current_stage_journal(self):
+        stage = self.get_current_stage()
+        if stage:
+            return stage.meta_get_journal()
+        return "No current stage available."
+
+    def get_all_stage_journal(self):
+        journals = OrderedDict()
+        for stage in self.stages:
+            journals[stage.title()] = stage.meta_get_journal()
+        return journals
 
     def get_stage(self, index):
         if 0 <= index < len(self.stages):
@@ -589,6 +657,7 @@ class StageManager(object):
             stage = self.stages[idx]
             stage_info = stage.detail()
             stage_info["time_cost"] = stage.get_time_cost()
+            stage_info["meta_data"] = stage.meta_data
             info["stages_info"][idx] = stage_info
         stage = self.get_current_stage()
         is_wait_human_check = False
@@ -714,6 +783,26 @@ class StageManager(object):
             "exit": False,
             "message": "Not all stages are completed yet. Please complete all stages before exiting."
         }
+
+    def tool_set_journal(self, journal):
+        """
+        Set the journal of the current stage.
+        This is used to when current stage is completed or the LLM context is compressed and other similar situations.
+        The journal content should be concise and clear and only the necessary information should be included.
+        """
+        ret = make_llm_tool_ret(self.set_current_stage_journal(journal))
+        info("ToolSetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_get_all_journal(self):
+        ret = make_llm_tool_ret(self.get_all_stage_journal())
+        info("ToolGetAllStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+
+    def tool_get_current_journal(self):
+        ret = make_llm_tool_ret(self.get_current_stage_journal())
+        info("ToolGetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
 
     def tool_detail(self):
         """
