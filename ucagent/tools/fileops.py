@@ -696,7 +696,8 @@ class EditTextFile(UCTool, BaseReadWrite):
             return str_error(emsg)
         if os.path.isfile(rpath):
             if mode in ["write"]:
-                emsg = f"File '{path}' already exists, cannot use 'write' mode on existing files. Please check if this file is a template you need to fill."
+                emsg = f"File '{path}' already exists, cannot use 'write' mode on existing files. " + \
+                        "Please read the file's content to determine whether you need to edit it using the 'replace' mode."
                 self.do_callback(False, path, emsg)
                 return str_error(emsg)
         else:
