@@ -634,14 +634,14 @@ class BaseUnityChipCheckerTestCase(Checker):
     It checks if the test cases meet the specified minimum requirements.
     """
 
-    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_ck_prefix="",
+    def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_tc_prefix="",
                  data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, need_human_check=False, **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
         self.min_tests = min_tests
         self.timeout = timeout
-        self.ignore_ck_prefix = ignore_ck_prefix
+        self.ignore_tc_prefix = ignore_tc_prefix
         self.data_key = data_key
         self.extra_kwargs = extra_kwargs
         self.ret_std_error = ret_std_error
@@ -677,6 +677,10 @@ class BaseUnityChipCheckerTestCase(Checker):
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
         timeout = timeout if timeout > 0 else self.timeout
+        if self.ignore_tc_prefix:
+            pytest_args = pytest_args if pytest_args else "."
+            pytest_args = pytest_args.split()
+            pytest_args = ["-k", f"not {self.ignore_tc_prefix}"] + pytest_args
         return self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
@@ -782,7 +786,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test report is generated correctly."
             return False, info_runtest
-        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_ck_prefix in k or ":"+self.ignore_ck_prefix in k)])
+        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_tc_prefix in k or ":"+self.ignore_tc_prefix in k)])
         if self.ret_std_out:
             info_report.update({"STDOUT": str_out})
             info_runtest.update({"STDOUT": str_out})
@@ -896,7 +900,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, "Test template structure validation failed: No test cases found in the report. " +\
                           "Please ensure that the test report is generated correctly."
         for fv, rt in test_cases.items():
-            if self.ignore_ck_prefix and ":"+self.ignore_ck_prefix in fv:
+            if self.ignore_tc_prefix and ":"+self.ignore_tc_prefix in fv:
                 continue
             if rt == "PASSED":
                 passed_test.append(fv + "=" + rt)
@@ -904,7 +908,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         must_fail = self.extra_kwargs.get("template_must_fail", True)
         if passed_test and must_fail:
             return False, f"Test template structure validation failed: Not all test functions ({fc.list_str_abbr(passed_test)}) are properly failing. " + \
-                          f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_ck_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
+                          f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_tc_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
                            "This prevents incomplete templates from being accidentally considered as passing tests. " + \
                            "Please ensure every test function ends with the required fail assertion."
         # Check for proper TODO comments (this would require parsing the actual test files)
@@ -1065,7 +1069,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             passed_tc = []
             failed_tc = []
             for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
-                if ":"+self.ignore_ck_prefix in k:
+                if ":"+self.ignore_tc_prefix in k:
                     info(f"{self.__class__.__name__} ignore test case: {k}")
                     continue
                 if v == "PASSED":
@@ -1253,9 +1257,9 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
 
     def __init__(self, doc_func_check=None,
                  test_dir=None, doc_bug_analysis=None, cfg=None,
-                 min_tests=1, timeout=15, ignore_ck_prefix="", data_key=None,
+                 min_tests=1, timeout=15, ignore_tc_prefix="", data_key=None,
                  **extra_kwargs):
-        super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_ck_prefix, data_key, **extra_kwargs)
+        super().__init__(doc_func_check, test_dir, doc_bug_analysis, min_tests, timeout, ignore_tc_prefix, data_key, **extra_kwargs)
         self.extra_kwargs = extra_kwargs
         assert cfg is not None, "cfg is required."
         self.update_dut_name(cfg)

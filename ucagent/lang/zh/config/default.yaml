@@ -211,7 +211,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
-              need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+        need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
   - name: dut_wrapper_implementation
     desc: "DUT封装"
     task:
@@ -402,6 +402,7 @@ stage:
          - " - Mock组件中不要包含复杂的逻辑，只需模拟必要的行为"
          - " - Mock组件的主要功能需要通过on_clock_edge方法进行驱动"
          - " - Mock组件的基础功能中需要有必要的assert检查，确保输入输出合理"
+         - " - 注意{DUT}相关的文件名，用例名等大小写敏感"
        checker:
          - name: mock_component_check
            clss: "UnityChipCheckerMockComponent"
@@ -438,6 +439,7 @@ stage:
          - " - Mock组件的测试用例请用函数式编写，不要使用类"
          - " - 测试函数的第一个参数为mock_dut (pytest fixture)"
          - " - 本阶段的测试用例中，不能有mock_dut.fc_cover['FG-API'].mark_function,因为这里只测试Mock组件本身功能，不涉及DUT功能覆盖"
+         - " - 注意{DUT}相关的文件名，用例名等大小写敏感"
        checker:
          - name: no_conftest_file
            clss: FilesMustNotExist
@@ -468,6 +470,7 @@ stage:
          - "5. 可以按dut功能需要，添加一些常用的操作方法,例如reset, Finish, Step等"
          - "6. 引脚封装要有意义，便于理解和使用"
          - "7. 如果定义了Mock组件，请确保在env fixture中正确实例化和使用"
+         - "8. 注意{DUT}相关的文件名，用例名等大小写敏感"
        checker:
          - name: env_fixture_check
            clss: "UnityChipCheckerEnvFixture"
@@ -489,6 +492,7 @@ stage:
          - "注意："
          - "  该阶段测试的是env以及其中的Mock组件（如果有的话）是否按预期工作"
          - "  只要对{DUT}进行基本驱动，不要进行过多的DUT功能测试，防止DUT功能缺陷导致测试用例失败"
+         - "  注意{DUT}相关的文件名，用例名等大小写敏感"
        checker:
          - name: no_conftest_file
            clss: FilesMustNotExist
@@ -582,6 +586,7 @@ stage:
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
       - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
+      - "  - 注意{DUT}相关的文件名，用例名等大小写敏感"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -597,7 +602,7 @@ stage:
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -627,6 +632,7 @@ stage:
       - "    - 好的测试用例文件名示例：test_{DUT}_arithmetic.py, test_{DUT}_stack_operations.py"
       - "    - 差的测试用例文件名示例：test_{DUT}_part1.py, test_{DUT}_misc.py, test_{DUT}_template1.py"
       - "  - 请忽略test_{DUT}_api_*.py和test_{DUT}_mock_*.py中的测试用例（前缀为test_api_{DUT}_），他们已经在之前阶段实现完成"
+      - "  - 该阶段编写的测试用例不能以test_api_{DUT}_开头"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
@@ -642,11 +648,11 @@ stage:
         args:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
-          ignore_ck_prefix: "test_api_{DUT}_"
+          ignore_tc_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
 
@@ -674,9 +680,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -721,11 +728,11 @@ stage:
             doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
             doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
             test_dir: "{OUT}/tests"
-            ignore_ck_prefix: "test_api_{DUT}_"
+            ignore_tc_prefix: "test_api_{DUT}_mock_"
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
-            need_human_check: false # 验证复杂DUT时建议开启该人工检查
+        need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: line_coverage_analysis_and_improvement
     desc: "代码行覆盖率分析与提升{COVERAGE_COMPLETE}"
@@ -750,8 +757,9 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
           min_line_coverage: $(MIN_LINE_COV_RATE: 0.9) # 根据需要调整覆盖率要求，例如0.7表示70%，建议初始要求不要太高，完成所有功能测试后再提升该值大于95%
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
     reference_files:
           - "Guide_Doc/dut_line_coverage.md"
@@ -794,7 +802,7 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查
     output_files:
       - "{OUT}/tests/test_{DUT}_random*.py"
     reference_files:
@@ -827,4 +835,5 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          need_human_check: false # 验证复杂DUT时建议开启该人工检查
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
+    need_human_check: false # 验证复杂DUT时建议开启该人工检查

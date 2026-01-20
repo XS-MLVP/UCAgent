@@ -91,7 +91,14 @@ class RunPyTest(UCTool):
         if os.path.isdir(abs_test_path):
             # If it's a directory, set cwd to the directory itself and use relative path
             work_dir = abs_test_path
-            test_target = ["."] if pytest_ex_args == "" else pytest_ex_args.split()
+            if not pytest_ex_args:
+                test_target = ["."]
+            elif isinstance(pytest_ex_args, str):
+                test_target = pytest_ex_args.split()
+            elif isinstance(pytest_ex_args, list):
+                test_target = pytest_ex_args
+            else:
+                raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
         else:
             # If it's a file, set cwd to the directory containing the file
             work_dir = os.path.dirname(abs_test_path)
@@ -99,7 +106,12 @@ class RunPyTest(UCTool):
             test_target = [file_basename]
             # Handle pytest_ex_args that may contain absolute paths
             if pytest_ex_args:
-                test_target.extend(pytest_ex_args.split())
+                if isinstance(pytest_ex_args, str):
+                    test_target.extend(pytest_ex_args.split())
+                elif isinstance(pytest_ex_args, list):
+                    test_target.extend(pytest_ex_args)
+                else:
+                    raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
 
         cmd = ["pytest", "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
