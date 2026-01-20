@@ -311,6 +311,10 @@ stage:
               - "第7步：如果实现过程中发现需要增加或者删除检查点，可以更新文档{OUT}/{DUT}_functions_and_checks.md"
               - "第8步：完成上述目标检查函数后，使用Check工具进行阶段检查"
               - "完成进度：{COMPLETED_POINTS}/{TOTAL_POINTS}个检查点已完成"
+              - "注意："
+              - " - 确保代码有注释，便于理解和维护"
+              - " - 检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
+              - " - 如果没有明确要求，请基于DUT的引脚进行检查，一定不要尝试获取DUT的内部信号状态（内部状态或者功能不属于DUT需要验证的功能点）"
             checker:
             - name: batch_coverage_points_implementation_check
               clss: "UnityChipCheckerCoverageGroupBatchImplementation"
