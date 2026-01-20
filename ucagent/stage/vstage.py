@@ -315,9 +315,6 @@ class VerifyStage(object):
                 self.check_pass = False
                 self.fail_count += 1
         if self.check_pass:
-            if self.meta_get_journal() is None:
-                return False, {"error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage."}
-        if self.check_pass:
             self.succ_count += 1
             self.continue_fail_count = 0
         else:
