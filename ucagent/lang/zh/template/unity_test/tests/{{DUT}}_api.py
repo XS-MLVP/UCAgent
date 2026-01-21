@@ -40,7 +40,7 @@ def create_dut(request):
     """
     # 如果是正在生成测试模板，返回fake DUT用于提速（模板中不会真运行DUT）
     if ucagent.is_imp_test_template():
-        return ucagent.get_fake_dut()
+        return ucagent.get_fake_dut(DUT{{DUT}})
 
     # Replace with the actual instantiation and initialization of your DUT
     dut = DUT{{DUT}}()
@@ -143,9 +143,6 @@ class {{DUT}}Env:
 # 定义env fixture, 请取消下面的注释，并根据需要修改名称
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的Env
 def env(dut):
-    # 如果是正在生成测试模板，返回fake Env用于提速（模板中不会真运行Env）
-    if ucagent.is_imp_test_template():
-        return ucagent.get_fake_env(dut)
     # 一般情况下为每个test都创建全新的 env 不需要 yield
     return {{DUT}}Env(dut)
 

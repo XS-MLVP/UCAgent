@@ -23,60 +23,9 @@ def repeat_count():
         warning(f"convert os.env['UC_TEST_RCOUNT']({n}) to Int value fail: {e}, use default 3")
         return default_v
 
-def get_fake_dut():
-    """Create a fake DUT instance with no functionality"""
-    class FakeDUT:
-        def InitClock(self, name: str):
-            pass
-        def Step(self, i:int = 1):
-            pass
-        def StepRis(self, callback, args=(), kwargs={}):
-            pass
-        def StepFal(self, callback, args=(), kwargs={}):
-            pass
-        def ResumeWaveformDump(self):
-            pass
-        def PauseWaveformDump(self):
-            pass
-        def WaveformPaused(self) -> int:
-            pass
-        def GetXPort(self):
-            pass
-        def GetXClock(self):
-            pass
-        def SetWaveform(self, filename: str):
-            pass
-        def GetWaveFormat(self) -> str:
-            pass
-        def FlushWaveform(self):
-            pass
-        def SetCoverage(self, filename: str):
-            pass
-        def GetCovMetrics(self) -> int:
-            pass
-        def CheckPoint(self, name: str) -> int:
-            pass
-        def Restore(self, name: str) -> int:
-            pass
-        def GetInternalSignal(self, name: str, index=-1, is_array=False, use_vpi=False):
-            pass
-        def GetInternalSignalList(self, prefix="", deep=99, use_vpi=False):
-            pass
-        def VPIInternalSignalList(self, prefix="", deep=99):
-            pass
-        def Finish(self):
-            pass
-        def RefreshComb(self):
-            pass
-    return FakeDUT()
-
-
-def get_fake_env(dut):
-    """Create a fake Env instance with no functionality"""
-    class FakeEnv:
-        def __init__(self, dut):
-            self.dut = dut
-    return FakeEnv(dut)
+def get_fake_dut(cls):
+    """Create a mock DUT instance with no functionality"""
+    return get_mock_dut_from(cls)
 
 
 def is_imp_test_template():
@@ -158,14 +107,46 @@ def get_mock_dut_from(cls):
             for pin_name, pin in self._pins.items():
                 ret[f"{pin_name}[{pin.xdata.W()}]"] = pin.xdata.value
             return json.dumps(ret, indent=4)
-        def __setattr__(self, name, value):
-            if not hasattr(self, "_is_initialized") or not self._is_initialized:
-                return super().__setattr__(name, value)
-            orin_attr = self.__dict__.get(name, None)
-            if isinstance(orin_attr, cls_XPin):
-                assert False, "Directly setting XPin is not allowed. Set its value attribute instead. eg: dut.a.value = 1"
-            if isinstance(orin_attr, (cls_XClock, cls_XPort)):
-                assert False, "Directly setting XClock or XPort is not allowed."
-            assert name in self.__dict__, f"Attribute {name} not found in MockDUT."
-            return super().__setattr__(name, value)
+        def Finish(self):
+            pass
+        def RefreshComb(self):
+            pass
+        def SetWaveform(self, filename: str):
+            pass
+        def SetCoverage(self, filename: str):
+            pass
+        def ResumeWaveformDump(self):
+            pass
+        def PauseWaveformDump(self):
+            pass
+        def WaveformPaused(self) -> int:
+            pass
+        def GetXPort(self):
+            pass
+        def GetXClock(self):
+            pass
+        def SetWaveform(self, filename: str):
+            pass
+        def GetWaveFormat(self) -> str:
+            pass
+        def FlushWaveform(self):
+            pass
+        def SetCoverage(self, filename: str):
+            pass
+        def GetCovMetrics(self) -> int:
+            pass
+        def CheckPoint(self, name: str) -> int:
+            pass
+        def Restore(self, name: str) -> int:
+            pass
+        def GetInternalSignal(self, name: str, index=-1, is_array=False, use_vpi=False):
+            pass
+        def GetInternalSignalList(self, prefix="", deep=99, use_vpi=False):
+            pass
+        def VPIInternalSignalList(self, prefix="", deep=99):
+            pass
+        def Finish(self):
+            pass
+        def RefreshComb(self):
+            pass
     return MockDUT()

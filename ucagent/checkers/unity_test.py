@@ -112,14 +112,14 @@ class UnityChipCheckerLabelStructure(Checker):
 class UnityChipCheckerDutCreation(Checker):
     def __init__(self, target_file, **kw):
         self.target_file = target_file
-        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
-                      "    return ucagent.get_fake_dut()`\n in 'create_dut' function."
+        self.update_dut_name(kw["cfg"])
+        ucagent_msg = f"You need use:\n`if ucagent.is_imp_test_template():\n" + \
+                      f"    return ucagent.get_fake_dut(DUT{self.dut_name})`\n in 'create_dut' function."
         self.source_code_need = {
             "get_coverage_data_path": (f"The 'create_dut' function in '{self.target_file}' must call 'get_coverage_data_path(request, new_path=True)' to get a new coverage file path.", fc.tips_of_get_coverage_data_path),
             "ucagent.is_imp_test_template": (ucagent_msg, None),
             "ucagent.get_fake_dut":(ucagent_msg, None)
         }
-        self.update_dut_name(kw["cfg"])
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT creation function for correctness."""
@@ -311,12 +311,6 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
 class UnityChipCheckerEnvFixture(UnityChipCheckerBaseFixture):
     def __init__(self, target_file, min_count=1, **kw):
         super().__init__(target_file, "env*", first_arg="dut", min_count=min_count, **kw)
-        ucagent_msg = "You need use:\n`if ucagent.is_imp_test_template():\n" + \
-                      "    return ucagent.get_fake_env()`\n in 'env*' fixture."
-        self.source_code_need = {
-            "ucagent.is_imp_test_template": (ucagent_msg, None),
-            "ucagent.get_fake_env":(ucagent_msg, None)
-        }
 
 
 class UnityChipCheckerMockFixture(UnityChipCheckerBaseFixture):
