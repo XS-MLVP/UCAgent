@@ -61,7 +61,7 @@ class ConsoleCapture:
 class UIMsgLogger(logging.Logger):
     """Logger that forwards messages into the TUI message panel."""
 
-    def __init__(self, ui, level=logging.getLevelName("INFO")):
+    def __init__(self, ui, level=logging.INFO):
         super().__init__(name="UIMsgLogger", level=level)
         self.ui = ui
 
