@@ -2,45 +2,17 @@
 
 from __future__ import annotations
 
-import re
-from typing import Any
 import threading
 import logging
 import traceback
 
 from rich.text import Text
-from rich.style import Style
-
-
-# ANSI escape sequence pattern
-ANSI_ESCAPE_RE = re.compile(r'\x1b\[(\d+)(;\d+)*m')
-
-# ANSI color code to Rich style mapping
-ANSI_COLOR_MAP: dict[str, str] = {
-    '30': 'black',
-    '31': 'red',
-    '32': 'green',
-    '33': 'yellow',
-    '34': 'blue',
-    '35': 'magenta',
-    '36': 'cyan',
-    '37': 'white',
-    '90': 'bright_black',
-    '91': 'bright_red',
-    '92': 'bright_green',
-    '93': 'bright_yellow',
-    '94': 'bright_blue',
-    '95': 'bright_magenta',
-    '96': 'bright_cyan',
-    '97': 'bright_white',
-}
-
-# Reset code
-RESET_CODE = '0'
 
 
 def parse_ansi_to_rich(text: str) -> Text:
     """Parse ANSI escape sequences and convert to Rich Text.
+
+    Uses Rich's built-in ANSI parsing for better compatibility and performance.
 
     Args:
         text: String potentially containing ANSI escape codes
@@ -51,117 +23,10 @@ def parse_ansi_to_rich(text: str) -> Text:
     if not text:
         return Text()
 
-    result = Text()
-    current_style: str | None = None
-    pos = 0
-
-    for match in ANSI_ESCAPE_RE.finditer(text):
-        start, end = match.span()
-
-        # Add text before this escape sequence
-        if start > pos:
-            result.append(text[pos:start], style=current_style)
-
-        # Parse escape code
-        codes = match.group(0)[2:-1].split(';')
-        primary_code = codes[0] if codes else RESET_CODE
-
-        if primary_code == RESET_CODE or primary_code == '':
-            current_style = None
-        else:
-            current_style = ANSI_COLOR_MAP.get(primary_code)
-
-        pos = end
-
-    # Add remaining text
-    if pos < len(text):
-        result.append(text[pos:], style=current_style)
-
-    return result
+    # Rich's Text.from_ansi() handles all ANSI codes natively
+    return Text.from_ansi(text)
 
 
-def ansi_to_markup(text: str) -> str:
-    """Convert ANSI escape sequences to Rich markup.
-
-    Args:
-        text: String with ANSI codes
-
-    Returns:
-        String with Rich markup tags
-    """
-    if not text:
-        return ""
-
-    result = []
-    current_color: str | None = None
-    pos = 0
-
-    for match in ANSI_ESCAPE_RE.finditer(text):
-        start, end = match.span()
-
-        # Add text before escape
-        if start > pos:
-            segment = text[pos:start]
-            if current_color:
-                result.append(f"[{current_color}]{segment}[/{current_color}]")
-            else:
-                result.append(segment)
-
-        # Parse code
-        codes = match.group(0)[2:-1].split(';')
-        primary_code = codes[0] if codes else RESET_CODE
-
-        if primary_code == RESET_CODE or primary_code == '':
-            current_color = None
-        else:
-            current_color = ANSI_COLOR_MAP.get(primary_code)
-
-        pos = end
-
-    # Add remaining text
-    if pos < len(text):
-        segment = text[pos:]
-        if current_color:
-            result.append(f"[{current_color}]{segment}[/{current_color}]")
-        else:
-            result.append(segment)
-
-    return "".join(result)
-
-
-class MessageQueue:
-    """Thread-safe message queue for UI updates.
-
-    Note: In textual, we typically use call_from_thread() or post_message()
-    instead of a manual queue, but this class provides compatibility
-    with the existing architecture if needed.
-    """
-
-    def __init__(self, maxsize: int = 1000) -> None:
-        import queue
-        self._queue: queue.Queue[tuple[str, str]] = queue.Queue(maxsize=maxsize)
-
-    def put(self, msg: str, end: str = "\n") -> None:
-        """Add message to queue."""
-        try:
-            self._queue.put_nowait((msg, end))
-        except Exception:
-            pass  # Queue full, drop message
-
-    def get_all(self) -> list[tuple[str, str]]:
-        """Get all pending messages."""
-        messages = []
-        while True:
-            try:
-                messages.append(self._queue.get_nowait())
-            except Exception:
-                break
-        return messages
-
-    @property
-    def empty(self) -> bool:
-        """Check if queue is empty."""
-        return self._queue.empty()
 
 
 class ConsoleCapture:

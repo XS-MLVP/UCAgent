@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, ClassVar
 import textwrap
 
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Input, Static
+from textual.containers import Vertical
+from textual.widgets import Input, Static, RichLog
 from textual.message import Message
 from textual.reactive import reactive
 
@@ -31,11 +31,6 @@ class ConsoleWidget(Vertical):
     ConsoleWidget #console-output {
         height: 1fr;
         padding: 0 1;
-        overflow-y: auto;
-    }
-
-    ConsoleWidget #console-output-text {
-        width: 100%;
     }
 
     ConsoleWidget #console-input {
@@ -68,24 +63,27 @@ class ConsoleWidget(Vertical):
     BUSY_FRAMES: ClassVar[list[str]] = ['⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽', '⣾']
     # State
     is_busy: reactive[bool] = reactive(False)
-    output_buffer: reactive[str] = reactive("")
 
     def __init__(self, prompt: str = "(UnityChip) ", **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Console"
         self.prompt = prompt
         self._busy_frame_index: int = 0
-        self._output_lines: list[str] = []
-        self._page_cache: list[str] | None = None
-        self._page_index: int = 0
-        self._max_output_lines: int = 1000
+        self._page_mode: bool = False
         self._suggestions_visible: bool = False
         self._suggestions_text: str = ""
 
     def compose(self) -> ComposeResult:
         """Compose the console widget."""
-        with VerticalScroll(id="console-output"):
-            yield Static(id="console-output-text")
+        # Use RichLog for output with built-in line limiting and scrolling
+        yield RichLog(
+            id="console-output",
+            max_lines=1000,
+            auto_scroll=True,
+            wrap=True,
+            markup=False,
+            highlight=False
+        )
         yield Input(placeholder=self.prompt, id="console-input")
         yield Static(id="console-suggest")
 
@@ -123,49 +121,29 @@ class ConsoleWidget(Vertical):
         """
         if not text:
             return
-        # Process and store
+
+        # Process text
         processed = text.replace("\t", "    ")
         processed = processed.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Get RichLog widget and write with ANSI parsing
+        output_log = self.query_one("#console-output", RichLog)
+
+        # RichLog handles line limiting automatically via max_lines
+        # Split by lines and write each with ANSI parsing
         lines = processed.split("\n")
-        if self._output_lines:
-            self._output_lines[-1] += lines[0]
-            lines = lines[1:]
-
-        if lines:
-            self._output_lines.extend(lines)
-
-        # Trim if over limit
-        if len(self._output_lines) > self._max_output_lines:
-            self._output_lines = self._output_lines[-self._max_output_lines:]
-
-        self._update_display()
+        for i, line in enumerate(lines):
+            # Don't add extra newline for last empty line
+            if i == len(lines) - 1 and not line:
+                continue
+            output_log.write(parse_ansi_to_rich(line))
 
     def clear_output(self) -> None:
         """Clear console output."""
-        self._output_lines = []
-        self._page_cache = None
-        self._page_index = 0
-        self._update_display()
+        output_log = self.query_one("#console-output", RichLog)
+        output_log.clear()
+        self._page_mode = False
         self._update_prompt()
-
-    def _update_display(self) -> None:
-        """Update the console output display."""
-        if self._page_cache is not None:
-            # Page mode
-            lines = self._page_cache
-        else:
-            # Normal mode - show all buffered lines
-            lines = self._output_lines
-
-        # Parse ANSI and update
-        rich_content = parse_ansi_to_rich("\n".join(lines))
-        self.query_one("#console-output-text", Static).update(rich_content)
-
-        output_scroll = self.query_one("#console-output", VerticalScroll)
-        if self._page_cache is None:
-            output_scroll.scroll_end(animate=False)
-        else:
-            output_scroll.scroll_to(y=self._page_index, animate=False)
 
     def _update_prompt(self) -> None:
         """Update the input prompt based on state."""
@@ -177,7 +155,7 @@ class ConsoleWidget(Vertical):
             self._busy_frame_index += 1
             prefix = f"{frame} "
 
-        if self._page_cache is not None:
+        if self._page_mode:
             prefix += "<Up/Down: scroll, Esc: exit> "
 
         input_widget.placeholder = f"{prefix}{self.prompt}"
@@ -191,19 +169,20 @@ class ConsoleWidget(Vertical):
 
     def enter_page_mode(self) -> None:
         """Enter paginated output mode."""
-        if self._page_cache is None:
-            self._page_cache = self._output_lines.copy()
-            app: VerifyApp = self.app  # type: ignore
-            self._page_index = max(0, len(self._page_cache) - app.console_height)
-            self._update_display()
+        if not self._page_mode:
+            self._page_mode = True
+            output_log = self.query_one("#console-output", RichLog)
+            output_log.auto_scroll = False
             self._update_prompt()
 
     def exit_page_mode(self) -> None:
         """Exit paginated output mode."""
-        self._page_cache = None
-        self._page_index = 0
-        self._update_display()
-        self._update_prompt()
+        if self._page_mode:
+            self._page_mode = False
+            output_log = self.query_one("#console-output", RichLog)
+            output_log.auto_scroll = True
+            output_log.scroll_end(animate=False)
+            self._update_prompt()
 
     def page_scroll(self, delta: int, auto_enter: bool = False) -> bool:
         """Scroll in page mode.
@@ -215,26 +194,25 @@ class ConsoleWidget(Vertical):
         Returns:
             True if in page mode and scrolled
         """
-        if self._page_cache is None:
+        if not self._page_mode:
             if not auto_enter:
                 return False
-            app: VerifyApp = self.app  # type: ignore
-            if len(self._output_lines) <= app.console_height:
-                return False
             self.enter_page_mode()
-            if self._page_cache is None:
-                return False
 
-        app: VerifyApp = self.app  # type: ignore
-        max_index = max(0, len(self._page_cache) - app.console_height)
-        self._page_index = max(0, min(max_index, self._page_index + delta))
-        output_scroll = self.query_one("#console-output", VerticalScroll)
-        output_scroll.scroll_to(y=self._page_index, animate=False)
+        output_log = self.query_one("#console-output", RichLog)
+
+        # Use RichLog's built-in scroll methods
+        if delta < 0:
+            output_log.scroll_relative(y=delta, animate=False)
+        else:
+            output_log.scroll_relative(y=delta, animate=False)
+
         return True
 
     def output_line_count(self) -> int:
         """Return the number of buffered output lines."""
-        return len(self._output_lines)
+        output_log = self.query_one("#console-output", RichLog)
+        return len(output_log.lines)
 
     @property
     def has_suggestions(self) -> bool:
@@ -276,7 +254,7 @@ class ConsoleWidget(Vertical):
         wrapped = textwrap.wrap(text, width=width)
         return max(1, len(wrapped))
 
-    def watch_is_busy(self, busy: bool) -> None:
+    def watch_is_busy(self, _busy: bool) -> None:
         """React to busy state changes."""
         self._update_prompt()
 

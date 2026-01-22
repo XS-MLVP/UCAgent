@@ -15,7 +15,7 @@ from textual.events import Key
 
 from .widgets import TaskPanel, StatusPanel, MessagesPanel, ConsoleWidget, VerticalSplitter, HorizontalSplitter
 from .handlers import KeyHandler
-from .utils import MessageQueue, ConsoleCapture, UIMsgLogger
+from .utils import ConsoleCapture, UIMsgLogger
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
@@ -55,9 +55,6 @@ class VerifyApp(App[None]):
         self._config_task_width = self.cfg.get_value("tui.task_width", 84)
         self._config_console_height = self.cfg.get_value("tui.console_height", 13)
         self._config_status_height = self.cfg.get_value("tui.status_height", 7)
-
-        # Message queue for thread-safe updates
-        self.message_queue = MessageQueue()
 
         # Command history
         self.cmd_history: list[str] = []
