@@ -1,0 +1,26 @@
+"""Terminal User Interface for UCAgent verification using Textual."""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ucagent.verify_pdb import VerifyPDB
+
+__version__ = "1.0.0"
+
+
+def enter_tui(vpdb: "VerifyPDB") -> None:
+    """Enter the Textual-based TUI.
+
+    Args:
+        vpdb: VerifyPDB instance containing the agent and configuration.
+    """
+    from .app import VerifyApp
+    app = VerifyApp(vpdb)
+    app.run()
+
+
+# Alias for compatibility with existing code
+enter_simple_tui = enter_tui
+
+__all__ = ["enter_tui", "enter_simple_tui"]

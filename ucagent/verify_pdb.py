@@ -586,10 +586,10 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
-        from ucagent.verify_ui import enter_simple_tui
+        from ucagent.tui import enter_tui
         self._in_tui = True
         try:
-            enter_simple_tui(self)
+            enter_tui(self)
         except Exception as e:
             import traceback
             echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())

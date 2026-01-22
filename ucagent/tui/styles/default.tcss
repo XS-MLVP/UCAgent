@@ -1,0 +1,152 @@
+/* UCAgent TUI Default Stylesheet */
+
+/* Color variables */
+$primary: #3498db;
+$success: #2ecc71;
+$warning: #f39c12;
+$error: #e74c3c;
+$text: #ecf0f1;
+$background: #1a1a2e;
+$surface: #16213e;
+
+/* Main app */
+Screen {
+    background: $background;
+}
+
+/* Main container - horizontal split */
+#main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+/* Task panel - left side, fixed width */
+#task-panel {
+    width: 84;
+    border: solid $primary;
+    background: $surface;
+}
+
+#task-panel:focus {
+    border: double $primary;
+}
+
+/* Right container - status + messages stacked */
+#right-container {
+    width: 1fr;
+    layout: vertical;
+}
+
+/* Status panel - fixed height */
+#status-panel {
+    height: 7;
+    border: solid $primary;
+    background: $surface;
+}
+
+/* Messages panel - fills remaining space */
+#messages-panel {
+    height: 1fr;
+    border: solid $primary;
+    background: $surface;
+}
+
+#messages-panel:focus {
+    border: double $primary;
+}
+
+/* Console - bottom, fixed height */
+#console {
+    height: 15;
+    dock: bottom;
+    border: solid $primary;
+    background: $surface;
+}
+
+#console:focus-within {
+    border: double $primary;
+}
+
+#console-output {
+    height: 1fr;
+    padding: 0 1;
+    color: $text;
+    overflow-y: auto;
+}
+
+#console-output-text {
+    width: 100%;
+}
+
+#console-input {
+    dock: bottom;
+    height: 1;
+    border: none;
+    background: $surface;
+    padding: 0 1;
+}
+
+#console-input:focus {
+    background: #1e2a4a;
+}
+
+#console-input.busy {
+    color: $warning;
+}
+
+/* Section titles in panels */
+.section-title {
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    margin: 1 0 0 0;
+}
+
+/* Task item styles */
+.task-current {
+    color: $error;
+    text-style: bold;
+}
+
+.task-completed {
+    color: $success;
+}
+
+.task-skipped {
+    color: $warning;
+    text-style: italic;
+}
+
+.task-pending {
+    color: $text;
+}
+
+/* File styles */
+.file-recent {
+    color: $success;
+}
+
+/* Tool styles */
+.tool-busy {
+    color: $warning;
+    text-style: bold;
+}
+
+/* Scrollbar styling */
+Scrollbar {
+    background: $surface;
+}
+
+ScrollBar > .scrollbar--bar {
+    color: $primary;
+}
+
+ScrollBar > .scrollbar--bar-hover {
+    color: #5dade2;
+}
+
+/* Border titles */
+* {
+    border-title-color: $text;
+    border-title-style: bold;
+}
