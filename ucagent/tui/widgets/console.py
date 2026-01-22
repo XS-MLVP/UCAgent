@@ -202,10 +202,7 @@ class ConsoleWidget(Vertical):
         output_log = self.query_one("#console-output", RichLog)
 
         # Use RichLog's built-in scroll methods
-        if delta < 0:
-            output_log.scroll_relative(y=delta, animate=False)
-        else:
-            output_log.scroll_relative(y=delta, animate=False)
+        output_log.scroll_relative(y=delta, animate=False)
 
         return True
 
