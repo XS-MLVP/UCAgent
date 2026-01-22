@@ -2,10 +2,9 @@
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
-from .message import MessageStatistic, TokenSpeedCallbackHandler
-from .message import UCMessagesNode, SummarizationAndFixToolCall, State
+from .middleware import MessageStatistic, TokenSpeedCallbackHandler, SummarizationMiddleware, SummarizationAndFixToolCall, State
 from langchain_core.messages.utils import count_tokens_approximately
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
@@ -26,7 +25,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
 
         if vagent.use_uc_mode:
             info("Using UCMessagesNode for conversation summarization (max_summary_tokens={})".format(vagent.max_summary_tokens))
-            message_manage_node = UCMessagesNode(
+            message_manage_node = SummarizationMiddleware(
                 msg_stat=self.message_statistic,
                 max_summary_tokens=vagent.max_summary_tokens,
                 max_keep_msgs=vagent.max_keep_msgs,
@@ -50,12 +49,11 @@ class UCAgentLangChainBackend(AgentBackendBase):
         set_debug(debug)
 
     def init(self):
-        self.agent = create_react_agent(
+        self.agent = create_agent(
             model=self.model,
             tools=self.vagent.test_tools,
             checkpointer=MemorySaver(),
-            pre_model_hook=self.message_manage_node,
-            state_schema=State,
+            middleware=[self.message_manage_node]
         )
 
     def get_human_message(self, text):
