@@ -41,7 +41,7 @@ Sbuffer是一个不能独立存在的模块，它依赖上下游的总线握手�
 ```bash
 # 确保在运行前安装了依赖环境
 # IGNORE_MOCK_COMPONENT=false 环境变量用于启用Mock阶段
-ENABLE_LLM_FAIL_SUGGESTION=true ENABLE_LLM_PASS_SUGGESTION=true PYTEST_ADDOPTS="-n auto" \
+ENABLE_LLM_FAIL_SUGGESTION=true ENABLE_LLM_PASS_SUGGESTION=true \
 IGNORE_MOCK_COMPONENT=false make mcp_Sbuffer BBV=true ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"
 ```
 
@@ -51,7 +51,7 @@ IGNORE_MOCK_COMPONENT=false make mcp_Sbuffer BBV=true ARGS="--backend=qwen --loo
 参数解释：
 - `ENABLE_LLM_FAIL_SUGGESTION=true`：启用Check Fail时的LLM检查
 - `ENABLE_LLM_PASS_SUGGESTION=true`：启用Complete True时的LLM检查
-- `PYTEST_ADDOPTS="-n auto"`: 启用多核运行pytest（可以把auto改值具体的核心数）
+- `PYTEST_ADDOPTS="-n auto"`（可选）: 启用多核运行pytest（可以把auto改值具体的核心数）
 - `IGNORE_MOCK_COMPONENT=false`：启用Mock stage （Stage list中会多出3个阶段）
 - `BBV=true`: 启用黑盒验证，清空RTL文件内容（RTL代码行数太长时建议开启）
 - `ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"`：设置UCagent参数，选用qwen作为后端执行，开启验证 loop并生成Qwen指导文件
