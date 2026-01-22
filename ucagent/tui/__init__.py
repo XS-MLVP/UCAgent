@@ -18,7 +18,4 @@ def enter_tui(vpdb: "VerifyPDB") -> None:
     app.run()
 
 
-# Alias for compatibility with existing code
-enter_simple_tui = enter_tui
-
-__all__ = ["enter_tui", "enter_simple_tui"]
+__all__ = ["enter_tui"]
