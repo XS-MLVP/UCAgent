@@ -23,25 +23,14 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
         self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
 
-        if vagent.use_uc_mode:
-            info("Using UCMessagesNode for conversation summarization (max_summary_tokens={})".format(vagent.max_summary_tokens))
-            message_manage_node = SummarizationMiddleware(
-                msg_stat=self.message_statistic,
-                max_summary_tokens=vagent.max_summary_tokens,
-                max_keep_msgs=vagent.max_keep_msgs,
-                max_tokens=vagent.max_token,
-                tail_keep_msgs=vagent.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
-                model=self.sumary_model
-            )
-        else:
-            info("Using SummarizationAndFixToolCall for conversation summarization (max_token={}, max_summary_tokens={})".format(vagent.max_token, vagent.max_summary_tokens))
-            message_manage_node = SummarizationAndFixToolCall(
-                token_counter=count_tokens_approximately,
-                model=self.sumary_model,
-                max_tokens=vagent.max_token,
-                max_summary_tokens=vagent.max_summary_tokens,
-                output_messages_key="llm_input_messages"
-            ).set_max_keep_msgs(self.message_statistic, vagent.max_keep_msgs)
+        message_manage_node = SummarizationMiddleware(
+            msg_stat=self.message_statistic,
+            max_summary_tokens=vagent.max_summary_tokens,
+            max_keep_msgs=vagent.max_keep_msgs,
+            max_tokens=vagent.max_token,
+            tail_keep_msgs=vagent.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
+            model=self.sumary_model
+        )
         self.message_manage_node = message_manage_node
 
     def set_debug(self, debug):
