@@ -487,7 +487,8 @@ class UnityChipBatchTask:
 
         if is_complete:
             return False, (
-                f"Not all {self.name} in this batch have been completed ({self.get_process_str()}). "
+                f"Not all '{self.name}' in this batch have been completed ({self.get_process_str()}). "
+                f"If the quantity meets the requirements, but still show this error, it's because the '{self.name}' you have implemented is not all essential. "
                 f"{', '.join(self.tbd_task_list)} are still to be done.{exmsg}"
             )
 
@@ -511,8 +512,9 @@ class UnityChipBatchTask:
 
         if remaining_tasks:
             msg = {
-                "error": f"Not all {self.name} in this batch have been completed ({self.get_process_str()}). "
-                        f"{', '.join(remaining_tasks)} are still to be done.{exmsg}"
+                "error": f"Not all '{self.name}' in this batch have been completed ({self.get_process_str()}). "
+                         f"If the quantity meets the requirements, but still show this error, it's because the '{self.name}' you have implemented is not all essential. "
+                         f"You must implement the essential ones:  {', '.join(remaining_tasks)}.{exmsg}"
             }
             if note_msg:
                 msg["note"] = note_msg
