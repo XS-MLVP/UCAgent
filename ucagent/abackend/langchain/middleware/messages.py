@@ -1,9 +1,27 @@
-# --- coding: utf-8 ---
-"""Message and state utilities for UCAgent."""
+"""Summarization middleware."""
 
-from .statistic import MessageStatistic
+from typing import Any
+
+from langchain_core.messages import (
+    AIMessage,
+    RemoveMessage,
+    ToolMessage,
+    SystemMessage,
+)
+from langchain_core.messages.human import HumanMessage
+from langchain_core.messages.utils import (
+    count_tokens_approximately,
+)
+from langgraph.graph.message import (
+    REMOVE_ALL_MESSAGES,
+)
+from typing_extensions import override
+
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
+
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import warning, info
+from collections import OrderedDict
 
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage
@@ -14,6 +32,96 @@ from typing import Any, Dict, Union
 from pydantic import BaseModel
 import time
 
+class MessageStatistic:
+    """Class for message statistics."""
+
+    def __init__(self):
+        """Initialize message statistics."""
+        self.recorded_messages = set()
+        self.count_human_messages = 0
+        self.count_ai_messages = 0
+        self.count_tool_messages = 0
+        self.count_system_messages = 0
+        self.text_size_human_messages = 0
+        self.text_size_ai_messages = 0
+        self.text_size_tool_messages = 0
+        self.text_size_system_messages = 0
+        self.count_unknown_messages = 0
+        self.text_size_unknown_messages = 0
+
+    def get_message_text_size(self, msg: BaseMessage) -> int:
+        """Get the text size of a message."""
+        return len(msg.text)
+
+    def update_message(self, messages):
+        """Update message statistics based on the provided messages."""
+        if messages is None:
+            return
+        if not isinstance(messages, list):
+            messages = [messages]
+        for msg in messages:
+            if msg.id in self.recorded_messages:
+                continue
+            if isinstance(msg, RemoveMessage):
+                continue
+            self.recorded_messages.add(msg.id)
+            if isinstance(msg, HumanMessage):
+                self.count_human_messages += 1
+                self.text_size_human_messages += self.get_message_text_size(msg)
+            elif isinstance(msg, AIMessage):
+                self.count_ai_messages += 1
+                self.text_size_ai_messages += self.get_message_text_size(msg)
+            elif isinstance(msg, ToolMessage):
+                self.count_tool_messages += 1
+                self.text_size_tool_messages += self.get_message_text_size(msg)
+            elif isinstance(msg, SystemMessage):
+                self.count_system_messages += 1
+                self.text_size_system_messages += self.get_message_text_size(msg)
+            else:
+                # Unknown message type
+                self.count_unknown_messages += 1
+                self.text_size_unknown_messages += self.get_message_text_size(msg)
+
+    def reset_statistics(self):
+        """Reset all message statistics."""
+        self.recorded_messages.clear()
+        self.count_human_messages = 0
+        self.count_ai_messages = 0
+        self.count_tool_messages = 0
+        self.count_system_messages = 0
+        self.text_size_human_messages = 0
+        self.text_size_ai_messages = 0
+        self.text_size_tool_messages = 0
+        self.text_size_system_messages = 0
+        self.count_unknown_messages = 0
+        self.text_size_unknown_messages = 0
+
+    def get_statistics(self) -> dict:
+        """Get the current message statistics."""
+        message_in_count = self.count_human_messages + self.count_ai_messages + self.count_tool_messages + self.count_system_messages
+        message_out_count = self.count_ai_messages
+        message_in_size = self.text_size_human_messages + self.text_size_ai_messages + self.text_size_tool_messages + self.text_size_system_messages
+        message_out_size = self.text_size_ai_messages
+        return OrderedDict({
+            "count": {
+                "human": self.count_human_messages,
+                "ai": self.count_ai_messages,
+                "tool": self.count_tool_messages,
+                "system": self.count_system_messages,
+                "unknown": self.count_unknown_messages,
+            },
+            "size": {
+                "human": self.text_size_human_messages,
+                "ai": self.text_size_ai_messages,
+                "tool": self.text_size_tool_messages,
+                "system": self.text_size_system_messages,
+                "unknown": self.text_size_unknown_messages,
+            },
+            "total_count_messages": message_in_count + message_out_count,
+            "total_text_size_messages": message_in_size + message_out_size,
+            "message_in": message_in_size,
+            "message_out": message_out_size,
+        })
 
 class TokenSpeedCallbackHandler(BaseCallbackHandler):
     """Callback handler to monitor token generation speed."""
@@ -55,16 +163,14 @@ class TokenSpeedCallbackHandler(BaseCallbackHandler):
     def total(self) -> int:
         return self.total_tokens_size
 
-
 def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any]:
-        for msg in input["messages"][-4:]:
-            if not isinstance(msg, AIMessage):
-                continue
-            if hasattr(msg, "additional_kwargs"):
-                msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments", ["arguments"])
-            if hasattr(msg, "invalid_tool_calls"):
-                msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
-
+    for msg in input["messages"][-4:]:
+        if not isinstance(msg, AIMessage):
+            continue
+        if hasattr(msg, "additional_kwargs"):
+            msg.additional_kwargs = fill_dlist_none(msg.additional_kwargs, '{}', "arguments", ["arguments"])
+        if hasattr(msg, "invalid_tool_calls"):
+            msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
 
 def summarize_messages(messages, summarization_size, model):
     """Summarize messages to reduce their token count."""
@@ -86,8 +192,7 @@ def summarize_messages(messages, summarization_size, model):
     warning(f"Summarizing messages({count_tokens_approximately(messages)} tokens, {len(messages)} messages) to reduce context size ...")
     summary_response = model.invoke(messages + [HumanMessage(content=instruction)])
     warning(f"Summarization done, summary length: {count_tokens_approximately(summary_response.content)} tokens.")
-    return summary_response
-
+    return HumanMessage(content=summary_response.content)
 
 def remove_messages(messages, max_keep_msgs):
     """Remove older messages to keep the most recent max_keep_msgs messages."""
@@ -96,7 +201,6 @@ def remove_messages(messages, max_keep_msgs):
     index = (-max_keep_msgs) % len(messages)
     # system messages are not removed
     return messages[index:], [RemoveMessage(id=msg.id) for msg in messages[:index] if msg.type != "system"]
-
 
 class SummarizationAndFixToolCall(SummarizationNode):
     """Custom summarization node that fixes tool call arguments."""
@@ -131,15 +235,7 @@ class SummarizationAndFixToolCall(SummarizationNode):
     def get_max_keep_msgs(self) -> int:
         return self.max_keep_msgs
 
-
-class UCMessagesNode:
-    """
-    Node to trim and summarize messages.
-    Messages layout:
-      local memory: role_info(system) + history_msgs
-      llm input: summary_msgs(summarized by max_summary_tokens) + role_info + history_msg
-    """
-
+class SummarizationMiddleware(AgentMiddleware):
     def __init__(self, msg_stat: MessageStatistic, max_summary_tokens: int,
                  max_keep_msgs: int, max_tokens: int, tail_keep_msgs: int, model):
         self.msg_stat = msg_stat
@@ -151,7 +247,8 @@ class UCMessagesNode:
         self.model = model
         self.arbit_summary_data = None
 
-    def __call__(self, state):
+    @override
+    def before_model(self, state: AgentState[Any]) -> dict[str, Any] | None:
         fix_tool_call_args(state)
         messages = state["messages"]
         role_info = messages[:1]
@@ -174,9 +271,8 @@ class UCMessagesNode:
                 tail_msgs = llm_input_msgs[tail_msgs_start_index:]
                 if tail_msgs_start_index > 0:
                     self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
-                    deleted_msgs = [RemoveMessage(id=msg.id) for msg in llm_input_msgs[:tail_msgs_start_index]]
-                    warning(f"Trimmed {len(deleted_msgs)} messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
-                    ret["messages"] = deleted_msgs
+                    warning(f"Trimmed { tail_msgs_start_index-1 } messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
+                    ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + self.summary_data + tail_msgs
                 else:
                     tail_msgs = llm_input_msgs
         else:
@@ -186,10 +282,9 @@ class UCMessagesNode:
             self.arbit_summary_data = None
             ret["messages"] = [RemoveMessage(id=msg.id) for msg in tail_msgs]
             tail_msgs = []
-        ret["llm_input_messages"] = self.summary_data + role_info + tail_msgs
-        self.msg_stat.update_message(ret["llm_input_messages"])
+        self.msg_stat.update_message(role_info + self.summary_data + tail_msgs)
         return ret
-
+    
     def set_arbit_summary(self, summary_text):
         """Set chat summary"""
         if isinstance(summary_text, str):
@@ -222,8 +317,7 @@ class UCMessagesNode:
 
     def get_max_keep_msgs(self) -> int:
         return self.max_keep_msgs
-
-
+    
 class State(AgentState):
     """Agent state with additional context information."""
     # NOTE: we're adding this key to keep track of previous summary information
