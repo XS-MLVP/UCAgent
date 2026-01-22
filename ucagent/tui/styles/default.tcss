@@ -79,11 +79,16 @@ Screen {
 }
 
 #console-input {
-    dock: bottom;
     height: 1;
     border: none;
     background: $surface;
     padding: 0 1;
+}
+
+#console-suggest {
+    padding: 0 1;
+    color: $text;
+    background: $surface;
 }
 
 #console-input:focus {
