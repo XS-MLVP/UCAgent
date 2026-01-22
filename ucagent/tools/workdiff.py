@@ -41,6 +41,8 @@ class WorkDiff(UCTool):
         run_manager=None,
     ) -> str:
         """Run the workdiff tool."""
+        if self.is_disabled:
+            return f"Error:  Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
         rpath = os.path.abspath(self.workspace + os.path.sep + file_path)
         if not glob.glob(rpath):
             return f"Path pattern: '{rpath}' does not exist in workspace."

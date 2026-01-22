@@ -155,8 +155,6 @@ class UCTool(BaseTool):
                 "logs":  data}
 
     def invoke(self, input, config = None, **kwargs):
-        if self.is_disabled:
-            return {"error": f"Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"}
         self.call_count += 1
         self.is_in_call = True
         try:

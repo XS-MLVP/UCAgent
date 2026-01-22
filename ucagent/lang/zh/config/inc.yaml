@@ -309,6 +309,7 @@ stage:
       - "注意："
       - "  - 必须使用工具`WorkCommit`提交变更，不能直接使用git相关的命令。"
       - "  - 提交信息应简洁明了，便于后续审查与追踪。"
+      - "  - 提示Workspace is clean或者工具`WorkCommit`提示不可用，则表明已经Commit完成。"
     checker:
       - name: commit_check
         clss: "GitNotDirtyChecker"
