@@ -42,7 +42,7 @@ class IncVerifyHumanInputChecker(Checker):
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Check if human input is needed for increment verification."""
-        hm_pass, hm_message = self.get_last_human_check_result()
+        hm_pass, hm_message = self.get_stage().get_hmcheck_state()
         if hm_pass is True:
             self.smanager_set_value(self.data_key, hm_message)
         return True, f"Human input is received, please use tool Complete to go on."

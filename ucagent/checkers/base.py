@@ -21,6 +21,7 @@ class Checker:
     _timeout = None
     _process = None
     stage_manager = None
+    stage = None
     dut_name = None
     _is_init = False
     _need_human_check = False
@@ -89,6 +90,14 @@ class Checker:
         assert manager is not None, "Stage Manager cannot be None."
         self.stage_manager = manager
         return self
+
+    def set_stage(self, stage):
+        assert stage is not None, "Stage cannot be None."
+        self.stage = stage
+        return self
+
+    def get_stage(self):
+        return self.stage
 
     def smanager_set_value(self, key, value):
         if self.stage_manager is not None:

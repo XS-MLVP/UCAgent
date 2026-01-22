@@ -1421,6 +1421,32 @@ class VerifyPDB(Pdb):
                 continue
             echo(line)
 
+    def do_protect_files_on(self, arg):
+        """
+        Enable file protection in the agent.
+        """
+        files = arg.strip().split()
+        self.agent.protect_files_on(files)
+
+    def do_protect_files_off(self, arg):
+        """
+        Disable file protection in the agent.
+        """
+        files = arg.strip().split()
+        self.agent.protect_files_off(files)
+
+    def complete_protect_files_on(self, text, line, begidx, endidx):
+        """
+        Auto-complete the protect_files_on command.
+        """
+        return self.api_complite_workspace_file(text)
+
+    def complete_protect_files_off(self, text, line, begidx, endidx):
+        """
+        Auto-complete the protect_files_off command.
+        """
+        return self.api_complite_workspace_file(text)
+
     def do_quit(self, arg):
         """
         Quit the debugger.

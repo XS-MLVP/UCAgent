@@ -64,7 +64,7 @@ class VerifyStage(object):
             import_class_from_str(c.clss, checkers)(**update_dict(c.args.as_dict(),
                                                                   {"cfg": self.cfg})).set_extra(
                 **c.extra_args.as_dict()
-            ).set_workspace(workspace) for c in self._checker
+            ).set_workspace(workspace).set_stage(self) for c in self._checker
         ]
         if not self.need_human_check:
             for c in self.checker:

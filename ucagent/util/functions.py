@@ -1931,7 +1931,7 @@ def find_available_port(start_port=5000, end_port=65000):
     raise RuntimeError(f"No available port found in range {start_port}-{end_port}.")
 
 
-def chmode_ro(workspace, pattern_list: str, ignore_list: list = ["__pycache__"]) -> list:
+def chmode_ro_by_pattern(workspace, pattern_list: str, ignore_list: list = ["__pycache__"]) -> list:
     """Change file mode to read-only."""
     file_list = []
     path_list = []
@@ -1952,10 +1952,14 @@ def chmode_ro(workspace, pattern_list: str, ignore_list: list = ["__pycache__"])
                     file_list.append(file_path)
             else:
                 warning(f"File not found for: {file_path}")
+    all_list = file_list + path_list
+    return chmode_ro(all_list, ignore_list)
+
+
+def chmode_ro(path_list: list, ignore_list: list = ["__pycache__"]):
     mfile = stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH
     mpath = mfile | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-    all_list = file_list + path_list
-    for file_path in all_list:
+    for file_path in path_list:
         ignored = False
         for ig in ignore_list:
             if ig in file_path:
@@ -1972,8 +1976,8 @@ def chmode_ro(workspace, pattern_list: str, ignore_list: list = ["__pycache__"])
             os.chmod(file_path, mpath)
         else:
             os.chmod(file_path, mfile)
-    info(f"Set file mode to read-only completed ({len(all_list)} files).")
-    return all_list
+    info(f"Set file mode to read-only completed ({len(path_list)} files).")
+    return path_list
 
 
 def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
@@ -2001,6 +2005,7 @@ def chmode_rw(path_list: list, ignore_list: list = ["__pycache__"]):
         else:
             warning(f"File not found for setting mode to read-write: {file_path}")
     info(f"Set file mode to read-write completed ({len(path_list)} files).")
+    return path_list
 
 
 def get_xml_tag_list(workspace, xml_file, tag_name: str) -> list:

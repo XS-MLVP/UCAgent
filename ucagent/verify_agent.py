@@ -173,7 +173,7 @@ class VerifyAgent:
                 assert abs_f.startswith(os.path.abspath(self.workspace)), \
                     f"Specified no-write target {abs_f} must be under the workspace {self.workspace}"
                 self.cfg.un_write_dirs.append(rm_workspace_prefix(self.workspace, abs_f))
-        self.cwd_read_only_files = fc.chmode_ro(self.workspace, self.cfg.get_value("un_write_dirs", []))
+        self.cwd_read_only_files = fc.chmode_ro_by_pattern(self.workspace, self.cfg.get_value("un_write_dirs", []))
         self.tool_list_file = [
                            # Directory and file listing tools
                            self.tool_list_dir,
@@ -504,6 +504,33 @@ class VerifyAgent:
             return
         self._is_exit = True
         fc.chmode_rw(self.cwd_read_only_files)
+
+    def protect_files_on(self, new_files: List[str]):
+        for f in new_files:
+            fpath = os.path.abspath(self.workspace + os.path.sep + f)
+            if not os.path.exists(fpath):
+                warning(f"File to protect does not exist: {f} in workspace {self.workspace}")
+                continue
+            if fpath not in self.cwd_read_only_files:
+                info(f"Set file to read-only: {fpath}")
+                self.cwd_read_only_files.append(fpath)
+        fc.chmode_ro(self.cwd_read_only_files)
+
+    def protect_files_off(self, files: List[str]):
+        off_files = []
+        for f in files:
+            fpath = os.path.abspath(self.workspace + os.path.sep + f)
+            if fpath in self.cwd_read_only_files:
+                info(f"Set file to read-write: {fpath}")
+                off_files.append(fpath)
+                self.cwd_read_only_files.remove(fpath)
+            else:
+                warning(f"File to un-protect not in read-only list: {f} in workspace {self.workspace}")
+        if not files:
+            info("No files specified to un-protect, restoring all read-only files to read-write")
+            fc.chmode_rw(self.cwd_read_only_files)
+        else:
+            fc.chmode_rw(off_files)
 
     def try_exit_on_completion(self):
         if self._exit_on_completion:

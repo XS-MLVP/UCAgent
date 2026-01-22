@@ -39,15 +39,14 @@ UCAgent默认的配置为全量验证，需要编写所有测试用例。如果�
     然后通过 iflow或者qwen-cli完成验证。
 
 1. 在本目录下运行 `make init`(默认mcp模式启动，api模式用`make init_test`)：复制基线验证结果到本目录的 `output/`，并以增量配置启动 UCAgent
-2. 在Code Agent端输入`请通过工具RoleInfo获取任务信息，并完成所有任务`
-3. 继续运行`make diff`对原始验证结果进行修改
-4. 在 UCAgent 的命令行输入（通过人工审核并写入本次增量的验证要求）：
-
+1. 在UCagent命令行中执行`protect_files_off`关闭文件保护
+1. 在本目录中，用新的bash运行`make diff`对原始验证结果进行修改（模拟增量）
+1. 在UCagent命令行中执行`protect_files_on`启用文件保护
+1. 在 UCAgent 的命令行输入（通过人工审核并写入本次增量的验证要求）：
    ```bash
    hmcheck_pass Adder的bug已修复且增加了有符号加功能，请完成修改部分的验证
    ```
-
-5. 在 Code Agent 端输入：`增量任务已给出，请Complete该阶段，从下一个阶段获取具体任务并进行完成` 开启验证
+1. 在 Code Agent 端输入：`增量任务已给出，请Complete该阶段，从下一个阶段获取具体任务并进行完成` 开启验证
 
 
 ### 本例改动说明
