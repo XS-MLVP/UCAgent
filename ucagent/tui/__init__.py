@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
 
-__version__ = "1.0.0"
-
 
 def enter_tui(vpdb: "VerifyPDB") -> None:
     """Enter the Textual-based TUI.
