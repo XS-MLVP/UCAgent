@@ -9,8 +9,6 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from ..utils import parse_ansi_to_rich
-
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
 
@@ -78,17 +76,14 @@ class TaskPanel(VerticalScroll):
             daemon_cmds: Dictionary of daemon commands
         """
         # Update mission info
-        mission_info = vpdb.api_mission_info()
-        if mission_info:
-            self.query_one("#mission-title", Static).update(
-                parse_ansi_to_rich(mission_info[0])
-            )
+        task_data = vpdb.api_task_list()
+        mission_name = task_data.get("mission_name") or task_data.get("task_list", {}).get("mission", "")
+        self.query_one("#mission-title", Static).update(mission_name)
 
-            # Build task list
-            task_lines = []
-            for line in mission_info[1:]:
-                task_lines.append(parse_ansi_to_rich(line))
-            self.query_one("#task-list", Static).update("\n".join(str(t) for t in task_lines))
+        stage_list = task_data.get("task_list", {}).get("stage_list", [])
+        current_index = task_data.get("task_index", 0)
+        task_lines = self._format_task_lines(stage_list, current_index)
+        self.query_one("#task-list", Static).update("\n".join(task_lines))
 
         # Update changed files
         self._update_changed_files(vpdb)
@@ -98,6 +93,42 @@ class TaskPanel(VerticalScroll):
 
         # Update daemon commands
         self._update_daemon_cmds(daemon_cmds)
+
+    def _format_task_lines(self, stage_list: list[dict], current_index: int) -> list[str]:
+        completed_color = "#2ecc71"
+        current_color = "#3498db"
+        pending_color = "#b58900"
+        skipped_color = "#7f8c8d"
+        attention_color = "#e74c3c"
+
+        lines = []
+        total = len(stage_list)
+        for i, stage in enumerate(stage_list):
+            title = stage.get("title", "")
+            fail_count = stage.get("fail_count", 0)
+            time_cost = stage.get("time_cost", "")
+            is_skipped = stage.get("is_skipped", False)
+            needs_human_check = stage.get("needs_human_check", False)
+
+            suffix = f", {time_cost}" if time_cost else ""
+            fail_count_msg = f" ({fail_count} fails{suffix})"
+
+            if is_skipped:
+                color = skipped_color
+                title = f"{title} (skipped)"
+                fail_count_msg = ""
+            elif i < current_index:
+                color = completed_color
+            elif i == current_index and current_index < total:
+                color = current_color
+            else:
+                color = pending_color
+
+            star = f"[{attention_color}]*[/{attention_color}]" if needs_human_check else ""
+            line = f"{i:2d} {star}{title}{fail_count_msg}"
+            lines.append(f"[{color}]{line}[/{color}]")
+
+        return lines
 
     def _update_changed_files(self, vpdb: "VerifyPDB") -> None:
         """Update changed files section."""

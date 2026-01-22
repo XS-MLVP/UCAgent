@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
+import textwrap
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
@@ -38,10 +39,16 @@ class ConsoleWidget(Vertical):
     }
 
     ConsoleWidget #console-input {
-        dock: bottom;
         height: 1;
         border: none;
         padding: 0 1;
+    }
+
+    ConsoleWidget #console-suggest {
+        padding: 0 1;
+        color: $text;
+        background: $surface;
+        height: auto;
     }
 
     ConsoleWidget #console-input.busy {
@@ -74,22 +81,27 @@ class ConsoleWidget(Vertical):
         self._page_cache: list[str] | None = None
         self._page_index: int = 0
         self._max_output_lines: int = 1000
+        self._suggestions_visible: bool = False
+        self._suggestions_text: str = ""
 
     def compose(self) -> ComposeResult:
         """Compose the console widget."""
         with VerticalScroll(id="console-output"):
             yield Static(id="console-output-text")
         yield Input(placeholder=self.prompt, id="console-input")
+        yield Static(id="console-suggest")
 
     def on_mount(self) -> None:
         """Setup after mounting."""
         self._update_prompt()
+        self._hide_suggestions()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle command submission."""
         cmd = event.value.strip()
         input_widget = self.query_one("#console-input", Input)
         input_widget.value = ""
+        self.clear_suggestions()
 
         if not cmd:
             return
@@ -233,6 +245,46 @@ class ConsoleWidget(Vertical):
     def output_line_count(self) -> int:
         """Return the number of buffered output lines."""
         return len(self._output_lines)
+
+    @property
+    def has_suggestions(self) -> bool:
+        return self._suggestions_visible
+
+    def show_suggestions(self, suggestions: list[str]) -> None:
+        if not suggestions:
+            self.clear_suggestions()
+            return
+        text = " ".join(suggestions)
+        self._suggestions_text = text
+        self.query_one("#console-suggest", Static).update(text)
+        self._show_suggestions()
+
+        extra_lines = self._measure_suggestion_lines(text)
+        app: VerifyApp = self.app  # type: ignore
+        app.set_console_extra_height(extra_lines)
+
+    def clear_suggestions(self) -> None:
+        if not self._suggestions_visible:
+            return
+        self.query_one("#console-suggest", Static).update("")
+        self._hide_suggestions()
+        app: VerifyApp = self.app  # type: ignore
+        app.set_console_extra_height(0)
+
+    def _show_suggestions(self) -> None:
+        self._suggestions_visible = True
+        widget = self.query_one("#console-suggest")
+        widget.styles.display = "block"
+
+    def _hide_suggestions(self) -> None:
+        self._suggestions_visible = False
+        widget = self.query_one("#console-suggest")
+        widget.styles.display = "none"
+
+    def _measure_suggestion_lines(self, text: str) -> int:
+        width = max(20, self.size.width - 2)
+        wrapped = textwrap.wrap(text, width=width)
+        return max(1, len(wrapped))
 
     def watch_is_busy(self, busy: bool) -> None:
         """React to busy state changes."""

@@ -85,6 +85,7 @@ class VerifyApp(App[None]):
         self._vpdb_stdout_backup = None
         self._vpdb_stderr_backup = None
         self._mcps_logger_prev = None
+        self._console_extra_height: int = 0
 
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
@@ -252,7 +253,7 @@ class VerifyApp(App[None]):
             return
         try:
             console = self.query_one("#console")
-            console.styles.height = new_value + 2  # +2 for border and input
+            console.styles.height = new_value + 2 + self._console_extra_height
         except Exception:
             pass
 
@@ -274,6 +275,9 @@ class VerifyApp(App[None]):
 
     async def on_key(self, event: Key) -> None:
         """Handle key events not covered by bindings."""
+        console = self.query_one("#console", ConsoleWidget)
+        if event.key != "tab" and console.has_suggestions:
+            console.clear_suggestions()
         if event.key == "tab":
             await self._handle_tab_completion()
             event.prevent_default()
@@ -293,8 +297,10 @@ class VerifyApp(App[None]):
         current_text = input_widget.value
 
         completions = self.key_handler.complete_command(current_text)
+        console = self.query_one("#console", ConsoleWidget)
 
         if not completions:
+            console.clear_suggestions()
             return
 
         if len(completions) == 1:
@@ -302,6 +308,7 @@ class VerifyApp(App[None]):
             prefix = current_text[:current_text.rfind(" ") + 1] if " " in current_text else ""
             input_widget.value = prefix + completions[0]
             input_widget.cursor_position = len(input_widget.value)
+            console.clear_suggestions()
         else:
             # Multiple completions - show them and use common prefix
             import os
@@ -312,10 +319,7 @@ class VerifyApp(App[None]):
                 input_widget.value = full_cmd
                 input_widget.cursor_position = len(full_cmd)
 
-            # Show completions in console
-            console = self.query_one("#console", ConsoleWidget)
-            console.append_output(f"{self.vpdb.prompt}{current_text}\n")
-            console.append_output(" ".join(completions) + "\n")
+            console.show_suggestions(completions)
 
     def _handle_history_up(self) -> None:
         """Handle up arrow for command history."""
@@ -338,6 +342,16 @@ class VerifyApp(App[None]):
             input_widget = self.query_one("#console-input", Input)
             input_widget.value = cmd
             input_widget.cursor_position = len(cmd)
+
+    def set_console_extra_height(self, extra_lines: int) -> None:
+        self._console_extra_height = max(0, extra_lines)
+        if not self.is_mounted:
+            return
+        try:
+            console = self.query_one("#console")
+            console.styles.height = self.console_height + 2 + self._console_extra_height
+        except Exception:
+            pass
 
     def _install_console_capture(self) -> None:
         if self._console_capture is not None:
