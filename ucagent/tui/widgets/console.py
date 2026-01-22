@@ -39,8 +39,8 @@ class ConsoleWidget(Vertical):
     }
 
     ConsoleWidget #console-input {
-        height: 1;
-        border: none;
+        height: 3;
+        border: solid $primary;
         padding: 0 1;
     }
 
@@ -66,7 +66,6 @@ class ConsoleWidget(Vertical):
 
     # Busy indicator frames
     BUSY_FRAMES: ClassVar[list[str]] = ['⣷', '⣯', '⣟', '⡿', '⢿', '⣻', '⣽', '⣾']
-
     # State
     is_busy: reactive[bool] = reactive(False)
     output_buffer: reactive[str] = reactive("")
@@ -77,7 +76,6 @@ class ConsoleWidget(Vertical):
         self.prompt = prompt
         self._busy_frame_index: int = 0
         self._output_lines: list[str] = []
-        self._partial_line: str | None = None
         self._page_cache: list[str] | None = None
         self._page_index: int = 0
         self._max_output_lines: int = 1000
@@ -126,22 +124,15 @@ class ConsoleWidget(Vertical):
         if not text:
             return
         # Process and store
-        processed = text.replace("\t", "    ").replace("\r", "\n")
-
-        if self._partial_line is not None:
-            if self._output_lines:
-                self._output_lines.pop()
-            processed = self._partial_line + processed
-            self._partial_line = None
-
+        processed = text.replace("\t", "    ")
+        processed = processed.replace("\r\n", "\n").replace("\r", "\n")
         lines = processed.split("\n")
-        if processed.endswith("\n"):
-            self._partial_line = None
-        else:
-            self._partial_line = lines[-1]
+        if self._output_lines:
+            self._output_lines[-1] += lines[0]
+            lines = lines[1:]
 
-        for line in lines:
-            self._output_lines.append(line)
+        if lines:
+            self._output_lines.extend(lines)
 
         # Trim if over limit
         if len(self._output_lines) > self._max_output_lines:
@@ -152,7 +143,6 @@ class ConsoleWidget(Vertical):
     def clear_output(self) -> None:
         """Clear console output."""
         self._output_lines = []
-        self._partial_line = None
         self._page_cache = None
         self._page_index = 0
         self._update_display()

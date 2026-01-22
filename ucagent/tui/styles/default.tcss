@@ -1,17 +1,13 @@
 /* UCAgent TUI Default Stylesheet */
 
-/* Color variables */
-$primary: #3498db;
-$success: #2ecc71;
-$warning: #f39c12;
-$error: #e74c3c;
-$text: #ecf0f1;
-$background: #1a1a2e;
-$surface: #16213e;
-
 /* Main app */
 Screen {
     background: $background;
+}
+
+#app-container {
+    height: 1fr;
+    layout: vertical;
 }
 
 /* Main container - horizontal split */
@@ -24,7 +20,7 @@ Screen {
 #task-panel {
     width: 84;
     border: solid $primary;
-    background: $surface;
+    background: $panel;
 }
 
 #task-panel:focus {
@@ -41,14 +37,14 @@ Screen {
 #status-panel {
     height: 7;
     border: solid $primary;
-    background: $surface;
+    background: $panel;
 }
 
 /* Messages panel - fills remaining space */
 #messages-panel {
     height: 1fr;
     border: solid $primary;
-    background: $surface;
+    background: $panel;
 }
 
 #messages-panel:focus {
@@ -58,9 +54,8 @@ Screen {
 /* Console - bottom, fixed height */
 #console {
     height: 15;
-    dock: bottom;
     border: solid $primary;
-    background: $surface;
+    background: $panel;
 }
 
 #console:focus-within {
@@ -79,8 +74,8 @@ Screen {
 }
 
 #console-input {
-    height: 1;
-    border: none;
+    height: 3;
+    border: solid $primary;
     background: $surface;
     padding: 0 1;
 }
@@ -92,7 +87,7 @@ Screen {
 }
 
 #console-input:focus {
-    background: #1e2a4a;
+    background: $console-input-focus;
 }
 
 #console-input.busy {
@@ -109,21 +104,22 @@ Screen {
 
 /* Task item styles */
 .task-current {
-    color: $error;
+    color: $text-success;
+    background: $success-muted;
     text-style: bold;
 }
 
 .task-completed {
-    color: $success;
+    color: $text-success;
 }
 
 .task-skipped {
-    color: $warning;
+    color: $text-secondary;
     text-style: italic;
 }
 
 .task-pending {
-    color: $text;
+    color: $text-warning;
 }
 
 /* File styles */
@@ -139,15 +135,47 @@ Screen {
 
 /* Scrollbar styling */
 Scrollbar {
-    background: $surface;
+    background: $scrollbar-background;
+    width: 1;
 }
 
 ScrollBar > .scrollbar--bar {
-    color: $primary;
+    color: $scrollbar;
 }
 
 ScrollBar > .scrollbar--bar-hover {
-    color: #5dade2;
+    color: $scrollbar-hover;
+}
+
+.splitter.vertical {
+    width: 1;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.horizontal {
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.vertical:focus,
+.splitter.vertical:hover {
+    background: $boost;
+    color: $border;
+}
+
+.splitter.horizontal:focus,
+.splitter.horizontal:hover {
+    background: $boost;
+    color: $border;
 }
 
 /* Border titles */

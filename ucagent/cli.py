@@ -218,7 +218,13 @@ def get_args() -> argparse.Namespace:
         "--tui", 
         action="store_true", 
         default=False, 
-        help="Run in TUI (Text User Interface) mode"
+        help="Run in legacy TUI (verify_ui) mode"
+    )
+    parser.add_argument(
+        "--new-ui",
+        action="store_true",
+        default=False,
+        help="Use new Textual-based UI (implies TUI mode)"
     )
     parser.add_argument(
         "--sys-tips", 
@@ -504,7 +510,8 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    if args.tui:
+    use_tui = args.tui or args.new_ui
+    if use_tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
@@ -582,10 +589,11 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
+        use_new_ui=args.new_ui,
     )
     
     # Set break mode if human interaction or TUI is requested
-    if args.human or args.tui:
+    if args.human or use_tui:
         agent.set_break(True)
     
     # Run the agent

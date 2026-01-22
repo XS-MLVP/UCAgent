@@ -34,15 +34,16 @@ class TaskPanel(VerticalScroll):
     }
 
     TaskPanel .task-current {
-        color: $error;
+        color: $text-success;
+        background: $success-muted;
     }
 
     TaskPanel .task-completed {
-        color: $success;
+        color: $text-success;
     }
 
     TaskPanel .task-skipped {
-        color: $warning;
+        color: $text-secondary;
     }
 
     TaskPanel .file-recent {
@@ -95,11 +96,11 @@ class TaskPanel(VerticalScroll):
         self._update_daemon_cmds(daemon_cmds)
 
     def _format_task_lines(self, stage_list: list[dict], current_index: int) -> list[str]:
-        completed_color = "#2ecc71"
-        current_color = "#3498db"
-        pending_color = "#b58900"
-        skipped_color = "#7f8c8d"
-        attention_color = "#e74c3c"
+        completed_color = "$text-success"
+        current_color = "$text-success on $success-muted"
+        pending_color = "$text-warning"
+        skipped_color = "$text-secondary"
+        attention_color = "$text-error"
 
         lines = []
         total = len(stage_list)

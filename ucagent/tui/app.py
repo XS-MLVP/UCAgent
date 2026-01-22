@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
+import os
 import sys
 
 from textual.app import App, ComposeResult
@@ -12,7 +13,7 @@ from textual.reactive import reactive
 from textual.widgets import Input
 from textual.events import Key
 
-from .widgets import TaskPanel, StatusPanel, MessagesPanel, ConsoleWidget
+from .widgets import TaskPanel, StatusPanel, MessagesPanel, ConsoleWidget, VerticalSplitter, HorizontalSplitter
 from .handlers import KeyHandler
 from .utils import MessageQueue, ConsoleCapture, UIMsgLogger
 
@@ -28,12 +29,6 @@ class VerifyApp(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("escape", "cancel_scroll", "Cancel scroll", show=False),
         Binding("ctrl+c", "quit", "Quit", show=False),
-        Binding("ctrl+up", "increase_console_height", "Increase console", show=False),
-        Binding("ctrl+down", "decrease_console_height", "Decrease console", show=False),
-        Binding("ctrl+left", "decrease_task_width", "Decrease task width", show=False),
-        Binding("ctrl+right", "increase_task_width", "Increase task width", show=False),
-        Binding("shift+up", "decrease_status_height", "Decrease status", show=False),
-        Binding("shift+down", "increase_status_height", "Increase status", show=False),
         Binding("alt+up", "scroll_messages_up", "Scroll messages up", show=False),
         Binding("alt+down", "scroll_messages_down", "Scroll messages down", show=False),
         Binding("alt+left", "console_page_prev", "Console page prev", show=False),
@@ -54,6 +49,7 @@ class VerifyApp(App[None]):
         super().__init__()
         self.vpdb = vpdb
         self.cfg = vpdb.agent.cfg
+        self._apply_theme_preference()
 
         # Store config values to apply after mount
         self._config_task_width = self.cfg.get_value("tui.task_width", 84)
@@ -87,14 +83,61 @@ class VerifyApp(App[None]):
         self._mcps_logger_prev = None
         self._console_extra_height: int = 0
 
+    def get_css_variables(self) -> dict[str, str]:
+        """Provide extra theme variables for custom styles."""
+        variables = super().get_css_variables()
+        if self.current_theme.name == "textual-light":
+            variables["console-input-focus"] = variables.get(
+                "surface", variables.get("background", "ansi_default")
+            )
+        else:
+            variables["console-input-focus"] = variables.get(
+                "surface-active", variables.get("surface", "ansi_default")
+            )
+        return variables
+
+    def _apply_theme_preference(self) -> None:
+        """Apply theme preference with a terminal-aware fallback."""
+        theme_pref = str(self.cfg.get_value("tui.theme", "auto")).strip().lower()
+        if theme_pref in {"", "auto"}:
+            theme_name = self._detect_terminal_theme()
+        elif theme_pref in {"ansi", "terminal"}:
+            theme_name = "textual-light"
+        else:
+            theme_name = theme_pref
+
+        if theme_name in self.available_themes:
+            self.theme = theme_name
+
+    def _detect_terminal_theme(self) -> str:
+        """Best-effort light/dark detection using terminal hints."""
+        colorfgbg = os.getenv("COLORFGBG", "")
+        if colorfgbg:
+            parts = [p for p in colorfgbg.replace(",", ";").split(";") if p.isdigit()]
+            if parts:
+                try:
+                    bg = int(parts[-1])
+                except ValueError:
+                    bg = None
+                if bg is not None:
+                    if bg in {0, 1, 2, 3, 4, 5, 6, 8}:
+                        return "textual-dark"
+                    if bg in {7, 9, 10, 11, 12, 13, 14, 15}:
+                        return "textual-light"
+        return "textual-light"
+
     def compose(self) -> ComposeResult:
         """Compose the application layout."""
-        with Horizontal(id="main-container"):
-            yield TaskPanel(id="task-panel")
-            with Vertical(id="right-container"):
-                yield StatusPanel(id="status-panel")
-                yield MessagesPanel(id="messages-panel")
-        yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
+        with Vertical(id="app-container"):
+            with Horizontal(id="main-container"):
+                yield TaskPanel(id="task-panel")
+                yield VerticalSplitter("task_width", id="split-task", classes="splitter vertical")
+                with Vertical(id="right-container"):
+                    yield StatusPanel(id="status-panel")
+                    yield HorizontalSplitter("status_height", id="split-status", classes="splitter horizontal")
+                    yield MessagesPanel(id="messages-panel")
+            yield HorizontalSplitter("console_height", invert=True, id="split-console", classes="splitter horizontal")
+            yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
