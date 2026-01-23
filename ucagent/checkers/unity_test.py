@@ -872,6 +872,10 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
         if self.data_key:
             self.smanager_set_value(self.data_key, raw_report)
+        if "STDOUT" in info_report:
+            del info_report["STDOUT"]
+        if "STDERR" in info_report:
+            del info_report["STDERR"]
         return True, info_report
 
     def _validate_template_structure(self, report, str_out, str_err) -> Tuple[bool, str]:
