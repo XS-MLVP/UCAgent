@@ -40,9 +40,9 @@ Sbuffer是一个不能独立存在的模块，它依赖上下游的总线握手�
 
 ```bash
 # 确保在运行前安装了依赖环境
-# IGNORE_MOCK_COMPONENT=false 环境变量用于启用Mock阶段
 ENABLE_LLM_FAIL_SUGGESTION=true ENABLE_LLM_PASS_SUGGESTION=true \
-IGNORE_MOCK_COMPONENT=false make mcp_Sbuffer BBV=true ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"
+IGNORE_MOCK_COMPONENT=false make mcp_Sbuffer BBV=true \
+ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"
 ```
 
 注：请参考[examples/LLMCheck/README.md](/examples/LLMCheck/README.md)配置LLMcheck。设置qwen的mcp超时时间到一个比较大的值，例如10分钟。
