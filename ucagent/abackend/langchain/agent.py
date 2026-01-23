@@ -2,8 +2,7 @@
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
-from .middleware import MessageStatistic, TokenSpeedCallbackHandler, SummarizationMiddleware, SummarizationAndFixToolCall, State
-from langchain_core.messages.utils import count_tokens_approximately
+from .middleware import MessageStatistic, TokenSpeedCallbackHandler, SummarizationMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model
@@ -23,14 +22,17 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
         self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
 
-        message_manage_node = SummarizationMiddleware(
-            msg_stat=self.message_statistic,
-            max_summary_tokens=vagent.max_summary_tokens,
-            max_keep_msgs=vagent.max_keep_msgs,
-            max_tokens=vagent.max_token,
-            tail_keep_msgs=vagent.cfg.get_value("conversation_summary.tail_keep_msgs", 20),
-            model=self.sumary_model
-        )
+        if vagent.use_uc_mode == "SummarizationMiddleware":
+            message_manage_node = SummarizationMiddleware(
+                msg_stat=self.message_statistic,
+                max_summary_tokens=vagent.max_summary_tokens,
+                max_keep_msgs=vagent.max_keep_msgs,
+                max_tokens=vagent.max_token,
+                tail_keep_msgs=vagent.tail_keep_msgs,
+                model=self.sumary_model
+            )
+        else:
+            raise ValueError(f"Unsupported use_uc_mode: {vagent.use_uc_mode}")
         self.message_manage_node = message_manage_node
 
     def set_debug(self, debug):

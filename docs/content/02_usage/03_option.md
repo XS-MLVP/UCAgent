@@ -187,7 +187,7 @@ python3 ucagent.py ./output Adder \
   --output unity_test \
   --override 'conversation_summary.max_tokens=16384,'\
              'conversation_summary.max_summary_tokens=2048,'\
-             'conversation_summary.use_uc_mode=True,lang="zh",openai.model_name="gpt-4o-mini"' \
+             'conversation_summary.use_uc_mode=SummarizationMiddleware,lang="zh",openai.model_name="gpt-4o-mini"' \
   --gen-instruct-file GEMINI.md \
   --guid-doc-path ./output/Guide_Doc \
   \
