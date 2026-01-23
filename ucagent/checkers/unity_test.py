@@ -810,21 +810,20 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         # check batch
-        if not is_complete:
-            note_msg = []
-            if report['unmarked_check_points'] > 0:
-                marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_point_list']]
-            else:
-                marked_bins = all_bins_test
-            self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
-            self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
-            ckpass, emssage = self.batch_task.do_complete(note_msg,
-                                                          is_complete,
-                                                          f"in file: {self.doc_func_check}",
-                                                          f"in dir: {self.test_dir}",
-                                                          " Please mark the check points in its related test functions using 'mark_function' correctly.")
-            if not ckpass:
-                return ckpass, emssage
+        note_msg = []
+        if report['unmarked_check_points'] > 0:
+            marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_point_list']]
+        else:
+            marked_bins = all_bins_test
+        self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
+        self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
+        ckpass, emssage = self.batch_task.do_complete(note_msg,
+                                                      is_complete,
+                                                      f"in file: {self.doc_func_check}",
+                                                      f"in dir: {self.test_dir}",
+                                                      " Please mark the check points in its related test functions using 'mark_function' correctly.")
+        if not ckpass:
+            return ckpass, emssage
 
         # complete check
         bins_not_in_docs = []
