@@ -316,9 +316,12 @@ class VerifyApp(App[None]):
     async def on_key(self, event: Key) -> None:
         """Handle key events not covered by bindings."""
         console = self.query_one("#console", ConsoleWidget)
+        input_widget = self.query_one("#console-input", Input)
+        input_focused = self.focused is input_widget
+
         if event.key != "tab" and console.has_suggestions:
             console.clear_suggestions()
-        if event.key == "tab":
+        if event.key == "tab" and input_focused:
             await self._handle_tab_completion()
             event.prevent_default()
             event.stop()
