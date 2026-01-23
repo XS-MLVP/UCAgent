@@ -7,6 +7,8 @@ import time
 import traceback
 from typing import TYPE_CHECKING
 
+from textual.worker import WorkerCancelled
+
 from .widgets import ConsoleWidget
 
 if TYPE_CHECKING:
@@ -88,14 +90,21 @@ class KeyHandler:
 
         worker = self.app.run_worker(run_command, thread=True, exclusive=True)
 
-        # Wait for completion
-        await worker.wait()
+        cancelled = False
+        try:
+            # Wait for completion
+            await worker.wait()
+        except WorkerCancelled:
+            cancelled = True
+        finally:
+            # Restore SIGINT handler
+            signal.signal(signal.SIGINT, original_sigint)
 
-        # Restore SIGINT handler
-        signal.signal(signal.SIGINT, original_sigint)
+            self.app.flush_console_output()
+            console.set_busy(False)
 
-        self.app.flush_console_output()
-        console.set_busy(False)
+        if cancelled:
+            return
 
         # Check if output should be scrollable
         if scroll_result and console.output_line_count() > self.app.console_height:

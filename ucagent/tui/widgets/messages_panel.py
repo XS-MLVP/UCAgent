@@ -101,19 +101,25 @@ class MessagesPanel(RichLog):
         Args:
             delta: Lines to move (negative = up, positive = down)
         """
+        total = len(self._message_lines)
         if not self.scroll_mode:
             self.scroll_mode = True
             self.auto_scroll = False
+            if total:
+                self.focus_index = total - 1
 
-        total = len(self._message_lines)
         if total == 0:
             return
 
-        self.focus_index = max(0, min(total - 1, self.focus_index + delta))
+        old_index = min(self.focus_index, total - 1)
+        new_index = max(0, min(total - 1, old_index + delta))
+        if new_index == old_index:
+            return
+        self.focus_index = new_index
         self._update_title()
 
-        # Scroll to focused line
-        self.scroll_to(y=self.focus_index, animate=False)
+        # Scroll by delta to ensure immediate visual feedback.
+        self.scroll_relative(y=new_index - old_index, animate=False)
 
     def action_scroll_messages_up(self) -> None:
         """Scroll messages up (binding target)."""
