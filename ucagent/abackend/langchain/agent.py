@@ -2,7 +2,7 @@
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
-from .middleware import MessageStatistic, TokenSpeedCallbackHandler, SummarizationMiddleware
+from .middleware import MessageStatistic, TokenSpeedCallbackHandler, TrimAndSummaryMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model
@@ -22,8 +22,8 @@ class UCAgentLangChainBackend(AgentBackendBase):
         self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
         self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
 
-        if vagent.use_uc_mode == "SummarizationMiddleware":
-            message_manage_node = SummarizationMiddleware(
+        if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
+            message_manage_node = TrimAndSummaryMiddleware(
                 msg_stat=self.message_statistic,
                 max_summary_tokens=vagent.max_summary_tokens,
                 max_keep_msgs=vagent.max_keep_msgs,
@@ -32,7 +32,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 model=self.sumary_model
             )
         else:
-            raise ValueError(f"Unsupported use_uc_mode: {vagent.use_uc_mode}")
+            raise ValueError(f"Unsupported context_management_strategy: {vagent.context_management_strategy}")
         self.message_manage_node = message_manage_node
 
     def set_debug(self, debug):

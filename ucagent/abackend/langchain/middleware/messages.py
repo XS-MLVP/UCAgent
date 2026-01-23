@@ -1,4 +1,4 @@
-"""Summarization middleware."""
+"""messages summarization middleware."""
 
 from typing import Any
 
@@ -235,7 +235,8 @@ class SummarizationAndFixToolCall(SummarizationNode):
     def get_max_keep_msgs(self) -> int:
         return self.max_keep_msgs
 
-class SummarizationMiddleware(AgentMiddleware):
+class TrimAndSummaryMiddleware(AgentMiddleware):
+    """trim and summarize older context for managing conversation context."""
     def __init__(self, msg_stat: MessageStatistic, max_summary_tokens: int,
                  max_keep_msgs: int, max_tokens: int, tail_keep_msgs: int, model):
         self.msg_stat = msg_stat
