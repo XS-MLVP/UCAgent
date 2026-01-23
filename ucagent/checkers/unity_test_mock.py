@@ -70,7 +70,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         task_map = OrderedDict()
         no_test_files = []
         mock_file_prefix = os.path.basename(self.target_file).split("*")[0]
-        for task_file in self.batch_task.tbd_task_list:
+        for task_file in self.batch_task.source_task_list:
             # {OUT}/tests/{DUT}_mock_*.py => {OUT}/tests/test_{DUT}_mock_*.py
             dir_path = os.path.dirname(task_file)
             base_name = os.path.basename(task_file)
@@ -81,7 +81,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                 }
             test_file = dir_path + "/" + self.test_file_prefix + mock_name + "*.py"
             test_file_list = fc.find_files_by_pattern(self.workspace, test_file)
-            if not test_file_list:
+            if (not test_file_list) and (task_file in self.batch_task.tbd_task_list):
                 no_test_files.append(f"{task_file} => {test_file} (not found)")
                 continue
             task_map[task_file] = test_file_list
@@ -102,7 +102,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         note_msg = []
         # Complete
         self.batch_task.sync_gen_task(
-            self.batch_task.gen_task_list + pass_results,
+            pass_results,
             note_msg,
             "Completed file changed."
         )
