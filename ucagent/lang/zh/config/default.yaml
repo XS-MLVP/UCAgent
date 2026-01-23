@@ -637,7 +637,7 @@ stage:
       - "Guide_Doc/dut_test_case.md"
 
   - name: create_test_case_templates
-    desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS},{CASE_TESTS_COUNT}]"
+    desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS}|{CASE_TESTS_COUNT}]"
     need_pass_llm_suggestion: false
     task:
       - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
