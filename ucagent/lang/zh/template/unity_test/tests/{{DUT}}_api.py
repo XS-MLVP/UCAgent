@@ -62,7 +62,7 @@ def dut(request):
     # dut.InitClock("clk")
 
     # 上升沿采样，StepRis也适用于组合电路用dut.Step推进时采样.
-    # 必须要有g.sample()采样覆盖组, 如何不在StepRis/StepFail中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败
+    # 必须要有g.sample()采样覆盖组, 如何不在StepRis/StepFal中采样，则需要在test function中手动调用，否则无法统计覆盖率导致失败
     dut.StepRis(lambda _: [g.sample()
                            for g in
                            func_coverage_group])
