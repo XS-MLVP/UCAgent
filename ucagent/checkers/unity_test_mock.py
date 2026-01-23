@@ -28,6 +28,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         self.run_test = RunUnityChipTest()
         self.batch_task = UnityChipBatchTask("mock_test_file", self)
         self.update_dut_name(kw["cfg"])
+        assert "*" in target_file, "The target_file must contain a wildcard '*' to match multiple Mock files."
 
     def get_template_data(self):
         ret = self.batch_task.get_template_data(
@@ -53,7 +54,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         self.run_test.set_workspace(workspace)
         return self
 
-    def do_check(self, timeout, is_complete=False,  **kw) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, object]:
         """Check the Mock test implementation for correctness."""
         test_dir_full_path = self.get_path(self.test_dir)
         if not os.path.exists(test_dir_full_path):
@@ -68,11 +69,16 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         # Do check in batch
         task_map = OrderedDict()
         no_test_files = []
+        mock_file_prefix = os.path.basename(self.target_file).split("*")[0]
         for task_file in self.batch_task.tbd_task_list:
             # {OUT}/tests/{DUT}_mock_*.py => {OUT}/tests/test_{DUT}_mock_*.py
             dir_path = os.path.dirname(task_file)
             base_name = os.path.basename(task_file)
-            mock_name = base_name.split(".py")[0].replace(self.dut_name + "_mock_", "")
+            mock_name = base_name.split(".py")[0].replace(mock_file_prefix, "")
+            if not mock_name:
+                return False, {
+                    "error": f"Cannot extract MockComponentName from file '{task_file}'. Please ensure the file name is correct: `{mock_file_prefix}<MockComponentName>.py`"
+                }
             test_file = dir_path + "/" + self.test_file_prefix + mock_name + "*.py"
             test_file_list = fc.find_files_by_pattern(self.workspace, test_file)
             if not test_file_list:
@@ -108,9 +114,9 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         return self.batch_task.do_complete(note_msg, is_complete, "", "", "")
 
 
-    def do_one_check(self, test_files, test_dir_full_path, timeout=0) -> Tuple[bool, object]:
+    def do_one_check(self, test_files, test_dir_full_path, timeout) -> Tuple[bool, object]:
         if len(test_files) == 0:
-            tfiles = ', '.join(self.target_file_list)
+            tfiles = ', '.join(self.target_file)
             return False, {"error": f"No test files found with pattern '{tfiles}' in workspace."}
         error_cases = []
         for tfile in test_files:
