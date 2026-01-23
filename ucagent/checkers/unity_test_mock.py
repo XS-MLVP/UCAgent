@@ -6,6 +6,7 @@ import ucagent.util.functions as fc
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 from typing import Tuple
 from ucagent.util.log import info
+from collections import OrderedDict
 
 
 class UnityChipCheckerTestMockTestBatch(Checker):
@@ -26,6 +27,21 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         self.timeout = timeout
         self.run_test = RunUnityChipTest()
         self.batch_task = UnityChipBatchTask("mock_test_file", self)
+        self.update_dut_name(kw["cfg"])
+
+    def get_template_data(self):
+        ret = self.batch_task.get_template_data(
+            "TOTAL_MOCKS", "COMPLETED_MOCKS", "LIST_CURRENT_MOCKS"
+        )
+        return ret
+
+    def on_init(self):
+        self.batch_task.source_task_list = fc.find_files_by_pattern(
+            self.workspace, self.target_file
+        )
+        self.batch_task.update_current_tbd()
+        info(f"Found {len(self.batch_task.source_task_list)} mock component files to check.")
+        return super().on_init()
 
     def set_workspace(self, workspace: str):
         """
@@ -37,19 +53,59 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         self.run_test.set_workspace(workspace)
         return self
 
-    def on_init(self):
-        self.batch_task.source_task_list = fc.find_files_by_pattern(self.workspace, self.target_file)
-        self.batch_task.update_current_tbd()
-        info(f"Load mock_component list(size={len(self.batch_task.source_task_list)}).")
-        return super().on_init()
-
     def do_check(self, timeout, is_complete=False,  **kw) -> Tuple[bool, object]:
-        """Check the ptest test implementation for correctness."""
+        """Check the Mock test implementation for correctness."""
         test_dir_full_path = self.get_path(self.test_dir)
         if not os.path.exists(test_dir_full_path):
             return False, {"error": f"test directory '{self.test_dir}' does not exist in workspace."}
-        test_files = fc.find_files_by_pattern(self.workspace, self.target_file_list)
-        
+        # Sync source task
+        self.batch_task.source_task_list = fc.find_files_by_pattern(self.workspace, self.target_file)
+        self.batch_task.update_current_tbd()
+        if len(self.batch_task.source_task_list) == 0:
+            return False, {
+                "error": f"No mock component files found with pattern '{self.target_file}' in workspace."
+            }
+        # Do check in batch
+        task_map = OrderedDict()
+        no_test_files = []
+        for task_file in self.batch_task.tbd_task_list:
+            # {OUT}/tests/{DUT}_mock_*.py => {OUT}/tests/test_{DUT}_mock_*.py
+            dir_path = os.path.dirname(task_file)
+            base_name = os.path.basename(task_file)
+            mock_name = base_name.split(".py")[0].replace(self.dut_name + "_mock_", "")
+            test_file = dir_path + "/" + self.test_file_prefix + mock_name + "*.py"
+            test_file_list = fc.find_files_by_pattern(self.workspace, test_file)
+            if not test_file_list:
+                no_test_files.append(f"{task_file} => {test_file} (not found)")
+                continue
+            task_map[task_file] = test_file_list
+        if len(no_test_files) > 0:
+            return False, {
+                "error": "No corresponding test files found for some mock component files.",
+                "details": no_test_files
+            }
+        pass_results = []
+        fail_results = OrderedDict()
+        for target_mock, target_tests in task_map.items():
+            info(f"Checking mock component test file(s) for '{target_mock}': {', '.join(target_tests)}")
+            ret, msg = self.do_one_check(target_tests, test_dir_full_path, timeout)
+            if not ret:
+                fail_results[target_mock] = msg
+            else:
+                pass_results.append(target_mock)
+        note_msg = []
+        # Complete
+        self.batch_task.sync_gen_task(
+            self.batch_task.gen_task_list + pass_results,
+            note_msg,
+            "Completed file changed."
+        )
+        if fail_results:
+            return False, {
+                "error": "Some mock component test files check failed.",
+                "details": fail_results
+            }
+        return self.batch_task.do_complete(note_msg, is_complete, "", "", "")
 
 
     def do_one_check(self, test_files, test_dir_full_path, timeout=0) -> Tuple[bool, object]:
@@ -81,7 +137,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                 "error": "Check test functions failed.",
                 "details": error_cases
             }
-        # run test
+        # Run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(
             lambda p: self.set_check_process(p, timeout + 10)  # Set the process for the checker

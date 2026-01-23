@@ -394,7 +394,7 @@ stage:
          - "请分析{DUT}的上下游依赖模块，并针对性的设计对应的Mock组件"
          - "Mock组件要有合理的接口，便于env通过dut.StepRis进行驱动"
          - "确保Mock组件能正确工作，实现代码要写入{OUT}/tests/{DUT}_mock_<MockComponentName>.py中，对应Class 以Mock前缀命名，例如MockA, MockB等"
-         - "通常情况下，需要把Class名为MockA的Mock组件写入文件{OUT}/tests/{DUT}_mock_A.py, 但如果组件简单，可以把多个同类别的Mock组件写入同一个文件，例如{OUT}/tests/{DUT}_mock_basic.py"
+         - "你需要把Class名为MockA的Mock组件写入文件{OUT}/tests/{DUT}_mock_A.py"
          - "Mock组件的实现要有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
          - "请通过文件 {DUT}/__init__.py获取各个Mock组件的需要访问的引脚"
          - "具体例子请参考文档Guide_Doc/dut_mock.md"
@@ -403,6 +403,7 @@ stage:
          - " - Mock组件的主要功能需要通过on_clock_edge方法进行驱动"
          - " - Mock组件的基础功能中需要有必要的assert检查，确保输入输出合理"
          - " - 注意{DUT}相关的文件名，用例名等大小写敏感"
+         - " - Mock组件是env的一部分，Mock组件交互的对象为dut对象（或者dut的引脚bundle），而不是env对象"
        checker:
          - name: mock_component_check
            clss: "UnityChipCheckerMockComponent"
@@ -431,8 +432,8 @@ stage:
        task:
          - "请对已实现的Mock组件进行测试与评估"
          - "1. 为每个Mock组件编写测试用例，确保其功能正确"
-         - "2. 测试用例写入文件{OUT}/tests/test_{DUT}_mock_<MockComponentName>_<TestFileName>.py中，测试函数命名格式为test_api_{DUT}_mock_<TestCaseName>"
-         - "3. 所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_mock_<MockComponentName>_<TestFileName>.py')运行指定测试"
+         - "2. 测试用例写入文件{OUT}/tests/test_{DUT}_mock_<MockComponentName>[_<TestFileName>].py中，测试函数命名格式为test_api_{DUT}_mock_<TestCaseName>"
+         - "3. 所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_mock_<MockComponentName>[_<TestFileName>].py')运行指定测试"
          - "4. 注意{DUT}相关的文件名，用例名等大小写敏感"
        checker:
          - name: no_conftest_file
@@ -454,11 +455,11 @@ stage:
        ignore: $(IGNORE_MOCK_COMPONENT: true)
        stage:
         - name: test_mock_components_in_batch
-          desc: "按Mock组件，分批进行功能测试与评估[{COMPLETED_MOCKS}/{TOTAL_MOCKS}]"
+          desc: "分批进行Mock功能测试与评估[{COMPLETED_MOCKS}/{TOTAL_MOCKS}]"
           task:
             - "为以下Mock组件（以文件为单位）编写测试用例，确保其功能正确": "{LIST_CURRENT_MOCKS}"
-            - "第1步：将测试用例写入文件{OUT}/tests/test_{DUT}_mock_<MockComponentName>_<TestFileName>.py中，测试函数命名格式为test_api_{DUT}_mock_<TestCaseName>"
-            - "第2步：运行测试，所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_mock_<MockComponentName>_<TestFileName>.py')运行指定测试"
+            - "第1步：将测试用例写入文件{OUT}/tests/test_{DUT}_mock_<MockComponentName>[_<TestFileName>].py中，测试函数命名格式为test_api_{DUT}_mock_<TestCaseName>"
+            - "第2步：运行测试，所有测试用例都必须通过，可以通过RunTestCases('test_{DUT}_mock_<MockComponentName>[_<TestFileName>].py')运行指定测试"
             - "注意："
             - " - 通过测试发现Mock组件的bug时，需要及时修正Mock组件代码，确保测试通过"
             - " - Mock组件的测试用例请用函数式编写，不要使用类"
@@ -466,15 +467,18 @@ stage:
             - " - 本阶段的测试用例中，不能有mock_dut.fc_cover['FG-API'].mark_function,因为这里只测试Mock组件本身功能，不涉及DUT功能覆盖"
             - " - 注意命名规范，确保文件名和函数名正确"
             - " - 该阶段测试的是Mock组件本身的功能，不要进行其他无关测试"
+            - " - 测试文件名字中的TestFileName可选，用于区分同一Mock组件的不同测试文件，如果有区分，名称需要有意义"
+            - " - 仅为当前批次的Mock组件编写测试用例，不要涉及其他Mock组件"
             - "完成进度：{COMPLETED_MOCKS}/{TOTAL_MOCKS}个Mock组件已完成测试"
           checker:
             - name: batch_mock_functional_test_check
               clss: "UnityChipCheckerTestMockTestBatch"
               args:
                 target_file: "{OUT}/tests/{DUT}_mock_*.py"
-                test_file_prefix: "{OUT}/tests/test_{DUT}_mock_*.py"
+                test_file_prefix: "test_{DUT}_mock_"
                 test_dir: "{OUT}/tests"
                 test_prefix: "test_api_{DUT}_mock_"
+                first_arg: "mock_dut"
                 batch_size: 1
           reference_files:
             - "Guide_Doc/dut_mock_test.md"
