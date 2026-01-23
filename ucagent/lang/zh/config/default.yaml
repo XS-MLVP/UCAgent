@@ -392,7 +392,7 @@ stage:
        desc: "Mock组件设计与实现"
        task:
          - "请分析{DUT}的上下游依赖模块，并针对性的设计对应的Mock组件"
-         - "Mock组件要有合理的接口，便于env通过dut.StepRis进行驱动"
+         - "Mock组件要有合理的接口，便于通过dut.StepRis进行驱动"
          - "确保Mock组件能正确工作，实现代码要写入{OUT}/tests/{DUT}_mock_<MockComponentName>.py中，对应Class 以Mock前缀命名，例如MockA, MockB等"
          - "你需要把Class名为MockA的Mock组件写入文件{OUT}/tests/{DUT}_mock_A.py"
          - "Mock组件的实现要有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
@@ -400,10 +400,12 @@ stage:
          - "具体例子请参考文档Guide_Doc/dut_mock.md"
          - "注意："
          - " - Mock组件中不要包含复杂的逻辑，只需模拟必要的行为"
-         - " - Mock组件的主要功能需要通过on_clock_edge方法进行驱动"
+         - " - Mock组件的主要功能需要通过on_clock_edge方法进行驱动(通过dut.StepRis/dut.StepFal进行回调注册)"
          - " - Mock组件的基础功能中需要有必要的assert检查，确保输入输出合理"
          - " - 注意{DUT}相关的文件名，用例名等大小写敏感"
          - " - Mock组件是env的一部分，Mock组件交互的对象为dut对象（或者dut的引脚bundle），而不是env对象"
+         - " - Mock组件必须是和{DUT}有引脚交互的组件，如果没有引脚交互，则不需要实现Mock组件"
+         - " - 用于直接驱动DUT进行功能测试的端口，不属于Mock组件的范畴，请在后续阶段通过API驱动这类端口"
        checker:
          - name: mock_component_check
            clss: "UnityChipCheckerMockComponent"

@@ -192,7 +192,7 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
         if len(un_related_tc_marks) > 0:
                 return False, [f"{len(un_related_tc_marks)} unanalyzed failed checkpoints (its check function is not called/sampled or the return not true) detected: {fc.list_str_abbr(un_related_tc_marks)}. " + \
                                f"The failed checkpoints must be properly analyzed and documented in file '{bug_analysis_file}'. Options:",
-                                "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFail callback, otherwise the coverage cannot be collected correctly.",
+                                "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFal callback, otherwise the coverage cannot be collected correctly.",
                                 "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
                                 "3. If these are actual DUT bugs, document them use marks '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}' with confidence bug ratings.".format(bug_analysis_file),
                                 *fc.description_bug_doc(),
