@@ -30,7 +30,7 @@ class VerticalSplitter(Static):
     def on_mouse_down(self, event: events.MouseDown) -> None:
         self._dragging = True
         self.capture_mouse()
-        self._start_pos = getattr(event, "screen_x", event.x)
+        self._start_pos = event.screen_x
         self._start_value = getattr(self.app, self._target)
         event.stop()
 
@@ -44,7 +44,7 @@ class VerticalSplitter(Static):
     def on_mouse_move(self, event: events.MouseMove) -> None:
         if not self._dragging:
             return
-        current = getattr(event, "screen_x", event.x)
+        current = event.screen_x
         delta = current - self._start_pos
         new_value = self._start_value + delta
         new_value = _clamp_split_value(self._target, new_value)
@@ -75,7 +75,7 @@ class HorizontalSplitter(Static):
     def on_mouse_down(self, event: events.MouseDown) -> None:
         self._dragging = True
         self.capture_mouse()
-        self._start_pos = getattr(event, "screen_y", event.y)
+        self._start_pos = event.screen_y
         self._start_value = getattr(self.app, self._target)
         event.stop()
 
@@ -89,7 +89,7 @@ class HorizontalSplitter(Static):
     def on_mouse_move(self, event: events.MouseMove) -> None:
         if not self._dragging:
             return
-        current = getattr(event, "screen_y", event.y)
+        current = event.screen_y
         delta = current - self._start_pos
         if self._invert:
             delta = -delta

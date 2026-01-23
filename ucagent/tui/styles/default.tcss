@@ -20,11 +20,14 @@ Screen {
 #task-panel {
     width: 84;
     border: solid $primary;
+    border-title-align: center;
     background: $panel;
 }
 
 #task-panel:focus {
-    border: double $primary;
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
 }
 
 /* Right container - status + messages stacked */
@@ -37,29 +40,50 @@ Screen {
 #status-panel {
     height: 7;
     border: solid $primary;
+    border-title-align: center;
     background: $panel;
+}
+
+#status-panel Static {
+    padding: 0 1;
+}
+
+#status-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
 }
 
 /* Messages panel - fills remaining space */
 #messages-panel {
     height: 1fr;
     border: solid $primary;
+    border-title-align: center;
     background: $panel;
 }
 
 #messages-panel:focus {
-    border: double $primary;
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
 }
 
 /* Console - bottom, fixed height */
 #console {
-    height: 15;
+    height: 13;
     border: solid $primary;
+    border-title-align: center;
     background: $panel;
 }
 
+#console ConsoleInput {
+    height: auto;
+}
+
 #console:focus-within {
-    border: double $primary;
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
 }
 
 #console-output {
@@ -84,10 +108,13 @@ Screen {
     padding: 0 1;
     color: $text;
     background: $surface;
+    height: auto;
 }
 
 #console-input:focus {
     background: $console-input-focus;
+    border: heavy $accent;
+    background-tint: $accent 6%;
 }
 
 #console-input.busy {
@@ -100,6 +127,14 @@ Screen {
     text-style: bold;
     color: $primary;
     margin: 1 0 0 0;
+}
+
+#task-panel .section-title {
+    margin: 1 0;
+}
+
+#task-panel .task-item {
+    padding: 0 1;
 }
 
 /* Task item styles */
@@ -182,4 +217,28 @@ ScrollBar > .scrollbar--bar-hover {
 * {
     border-title-color: $text;
     border-title-style: bold;
+}
+
+ThemePickerScreen {
+    align: center middle;
+    background: transparent;
+}
+
+#theme-picker {
+    width: 34;
+    max-width: 40;
+    height: auto;
+    border: solid $primary;
+    background: $panel;
+    padding: 1 1;
+}
+
+#theme-picker-title {
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+#theme-picker OptionList {
+    max-height: 10;
+    width: 1fr;
 }

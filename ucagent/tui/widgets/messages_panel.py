@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.widgets import RichLog
 from textual.reactive import reactive
 
@@ -17,13 +18,11 @@ if TYPE_CHECKING:
 class MessagesPanel(RichLog):
     """Scrollable panel for displaying agent messages."""
 
-    DEFAULT_CSS = """
-    MessagesPanel {
-        border: solid $primary;
-        border-title-color: $text;
-        border-title-align: center;
-    }
-    """
+    BINDINGS: ClassVar[list[Binding]] = [
+        Binding("escape", "cancel_scroll", "Cancel scroll", show=False),
+        Binding("up", "scroll_messages_up", "Scroll messages up", show=False),
+        Binding("down", "scroll_messages_down", "Scroll messages down", show=False),
+    ]
 
     # Maximum number of messages to keep
     max_messages: int = 1000
@@ -115,6 +114,19 @@ class MessagesPanel(RichLog):
 
         # Scroll to focused line
         self.scroll_to(y=self.focus_index, animate=False)
+
+    def action_scroll_messages_up(self) -> None:
+        """Scroll messages up (binding target)."""
+        self.move_focus(-1)
+
+    def action_scroll_messages_down(self) -> None:
+        """Scroll messages down (binding target)."""
+        self.move_focus(1)
+
+    def action_cancel_scroll(self) -> None:
+        """Exit scroll mode and jump to end (binding target)."""
+        if self.scroll_mode:
+            self.scroll_to_end()
 
     def _append_payload(self, payload: str) -> None:
         if not payload:

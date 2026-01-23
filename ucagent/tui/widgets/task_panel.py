@@ -16,45 +16,6 @@ if TYPE_CHECKING:
 class TaskPanel(VerticalScroll):
     """Panel displaying mission tasks, changed files, and tool status."""
 
-    DEFAULT_CSS = """
-    TaskPanel {
-        border: solid $primary;
-        border-title-color: $text;
-        border-title-align: center;
-    }
-
-    TaskPanel .section-title {
-        text-align: center;
-        text-style: bold;
-        margin: 1 0;
-    }
-
-    TaskPanel .task-item {
-        padding: 0 1;
-    }
-
-    TaskPanel .task-current {
-        color: $text-success;
-        background: $success-muted;
-    }
-
-    TaskPanel .task-completed {
-        color: $text-success;
-    }
-
-    TaskPanel .task-skipped {
-        color: $text-secondary;
-    }
-
-    TaskPanel .file-recent {
-        color: $success;
-    }
-
-    TaskPanel .tool-busy {
-        color: $warning;
-    }
-    """
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Mission"
@@ -68,6 +29,15 @@ class TaskPanel(VerticalScroll):
         yield Static("\nTools Call", classes="section-title")
         yield Static(id="tool-status")
         yield Static(id="daemon-cmds")
+
+    def on_mount(self) -> None:
+        self.watch(self.app, "task_width", self._apply_task_width)
+        self._apply_task_width(self.app.task_width)
+
+    def _apply_task_width(self, value: int) -> None:
+        if not self.is_mounted:
+            return
+        self.styles.width = value
 
     def update_content(self, vpdb: "VerifyPDB", daemon_cmds: dict[float, str]) -> None:
         """Update panel content from VerifyPDB data.

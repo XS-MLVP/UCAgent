@@ -15,19 +15,6 @@ if TYPE_CHECKING:
 class StatusPanel(VerticalScroll):
     """Panel displaying current agent status."""
 
-    DEFAULT_CSS = """
-    StatusPanel {
-        border: solid $primary;
-        border-title-color: $text;
-        border-title-align: center;
-        height: 7;
-    }
-
-    StatusPanel Static {
-        padding: 0 1;
-    }
-    """
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Status"
@@ -35,6 +22,15 @@ class StatusPanel(VerticalScroll):
     def compose(self) -> ComposeResult:
         """Compose the status panel."""
         yield Static(id="status-content")
+
+    def on_mount(self) -> None:
+        self.watch(self.app, "status_height", self._apply_status_height)
+        self._apply_status_height(self.app.status_height)
+
+    def _apply_status_height(self, value: int) -> None:
+        if not self.is_mounted:
+            return
+        self.styles.height = value
 
     def update_content(self, vpdb: "VerifyPDB", layout_info: tuple[int, int, int]) -> None:
         """Update status content.
