@@ -1306,7 +1306,10 @@ class VerifyPDB(Pdb):
         """
         stages = self.agent.stage_manager.stages
         echo_g(f"Total stages: {len(stages)}")
-        default_v = self.agent.stage_manager.llm_pass_suggestion is not None
+        default_v = False
+        if self.agent.stage_manager.llm_pass_suggestion is not None:
+            cfg = self.agent.stage_manager.llm_pass_suggestion.get_cfg()
+            default_v = cfg.get("default_apply_all_stages", False)
         for i, stage in enumerate(stages):
             lmcheck_status = stage.need_pass_llm_suggestion
             if lmcheck_status is None:
@@ -1321,7 +1324,10 @@ class VerifyPDB(Pdb):
         """
         stages = self.agent.stage_manager.stages
         echo_g(f"Total stages: {len(stages)}")
-        default_v = self.agent.stage_manager.llm_fail_suggestion is not None
+        default_v = False
+        if self.agent.stage_manager.llm_fail_suggestion is not None:
+            cfg = self.agent.stage_manager.llm_fail_suggestion.get_cfg()
+            default_v = cfg.get("default_apply_all_stages", False)
         for i, stage in enumerate(stages):
             lmcheck_status = stage.need_fail_llm_suggestion
             if lmcheck_status is None:
