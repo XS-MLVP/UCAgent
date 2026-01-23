@@ -404,7 +404,6 @@ class StageManager(object):
                 error_msg,
                 stage,
                 self.llm_fail_suggestion,
-                self.cfg.vmanager.llm_suggestion.check_fail_refinement,
                 stage.need_fail_llm_suggestion,
             )
         except Exception as e:
@@ -423,7 +422,6 @@ class StageManager(object):
                 raw_msg,
                 stage,
                 self.llm_pass_suggestion,
-                self.cfg.vmanager.llm_suggestion.check_pass_refinement,
                 stage.need_pass_llm_suggestion,
                 pre_llm_cb = lambda: stage.set_approved(False),
             )
@@ -435,7 +433,7 @@ class StageManager(object):
             return raw_msg
 
     def gen_llm_suggestion(self, raw_msg, stage,
-                           suggestion_instance, suggestion_cfg,
+                           suggestion_instance,
                            need_llm_suggestion,
                            pre_llm_cb=None) -> str:
         assert stage is not None, "stage can not be None"
@@ -444,18 +442,19 @@ class StageManager(object):
         if not suggestion_instance:
             return raw_msg
         # filter stages
-        bypass_stages = suggestion_cfg.as_dict().get("bypass_stages", [])
+        cfg = suggestion_instance.get_cfg()
+        bypass_stages = cfg.get("bypass_stages", [])
         if bypass_stages:
             if stage.name in bypass_stages:
                 return raw_msg
-        target_stages = suggestion_cfg.as_dict().get("target_stages", [])
+        target_stages = cfg.get("target_stages", [])
         if target_stages:
             if stage.name not in target_stages:
                 return raw_msg
         # need suggestion
-        is_apply_to_all = suggestion_cfg.as_dict().get("default_apply_all_stages", True)
-        need_suggestion = need_llm_suggestion if need_llm_suggestion is not None else is_apply_to_all
-        if need_suggestion != True:
+        if need_llm_suggestion is None:
+            need_llm_suggestion = cfg.get("default_apply_all_stages", True)
+        if need_llm_suggestion != True:
             return raw_msg
         if callable(pre_llm_cb):
             pre_llm_cb()

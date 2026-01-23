@@ -45,6 +45,13 @@ class BaseLLMSuggestion:
         if vmanager:
             vmanager.agent.message_echo(msg)
 
+    def set_cfg(self, cfg):
+        self._cfg = cfg
+        return self
+
+    def get_cfg(self):
+        return self._cfg
+
     def bind_tools(self, tools: list,
                    system_prompt: str,
                    suggestion_prompt: str): # return self
@@ -64,6 +71,7 @@ def get_llm_check_instance(refinement_cfg: Config, vmanager, tools) -> BaseLLMSu
     info(f"Instantiate LLM Suggestion: {class_name}")
     system_prompt = refinement_cfg.system_prompt
     suggestion_prompt = refinement_cfg.suggestion_prompt
-    return clss(**args).set_vmanager(vmanager).bind_tools(tools,
+    ins = clss(**args).set_vmanager(vmanager).bind_tools(tools,
                                                           system_prompt=system_prompt,
                                                           suggestion_prompt=suggestion_prompt)
+    return ins.set_cfg(refinement_cfg.as_dict())
