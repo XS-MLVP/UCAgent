@@ -218,7 +218,7 @@ class VerifyAgent:
 
         self.max_token=self.cfg.get_value("conversation_summary.max_tokens", 20*1024)
         self.max_summary_tokens=self.cfg.get_value("conversation_summary.max_summary_tokens", 1*1024)
-        self.use_uc_mode = self.cfg.get_value("conversation_summary.use_uc_mode", "SummarizationMiddleware")
+        self.context_management_strategy = self.cfg.get_value("conversation_summary.context_management_strategy", "TrimAndSummaryMiddleware")
         self.max_keep_msgs = self.cfg.get_value("conversation_summary.max_keep_msgs", 200)
         self.tail_keep_msgs = self.cfg.get_value("conversation_summary.tail_keep_msgs", 20)
         self.message_echo_handler = None
@@ -328,7 +328,7 @@ class VerifyAgent:
         if self.message_manage_node is None:
             return "None"
         name = self.message_manage_node.__class__.__name__
-        if self.use_uc_mode == "SummarizationMiddleware":
+        if self.context_management_strategy == "TrimAndSummaryMiddleware":
             return f"{name}({self.max_keep_msgs})"
         return f"{name}({self.max_token})"
 

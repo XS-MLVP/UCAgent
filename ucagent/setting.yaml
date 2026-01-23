@@ -86,7 +86,7 @@ langfuse:
 # Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
-  use_uc_mode: SummarizationMiddleware    # default use SummarizationMiddleware mode to manage conversation history
+  context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
   max_tokens: 51200    # default 50k tokens for 128k context model
   max_summary_tokens: 1024  # suggested 10% of the model's context length
   max_keep_msgs: 100   # max messages to keep in memory, older messages will be removed (not the messages to LLM)
