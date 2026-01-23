@@ -1,0 +1,244 @@
+/* UCAgent TUI Default Stylesheet */
+
+/* Main app */
+Screen {
+    background: $background;
+}
+
+#app-container {
+    height: 1fr;
+    layout: vertical;
+}
+
+/* Main container - horizontal split */
+#main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+/* Task panel - left side, fixed width */
+#task-panel {
+    width: 84;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#task-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Right container - status + messages stacked */
+#right-container {
+    width: 1fr;
+    layout: vertical;
+}
+
+/* Status panel - fixed height */
+#status-panel {
+    height: 7;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#status-panel Static {
+    padding: 0 1;
+}
+
+#status-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Messages panel - fills remaining space */
+#messages-panel {
+    height: 1fr;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#messages-panel:focus {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+/* Console - bottom, fixed height */
+#console {
+    height: 13;
+    border: solid $primary;
+    border-title-align: center;
+    background: $panel;
+}
+
+#console ConsoleInput {
+    height: auto;
+}
+
+#console:focus-within {
+    border: heavy $accent;
+    border-title-color: $accent;
+    background-tint: $accent 8%;
+}
+
+#console-output {
+    height: 1fr;
+    padding: 0 1;
+    color: $text;
+    overflow-y: auto;
+}
+
+#console-output-text {
+    width: 100%;
+}
+
+#console-input {
+    height: 3;
+    border: solid $primary;
+    background: $surface;
+    padding: 0 1;
+}
+
+#console-suggest {
+    padding: 0 1;
+    color: $text;
+    background: $surface;
+    height: auto;
+}
+
+#console-input:focus {
+    background: $console-input-focus;
+    border: heavy $accent;
+    background-tint: $accent 6%;
+}
+
+#console-input.busy {
+    color: $warning;
+}
+
+/* Section titles in panels */
+.section-title {
+    text-align: center;
+    text-style: bold;
+    color: $primary;
+    margin: 1 0 0 0;
+}
+
+#task-panel .section-title {
+    margin: 1 0;
+}
+
+#task-panel .task-item {
+    padding: 0 1;
+}
+
+/* Task item styles */
+.task-current {
+    color: $text-success;
+    background: $success-muted;
+    text-style: bold;
+}
+
+.task-completed {
+    color: $text-success;
+}
+
+.task-skipped {
+    color: $text-secondary;
+    text-style: italic;
+}
+
+.task-pending {
+    color: $text-warning;
+}
+
+/* File styles */
+.file-recent {
+    color: $success;
+}
+
+/* Tool styles */
+.tool-busy {
+    color: $warning;
+    text-style: bold;
+}
+
+/* Scrollbar styling */
+Scrollbar {
+    background: $scrollbar-background;
+    width: 1;
+}
+
+ScrollBar > .scrollbar--bar {
+    color: $scrollbar;
+}
+
+ScrollBar > .scrollbar--bar-hover {
+    color: $scrollbar-hover;
+}
+
+.splitter.vertical {
+    width: 1;
+    height: 1fr;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.horizontal {
+    height: 1;
+    min-height: 1;
+    max-height: 1;
+    padding: 0;
+    margin: 0;
+    background: $background;
+    color: $border-blurred;
+}
+
+.splitter.vertical:focus,
+.splitter.vertical:hover {
+    background: $boost;
+    color: $border;
+}
+
+.splitter.horizontal:focus,
+.splitter.horizontal:hover {
+    background: $boost;
+    color: $border;
+}
+
+/* Border titles */
+* {
+    border-title-color: $text;
+    border-title-style: bold;
+}
+
+ThemePickerScreen {
+    align: center middle;
+    background: transparent;
+}
+
+#theme-picker {
+    width: 34;
+    max-width: 40;
+    height: auto;
+    border: solid $primary;
+    background: $panel;
+    padding: 1 1;
+}
+
+#theme-picker-title {
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+#theme-picker OptionList {
+    max-height: 10;
+    width: 1fr;
+}

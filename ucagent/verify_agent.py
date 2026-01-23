@@ -63,6 +63,7 @@ class VerifyAgent:
                  no_history: bool = False,
                  enable_context_manage_tools: bool = False,
                  exit_on_completion: bool = False,
+                 use_new_ui: bool = False,
                  ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -91,6 +92,7 @@ class VerifyAgent:
             force_stage_index (int, optional): Force starting from a specific stage index. Defaults to 0.
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
+            use_new_ui (bool, optional): Whether to use the new Textual-based UI. Defaults to False.
         """
         saved_info = {}
         if not no_history:
@@ -240,6 +242,7 @@ class VerifyAgent:
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self._exit_on_completion = exit_on_completion
+        self.use_new_ui = use_new_ui
         self._is_work_busy = False
         self.handle_sigint()
         
