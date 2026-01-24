@@ -619,6 +619,7 @@ class MockMemory:
     def __init__(self):
         self.data = {}
         self.pending_writes = []
+        self.io = MemBundle.from_prefix("io_mem_")
     
     def on_clock_edge(self, cycles):
         """在时钟上升沿处理待处理的操作"""
@@ -627,14 +628,17 @@ class MockMemory:
             addr, data = self.pending_writes.pop(0)
             self.data[addr] = data
 
+    def bind(self, dut):
+        self.dut = dut
+        self.io.bind(dut)
+        self.dut.StepRis(self.on_clock_edge)
+
 
 class CacheTestEnv:
     def __init__(self, dut):
         self.dut = dut
         self.memory = MockMemory()
-        
-        # 注册内存模型的时钟回调
-        self.dut.StepRis(self.memory.on_clock_edge)
+        self.memory.bind(dut)
     
     def Step(self, c=1):
         return self.dut.Step(c)

@@ -2,7 +2,7 @@
 
 Mock 组件是验证环境的重要组成部分（参见 `dut_mock.md`）。在将其集成到 ENV 中用于驱动 RTL 之前，我们需要对其本身的功能进行独立的单元测试（Self-Test）。
 
-由于 Mock 组件通常依赖 DUT 的信号接口（通过 `xspcomm` 通信），为了在没有真实 RTL 仿真环境的情况下测试它，我们需要模拟一个“假的 DUT 环境”，即 **Mock DUT**。
+由于 Mock 组件通常依赖 DUT 的信号接口，为了在没有真实 RTL 仿真环境的情况下测试它，我们需要模拟一个“假的 DUT 环境”，即 **Mock DUT**。
 
 ## 什么是 Mock DUT
 
@@ -42,9 +42,9 @@ def mock_dut():
 
 测试 Mock 组件的核心流程如下：
 
-1. **实例化**：创建待测的 Mock 组件实例，配置参数（如 latency）。
+1. **实例化**：创建待测的 Mock 组件实例，配置参数（如 io prefix）。
 2. **绑定**：调用 Mock 组件的 `bind(mock_dut)`，将其信号连接到 Mock DUT。
-   - *关键点*：Mock 组件内部应当通过 `dut.StepRis(self.on_clock_edge)` 注册时钟回调。如果内部没有注册，则需要在测试用例中进行注册。
+   - *关键点*：Mock 组件`bind`方法内部应当通过 `dut.StepRis(self.on_clock_edge)` 注册时钟回调。
 3. **驱动与激励**：
    - **Scenario A (Mock 作为 Slave)**：测试代码向 `mock_dut` 输出信号赋值（模拟 RTL 发起请求），验证 Mock 是否正确响应（assert `mock_dut` 输入信号）。
    - **Scenario B (Mock 作为 Master)**：调用 Mock 组件的 API（如 `send_req`），验证 Mock 是否正确驱动 `mock_dut` 的信号。
@@ -64,7 +64,8 @@ from ICache_mock_Mem import MockMem # 待测组件
 def test_api_ICache_mock_write_interaction(mock_dut):
     # 1. Setup & Bind
     # 实例化 Mock，设定延迟为 2 个周期
-    mem = MockMem(latency=2, mock_dut)
+    mem = MockMem(io_prefix="io_mem_", latency=2)
+    mem.bind(mock_dut)
     # 此时 mem 内部应已执行 Bundle 的绑定与上升沿/下降沿回调函数注册
     # 如果没有注册，请在外部进行回调注册: eg: mock_dut.StepRis(mem.on_clock_edge)
 
@@ -109,7 +110,7 @@ def test_api_ICache_mock_write_interaction(mock_dut):
 
 ## 调试建议
 
-- Mock DUT 的所有信号都剋有利用 `print(mock_dut.signal_name.value)` 可以随时查看状态。
+- Mock DUT 的所有信号都可以打印日志来随时查看状态。
 - 如果 Mock 组件内部有 `print` 或日志输出，在执行 pytest 时使用 `-s` 选项可以看到实时输出。
 
 MockDut提供的方法：
