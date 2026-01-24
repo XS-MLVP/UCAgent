@@ -36,6 +36,7 @@ class MessagesPanel(RichLog):
             markup=True,
             auto_scroll=True,
             wrap=True,
+            max_lines=self.max_messages,
             **kwargs
         )
         self.border_title = "Messages"
@@ -148,12 +149,10 @@ class MessagesPanel(RichLog):
 
         self._message_lines.extend(lines)
 
-        trimmed = False
         if len(self._message_lines) > self.max_messages:
             self._message_lines = self._message_lines[-self.max_messages:]
-            trimmed = True
 
-        if updated_last or trimmed:
+        if updated_last:
             self._render_lines()
         else:
             for line in lines:

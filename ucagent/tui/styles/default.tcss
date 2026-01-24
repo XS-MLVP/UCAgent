@@ -97,10 +97,32 @@ Screen {
     width: 100%;
 }
 
-#console-input {
+#console-input-row {
     height: 3;
+    layout: horizontal;
     border: solid $primary;
     background: $surface;
+}
+
+#console-loading {
+    width: auto;
+    height: auto;
+    background: transparent;
+    color: $accent;
+    content-align: center middle;
+    text-style: bold;
+    opacity: 0;
+}
+
+#console-loading.is-visible {
+    opacity: 1;
+}
+
+#console-input {
+    width: 1fr;
+    height: 3;
+    border: none;
+    background: transparent;
     padding: 0 1;
 }
 
@@ -111,7 +133,7 @@ Screen {
     height: auto;
 }
 
-#console-input:focus {
+#console-input-row:focus-within {
     background: $console-input-focus;
     border: heavy $accent;
     background-tint: $accent 6%;

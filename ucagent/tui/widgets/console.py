@@ -149,6 +149,10 @@ class ConsoleWidget(Vertical):
         """Set busy state."""
         self.query_one(ConsoleInput).set_busy(busy)
 
+    def set_running_command(self, command: str | None) -> None:
+        """Set the running command shown in the input field."""
+        self.query_one(ConsoleInput).set_running_command(command)
+
     def refresh_prompt(self) -> None:
         """Refresh the input prompt display."""
         self.query_one(ConsoleInput).refresh_prompt()

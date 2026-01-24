@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
+import signal
 import sys
 
 from textual.app import App, ComposeResult
@@ -33,7 +34,7 @@ class VerifyApp(App[None]):
     CSS_PATH = "styles/default.tcss"
 
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("ctrl+c", "quit", "Quit", show=False),
+        Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
     ]
 
@@ -56,6 +57,11 @@ class VerifyApp(App[None]):
 
         # Daemon commands tracking
         self.daemon_cmds: dict[float, str] = {}
+
+        # Running command tracking
+        self._sigint_prev = None
+        self._sigint_inflight = False
+        self._cancel_cooldown = False
 
         # Console output capture
         self._console_capture: ConsoleCapture | None = None
@@ -103,6 +109,7 @@ class VerifyApp(App[None]):
         self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
         self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
         self._install_console_capture()
+        self._install_sigint_handler()
 
         # Start periodic UI update
         self.set_interval(1.0, self._auto_update_ui)
@@ -160,6 +167,10 @@ class VerifyApp(App[None]):
             self.run_worker(self.key_handler.process_command(cmd))
 
     # Action methods for key bindings
+    def action_interrupt_or_quit(self) -> None:
+        """Cancel running command or quit."""
+        self._handle_ctrl_c()
+
     def action_quit(self) -> None:
         """Handle quit action."""
         self._cleanup()
@@ -185,11 +196,45 @@ class VerifyApp(App[None]):
         self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         """Handle command submission from console."""
-        await self.key_handler.process_command(event.command, event.daemon)
+        self.run_worker(self.key_handler.process_command(event.command, event.daemon))
+
+    def set_active_command(self, command: str) -> None:
+        """Update the console display for a running command."""
+        console = self.query_one("#console", ConsoleWidget)
+        console.set_running_command(command)
+
+    def clear_active_command(self) -> None:
+        """Clear the running command display."""
+        console = self.query_one("#console", ConsoleWidget)
+        console.set_running_command(None)
+
+    def cancel_running_command(self) -> bool:
+        """Request interruption of the running command if any."""
+        had_worker = self.key_handler.has_active_worker()
+        if had_worker:
+            self.key_handler.cancel_active_worker()
+        busy = had_worker or self._is_console_busy()
+        # Daemon commands also count as running
+        if self.daemon_cmds:
+            busy = True
+        if not busy:
+            return False
+        try:
+            self.vpdb._sigint_handler(signal.SIGINT, None)
+        except BaseException:
+            pass
+        return True
+
+    def _is_console_busy(self) -> bool:
+        try:
+            return self.query_one(ConsoleInput).is_busy
+        except Exception:
+            return False
 
     def _cleanup(self) -> None:
         self.vpdb.agent.unset_message_echo_handler()
         self.vpdb.agent._mcps_logger = self._mcps_logger_prev
+        self._restore_sigint_handler()
         self._restore_console_capture()
 
 
@@ -220,6 +265,47 @@ class VerifyApp(App[None]):
         if self._vpdb_stderr_backup is not None:
             self.vpdb.stderr = self._vpdb_stderr_backup
         self._console_capture = None
+
+    def _install_sigint_handler(self) -> None:
+        if self._sigint_prev is not None:
+            return
+        self._sigint_prev = signal.getsignal(signal.SIGINT)
+
+        def _sigint_handler(signum, frame):
+            try:
+                self.call_from_thread(self._handle_ctrl_c)
+            except Exception:
+                pass
+
+        signal.signal(signal.SIGINT, _sigint_handler)
+
+    def _restore_sigint_handler(self) -> None:
+        if self._sigint_prev is None:
+            return
+        try:
+            signal.signal(signal.SIGINT, self._sigint_prev)
+        finally:
+            self._sigint_prev = None
+            self._sigint_inflight = False
+            self._cancel_cooldown = False
+
+    def _handle_ctrl_c(self) -> None:
+        if self._sigint_inflight:
+            return
+        self._sigint_inflight = True
+        try:
+            if self.cancel_running_command():
+                # Successfully cancelled a command; set cooldown to prevent
+                # a racing second Ctrl+C from immediately quitting.
+                self._cancel_cooldown = True
+                self.set_timer(0.5, self._clear_cancel_cooldown)
+            elif not self._cancel_cooldown:
+                self.action_quit()
+        finally:
+            self._sigint_inflight = False
+
+    def _clear_cancel_cooldown(self) -> None:
+        self._cancel_cooldown = False
 
     def flush_console_output(self) -> None:
         if self._console_capture is None:
