@@ -21,17 +21,17 @@
 2) 明确接口：
 - 对外暴露清晰的方法：如 `control(data)`, `read(addr)`, `write(addr, data)`, `push(...)`, `pop(...)`，或协议事务接口
 
-1) 时序统一：
-- 将所有时序行为集中在 `on_clock_edge(cycles, ...)` 中进行处理，通过 `dut.StepRis(...)`或者`dut.StepFal(...)` 注册后，由`dut.Step`方法进行驱动
+3) 时序统一：
+- 将所有时序行为集中在 `on_clock_edge(cycles, ...)` 中进行处理，通过 `dut.StepRis(...)` 或 `dut.StepFal(...)` 注册后，由 `dut.Step(...)` 方法进行驱动
 - 组合电路场景仍复用上述流程，以保持统一
 
-1) 资源管理：
+4) 资源管理：
 - 提供 `reset()`/`clear()` 用于状态清空，必要时提供 `close()` 或在 env 清理阶段移除回调
 
-1) 可观测性：
+5) 可观测性：
 - 提供统计计数器、最近 N 次事务的日志、调试开关；遇到协议违规能输出提示
 
-1) 可复现性：
+6) 可复现性：
 - 涉及随机行为时接受 `seed`，并保证同一 seed 下行为可复现
 
 
@@ -42,7 +42,7 @@
 2. 需要在Mock组件的`bind`方法中进行引脚绑定和`on_clock_edge`回调注册
 3. 需要时在 env 暴露一些便捷方法，转调到 Mock（如 `mem_read`, `mem_write`）
 
-注意：默认 `StepRis`/`StepFail` 回调按注册顺序执行。一般先注册覆盖率采样，再注册 Mock 驱动，最后注册监控/日志回调，便于保证正确的执行顺序。
+注意：默认 `StepRis`/`StepFal` 回调按注册顺序执行。一般先注册覆盖率采样，再注册 Mock 驱动，最后注册监控/日志回调，便于保证正确的执行顺序。
 
 
 ## 最小可用 Mock 模板
@@ -136,8 +136,8 @@ class MockAXI4LiteMemory:
 		init_value: 默认初始化值
 	"""
 
-	def __init__(self, io_prefix,
-	read_latency=1, write_latency=0, size=1024, init_value=0):
+	def __init__(self, io_prefix, read_latency=1,
+	write_latency=0, size=1024, init_value=0):
 		self.read_latency = read_latency
 		self.write_latency = write_latency
 		self.mem = [init_value] * size
@@ -208,7 +208,7 @@ class DUTEnv:
 	def __init__(self, dut):
 		self.dut = dut
 		self.mem = MockAXI4LiteMemory(
-			io_prefix="io_axi_"
+			io_prefix="io_axi_",
 			read_latency=2, write_latency=1)
 		self.mem.bind(dut)
 		self.mem.reset()

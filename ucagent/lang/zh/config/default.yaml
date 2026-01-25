@@ -374,9 +374,12 @@ stage:
        desc: "引脚封装设计"
        task:
          - "分析{DUT}的引脚定义，确定引脚封装方式"
-         - "如果存在多个分组，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联"
-         - "如果不存在分组，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联"
+         - "如果存在多个分组，且有共同前缀，则按分组定义toffee.Bundle子类，通过from_prefix接口进行关联"
+         - "如果不存在分组，或者没有共同前缀，则定义包含所有引脚的toffee.Bundle子类，通过from_dict接口进行关联"
          - "确保引脚封装设计合理，便于理解和使用"
+         - "注意："
+         - " - toffee.Signal类没有位宽参数，会在bind到dut时自动获取位宽"
+         - " - toffee.Signals类用于一次定义多个信号，也不用位宽参数（其参数为一次定义信号的个数），会在bind到dut时自动获取位宽"
        checker:
          - name: bundle_wrapper_check
            clss: "UnityChipCheckerBundleWrapper"
