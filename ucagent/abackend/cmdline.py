@@ -3,6 +3,7 @@
 
 from .base import AgentBackendBase
 from ucagent.util.log import warning, info
+from ucagent.util.functions import get_abs_path_cwd_ucagent
 import os
 
 
@@ -60,9 +61,9 @@ class UCAgentCmdLineBackend(AgentBackendBase):
 
     def init(self):
         self.CWD = self.vagent.workspace
-        self.cmdline_dir = os.path.join(self.CWD, ".cmdline")
+        self.MSG_FILE = get_abs_path_cwd_ucagent(self.CWD, "cmdline.txt")
+        self.cmdline_dir = os.path.dirname(self.MSG_FILE)
         os.makedirs(self.cmdline_dir, exist_ok=True)
-        self.MSG_FILE = os.path.join(self.cmdline_dir, "msg.txt")
         self._call_count = 0
         for cmd in self.pre_bash_cmd:
             formatted_cmd = cmd.format(CWD=self.CWD, PORT=self.config.mcp_server.port)

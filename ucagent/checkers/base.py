@@ -10,6 +10,13 @@ import ucagent.util.functions as fc
 from ucagent.util.log import info, error, warning
 import time
 import traceback
+import hashlib
+
+
+CB_KEY_SET_WORKSPACE = "after_set_workspace"
+CB_KEY_ON_INIT = "after_on_init"
+CB_KEY_SET_STAGE_MANAGER = "after_set_stage_manager"
+CB_KEY_SET_STAGE = "after_set_stage"
 
 
 class Checker:
@@ -25,6 +32,17 @@ class Checker:
     dut_name = None
     _is_init = False
     _need_human_check = False
+    _cb_list = {}
+
+    def add_cb(self, key, cb):
+        assert key in [CB_KEY_SET_WORKSPACE,
+                       CB_KEY_ON_INIT,
+                       CB_KEY_SET_STAGE_MANAGER,
+                       CB_KEY_SET_STAGE,
+                       ]
+        if key not in self._cb_list:
+            self._cb_list[key] = []
+        self._cb_list[key].append(cb)
 
     def set_human_check_needed(self, need: bool):
         self._need_human_check = need
@@ -42,6 +60,8 @@ class Checker:
 
     def on_init(self):
         self._is_init = True
+        for cb in self._cb_list.get(CB_KEY_ON_INIT, []):
+            cb(self)
         return self
 
     def get_tool_by_name(self, tool_name: str):
@@ -89,11 +109,15 @@ class Checker:
     def set_stage_manager(self, manager):
         assert manager is not None, "Stage Manager cannot be None."
         self.stage_manager = manager
+        for cb in self._cb_list.get(CB_KEY_SET_STAGE_MANAGER, []):
+            cb(self)
         return self
 
     def set_stage(self, stage):
         assert stage is not None, "Stage cannot be None."
         self.stage = stage
+        for cb in self._cb_list.get(CB_KEY_SET_STAGE, []):
+            cb(self)
         return self
 
     def get_stage(self):
@@ -250,6 +274,8 @@ class Checker:
         self.workspace = os.path.abspath(workspace)
         assert os.path.exists(self.workspace), \
             f"Workspace {self.workspace} does not exist. Please provide a valid workspace path."
+        for cb in self._cb_list.get(CB_KEY_SET_WORKSPACE, []):
+            cb(self)
         return self
 
     def get_path(self, path: str) -> str:
@@ -309,7 +335,44 @@ class UnityChipBatchTask:
         self.cmp_task_list = []  # Completed task list
         self.source_task_list = []  # Source task list (ground truth)
         self.gen_task_list = []  # Generated task list (actual results)
+        checker.add_cb(CB_KEY_SET_STAGE, lambda c: self.on_init())
         assert hasattr(checker, "batch_size")
+
+    def on_init(self):
+        stage_name = self.checker.get_stage().name.lower().replace(" ", "_")
+        chp_name = stage_name + "_" + hashlib.md5((self.checker.__class__.__name__ + self.name).encode()).hexdigest()
+        self.checkpoint_file = fc.get_abs_path_cwd_ucagent(self.checker.workspace, f"batch_checkpoint_{chp_name}.json")
+        self.loadpoint_file()
+
+    def savepoint_file(self):
+        fpath = self.checkpoint_file
+        fdirname = os.path.dirname(fpath)
+        if not os.path.exists(fdirname):
+            os.makedirs(fdirname, exist_ok=True)
+        fc.save_json_file(fpath, {
+            "source_task_list": self.source_task_list,
+            "gen_task_list": self.gen_task_list,
+            "tbd_task_list": self.tbd_task_list,
+            "cmp_task_list": self.cmp_task_list,
+            "checker_name": self.checker.__class__.__name__,
+            "task_name": self.name,
+            "stage_title": self.checker.get_stage().title(),
+        })
+
+    def loadpoint_file(self):
+        fpath = self.checkpoint_file
+        if not os.path.isfile(fpath):
+            return False
+        try:
+            data = fc.load_json_file(fpath)
+            self.source_task_list = data.get("source_task_list", [])
+            self.gen_task_list = data.get("gen_task_list", [])
+            self.tbd_task_list = data.get("tbd_task_list", [])
+            self.cmp_task_list = data.get("cmp_task_list", [])
+        except Exception as e:
+            warning(f"{self.name} Load checkpoint file {fpath} fail: {e}")
+            return False
+        return True
 
     def get_template_data(self, total_tasks: str, completed_tasks: str, current_tasks: str) -> dict:
         """Get template data for task status reporting.
@@ -531,6 +594,7 @@ class UnityChipBatchTask:
         # Reset batch
         self.tbd_task_list = []
         self.cmp_task_list = []
+        self.savepoint_file()
 
         # Check if all tasks are done
         if self.update_current_tbd():
