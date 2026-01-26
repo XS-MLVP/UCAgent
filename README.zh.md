@@ -167,11 +167,11 @@ A: 检查端口是否被占用，确认防火墙设置，可以通过 `--mcp-ser
 
 **Q: 为何有上次执行信息残留？**
 
-A: UCAgent 默认会从工作目录中查找 `.ucagent_info.json` 文件，来加载上次执行信息接着执行。如果不需要历史信息，请删除该文件或者使用参数 `--no-history` 忽略加载历史。
+A: UCAgent 默认会从工作目录中查找 `.ucagent/ucagent_info.json` 文件，来加载上次执行信息接着执行。如果不需要历史信息，请删除该文件或者使用参数 `--no-history` 忽略加载历史。
 
 **Q: 如何运行长时间验证？**
 
-A: 请参考 CodeAgent 的无头模式以及脚本 `tests/test_nohead_loop.bash`。
+A: 请参考 CodeAgent 的自定义后端 [examples/CustomBackend/README.md](/examples/CustomBackend/README.md)。
 
 **Q: 可以自定义验证阶段吗？**
 

@@ -35,7 +35,7 @@ mcp_batch: init
 	@$(MAKE) mcp_one_FSM
 
 iflow_once:
-	@while [ -f "../../output/.ucagent_info.json" ]; do \
+	@while [ -f "../../output/.ucagent/ucagent_info.json" ]; do \
 		sleep 5; \
 	done
 	@while [ ! -f "../../output/Guide_Doc/dut_fixture.md" ]; do \

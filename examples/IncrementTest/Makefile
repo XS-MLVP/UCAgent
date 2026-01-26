@@ -17,7 +17,7 @@ init_workspace:
 		echo "clean output"; \
 		rm output -rf || true; \
 		cp -r ../../output output; \
-		rm output/.ucagent_info.json -f || true; \
+		rm output/.ucagent -f || true; \
 	fi
 
 # default init with mcp server no file tools

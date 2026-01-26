@@ -11,6 +11,7 @@ init:
 
 reset_%:
 	rm $(CWD)/unity_test -rf  || true
+	rm $(CWD)/.ucagent -rf  || true
 
 init_%:
 	mkdir -p $(CWD)/$*_RTL

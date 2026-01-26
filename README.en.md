@@ -167,11 +167,11 @@ A: Check if the port is occupied, verify firewall settings, and you can specify 
 
 **Q: Why is there information from the last execution?**
 
-A: UCAgent by default looks for the `.ucagent_info.json` file in the working directory to load previous execution information and continue. If you don't need history, delete this file or use the `--no-history` parameter to ignore loading history.
+A: UCAgent by default looks for the `.ucagent/ucagent_info.json` file in the working directory to load previous execution information and continue. If you don't need history, delete this file or use the `--no-history` parameter to ignore loading history.
 
 **Q: How to run long-duration verification?**
 
-A: Please refer to CodeAgent's headless mode and the script `tests/test_nohead_loop.bash`.
+A: Please refer to CodeAgent's custom backend mode [examples/CustomBackend/README.md](/examples/CustomBackend/README.md).
 
 **Q: Can verification stages be customized?**
 

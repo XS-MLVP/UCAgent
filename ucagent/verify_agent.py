@@ -102,8 +102,9 @@ class VerifyAgent:
                                                force_stage_index)
             if force_stage_index > 0:
                 warning(f"Resuming from saved stage index: {force_stage_index}")
+        self.workspace = os.path.abspath(workspace)
         self.__version__ = __version__
-        self.cfg = get_config(config_file, cfg_override)
+        self.cfg = get_config(config_file, cfg_override, self.workspace)
         temp_args = {
             "OUT": output,
             "DUT": dut_name,
@@ -116,7 +117,6 @@ class VerifyAgent:
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
-        self.workspace = os.path.abspath(workspace)
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")

@@ -289,6 +289,18 @@ def save_json_file(path: str, data):
         except Exception as e:
             raise RuntimeError(f"Unexpected error while saving JSON file {path}: {e}")
 
+def get_abs_path_cwd_ucagent(workspace, path):
+    """
+    Get the absolute path of a file or directory in the workspace.
+    :param workspace: The workspace directory.
+    :param path: The relative or absolute path to be resolved.
+    :return: The absolute path.
+    """
+    ucagent_path = os.path.abspath(workspace + os.sep + ".ucagent")
+    if not os.path.exists(ucagent_path):
+        os.makedirs(ucagent_path)
+    return os.path.abspath(ucagent_path + os.sep + path)
+
 def save_ucagent_info(workspace, info: dict):
     """
     Save UCAgent information to a JSON file in the workspace.
@@ -296,7 +308,7 @@ def save_ucagent_info(workspace, info: dict):
     :param info: The UCAgent information to be saved.
     """
     assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
-    info_path = os.path.join(workspace, ".ucagent_info.json")
+    info_path = get_abs_path_cwd_ucagent(workspace, "ucagent_info.json")
     save_json_file(info_path, info)
 
 def load_ucagent_info(workspace) -> dict:
@@ -307,7 +319,7 @@ def load_ucagent_info(workspace) -> dict:
     """
     if not os.path.exists(workspace):
         return {}
-    info_path = os.path.join(workspace, ".ucagent_info.json")
+    info_path = get_abs_path_cwd_ucagent(workspace, "ucagent_info.json")
     if not os.path.exists(info_path):
         return {}
     return load_json_file(info_path)

@@ -3,7 +3,7 @@
 import os
 import yaml
 from typing import Dict, Any, Optional, Union, List
-from .functions import render_template, dump_as_json, replace_bash_var
+from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
 from .log import info
 
 class Config:
@@ -283,7 +283,7 @@ def find_file_in_paths(filename, search_paths):
     return None
 
 
-def get_config(config_file=None, cfg_override=None):
+def get_config(config_file=None, cfg_override=None, workspace=None):
     """
     Get the configuration for the agent.
     :param config_file: Path to the configuration file.
@@ -327,7 +327,17 @@ def get_config(config_file=None, cfg_override=None):
     cfg.merge_from(Config(load_yaml_with_env_vars(lang_config_file)))
     loaded_configs.append(lang_config_file)
 
-    # 4. find user specified config file
+    # 4. load workspace config
+    if workspace is not None:
+        cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
+        if os.path.isfile(cwd_setting_file):
+            cfg.merge_from(Config(load_yaml_with_env_vars(cwd_setting_file)))
+            info(f"Load config from '{cwd_setting_file}' completed.")
+            loaded_configs.append(cwd_setting_file)
+        else:
+            info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
+
+    # 5. find user specified config file
     target_file = config_file
     if config_file is None:
         target_file = 'config.yaml'  # Default configuration file

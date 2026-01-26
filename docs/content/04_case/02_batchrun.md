@@ -147,7 +147,7 @@ ucagent --hook-message config.yaml::continue_key|complete_key
 
 工作机制：
 
-- 检查 UCAgent 状态（通过 `.ucagent_info.json`）
+- 检查 UCAgent 状态（通过 `.ucagent/ucagent_info.json`）
 - 如果任务未完成，返回 `continue_key` 对应的提示词
 - 如果任务已完成，返回 `stop_key` 对应的提示词（如果提供）
 - 通过退出码 0 表示成功，非 0 表示失败
@@ -254,7 +254,7 @@ mcp_batch: init
 	@$(MAKE) mcp_one_FSM
 
 iflow_once:
-	@while [ -f "../../output/.ucagent_info.json" ]; do \
+	@while [ -f "../../output/.ucagent/ucagent_info.json" ]; do \
 		sleep 5; \
 	done
 	@while [ ! -f "../../output/Guide_Doc/dut_fixture.md" ]; do \
@@ -423,7 +423,7 @@ ucagent --hook-message "\$CONTINUE_MSG|\$COMPLETE_MSG"
 
 ```bash
 # 查看 UCAgent 状态
-cat output/.ucagent_info.json
+cat output/.ucagent/ucagent_info.json
 
 # 检查是否有残留进程
 ps aux | grep ucagent
