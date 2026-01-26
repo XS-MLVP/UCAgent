@@ -692,6 +692,7 @@ stage:
   - name: comprehensive_verification_and_bug_analysis
     desc: "全面验证与缺陷分析"
     need_pass_llm_suggestion: false
+    need_fail_llm_suggestion: false
     task:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
       - "重要：测试失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"

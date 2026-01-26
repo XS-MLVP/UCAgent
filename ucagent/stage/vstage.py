@@ -93,6 +93,7 @@ class VerifyStage(object):
         self.time_end = None
         self.time_prev_cost = 0.0
         self.llm_approved = True
+        self.is_batch_success = False # set True when reset continue_fail_count due to batch success
         self.meta_data = {}
 
     def meta_set_journal(self, journal):
@@ -297,6 +298,7 @@ class VerifyStage(object):
                                        "failed_patterns": success_out_msg})
         self.check_pass = True
         for i, c in enumerate(self.checker):
+            self.is_batch_success = False
             ck_pass, ck_msg = c.check(*a, **kwargs)
             if self.check_info[i] is None:
                 self.check_info[i] = {
@@ -307,13 +309,17 @@ class VerifyStage(object):
                     "last_msg": "",
                 }
             count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
+            if self.is_batch_success:
+                count_fail = 0
             self.check_info[i]["count_pass"] += count_pass
             self.check_info[i]["count_fail"] += count_fail
             self.check_info[i]["last_msg"] = ck_msg
             self.check_info[i]["count_check"] += 1
             if not ck_pass:
                 self.check_pass = False
-                self.fail_count += 1
+                if self.is_batch_success is False:
+                    self.fail_count += 1
+                break
         if self.check_pass:
             self.succ_count += 1
             self.continue_fail_count = 0
@@ -321,7 +327,8 @@ class VerifyStage(object):
             self.continue_fail_count += 1
         return self.check_pass, self.check_info
 
-    def reset_continue_fail_count(self):
+    def reset_continue_fail_count_with_batch_pass(self):
+        self.is_batch_success = True
         self.continue_fail_count = 0
 
     def is_reached(self):

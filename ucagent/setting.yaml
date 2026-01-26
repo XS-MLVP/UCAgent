@@ -30,8 +30,8 @@ backend:
   copilot_cli:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "copilot --allow-all-tools -p < {MSG_FILE}"
-      cli_cmd_ctx: "copilot --allow-all-tools --continue -p < {MSG_FILE}"
+      cli_cmd_new: "copilot --allow-all-tools < {MSG_FILE}"
+      cli_cmd_ctx: "copilot --allow-all-tools --continue < {MSG_FILE}"
     pre_bash_cmd:
       - "mkdir -p {CWD}/.copilot/"
       - "cp ~/.copilot/mcp-config.json {CWD}/.copilot/mcp-config.json"
