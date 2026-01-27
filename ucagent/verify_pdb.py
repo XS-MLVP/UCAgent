@@ -8,7 +8,7 @@ from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_det
 import time
 import signal
 import traceback
-from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET
+from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
 import random
 
@@ -429,6 +429,22 @@ class VerifyPDB(Pdb):
             "task_list": task_list
         }
 
+    def api_get_check_tag(self, stage):
+        """
+        Get colored llm and human check tag for the stage.
+        - llm fail check: yellow '*'
+        - llm pass check: green '*'
+        - human check needed: red '*'
+        """
+        ck_f, ck_p, ck_h = "", "", ""
+        if stage["need_fail_llm_suggestion"]:
+            ck_f = f"{L_BLUE}*{RESET}"
+        if stage["need_pass_llm_suggestion"]:
+            ck_p = f"{L_GREEN}*{RESET}"
+        if stage["needs_human_check"]:
+            ck_h = f"{L_RED}*{RESET}"
+        return ck_f + ck_p + ck_h
+
     def api_mission_info(self):
         """
         Get mission information with colored output.
@@ -441,10 +457,9 @@ class VerifyPDB(Pdb):
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
-            needs_human_check = stage.get("needs_human_check", False)
             if time_cost:
                 time_cost = f", {time_cost}"
-            color = None
+            color, cend = "", ""
             if i < current_index:
                 color = f"{L_GREEN}"
             elif i == current_index:
@@ -454,14 +469,12 @@ class VerifyPDB(Pdb):
                 color = f"{L_YELLOW}"
                 task_title += " (skipped)"
                 fail_count_msg = ""
-            if needs_human_check:
-                if color:
-                    task_title = f"{RESET}{L_RED}*{RESET}{color}" + task_title
-                else:
-                    task_title = f"{L_RED}*{RESET}" + task_title
-            text = f"{i:2d} {task_title}{fail_count_msg}"
             if color:
-                text = f"{color}{text}{RESET}"
+                cend = RESET
+            check_tag = self.api_get_check_tag(stage)
+            if check_tag:
+                check_tag += " "
+            text = f"{color}{i:2d}{cend} {check_tag}{color}{task_title}{fail_count_msg}{cend}"
             ret.append(text)
         return ret
 
@@ -1305,17 +1318,8 @@ class VerifyPDB(Pdb):
         List all stages which need LMCheck when Pass Complete/Check.
         """
         stages = self.agent.stage_manager.stages
-        echo_g(f"Total stages: {len(stages)}")
-        default_v = False
-        if self.agent.stage_manager.llm_pass_suggestion is not None:
-            cfg = self.agent.stage_manager.llm_pass_suggestion.get_cfg()
-            default_v = cfg.get("default_apply_all_stages", False)
         for i, stage in enumerate(stages):
-            lmcheck_status = stage.need_pass_llm_suggestion
-            if lmcheck_status is None:
-                lmcheck_status = f"{default_v}*"
-            if stage.is_skipped():
-                lmcheck_status = "Skipped"
+            lmcheck_status = self.agent.stage_manager.stage_need_llm_pass_suggestion(stage)
             echo(f"[{i}] {lmcheck_status} {stage.title()}")
 
     def do_lmcheck_flist(self, arg):
@@ -1323,17 +1327,8 @@ class VerifyPDB(Pdb):
         List all stages which need LMCheck when Check Fail.
         """
         stages = self.agent.stage_manager.stages
-        echo_g(f"Total stages: {len(stages)}")
-        default_v = False
-        if self.agent.stage_manager.llm_fail_suggestion is not None:
-            cfg = self.agent.stage_manager.llm_fail_suggestion.get_cfg()
-            default_v = cfg.get("default_apply_all_stages", False)
         for i, stage in enumerate(stages):
-            lmcheck_status = stage.need_fail_llm_suggestion
-            if lmcheck_status is None:
-                lmcheck_status = f"{default_v}*"
-            if stage.is_skipped():
-                lmcheck_status = "Skipped"
+            lmcheck_status = self.agent.stage_manager.stage_need_llm_fail_suggestion(stage)
             echo(f"[{i}] {lmcheck_status} {stage.title()}")
 
     def do_lmcheck_pset(self, arg):

@@ -397,32 +397,62 @@ class StageManager(object):
         stage = self.get_current_stage()
         if stage is None:
             return error_msg
-        if self.llm_fail_suggestion is None:
-            return error_msg
         try:
             return self.gen_llm_suggestion(
                 error_msg,
                 stage,
                 self.llm_fail_suggestion,
-                stage.need_fail_llm_suggestion,
+                self.stage_need_llm_fail_suggestion,
             )
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate fail suggestion failed: {str(e)}")
             return error_msg
 
+    def is_llm_suggestion_needed(self, stage_name, suggestion_ins, need_llm_suggestion) -> bool:
+        if not suggestion_ins:
+            return False
+        if need_llm_suggestion is not None:
+            return need_llm_suggestion
+        cfg = suggestion_ins.get_cfg()
+        bypass_stages = cfg.get("bypass_stages", [])
+        if bypass_stages:
+            if stage_name in bypass_stages:
+                return False
+        target_stages = cfg.get("target_stages", [])
+        if target_stages:
+            if stage_name not in target_stages:
+                return False
+        return cfg.get("default_apply_all_stages", True)
+
+    def stage_need_llm_pass_suggestion(self, stage) -> bool:
+        if stage is None:
+            return False
+        return self.is_llm_suggestion_needed(
+            stage.name,
+            self.llm_pass_suggestion,
+            stage.need_pass_llm_suggestion,
+        )
+
+    def stage_need_llm_fail_suggestion(self, stage) -> bool:
+        if stage is None:
+            return False
+        return self.is_llm_suggestion_needed(
+            stage.name,
+            self.llm_fail_suggestion,
+            stage.need_fail_llm_suggestion,
+        )
+
     def gen_pass_suggestion(self, raw_msg) -> str:
         stage = self.get_current_stage()
         if stage is None:
-            return raw_msg
-        if self.llm_pass_suggestion is None:
             return raw_msg
         try:
             return self.gen_llm_suggestion(
                 raw_msg,
                 stage,
                 self.llm_pass_suggestion,
-                stage.need_pass_llm_suggestion,
+                self.stage_need_llm_pass_suggestion,
                 pre_llm_cb = lambda: stage.set_approved(False),
             )
         except Exception as e:
@@ -434,27 +464,10 @@ class StageManager(object):
 
     def gen_llm_suggestion(self, raw_msg, stage,
                            suggestion_instance,
-                           need_llm_suggestion,
+                           stage_need_llm_suggestion_fc,
                            pre_llm_cb=None) -> str:
         assert stage is not None, "stage can not be None"
-        if need_llm_suggestion is not None and need_llm_suggestion != True:
-            return raw_msg
-        if not suggestion_instance:
-            return raw_msg
-        # filter stages
-        cfg = suggestion_instance.get_cfg()
-        bypass_stages = cfg.get("bypass_stages", [])
-        if bypass_stages:
-            if stage.name in bypass_stages:
-                return raw_msg
-        target_stages = cfg.get("target_stages", [])
-        if target_stages:
-            if stage.name not in target_stages:
-                return raw_msg
-        # need suggestion
-        if need_llm_suggestion is None:
-            need_llm_suggestion = cfg.get("default_apply_all_stages", True)
-        if need_llm_suggestion != True:
+        if stage_need_llm_suggestion_fc(stage) is False:
             return raw_msg
         if callable(pre_llm_cb):
             pre_llm_cb()
@@ -551,6 +564,8 @@ class StageManager(object):
                 "is_skipped": stage.is_skipped(),
                 "time_cost": stage.get_time_cost_str(),
                 "needs_human_check": stage.is_hmcheck_needed(),
+                "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
+                "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
