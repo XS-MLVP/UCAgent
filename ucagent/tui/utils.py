@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import threading
 import logging
+import threading
 import traceback
 
 from rich.text import Text
@@ -25,8 +25,6 @@ def parse_ansi_to_rich(text: str) -> Text:
 
     # Rich's Text.from_ansi() handles all ANSI codes natively
     return Text.from_ansi(text)
-
-
 
 
 class ConsoleCapture:

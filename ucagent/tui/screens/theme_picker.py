@@ -44,7 +44,7 @@ class ThemePickerScreen(ModalScreen[str | None]):
         self._ready = True
 
     def on_option_list_option_highlighted(
-        self, event: OptionList.OptionHighlighted
+            self, event: OptionList.OptionHighlighted
     ) -> None:
         if not self._ready:
             return
@@ -53,7 +53,7 @@ class ThemePickerScreen(ModalScreen[str | None]):
             self.app.theme = theme_name
 
     def on_option_list_option_selected(
-        self, event: OptionList.OptionSelected
+            self, event: OptionList.OptionSelected
     ) -> None:
         theme_name = self._themes[event.option_index]
         self.dismiss(theme_name)
