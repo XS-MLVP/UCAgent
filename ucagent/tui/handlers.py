@@ -96,7 +96,7 @@ class KeyHandler:
                 error_msg = f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
                 self.app.call_from_thread(console.append_output, error_msg)
 
-        worker = self.app.run_worker(run_command, thread=True, exclusive=True)
+        worker = self.app.run_worker(run_command, thread=True, exclusive=True, group="cmd-exec")
         self._active_worker = worker
         self.app.set_active_command(cmd)
 
@@ -137,7 +137,7 @@ class KeyHandler:
                 console = self.app.query_one("#console", ConsoleWidget)
                 self.app.call_from_thread(console.append_output, complete_msg)
 
-        self.app.run_worker(run_daemon, thread=True)
+        self.app.run_worker(run_daemon, thread=True, group="cmd-daemon")
 
     def _add_to_history(self, cmd: str) -> None:
         """Add command to history."""
