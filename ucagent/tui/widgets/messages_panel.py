@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.widgets import RichLog
 from textual.reactive import reactive
+from textual.widgets import RichLog
 
 from ..utils import parse_ansi_to_rich
 

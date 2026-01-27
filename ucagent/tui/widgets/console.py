@@ -9,8 +9,8 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import RichLog
 
-from ..utils import parse_ansi_to_rich
 from .console_input import ConsoleInput
+from ..utils import parse_ansi_to_rich
 
 
 class ConsoleWidget(Vertical):

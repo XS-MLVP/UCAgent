@@ -8,7 +8,7 @@ from textual import events
 from textual.widgets import Static
 
 if TYPE_CHECKING:
-    from ..app import VerifyApp
+    pass
 
 
 class VerticalSplitter(Static):

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
 import signal
 import sys
+from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 
+from .handlers import KeyHandler
+from .screens import ThemePickerScreen
+from .utils import ConsoleCapture, UIMsgLogger
 from .widgets import (
     TaskPanel,
     StatusPanel,
@@ -20,9 +23,6 @@ from .widgets import (
     VerticalSplitter,
     HorizontalSplitter,
 )
-from .screens import ThemePickerScreen
-from .handlers import KeyHandler
-from .utils import ConsoleCapture, UIMsgLogger
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
@@ -193,7 +193,7 @@ class VerifyApp(App[None]):
             self.theme = theme_name
 
     async def on_console_input_command_submitted(
-        self, event: ConsoleInput.CommandSubmitted
+            self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         """Handle command submission from console."""
         self.run_worker(self.key_handler.process_command(event.command, event.daemon))
@@ -236,7 +236,6 @@ class VerifyApp(App[None]):
         self.vpdb.agent._mcps_logger = self._mcps_logger_prev
         self._restore_sigint_handler()
         self._restore_console_capture()
-
 
     def _install_console_capture(self) -> None:
         if self._console_capture is not None:

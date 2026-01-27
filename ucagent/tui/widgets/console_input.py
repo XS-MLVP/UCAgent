@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
 import textwrap
+from typing import TYPE_CHECKING, ClassVar
 
+from rich.spinner import Spinner
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Key, MouseDown
-from rich.spinner import Spinner
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
