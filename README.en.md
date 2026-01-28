@@ -135,7 +135,10 @@ Default stage checking order: Python Checker -> LLM -> Human
 - `White`: Pending execution
 - `Red`: Currently executing
 - `Green`: Execution passed
-- `*`: Stage requires mandatory human inspection, AI can continue after entering command `hmcheck_pass [msg]`
+- `*`:
+  - Blue indicates LLM Fail checking is enabled for this stage, providing modification suggestions when stage check fails more than 3 times
+  - Green indicates LLM Pass checking is enabled for this stage, verifying if stage task requirements are met upon completion
+  - Red indicates this stage requires mandatory human inspection, AI can continue after entering command `hmcheck_pass [msg]`
 - `Yellow`: Stage skipped
 
 ### Common Interactive Commands
