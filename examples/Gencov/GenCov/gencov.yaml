@@ -1,0 +1,204 @@
+# GenCov 示例配置文件（legacy）
+
+mission:
+  name: "{DUT} Coverage 生成"
+  prompt:
+    system: |
+      你是一名验证工程师，目标是将 HVP 测试点翻译成可实现的功能覆盖率逻辑。
+      输入：HVP、Verilog/RTL、相关说明文档（md）。
+      输出：功能覆盖率 Verilog 文件（含 HVP feature 标签注释）、UVM 适配覆盖封装文件，以及一致性检查报告。
+      过程需拆分为细粒度步骤，便于检查与复用。
+
+mcp_server:
+  init_prompt: >
+    请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件，用`EditTextFile`创建和编辑文件。
+    工作区根目录为 UCAgent 启动时传入的 workspace，所有路径必须使用配置中给出的相对路径（如 {DUT}/spec/...、{OUT}/...），不要使用 ../ 或绝对路径，也不要用 Bash 读文件。
+
+# 禁止直接修改 HVP、RTL、文档与骨架目录
+un_write_dirs:
+  - "{DUT}/spec/"
+  - "{DUT}/rtl/"
+  - "{DUT}/doc/"
+  - "{DUT}/chisel/"
+  - "{DUT}/gencov/"
+
+# 不使用预定义模板
+template: ""
+
+# TUI 界面配置
+tui:
+  task_width: 50
+  console_height: 19
+  status_height: 10
+
+stage:
+  - name: collect_inputs
+    desc: "收集输入与上下文"
+    task:
+      - "阅读 {DUT}/spec/{DUT}_verification_plan.hvp，了解测试点层级结构"
+      - "明确 TOP 模块为 {DUT}，覆盖入口与 IO 以 Verilog 顶层接口为准"
+      - "阅读 {DUT}/chisel 下相关 Scala 源码，理解逻辑功能与时序"
+      - "阅读 {DUT}/doc 下相关说明文档（*.md）并提取关键约束/术语"
+      - "UVM 侧采样方式固定为 virtual interface，并在 {OUT}/{DUT}_io_modport.sv 注释说明"
+    reference_files:
+      - "{DUT}/spec/{DUT}_verification_plan.hvp"
+      - "{DUT}/rtl/**/*.sv"
+      - "{DUT}/chisel/**/*.scala"
+      - "{DUT}/doc/**/*.md"
+
+  - name: hvp_parse
+    desc: "解析 HVP 并抽取测试点"
+    task:
+      - "识别 plan/feature/endfeature 层级"
+      - "抽取所有 feature 标签（例如 CK- 开头），记录层级路径与中文描述"
+      - "输出测试点清单 {OUT}/_tmp/tp_list.yaml（中间产物）"
+    reference_files:
+      - "{DUT}/spec/{DUT}_verification_plan.hvp"
+    output_files:
+      - "{OUT}/_tmp/tp_list.yaml"
+
+  - name: tp_grouping
+    desc: "按接口/功能分组测试点"
+    task:
+      - "根据 {OUT}/_tmp/tp_list.yaml 将测试点按接口/功能分组"
+      - "为每组指定目标覆盖文件与模块边界"
+      - "输出分组结果 {OUT}/_tmp/tp_group.yaml（中间产物）"
+    reference_files:
+      - "{OUT}/_tmp/tp_list.yaml"
+    output_files:
+      - "{OUT}/_tmp/tp_group.yaml"
+
+  - name: signal_inventory
+    desc: "整理 RTL 信号与时序约束"
+    task:
+      - "从 {DUT}/rtl 提取与测试点相关的接口信号（IO 以 Verilog 为准）"
+      - "结合 {DUT}/chisel 理解内部逻辑/时序，记录采样时钟、复位条件、valid/ready 触发关系"
+      - "若接口存在多通道/多指令槽，记录完整索引范围与数量参数（如 INSTR_COUNT）"
+      - "输出带注释的 modport 文件 {OUT}/{DUT}_io_modport.sv，作为唯一信号参考"
+      - "生成 {OUT}/{DUT}_io_modport.sv 时使用 {DUT}/gencov/skeletons/io_modport.sv 作为骨架"
+    reference_files:
+      - "{DUT}/rtl/**/*.sv"
+      - "{DUT}/chisel/**/*.scala"
+      - "{DUT}/gencov/skeletons/io_modport.sv"
+    output_files:
+      - "{OUT}/{DUT}_io_modport.sv"
+
+  - name: tp_to_cov_mapping
+    desc: "建立测试点到覆盖点的映射关系"
+    task:
+      - "基于 {OUT}/{DUT}_io_modport.sv 为每个测试点定义采样条件（iff）与表达式"
+      - "确定 covergroup/coverpoint/cross 名称与归属"
+      - "映射必须覆盖所有索引/通道，禁止只写示例或省略项"
+      - "将分组信息吸收进映射文件，输出 {OUT}/tp_to_cov_map.yaml"
+    reference_files:
+      - "{OUT}/_tmp/tp_group.yaml"
+      - "{OUT}/{DUT}_io_modport.sv"
+    output_files:
+      - "{OUT}/tp_to_cov_map.yaml"
+
+  - name: golden_template
+    desc: "抽象覆盖率代码的 golden 语法骨架"
+    task:
+      - "读取预置骨架文件 {DUT}/gencov/skeletons/fcov.sv 与 {DUT}/gencov/skeletons/fcov_bind.sv（bind 方式）"
+      - "将骨架文件作为输出初稿，保持语法结构不变"
+    reference_files:
+      - "{DUT}/gencov/skeletons/fcov.sv"
+      - "{DUT}/gencov/skeletons/fcov_bind.sv"
+    output_files:
+      - "{OUT}/{DUT}_fcov_bind.sv"
+      - "{OUT}/{DUT}_fcov.sv"
+
+  - name: coverage_skeleton
+    desc: "生成覆盖率代码骨架"
+    task:
+      - "必须遵循 golden_template 阶段生成的 {OUT}/{DUT}_fcov.sv 语法骨架"
+      - "根据 {OUT}/tp_to_cov_map.yaml 生成 covergroup/coverpoint/cross 框架"
+      - "在每个覆盖点上方写入与 HVP feature 一致的标签注释（例如 // CK-NORMAL-FETCH）"
+      - "接口/函数实现必须完整展开，禁止出现 \"...省略\" 或占位实现"
+      - "可优先使用参数化/生成语句（如 INSTR_COUNT、generate）减少重复；若工具不支持则显式展开但不省略"
+      - "输出覆盖率 Verilog 文件 {OUT}/{DUT}_fcov.sv"
+    reference_files:
+      - "{OUT}/{DUT}_fcov.sv"
+      - "{OUT}/tp_to_cov_map.yaml"
+    output_files:
+      - "{OUT}/{DUT}_fcov.sv"
+
+  - name: coverage_refine
+    desc: "完善 bins/cross 与边界条件"
+    task:
+      - "为 coverpoint 增加 bins/ignore_bins/illegal_bins"
+      - "补充 cross 覆盖与必要的过滤条件"
+      - "对每个测试点：实现后立即运行 {DUT}/gencov/check_tp_consistency.py 验证"
+      - "禁止使用批量脚本生成，必须逐点手动实现"
+      - "每个测试点的bins必须有明确的功能含义，禁止简单的0/1 bins（除非测试点本身就是二值）"
+      - "更新 {OUT}/{DUT}_fcov.sv"
+    reference_files:
+      - "{OUT}/{DUT}_fcov.sv"
+    output_files:
+      - "{OUT}/{DUT}_fcov.sv"
+
+  - name: uvm_adapter
+    desc: "生成 UVM 适配覆盖封装"
+    task:
+      - "必须遵循 golden_template 阶段生成的 bind 语法骨架"
+      - "生成可接入 UVM 的覆盖封装文件，目标是让测试点产物可直接集成到 UVM 环境"
+      - "生成 bind 文件 {OUT}/{DUT}_fcov_bind.sv："
+      - "  - 绑定目标模块 {DUT}"
+      - "  - 将 DUT 信号映射到 {DUT}_fcov 端口"
+      - "按 virtual interface 采样方式使用 {OUT}/{DUT}_io_modport.sv 进行连接"
+      - "保持 feature 标签注释与 {OUT}/{DUT}_fcov.sv 一致"
+    reference_files:
+      - "{OUT}/{DUT}_fcov_bind.sv"
+      - "{OUT}/{DUT}_fcov.sv"
+      - "{OUT}/tp_to_cov_map.yaml"
+      - "{OUT}/{DUT}_io_modport.sv"
+    output_files:
+      - "{OUT}/{DUT}_fcov_bind.sv"
+
+  - name: consistency_checker_codegen
+    desc: "一致性脚本（预置）"
+    task:
+      - "使用预置脚本 {DUT}/gencov/check_tp_consistency.py，禁止生成或修改"
+      - "阅读 {DUT}/gencov/check_tp_consistency.py，理解检查规则与输出格式"
+      - "测试点与映射关系由前序阶段产出，此处仅固定规则与使用方式"
+    reference_files:
+      - "{DUT}/gencov/check_tp_consistency.py"
+    output_files: []
+
+  - name: consistency_check
+    desc: "一致性检查（代码方式）"
+    task:
+      - "运行 {DUT}/gencov/check_tp_consistency.py 比较 {DUT}/spec/{DUT}_verification_plan.hvp 与 {OUT}/{DUT}_fcov.sv 的 feature 标签"
+      - "示例：python {DUT}/gencov/check_tp_consistency.py --hvp {DUT}/spec/{DUT}_verification_plan.hvp --cov {OUT}/{DUT}_fcov.sv --out {OUT}/tp_consistency_report.md --pattern \"CK-[A-Z0-9-]+\""
+      - "输出一致性报告 {OUT}/tp_consistency_report.md"
+      - "建议在 {OUT}/{DUT}_fcov.sv 初版生成后先行运行一次，以便尽早暴露问题"
+      - "若脚本返回非零，需回退修正覆盖代码或映射关系后再检查"
+    reference_files:
+      - "{DUT}/spec/{DUT}_verification_plan.hvp"
+      - "{OUT}/{DUT}_fcov.sv"
+      - "{DUT}/gencov/check_tp_consistency.py"
+    output_files:
+      - "{OUT}/tp_consistency_report.md"
+    checker:
+      - name: tp_consistency_check
+        clss: "BashScriptChecker"
+        args:
+          cmd: "python"
+          arguments:
+            - "{DUT}/gencov/check_tp_consistency.py"
+            - "--hvp"
+            - "{DUT}/spec/{DUT}_verification_plan.hvp"
+            - "--cov"
+            - "{OUT}/{DUT}_fcov.sv"
+            - "--out"
+            - "{OUT}/tp_consistency_report.md"
+            - "--pattern"
+            - "CK-[A-Z0-9-]+"
+
+  - name: finalize
+    desc: "收尾与交付"
+    task:
+      - "确认中间产物与 {OUT}/{DUT}_fcov.sv、{OUT}/{DUT}_fcov_bind.sv、{OUT}/{DUT}_io_modport.sv 生成完毕"
+      - "输出交付摘要 {OUT}/hvp_to_coverage_summary.md"
+    output_files:
+      - "{OUT}/hvp_to_coverage_summary.md"
