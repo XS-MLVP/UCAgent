@@ -36,6 +36,10 @@ Sbuffer是一个不能独立存在的模块，它依赖上下游的总线握手�
 
 ### 运行示例
 
+
+#### 以MCP + qwen后端模式运行
+
+
 在仓库主目录运行以下命令：
 
 ```bash
@@ -56,6 +60,39 @@ ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"
 - `BBV=true`: 启用黑盒验证，清空RTL文件内容（RTL代码行数太长时建议开启）
 - `ARGS="--backend=qwen --loop --gen-instruct-file=QWEN.md"`：设置UCagent参数，选用qwen作为后端执行，开启验证 loop并生成Qwen指导文件
 
+
+#### 以API模式运行
+
+1. 创建`~/.API_env`文件：
+```bash
+# 配置 主验证LLM
+export OPENAI_MODEL=glm-4.6                       # 替换为你的LLM名称
+export OPENAI_API_KEY=sk-****************         # 替换为你的key
+export OPENAI_API_BASE=https://apis.iflow.cn/v1   # 替换为您的 API URL
+
+# 自定义环境变量
+export UC_CK_MODEL=qwen3-max                      # 替换为你的LLM名称
+export UC_CK_ENABEL=true
+
+# 配置LLM Check
+export ENABLE_LLM_FAIL_SUGGESTION=$UC_CK_ENABEL
+export FAIL_SUGGESTION_MODEL=$UC_CK_MODEL
+export FAIL_SUGGESTION_API_KEY=$OPENAI_API_KEY
+export FAIL_SUGGESTION_API_BASE=$OPENAI_API_BASE
+
+export ENABLE_LLM_PASS_SUGGESTION=$UC_CK_ENABEL
+export PASS_SUGGESTION_MODEL=$UC_CK_MODEL
+export PASS_SUGGESTION_API_KEY=$OPENAI_API_KEY
+export PASS_SUGGESTION_API_BASE=$OPENAI_API_BASE
+```
+
+2. 导入环境变量然后运行：
+```bash
+# 导入环境变量
+source ~/.API_env
+# 在UCagent主目录运行
+IGNORE_MOCK_COMPONENT=false make test_Sbuffer BBV=true
+```
 
 ### 预期产物
 
