@@ -35,14 +35,6 @@ class ConsoleInputField(Input):
             return False
         return super().check_action(action, parameters)
 
-    async def _on_key(self, event: Key) -> None:
-        if self._is_locked() and event.is_printable:
-            event.prevent_default()
-            event.stop()
-            return
-        await super()._on_key(event)
-
-
 class BusyIndicator(Widget):
     """Busy indicator using a Rich spinner."""
 
@@ -67,6 +59,9 @@ class ConsoleInput(Vertical):
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("shift+left", "clear_input", "Clear input", show=False),
+        # Override Screen's default tab bindings with priority to prevent focus switching
+        Binding("tab", "handle_tab", "Tab", show=False, priority=True),
+        Binding("shift+tab", "handle_shift_tab", "Shift+Tab", show=False, priority=True),
     ]
 
     class CommandSubmitted(Message):
@@ -128,27 +123,18 @@ class ConsoleInput(Vertical):
         self.post_message(self.CommandSubmitted(cmd, daemon))
 
     async def on_key(self, event: Key) -> None:
-        """Handle key events for input behavior."""
+        """Handle key events for input behavior.
+
+        Note: Tab/Shift+Tab are handled by priority bindings (action_handle_tab,
+        action_handle_shift_tab) to prevent Screen's default focus switching.
+        """
         if self.is_busy:
-            if event.key == "tab":
-                self.app.action_focus_next()
-                event.prevent_default()
-                event.stop()
-                return
-            if event.key == "shift+tab":
-                self.app.action_focus_previous()
-                event.prevent_default()
-                event.stop()
-                return
             return
+        # Clear suggestions on any key except tab (tab is handled by binding)
         if event.key != "tab" and self.has_suggestions:
             self.clear_suggestions()
 
-        if event.key == "tab" and self.input_has_focus():
-            self.handle_tab_completion(self.app.key_handler)
-            event.prevent_default()
-            event.stop()
-        elif event.key == "up":
+        if event.key == "up":
             self._handle_history_up()
             event.prevent_default()
             event.stop()
@@ -172,6 +158,20 @@ class ConsoleInput(Vertical):
     def action_clear_input(self) -> None:
         """Clear the input field (binding target)."""
         self.clear_input()
+
+    def action_handle_tab(self) -> None:
+        """Handle Tab key - tab completion when input focused, otherwise focus input."""
+        if self.input_has_focus():
+            if not self.is_busy:
+                self.handle_tab_completion(self.app.key_handler)
+            # When busy, Tab does nothing (prevents accidental focus switch)
+        else:
+            # Focus the input field instead of cycling focus
+            self.focus_input()
+
+    def action_handle_shift_tab(self) -> None:
+        """Handle Shift+Tab key - switch focus to previous widget."""
+        self.app.action_focus_previous()
 
     def set_text(self, text: str, move_cursor: bool = True) -> None:
         """Set input text and optionally move cursor to the end."""

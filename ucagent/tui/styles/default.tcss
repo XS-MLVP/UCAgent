@@ -30,28 +30,10 @@ Screen {
     background-tint: $accent 8%;
 }
 
-/* Right container - status + messages stacked */
+/* Right container - messages stacked */
 #right-container {
     width: 1fr;
     layout: vertical;
-}
-
-/* Status panel - fixed height */
-#status-panel {
-    height: 7;
-    border: solid $primary;
-    border-title-align: center;
-    background: $panel;
-}
-
-#status-panel Static {
-    padding: 0 1;
-}
-
-#status-panel:focus {
-    border: heavy $accent;
-    border-title-color: $accent;
-    background-tint: $accent 8%;
 }
 
 /* Messages panel - fills remaining space */
@@ -84,6 +66,16 @@ Screen {
     border: heavy $accent;
     border-title-color: $accent;
     background-tint: $accent 8%;
+}
+
+/* Status bar - bottom */
+#status-bar {
+    height: 1;
+    padding: 0 1;
+    background: $surface;
+    color: $text;
+    content-align: left middle;
+    overflow: hidden;
 }
 
 #console-output {
@@ -215,8 +207,6 @@ ScrollBar > .scrollbar--bar-hover {
 
 .splitter.horizontal {
     height: 1;
-    min-height: 1;
-    max-height: 1;
     padding: 0;
     margin: 0;
     background: $background;
