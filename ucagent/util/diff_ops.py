@@ -71,6 +71,23 @@ def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]
     """
     try:
         repo = git.Repo(path)
+        # Check and set default git user config if not configured
+        config_reader = repo.config_reader()
+        try:
+            user_name = config_reader.get_value("user", "name")
+        except:
+            user_name = None
+        try:
+            user_email = config_reader.get_value("user", "email")
+        except:
+            user_email = None
+        # Set default values if not configured
+        config_writer = repo.config_writer()
+        if not user_name:
+            config_writer.set_value("user", "name", "UCAgent")
+        if not user_email:
+            config_writer.set_value("user", "email", "ucagent@localhost")
+        config_writer.release()
         if target_suffix_list == ["*"]:
             repo.git.add(all=True)
         else:
@@ -275,3 +292,38 @@ def get_git_log(path: str, max_count: int = 3) -> list[str]:
         return repo.git.log(f'-n {max_count}', '-p')
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
+
+
+def get_diff_report(git_path: str, file_path: str = None,
+                    show_diff: bool = False,
+                    start_line = 1, line_count = -1,
+                    max_line_limit = 500) -> str:
+    repo = git.Repo(git_path)
+    changed_files = [item.a_path for item in repo.index.diff(None, paths=file_path)]
+    untracked_files = repo.untracked_files
+    if not changed_files and not untracked_files:
+        return "No changes detected in the workspace."
+    result = "Changes detected in the workspace:\n"
+    if changed_files:
+        result += "\nModified files:\n" + "\n".join(changed_files) + "\n"
+    if untracked_files:
+        result += "\nUntracked files:\n" + "\n".join(untracked_files) + "\n"
+    # detail diff output
+    if show_diff and changed_files:
+        result += "\n----------------------- Detailed diff output: -----------------------\n"
+        for dfile in changed_files:
+            file_diff = repo.git.diff(dfile)
+            result += f"\nDiff for {dfile}:\n{file_diff}\n"
+        result += "----------------------- End of Detailed diff  -----------------------\n"
+    # line range
+    if start_line > 1 or line_count >= 0:
+        txt = result.splitlines(keepends=True)
+        pos_start = max(0, start_line-1)
+        pos_end = None if line_count < 0 else pos_start + line_count
+        txt = txt[pos_start:pos_end]
+        if len(txt) > max_line_limit:
+            delta_lines = len(txt) - max_line_limit
+            txt = txt[:max_line_limit]
+            txt.append(f"\n[Output truncated to {max_line_limit} lines ({delta_lines} lines omitted)]\n")
+        result = "".join(txt)
+    return result

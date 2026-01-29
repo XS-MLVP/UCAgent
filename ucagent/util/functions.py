@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import copy
+import shutil
 import socket
 import stat
 from ucagent.util.log import info, warning
@@ -272,6 +273,7 @@ def load_json_file(path: str):
         except Exception as e:
             raise RuntimeError(f"Unexpected error while loading JSON file {json_file}: {e}")
 
+
 def save_json_file(path: str, data):
     """
     Save data to a JSON file at the specified path.
@@ -301,6 +303,7 @@ def get_abs_path_cwd_ucagent(workspace, path):
         os.makedirs(ucagent_path)
     return os.path.abspath(ucagent_path + os.sep + path)
 
+
 def save_ucagent_info(workspace, info: dict):
     """
     Save UCAgent information to a JSON file in the workspace.
@@ -310,6 +313,7 @@ def save_ucagent_info(workspace, info: dict):
     assert os.path.exists(workspace), f"Workspace {workspace} does not exist."
     info_path = get_abs_path_cwd_ucagent(workspace, "ucagent_info.json")
     save_json_file(info_path, info)
+
 
 def load_ucagent_info(workspace) -> dict:
     """
@@ -323,6 +327,7 @@ def load_ucagent_info(workspace) -> dict:
     if not os.path.exists(info_path):
         return {}
     return load_json_file(info_path)
+
 
 def load_toffee_report(result_json_path: str, workspace: str, run_test_success: bool, return_all_checks: bool) -> dict:
     """
@@ -2041,3 +2046,79 @@ def get_xml_tag_list(workspace, xml_file, tag_name: str) -> list:
     for elem in root.iter(tag_name):
         ret.append(elem.text.strip())
     return ret
+
+
+def match_pattern_list(name: str, pattern_list: list) -> bool:
+    """Check if the name matches any pattern in the pattern list."""
+    for pattern in pattern_list:
+        if "*" in pattern:
+            if fnmatch.fnmatch(name, pattern):
+                return True
+        else:
+            if pattern in name:
+                return True
+    return False
+
+
+def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
+    """Sync source directory to target directory with incremental updates and deletion support.
+
+    Args:
+        source_dir: Source directory path
+        target_dir: Target directory path
+        ignore_pattern_list: List of patterns to ignore during sync
+
+    Returns:
+        target_dir: The target directory path
+
+    Features:
+        - Only copies files if they don't exist in target or have newer modification time
+        - Removes files/directories in target that don't exist in source
+        - Recursively syncs subdirectories
+    """
+    if not os.path.exists(source_dir):
+        raise Exception(f"Source directory '{source_dir}' does not exist.")
+    if not os.path.isdir(source_dir):
+        raise Exception(f"Source path '{source_dir}' is not a directory.")
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
+    # Track items in source (excluding ignored ones)
+    source_items = set()
+    # Sync items from source to target
+    for item in os.listdir(source_dir):
+        if match_pattern_list(item, ignore_pattern_list):
+            continue
+        source_items.add(item)
+        s = os.path.join(source_dir, item)
+        d = os.path.join(target_dir, item)
+        if os.path.isdir(s):
+            # Recursively sync subdirectories
+            sync_dir_to(s, d, ignore_pattern_list)
+        else:
+            # Check if file needs to be copied
+            need_copy = False
+            if not os.path.exists(d):
+                need_copy = True
+                info(f"New file to copy: {item}")
+            else:
+                # Compare modification times
+                source_mtime = os.path.getmtime(s)
+                target_mtime = os.path.getmtime(d)
+                if source_mtime > target_mtime:
+                    need_copy = True
+                    info(f"Updated file to copy: {item}")
+            if need_copy:
+                shutil.copy2(s, d)
+    # Remove items in target that don't exist in source
+    for item in os.listdir(target_dir):
+        if match_pattern_list(item, ignore_pattern_list):
+            continue
+        if item not in source_items:
+            d = os.path.join(target_dir, item)
+            if os.path.isdir(d):
+                shutil.rmtree(d)
+                info(f"Removed directory from target: {item}")
+            else:
+                os.remove(d)
+                info(f"Removed file from target: {item}")
+    return target_dir

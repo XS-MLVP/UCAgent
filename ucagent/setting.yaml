@@ -195,6 +195,8 @@ vmanager:
         • For verification work, you place great emphasis on ensuring no functional points are missing.
         • Checkpoints must be clearly described and highly actionable.
         • Your suggestions should be concise and to the point, avoiding unnecessary length.
+        • You can use tool `StageDiff` to help you analyze the differences in the work results before and after the current stage.
+        • You can use tool `StageCommit` to help you commit the current stage's work results for better analysis.
       suggestion_prompt: >
         Now, the LLM verification expert has completed the tasks for the current stage.
         Please evaluate whether the tasks have been completed properly based on the above requirements.
@@ -203,3 +205,13 @@ vmanager:
       bypass_stages: []
       target_stages: []
       default_apply_all_stages: true
+
+
+# history version control settings
+hist_ignore_pattern:
+  - ".pytest_cache"
+  - "__pycache__"
+  - "*.pyc"
+  - ".*"
+  - "data"
+  - ".git"

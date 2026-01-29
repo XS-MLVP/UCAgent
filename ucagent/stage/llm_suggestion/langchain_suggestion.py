@@ -206,9 +206,10 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
             self.mem_saver.delete_thread(self.get_thread_id())
         # current_task + test_info
         task_info, test_info = make_llm_tool_ret(prompts[0]), make_llm_tool_ret(prompts[1])
-        user_text = "Task Information:\n<task>\n" + task_info + \
-                    "\n</task>\n\nTest Information:\n<report>\n" + test_info + \
-                    "\n</report>\n\n" + \
+        stage_diff = vstage.hist_diff()
+        user_text = "Task Information:\n<task>\n" + task_info +"\n</task>\n\n"+ \
+                    "Test Information:\n<report>\n" + test_info + "\n</report>\n\n" + \
+                    "Diff Information:\n<stagediff>\n" + stage_diff + "\n</stagediff>\n\n" + \
                     self.suggestion_prompt
         messages = [
             ("system", self.system_prompt),

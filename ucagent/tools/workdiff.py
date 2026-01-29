@@ -16,6 +16,8 @@ class ArgsWorkDiff(BaseModel):
     """Arguments for workdiff tool"""
     file_path: str = Field(".", description="The file path to check for differences, default is current workspace directory. Supports glob patterns.")
     show_diff: bool = Field(False, description="Whether to show detailed diff output, default is False")
+    start_line: int = Field(1, description="The starting line number for diff output, default is 1")
+    line_count: int = Field(-1, description="The number of lines to show in the diff output, default is -1 (show all lines)")
 
 
 class WorkDiff(UCTool):
@@ -26,6 +28,7 @@ class WorkDiff(UCTool):
         "Check for differences in workspace files using Git. "
         "This tool identifies uncommitted changes, modified files, and untracked files in the specified directory. "
         "Use this tool to ensure that all changes are accounted for before proceeding with further actions."
+        "Max lines of diff output is limited, if reading large diffs, consider adjusting start_line and line_count with multiple calls."
     )
     args_schema: Optional[ArgsSchema] = ArgsWorkDiff
     workspace: str = Field(str, description="The workspace directory to check for differences")
@@ -38,6 +41,8 @@ class WorkDiff(UCTool):
         self,
         file_path: str = ".",
         show_diff: bool = False,
+        start_line: int = 1,
+        line_count: int = -1,
         run_manager=None,
     ) -> str:
         """Run the workdiff tool."""
@@ -49,24 +54,7 @@ class WorkDiff(UCTool):
         if not diff_ops.is_git_repo(self.workspace):
             info(f"Workspace {self.workspace} is not a Git repository.")
             return f"The workspace is not a Git repository."
-        repo = diff_ops.git.Repo(self.workspace)
-        changed_files = [item.a_path for item in repo.index.diff(None, paths=file_path)]
-        untracked_files = repo.untracked_files
-        if not changed_files and not untracked_files:
-            return "No changes detected in the workspace."
-        result = "Changes detected in the workspace:\n"
-        if changed_files:
-            result += "\nModified files:\n" + "\n".join(changed_files) + "\n"
-        if untracked_files:
-            result += "\nUntracked files:\n" + "\n".join(untracked_files) + "\n"
-        # detail diff output
-        if show_diff and changed_files:
-            result += "\n----------------------- Detailed diff output: -----------------------\n"
-            for dfile in changed_files:
-                file_diff = repo.git.diff(dfile)
-                result += f"\nDiff for {dfile}:\n{file_diff}\n"
-            result += "----------------------- End of Detailed diff  -----------------------\n"
-        return result
+        return diff_ops.get_diff_report(self.workspace, rpath, show_diff=show_diff, start_line=start_line, line_count=line_count)
 
 
 class ArgsWorkCommit(BaseModel):

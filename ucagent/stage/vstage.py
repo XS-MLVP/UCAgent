@@ -2,16 +2,21 @@
 """Verification stage management for UCAgent."""
 
 from ucagent.util.functions import import_class_from_str, find_files_by_pattern
+import ucagent.util.functions as fc
+import ucagent.util.diff_ops as diff_ops
 from ucagent.util.log import info, warning
 from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
 import copy
 import time
+import os
+
 
 def update_dict(d, u):
     d.update(u)
     return d
+
 
 def convert_task_form_cfg(data):
     if isinstance(data, Config):
@@ -95,12 +100,48 @@ class VerifyStage(object):
         self.llm_approved = True
         self.is_batch_success = False # set True when reset continue_fail_count due to batch success
         self.meta_data = {}
+        # history version control
+        self.hist_src_dir = cfg._temp_cfg["OUT"]
+        self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
+        self.hist_tgt_dir = os.path.join(self.hist_sav_dir, self.hist_src_dir)
+        self.hist_ign_list = cfg.hist_ignore_pattern
 
     def meta_set_journal(self, journal):
         self.meta_data['journal'] = journal
 
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
+
+    def hist_init(self):
+        if not os.path.exists(self.hist_sav_dir):
+            os.makedirs(self.hist_sav_dir, exist_ok=True)
+        diff_ops.init_git_repo(self.hist_sav_dir, ignore_existing=True)
+        self.hist_sync()
+        self.hist_commit(msg="Initial commit for history version control.")
+
+    def hist_sync(self):
+        src_path = os.path.abspath(self.workspace + os.path.sep + self.hist_src_dir)
+        if not os.path.exists(src_path):
+            info(f"[{self.__class__.__name__}] History sync: source dir {self.hist_src_dir} does not exist, skip sync.")
+            return
+        fc.sync_dir_to(src_path,
+                       self.hist_tgt_dir,
+                       self.hist_ign_list)
+
+    def hist_commit(self, msg="Auto commit"):
+        self.hist_sync()
+        info(f"[{self.__class__.__name__}] History commit: {msg}")
+        diff_ops.git_add_and_commit(self.hist_sav_dir, self.title_short() + ":\n\n" + msg)
+
+    def hist_diff(self, target_file=".", show_diff=False,
+                  start_line=1, line_count=-1, max_line_limit=500):
+        self.hist_sync()
+        return diff_ops.get_diff_report(self.hist_sav_dir,
+                                        target_file,
+                                        show_diff=show_diff,
+                                        start_line=start_line,
+                                        line_count=line_count,
+                                        max_line_limit=max_line_limit)
 
     def add_reference_files(self, files):
         for f in find_files_by_pattern(self.workspace, files):
@@ -117,6 +158,7 @@ class VerifyStage(object):
         if self.time_end is not None:
             return
         self.time_end = time.time()
+        self.hist_commit(msg="Stage completed.")
 
     def set_approved(self, approved: bool):
         self.llm_approved = approved
@@ -366,6 +408,12 @@ class VerifyStage(object):
         if self.prefix:
             tname = self.prefix + "-" + tname
         return tname
+
+    def title_short(self):
+        tshort = f"{self.name}"
+        if self.prefix:
+            tshort = self.prefix + "-" + tshort
+        return tshort
 
     def detail(self):
         return OrderedDict({

@@ -1452,6 +1452,47 @@ class VerifyPDB(Pdb):
         """
         return self.api_complite_workspace_file(text)
 
+    def do_stage_diff(self, arg):
+        """
+        Show the diff of the current stage.
+        args:
+            [target_file, default .] [show_diff(true|false, default false)]
+        """
+        arg = arg.strip()
+        target_file = "."
+        show_diff = False
+        parts = arg.split()
+        if len(parts) >= 1:
+            target_file = parts[0]
+        if len(parts) >= 2:
+            show_diff = parts[1].lower() == "true"
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        diff = stage.hist_diff(
+            target_file=target_file,
+            show_diff=show_diff,
+        )
+        message(diff)
+
+    def do_stage_commit(self, arg):
+        """
+        Commit the changes of the current stage.
+        args:
+            <commit_message, not empty>
+        """
+        arg = arg.strip()
+        if not arg:
+            echo_y("Usage: stage_commit <commit_message>")
+            return
+        stage = self.agent.stage_manager.get_current_stage()
+        if stage is None:
+            echo_r("No current stage available.")
+            return
+        stage.hist_commit(arg)
+        echo_g("Stage changes committed.")
+
     def do_quit(self, arg):
         """
         Quit the debugger.

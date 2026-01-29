@@ -131,6 +131,53 @@ class ToolSetCurrentStageJournal(ManagerTool):
             return "Journal content cannot be empty."
         return self.function(journal)
 
+
+class ArgStageDiff(BaseModel):
+    target_file: str = Field(".", description="The target file or path to get diff, default is current workspace directory.")
+    show_detail: bool = Field(False, description="Whether to show detailed diff output, default is False.")
+    start_line: int = Field(1, description="The starting line number for diff output, default is 1")
+    line_count: int = Field(-1, description="The number of lines to show in the diff output, default is -1 (show all lines)")
+
+
+class ToolStageDiff(ManagerTool):
+    """Retrieve the differences between the current file and the file at the last `StageCommit`."""
+    name: str = "StageDiff"
+    description: str = (
+        "Get the differences between the current file and the file at the last `StageCommit`. \n"
+        "This tool helps you to identify changes made since the last commit in the current stage. \n"
+        "Use this tool to review modifications before proceeding with further actions. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStageDiff
+    def _run(self, target_file: str = ".",
+             show_detail: bool = False,
+             start_line: int = 1,
+             line_count: int = -1,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        return self.function(target_file, show_detail, start_line, line_count)
+
+
+class ArgStageCommit(BaseModel):
+    commit_message: str = Field(..., description="The commit message for the changes in the current stage.")
+
+
+class ToolStageCommit(ManagerTool):
+    """Commit current stage changes."""
+    name: str = "StageCommit"
+    description: str = (
+        "Commit current stage changes. \n"
+        "This tool records your progress and changes made during the current stage. \n"
+        "Use this tool to ensure that all modifications are saved before proceeding with further actions. \n"
+        "When called this tool, all changes in the current stage will be committed with the provided commit message and "
+        "you cannot undo this action. \n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgStageCommit
+    def _run(self, commit_message: str = "",
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not commit_message:
+            return "Commit message cannot be empty."
+        return self.function(commit_message)
+
+
 class ArgStdCheck(BaseModel):
     lines: int = Field(
         default=-1,
@@ -380,8 +427,11 @@ class StageManager(object):
         self.llm_pass_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_pass_refinement,
             self,
-            self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve)]
+            self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve),
+                                      ToolStageDiff().set_function(self.tool_stage_diff),
+                                      ToolStageCommit().set_function(self.tool_stage_commit)]
         )
+        self.stages[self.stage_index].hist_init()
 
     def is_break(self):
         return self.agent.is_break()
@@ -392,6 +442,19 @@ class StageManager(object):
             return "No current stage available."
         vstage.set_approved(pass_or_not)
         return f"Stage '{vstage.name}' approved status set to {pass_or_not}."
+
+    def tool_stage_diff(self, target_file, show_detail, start_line, line_count) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        return vstage.hist_diff(target_file, show_detail, start_line, line_count)
+
+    def tool_stage_commit(self, commit_message) -> str:
+        vstage = self.get_current_stage()
+        if vstage is None:
+            return "No current stage available."
+        vstage.hist_commit(commit_message)
+        return f"Stage '{vstage.name}' changes committed."
 
     def gen_fail_suggestion(self, error_msg) -> str:
         stage = self.get_current_stage()
