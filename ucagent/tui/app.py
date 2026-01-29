@@ -16,13 +16,14 @@ from .screens import ThemePickerScreen
 from .utils import ConsoleCapture, UIMsgLogger
 from .widgets import (
     TaskPanel,
-    StatusPanel,
+    StatusBar,
     MessagesPanel,
     ConsoleWidget,
     ConsoleInput,
     VerticalSplitter,
     HorizontalSplitter,
 )
+from .widgets.splitter import _clamp_split_value
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
@@ -36,12 +37,16 @@ class VerifyApp(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
+        Binding("ctrl+shift+left", "split_left", "Split left", show=False, priority=True),
+        Binding("ctrl+shift+right", "split_right", "Split right", show=False, priority=True),
+        Binding("ctrl+shift+up", "split_up", "Split up", show=False, priority=True),
+        Binding("ctrl+shift+down", "split_down", "Split down", show=False, priority=True),
     ]
 
     # Reactive properties for dynamic layout
     task_width: reactive[int] = reactive(84)
     console_height: reactive[int] = reactive(13)
-    status_height: reactive[int] = reactive(7)
+    _split_step: int = 2
 
     def __init__(self, vpdb: "VerifyPDB") -> None:
         super().__init__()
@@ -91,11 +96,10 @@ class VerifyApp(App[None]):
                 yield TaskPanel(id="task-panel")
                 yield VerticalSplitter("task_width", id="split-task", classes="splitter vertical")
                 with Vertical(id="right-container"):
-                    yield StatusPanel(id="status-panel")
-                    yield HorizontalSplitter("status_height", id="split-status", classes="splitter horizontal")
                     yield MessagesPanel(id="messages-panel")
             yield HorizontalSplitter("console_height", invert=True, id="split-console", classes="splitter horizontal")
             yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
+            yield StatusBar(id="status-bar")
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
@@ -103,7 +107,6 @@ class VerifyApp(App[None]):
         cfg = self.vpdb.agent.cfg
         self.task_width = cfg.get_value("tui.task_width", 84)
         self.console_height = cfg.get_value("tui.console_height", 13)
-        self.status_height = cfg.get_value("tui.status_height", 7)
         # Set message echo handler
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
@@ -142,7 +145,7 @@ class VerifyApp(App[None]):
         """Periodic UI update callback."""
         self.flush_console_output()
         self.update_task_panel()
-        self.update_status_panel()
+        self.update_status_bar()
         console = self.query_one("#console", ConsoleWidget)
         console.refresh_prompt()
 
@@ -151,11 +154,10 @@ class VerifyApp(App[None]):
         task_panel = self.query_one("#task-panel", TaskPanel)
         task_panel.update_content(self.vpdb, self.daemon_cmds)
 
-    def update_status_panel(self) -> None:
-        """Update status panel content."""
-        status_panel = self.query_one("#status-panel", StatusPanel)
-        layout_info = (self.task_width, self.console_height, self.status_height)
-        status_panel.update_content(self.vpdb, layout_info)
+    def update_status_bar(self) -> None:
+        """Update bottom status bar content."""
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.update_content(self.vpdb)
 
     def _process_batch_commands(self) -> None:
         """Process batch commands from init_cmd."""
@@ -191,6 +193,26 @@ class VerifyApp(App[None]):
             return
         if theme_name in self.available_themes:
             self.theme = theme_name
+
+    def action_split_left(self) -> None:
+        """Move vertical splitter left (shrink task panel)."""
+        new_value = _clamp_split_value("task_width", self.task_width - self._split_step)
+        self.task_width = new_value
+
+    def action_split_right(self) -> None:
+        """Move vertical splitter right (expand task panel)."""
+        new_value = _clamp_split_value("task_width", self.task_width + self._split_step)
+        self.task_width = new_value
+
+    def action_split_up(self) -> None:
+        """Move horizontal splitter up (expand console)."""
+        new_value = _clamp_split_value("console_height", self.console_height + self._split_step)
+        self.console_height = new_value
+
+    def action_split_down(self) -> None:
+        """Move horizontal splitter down (shrink console)."""
+        new_value = _clamp_split_value("console_height", self.console_height - self._split_step)
+        self.console_height = new_value
 
     async def on_console_input_command_submitted(
             self, event: ConsoleInput.CommandSubmitted

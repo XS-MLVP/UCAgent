@@ -52,7 +52,7 @@ class VerticalSplitter(Static):
 
     def _refresh_line(self) -> None:
         height = max(1, self.size.height)
-        self.update("\n".join(["|"] * height))
+        self.update("\n".join([" "] * height))
 
 
 class HorizontalSplitter(Static):
@@ -99,7 +99,7 @@ class HorizontalSplitter(Static):
 
     def _refresh_line(self) -> None:
         width = max(1, self.size.width)
-        self.update("-" * width)
+        self.update(" " * width)
 
 
 def _clamp_split_value(target: str, value: int) -> int:
