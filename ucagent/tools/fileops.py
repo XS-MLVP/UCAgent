@@ -4,7 +4,7 @@
 from typing import Optional, List, Tuple
 from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
 from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from, rm_workspace_prefix
-from ucagent.util.functions import get_diff
+from ucagent.util.functions import get_diff, match_pattern_list
 from .uctool import UCTool
 
 from langchain_core.callbacks import (
@@ -210,6 +210,8 @@ class SearchText(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgSearchText
     return_direct: bool = False
+    ignore_hidden: bool = True
+    ignore_pattern_list: list[str] = []
 
     def _run(self, pattern: str, directory: str = "", max_match_lines: int = 20, max_match_files: int = 10,
              use_regex: bool = False, case_sensitive: bool = False, include_line_numbers: bool = True,
@@ -290,7 +292,16 @@ class SearchText(UCTool, BaseReadWrite):
                 return str_error(msg)
             info(f"Searching for text '{pattern}' in {real_path}")
             for root, _, files in os.walk(real_path):
+                if self.ignore_hidden:
+                    if any(part.startswith('.') for part in os.path.relpath(root, self.workspace).split(os.sep)):
+                        continue
+                if match_pattern_list(os.path.relpath(root, self.workspace), self.ignore_pattern_list):
+                    continue
                 for file in files:
+                    if self.ignore_hidden and file.startswith('.'):
+                        continue
+                    if match_pattern_list(os.path.join(os.path.relpath(root, self.workspace), file), self.ignore_pattern_list):
+                        continue
                     file_path = os.path.join(root, file)
                     if not is_text_file(file_path):
                         continue
@@ -308,10 +319,14 @@ class SearchText(UCTool, BaseReadWrite):
             self.do_callback(False, directory, None)
         return str_error(f"No matches found for '{pattern}' in the specified directory({directory if directory else '.'}).")
 
-    def __init__(self, workspace: str, **kwargs):
+    def __init__(self, workspace: str, ignore_hidden: bool = True,
+                 ignore_pattern_list: list[str] = [".git/*", "*/data/*", ".ucagent/*", "uc_test_report/*", "*.dat", "*.fst"],
+                 **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace)
+        self.ignore_hidden = ignore_hidden
+        self.ignore_pattern_list = ignore_pattern_list
         info(f"SearchText tool initialized with workspace: {self.workspace}")
 
 
