@@ -49,6 +49,7 @@ stage:
             - ["{DUT}/*", "!{DUT}/__init__.py", "!{DUT}/{DUT}.v", "!{DUT}/*.md"]
             - ["data", "uc_test_report", "*.json", "*.ini", "{DUT}.ignore"]
             - ["*.fst", "*.dat", "*.vcd", "*.bin", "*.log", "*.tmp", "*.pyc", ]
+            - [".ucagent/*"]
 
   - name: update_task_and_plan
     desc: "更新验证计划"
