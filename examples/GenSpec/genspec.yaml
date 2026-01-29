@@ -208,6 +208,10 @@ stage:
           - "用<FC-功能名>标签标记每个功能"
           - "确保覆盖该组的所有功能"
           - "例如：基础运算组可包含<FC-ADD>加法，<FC-ZERO>零值处理等"
+          - "重要："
+          - " - 功能点要具体，不能过于笼统"
+          - " - 功能点要可测试，确保能通过测试用例验证"
+          - " - 如果功能点复杂，需要在该分组标记结束后，再次针对每个复杂功能点利用<FG-*>, <FC-*>, <CK-*>进行单独细化"
         checker:
           - name: function_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -222,6 +226,9 @@ stage:
           - "检测点要包含：正常情况、边界条件、异常情况"
           - "标签独立成行，与标题用空行分隔"
           - "完成完整的功能分析文档"
+          - "重要："
+          - " - 检查点要具体，不能过于笼统"
+          - " - 检查点要可测试，确保能通过测试用例验证"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
