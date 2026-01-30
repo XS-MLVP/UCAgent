@@ -109,7 +109,7 @@ class TaskPanel(VerticalScroll):
         return lines
 
     def _format_check_tag(self, vpdb: "VerifyPDB", stage: dict) -> str:
-        from ucagent.util.log import L_BLUE, L_GREEN, L_RED, RESET
+        from ucagent.util.log import L_BLUE, L_GREEN, L_RED
 
         raw = vpdb.api_get_check_tag(stage)
         has_fail = L_BLUE in raw
@@ -122,9 +122,9 @@ class TaskPanel(VerticalScroll):
             return f"[{use_color}]*[/{use_color}]"
 
         return (
-            star("$text-warning", has_fail)
-            + star("$text-success", has_pass)
-            + star("$text-error", has_human)
+                star("$text-warning", has_fail)
+                + star("$text-success", has_pass)
+                + star("$text-error", has_human)
         )
 
     def _update_changed_files(self, vpdb: "VerifyPDB") -> None:

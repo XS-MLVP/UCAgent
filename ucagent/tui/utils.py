@@ -4,27 +4,10 @@ from __future__ import annotations
 
 import logging
 import threading
-import traceback
+from typing import TYPE_CHECKING
 
-from rich.text import Text
-
-
-def parse_ansi_to_rich(text: str) -> Text:
-    """Parse ANSI escape sequences and convert to Rich Text.
-
-    Uses Rich's built-in ANSI parsing for better compatibility and performance.
-
-    Args:
-        text: String potentially containing ANSI escape codes
-
-    Returns:
-        Rich Text object with proper styling
-    """
-    if not text:
-        return Text()
-
-    # Rich's Text.from_ansi() handles all ANSI codes natively
-    return Text.from_ansi(text)
+if TYPE_CHECKING:
+    from .app import VerifyApp
 
 
 class ConsoleCapture:
@@ -56,35 +39,38 @@ class ConsoleCapture:
         return False
 
 
-class UIMsgLogger(logging.Logger):
-    """Logger that forwards messages into the TUI message panel."""
+class UILogHandler(logging.Handler):
+    """Logging handler that forwards messages to the TUI message panel."""
 
-    def __init__(self, ui, level=logging.INFO):
-        super().__init__(name="UIMsgLogger", level=level)
+    def __init__(self, ui: "VerifyApp", level: int = logging.INFO) -> None:
+        super().__init__(level)
         self.ui = ui
+        self.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
 
-    def log(self, level, msg, *args, **kwargs):
-        self.ui.message_echo(f"[{logging.getLevelName(level)}] {msg % args if args else msg}")
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            self.ui.message_echo(msg)
+        except Exception:
+            self.handleError(record)
 
-    def debug(self, msg, *args, **kwargs):
-        self.log(logging.DEBUG, msg, *args, **kwargs)
 
-    def info(self, msg, *args, **kwargs):
-        self.log(logging.INFO, msg, *args, **kwargs)
+def create_ui_logger(ui: "VerifyApp", level: int | str = logging.INFO) -> logging.Logger:
+    """Create a logger that forwards messages to the TUI.
 
-    def warning(self, msg, *args, **kwargs):
-        self.log(logging.WARNING, msg, *args, **kwargs)
+    Args:
+        ui: The VerifyApp instance.
+        level: Logging level (int or string like "INFO").
 
-    def warn(self, msg, *args, **kwargs):
-        self.warning(msg, *args, **kwargs)
+    Returns:
+        Configured Logger instance.
+    """
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
 
-    def error(self, msg, *args, **kwargs):
-        self.log(logging.ERROR, msg, *args, **kwargs)
-
-    def critical(self, msg, *args, **kwargs):
-        self.log(logging.CRITICAL, msg, *args, **kwargs)
-
-    def exception(self, msg, *args, exc_info=True, **kwargs):
-        self.error(msg, *args, **kwargs)
-        if exc_info:
-            traceback.print_exc()
+    logger = logging.getLogger(f"UCAgent.TUI.{id(ui)}")
+    logger.setLevel(level)
+    logger.handlers.clear()
+    logger.addHandler(UILogHandler(ui, level))  # type: ignore[arg-type]
+    logger.propagate = False
+    return logger

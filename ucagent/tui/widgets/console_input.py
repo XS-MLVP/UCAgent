@@ -16,6 +16,8 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
+from ..completion import CompletionHandler
+
 if TYPE_CHECKING:
     from ucagent.tui.handlers import KeyHandler
 
@@ -35,6 +37,7 @@ class ConsoleInputField(Input):
         if self._is_locked():
             return None
         return super().check_action(action, parameters)
+
 
 class BusyIndicator(Widget):
     """Busy indicator using a Rich spinner."""
@@ -81,10 +84,9 @@ class ConsoleInput(Vertical):
         self._page_mode: bool = False
         self._suggestions_visible: bool = False
         self._suggestions_text: str = ""
-        self._completion_items: list[str] = []
-        self._completion_index: int = -1
-        self._completion_base: str = ""
+        self._completion = CompletionHandler()
         self._busy_command: str | None = None
+        self._programmatic_change: bool = False  # Flag to skip clearing on programmatic changes
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
@@ -126,6 +128,14 @@ class ConsoleInput(Vertical):
 
         self.post_message(self.CommandSubmitted(cmd, daemon))
 
+    def on_input_changed(self, _event: Input.Changed) -> None:
+        """Clear suggestions when input text changes (e.g., user types space)."""
+        if self._programmatic_change:
+            self._programmatic_change = False
+            return
+        if self.has_suggestions:
+            self.clear_suggestions()
+
     async def on_key(self, event: Key) -> None:
         """Handle key events for input behavior.
 
@@ -134,9 +144,6 @@ class ConsoleInput(Vertical):
         """
         if self.is_busy:
             return
-        # Clear suggestions on any key except tab (tab is handled by binding)
-        if event.key != "tab" and self.has_suggestions:
-            self.clear_suggestions()
 
         if event.key == "up":
             self._handle_history_up()
@@ -179,6 +186,7 @@ class ConsoleInput(Vertical):
 
     def set_text(self, text: str, move_cursor: bool = True) -> None:
         """Set input text and optionally move cursor to the end."""
+        self._programmatic_change = True
         input_widget = self.query_one("#console-input", Input)
         input_widget.value = text
         if move_cursor:
@@ -189,33 +197,18 @@ class ConsoleInput(Vertical):
         input_widget = self.query_one("#console-input", Input)
         current_text = input_widget.value
 
-        if self._completion_items and self._suggestions_visible:
-            self._completion_index = (self._completion_index + 1) % len(self._completion_items)
-            selected = self._completion_items[self._completion_index]
-            self.set_text(self._completion_base + selected)
-            self.show_suggestions(self._completion_items, selected_index=self._completion_index)
-            return
+        is_cycling = self._completion.state.has_items and self._suggestions_visible
+        new_text, suggestions, selected_index = self._completion.handle_tab(
+            current_text, key_handler, is_cycling
+        )
 
-        completions = key_handler.complete_command(current_text)
+        if new_text is not None:
+            self.set_text(new_text)
 
-        if not completions:
+        if suggestions:
+            self.show_suggestions(suggestions, selected_index=selected_index)
+        else:
             self.clear_suggestions()
-            self._reset_completion_state()
-            return
-
-        if len(completions) == 1:
-            prefix = current_text[: current_text.rfind(" ") + 1] if " " in current_text else ""
-            self.set_text(prefix + completions[0])
-            self.clear_suggestions()
-            self._reset_completion_state()
-            return
-
-        base = current_text[: current_text.rfind(" ") + 1] if " " in current_text else ""
-        self._completion_items = completions
-        self._completion_index = 0
-        self._completion_base = base
-        self.set_text(base + completions[0])
-        self.show_suggestions(completions, selected_index=self._completion_index)
 
     def _handle_history_up(self) -> None:
         """Handle up arrow for command history."""
@@ -306,7 +299,7 @@ class ConsoleInput(Vertical):
         self.query_one("#console-suggest", Static).update("")
         self._hide_suggestions()
         self._set_console_extra_height(0)
-        self._reset_completion_state()
+        self._completion.reset()
 
     def _show_suggestions(self) -> None:
         self._suggestions_visible = True
@@ -328,11 +321,6 @@ class ConsoleInput(Vertical):
             else:
                 text.append(item)
         return text
-
-    def _reset_completion_state(self) -> None:
-        self._completion_items = []
-        self._completion_index = -1
-        self._completion_base = ""
 
     def _measure_suggestion_lines(self, text: str) -> int:
         width = max(20, self.size.width - 2)
