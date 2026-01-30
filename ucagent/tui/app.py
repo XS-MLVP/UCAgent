@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, ClassVar
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.events import Key
 from textual.reactive import reactive
+from textual.widgets import HelpPanel
 
 from .handlers import KeyHandler
 from .screens import ThemePickerScreen
@@ -37,6 +39,7 @@ class VerifyApp(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
+        Binding("ctrl+slash", "toggle_help_panel", "Help", show=False),
         Binding("ctrl+shift+left", "split_left", "Split left", show=False, priority=True),
         Binding("ctrl+shift+right", "split_right", "Split right", show=False, priority=True),
         Binding("ctrl+shift+up", "split_up", "Split up", show=False, priority=True),
@@ -103,10 +106,6 @@ class VerifyApp(App[None]):
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
-        # Apply config values now that the app is mounted
-        cfg = self.vpdb.agent.cfg
-        self.task_width = cfg.get_value("tui.task_width", 84)
-        self.console_height = cfg.get_value("tui.console_height", 13)
         # Set message echo handler
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
@@ -123,6 +122,13 @@ class VerifyApp(App[None]):
 
         # Focus the console input
         self.query_one(ConsoleInput).focus_input()
+
+    def on_key(self, event: Key) -> None:
+        """Allow Esc to dismiss the help panel without stealing other Esc uses."""
+        if event.key == "escape" and self.query("#help-overlay"):
+            self.action_hide_help_panel()
+            event.prevent_default()
+            event.stop()
 
     def on_unmount(self) -> None:
         """Cleanup on exit."""
@@ -187,6 +193,27 @@ class VerifyApp(App[None]):
             ThemePickerScreen(themes, current=self.theme),
             self._apply_theme_selection,
         )
+
+    def action_show_help_panel(self) -> None:
+        """Show the help panel on the right side."""
+        if not self.query("#help-overlay"):
+            focused = self.focused
+            panel = HelpPanel(id="help-overlay")
+            panel.border_title = "Keys"
+            self.screen.mount(panel)
+            if focused is not None:
+                self.set_focus(focused, scroll_visible=False)
+
+    def action_hide_help_panel(self) -> None:
+        """Hide the help panel (if present)."""
+        self.query("#help-overlay").remove()
+
+    def action_toggle_help_panel(self) -> None:
+        """Toggle the keys/help panel."""
+        if self.query("#help-overlay"):
+            self.action_hide_help_panel()
+        else:
+            self.action_show_help_panel()
 
     def _apply_theme_selection(self, theme_name: str | None) -> None:
         if not theme_name:

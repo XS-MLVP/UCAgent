@@ -6,6 +6,7 @@ import textwrap
 from typing import TYPE_CHECKING, ClassVar
 
 from rich.spinner import Spinner
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -32,7 +33,7 @@ class ConsoleInputField(Input):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if self._is_locked():
-            return False
+            return None
         return super().check_action(action, parameters)
 
 class BusyIndicator(Widget):
@@ -80,6 +81,9 @@ class ConsoleInput(Vertical):
         self._page_mode: bool = False
         self._suggestions_visible: bool = False
         self._suggestions_text: str = ""
+        self._completion_items: list[str] = []
+        self._completion_index: int = -1
+        self._completion_base: str = ""
         self._busy_command: str | None = None
 
     def compose(self) -> ComposeResult:
@@ -91,7 +95,7 @@ class ConsoleInput(Vertical):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if self.is_busy and action == "clear_input":
-            return False
+            return None
         return super().check_action(action, parameters)
 
     def on_mount(self) -> None:
@@ -185,27 +189,33 @@ class ConsoleInput(Vertical):
         input_widget = self.query_one("#console-input", Input)
         current_text = input_widget.value
 
+        if self._completion_items and self._suggestions_visible:
+            self._completion_index = (self._completion_index + 1) % len(self._completion_items)
+            selected = self._completion_items[self._completion_index]
+            self.set_text(self._completion_base + selected)
+            self.show_suggestions(self._completion_items, selected_index=self._completion_index)
+            return
+
         completions = key_handler.complete_command(current_text)
 
         if not completions:
             self.clear_suggestions()
+            self._reset_completion_state()
             return
 
         if len(completions) == 1:
             prefix = current_text[: current_text.rfind(" ") + 1] if " " in current_text else ""
             self.set_text(prefix + completions[0])
             self.clear_suggestions()
+            self._reset_completion_state()
             return
 
-        import os
-
-        prefix = os.path.commonprefix(completions)
-        if prefix:
-            full_cmd = current_text[: current_text.rfind(" ") + 1] if " " in current_text else ""
-            full_cmd += prefix
-            self.set_text(full_cmd)
-
-        self.show_suggestions(completions)
+        base = current_text[: current_text.rfind(" ") + 1] if " " in current_text else ""
+        self._completion_items = completions
+        self._completion_index = 0
+        self._completion_base = base
+        self.set_text(base + completions[0])
+        self.show_suggestions(completions, selected_index=self._completion_index)
 
     def _handle_history_up(self) -> None:
         """Handle up arrow for command history."""
@@ -273,16 +283,21 @@ class ConsoleInput(Vertical):
     def has_suggestions(self) -> bool:
         return self._suggestions_visible
 
-    def show_suggestions(self, suggestions: list[str]) -> None:
+    def show_suggestions(self, suggestions: list[str], selected_index: int = -1) -> None:
         if not suggestions:
             self.clear_suggestions()
             return
-        text = " ".join(suggestions)
-        self._suggestions_text = text
-        self.query_one("#console-suggest", Static).update(text)
+        if 0 <= selected_index < len(suggestions):
+            renderable = self._build_suggestion_menu(suggestions, selected_index)
+            plain_text = renderable.plain
+        else:
+            plain_text = " ".join(suggestions)
+            renderable = plain_text
+        self._suggestions_text = plain_text
+        self.query_one("#console-suggest", Static).update(renderable)
         self._show_suggestions()
 
-        extra_lines = self._measure_suggestion_lines(text)
+        extra_lines = self._measure_suggestion_lines(plain_text)
         self._set_console_extra_height(extra_lines)
 
     def clear_suggestions(self) -> None:
@@ -291,6 +306,7 @@ class ConsoleInput(Vertical):
         self.query_one("#console-suggest", Static).update("")
         self._hide_suggestions()
         self._set_console_extra_height(0)
+        self._reset_completion_state()
 
     def _show_suggestions(self) -> None:
         self._suggestions_visible = True
@@ -301,6 +317,22 @@ class ConsoleInput(Vertical):
         self._suggestions_visible = False
         widget = self.query_one("#console-suggest")
         widget.styles.display = "none"
+
+    def _build_suggestion_menu(self, suggestions: list[str], selected_index: int) -> Text:
+        text = Text()
+        for idx, item in enumerate(suggestions):
+            if idx:
+                text.append(" ")
+            if idx == selected_index:
+                text.append(item, style="bold reverse")
+            else:
+                text.append(item)
+        return text
+
+    def _reset_completion_state(self) -> None:
+        self._completion_items = []
+        self._completion_index = -1
+        self._completion_base = ""
 
     def _measure_suggestion_lines(self, text: str) -> int:
         width = max(20, self.size.width - 2)
