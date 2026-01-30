@@ -87,13 +87,13 @@ langfuse:
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
-  max_tokens: 51200    # default 50k tokens for 128k context model
-  max_summary_tokens: 1024  # suggested 10% of the model's context length
-  max_keep_msgs: 100   # max messages to keep in memory, older messages will be removed (not the messages to LLM)
-  tail_keep_msgs: 10   # keep the last N messages to the LLM no matter what
+  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 51200)    # default 50k tokens for 128k context model
+  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 1024)  # suggested 10% of the model's context length
+  max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # max messages to keep in memory, older messages will be removed (not the messages to LLM)
+  tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 10)   # keep the last N messages to the LLM no matter what
 
 rate_limiter:
-  enabled: false
+  enabled: $(ENABLE_LLM_RATE_LIMIT: false)
   # The following settings are used when rate_limiter.enabled is true
   requests_per_second: $(LLM_MAX_RPS: 10)    # default 10 req/s
   check_every_n_seconds: 0.1 # default 0.1s, wake up every 100 ms to check whether allowed to make a request
@@ -152,6 +152,7 @@ vmanager:
         model_name: $(FAIL_SUGGESTION_MODEL: <your_chat_model_name>)
         openai_api_key: $(FAIL_SUGGESTION_API_KEY: <your_api_key>)
         openai_api_base: $(FAIL_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
+        min_fail_count: $(FAIL_SUGGESTION_MFCOUNT: 3)
       system_prompt: >
         You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) (Current DUT is `{DUT}`) based on the high-level task requirements.
         Your job is to analyze the current task fail information, identify the reason
