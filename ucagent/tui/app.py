@@ -66,8 +66,14 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Daemon commands tracking
         self.daemon_cmds: dict[float, str] = {}
 
-        # Logger backup
-        self._mcps_logger_prev = None
+        # Message buffer for messages received before UI is mounted
+        self._message_buffer: list[tuple[str, str]] = []
+        self._ui_mounted: bool = False
+
+        # Set message echo handler and logger early (like verify_ui.py does)
+        self.vpdb.agent.set_message_echo_handler(self.message_echo)
+        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
+        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
 
     def get_css_variables(self) -> dict[str, str]:
         """Provide extra theme variables for custom styles."""
@@ -96,10 +102,11 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
-        # Set message echo handler
-        self.vpdb.agent.set_message_echo_handler(self.message_echo)
-        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
-        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
+        # Mark UI as mounted and flush any buffered messages
+        self._ui_mounted = True
+        self._flush_message_buffer()
+
+        # Install console capture and signal handler
         self.install_console_capture()
         self.install_sigint_handler()
 
@@ -129,13 +136,28 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         This method is called from worker threads, so it posts
         a message to be processed on the main thread.
+
+        If the UI is not yet mounted, buffer the message for later.
         """
+        if not self._ui_mounted:
+            # Buffer messages until UI is ready
+            self._message_buffer.append((msg, end))
+            return
         self.call_from_thread(self._process_message, msg, end)
 
     def _process_message(self, msg: str, end: str) -> None:
         """Process message on main thread."""
         messages_panel = self.query_one("#messages-panel", MessagesPanel)
         messages_panel.append_message(msg, end)
+
+    def _flush_message_buffer(self) -> None:
+        """Flush buffered messages to the UI."""
+        if not self._message_buffer:
+            return
+        messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        for msg, end in self._message_buffer:
+            messages_panel.append_message(msg, end)
+        self._message_buffer.clear()
 
     def _auto_update_ui(self) -> None:
         """Periodic UI update callback."""
