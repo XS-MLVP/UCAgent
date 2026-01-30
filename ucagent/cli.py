@@ -221,12 +221,6 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
-        "--new-ui",
-        action="store_true",
-        default=False,
-        help="Deprecated: same as --tui (Textual UI is default)"
-    )
-    parser.add_argument(
         "--legacy-ui",
         action="store_true",
         default=False,
@@ -399,8 +393,6 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
-    if args.new_ui and args.legacy_ui:
-        parser.error("--new-ui and --legacy-ui cannot be used together")
     return args
 
 
