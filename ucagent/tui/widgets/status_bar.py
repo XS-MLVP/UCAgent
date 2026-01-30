@@ -25,11 +25,11 @@ class StatusBar(Static):
         backend_type = "api" if backend_key == "langchain" else "other"
 
         fields = [
+            ("Run Time", stats.get("Run Time", "-")),
             ("Backend", backend_type),
             ("Model", stats.get("LLM", "-")),
             ("Stream", stats.get("Stream", "-")),
             ("Mode", stats.get("Interaction Mode", "-")),
-            ("Run Time", stats.get("Run Time", "-")),
         ]
 
         parts = [f"{label}:{self._format_value(value)}" for label, value in fields]

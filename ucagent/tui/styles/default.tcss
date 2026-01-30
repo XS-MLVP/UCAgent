@@ -5,6 +5,19 @@ Screen {
     background: $background;
 }
 
+/* Help panel - docked to right */
+#help-overlay {
+    dock: right;
+    width: auto;
+    max-width: 40;
+    border: solid $primary;
+    background: $panel;
+}
+
+#help-overlay:focus {
+    border: heavy $accent;
+}
+
 #app-container {
     height: 1fr;
     layout: vertical;
@@ -12,7 +25,7 @@ Screen {
 
 /* Main container - horizontal split */
 #main-container {
-    height: 1fr;
+    height: 2fr;
     layout: horizontal;
 }
 
@@ -52,7 +65,7 @@ Screen {
 
 /* Console - bottom, fixed height */
 #console {
-    height: 13;
+    height: 1fr;
     border: solid $primary;
     border-title-align: center;
     background: $panel;
