@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import signal
-import sys
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import App, ComposeResult
@@ -14,8 +13,9 @@ from textual.reactive import reactive
 from textual.widgets import HelpPanel
 
 from .handlers import KeyHandler
+from .mixins import ConsoleCaptureMixin, SigintHandlerMixin
 from .screens import ThemePickerScreen
-from .utils import ConsoleCapture, UIMsgLogger
+from .utils import create_ui_logger
 from .widgets import (
     TaskPanel,
     StatusBar,
@@ -31,15 +31,15 @@ if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
 
 
-class VerifyApp(App[None]):
+class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
     """Main UCAgent verification TUI application."""
 
     CSS_PATH = "styles/default.tcss"
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
-        Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
-        Binding("ctrl+slash", "toggle_help_panel", "Help", show=False),
+        Binding("ctrl+shift+t", "choose_theme", "Choose theme", show=False),
+        Binding("ctrl+shift+slash", "toggle_help_panel", "Help", show=False),
         Binding("ctrl+shift+left", "split_left", "Split left", show=False, priority=True),
         Binding("ctrl+shift+right", "split_right", "Split right", show=False, priority=True),
         Binding("ctrl+shift+up", "split_up", "Split up", show=False, priority=True),
@@ -66,17 +66,7 @@ class VerifyApp(App[None]):
         # Daemon commands tracking
         self.daemon_cmds: dict[float, str] = {}
 
-        # Running command tracking
-        self._sigint_prev = None
-        self._sigint_inflight = False
-        self._cancel_cooldown = False
-
-        # Console output capture
-        self._console_capture: ConsoleCapture | None = None
-        self._stdout_backup = None
-        self._stderr_backup = None
-        self._vpdb_stdout_backup = None
-        self._vpdb_stderr_backup = None
+        # Logger backup
         self._mcps_logger_prev = None
 
     def get_css_variables(self) -> dict[str, str]:
@@ -109,9 +99,9 @@ class VerifyApp(App[None]):
         # Set message echo handler
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
         self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
-        self.vpdb.agent._mcps_logger = UIMsgLogger(self, level="INFO")
-        self._install_console_capture()
-        self._install_sigint_handler()
+        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
+        self.install_console_capture()
+        self.install_sigint_handler()
 
         # Start periodic UI update
         self.set_interval(1.0, self._auto_update_ui)
@@ -283,83 +273,5 @@ class VerifyApp(App[None]):
     def _cleanup(self) -> None:
         self.vpdb.agent.unset_message_echo_handler()
         self.vpdb.agent._mcps_logger = self._mcps_logger_prev
-        self._restore_sigint_handler()
-        self._restore_console_capture()
-
-    def _install_console_capture(self) -> None:
-        if self._console_capture is not None:
-            return
-        self._console_capture = ConsoleCapture()
-        self._stdout_backup = sys.stdout
-        self._stderr_backup = sys.stderr
-        sys.stdout = self._console_capture
-        sys.stderr = self._console_capture
-        if self.vpdb.stdout is not None:
-            self._vpdb_stdout_backup = self.vpdb.stdout
-            self.vpdb.stdout = self._console_capture
-        if getattr(self.vpdb, "stderr", None) is not None:
-            self._vpdb_stderr_backup = self.vpdb.stderr
-            self.vpdb.stderr = self._console_capture
-
-    def _restore_console_capture(self) -> None:
-        if self._console_capture is None:
-            return
-        if self._stdout_backup is not None:
-            sys.stdout = self._stdout_backup
-        if self._stderr_backup is not None:
-            sys.stderr = self._stderr_backup
-        if self._vpdb_stdout_backup is not None:
-            self.vpdb.stdout = self._vpdb_stdout_backup
-        if self._vpdb_stderr_backup is not None:
-            self.vpdb.stderr = self._vpdb_stderr_backup
-        self._console_capture = None
-
-    def _install_sigint_handler(self) -> None:
-        if self._sigint_prev is not None:
-            return
-        self._sigint_prev = signal.getsignal(signal.SIGINT)
-
-        def _sigint_handler(signum, frame):
-            try:
-                self.call_from_thread(self._handle_ctrl_c)
-            except Exception:
-                pass
-
-        signal.signal(signal.SIGINT, _sigint_handler)
-
-    def _restore_sigint_handler(self) -> None:
-        if self._sigint_prev is None:
-            return
-        try:
-            signal.signal(signal.SIGINT, self._sigint_prev)
-        finally:
-            self._sigint_prev = None
-            self._sigint_inflight = False
-            self._cancel_cooldown = False
-
-    def _handle_ctrl_c(self) -> None:
-        if self._sigint_inflight:
-            return
-        self._sigint_inflight = True
-        try:
-            if self.cancel_running_command():
-                # Successfully cancelled a command; set cooldown to prevent
-                # a racing second Ctrl+C from immediately quitting.
-                self._cancel_cooldown = True
-                self.set_timer(0.5, self._clear_cancel_cooldown)
-            elif not self._cancel_cooldown:
-                self.action_quit()
-        finally:
-            self._sigint_inflight = False
-
-    def _clear_cancel_cooldown(self) -> None:
-        self._cancel_cooldown = False
-
-    def flush_console_output(self) -> None:
-        if self._console_capture is None:
-            return
-        text = self._console_capture.get_and_clear()
-        if not text:
-            return
-        console = self.query_one("#console", ConsoleWidget)
-        console.append_output(text)
+        self.restore_sigint_handler()
+        self.restore_console_capture()

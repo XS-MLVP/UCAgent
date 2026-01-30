@@ -9,8 +9,9 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import RichLog
 
+from rich.text import Text
+
 from .console_input import ConsoleInput
-from ..utils import parse_ansi_to_rich
 
 
 class ConsoleWidget(Vertical):
@@ -79,7 +80,7 @@ class ConsoleWidget(Vertical):
             # Don't add extra newline for last empty line
             if i == len(lines) - 1 and not line:
                 continue
-            output_log.write(parse_ansi_to_rich(line))
+            output_log.write(Text.from_ansi(line))
 
     def clear_output(self) -> None:
         """Clear console output."""

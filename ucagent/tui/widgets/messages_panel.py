@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widgets import RichLog
 
-from ..utils import parse_ansi_to_rich
+from rich.text import Text
 
 if TYPE_CHECKING:
     pass
@@ -155,7 +155,7 @@ class MessagesPanel(RichLog):
             self._render_lines()
         else:
             for line in lines:
-                self.write(parse_ansi_to_rich(line))
+                self.write(Text.from_ansi(line))
 
         if not self.scroll_mode:
             if self._message_lines:
@@ -168,4 +168,4 @@ class MessagesPanel(RichLog):
     def _render_lines(self) -> None:
         self.clear()
         for line in self._message_lines:
-            self.write(parse_ansi_to_rich(line))
+            self.write(Text.from_ansi(line))
