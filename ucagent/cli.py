@@ -218,13 +218,19 @@ def get_args() -> argparse.Namespace:
         "--tui", 
         action="store_true", 
         default=False, 
-        help="Run in legacy TUI (verify_ui) mode"
+        help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
         "--new-ui",
         action="store_true",
         default=False,
-        help="Use new Textual-based UI (implies TUI mode)"
+        help="Deprecated: same as --tui (Textual UI is default)"
+    )
+    parser.add_argument(
+        "--legacy-ui",
+        action="store_true",
+        default=False,
+        help="Use legacy urwid-based UI (implies TUI mode)"
     )
     parser.add_argument(
         "--sys-tips", 
@@ -392,7 +398,10 @@ def get_args() -> argparse.Namespace:
               )
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.new_ui and args.legacy_ui:
+        parser.error("--new-ui and --legacy-ui cannot be used together")
+    return args
 
 
 def upgrade() -> None:
@@ -510,7 +519,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.new_ui
+    use_tui = args.tui or args.new_ui or args.legacy_ui
     if use_tui:
         init_cmds += ["tui"]
     
@@ -589,7 +598,7 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
-        use_new_ui=args.new_ui,
+        use_new_ui=not args.legacy_ui,
     )
     
     # Set break mode if human interaction or TUI is requested
