@@ -429,21 +429,34 @@ class VerifyPDB(Pdb):
             "task_list": task_list
         }
 
-    def api_get_check_tag(self, stage):
+    def api_get_check_tag_list(self, stage_list):
         """
         Get colored llm and human check tag for the stage.
         - llm fail check: yellow '*'
         - llm pass check: green '*'
         - human check needed: red '*'
         """
-        ck_f, ck_p, ck_h = "", "", ""
-        if stage["need_fail_llm_suggestion"]:
-            ck_f = f"{L_BLUE}*{RESET}"
-        if stage["need_pass_llm_suggestion"]:
-            ck_p = f"{L_GREEN}*{RESET}"
-        if stage["needs_human_check"]:
-            ck_h = f"{L_RED}*{RESET}"
-        return ck_f + ck_p + ck_h
+        ret = []
+        s_f, s_p, s_h = 0, 0, 0
+        for stage in stage_list:
+            ck_f, ck_p, ck_h = " ", " ", " "
+            if stage["need_fail_llm_suggestion"]:
+                ck_f = f"{L_BLUE}*{RESET}"
+                s_f += 1
+            if stage["need_pass_llm_suggestion"]:
+                ck_p = f"{L_GREEN}*{RESET}"
+                s_p += 1
+            if stage["needs_human_check"]:
+                ck_h = f"{L_RED}*{RESET}"
+                s_h += 1
+            tag = [ck_f, ck_p, ck_h]
+            ret.append(tag)
+        for j, v in enumerate([s_f, s_p, s_h]):
+            if v != 0:
+                continue
+            for i in range(len(ret)):
+                ret[i][j] = ""
+        return [f"{a}{b}{c}" for a, b, c in ret]
 
     def api_mission_info(self):
         """
@@ -452,7 +465,9 @@ class VerifyPDB(Pdb):
         task_data = self.api_task_list()
         current_index = task_data['task_index']
         ret = [f"\n{task_data['mission_name']}\n"]
-        for i, stage in enumerate(task_data['task_list']["stage_list"]):
+        stage_list = task_data['task_list']["stage_list"]
+        ck_tags = self.api_get_check_tag_list(stage_list)
+        for i, stage in enumerate(stage_list):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
@@ -471,9 +486,7 @@ class VerifyPDB(Pdb):
                 fail_count_msg = ""
             if color:
                 cend = RESET
-            check_tag = self.api_get_check_tag(stage)
-            if check_tag:
-                check_tag += " "
+            check_tag = ck_tags[i]
             text = f"{color}{i:2d}{cend} {check_tag}{color}{task_title}{fail_count_msg}{cend}"
             ret.append(text)
         return ret
