@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import traceback
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,23 +40,58 @@ class ConsoleCapture:
         return False
 
 
-class UILogHandler(logging.Handler):
-    """Logging handler that forwards messages to the TUI message panel."""
+class UIMsgLogger(logging.Logger):
+    """Logger that directly forwards messages to the TUI message panel.
 
-    def __init__(self, ui: "VerifyApp", level: int = logging.INFO) -> None:
-        super().__init__(level)
+    This class inherits from logging.Logger and overrides log methods
+    to directly call message_echo, bypassing the standard Handler/Formatter
+    flow. This is necessary because uvicorn's AccessFormatter expects
+    specific log record attributes that normal log records don't have.
+
+    This implementation matches verify_ui.py's UIMsgLogger.
+    """
+
+    def __init__(self, ui: "VerifyApp", level: int | str = logging.INFO) -> None:
+        if isinstance(level, str):
+            level = getattr(logging, level.upper(), logging.INFO)
+        super().__init__(name="UIMsgLogger", level=level)  # type: ignore[arg-type]
         self.ui = ui
-        self.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
 
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            self.ui.message_echo(msg)
-        except Exception:
-            self.handleError(record)
+    def log(self, level: int, msg: object, *args: object, **kwargs: object) -> None:
+        if args:
+            try:
+                formatted_msg = str(msg) % args
+            except (TypeError, ValueError):
+                formatted_msg = str(msg)
+        else:
+            formatted_msg = str(msg)
+        self.ui.message_echo(f"[{logging.getLevelName(level)}] {formatted_msg}")
+
+    def debug(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.log(logging.DEBUG, msg, *args, **kwargs)
+
+    def info(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.log(logging.INFO, msg, *args, **kwargs)
+
+    def warning(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.log(logging.WARNING, msg, *args, **kwargs)
+
+    def warn(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.warning(msg, *args, **kwargs)
+
+    def error(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.log(logging.ERROR, msg, *args, **kwargs)
+
+    def critical(self, msg: object, *args: object, **kwargs: object) -> None:
+        self.log(logging.CRITICAL, msg, *args, **kwargs)
+
+    def exception(self, msg: object, *args: object, exc_info: bool = True, **kwargs: object) -> None:
+        self.error(msg, *args, **kwargs)
+        if exc_info:
+            self.ui.message_echo(traceback.format_exc())
 
 
-def create_ui_logger(ui: "VerifyApp", level: int | str = logging.INFO) -> logging.Logger:
+def create_ui_logger(ui: "VerifyApp", level: int | str = logging.INFO) -> UIMsgLogger:
     """Create a logger that forwards messages to the TUI.
 
     Args:
@@ -63,14 +99,6 @@ def create_ui_logger(ui: "VerifyApp", level: int | str = logging.INFO) -> loggin
         level: Logging level (int or string like "INFO").
 
     Returns:
-        Configured Logger instance.
+        UIMsgLogger instance.
     """
-    if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
-
-    logger = logging.getLogger(f"UCAgent.TUI.{id(ui)}")
-    logger.setLevel(level)
-    logger.handlers.clear()
-    logger.addHandler(UILogHandler(ui, level))  # type: ignore[arg-type]
-    logger.propagate = False
-    return logger
+    return UIMsgLogger(ui, level)
