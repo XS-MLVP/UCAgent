@@ -7,14 +7,14 @@ UCAgent 内置了 `langchain` 后端用于与 LLM 进行交互（需配置 OPENA
 
 ```yaml
 backend:
-  key_name: "langchain"  # 可选值: langchain, claude_code, opencode 等
+  key_name: "langchain"  # 可选值: langchain, claude, opencode 等
   langchain:
     clss: ucagent.abackend.langchain.UCAgentLangChainBackend
-  claude_code:
+  claude:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "claude --dangerously-skip-permissions -p < {MSG_FILE}"
-      cli_cmd_ctx: "claude --dangerously-skip-permissions -c -p < {MSG_FILE}"
+      cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -p < {MSG_FILE}"
+      cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
         - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # 确保已使用 claude mcp add --scope project ... 添加server，并备份到了 ~/.claude/.mcp.json
@@ -22,11 +22,12 @@ backend:
   opencode:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "opencode run < {MSG_FILE}"
-      cli_cmd_ctx: "opencode run -c < {MSG_FILE}"
-    pre_bash_cmd:
-      - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # 需提前准备好 opencode 配置文件
-      - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/opencode.json"
+      cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} < {MSG_FILE}"
+      cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} -c < {MSG_FILE}"
+      pre_bash_cmd:
+        - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # 需提前准备好 opencode 配置文件
+        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/opencode.json"
+  ...
 ```
 
 
@@ -57,20 +58,20 @@ backend:
 
 ```yaml
 backend:
-  key_name: "claude_code"
-  claude_code:
+  key_name: "claude"
+  claude:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
       # 首次启动会话时执行的命令（可选）
       # {MSG_FILE} 会被自动替换为包含当前提示词的临时文件路径
-      cli_cmd_new: "claude --dangerously-skip-permissions -p < {MSG_FILE}"
+      cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -p < {MSG_FILE}"
       
       # 后续交互时执行的命令
       # 通常需要包含“继续会话”的参数（如 -c），以保持上下文
-      cli_cmd_ctx: "claude --dangerously-skip-permissions -c -p < {MSG_FILE}"
+      cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -c -p < {MSG_FILE}"
       
       # 后端初始化前执行的预处理命令列表
-      # 支持变量替换：{CWD} (当前工作目录), {PORT} (MCP 服务器端口)
+      # 支持变量替换：{CWD} (当前工作目录), {PORT} (MCP 服务器端口)， {UC_ENV_CMD_BACKEND_EX_ARGS} (环境变量自定义参数)
       # 示例逻辑：将预先配置好的 .mcp.json (含 UCAgent server 配置) 复制到当前项目并在启动前替换端口
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
@@ -101,5 +102,5 @@ claude --dangerously-skip-permissions -c -p 'Ni hao'
 然后在UCAgent目录中运行
 
 ```bash
-make mcp_Adder ARGS="--backend=claude_code --loop"
+make mcp_Adder ARGS="--backend=claude --loop"
 ```

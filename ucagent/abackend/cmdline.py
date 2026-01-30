@@ -66,7 +66,9 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         os.makedirs(self.cmdline_dir, exist_ok=True)
         self._call_count = 0
         for cmd in self.pre_bash_cmd:
-            formatted_cmd = cmd.format(CWD=self.CWD, PORT=self.config.mcp_server.port)
+            formatted_cmd = cmd.format(CWD=self.CWD,
+                                       UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
+                                       PORT=self.config.mcp_server.port)
             self.process_bash_cmd(formatted_cmd)
 
     def model_name(self):
@@ -94,6 +96,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             cli_cmd = self.cli_cmd_new
         self._call_count += 1
         self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
+                                             UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
                                              CWD=self.CWD,
                                              PORT=self.config.mcp_server.port))
 
