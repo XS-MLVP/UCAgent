@@ -1,0 +1,23 @@
+# Makefile for Formal Verification example
+
+# First try ../../ucagent.py then fallback to system installed ucagent
+UCAGENT_PY := $(wildcard ../../ucagent.py)
+
+ifdef UCAGENT_PY
+CMD ?= python3 ../../ucagent.py
+else
+CMD ?= ucagent
+endif
+
+clean:
+	rm ./output -rf
+
+init_%: 
+	mkdir output
+	cp -r $* output/
+
+mcp_%: init_%
+	$(CMD) output/ $* --config ./formal.yaml -s -hm --legacy-ui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path ./FormalDoc/  ${ARGS}
+
+run_formal_%:
+	cd output/$* && bash scripts/run_formal.sh
