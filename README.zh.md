@@ -45,17 +45,43 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. 清空环境
+### 3. 安装配置 qwen
 
-```bash
-make clean
+请参考 [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/) 安装qwen-code-cli，然后按以下示例配置MCP Server。
+
+`~/.qwen/settings.json` 示例：
+
+```json
+{
+    "mcpServers": {
+	    "unitytest": {
+            "httpUrl": "http://localhost:5000/mcp",
+            "timeout": 300000
+        }
+    }
+}
 ```
 
-### 4. 启动 MCP-Server
+由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 300 秒。
 
-以 example 中的 Adder 为例（依赖 [picker](https://github.com/XS-MLVP/picker)）：
+其他Code Agent 请参考对应文档，例如 [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli) 等。
 
-默认地址为：http://127.0.0.1:5000
+### 4. 开始验证
+
+以 example 中的 Adder 为例。
+
+#### 4.1 方式一：指定后端自动运行 qwen（推荐）
+
+```bash
+# 默认后端为 langchain，需要配置：OPENAI_API_BASE 等环境变量
+make mcp_Adder ARGS="--loop --backend=qwen"
+```
+
+已经支持的后端请参考 [ucagent/setting.yaml](/ucagent/setting.yaml) 中的`backend`部分。
+
+#### 4.2 方式二：手动运行qwen（适用于未适配的 CodeAgent ）
+
+**（1）启动 MCP-Server**
 
 ```bash
 make mcp_Adder  # workspace 设置为当前目录下的 output
@@ -64,39 +90,22 @@ make mcp_Adder  # workspace 设置为当前目录下的 output
 #   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
-### 5. 安装配置 Qwen Code CLI
+MCP Server的默认地址为：http://127.0.0.1:5000/mcp
 
-请参考：[https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/)
-
-由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 300 秒。
-
-`~/.qwen/settings.json` 配置文件示例：
-
-```json
-{
-	"mcpServers": {
-		"unitytest": {
-			"httpUrl": "http://localhost:5000/mcp",
-			"timeout": 300000
-		}
-	}
-}
-```
-
-### 6. 开始验证
+**（2）启动 qwen 执行任务**
 
 ```bash
 cd output
 qwen
 ```
 
+按以上方式启动qwen后，输入任务提示词：
+
+> 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
+
 **注意：**
 - 需要在工作目录（如上述例子中的 output）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
 - 如果DUT比较复杂，有外围组件依赖，需要通过ucagent交互命令打开默认skip的阶段。
-
-**输入任务提示词：**
-
-> 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
 **提示：**
 
@@ -106,9 +115,9 @@ qwen
 > 💡 **更多使用方式：** 除了 MCP 协同模式，UCAgent 还支持直接接入 LLM、人机协同等多种模式，详见 [使用文档](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
 
-### 7. 如何提升效果(可选)
+### 5. 如何提升验证质量(可选)
 
-默认情况下，UCAgent只是启用内部的`Python Checker`进行阶段结果检查，属于启发式。如果需要验证效果提升，可以引入 `LLM 阶段结果检查`，如果需要达到“交付级”，还需要进一步引入`人工阶段检查`。
+默认情况下，UCAgent只是启用内部的`Python Checker`进行阶段结果检查，属于启发式。如果需要验证质量提升，可以引入 `LLM 阶段结果检查`，如果需要达到“交付级”质量，还需要进一步引入`人工阶段检查`。
 
 1. [开启LLM阶段结果检查](/examples/LLMCheck/README.md)
 

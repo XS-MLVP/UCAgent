@@ -45,17 +45,43 @@ cd UCAgent
 pip3 install -r requirements.txt
 ```
 
-### 3. Clean Environment
+### 3. Install and Configure qwen
 
-```bash
-make clean
+Please refer to [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/) to install qwen-code-cli, then configure the MCP Server as shown below.
+
+Example `~/.qwen/settings.json`:
+
+```json
+{
+    "mcpServers": {
+           "unitytest": {
+            "httpUrl": "http://localhost:5000/mcp",
+            "timeout": 300000
+        }
+    }
+}
 ```
 
-### 4. Start MCP-Server
+Since running test cases may take a long time, it is recommended to set a larger `timeout` value, for example 300 seconds.
 
-Example: Compile the Adder in examples (requires [picker](https://github.com/XS-MLVP/picker)):
+For other Code Agents, please refer to their documentation, e.g., [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), etc.
 
-Default address: http://127.0.0.1:5000
+### 4. Start Verification
+
+Taking `Adder` in examples as an illustration.
+
+#### 4.1 Method 1: Automatically run qwen with specified backend (Recommended)
+
+```bash
+# Default backend is langchain, requires configuration: OPENAI_API_BASE and other environment variables
+make mcp_Adder ARGS="--loop --backend=qwen"
+```
+
+For supported backends, please refer to the `backend` section in [ucagent/setting.yaml](/ucagent/setting.yaml).
+
+#### 4.2 Method 2: Manually run qwen (For unadapted CodeAgents)
+
+**（1）Start MCP-Server**
 
 ```bash
 make mcp_Adder  # workspace is set to output directory
@@ -64,39 +90,22 @@ make mcp_Adder  # workspace is set to output directory
 #   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 ```
 
-### 5. Install and Configure Qwen Code CLI
+The default MCP Server address is: http://127.0.0.1:5000/mcp
 
-Please refer to: [https://qwenlm.github.io/qwen-code-docs/en/](https://qwenlm.github.io/qwen-code-docs/en/)
-
-Since test cases may take longer to run when there are many, it's recommended to set a larger `timeout` value, such as 300 seconds.
-
-Example `~/.qwen/settings.json` configuration:
-
-```json
-{
-	"mcpServers": {
-		"unitytest": {
-			"httpUrl": "http://localhost:5000/mcp",
-			"timeout": 300000
-		}
-	}
-}
-```
-
-### 6. Start Verification
+**（2）Start qwen to execute task**
 
 ```bash
 cd output
 qwen
 ```
 
+After starting qwen as above, input the task prompt:
+
+> Please use the tool `RoleInfo` to get your role information and basic guidance, then complete the task. Use the tool `ReadTextFile` to read files. You need to perform file operations in the current working directory and should not go beyond this directory.
+
 **Note:**
 - Start the Code Agent in the working directory (e.g., output in the example above), otherwise file path mismatch issues may occur.
 - If the DUT is complex and has peripheral component dependencies, you need to open the default skipped stages via ucagent interaction commands.
-
-**Input Task Prompt:**
-
-> Please use the tool `RoleInfo` to get your role information and basic guidance, then complete the task. Use the tool `ReadTextFile` to read files. You need to perform file operations in the current working directory and should not go beyond this directory.
 
 **Tips:**
 
@@ -106,9 +115,9 @@ qwen
 > 💡 **More Usage Methods:** Besides MCP collaboration mode, UCAgent also supports direct LLM integration, human-machine collaboration, and other modes. See [Usage Documentation](https://ucagent.open-verify.cc/content/02_usage/01_direct/)
 
 
-### 7. How to Improve Effectiveness (Optional)
+### 5. How to Improve Verification Quality (Optional)
 
-By default, UCAgent only enables the internal `Python Checker` for stage checking, which is heuristic. If you need verification effectiveness improvement, you can enable `LLM Checking`. If you need to reach "delivery level", you further need to enable `Human Checking`.
+By default, UCAgent only enables the internal `Python Checker` for stage checking, which is heuristic. If you need verification quality improvement, you can enable `LLM stage checking`. If you need to reach "delivery level" quality, you further need to enable `Human stage checking`.
 
 1. [Enable LLM stage checking](/examples/LLMCheck/README.md)
 
