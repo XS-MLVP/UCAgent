@@ -73,7 +73,8 @@ Taking `Adder` in examples as an illustration.
 #### 4.1 Method 1: Automatically run qwen with specified backend (Recommended)
 
 ```bash
-# Default backend is langchain, requires configuration: OPENAI_API_BASE and other environment variables
+# Default backend is langchain,
+#   requires configuration: OPENAI_API_BASE and other environment variables
 make mcp_Adder ARGS="--loop --backend=qwen"
 ```
 
