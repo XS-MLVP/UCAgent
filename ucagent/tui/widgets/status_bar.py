@@ -21,18 +21,17 @@ class StatusBar(Static):
     def update_content(self, vpdb: "VerifyPDB") -> None:
         """Update status bar content."""
         stats = vpdb.agent.status_info()
-        backend_key = vpdb.agent.cfg.get_value("backend.key_name", "unknown")
-        backend_type = "api" if backend_key == "langchain" else "other"
+        backend_type = vpdb.agent.cfg.get_value("backend.key_name", "unknown")
 
         fields = [
             ("Run Time", stats.get("Run Time", "-")),
-            ("Backend", backend_type),
             ("Model", stats.get("LLM", "-")),
+            ("Backend", backend_type),
             ("Stream", stats.get("Stream", "-")),
             ("Mode", stats.get("Interaction Mode", "-")),
         ]
 
-        parts = [f"{label}:{self._format_value(value)}" for label, value in fields]
+        parts = [f"{label}: {self._format_value(value)}" for label, value in fields]
         raw = " | ".join(parts)
         self._raw_text = raw
         self.update(self._truncate_to_width(raw))
