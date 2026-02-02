@@ -115,6 +115,9 @@ class VerifyStage(object):
     def hist_init(self):
         if not os.path.exists(self.hist_sav_dir):
             os.makedirs(self.hist_sav_dir, exist_ok=True)
+        if diff_ops.is_git_repo(self.hist_sav_dir):
+            info(f"[{self.__class__.__name__}] History init: git repo already exists in {self.hist_sav_dir}, skip init.")
+            return
         diff_ops.init_git_repo(self.hist_sav_dir, ignore_existing=True)
         self.hist_sync()
         self.hist_commit(msg="Initial commit for history version control.")
