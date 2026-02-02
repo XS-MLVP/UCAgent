@@ -28,7 +28,7 @@
   - 外部工具：来自配置项 `ex_tools` 与 CLI `--ex-tools`（通过 `import_and_instance_tools` 零参实例化）
 - 名称解析：
   - 短名：类/工厂函数需在 `ucagent/tools/__init__.py` 导出（例如 `from .mytool import HelloTool`），即可在 `ex_tools` 写 `HelloTool`
-  - 全路径：`mypkg.mytools.HelloTool` / `mypkg.mytools.Factory`
+  - 全路径：`mypkg.mytools.HelloTool` / `mypkg.mytools.Factory`(文件夹名.文件名.工具名)
 
 ### 2) 添加一个新工具（本地/Agent 内）
 
