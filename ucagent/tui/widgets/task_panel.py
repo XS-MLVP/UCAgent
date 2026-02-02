@@ -50,13 +50,17 @@ class TaskPanel(VerticalScroll):
         """
         # Update mission info
         task_data = vpdb.api_task_list()
-        mission_name = task_data.get("mission_name") or task_data.get("task_list", {}).get("mission", "")
+        mission_name = task_data.get("mission_name") or task_data.get(
+            "task_list", {}
+        ).get("mission", "")
         self.query_one("#mission-title", Static).update(mission_name)
 
-        stage_list = task_data.get("task_list", {}).get("stage_list", [])
-        current_index = task_data.get("task_index", 0)
-        task_lines = self._format_task_lines(vpdb, stage_list, current_index)
-        self.query_one("#task-list", Static).update("\n".join(task_lines))
+        from rich.text import Text
+
+        task_lines = self._format_task_lines(vpdb)
+        self.query_one("#task-list", Static).update(
+            Text.from_ansi("\n".join(task_lines))
+        )
 
         # Update status summary
         self._update_status_summary(vpdb)
@@ -73,59 +77,11 @@ class TaskPanel(VerticalScroll):
         # Update status summary (keep it at the bottom of Mission)
         self._update_status_summary(vpdb)
 
-    def _format_task_lines(self, vpdb: "VerifyPDB", stage_list: list[dict], current_index: int) -> list[str]:
-        completed_color = "$text-success"
-        current_color = "$text-success on $success-muted"
-        pending_color = "$text-warning"
-        skipped_color = "$text-secondary"
-
-        lines = []
-        total = len(stage_list)
-        for i, stage in enumerate(stage_list):
-            title = stage.get("title", "")
-            fail_count = stage.get("fail_count", 0)
-            time_cost = stage.get("time_cost", "")
-            is_skipped = stage.get("is_skipped", False)
-            suffix = f", {time_cost}" if time_cost else ""
-            fail_count_msg = f" ({fail_count} fails{suffix})"
-
-            if is_skipped:
-                color = skipped_color
-                title = f"{title} (skipped)"
-                fail_count_msg = ""
-            elif i < current_index:
-                color = completed_color
-            elif i == current_index and current_index < total:
-                color = current_color
-            else:
-                color = pending_color
-
-            check_tag = self._format_check_tag(vpdb, stage)
-            if check_tag:
-                check_tag += " "
-            line = f"{i:2d} {check_tag}{title}{fail_count_msg}"
-            lines.append(f"[{color}]{line}[/{color}]")
-
-        return lines
-
-    def _format_check_tag(self, vpdb: "VerifyPDB", stage: dict) -> str:
-        from ucagent.util.log import L_BLUE, L_GREEN, L_RED
-
-        raw = vpdb.api_get_check_tag(stage)
-        has_fail = L_BLUE in raw
-        has_pass = L_GREEN in raw
-        has_human = L_RED in raw
-        dim = "$text-secondary"
-
-        def star(color: str, enabled: bool) -> str:
-            use_color = color if enabled else dim
-            return f"[{use_color}]*[/{use_color}]"
-
-        return (
-                star("$text-warning", has_fail)
-                + star("$text-success", has_pass)
-                + star("$text-error", has_human)
-        )
+    def _format_task_lines(self, vpdb: "VerifyPDB") -> list[str]:
+        mission_info = vpdb.api_mission_info()
+        if not mission_info:
+            return []
+        return mission_info[1:]
 
     def _update_changed_files(self, vpdb: "VerifyPDB") -> None:
         """Update changed files section."""
@@ -170,6 +126,8 @@ class TaskPanel(VerticalScroll):
         ntime = time.time()
         lines = ["\nDaemon Commands"]
         for key, cmd in daemon_cmds.items():
-            lines.append(f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}")
+            lines.append(
+                f"{cmd}: {fmt_time_stamp(key)} - {fmt_time_deta(ntime - key, True)}"
+            )
 
         self.query_one("#daemon-cmds", Static).update("\n".join(lines))
