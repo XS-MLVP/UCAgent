@@ -50,7 +50,7 @@ class HelloArgs(BaseModel):
 class HelloTool(UCTool):
 		name: str = "Hello"
 		description: str = "向指定对象问候，并统计调用次数"
-		args_schema = HelloArgs
+		args_schema: Type[BaseModel] = HelloArgs
 
 		def _run(self, who: str, run_manager=None) -> str:
 				return f"Hello, {who}! (called {self.call_count+1} times)"
@@ -81,7 +81,7 @@ class ProgressArgs(BaseModel):
 class ProgressTool(UCTool):
 		name: str = "Progress"
 		description: str = "演示流式输出与超时处理"
-		args_schema = ProgressArgs
+		args_schema: Type[BaseModel] = ProgressArgs
 
 		async def _arun(self, steps: int, run_manager=None):
 				for i in range(steps):
