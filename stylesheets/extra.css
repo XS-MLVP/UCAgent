@@ -1,0 +1,55 @@
+/* 自定义样式：优化表格/代码块在窄屏的显示 */
+.md-typeset table:not([class]) {
+	display: block;
+	overflow-x: auto;
+	white-space: nowrap;
+}
+
+.md-typeset .admonition {
+	margin: 1em 0;
+}
+
+/* 代码块最大高度，出现滚动条 */
+.md-typeset pre > code {
+	max-height: 40rem;
+}
+
+
+:root [data-md-color-scheme="default"]{
+  --md-primary-fg-color: #58a2b1;          /* 主色（顶部栏） */
+  --md-primary-fg-color--light: #BFE5F2;   /* 浅一些的主色 */
+  --md-primary-fg-color--dark: #5DAFCB;    /* 深一些的主色 */
+  --md-accent-fg-color: #00BCD4;           /* 强调色，可自行调 */
+}
+
+/* 可选：为暗色模式单独适配 */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #055b7e;
+  --md-primary-fg-color--light: #A9D8EB;
+  --md-primary-fg-color--dark: #4FA4C4;
+}
+
+/* ===== 导航栏字体大小调整 ===== */
+.md-nav {
+  font-size: 16px;  /* 基础字体大小 */
+}
+
+.md-nav__link {
+  font-size: 17px;  /* 链接文字大小 */
+}
+
+.md-nav__title {
+  font-size: 17px;  /* 标题稍大一点 */
+  font-weight: 600;
+}
+
+/* 增加行高以改善可读性 */
+.md-nav__item {
+  line-height: 1.8;
+}
+
+/* 所有可展开的导航项加粗 */
+.md-nav__link--active,
+.md-nav__item--nested > .md-nav__link {
+  font-weight: 600;
+}
