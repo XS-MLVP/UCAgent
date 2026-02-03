@@ -94,7 +94,7 @@ class KeyHandler:
                 self.app.vpdb.onecmd(cmd)
             except Exception as e:
                 error_msg = f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
-                self.app.call_from_thread(console.append_output, error_msg)
+                console.queue_output(error_msg)
 
         worker = self.app.run_worker(run_command, thread=True, exclusive=True, group="cmd-exec")
         self._active_worker = worker
@@ -123,19 +123,18 @@ class KeyHandler:
         self.app.daemon_cmds[key] = cmd
 
         def run_daemon() -> None:
+            console = self.app.query_one("#console", ConsoleWidget)
             try:
                 self.app.vpdb.onecmd(cmd)
             except Exception as e:
                 error_msg = f"\033[33mDaemon Error: {e}\n{traceback.format_exc()}\033[0m\n"
-                console = self.app.query_one("#console", ConsoleWidget)
-                self.app.call_from_thread(console.append_output, error_msg)
+                console.queue_output(error_msg)
             finally:
                 self.app.call_from_thread(self.app.flush_console_output)
                 if key in self.app.daemon_cmds:
                     del self.app.daemon_cmds[key]
                 complete_msg = f"\033[33mDaemon command completed: {cmd}\033[0m\n"
-                console = self.app.query_one("#console", ConsoleWidget)
-                self.app.call_from_thread(console.append_output, complete_msg)
+                console.queue_output(complete_msg)
 
         self.app.run_worker(run_daemon, thread=True, group="cmd-daemon")
 

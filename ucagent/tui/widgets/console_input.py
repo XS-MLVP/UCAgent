@@ -174,7 +174,7 @@ class ConsoleInput(Vertical):
         """Handle Tab key - tab completion when input focused, otherwise focus input."""
         if self.input_has_focus():
             if not self.is_busy:
-                self.handle_tab_completion(self.app.key_handler)
+                self.handle_tab_completion()
             # When busy, Tab does nothing (prevents accidental focus switch)
         else:
             # Focus the input field instead of cycling focus
@@ -192,14 +192,14 @@ class ConsoleInput(Vertical):
         if move_cursor:
             input_widget.cursor_position = len(text)
 
-    def handle_tab_completion(self, key_handler: "KeyHandler") -> None:
+    def handle_tab_completion(self) -> None:
         """Handle tab key for command completion."""
         input_widget = self.query_one("#console-input", Input)
         current_text = input_widget.value
 
         is_cycling = self._completion.state.has_items and self._suggestions_visible
         new_text, suggestions, selected_index = self._completion.handle_tab(
-            current_text, key_handler, is_cycling
+            current_text, self.app.key_handler, is_cycling
         )
 
         if new_text is not None:

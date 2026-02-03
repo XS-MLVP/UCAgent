@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import threading
+import queue
 import traceback
 from typing import TYPE_CHECKING
 
@@ -12,29 +12,28 @@ if TYPE_CHECKING:
 
 
 class ConsoleCapture:
-    """Thread-safe stdout/stderr capture for console output."""
+    """Thread-safe stdout/stderr capture using queue.SimpleQueue."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._buffer: list[str] = []
+        self._queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def write(self, text: str) -> int:
         if not text:
             return 0
-        with self._lock:
-            self._buffer.append(text)
+        self._queue.put_nowait(text)
         return len(text)
 
     def flush(self) -> None:
-        return None
+        pass
 
     def get_and_clear(self) -> str:
-        with self._lock:
-            if not self._buffer:
-                return ""
-            data = "".join(self._buffer)
-            self._buffer = []
-        return data
+        items: list[str] = []
+        while True:
+            try:
+                items.append(self._queue.get_nowait())
+            except queue.Empty:
+                break
+        return "".join(items)
 
     def isatty(self) -> bool:
         return False
@@ -85,7 +84,9 @@ class UIMsgLogger(logging.Logger):
     def critical(self, msg: object, *args: object, **kwargs: object) -> None:
         self.log(logging.CRITICAL, msg, *args, **kwargs)
 
-    def exception(self, msg: object, *args: object, exc_info: bool = True, **kwargs: object) -> None:
+    def exception(
+        self, msg: object, *args: object, exc_info: bool = True, **kwargs: object
+    ) -> None:
         self.error(msg, *args, **kwargs)
         if exc_info:
             self.ui.message_echo(traceback.format_exc())

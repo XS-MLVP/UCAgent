@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.binding import Binding
@@ -29,6 +30,8 @@ class MessagesPanel(RichLog):
     focus_index: reactive[int] = reactive(0)
     scroll_mode: reactive[bool] = reactive(False)
 
+    BATCH_INTERVAL_S = 0.2
+
     def __init__(self, **kwargs) -> None:
         super().__init__(
             highlight=True,
@@ -36,19 +39,49 @@ class MessagesPanel(RichLog):
             auto_scroll=True,
             wrap=True,
             max_lines=self.max_messages,
-            **kwargs
+            **kwargs,
         )
         self.border_title = "Messages"
         self._scroll_buffer: str = ""
         self._message_lines: list[str] = []
+        self._batch_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+
+    def on_mount(self) -> None:
+        self._batch_timer = self.set_interval(self.BATCH_INTERVAL_S, self._flush_batch)
+
+    def on_unmount(self) -> None:
+        self._flush_batch()
 
     def append_message(self, msg: str, end: str = "\n") -> None:
-        """Append a message with ANSI support.
+        """Append a message with ANSI support. Messages are queued and
+        flushed in batches every BATCH_INTERVAL_S seconds.
 
         Args:
             msg: Message text (may contain ANSI codes)
             end: Line ending character
         """
+        if not msg and not end:
+            return
+        self._batch_queue.put_nowait((msg, end))
+
+    def _flush_batch(self) -> None:
+        """Flush all queued messages in one batch."""
+        messages: list[tuple[str, str]] = []
+        while True:
+            try:
+                messages.append(self._batch_queue.get_nowait())
+            except queue.Empty:
+                break
+
+        if not messages:
+            return
+
+        for msg, end in messages:
+            self._do_append_message(msg, end)
+
+    def _do_append_message(self, msg: str, end: str = "\n") -> None:
+        """Actually process and render a single message.
+        Contains the original append_message logic."""
         if not msg and not end:
             return
 
@@ -149,7 +182,7 @@ class MessagesPanel(RichLog):
         self._message_lines.extend(lines)
 
         if len(self._message_lines) > self.max_messages:
-            self._message_lines = self._message_lines[-self.max_messages:]
+            self._message_lines = self._message_lines[-self.max_messages :]
 
         if updated_last:
             self._render_lines()
