@@ -14,12 +14,22 @@ if TYPE_CHECKING:
 class StatusBar(Static):
     """Bottom status bar showing key runtime info."""
 
+    REFRESH_INTERVAL_S = 1.0
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._raw_text: str = ""
 
-    def update_content(self, vpdb: "VerifyPDB") -> None:
+    def on_mount(self) -> None:
+        self.update_content()
+        self._refresh_timer = self.set_interval(
+            self.REFRESH_INTERVAL_S, self.update_content
+        )
+
+
+    def update_content(self) -> None:
         """Update status bar content."""
+        vpdb = self.app.vpdb
         stats = vpdb.agent.status_info()
         backend_type = vpdb.agent.cfg.get_value("backend.key_name", "unknown")
 

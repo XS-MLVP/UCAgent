@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 class TaskPanel(VerticalScroll):
     """Panel displaying mission tasks, changed files, and tool status."""
 
+    REFRESH_INTERVAL_S = 1.0
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Mission"
@@ -35,59 +37,48 @@ class TaskPanel(VerticalScroll):
     def on_mount(self) -> None:
         self.watch(self.app, "task_width", self._apply_task_width)
         self._apply_task_width(self.app.task_width)
+        self.update_content()
+        self._refresh_timer = self.set_interval(
+            self.REFRESH_INTERVAL_S, self.update_content
+        )
 
     def _apply_task_width(self, value: int) -> None:
         if not self.is_mounted:
             return
         self.styles.width = value
 
-    def update_content(self, vpdb: "VerifyPDB", daemon_cmds: dict[float, str]) -> None:
-        """Update panel content from VerifyPDB data.
+    def update_content(self) -> None:
+        """Update panel content from VerifyPDB data."""
+        from rich.text import Text
 
-        Args:
-            vpdb: VerifyPDB instance
-            daemon_cmds: Dictionary of daemon commands
-        """
-        # Update mission info
+        vpdb = self.app.vpdb
         task_data = vpdb.api_task_list()
         mission_name = task_data.get("mission_name") or task_data.get(
             "task_list", {}
         ).get("mission", "")
         self.query_one("#mission-title", Static).update(mission_name)
 
-        from rich.text import Text
-
-        task_lines = self._format_task_lines(vpdb)
+        task_lines = self._format_task_lines()
         self.query_one("#task-list", Static).update(
             Text.from_ansi("\n".join(task_lines))
         )
 
-        # Update status summary
-        self._update_status_summary(vpdb)
+        self._update_changed_files()
+        self._update_tool_status()
+        self._update_daemon_cmds()
+        self._update_status_summary()
 
-        # Update changed files
-        self._update_changed_files(vpdb)
-
-        # Update tool status
-        self._update_tool_status(vpdb)
-
-        # Update daemon commands
-        self._update_daemon_cmds(daemon_cmds)
-
-        # Update status summary (keep it at the bottom of Mission)
-        self._update_status_summary(vpdb)
-
-    def _format_task_lines(self, vpdb: "VerifyPDB") -> list[str]:
-        mission_info = vpdb.api_mission_info()
+    def _format_task_lines(self) -> list[str]:
+        mission_info = self.app.vpdb.api_mission_info()
         if not mission_info:
             return []
         return mission_info[1:]
 
-    def _update_changed_files(self, vpdb: "VerifyPDB") -> None:
+    def _update_changed_files(self) -> None:
         """Update changed files section."""
         from ucagent.util.functions import fmt_time_stamp, fmt_time_deta
 
-        changed_files = vpdb.api_changed_files()[:5]
+        changed_files = self.app.vpdb.api_changed_files()[:5]
         lines = []
         for delta, mtime, filename in changed_files:
             time_str = fmt_time_stamp(mtime)
@@ -99,10 +90,10 @@ class TaskPanel(VerticalScroll):
 
         self.query_one("#changed-files", Static).update("\n".join(lines))
 
-    def _update_tool_status(self, vpdb: "VerifyPDB") -> None:
+    def _update_tool_status(self) -> None:
         """Update tool call status."""
         tool_info = []
-        for name, count, busy in vpdb.api_tool_status():
+        for name, count, busy in self.app.vpdb.api_tool_status():
             if busy:
                 tool_info.append(f"[yellow]{name}({count})[/yellow]")
             else:
@@ -110,13 +101,14 @@ class TaskPanel(VerticalScroll):
 
         self.query_one("#tool-status", Static).update(" ".join(tool_info))
 
-    def _update_status_summary(self, vpdb: "VerifyPDB") -> None:
+    def _update_status_summary(self) -> None:
         """Update status summary section."""
-        status_text = vpdb.api_status()
+        status_text = self.app.vpdb.api_status()
         self.query_one("#status-summary", Static).update(status_text)
 
-    def _update_daemon_cmds(self, daemon_cmds: dict[float, str]) -> None:
+    def _update_daemon_cmds(self) -> None:
         """Update daemon commands section."""
+        daemon_cmds = self.app.daemon_cmds
         if not daemon_cmds:
             self.query_one("#daemon-cmds", Static).update("")
             return

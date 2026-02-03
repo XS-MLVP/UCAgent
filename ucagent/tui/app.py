@@ -40,10 +40,16 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+shift+t", "choose_theme", "Choose theme", show=False),
         Binding("ctrl+shift+slash", "toggle_help_panel", "Help", show=False),
-        Binding("ctrl+shift+left", "split_left", "Split left", show=False, priority=True),
-        Binding("ctrl+shift+right", "split_right", "Split right", show=False, priority=True),
+        Binding(
+            "ctrl+shift+left", "split_left", "Split left", show=False, priority=True
+        ),
+        Binding(
+            "ctrl+shift+right", "split_right", "Split right", show=False, priority=True
+        ),
         Binding("ctrl+shift+up", "split_up", "Split up", show=False, priority=True),
-        Binding("ctrl+shift+down", "split_down", "Split down", show=False, priority=True),
+        Binding(
+            "ctrl+shift+down", "split_down", "Split down", show=False, priority=True
+        ),
     ]
 
     # Reactive properties for dynamic layout
@@ -93,10 +99,17 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         with Vertical(id="app-container"):
             with Horizontal(id="main-container"):
                 yield TaskPanel(id="task-panel")
-                yield VerticalSplitter("task_width", id="split-task", classes="splitter vertical")
+                yield VerticalSplitter(
+                    "task_width", id="split-task", classes="splitter vertical"
+                )
                 with Vertical(id="right-container"):
                     yield MessagesPanel(id="messages-panel")
-            yield HorizontalSplitter("console_height", invert=True, id="split-console", classes="splitter horizontal")
+            yield HorizontalSplitter(
+                "console_height",
+                invert=True,
+                id="split-console",
+                classes="splitter horizontal",
+            )
             yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
             yield StatusBar(id="status-bar")
 
@@ -109,9 +122,6 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Install console capture and signal handler
         self.install_console_capture()
         self.install_sigint_handler()
-
-        # Start periodic UI update
-        self.set_interval(1.0, self._auto_update_ui)
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:
@@ -159,23 +169,26 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             messages_panel.append_message(msg, end)
         self._message_buffer.clear()
 
-    def _auto_update_ui(self) -> None:
-        """Periodic UI update callback."""
-        self.flush_console_output()
-        self.update_task_panel()
-        self.update_status_bar()
+    def console_output(self, text: str) -> None:
+        """Thread-safe console output method.
+
+        From worker threads, this puts text into the console's batch queue.
+
+        Args:
+            text: Text to output
+        """
         console = self.query_one("#console", ConsoleWidget)
-        console.refresh_prompt()
+        console.queue_output(text)
 
     def update_task_panel(self) -> None:
         """Update task panel content."""
         task_panel = self.query_one("#task-panel", TaskPanel)
-        task_panel.update_content(self.vpdb, self.daemon_cmds)
+        task_panel.update_content()
 
     def update_status_bar(self) -> None:
         """Update bottom status bar content."""
         status_bar = self.query_one("#status-bar", StatusBar)
-        status_bar.update_content(self.vpdb)
+        status_bar.update_content()
 
     def _process_batch_commands(self) -> None:
         """Process batch commands from init_cmd."""
@@ -245,16 +258,20 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def action_split_up(self) -> None:
         """Move horizontal splitter up (expand console)."""
-        new_value = _clamp_split_value("console_height", self.console_height + self._split_step)
+        new_value = _clamp_split_value(
+            "console_height", self.console_height + self._split_step
+        )
         self.console_height = new_value
 
     def action_split_down(self) -> None:
         """Move horizontal splitter down (shrink console)."""
-        new_value = _clamp_split_value("console_height", self.console_height - self._split_step)
+        new_value = _clamp_split_value(
+            "console_height", self.console_height - self._split_step
+        )
         self.console_height = new_value
 
     async def on_console_input_command_submitted(
-            self, event: ConsoleInput.CommandSubmitted
+        self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         """Handle command submission from console."""
         self.run_worker(self.key_handler.process_command(event.command, event.daemon))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 from typing import ClassVar
 
 from textual.app import ComposeResult
@@ -23,12 +24,15 @@ class ConsoleWidget(Vertical):
         Binding("shift+right", "clear_console", "Clear console", show=False),
     ]
 
+    REFRESH_INTERVAL_S = 0.2  # Interval for auto-update and batch flush
+
     def __init__(self, prompt: str = "(UnityChip) ", **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Console"
         self._page_mode: bool = False
         self._prompt = prompt
         self._extra_height: int = 0
+        self._batch_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def compose(self) -> ComposeResult:
         """Compose the console widget."""
@@ -45,6 +49,20 @@ class ConsoleWidget(Vertical):
     def on_mount(self) -> None:
         self.watch(self.app, "console_height", self._apply_console_height)
         self._apply_console_height(self.app.console_height)
+        self._auto_update()
+        self._refresh_timer = self.set_interval(
+            self.REFRESH_INTERVAL_S, self._auto_update
+        )
+        # Separate timer for batch queue processing
+        self._batch_timer = self.set_interval(
+            self.REFRESH_INTERVAL_S, self._flush_batch
+        )
+
+    def _auto_update(self) -> None:
+        """Auto-update console output and prompt."""
+        if hasattr(self.app, "_console_capture"):
+            self.app.flush_console_output()
+        self.refresh_prompt()
 
     def _apply_console_height(self, value: int) -> None:
         if not self.is_mounted:
@@ -56,6 +74,32 @@ class ConsoleWidget(Vertical):
         if not self.is_mounted:
             return
         self.styles.height = self.app.console_height + self._extra_height
+
+    def queue_output(self, text: str) -> None:
+        """Thread-safe method to add output to queue for batch processing.
+
+        Args:
+            text: Text to append (may contain ANSI codes)
+        """
+        if not text:
+            return
+        self._batch_queue.put_nowait(text)
+
+    def _flush_batch(self) -> None:
+        """Batch process all queued output texts."""
+        texts: list[str] = []
+        while True:
+            try:
+                texts.append(self._batch_queue.get_nowait())
+            except queue.Empty:
+                break
+
+        if not texts:
+            return
+
+        # Combine all texts and output once
+        combined = "".join(texts)
+        self.append_output(combined)
 
     def append_output(self, text: str) -> None:
         """Append text to console output.
@@ -73,7 +117,6 @@ class ConsoleWidget(Vertical):
         # Get RichLog widget and write with ANSI parsing
         output_log = self.query_one("#console-output", RichLog)
 
-        # RichLog handles line limiting automatically via max_lines
         # Split by lines and write each with ANSI parsing
         lines = processed.split("\n")
         for i, line in enumerate(lines):
