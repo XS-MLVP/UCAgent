@@ -16,8 +16,6 @@ if TYPE_CHECKING:
 class TaskPanel(VerticalScroll):
     """Panel displaying mission tasks, changed files, and tool status."""
 
-    REFRESH_INTERVAL_S = 1.0
-
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Mission"
@@ -38,9 +36,7 @@ class TaskPanel(VerticalScroll):
         self.watch(self.app, "task_width", self._apply_task_width)
         self._apply_task_width(self.app.task_width)
         self.update_content()
-        self._refresh_timer = self.set_interval(
-            self.REFRESH_INTERVAL_S, self.update_content
-        )
+        self.set_interval(1.0, self.update_content)
 
     def _apply_task_width(self, value: int) -> None:
         if not self.is_mounted:

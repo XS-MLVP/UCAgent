@@ -26,8 +26,6 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         Binding("shift+right", "clear_console", "Clear console", show=False),
     ]
 
-    REFRESH_INTERVAL_S = 0.2
-
     def __init__(self, prompt: str = "(UnityChip) ", **kwargs) -> None:
         super().__init__(**kwargs)
         self.border_title = "Console"
@@ -55,17 +53,15 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
     def on_mount(self) -> None:
         self.watch(self.app, "console_height", self._apply_console_height)
         self._apply_console_height(self.app.console_height)
+        self._tick()
+        self.set_interval(0.2, self._tick)
+
+    def _tick(self) -> None:
+        self._flush_batch()
         self._auto_update()
-        self._refresh_timer = self.set_interval(
-            self.REFRESH_INTERVAL_S, self._auto_update
-        )
-        self._batch_timer = self.set_interval(
-            self.REFRESH_INTERVAL_S, self._flush_batch
-        )
 
     def _auto_update(self) -> None:
-        if hasattr(self.app, "_console_capture"):
-            self.app.flush_console_output()
+        self.app.flush_console_output()
         self.refresh_prompt()
 
     def _apply_console_height(self, value: int) -> None:
@@ -128,7 +124,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             self._enter_manual_scroll()
 
         output_log = self.query_one("#console-output", RichLog)
-        output_log.scroll_relative(y=delta, animate=False)
+        output_log.scroll_relative(y=delta)
 
         if delta > 0:
             self._check_and_restore_auto_scroll()
