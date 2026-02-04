@@ -32,7 +32,11 @@ class MessagesPanel(RichLog):
 
     BATCH_INTERVAL_S = 0.2
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        message_queue: queue.SimpleQueue[tuple[str, str]],
+        **kwargs,
+    ) -> None:
         super().__init__(
             highlight=True,
             markup=True,
@@ -42,9 +46,9 @@ class MessagesPanel(RichLog):
             **kwargs,
         )
         self.border_title = "Messages"
-        self._scroll_buffer: str = ""
         self._message_lines: list[str] = []
-        self._batch_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._batch_queue: queue.SimpleQueue[tuple[str, str]] = message_queue
+        self._partial_line: str = ""
 
     def on_mount(self) -> None:
         self._batch_timer = self.set_interval(self.BATCH_INTERVAL_S, self._flush_batch)
@@ -76,36 +80,8 @@ class MessagesPanel(RichLog):
         if not messages:
             return
 
-        for msg, end in messages:
-            self._do_append_message(msg, end)
-
-    def _do_append_message(self, msg: str, end: str = "\n") -> None:
-        """Actually process and render a single message.
-        Contains the original append_message logic."""
-        if not msg and not end:
-            return
-
-        payload = f"{msg}{end}"
-
-        if self.scroll_mode:
-            self._scroll_buffer += payload
-            max_buffer_size = 1024 * self.max_messages
-            if len(self._scroll_buffer) > max_buffer_size:
-                self._scroll_buffer = self._scroll_buffer[-max_buffer_size:]
-            return
-
-        if self._scroll_buffer:
-            payload = self._scroll_buffer + payload
-            self._scroll_buffer = ""
-
-        self._append_payload(payload)
-
-    def flush_buffer(self) -> None:
-        """Flush any buffered messages when exiting scroll mode."""
-        if self._scroll_buffer:
-            payload = self._scroll_buffer
-            self._scroll_buffer = ""
-            self._append_payload(payload)
+        combined = "".join(f"{msg}{end}" for msg, end in messages)
+        self._append_payload(combined)
 
     def _update_title(self) -> None:
         """Update the border title with message count."""
@@ -122,7 +98,6 @@ class MessagesPanel(RichLog):
         """Scroll to the end and exit scroll mode."""
         self.scroll_mode = False
         self.auto_scroll = True
-        self.flush_buffer()
         if self._message_lines:
             self.focus_index = len(self._message_lines) - 1
         super().scroll_end(animate=False)
@@ -171,34 +146,28 @@ class MessagesPanel(RichLog):
         if not payload:
             return
 
-        lines = payload.split("\n")
+        payload = f"{self._partial_line}{payload}"
 
-        updated_last = False
-        if self._message_lines:
-            self._message_lines[-1] += lines[0]
-            updated_last = True
-            lines = lines[1:]
+        parts = payload.split("\n")
+        complete_lines = parts[:-1]
+        new_partial = parts[-1]
 
-        self._message_lines.extend(lines)
+        if complete_lines:
+            combined = "\n".join(complete_lines)
+            self._message_lines.extend(complete_lines)
+            if len(self._message_lines) > self.max_messages:
+                self._message_lines = self._message_lines[-self.max_messages :]
+            self.write(Text.from_ansi(combined))
 
-        if len(self._message_lines) > self.max_messages:
-            self._message_lines = self._message_lines[-self.max_messages :]
+        self._partial_line = new_partial
 
-        if updated_last:
-            self._render_lines()
-        else:
-            for line in lines:
-                self.write(Text.from_ansi(line))
-
-        if not self.scroll_mode:
+        if complete_lines and not self.scroll_mode:
             if self._message_lines:
                 self.focus_index = len(self._message_lines) - 1
             else:
                 self.focus_index = 0
-            super().scroll_end(animate=False)
-        self._update_title()
 
-    def _render_lines(self) -> None:
-        self.clear()
-        for line in self._message_lines:
-            self.write(Text.from_ansi(line))
+        if complete_lines:
+            self._update_title()
+        elif self.scroll_mode:
+            self._update_title()
