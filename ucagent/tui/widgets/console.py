@@ -11,6 +11,9 @@ from textual.containers import Vertical
 from textual.widgets import RichLog
 
 from rich.text import Text
+from rich.panel import Panel
+from rich.box import SQUARE
+
 
 from ..mixins import AutoScrollMixin
 from .console_input import ConsoleInput
@@ -109,6 +112,19 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
                 continue
             output_log.write(Text.from_ansi(line))
 
+    def echo_command(self, cmd: str) -> None:
+        output_log = self.query_one("#console-output", RichLog)
+        t = Text(f"> {cmd}", style="bold")
+        output_log.write(
+            Panel(
+                t,
+                box=SQUARE,
+                border_style="dim",
+                padding=(0, 1),
+                expand=True,
+            )
+        )
+
     def clear_output(self) -> None:
         output_log = self.query_one("#console-output", RichLog)
         output_log.clear()
@@ -148,9 +164,6 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
 
     def set_busy(self, busy: bool) -> None:
         self.query_one(ConsoleInput).set_busy(busy)
-
-    def set_running_command(self, command: str | None) -> None:
-        self.query_one(ConsoleInput).set_running_command(command)
 
     def refresh_prompt(self) -> None:
         self.query_one(ConsoleInput).refresh_prompt()
