@@ -18,25 +18,6 @@ from textual.widgets import Input, Static
 
 from ..completion import CompletionHandler
 
-if TYPE_CHECKING:
-    from ucagent.tui.handlers import KeyHandler
-
-
-class ConsoleInputField(Input):
-    """Input field that can lock editing while a command is running."""
-
-    def _is_locked(self) -> bool:
-        node = self.parent
-        while node is not None:
-            if hasattr(node, "is_busy"):
-                return bool(getattr(node, "is_busy", False))
-            node = node.parent
-        return False
-
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if self._is_locked():
-            return None
-        return super().check_action(action, parameters)
 
 
 class BusyIndicator(Widget):
@@ -58,12 +39,24 @@ class BusyIndicator(Widget):
         event.stop()
 
 
+def _build_suggestion_menu(suggestions: list[str], selected_index: int) -> Text:
+    text = Text()
+    for idx, item in enumerate(suggestions):
+        if idx:
+            text.append(" ")
+        if idx == selected_index:
+            text.append(item, style="bold reverse")
+        else:
+            text.append(item)
+    return text
+
+
 class ConsoleInput(Vertical):
     """Input and suggestion area for the console."""
 
     BINDINGS: ClassVar[list[Binding]] = [
+        Binding("escape", "clear_and_ready", "Clear input", show=False),
         Binding("shift+left", "clear_input", "Clear input", show=False),
-        # Override Screen's default tab bindings with priority to prevent focus switching
         Binding("tab", "handle_tab", "Command Completion", show=False, priority=True),
         Binding("shift+tab", "handle_shift_tab", "Focus Previous", show=False, priority=True),
     ]
@@ -85,20 +78,14 @@ class ConsoleInput(Vertical):
         self._suggestions_visible: bool = False
         self._suggestions_text: str = ""
         self._completion = CompletionHandler()
-        self._busy_command: str | None = None
-        self._programmatic_change: bool = False  # Flag to skip clearing on programmatic changes
+        self._programmatic_change: bool = False
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
         with Horizontal(id="console-input-row"):
             yield BusyIndicator(id="console-loading")
-            yield ConsoleInputField(placeholder=self.prompt, id="console-input")
+            yield Input(placeholder=self.prompt, id="console-input")
         yield Static(id="console-suggest")
-
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if self.is_busy and action == "clear_input":
-            return None
-        return super().check_action(action, parameters)
 
     def on_mount(self) -> None:
         """Setup after mounting."""
@@ -107,9 +94,6 @@ class ConsoleInput(Vertical):
         self._set_loading_visible(False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle command submission."""
-        if self.is_busy:
-            return
         cmd = event.value.strip()
         input_widget = self.query_one("#console-input", Input)
         input_widget.value = ""
@@ -122,10 +106,6 @@ class ConsoleInput(Vertical):
         if daemon:
             cmd = cmd[:-1].strip()
 
-        console = self.parent
-        if console is not None and hasattr(console, "append_output"):
-            console.append_output(f"{self.prompt}{cmd}\n")
-
         self.post_message(self.CommandSubmitted(cmd, daemon))
 
     def on_input_changed(self, _event: Input.Changed) -> None:
@@ -137,14 +117,6 @@ class ConsoleInput(Vertical):
             self.clear_suggestions()
 
     async def on_key(self, event: Key) -> None:
-        """Handle key events for input behavior.
-
-        Note: Tab/Shift+Tab are handled by priority bindings (action_handle_tab,
-        action_handle_shift_tab) to prevent Screen's default focus switching.
-        """
-        if self.is_busy:
-            return
-
         if event.key == "up":
             self._handle_history_up()
             event.prevent_default()
@@ -167,17 +139,17 @@ class ConsoleInput(Vertical):
         self.query_one("#console-input", Input).value = ""
 
     def action_clear_input(self) -> None:
-        """Clear the input field (binding target)."""
         self.clear_input()
 
+    def action_clear_and_ready(self) -> None:
+        self.clear_input()
+        self.clear_suggestions()
+        self.focus_input()
+
     def action_handle_tab(self) -> None:
-        """Handle Tab key - tab completion when input focused, otherwise focus input."""
         if self.input_has_focus():
-            if not self.is_busy:
-                self.handle_tab_completion()
-            # When busy, Tab does nothing (prevents accidental focus switch)
+            self.handle_tab_completion()
         else:
-            # Focus the input field instead of cycling focus
             self.focus_input()
 
     def action_handle_shift_tab(self) -> None:
@@ -239,20 +211,8 @@ class ConsoleInput(Vertical):
         input_widget.placeholder = f"{prefix}{self.prompt}"
 
     def set_busy(self, busy: bool) -> None:
-        """Set busy state."""
         self.is_busy = busy
-        if busy:
-            self.clear_suggestions()
-        else:
-            self._busy_command = None
-        input_widget = self.query_one("#console-input", Input)
-        input_widget.set_class(busy, "busy")
         self._set_loading_visible(busy)
-        self._update_prompt()
-        if busy:
-            self._update_running_display(input_widget)
-        else:
-            input_widget.value = ""
 
     def set_page_mode(self, enabled: bool) -> None:
         """Set page mode prompt prefix."""
@@ -262,15 +222,7 @@ class ConsoleInput(Vertical):
         self._update_prompt()
 
     def refresh_prompt(self) -> None:
-        """Refresh the input prompt display."""
         self._update_prompt()
-        self._update_running_display()
-
-    def set_running_command(self, command: str | None) -> None:
-        """Set the running command shown in the input field."""
-        cmd = command.strip() if command else ""
-        self._busy_command = cmd if cmd else None
-        self._update_running_display()
 
     @property
     def has_suggestions(self) -> bool:
@@ -281,7 +233,7 @@ class ConsoleInput(Vertical):
             self.clear_suggestions()
             return
         if 0 <= selected_index < len(suggestions):
-            renderable = self._build_suggestion_menu(suggestions, selected_index)
+            renderable = _build_suggestion_menu(suggestions, selected_index)
             plain_text = renderable.plain
         else:
             plain_text = " ".join(suggestions)
@@ -311,17 +263,6 @@ class ConsoleInput(Vertical):
         widget = self.query_one("#console-suggest")
         widget.styles.display = "none"
 
-    def _build_suggestion_menu(self, suggestions: list[str], selected_index: int) -> Text:
-        text = Text()
-        for idx, item in enumerate(suggestions):
-            if idx:
-                text.append(" ")
-            if idx == selected_index:
-                text.append(item, style="bold reverse")
-            else:
-                text.append(item)
-        return text
-
     def _measure_suggestion_lines(self, text: str) -> int:
         width = max(20, self.size.width - 2)
         wrapped = textwrap.wrap(text, width=width)
@@ -336,12 +277,3 @@ class ConsoleInput(Vertical):
         indicator = self.query_one("#console-loading", BusyIndicator)
         indicator.set_class(visible, "is-visible")
         indicator.refresh(layout=True)
-
-    def _update_running_display(self, input_widget: Input | None = None) -> None:
-        if not self.is_busy:
-            return
-        widget = input_widget or self.query_one("#console-input", Input)
-        text = self._busy_command or ""
-        if widget.value != text:
-            widget.value = text
-            widget.cursor_position = len(text)

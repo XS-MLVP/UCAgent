@@ -182,13 +182,12 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         status_bar.update_content()
 
     def _process_batch_commands(self) -> None:
-        """Process batch commands from init_cmd."""
         if not self.vpdb.init_cmd:
             return
 
         while self.vpdb.init_cmd:
             cmd = self.vpdb.init_cmd.pop(0)
-            self.run_worker(self.key_handler.process_command(cmd))
+            self.key_handler.process_command(cmd)
 
     # Action methods for key bindings
     def action_interrupt_or_quit(self) -> None:
@@ -261,37 +260,24 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         )
         self.console_height = new_value
 
-    async def on_console_input_command_submitted(
+    def on_console_input_command_submitted(
         self, event: ConsoleInput.CommandSubmitted
     ) -> None:
-        """Handle command submission from console."""
-        self.run_worker(self.key_handler.process_command(event.command, event.daemon))
-
-    def set_active_command(self, command: str) -> None:
-        """Update the console display for a running command."""
-        console = self.query_one("#console", ConsoleWidget)
-        console.set_running_command(command)
-
-    def clear_active_command(self) -> None:
-        """Clear the running command display."""
-        console = self.query_one("#console", ConsoleWidget)
-        console.set_running_command(None)
+        self.key_handler.process_command(event.command, event.daemon)
 
     def cancel_running_command(self) -> bool:
-        """Request interruption of the running command if any."""
-        had_worker = self.key_handler.has_active_worker()
-        if had_worker:
-            self.key_handler.cancel_active_worker()
-        busy = had_worker or self._is_console_busy()
-        # Daemon commands also count as running
-        if self.daemon_cmds:
-            busy = True
-        if not busy:
+        has_workers = self.key_handler.has_active_worker()
+        has_daemons = bool(self.daemon_cmds)
+
+        if not has_workers and not has_daemons:
             return False
+
         try:
             self.vpdb._sigint_handler(signal.SIGINT, None)
         except BaseException:
             pass
+        self.key_handler.cancel_all_workers()
+        self.flush_console_output()
         return True
 
     def _is_console_busy(self) -> bool:

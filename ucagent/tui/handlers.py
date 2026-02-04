@@ -6,7 +6,7 @@ import time
 import traceback
 from typing import TYPE_CHECKING
 
-from textual.worker import Worker, WorkerCancelled, WorkerState
+from textual.worker import Worker, WorkerState
 
 from .widgets import ConsoleWidget
 
@@ -15,47 +15,37 @@ if TYPE_CHECKING:
 
 
 class KeyHandler:
-    """Handles key bindings and command processing for VerifyApp."""
-
     def __init__(self, app: "VerifyApp") -> None:
         self.app = app
         self.last_cmd: str | None = None
-        self._active_worker: Worker | None = None
+        self._active_workers: list[Worker] = []
 
     def is_exit_cmd(self, cmd: str) -> bool:
-        """Check if command is an exit command."""
         return cmd.lower() in ("q", "exit", "quit")
 
-    def cancel_active_worker(self) -> bool:
-        """Cancel the worker running the current command.
-
-        Returns:
-            True if a cancellation was requested
-        """
-        worker = self._active_worker
-        if worker is None:
-            return False
-        if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
-            worker.cancel()
-            return True
-        return False
+    def cancel_all_workers(self) -> bool:
+        cancelled_any = False
+        for worker in self._active_workers:
+            if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
+                worker.cancel()
+                cancelled_any = True
+        self._active_workers.clear()
+        self._update_busy_state()
+        return cancelled_any
 
     def has_active_worker(self) -> bool:
-        """Return True if a command worker is currently running."""
-        worker = self._active_worker
-        if worker is None:
-            return False
-        return worker.state in (WorkerState.PENDING, WorkerState.RUNNING)
+        self._cleanup_finished_workers()
+        return len(self._active_workers) > 0
 
-    async def process_command(self, cmd: str, daemon: bool = False) -> None:
-        """Process a command.
+    def _cleanup_finished_workers(self) -> None:
+        self._active_workers = [
+            w
+            for w in self._active_workers
+            if w.state in (WorkerState.PENDING, WorkerState.RUNNING)
+        ]
 
-        Args:
-            cmd: Command string to execute
-            daemon: If True, run as daemon command
-        """
+    def process_command(self, cmd: str, daemon: bool = False) -> None:
         if not cmd:
-            # Repeat last command if empty
             if self.last_cmd:
                 cmd = self.last_cmd
             else:
@@ -63,31 +53,27 @@ class KeyHandler:
                 return
 
         self.last_cmd = cmd
-
-        # Add to history
         self._add_to_history(cmd)
 
-        # Check for exit
         if self.is_exit_cmd(cmd):
             self.app.action_quit()
             return
 
-        # Check for clear
         if cmd == "clear":
             console = self.app.query_one("#console", ConsoleWidget)
             console.clear_output()
             return
 
-        # Execute command
         if daemon:
-            await self._execute_daemon_command(cmd)
+            self._execute_daemon_command(cmd)
         else:
-            await self._execute_command(cmd)
+            self._execute_command(cmd)
 
-    async def _execute_command(self, cmd: str) -> None:
-        """Execute a command in a worker thread."""
+    def _execute_command(self, cmd: str) -> None:
         console = self.app.query_one("#console", ConsoleWidget)
-        console.set_busy(True)
+        console.echo_command(cmd)
+
+        worker_holder: list[Worker] = []
 
         def run_command() -> None:
             try:
@@ -95,30 +81,28 @@ class KeyHandler:
             except Exception as e:
                 error_msg = f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
                 console.queue_output(error_msg)
+            finally:
+                if worker_holder:
+                    self.app.call_from_thread(self._on_command_complete, worker_holder[0])
 
-        worker = self.app.run_worker(run_command, thread=True, exclusive=True, group="cmd-exec")
-        self._active_worker = worker
-        self.app.set_active_command(cmd)
+        worker = self.app.run_worker(run_command, thread=True, group="cmd-exec")
+        worker_holder.append(worker)
+        self._active_workers.append(worker)
+        self._update_busy_state()
 
-        cancelled = False
-        try:
-            # Wait for completion
-            await worker.wait()
-        except WorkerCancelled:
-            cancelled = True
-        finally:
-            self.app.flush_console_output()
-            console.set_busy(False)
-            self.app.clear_active_command()
-            self._active_worker = None
+    def _on_command_complete(self, worker: Worker) -> None:
+        if worker in self._active_workers:
+            self._active_workers.remove(worker)
+        self.app.flush_console_output()
+        self._update_busy_state()
+        if not self.has_active_worker():
+            self.app.update_task_panel()
 
-        if cancelled:
-            return
+    def _update_busy_state(self) -> None:
+        console = self.app.query_one("#console", ConsoleWidget)
+        console.set_busy(self.has_active_worker())
 
-        self.app.update_task_panel()
-
-    async def _execute_daemon_command(self, cmd: str) -> None:
-        """Execute a command as a daemon (background)."""
+    def _execute_daemon_command(self, cmd: str) -> None:
         key = time.time()
         self.app.daemon_cmds[key] = cmd
 
@@ -127,7 +111,9 @@ class KeyHandler:
             try:
                 self.app.vpdb.onecmd(cmd)
             except Exception as e:
-                error_msg = f"\033[33mDaemon Error: {e}\n{traceback.format_exc()}\033[0m\n"
+                error_msg = (
+                    f"\033[33mDaemon Error: {e}\n{traceback.format_exc()}\033[0m\n"
+                )
                 console.queue_output(error_msg)
             finally:
                 self.app.call_from_thread(self.app.flush_console_output)
@@ -158,9 +144,7 @@ class KeyHandler:
         if " " in text:
             # Complete argument
             complete_func = getattr(
-                self.app.vpdb,
-                f"complete_{cmd}",
-                self.app.vpdb.completedefault
+                self.app.vpdb, f"complete_{cmd}", self.app.vpdb.completedefault
             )
             arg = args
             if " " in args:
