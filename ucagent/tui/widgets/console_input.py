@@ -64,8 +64,8 @@ class ConsoleInput(Vertical):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("shift+left", "clear_input", "Clear input", show=False),
         # Override Screen's default tab bindings with priority to prevent focus switching
-        Binding("tab", "handle_tab", "Tab", show=False, priority=True),
-        Binding("shift+tab", "handle_shift_tab", "Shift+Tab", show=False, priority=True),
+        Binding("tab", "handle_tab", "Command Completion", show=False, priority=True),
+        Binding("shift+tab", "handle_shift_tab", "Focus Previous", show=False, priority=True),
     ]
 
     class CommandSubmitted(Message):

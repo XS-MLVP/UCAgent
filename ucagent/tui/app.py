@@ -41,6 +41,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
         Binding("ctrl+slash", "toggle_help_panel", "Help", show=False),
+        Binding("f1", "toggle_help_panel", "Help", show=False),
         # Arrow keys
         Binding("ctrl+left", "split_left", "Split left", show=False, priority=True),
         Binding("ctrl+right", "split_right", "Split right", show=False, priority=True),
@@ -261,7 +262,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.console_height = new_value
 
     async def on_console_input_command_submitted(
-            self, event: ConsoleInput.CommandSubmitted
+        self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         """Handle command submission from console."""
         self.run_worker(self.key_handler.process_command(event.command, event.daemon))
