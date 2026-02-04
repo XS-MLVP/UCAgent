@@ -2,7 +2,7 @@
 
 from ucagent.abackend.base import AgentBackendBase
 from ucagent.util.log import info, warning, error
-from .middleware import MessageStatistic, TokenSpeedCallbackHandler, TrimAndSummaryMiddleware
+from .middleware import MessageStatistic, TokenSpeedCallbackHandler, TrimAndSummaryMiddleware, SkillsMiddleware
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.models import get_chat_model
@@ -19,8 +19,12 @@ class UCAgentLangChainBackend(AgentBackendBase):
         super().__init__(vagent, config, **kwargs)
         self.message_statistic = MessageStatistic()
         self.cb_token_speed = TokenSpeedCallbackHandler()
+        # model_list = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
+        # self.model = model_list[0]
+        # self.sumary_model = model_list[0]
         self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
         self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
+
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
             message_manage_node = TrimAndSummaryMiddleware(
@@ -44,7 +48,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             model=self.model,
             tools=self.vagent.test_tools,
             checkpointer=MemorySaver(),
-            middleware=[self.message_manage_node]
+            middleware=[self.message_manage_node, SkillsMiddleware(self.vagent, sources=["ucagent/lang/zh/skills/"])]
         )
 
     def get_human_message(self, text):
