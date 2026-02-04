@@ -105,10 +105,11 @@ class HorizontalSplitter(Static):
 def _clamp_split_value(target: str, value: int) -> int:
     """Clamp split value with only minimum constraints."""
     value = int(value)
-    if target == "task_width":
-        return max(10, value)
-    if target == "status_height":
-        return max(3, value)
-    if target == "console_height":
-        return max(3, value)
+    match target:
+        case "task_width":
+            value = max(10, value)
+        case "status_height":
+            value = max(3, value)
+        case "console_height":
+            value = max(3, value)
     return value

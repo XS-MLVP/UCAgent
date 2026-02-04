@@ -39,18 +39,24 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
-        Binding("ctrl+shift+t", "choose_theme", "Choose theme", show=False),
-        Binding("ctrl+shift+slash", "toggle_help_panel", "Help", show=False),
-        Binding(
-            "ctrl+shift+left", "split_left", "Split left", show=False, priority=True
-        ),
-        Binding(
-            "ctrl+shift+right", "split_right", "Split right", show=False, priority=True
-        ),
-        Binding("ctrl+shift+up", "split_up", "Split up", show=False, priority=True),
-        Binding(
-            "ctrl+shift+down", "split_down", "Split down", show=False, priority=True
-        ),
+        # Keybindings with "ctrl+shift+" prefix
+        *[
+            Binding(f"ctrl+shift+{key}", action, desc, show=False, priority=priority)
+            for key, action, desc, priority in [
+                ("t", "choose_theme", "Choose theme", False),
+                ("slash", "toggle_help_panel", "Help", False),
+                # Arrow keys bindings
+                ("left", "split_left", "Split left", True),
+                ("right", "split_right", "Split right", True),
+                ("up", "split_up", "Split up", True),
+                ("down", "split_down", "Split down", True),
+                # Vim-style arrow keys bindings
+                ("h", "split_left", "Split left", True),
+                ("l", "split_right", "Split right", True),
+                ("k", "split_up", "Split up", True),
+                ("j", "split_down", "Split down", True),
+            ]
+        ],
     ]
 
     # Reactive properties for dynamic layout
@@ -132,6 +138,13 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Focus the console input
         self.query_one(ConsoleInput).focus_input()
+
+    def on_ready(self) -> None:
+        # Use default value from tcss
+        task_panel = self.query_one(TaskPanel)
+        self.task_width = task_panel.size.width
+        console = self.query_one(ConsoleWidget)
+        self.console_height = console.size.height
 
     def on_key(self, event: Key) -> None:
         """Allow Esc to dismiss the help panel without stealing other Esc uses."""
@@ -254,7 +267,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.console_height = new_value
 
     async def on_console_input_command_submitted(
-        self, event: ConsoleInput.CommandSubmitted
+            self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         """Handle command submission from console."""
         self.run_worker(self.key_handler.process_command(event.command, event.daemon))
