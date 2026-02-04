@@ -27,8 +27,6 @@ class MessagesPanel(AutoScrollMixin, RichLog):
 
     focus_index: reactive[int] = reactive(0)
 
-    BATCH_INTERVAL_S = 0.2
-
     def __init__(
         self,
         message_queue: queue.SimpleQueue[tuple[str, str]],
@@ -54,7 +52,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         self._update_title()
 
     def on_mount(self) -> None:
-        self._batch_timer = self.set_interval(self.BATCH_INTERVAL_S, self._flush_batch)
+        self.set_interval(0.4, self._flush_batch)
 
     def on_unmount(self) -> None:
         self._flush_batch()
@@ -101,7 +99,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
             self.auto_scroll = True
             if self._message_lines:
                 self.focus_index = len(self._message_lines) - 1
-            self.scroll_end(animate=False)
+            self.scroll_end()
             self._on_manual_scroll_changed(False)
 
     def move_focus(self, delta: int) -> None:
@@ -119,7 +117,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         self.focus_index = new_index
         self._update_title()
 
-        self.scroll_relative(y=new_index - old_index, animate=False)
+        self.scroll_relative(y=new_index - old_index)
 
         if delta > 0:
             self._check_and_restore_auto_scroll()

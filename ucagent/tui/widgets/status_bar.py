@@ -7,14 +7,10 @@ from typing import TYPE_CHECKING
 from textual import events
 from textual.widgets import Static
 
-if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
 
 
 class StatusBar(Static):
     """Bottom status bar showing key runtime info."""
-
-    REFRESH_INTERVAL_S = 1.0
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -22,10 +18,7 @@ class StatusBar(Static):
 
     def on_mount(self) -> None:
         self.update_content()
-        self._refresh_timer = self.set_interval(
-            self.REFRESH_INTERVAL_S, self.update_content
-        )
-
+        self.set_interval(1.0, self.update_content)
 
     def update_content(self) -> None:
         """Update status bar content."""
