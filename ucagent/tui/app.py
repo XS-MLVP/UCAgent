@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 import signal
 from typing import TYPE_CHECKING, ClassVar
 
@@ -72,14 +73,12 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Daemon commands tracking
         self.daemon_cmds: dict[float, str] = {}
 
-        # Message buffer for messages received before UI is mounted
-        self._message_buffer: list[tuple[str, str]] = []
-        self._ui_mounted: bool = False
+        # Message queue for thread-safe UI updates (shared with MessagesPanel)
+        self._ui_message_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
 
-        # Set message echo handler and logger early (like verify_ui.py does)
-        self.vpdb.agent.set_message_echo_handler(self.message_echo)
-        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
-        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
+        # Track previous logger for cleanup
+        self._mcps_logger_prev = None
+        self._ui_handlers_installed: bool = False
 
     def get_css_variables(self) -> dict[str, str]:
         """Provide extra theme variables for custom styles."""
@@ -103,7 +102,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
                     "task_width", id="split-task", classes="splitter vertical"
                 )
                 with Vertical(id="right-container"):
-                    yield MessagesPanel(id="messages-panel")
+                    yield MessagesPanel(
+                        id="messages-panel", message_queue=self._ui_message_queue
+                    )
             yield HorizontalSplitter(
                 "console_height",
                 invert=True,
@@ -115,9 +116,11 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
-        # Mark UI as mounted and flush any buffered messages
-        self._ui_mounted = True
-        self._flush_message_buffer()
+        # Install message echo handler and UI logger now that widgets are ready
+        self.vpdb.agent.set_message_echo_handler(self.message_echo)
+        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
+        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
+        self._ui_handlers_installed = True
 
         # Install console capture and signal handler
         self.install_console_capture()
@@ -146,28 +149,8 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         This method is called from worker threads, so it posts
         a message to be processed on the main thread.
-
-        If the UI is not yet mounted, buffer the message for later.
         """
-        if not self._ui_mounted:
-            # Buffer messages until UI is ready
-            self._message_buffer.append((msg, end))
-            return
-        self.call_from_thread(self._process_message, msg, end)
-
-    def _process_message(self, msg: str, end: str) -> None:
-        """Process message on main thread."""
-        messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        messages_panel.append_message(msg, end)
-
-    def _flush_message_buffer(self) -> None:
-        """Flush buffered messages to the UI."""
-        if not self._message_buffer:
-            return
-        messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        for msg, end in self._message_buffer:
-            messages_panel.append_message(msg, end)
-        self._message_buffer.clear()
+        self._ui_message_queue.put((msg, end))
 
     def console_output(self, text: str) -> None:
         """Thread-safe console output method.
@@ -310,7 +293,8 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             return False
 
     def _cleanup(self) -> None:
-        self.vpdb.agent.unset_message_echo_handler()
-        self.vpdb.agent._mcps_logger = self._mcps_logger_prev
+        if self._ui_handlers_installed:
+            self.vpdb.agent.unset_message_echo_handler()
+            self.vpdb.agent._mcps_logger = self._mcps_logger_prev
         self.restore_sigint_handler()
         self.restore_console_capture()
