@@ -136,7 +136,7 @@ Default stage checking order: Python Checker -> LLM -> Human
 - `ctrl+h/j/k/l`: Vim-style layout adjustment (equivalent to ctrl+left/down/up/right)
 - `ctrl+c`: Cancel running command; exit TUI if no command is running
 - `ctrl+t`: Open theme picker
-- `ctrl+/` or `f1`: Show/hide keyboard shortcuts help panel
+- `f1`: Show/hide keyboard shortcuts help panel
 - `shift+right`: Clear console output
 - `shift+left`: Clear input text
 - `tab`: Command completion; press Tab repeatedly to cycle through candidates
