@@ -60,6 +60,7 @@ nav:
       - 人机协同验证: content/02_usage/02_assit.md
       - 参数说明: content/02_usage/03_option.md
       - TUI: content/02_usage/04_tui.md
+      - 旧版 TUI（urwid）: content/02_usage/04_tui_legacy.md
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
   - 定制开发:
