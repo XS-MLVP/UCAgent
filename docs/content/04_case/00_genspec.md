@@ -5,7 +5,7 @@
 规范生成是 UCAgent 自定义工作流的一个案例,专门用于从分散的设计资料(如源码、文档、注释等)中提取、整理和生成结构化的功能规范文档。
 通过修改`config.yaml`中的流程定义，达到了一个规范生成的效果。
 
-如果有其他的自定义工作流的需求，可以参考[定制工作流（增删阶段/子阶段）](../03_develop/03_workflow.md#定制工作流增删阶段子阶段)来自定义阶段从而满足实际的需要。
+如果有其他的自定义工作流的需求，可以参考[定制工作流（增删阶段/子阶段）](../03_develop/01_workflow.md#定制工作流增删阶段子阶段)来自定义阶段从而满足实际的需要。
 
 ### 应用场景
 
@@ -92,7 +92,6 @@
 **`workspace`为工作目录，可自行选择**
 
 1. **准备设计模块**
-
    - 将待分析的 RTL 代码放入 `workspace/{DUT}/` 目录
    - 将现有的各种文档放入`{DUT}/docs/` 或 README 中
    - 新生成的 `spec` 文档会输出到 `workspace/{OUT}/`
@@ -121,10 +120,10 @@ mkdir output
 cp -r examples/GenSpec/Adder output/
 
 # 3. 启动 GenSpec 流程 (使用 MCP 集成模式)
-ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
+ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md
 
 # 或者直接启动 TUI 模式
-ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui -s --no-embed-tools -l --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
+ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui -s --no-embed-tools -l --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md
 ```
 
 ### 规范生成流程配置说明
@@ -204,39 +203,38 @@ GenSpec 支持通过 MCP 协议与外部 Code Agent 协作:
 
 1. **配置 MCP Client** (以 Qwen Code 为例)
 
-  ```json
-  {
-	  "mcpServers": {
-		  "genspec": {
-			  "httpUrl": "http://localhost:5000/mcp",
-			  "timeout": 10000
-		  }
-	  }
-  }
-  ```
+```json
+{
+	"mcpServers": {
+		"genspec": {
+			"httpUrl": "http://localhost:5000/mcp",
+			"timeout": 10000
+		}
+	}
+}
+```
 
 2. **启动 MCP Server**
 
-  ```bash
-  ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md 
-  ```
+```bash
+ucagent output/ Adder --config examples/GenSpec/genspec.yaml -hm --tui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path examples/GenSpec/SpecDoc/dut_spec_template.md
+```
 
 3. **在 MCP Client 中启动协作**
 
-  在`output`文件夹启动code agent，然后输入提示词：
+在`output`文件夹启动code agent，然后输入提示词：
 
-  ```
-  > 请通过工具 RoleInfo 获取你的角色信息和基本指导,然后完成任务。使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作,不要超出该目录。
-  ```
+```
+> 请通过工具 RoleInfo 获取你的角色信息和基本指导,然后完成任务。使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作,不要超出该目录。
+```
 
 4. **流程监控**
 
-  在 UCAgent TUI 界面中可以实时查看:
+在 UCAgent TUI 界面中可以实时查看:
 
-  - 当前执行阶段
-  - 工具调用情况
-  - 文档生成进度
-
+- 当前执行阶段
+- 工具调用情况
+- 文档生成进度
 
 ## 高级用法
 
@@ -280,8 +278,6 @@ stages:
 SKIP_HUMAN_CHECK=true make spec_Adder
 ```
 
-
-
 ## 常见问题
 
 ### Q1: 生成的规范不完整怎么办?
@@ -318,7 +314,7 @@ SKIP_HUMAN_CHECK=true make spec_Adder
 
 都是在 UCAgent 这个大框架下的工作流。只是一个用于文档生成，一个用于验证生成。可以通过修改`config.yaml`自行转换或者同时使用。
 
-| 特性     | 规范生成      | 验证生成          |
+| 特性     | 规范生成           | 验证生成                     |
 | -------- | ------------------ | ---------------------------- |
 | 目标     | 生成功能规范文档   | 生成并执行测试用例           |
 | 输出     | Markdown 规范文档  | Python 测试代码 + 覆盖率报告 |
@@ -349,6 +345,3 @@ SKIP_HUMAN_CHECK=true make spec_Adder
    diff output/{DUT}_spec.md.backup output/{DUT}_spec.md
    ```
 4. 手动合并保留的内容
-
-
-
