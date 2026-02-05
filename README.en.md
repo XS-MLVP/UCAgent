@@ -132,13 +132,16 @@ Default stage checking order: Python Checker -> LLM -> Human
 
 ### TUI Shortcuts
 
-- `ctrl+up/down/left/right`: Adjust the UI interface layout
-- `shift+up/down`: Adjust the height of the status UI panel
-- `shift+right`: Clear console
+- `ctrl+up/down/left/right`: Adjust layout (Console height / Mission panel width)
+- `ctrl+h/j/k/l`: Vim-style layout adjustment (equivalent to ctrl+left/down/up/right)
+- `ctrl+c`: Cancel running command; exit TUI if no command is running
+- `ctrl+t`: Open theme picker
+- `ctrl+/` or `f1`: Show/hide keyboard shortcuts help panel
+- `shift+right`: Clear console output
 - `shift+left`: Clear input text
-- `alt + up/down`: Scroll the content of message box
-- `alt + left/right`: Scroll the content of console box
-- `esc`: Force refresh the tui/exit scrolling
+- `tab`: Command completion; press Tab repeatedly to cycle through candidates
+- `pageup/pagedown`: Page through Console output
+- `esc`: Exit scrolling/paging/help panel, or clear input
 
 ### Stage Color Indicators
 
