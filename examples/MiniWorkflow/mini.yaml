@@ -1,0 +1,100 @@
+# mini.yaml - 计算器文档生成器工作流配置
+
+# ===== 自定义工具注册（External Tools） =====
+ex_tools:
+  - "examples.MiniWorkflow.my_tools.CountWords"
+  - "examples.MiniWorkflow.my_tools.ExtractSections"
+
+# ===== 模板变量定义（Template Variables） =====
+template_overwrite:
+  PROJECT: "Calculator"
+  OUT: "output"
+  DOC_GEN_LANG: "中文"
+
+# ===== 保护目录配置 =====
+un_write_dirs:
+  - "Calculator/"
+  - "Guide_Doc/"
+
+# ===== 任务描述（Mission） =====
+mission:
+  name: "{PROJECT} 文档生成任务"
+  prompt:
+    system: |
+      你是一位优秀的技术文档工程师，擅长分析项目并编写高质量的文档。
+
+      你的任务是：
+      1. 仔细阅读项目的 README 文件，理解项目的核心功能和技术特性
+      2. 按照提供的模板规范，生成结构清晰、内容完整的项目文档
+      3. 使用 {DOC_GEN_LANG} 编写所有文档
+      4. 确保文档符合 Markdown 格式规范
+
+      请使用工具 ReadTextFile 读取文件内容，使用 EditTextFile 创建或修改文件。
+      在计划通过Complete工具推进到下一个阶段前，需要通过工具 SetCurrentStageJournal 进行阶段日志记录，方便后续追踪和分析。
+      完成每个阶段后，务必使用 Complete 工具检查并推进到下一阶段。
+
+# ===== 工作流定义（Stages） =====
+stage:
+  # ========== 阶段1：分析计算器项目 ==========
+  - name: analyze_project
+    desc: "分析项目功能和特性"
+    task:
+      - "第1步：使用 ReadTextFile 工具读取 {PROJECT}/README.md，了解项目的基本信息"
+      - "第2步：仔细分析项目的核心功能、技术特性和使用场景"
+      - "第3步：参考 Guide_Doc/project_analysis_guide.md 的指导，提取关键信息"
+      - "第4步：使用 EditTextFile 工具创建分析文档 {OUT}/{PROJECT}_analysis.md"
+      - "第5步：使用 CountWords 工具统计文档字数，确保内容充实"
+      - "第6步：使用 Complete 工具完成当前阶段"
+    reference_files:
+      - "Guide_Doc/project_analysis_guide.md"
+    output_files:
+      - "{OUT}/{PROJECT}_analysis.md"
+    checker:
+      - name: word_count_check
+        clss: "examples.MiniWorkflow.my_checkers.WordCountChecker"
+        args:
+          file_path: "{OUT}/{PROJECT}_analysis.md"
+          word_min: 500
+          word_max: 2000
+      - name: markdown_format_check
+        clss: "UnityChipCheckerMarkdownFileFormat"
+        args:
+          markdown_file_list: "{OUT}/{PROJECT}_analysis.md"
+          no_line_break: true
+
+  # ========== 阶段2：生成项目文档 ==========
+  - name: generate_documentation
+    desc: "生成完整的项目文档"
+    task:
+      - "第1步：使用 ReadTextFile 工具读取 {OUT}/{PROJECT}_analysis.md，了解分析结果"
+      - "第2步：参考 Guide_Doc/documentation_template.md 的文档结构要求"
+      - "第3步：基于分析结果，编写完整的项目文档，包含：项目概述、功能说明、技术架构、使用方法"
+      - "第4步：使用 EditTextFile 工具创建文档 {OUT}/{PROJECT}_documentation.md"
+      - "第5步：使用 ExtractSections 工具检查文档章节结构是否完整"
+      - "第6步：使用 Complete 工具完成当前阶段"
+    reference_files:
+      - "Guide_Doc/documentation_template.md"
+      - "{OUT}/{PROJECT}_analysis.md"
+    output_files:
+      - "{OUT}/{PROJECT}_documentation.md"
+    checker:
+      - name: word_count_check
+        clss: "examples.MiniWorkflow.my_checkers.WordCountChecker"
+        args:
+          file_path: "{OUT}/{PROJECT}_documentation.md"
+          word_min: 800
+          word_max: 3000
+      - name: required_sections_check
+        clss: "examples.MiniWorkflow.my_checkers.RequiredSectionsChecker"
+        args:
+          file_path: "{OUT}/{PROJECT}_documentation.md"
+          required_sections:
+            - "项目概述"
+            - "功能说明"
+            - "技术架构"
+            - "使用方法"
+      - name: markdown_format_check
+        clss: "UnityChipCheckerMarkdownFileFormat"
+        args:
+          markdown_file_list: "{OUT}/{PROJECT}_documentation.md"
+          no_line_break: true

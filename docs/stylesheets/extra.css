@@ -9,9 +9,11 @@
 	margin: 1em 0;
 }
 
-/* 代码块最大高度，出现滚动条 */
-.md-typeset pre > code {
-	max-height: 40rem;
+/* 限制最外层容器 .highlight */
+.md-typeset .highlight {
+  max-height: 40rem;       /* 限制高度 */
+  overflow-y: auto;        /* 内容超长时出现垂直滚动条 */
+  scrollbar-width: thin;   /* (可选) 让滚动条变细一点，更美观 */
 }
 
 

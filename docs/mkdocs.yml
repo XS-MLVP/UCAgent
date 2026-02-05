@@ -63,10 +63,19 @@ nav:
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
   - 定制开发:
-      - 模板文件: content/03_develop/00_template.md
-      - 定制功能: content/03_develop/01_customize.md
-      - 工具列表: content/03_develop/02_tool_list.md
-      - 工作流: content/03_develop/03_workflow.md
+      - 概览: content/03_develop/00_index.md
+      - 工作流: content/03_develop/01_workflow.md
+      - 模板文件: content/03_develop/02_template.md
+      - 定制工具: content/03_develop/03_customize.md
+      - 工具列表: content/03_develop/04_tool_list.md
+  - 自定义完整流程:
+      - 总览: content/04_custom_workflow/00_index.md
+      - UCAgent 架构与工作原理: content/04_custom_workflow/01_ucagent_architecture.md
+      - 创建工作流配置: content/04_custom_workflow/02_create_workflow.md
+      - 模板文件系统: content/04_custom_workflow/03_template_files.md
+      - 自定义工具: content/04_custom_workflow/04_custom_tools.md
+      - 自定义检查器: content/04_custom_workflow/05_custom_checkers.md
+      - 完整 Mini 示例: content/04_custom_workflow/06_mini_example.md
   - 实践案例:
       - 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md
@@ -119,7 +128,11 @@ markdown_extensions:
       pygments_lang_class: true # 添加语言对应的 CSS 类
 
   - pymdownx.inlinehilite # 行内代码高亮 `code`{.lang}
-  - pymdownx.superfences # 高级围栏代码块（支持嵌套、mermaid 等）
+  - pymdownx.superfences: # 高级围栏代码块（支持嵌套、mermaid 等）
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
   # 其他功能扩展
   - pymdownx.emoji: # 表情符号支持 :smile:

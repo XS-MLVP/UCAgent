@@ -11,17 +11,14 @@
    ```
 
 2. 安装 Qwen Code CLI
-
    - 直接使用`npm`全局安装`sudo npm install -g @qwen-code/qwen-code`。（需要本地有[nodejs 环境](https://nodejs.org/zh-cn/download/)）
    - 其他安装方式请参考：[Qwen Code 安装](https://qwenlm.github.io/qwen-code-docs/zh/#%E5%AE%89%E8%A3%85)
 
 3. 准备 DUT（待测模块）
-
    - 创建目录：在`{工作区}`目录下创建`Adder`目录。(`{工作区}`是指当前运行`ucagent`命令的地方，其他的的目录都以`{工作区}`为根目录)
      - `mkdir -p Adder`
    - RTL：使用[快速开始-简单加法器](https://open-verify.cc/mlvp/docs/quick-start/eg-adder/)的加法器，将其代码放入`Adder/Adder.v`
    - 注入 bug：将输出和位宽修改为 63 位（用于演示位宽错误导致的缺陷）。
-
      - 将`Adder.v`第九行由`output [WIDTH-1:0] sum,`改为`output [WIDTH-2:0] sum,`，`vim Adder/Adder.v`。目前的 verilog 代码为：
 
        ```verilog
@@ -52,7 +49,6 @@
 4. 将 RTL 导出为 Python Module
 
    > picker 可以将 RTL 设计验证模块打包成动态库，并提供 Python 的编程接口来驱动电路。参照[基础工具-工具介绍](https://open-verify.cc/mlvp/docs/env_usage/picker_usage/)和[picker 文档](https://github.com/XS-MLVP/picker/blob/master/README.zh.md)
-
    - 直接在`{工作区}`目录下执行命令`picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst`
 
    - 当前的目录结构如下：
@@ -67,9 +63,7 @@
      ```
 
 5. 编写 README
-
    - 将加法器的说明、验证目标、bug 分析和其他都写在`Adder`文件夹的`README.md`文件中，同时将这个文件向`output/Adder`文件夹复制一份。
-
      - 将内容写入 readme 中，`vim Adder/README.md`，将下面内容复制到`README.md`中。
      - 复制文件，`cp Adder/README.md output/Adder/README.md`。
      - `Adder/README.md`内容可以是如下：
@@ -108,7 +102,6 @@
      ```
 
 6. 配置 Qwen Code CLI
-
    - 修改`~/.qwen/settings.json` 配置文件，`vim ~/.qwen/settings.json`，示例 Qwen 配置文件如下：
 
    ```json
@@ -129,7 +122,6 @@
      - `5000`为默认端口，可以在 MCP 服务器启动时配置，请参考[参数说明 MCP Server](../02_usage/03_option.md/#mcp-server)
 
 7. 启动 MCP Server<a id="启动-mcp-server"></a>
-
    - 在`{工作区}`目录下：
 
    ```bash
@@ -141,11 +133,9 @@
    ![tui界面](./tui.png)
 
 8. 启动 Qwen Code
-
    - **另开一个终端**，在`UCAgent/output`目录输入`qwen`启动 Qwen Code，看见 >QWEN 图就表示启动成功，如“图 2”所示。 ![qwen启动界面](./qwen.png)
 
 9. 开始验证
-
    - 在框内输入提示词并且**同意 Qwen Code 的使用工具、命令和读写文件请求**。提示词如下：
 
    > 请通过工具 RoleInfo 获取你的角色信息和基本指导，然后完成任务。请使用工具 ReadTextFile 读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
@@ -189,17 +179,16 @@
   最终的结果都在`output`文件夹中，其中的内容如下：
 
 - Guide_Doc：这些文件是“规范/示例/模板型”的参考文档，启动时会从`ucagent/lang/zh/doc/Guide_Doc`复制到工作区的 `Guide_Doc/`（当前以 output 作为 workspace 时即 `output/Guide_Doc/`）。它们不会被直接执行，供人和 AI 作为编写 unity_test 文档与测试的范式与规范，并被语义检索工具读取，在 UCAgent 初始化时复制过来。
-  对文件的详细解读可参照[模板文件 Guide_Doc](../03_develop/00_template.md/#guide_doc)
+  对文件的详细解读可参照[模板文件 Guide_Doc](../03_develop/02_template.md/#guide_doc)
 
 - uc_test_report：由 toffee-test 生成的 index.html 报告，可直接使用浏览器打开。
-
   - 这个报告包含了 Line Coverage 行覆盖率，Functional Coverage 功能覆盖率，测试用例的通过情况，功能点标记具体情况等内容。
 
 - unity_test/tests：验证代码文件夹
-  对文件的详细解读可参照[生成的代码](../03_develop/00_template.md/#unity_testtests)
+  对文件的详细解读可参照[生成的代码](../03_develop/02_template.md/#unity_testtests)
 
 - unity_test/\*.md：验证相关文档
-  对文件的详细解读可参照[生成的文档](../03_develop/00_template.md/#unity_test.md)
+  对文件的详细解读可参照[生成的文档](../03_develop/02_template.md/#unity_test\*.md)
 
 ## 流程总结
 
