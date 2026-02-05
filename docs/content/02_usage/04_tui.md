@@ -1,5 +1,7 @@
 # TUI
 
+> 本页描述的是默认的 Textual 新版 TUI。若使用 `--legacy-ui`（旧版 urwid 界面），请参考 [旧版 TUI 文档](./04_tui_legacy.md)。
+
 ## TUI（界面与操作）
 
 UCAgent 自带终端界面（TUI），默认使用 Textual 构建的新界面；如需旧版 urwid 界面，使用 `--legacy-ui`。TUI 用于在本地交互式观察任务进度、消息流与控制台输出，并直接输入命令（如进入/退出循环、切换模式、执行调试命令等）。
@@ -37,22 +39,43 @@ UCAgent 自带终端界面（TUI），默认使用 Textual 构建的新界面；
 
 ### 操作与快捷键
 
-- Enter：执行当前输入命令；若输入为空会重复上一次命令；输入 q/Q/exit/quit 退出 TUI。
-- Esc：
-  - 若正在浏览 Messages 的历史，退出滚动并返回末尾；
-  - 若 Output 正在分页查看，退出分页；
-  - 否则聚焦到底部输入框。
-- Tab：命令补全；再次按 Tab 可分批显示更多可选项。
-- Shift+Right：清空 Console Output。
-- Shift+Up / Shift+Down：在 Messages 中向上/向下移动焦点（浏览历史）。
-- Ctrl+Up / Ctrl+Down：增/减 Console 输出区域高度。
-- Ctrl+Left / Ctrl+Right：减/增 Mission 面板宽度。
-- Shift+Up / Shift+Down（另一路径）：调整 Status 面板高度（最小 3，最大 100）。
-- Up / Down：
-  - 若 Output 在分页模式，Up/Down 用于翻页；
-  - 否则用于命令历史导航（将历史命令放入输入行，可编辑后回车执行）。
+**全局操作**
 
-分页模式提示：当 Output 进入分页浏览时，底部标题会提示 “Up/Down: scroll, Esc: exit”，Esc 退出分页并返回输入状态。
+- Enter：执行当前输入命令；若输入为空会重复上一次命令；输入 q/Q/exit/quit 退出 TUI。
+- Ctrl+C：取消正在运行的命令；若无命令在运行则退出 TUI。
+- Esc：
+  - 若正在浏览 Messages 的历史，退出手动滚动并返回末尾；
+  - 若 Output 正在分页查看，退出分页；
+  - 若帮助面板已打开，关闭帮助面板；
+  - 否则清空输入行并聚焦到底部输入框。
+- Tab：命令补全；再次按 Tab 可循环浏览候选项。
+- Shift+Left：清空输入行。
+
+**面板大小调整**
+
+- Ctrl+Left / Ctrl+Right：缩小/增大左侧 Mission 面板宽度。
+- Ctrl+Up / Ctrl+Down：增大/缩小底部 Console 输出区域高度。
+- Ctrl+H / Ctrl+J / Ctrl+K / Ctrl+L：Vim 风格的面板调整快捷键，功能分别等同于 Ctrl+Left / Ctrl+Down / Ctrl+Up / Ctrl+Right（即 h=左 j=下 k=上 l=右）。
+
+**Console 操作**
+
+- Up / Down：
+  - 若 Output 在分页模式，用于翻页；
+  - 否则用于命令历史导航（将历史命令放入输入行，可编辑后回车执行）。
+- PageUp / PageDown：在 Console Output 中翻页浏览。
+- Shift+Right：清空 Console Output。
+
+分页模式提示：当 Output 进入分页浏览时，底部会提示 "PageUp/PageDown: scroll, Esc: exit"，Esc 退出分页并返回输入状态。
+
+**Messages 面板操作**
+
+- Up / Down（Messages 面板获焦时）：手动滚动消息列表。
+- Esc（Messages 面板获焦时）：退出手动滚动，恢复自动跟随最新消息。
+
+**主题与帮助**
+
+- Ctrl+T：打开主题选择器弹窗。选中主题后按 Enter 确认，按 Esc 取消并恢复原主题。
+- Ctrl+/ 或 F1：显示/隐藏快捷键帮助面板。
 
 ### 命令与用法
 
@@ -81,5 +104,5 @@ UCAgent 自带终端界面（TUI），默认使用 Textual 构建的新界面；
 
 - 自动补全：支持命令名与部分参数的补全；候选项过多时分批显示，可多次按 Tab 查看剩余项。
 - 忙碌提示：命令执行期间，输入框标题会轮转显示 (wait.), (wait..), (wait...)，表示正在处理。
-- 消息焦点：当未手动滚动时，消息焦点自动跟随最新消息；进入手动滚动后，会保持当前位置，直至按 Esc 或滚动至末尾。
+- 自动滚动：Messages 面板和 Console 输出区均支持智能自动滚动。默认状态下自动跟随最新内容；使用鼠标滚轮或键盘翻页会进入手动滚动模式，保持当前位置不变；当手动滚动到末尾时，会自动恢复跟随模式。也可按 Esc 直接退出手动滚动。
 - 错误容错：若某些 UI 操作异常（如终端不支持某些控制序列），TUI 会尽量回退到安全状态继续运行。
