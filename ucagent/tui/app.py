@@ -40,7 +40,6 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", show=False, priority=True),
         Binding("ctrl+t", "choose_theme", "Choose theme", show=False),
-        Binding("ctrl+slash", "toggle_help_panel", "Help", show=False),
         Binding("f1", "toggle_help_panel", "Help", show=False),
         # Arrow keys
         Binding("ctrl+left", "split_left", "Split left", show=False, priority=True),
