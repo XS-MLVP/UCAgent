@@ -43,7 +43,6 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         self.border_title = "Messages"
         self._message_lines: list[str] = []
         self._batch_queue: queue.SimpleQueue[tuple[str, str]] = message_queue
-        self._partial_line: str = ""
 
     def _get_scrollable(self) -> Any:
         return self
@@ -146,28 +145,23 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         if not payload:
             return
 
-        payload = f"{self._partial_line}{payload}"
+        # 直接写入显示，不等换行符
+        self.write(Text.from_ansi(payload))
 
-        parts = payload.split("\n")
-        complete_lines = parts[:-1]
-        new_partial = parts[-1]
-
-        if complete_lines:
-            combined = "\n".join(complete_lines)
-            self._message_lines.extend(complete_lines)
+        # 历史记录仍按行分割存储
+        lines = payload.split("\n")
+        # 过滤空字符串（连续换行符会产生空字符串）
+        non_empty_lines = [line for line in lines if line]
+        if non_empty_lines:
+            self._message_lines.extend(non_empty_lines)
             if len(self._message_lines) > self.max_messages:
                 self._message_lines = self._message_lines[-self.max_messages :]
-            self.write(Text.from_ansi(combined))
 
-        self._partial_line = new_partial
-
-        if complete_lines and not self._manual_scroll:
+        # 更新焦点索引
+        if not self._manual_scroll:
             if self._message_lines:
                 self.focus_index = len(self._message_lines) - 1
             else:
                 self.focus_index = 0
 
-        if complete_lines:
-            self._update_title()
-        elif self._manual_scroll:
-            self._update_title()
+        self._update_title()
