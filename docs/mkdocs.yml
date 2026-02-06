@@ -77,6 +77,7 @@ nav:
       - 自定义工具: content/04_custom_workflow/04_custom_tools.md
       - 自定义检查器: content/04_custom_workflow/05_custom_checkers.md
       - 完整 Mini 示例: content/04_custom_workflow/06_mini_example.md
+      - 快速编写指南: content/04_custom_workflow/07_quick_start.md
   - 实践案例:
       - 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md
