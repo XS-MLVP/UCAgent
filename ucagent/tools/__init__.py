@@ -9,3 +9,4 @@ from .memory import *
 from .planning import *
 from .workdiff import *
 from .bash import *
+from .subagent import *

@@ -48,7 +48,8 @@ class VerifyStage(object):
                  need_fail_llm_suggestion=None,
                  need_pass_llm_suggestion=None,
                  need_human_check=False,
-                 substages=None):
+                 substages=None,
+                 sub_agent="default_subagent"):
         """
         Initialize the VerifyStage.
         """
@@ -105,6 +106,7 @@ class VerifyStage(object):
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
         self.hist_tgt_dir = os.path.join(self.hist_sav_dir, self.hist_src_dir)
         self.hist_ign_list = cfg.hist_ignore_pattern
+        self.sub_agent=sub_agent
 
     def meta_set_journal(self, journal):
         self.meta_data['journal'] = journal
@@ -485,6 +487,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
         need_pass_llm_suggestion=stage.get_value('need_pass_llm_suggestion', None)
+        sub_agent = stage.get_value('sub_agent', 'default_subagent')
 
         if ignore:
             warning(f"Stage '{stage.name}' is set to be ignored, skipping its parsing.")
@@ -516,6 +519,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             skip=skip,
             need_fail_llm_suggestion=need_fail_llm_suggestion,
             need_pass_llm_suggestion=need_pass_llm_suggestion,
+            sub_agent=sub_agent,
         ))
     return ret
 

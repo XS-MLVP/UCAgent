@@ -277,8 +277,13 @@ class VerifyAgent:
                 ]
             else:
                 warning("Context management tools are enabled but no message management node is available.")
+                
         self.test_tools = fc.get_tools_from_cfg(self.tool_list_base + self.tool_list_file + self.tool_list_task + self.tool_list_ext + self.planning_tools + self.context_tools,
                                                 self.cfg.tools.as_dict())
+        # configure SubAgent tool
+        if self.cfg.get_value("multi_agent",False):
+            self.subagent_tool= SubAgentTool(self.test_tools, self)
+            self.test_tools.append(self.subagent_tool)
         self.pdb = VerifyPDB(self,
                              init_cmd=init_cmd,
                              max_loop_retry=self.cfg.loop_settings.max_loop_retry,

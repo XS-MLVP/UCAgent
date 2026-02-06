@@ -327,6 +327,14 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     cfg.merge_from(Config(load_yaml_with_env_vars(lang_config_file)))
     loaded_configs.append(lang_config_file)
 
+    # 读取 subagent_config.yaml 配置
+    lang = cfg.get_value('lang', 'zh')
+    agent_config_file = os.path.join(os.path.dirname(__file__), f"../lang/{lang}/subagent/subagent_config.yaml")
+    info(f"Load agent config from '{agent_config_file}'")
+    assert os.path.isfile(agent_config_file), f"Agent configuration file '{agent_config_file}' not found."
+    cfg.merge_from(Config(load_yaml_with_env_vars(agent_config_file)))
+    loaded_configs.append(agent_config_file)
+
     # 4. load workspace config
     if workspace is not None:
         cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")

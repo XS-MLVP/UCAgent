@@ -19,8 +19,8 @@ class UCAgentLangChainBackend(AgentBackendBase):
         super().__init__(vagent, config, **kwargs)
         self.message_statistic = MessageStatistic()
         self.cb_token_speed = TokenSpeedCallbackHandler()
-        self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
-        self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
+        self.main_model = get_chat_model(self.config.get_value("main_model"), self.config, [self.cb_token_speed] if vagent.stream_output else None)
+        self.summary_model = get_chat_model(self.config.get_value("summary_model"), self.config, [self.cb_token_speed] if vagent.stream_output else None)
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
             message_manage_node = TrimAndSummaryMiddleware(
@@ -29,7 +29,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 max_keep_msgs=vagent.max_keep_msgs,
                 max_tokens=vagent.max_token,
                 tail_keep_msgs=vagent.tail_keep_msgs,
-                model=self.sumary_model
+                model=self.summary_model
             )
         else:
             raise ValueError(f"Unsupported context_management_strategy: {vagent.context_management_strategy}")
@@ -41,7 +41,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
 
     def init(self):
         self.agent = create_agent(
-            model=self.model,
+            model=self.main_model,
             tools=self.vagent.test_tools,
             checkpointer=MemorySaver(),
             middleware=[self.message_manage_node]
@@ -156,10 +156,10 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return work_config
 
     def model_name(self):
-        return self.model.model_name
+        return self.main_model.model_name
 
     def temperature(self):
-        return self.model.temperature
+        return self.main_model.temperature
 
     def get_statistics(self):
         return self.message_statistic.get_statistics()

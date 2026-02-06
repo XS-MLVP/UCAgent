@@ -2,10 +2,24 @@
 # example config file for UCAgent
 # you can copy this file to ~/.ucagent/setting.yaml and modify it as needed
 
-#openai:
-#  model_name: "$(OPENAI_MODEL: Qwen/Qwen3-Coder-30B-A3B-Instruct)"
-#  openai_api_key: "$(OPENAI_API_KEY: YOUR_API_KEY)"
-#  openai_api_base: "$(OPENAI_API_BASE: http://10.156.154.242:8000/v1)"
+# main model configuration
+main_model:
+  model_type: openai
+  openai:
+    model_name: "$(OPENAI_MODEL: qwen3-coder-plus)"
+    openai_api_key: "$(OPENAI_API_KEY: sk-1291b0c63f9b91f891219f6ca49afd87)"
+    openai_api_base: "$(OPENAI_API_BASE: https://apis.iflow.cn/v1)"
+
+# summary model configuration
+summary_model:
+  model_type: openai
+  openai:
+    model_name: "$(OPENAI_MODEL: qwen3-coder-plus)"
+    openai_api_key: "$(OPENAI_API_KEY: sk-1291b0c63f9b91f891219f6ca49afd87)"
+    openai_api_base: "$(OPENAI_API_BASE: https://apis.iflow.cn/v1)"
+
+multi_agent: True
+
 
 #embed:
 #  model_name: "$(EMBED_MODEL: Qwen/Qwen3-Embedding-0.6B)"
@@ -13,8 +27,8 @@
 #  openai_api_base: "$(EMBED_OPENAI_API_BASE: http://10.156.154.242:8001/v1)"
 #  dims: 4096
 
-#langfuse:
-#  enable: $(ENABLE_LANGFUSE, false)
-#  public_key: $(LANGFUSE_PUBLIC_KEY, <YOUR_LANGFUSE_PUBLIC_KEY>)
-#  secret_key: $(LANGFUSE_SECRET_KEY, <YOUR_LANGFUSE_SECRET_KEY>)
-#  base_url: $(LANGFUSE_URL, http://localhost:3000)
+langfuse:
+  enable: True
+  public_key: pk-lf-6f5e9dac-157f-4979-a299-e4419b980841
+  secret_key: sk-lf-c22ffcc4-d0bc-49fa-a5a8-94d6080af35e
+  base_url: http://172.38.8.83:3000
