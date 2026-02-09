@@ -249,4 +249,5 @@ graph TD
 - [快速开始](01_quick_start.md) - 快速创建自己的工作流
 - [Mini 示例](08_mini_example.md) - 完整的可运行示例
 
-- [工作流详细文档](../03_develop/01_workflow.md) - 深入了解工作流机制
+- [工作流详细文档](03_workflow.md) - 深入了解工作流机制
+- [模板文件详细文档](04_template.md) - 学习如何编写模板
