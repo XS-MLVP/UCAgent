@@ -6,7 +6,27 @@
 
 UCAgent 提供了灵活的定制能力，您可以根据项目需求进行以下定制：
 
-### ⚙️ [工作流配置](01_workflow.md)
+### 🚀 [快速开始](01_quick_start.md)
+
+快速上手 UCAgent 的定制开发：
+
+- **MiniWorkflow 示例**：完整的文档生成工作流示例
+- **从零开始**：创建自定义工作流、工具、检查器的步骤
+- **代码示例**：可直接运行的完整示例代码
+
+适合初次接触 UCAgent 定制开发的用户。
+
+### 🏗️ [架构与工作原理](02_architecture.md)
+
+深入理解 UCAgent 的内部架构：
+
+- **核心组件**：Stage Manager、Tools、Checkers、Templates
+- **配置体系**：三层配置优先级（系统/用户/项目）
+- **工作流程**：从配置加载到任务执行的完整流程
+
+适合想要深入了解 UCAgent 架构的开发者。
+
+### ⚙️ [工作流配置](03_workflow.md)
 
 深入理解 UCAgent 的验证工作流：
 
@@ -14,20 +34,22 @@ UCAgent 提供了灵活的定制能力，您可以根据项目需求进行以下
 - **阶段跳过控制**：通过配置文件或命令行控制阶段执行
 - **自定义工作流**：修改和扩展默认工作流
 - **配置文件结构**：`config.yaml` 的详细说明
+- **MiniWorkflow 示例**：完整的工作流配置示例
 
 适合需要调整验证流程、优化工作流的用户。
 
-### 📝 [模板文件与生成产物](02_template.md)
+### 📝 [模板文件与生成产物](04_template.md)
 
 了解 UCAgent 的模板文件系统和输出结构：
 
 - **模板文件（Guide_Doc）**：指导 AI 生成规范文档和测试代码的参考文档
 - **生成产物结构**：`output/` 目录下的文件组织方式
 - **模板文件说明**：各类模板的用途和对应的输出文件
+- **MiniWorkflow 示例**：如何创建自定义模板文件
 
 适合想要理解 UCAgent 工作机制和调整文档规范的用户。
 
-### 🛠️ [定制工具](03_customize.md)
+### 🛠️ [定制工具](05_customize.md)
 
 学习如何添加和集成自定义工具：
 
@@ -35,10 +57,11 @@ UCAgent 提供了灵活的定制能力，您可以根据项目需求进行以下
 - **MCP Server 集成**：将工具暴露为 MCP Server 工具
 - **工具注册**：通过配置文件和命令行参数注册外部工具
 - **Checker 检查器**：编写自定义检查器验证输出质量
+- **MiniWorkflow 示例**：完整的自定义工具实现
 
 适合需要扩展 UCAgent 功能、集成领域专用工具的开发者。
 
-### 📚 [工具列表](04_tool_list.md)
+### 📚 [工具列表](06_tool_list.md)
 
 UCAgent 内置工具的完整参考：
 
@@ -50,35 +73,45 @@ UCAgent 内置工具的完整参考：
 
 适合查阅可用工具及其参数的用户。
 
+### ✅ [检查器](07_checkers.md)
+
+了解如何使用和编写检查器：
+
+- **检查器作用**：验证阶段输出质量
+- **内置检查器**：格式检查、业务验证等
+- **自定义检查器**：编写领域专用的验证逻辑
+
+适合需要定制验证规则的用户。
+
+### 🎯 [Mini示例](08_mini_example.md)
+
+通过完整示例学习定制开发：
+
+- **计算器文档生成器**：完整的工作流实现
+- **自定义工具**：CountWords、ExtractSections
+- **自定义检查器**：WordCount、RequiredSections
+- **可运行代码**：examples/MiniWorkflow/
+
+适合通过实践学习的用户。
+
 ## 学习路径建议
 
 ### 快速入门
 
-1. 先阅读 [工作流配置](01_workflow.md) 理解验证流程
-2. 查看 [模板文件](02_template.md) 了解 UCAgent 的输出结构
-3. 浏览 [工具列表](04_tool_list.md) 了解可用的内置工具
+1. 先阅读 [快速开始](01_quick_start.md) 快速了解定制开发
+2. 查看 [Mini示例](08_mini_example.md) 理解完整工作流
+3. 浏览 [工具列表](06_tool_list.md) 了解可用的内置工具
 
 ### 深度定制
 
-1. 学习 [定制工具](03_customize.md) 开发自定义功能
-2. 参考 [完整定制工作流教程](../04_custom_workflow/00_index.md) 进行端到端实践
-3. 查看实际案例：[examples/](https://github.com/XS-MLVP/UCAgent/tree/main/examples)
+1. 理解 [架构与工作原理](02_architecture.md) 掌握核心概念
+2. 学习 [工作流配置](03_workflow.md) 定制验证流程
+3. 学习 [定制工具](05_customize.md) 开发自定义功能
+4. 查看实际案例：[examples/](https://github.com/XS-MLVP/UCAgent/tree/main/examples)
 
-## 进阶学习
-
-!!! tip "完整定制工作流教程"
-如果您想**从零开始创建自定义工作流**（包括添加工作流、工具、检查器、模板文件），强烈推荐阅读：
-
-**[自定义工作流完整指南](../04_custom_workflow/00_index.md)**
-
-    该教程提供：
+## 相关资源
 
     - 📚 UCAgent 核心架构详解
-    - 🛠️ 完整可运行的示例代码（MiniWorkflow）
-    - 🎯 专业领域案例分析（Formal 形式化验证）
-    - 🔍 调试技巧和问题排查指南
-
-    预计学习时间：2小时阅读 + 1小时实践
 
 ## 相关资源
 
@@ -86,6 +119,7 @@ UCAgent 内置工具的完整参考：
 - 💻 [功能介绍](../02_usage/00_mcp.md) - MCP 集成和使用方式
 - 🎓 [实践案例](../04_case/00_genspec.md) - 真实项目案例
 - 🐛 [FAQ](../02_usage/05_faq.md) - 常见问题解答
+- 💡 [GitHub Examples](https://github.com/XS-MLVP/UCAgent/tree/main/examples) - 更多实例代码
 
 ---
 

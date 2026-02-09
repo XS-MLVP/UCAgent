@@ -5,15 +5,13 @@
 - 工作流：定义任务流程
 - 工具：特定领域任务的工具
 - 模板（指导）文件：指导与规范大模型的输出
-- 检查器：某阶段完成后的合规情况  
+- 检查器：某阶段完成后的合规情况
 
-目录结构如下：
+完整工作流的目录结构如下：
 
 ```bash
 $ tree MyWorkflow
 MyWorkflow
-├── Project                                     
-│   └── README.md                               # 项目说明
 ├── Guide_Doc
 │   ├── Guide_Docs1.md                          # 指导与模板文件
 │   └── ...
@@ -21,13 +19,15 @@ MyWorkflow
 ├── Makefile                                    # 编译命令（可选）
 ├── mini.yaml                                   # 工作流配置
 ├── my_checkers.py                              # 检查器
-├── my_tools.py                                 # 工具  
+├── my_tools.py                                 # 工具
 └── README.md                                   # 整体工作流说明
 ```
 
 以上都可以体现在一个工作流里，下面直接以一个简化的工作流为例。
 
 ## 工作流
+
+> 💡 **详细说明**：关于工作流配置的完整说明，请参考 [工作流配置](03_workflow.md)
 
 简化`yaml`文件如下，其位置为`examples/MyWorkflow/MyWorkflow.yaml`
 
@@ -71,6 +71,8 @@ stage:
 ```
 
 ## 工具
+
+> 💡 **详细说明**：关于自定义工具开发的完整指南，请参考 [定制工具](05_customize.md)
 
 UCAgent 的工具系统基于以下概念：
 
@@ -136,13 +138,14 @@ ex_tools:
 
 ## 模板(指导)文件
 
+> 💡 **详细说明**：关于模板文件系统的完整介绍，请参考 [模板文件与生成产物](04_template.md)
+
 ### 编写
 
 在`yaml`中通过`reference_files`可以指定模板/指导文件，让Agent参考。
 编写需求的模板或者指导，将其`TemplateOrGuide.md`放在`examples/MyWorkflow/Guide_Doc`目录下。
 
 ### 使用
-
 
 在工作流中使用只需要在`reference_files`中指定，之后就能让Agent参考了。
 
@@ -156,6 +159,8 @@ stage:
 ```
 
 ## 检查器
+
+> 💡 **详细说明**：关于检查器的完整说明，请参考 [检查器](07_checkers.md)
 
 UCAgent 的检查器系统基于以下概念：
 
@@ -229,6 +234,8 @@ stage:
 ```
 
 ## 启动UCAgent与使用
+
+> 💡 **完整示例**：查看完整的可运行示例，请参考 [Mini 示例](08_mini_example.md)
 
 编写完所有文件后，可以在`examples/MyWorkflow/`下通过如下命令来启动。
 
