@@ -8,9 +8,7 @@ MiniWorkflow 自定义工具
 import os
 import re
 from pydantic import BaseModel, Field
-from ucagent.checkers.base import Checker
 from ucagent.tools.uctool import UCTool
-from ucagent.tools.fileops import BaseReadWrite
 
 
 class CountWordsArgs(BaseModel):
@@ -19,7 +17,7 @@ class CountWordsArgs(BaseModel):
     file_path: str = Field(description="要统计字数的文件路径")
 
 
-class CountWords(UCTool, BaseReadWrite, Checker):
+class CountWords(UCTool):
     """
     统计文档字数工具
 
@@ -73,7 +71,9 @@ class CountWords(UCTool, BaseReadWrite, Checker):
                 continue
             candidate = os.path.realpath(path)
             # 确保文件位于允许的根目录内
-            if candidate == allowed_root or candidate.startswith(allowed_root + os.path.sep):
+            if candidate == allowed_root or candidate.startswith(
+                allowed_root + os.path.sep
+            ):
                 abs_path = candidate
                 break
 
@@ -125,7 +125,7 @@ class ExtractSectionsArgs(BaseModel):
     file_path: str = Field(description="要提取章节的 Markdown 文件路径")
 
 
-class ExtractSections(UCTool, BaseReadWrite, Checker):
+class ExtractSections(UCTool):
     """
     提取文档章节结构工具
 
