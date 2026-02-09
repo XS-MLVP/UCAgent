@@ -25,7 +25,7 @@ Screen {
 
 /* Main container - horizontal split */
 #main-container {
-    height: 2fr;
+    height: 1fr;
     layout: horizontal;
 }
 
@@ -63,9 +63,15 @@ Screen {
     background-tint: $accent 8%;
 }
 
+/* Console container - bottom section */
+#console-container {
+    height: auto;
+    layout: vertical;
+}
+
 /* Console - bottom, fixed height */
 #console {
-    height: 1fr;
+    height: auto;
     border: solid $primary;
     border-title-align: center;
     background: $panel;
