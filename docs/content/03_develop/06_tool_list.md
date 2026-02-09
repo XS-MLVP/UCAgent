@@ -1,5 +1,7 @@
 # 工具列表
 
+> 💡 **自定义工具**：关于如何开发自定义工具，请参考 [定制工具](05_customize.md)
+
 以下为当前仓库内内置工具（UCTool 家族）的概览，按功能类别归纳：名称（调用名）、用途与参数说明（字段: 类型 — 含义）。
 
 提示：
@@ -10,7 +12,6 @@
 ## 基础/信息类
 
 - RoleInfo（RoleInfo）
-
   - 用途：返回当前代理的角色信息（可在启动时自定义 role_info）。
   - 参数：无
 
@@ -46,7 +47,6 @@
 ## 记忆/检索类
 
 - SemanticSearchInGuidDoc（SemanticSearchInGuidDoc）
-
   - 用途：在 Guide_Doc/项目文档中做语义检索，返回最相关片段。
   - 参数：
     - query: str — 查询语句
@@ -67,7 +67,6 @@
 ## 测试/执行类
 
 - RunPyTest（RunPyTest）
-
   - 用途：在指定目录/文件下运行 pytest，支持返回 stdout/stderr。
   - 参数：
     - test_dir_or_file: str — 测试目录或文件
@@ -83,7 +82,6 @@
 ## 文件/路径/文本类
 
 - SearchText（SearchText）
-
   - 用途：在工作区内按文本搜索，支持通配与正则。
   - 参数：
     - pattern: str — 搜索模式（明文/通配/正则）
@@ -95,7 +93,6 @@
     - include_line_numbers: bool — 返回是否带行号
 
 - FindFiles（FindFiles）
-
   - 用途：按通配符查找文件。
   - 参数：
     - pattern: str — 文件名模式（fnmatch 通配）
@@ -103,14 +100,12 @@
     - max_match_files: int — 返回最大文件数（默认 10）
 
 - PathList（PathList）
-
   - 用途：列出目录结构（可限制深度）。
   - 参数：
     - path: str — 目录（相对 workspace）
     - depth: int — 深度（-1 全部，0 当前）
 
 - ReadBinFile（ReadBinFile）
-
   - 用途：读取二进制文件（返回 [BIN_DATA]）。
   - 参数：
     - path: str — 文件路径（相对 workspace）
@@ -118,7 +113,6 @@
     - end: int — 结束字节（默认 -1 表示 EOF）
 
 - ReadTextFile（ReadTextFile）
-
   - 用途：读取文本文件（带行号，返回 [TXT_DATA]）。
   - 参数：
     - path: str — 文件路径（相对 workspace）
@@ -126,7 +120,6 @@
     - count: int — 行数（-1 到文件末尾）
 
 - EditTextFile（EditTextFile）
-
   - 用途：编辑/创建文本文件，模式：replace/overwrite/append。
   - 参数：
     - path: str — 文件路径（相对 workspace，不存在则创建）
@@ -137,7 +130,6 @@
     - preserve_indent: bool — replace 时是否保留缩进
 
 - CopyFile（CopyFile）
-
   - 用途：复制文件；可选覆盖。
   - 参数：
     - source_path: str — 源文件
@@ -145,7 +137,6 @@
     - overwrite: bool — 目标存在时是否覆盖
 
 - MoveFile（MoveFile）
-
   - 用途：移动/重命名文件；可选覆盖。
   - 参数：
     - source_path: str — 源文件
@@ -153,13 +144,11 @@
     - overwrite: bool — 目标存在时是否覆盖
 
 - DeleteFile（DeleteFile）
-
   - 用途：删除文件。
   - 参数：
     - path: str — 文件路径
 
 - CreateDirectory（CreateDirectory）
-
   - 用途：创建目录（递归）。
   - 参数：
     - path: str — 目录路径
@@ -167,7 +156,6 @@
     - exist_ok: bool — 已存在是否忽略
 
 - ReplaceStringInFile（ReplaceStringInFile）
-
   - 用途：精确字符串替换（强约束匹配；可新建文件）。
   - 参数：
     - path: str — 目标文件
@@ -190,3 +178,10 @@
 
 - 工具调用超时默认 20s（具体工具可重写）；长任务请周期性输出进度避免超时。
 - MCP 无文件工具模式下默认不暴露写类工具；如需写入，建议在本地 Agent 模式或按需限制可写目录。
+
+## 相关文档
+
+- [定制工具](05_customize.md) - 学习如何开发自定义工具
+- [工作流配置](03_workflow.md) - 了解如何在工作流中注册和使用工具
+- [架构与工作原理](02_architecture.md) - 理解工具在 UCAgent 中的角色
+- [Quick Start](01_quick_start.md) - 快速创建包含自定义工具的工作流
