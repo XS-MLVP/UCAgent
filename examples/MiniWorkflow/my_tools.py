@@ -42,28 +42,47 @@ class CountWords(UCTool, BaseReadWrite, Checker):
         返回:
             统计结果字符串，包含字数和段落数
         """
-        # 尝试多个可能的路径来找到文件
+        # 限制文件路径为工作空间内的相对路径，防止路径穿越和任意文件读取
+        allowed_root = os.path.realpath(os.getcwd())
+
+        # 禁止使用绝对路径
         if os.path.isabs(file_path):
-            # 如果是绝对路径，直接使用
-            abs_path = file_path
-        else:
-            # 尝试相对路径的多个可能位置
-            current_dir = os.getcwd()
-            possible_paths = [
-                file_path,  # 当前目录
-                os.path.join(current_dir, file_path),  # 相对于当前工作目录
-                os.path.join(current_dir, "output", file_path),  # 相对于 output 子目录
-            ]
+            return (
+                f"错误：不支持绝对路径 - {file_path}\n"
+                f"提示：请使用相对于当前工作目录的相对路径"
+            )
 
-            abs_path = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    abs_path = os.path.abspath(path)
-                    break
+        # 简单阻止路径穿越：禁止包含 '..' 路径段
+        if ".." in file_path.split(os.path.sep):
+            return (
+                f"错误：文件路径包含非法的 '..' 段 - {file_path}\n"
+                f"提示：请不要访问工作目录之外的文件"
+            )
 
-        # 检查文件是否存在
+        # 尝试多个可能的路径来找到文件（均需在 allowed_root 下）
+        current_dir = os.getcwd()
+        possible_paths = [
+            file_path,  # 当前目录
+            os.path.join(current_dir, file_path),  # 相对于当前工作目录
+            os.path.join(current_dir, "output", file_path),  # 相对于 output 子目录
+        ]
+
+        abs_path = None
+        for path in possible_paths:
+            if not os.path.exists(path):
+                continue
+            candidate = os.path.realpath(path)
+            # 确保文件位于允许的根目录内
+            if candidate == allowed_root or candidate.startswith(allowed_root + os.path.sep):
+                abs_path = candidate
+                break
+
+        # 检查文件是否存在且位于允许的目录下
         if not abs_path or not os.path.exists(abs_path):
-            return f"错误：文件不存在 - {file_path}\n提示：请尝试使用绝对路径，或确保文件在当前工作目录下"
+            return (
+                f"错误：文件不存在或不在允许的目录内 - {file_path}\n"
+                f"提示：请确保文件位于当前工作目录或其子目录（例如 output）下，并使用相对路径"
+            )
 
         try:
             # 读取文件内容
