@@ -188,6 +188,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             cmd = self.vpdb.init_cmd.pop(0)
             self.key_handler.process_command(cmd)
 
+        console_input = self.query_one(ConsoleInput)
+        console_input.update_running_commands()
+
     # Action methods for key bindings
     def action_interrupt_or_quit(self) -> None:
         """Cancel running command or quit."""
@@ -263,21 +266,23 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         self.key_handler.process_command(event.command, event.daemon)
+        console_input = self.query_one(ConsoleInput)
+        console_input.update_running_commands()
 
     def cancel_running_command(self) -> bool:
-        has_workers = self.key_handler.has_active_worker()
-        has_daemons = bool(self.daemon_cmds)
-
-        if not has_workers and not has_daemons:
+        if not self.key_handler.has_active_worker():
             return False
 
-        try:
-            self.vpdb._sigint_handler(signal.SIGINT, None)
-        except BaseException:
-            pass
-        self.key_handler.cancel_all_workers()
-        self.flush_console_output()
-        return True
+        thread_id = self.key_handler.get_last_worker_thread_id()
+        if thread_id is not None:
+            self.vpdb.agent.set_break_thread(thread_id)
+
+        cancelled = self.key_handler.cancel_last_worker()
+        if cancelled:
+            self.flush_console_output()
+            console_input = self.query_one(ConsoleInput)
+            console_input.update_running_commands()
+        return cancelled
 
     def _is_console_busy(self) -> bool:
         try:
