@@ -203,8 +203,8 @@ checkers:
 
 建议按以下顺序学习：
 
-1. **阅读教程文档** - [00_index.md](../../docs/content/04_custom_workflow/00_index.md)
-2. **理解架构** - [01_ucagent_architecture.md](../../docs/content/04_custom_workflow/01_ucagent_architecture.md)
+1. **阅读教程文档** - [定制开发概览](../../docs/content/03_develop/00_index.md)
+2. **理解架构** - [架构与工作原理](../../docs/content/03_develop/02_architecture.md)
 3. **研究本示例代码** - 从 mini.yaml 开始，理解配置结构
 4. **运行并观察** - `make run` 查看实际执行过程
 5. **修改和实验** - 调整配置参数，观察行为变化
@@ -246,10 +246,11 @@ checkers:
 
 ## 🔗 相关资源
 
-- [完整教程](../../docs/content/04_custom_workflow/00_index.md)
-- [UCAgent 架构](../../docs/content/04_custom_workflow/01_ucagent_architecture.md)
-- [Formal 专业案例](../../docs/content/04_custom_workflow/07_formal_analysis.md)
-- [调试指南](../../docs/content/04_custom_workflow/08_run_debug.md)
+- [完整教程](../../docs/content/03_develop/00_index.md) - 定制开发指南
+- [UCAgent 架构](../../docs/content/03_develop/02_architecture.md) - 核心架构解析
+- [工作流配置](../../docs/content/03_develop/03_workflow.md) - 工作流详细说明
+- [定制工具](../../docs/content/03_develop/05_customize.md) - 自定义工具开发
+- [检查器](../../docs/content/03_develop/07_checkers.md) - 检查器开发指南
 
 ## 📝 许可证
 
