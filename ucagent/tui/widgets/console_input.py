@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import textwrap
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 from rich.spinner import Spinner
 from rich.text import Text
@@ -247,7 +247,7 @@ class ConsoleInput(Vertical):
         self._update_console_extra_height()
 
     def show_suggestions(
-        self, suggestions: list[str], selected_index: int = -1
+            self, suggestions: list[str], selected_index: int = -1
     ) -> None:
         if not suggestions:
             self.clear_suggestions()

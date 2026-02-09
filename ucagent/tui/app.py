@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import queue
-import signal
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import App, ComposeResult
@@ -140,7 +139,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.task_width = task_panel.size.width
 
         # Set console height to half of available height (1:1 ratio with main-container)
-        available_height = self.app.size.height // 2  # subtract status bar and splitter
+        available_height = self.app.size.height // 2
         self.console_height = available_height
 
     def on_key(self, event: Key) -> None:
@@ -266,7 +265,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.console_height = new_value
 
     def on_console_input_command_submitted(
-        self, event: ConsoleInput.CommandSubmitted
+            self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         self.key_handler.process_command(event.command, event.daemon)
         console_input = self.query_one(ConsoleInput)
@@ -286,12 +285,6 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             console_input = self.query_one(ConsoleInput)
             console_input.update_running_commands()
         return cancelled
-
-    def _is_console_busy(self) -> bool:
-        try:
-            return self.query_one(ConsoleInput).is_busy
-        except Exception:
-            return False
 
     def _cleanup(self) -> None:
         if self._ui_handlers_installed:

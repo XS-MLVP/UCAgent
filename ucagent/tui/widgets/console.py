@@ -5,18 +5,16 @@ from __future__ import annotations
 import queue
 from typing import Any, ClassVar
 
+from rich.box import SQUARE
+from rich.panel import Panel
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import RichLog
 
-from rich.text import Text
-from rich.panel import Panel
-from rich.box import SQUARE
-
-
-from ..mixins import AutoScrollMixin
 from .console_input import ConsoleInput
+from ..mixins import AutoScrollMixin
 
 
 class ConsoleWidget(AutoScrollMixin, Vertical):

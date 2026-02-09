@@ -10,7 +10,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 if TYPE_CHECKING:
-    from ucagent.verify_pdb import VerifyPDB
+    pass
 
 
 class TaskPanel(VerticalScroll):
