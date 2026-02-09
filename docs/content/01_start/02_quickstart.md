@@ -179,16 +179,16 @@
   最终的结果都在`output`文件夹中，其中的内容如下：
 
 - Guide_Doc：这些文件是“规范/示例/模板型”的参考文档，启动时会从`ucagent/lang/zh/doc/Guide_Doc`复制到工作区的 `Guide_Doc/`（当前以 output 作为 workspace 时即 `output/Guide_Doc/`）。它们不会被直接执行，供人和 AI 作为编写 unity_test 文档与测试的范式与规范，并被语义检索工具读取，在 UCAgent 初始化时复制过来。
-  对文件的详细解读可参照[模板文件 Guide_Doc](../03_develop/02_template.md/#guide_doc)
+  对文件的详细解读可参照[模板文件 Guide_Doc](../03_develop/04_template.md#guide_doc)
 
 - uc_test_report：由 toffee-test 生成的 index.html 报告，可直接使用浏览器打开。
   - 这个报告包含了 Line Coverage 行覆盖率，Functional Coverage 功能覆盖率，测试用例的通过情况，功能点标记具体情况等内容。
 
 - unity_test/tests：验证代码文件夹
-  对文件的详细解读可参照[生成的代码](../03_develop/02_template.md/#unity_testtests)
+  对文件的详细解读可参照[生成的代码](../03_develop/04_template.md#unity_testtests)
 
 - unity_test/\*.md：验证相关文档
-  对文件的详细解读可参照[生成的文档](../03_develop/02_template.md/#unity_test\*.md)
+  对文件的详细解读可参照[生成的文档](../03_develop/04_template.md#unity_testmd)
 
 ## 流程总结
 
