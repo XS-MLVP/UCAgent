@@ -85,7 +85,7 @@ class UIMsgLogger(logging.Logger):
         self.log(logging.CRITICAL, msg, *args, **kwargs)
 
     def exception(
-        self, msg: object, *args: object, exc_info: bool = True, **kwargs: object
+            self, msg: object, *args: object, exc_info: bool = True, **kwargs: object
     ) -> None:
         self.error(msg, *args, **kwargs)
         if exc_info:

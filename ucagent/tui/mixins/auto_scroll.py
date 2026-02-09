@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from textual.events import MouseScrollDown, MouseScrollUp
 
 if TYPE_CHECKING:
-    from textual.scroll_view import ScrollView
+    pass
 
 
 class AutoScrollMixin:

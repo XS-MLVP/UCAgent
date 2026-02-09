@@ -5,11 +5,10 @@ from __future__ import annotations
 import queue
 from typing import Any, ClassVar
 
+from rich.text import Text
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widgets import RichLog
-
-from rich.text import Text
 
 from ..mixins import AutoScrollMixin
 
@@ -28,9 +27,9 @@ class MessagesPanel(AutoScrollMixin, RichLog):
     focus_index: reactive[int] = reactive(0)
 
     def __init__(
-        self,
-        message_queue: queue.SimpleQueue[tuple[str, str]],
-        **kwargs,
+            self,
+            message_queue: queue.SimpleQueue[tuple[str, str]],
+            **kwargs,
     ) -> None:
         super().__init__(
             highlight=True,
@@ -155,7 +154,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         if non_empty_lines:
             self._message_lines.extend(non_empty_lines)
             if len(self._message_lines) > self.max_messages:
-                self._message_lines = self._message_lines[-self.max_messages :]
+                self._message_lines = self._message_lines[-self.max_messages:]
 
         # 更新焦点索引
         if not self._manual_scroll:
