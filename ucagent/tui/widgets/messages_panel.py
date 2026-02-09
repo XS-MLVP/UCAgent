@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+from collections import deque
 from typing import Any, ClassVar
 
 from rich.text import Text
@@ -28,7 +29,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
 
     def __init__(
             self,
-            message_queue: queue.SimpleQueue[tuple[str, str]],
+            message_queue: queue.SimpleQueue[str],
             **kwargs,
     ) -> None:
         super().__init__(
@@ -40,8 +41,8 @@ class MessagesPanel(AutoScrollMixin, RichLog):
             **kwargs,
         )
         self.border_title = "Messages"
-        self._message_lines: list[str] = []
-        self._batch_queue: queue.SimpleQueue[tuple[str, str]] = message_queue
+        self._message_lines: deque[str] = deque(maxlen=self.max_messages)
+        self._batch_queue: queue.SimpleQueue[str] = message_queue
 
     def _get_scrollable(self) -> Any:
         return self
@@ -50,18 +51,18 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         self._update_title()
 
     def on_mount(self) -> None:
-        self.set_interval(0.4, self._flush_batch)
+        self.set_interval(0.2, self._flush_batch)
 
     def on_unmount(self) -> None:
         self._flush_batch()
 
-    def append_message(self, msg: str, end: str = "\n") -> None:
-        if not msg and not end:
+    def append_message(self, msg: str) -> None:
+        if not msg:
             return
-        self._batch_queue.put_nowait((msg, end))
+        self._batch_queue.put_nowait(msg)
 
     def _flush_batch(self) -> None:
-        messages: list[tuple[str, str]] = []
+        messages: list[str] = []
         while True:
             try:
                 messages.append(self._batch_queue.get_nowait())
@@ -71,7 +72,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         if not messages:
             return
 
-        combined = "".join(f"{msg}{end}" for msg, end in messages)
+        combined = "".join(messages)
         self._append_payload(combined)
 
     def _update_title(self) -> None:
@@ -115,7 +116,7 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         self.focus_index = new_index
         self._update_title()
 
-        self.scroll_relative(y=new_index - old_index)
+        self.scroll_relative(y=new_index - old_index, animate=True)
 
         if delta > 0:
             self._check_and_restore_auto_scroll()
@@ -144,19 +145,10 @@ class MessagesPanel(AutoScrollMixin, RichLog):
         if not payload:
             return
 
-        # 直接写入显示，不等换行符
-        self.write(Text.from_ansi(payload))
+        self.write(Text.from_ansi(payload), animate=True)
 
-        # 历史记录仍按行分割存储
-        lines = payload.split("\n")
-        # 过滤空字符串（连续换行符会产生空字符串）
-        non_empty_lines = [line for line in lines if line]
-        if non_empty_lines:
-            self._message_lines.extend(non_empty_lines)
-            if len(self._message_lines) > self.max_messages:
-                self._message_lines = self._message_lines[-self.max_messages:]
+        self._message_lines.extend(line for line in payload.split("\n") if line)
 
-        # 更新焦点索引
         if not self._manual_scroll:
             if self._message_lines:
                 self.focus_index = len(self._message_lines) - 1
