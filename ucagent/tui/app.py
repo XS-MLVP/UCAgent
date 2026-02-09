@@ -73,7 +73,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.daemon_cmds: dict[float, str] = {}
 
         # Message queue for thread-safe UI updates (shared with MessagesPanel)
-        self._ui_message_queue: queue.SimpleQueue[tuple[str, str]] = queue.SimpleQueue()
+        self._ui_message_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
         # Track previous logger for cleanup
         self._mcps_logger_prev = None
@@ -159,7 +159,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         This method is called from worker threads, so it posts
         a message to be processed on the main thread.
         """
-        self._ui_message_queue.put((msg, end))
+        self._ui_message_queue.put(f"{msg}{end}")
 
     def console_output(self, text: str) -> None:
         """Thread-safe console output method.
