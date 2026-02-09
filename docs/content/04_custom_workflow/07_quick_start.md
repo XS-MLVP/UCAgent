@@ -7,6 +7,24 @@
 - 模板（指导）文件：指导与规范大模型的输出
 - 检查器：某阶段完成后的合规情况  
 
+目录结构如下：
+
+```bash
+$ tree MyWorkflow
+MyWorkflow
+├── Project                                     
+│   └── README.md                               # 项目说明
+├── Guide_Doc
+│   ├── Guide_Docs1.md                          # 指导与模板文件
+│   └── ...
+├── __init__.py                                 # 让目录成为Python包
+├── Makefile                                    # 编译命令（可选）
+├── mini.yaml                                   # 工作流配置
+├── my_checkers.py                              # 检查器
+├── my_tools.py                                 # 工具  
+└── README.md                                   # 整体工作流说明
+```
+
 以上都可以体现在一个工作流里，下面直接以一个简化的工作流为例。
 
 ## 工作流
