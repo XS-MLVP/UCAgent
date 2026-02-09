@@ -4,7 +4,7 @@
 
 ## 📚 完整教程
 
-详细的定制工作流教程请参考：[自定义工作流完整指南](../../docs/content/04_custom_workflow/00_index.md)
+详细的定制工作流教程请参考：[自定义工作流完整指南](../../docs/content/03_develop/00_index.md)
 
 ## 🎯 示例说明
 
