@@ -19,7 +19,6 @@ from textual.widgets import Input, Static
 from ..completion import CompletionHandler
 
 
-
 class BusyIndicator(Widget):
     """Busy indicator using a Rich spinner."""
 
@@ -79,9 +78,12 @@ class ConsoleInput(Vertical):
         self._suggestions_text: str = ""
         self._completion = CompletionHandler()
         self._programmatic_change: bool = False
+        self._running_cmds_height: int = 0
+        self._suggestions_height: int = 0
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
+        yield Static(id="running-commands")
         with Horizontal(id="console-input-row"):
             yield BusyIndicator(id="console-loading")
             yield Input(placeholder=self.prompt, id="console-input")
@@ -89,8 +91,9 @@ class ConsoleInput(Vertical):
 
     def on_mount(self) -> None:
         """Setup after mounting."""
-        self._update_prompt()
+        self.refresh_prompt()
         self._hide_suggestions()
+        self._hide_running_commands()
         self._set_loading_visible(False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -136,7 +139,7 @@ class ConsoleInput(Vertical):
 
     def clear_input(self) -> None:
         """Clear the input field."""
-        self.query_one("#console-input", Input).value = ""
+        self.query_one("#console-input", Input).clear()
 
     def action_clear_input(self) -> None:
         self.clear_input()
@@ -200,7 +203,7 @@ class ConsoleInput(Vertical):
         if cmd is not None:
             self.set_text(cmd)
 
-    def _update_prompt(self) -> None:
+    def refresh_prompt(self) -> None:
         """Update the input prompt based on state."""
         input_widget = self.query_one("#console-input", Input)
 
@@ -219,16 +222,33 @@ class ConsoleInput(Vertical):
         if self._page_mode == enabled:
             return
         self._page_mode = enabled
-        self._update_prompt()
-
-    def refresh_prompt(self) -> None:
-        self._update_prompt()
+        self.refresh_prompt()
 
     @property
     def has_suggestions(self) -> bool:
         return self._suggestions_visible
 
-    def show_suggestions(self, suggestions: list[str], selected_index: int = -1) -> None:
+    def update_running_commands(self) -> None:
+        """Update the running commands display."""
+        commands = self.app.key_handler.get_running_commands()
+
+        if not commands:
+            self._hide_running_commands()
+            return
+
+        # Format as [1] cmd1 [2] cmd2 ...
+        formatted = " ".join(f"[{i + 1}] {cmd}" for i, cmd in enumerate(commands))
+        self.query_one("#running-commands", Static).update(formatted)
+        self._show_running_commands()
+
+        # Calculate height
+        lines = self._measure_running_commands_lines(formatted)
+        self._running_cmds_height = lines
+        self._update_console_extra_height()
+
+    def show_suggestions(
+        self, suggestions: list[str], selected_index: int = -1
+    ) -> None:
         if not suggestions:
             self.clear_suggestions()
             return
@@ -243,14 +263,16 @@ class ConsoleInput(Vertical):
         self._show_suggestions()
 
         extra_lines = self._measure_suggestion_lines(plain_text)
-        self._set_console_extra_height(extra_lines)
+        self._suggestions_height = extra_lines
+        self._update_console_extra_height()
 
     def clear_suggestions(self) -> None:
         if not self._suggestions_visible:
             return
         self.query_one("#console-suggest", Static).update("")
         self._hide_suggestions()
-        self._set_console_extra_height(0)
+        self._suggestions_height = 0
+        self._update_console_extra_height()
         self._completion.reset()
 
     def _show_suggestions(self) -> None:
@@ -263,15 +285,32 @@ class ConsoleInput(Vertical):
         widget = self.query_one("#console-suggest")
         widget.styles.display = "none"
 
+    def _show_running_commands(self) -> None:
+        widget = self.query_one("#running-commands")
+        widget.styles.display = "block"
+
+    def _hide_running_commands(self) -> None:
+        widget = self.query_one("#running-commands")
+        widget.styles.display = "none"
+        self._running_cmds_height = 0
+        self._update_console_extra_height()
+
     def _measure_suggestion_lines(self, text: str) -> int:
         width = max(20, self.size.width - 2)
         wrapped = textwrap.wrap(text, width=width)
         return max(1, len(wrapped))
 
-    def _set_console_extra_height(self, extra_lines: int) -> None:
+    def _measure_running_commands_lines(self, text: str) -> int:
+        width = max(20, self.size.width - 2)
+        wrapped = textwrap.wrap(text, width=width)
+        return max(1, len(wrapped))
+
+    def _update_console_extra_height(self) -> None:
+        """Update console extra height for both running commands and suggestions."""
+        total = self._running_cmds_height + self._suggestions_height
         parent = self.parent
         if parent is not None and hasattr(parent, "set_extra_height"):
-            parent.set_extra_height(extra_lines)
+            parent.set_extra_height(total)
 
     def _set_loading_visible(self, visible: bool) -> None:
         indicator = self.query_one("#console-loading", BusyIndicator)

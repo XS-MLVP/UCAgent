@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import traceback
 from typing import TYPE_CHECKING
 
 from textual.worker import Worker, WorkerState
 
-from .widgets import ConsoleWidget
+from .widgets import ConsoleWidget, ConsoleInput
 
 if TYPE_CHECKING:
     from .app import VerifyApp
@@ -19,6 +20,8 @@ class KeyHandler:
         self.app = app
         self.last_cmd: str | None = None
         self._active_workers: list[Worker] = []
+        self._worker_commands: dict[Worker, str] = {}
+        self._worker_threads: dict[Worker, int] = {}
 
     def is_exit_cmd(self, cmd: str) -> bool:
         return cmd.lower() in ("q", "exit", "quit")
@@ -32,6 +35,50 @@ class KeyHandler:
         self._active_workers.clear()
         self._update_busy_state()
         return cancelled_any
+
+    def cancel_last_worker(self) -> bool:
+        """Cancel the most recently started worker (LIFO).
+
+        Returns:
+            True if a worker was cancelled, False otherwise
+        """
+        if not self._active_workers:
+            return False
+
+        # Get last worker (most recent)
+        worker = self._active_workers[-1]
+
+        # Check if still active
+        if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
+            worker.cancel()
+            self._active_workers.remove(worker)
+            self._worker_commands.pop(worker, None)
+            self._update_busy_state()
+            return True
+
+        return False
+
+    def get_running_commands(self) -> list[str]:
+        """Get list of currently running command texts in execution order.
+
+        Returns:
+            List of command strings for active workers
+        """
+        self._cleanup_finished_workers()
+        return [
+            self._worker_commands.get(w, "")
+            for w in self._active_workers
+            if w in self._worker_commands
+        ]
+
+    def _register_worker_thread(self, worker: Worker, thread_id: int) -> None:
+        self._worker_threads[worker] = thread_id
+
+    def get_last_worker_thread_id(self) -> int | None:
+        if not self._active_workers:
+            return None
+        last_worker = self._active_workers[-1]
+        return self._worker_threads.get(last_worker)
 
     def has_active_worker(self) -> bool:
         self._cleanup_finished_workers()
@@ -74,27 +121,45 @@ class KeyHandler:
         console.echo_command(cmd)
 
         worker_holder: list[Worker] = []
+        worker_ready = threading.Event()
 
         def run_command() -> None:
+            worker_ready.wait()
+            thread_id = threading.current_thread().ident
+            self.app.call_from_thread(
+                self._register_worker_thread, worker_holder[0], thread_id
+            )
             try:
                 self.app.vpdb.onecmd(cmd)
             except Exception as e:
-                error_msg = f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
+                error_msg = (
+                    f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
+                )
                 console.queue_output(error_msg)
             finally:
                 if worker_holder:
-                    self.app.call_from_thread(self._on_command_complete, worker_holder[0])
+                    self.app.call_from_thread(
+                        self._on_command_complete, worker_holder[0]
+                    )
 
         worker = self.app.run_worker(run_command, thread=True, group="cmd-exec")
         worker_holder.append(worker)
+        worker_ready.set()
         self._active_workers.append(worker)
+        self._worker_commands[worker] = cmd
         self._update_busy_state()
 
     def _on_command_complete(self, worker: Worker) -> None:
         if worker in self._active_workers:
             self._active_workers.remove(worker)
+        self._worker_commands.pop(worker, None)
+        thread_id = self._worker_threads.pop(worker, None)
+        if thread_id is not None:
+            self.app.vpdb.agent.clear_break_thread(thread_id)
         self.app.flush_console_output()
         self._update_busy_state()
+        console_input = self.app.query_one(ConsoleInput)
+        console_input.update_running_commands()
         if not self.has_active_worker():
             self.app.update_task_panel()
 
