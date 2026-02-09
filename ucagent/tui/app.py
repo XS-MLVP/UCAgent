@@ -111,8 +111,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
                 id="split-console",
                 classes="splitter horizontal",
             )
-            yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
-            yield StatusBar(id="status-bar")
+            with Vertical(id="console-container"):
+                yield ConsoleWidget(id="console", prompt=self.vpdb.prompt)
+                yield StatusBar(id="status-bar")
 
     async def on_mount(self) -> None:
         """Initialize after mounting."""
@@ -133,12 +134,14 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Focus the console input
         self.query_one(ConsoleInput).focus_input()
 
-    def on_ready(self) -> None:
+    async def on_ready(self) -> None:
         # Use default value from tcss
         task_panel = self.query_one(TaskPanel)
         self.task_width = task_panel.size.width
-        console = self.query_one(ConsoleWidget)
-        self.console_height = console.size.height
+
+        # Set console height to half of available height (1:1 ratio with main-container)
+        available_height = self.app.size.height // 2  # subtract status bar and splitter
+        self.console_height = available_height
 
     def on_key(self, event: Key) -> None:
         """Allow Esc to dismiss the help panel without stealing other Esc uses."""
