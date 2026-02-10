@@ -13,8 +13,8 @@ clean:
 	rm ./output -rf
 
 init_%: 
-	mkdir output
-	cp -r $* output/
+	mkdir -p output
+	cp -r rtls/$* output/
 
 mcp_%: init_%
 	$(CMD) output/ $* --config ./formal.yaml -s -hm --legacy-ui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path ./FormalDoc/  ${ARGS}

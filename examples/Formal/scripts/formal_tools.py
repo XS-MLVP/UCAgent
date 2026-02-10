@@ -15,37 +15,80 @@ from langchain_core.tools.base import ArgsSchema
 __all__ = ["GenerateChecker", "GenerateFormalScript"]
 
 class ArgGenerateChecker(BaseModel):
-    """Arguments for GenerateChecker tool."""
-    dut_name: str = Field(description="DUT模块名称")
-    output_file: str = Field(description="输出的checker.sv文件路径")
-    rtl_dir: str = Field(default="{DUT}_RTL", description="RTL源码所在的文件夹路径")
+    """Arguments for GenerateChecker tool.
+    
+    使用说明：
+    1. dut_name: RTL文件中定义的顶层模块名称（通过 'module xxx' 提取）
+    2. output_file: 输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {OUT}/tests/{DUT}_checker.sv 和 {OUT}/tests/{DUT}_wrapper.sv
+    3. rtl_dir: RTL文件所在目录，默认为 FILE_PATH
+    """
+    dut_name: str = Field(
+        description="DUT的顶层模块名称（从RTL文件中提取，例如 'main'、'traffic'）"
+    )
+    output_file: str = Field(
+        description="输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {DUT}_checker.sv 和 {DUT}_wrapper.sv"
+    )
+    rtl_dir: str = Field(
+        default="{FILE_PATH}",
+        description="RTL源码目录路径（默认使用FILE_PATH）"
+    )
 
 class GenerateChecker(UCTool, BaseReadWrite):
     name: str = "GenerateChecker"
-    description: str = "1. checker创建：自动读取RTL文件，创建 `checker.sv` 和 `wrapper.sv`。"
+    description: str = """生成形式化验证环境的 checker.sv 和 wrapper.sv 文件。
+
+使用方法：
+1. 提供 dut_name: RTL文件中定义的顶层模块名
+2. 提供 output_file: 输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {DUT}_checker.sv 和 {DUT}_wrapper.sv
+3. rtl_dir: 可选，默认为 FILE_PATH
+
+工具会：
+- 在 rtl_dir 目录下查找包含 dut_name 模块的 .v/.sv 文件
+- 解析RTL提取所有端口和参数
+- 生成 {output_file}_checker.sv 和 {output_file}_wrapper.sv
+
+使用示例：
+- GenerateChecker(dut_name="main", output_file="{OUT}/tests/main")
+- GenerateChecker(dut_name="traffic", output_file="{OUT}/tests/traffic", rtl_dir="traffic")
+"""
     args_schema: Optional[ArgsSchema] = ArgGenerateChecker
 
     def _find_rtl_file(self, rtl_dir: str, dut_name: str) -> str:
-        # Search for .v or .sv files
-        patterns = [
-            os.path.join(rtl_dir, f"{dut_name}.v"),
-            os.path.join(rtl_dir, f"{dut_name}.sv")
-        ]
-        for p in patterns:
-            if os.path.exists(p):
-                return p
-            abs_p = os.path.abspath(p)
-            if os.path.exists(abs_p):
-                return abs_p
+        """在指定目录查找包含dut_name模块的RTL文件"""
+        str_info(f"Searching for RTL file for module '{dut_name}' in: {rtl_dir}")
         
-        # Fallback: search anywhere in rtl_dir
-        search_pattern = os.path.join(rtl_dir, f"{dut_name}.*")
-        files = glob.glob(search_pattern)
-        for f in files:
-            if f.endswith('.v') or f.endswith('.sv'):
-                return f
+        if not os.path.isdir(rtl_dir):
+            raise FileNotFoundError(f"RTL directory does not exist: {rtl_dir}")
         
-        raise FileNotFoundError(f"Could not find RTL source for {dut_name} in {rtl_dir}")
+        # 查找所有 .v/.sv 文件
+        all_files = []
+        for ext in ['*.v', '*.sv']:
+            all_files.extend(glob.glob(os.path.join(rtl_dir, ext)))
+        
+        str_info(f"Found {len(all_files)} RTL files")
+        
+        # 解析每个文件，查找模块名匹配
+        for file_path in all_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    module_pattern = rf'\bmodule\s+{re.escape(dut_name)}\b'
+                    if re.search(module_pattern, content):
+                        str_info(f"Found RTL: {file_path}")
+                        return file_path
+            except Exception as e:
+                str_error(f"Error parsing {file_path}: {e}")
+                continue
+        
+        # 如果只有一个文件，直接使用
+        if len(all_files) == 1:
+            str_info(f"Using only RTL file: {all_files[0]}")
+            return all_files[0]
+        
+        raise FileNotFoundError(
+            f"Could not find RTL source for module '{dut_name}' in '{rtl_dir}'. "
+            f"Found files: {all_files if all_files else 'none'}"
+        )
 
     def _extract_ports(self, file_path: str) -> Tuple[str, List[Tuple[str, str]], List[Tuple[str, str]]]:
         """
@@ -129,19 +172,22 @@ class GenerateChecker(UCTool, BaseReadWrite):
             raise
 
     def _run(self, dut_name: str, output_file: str, rtl_dir: str) -> str:
-        # Simplify: assume workspace is always cwd/output
-        workspace = os.path.join(os.getcwd(), "output")
-        real_path = os.path.abspath(os.path.join(workspace, output_file))
-        wrapper_path = os.path.join(os.path.dirname(real_path), f"{dut_name}_wrapper.sv")
+        """执行 checker 和 wrapper 生成"""
+        # RTL目录就是 rtl_dir，直接使用
+        str_info(f"RTL directory: {rtl_dir}")
+        
+        # output_file 是路径前缀，生成 {output_file}_checker.sv 和 {output_file}_wrapper.sv
+        checker_path = f"{output_file}_checker.sv"
+        wrapper_path = f"{output_file}_wrapper.sv"
+        str_info(f"Output checker: {checker_path}")
+        str_info(f"Output wrapper: {wrapper_path}")
 
-        os.makedirs(os.path.dirname(real_path), exist_ok=True)
+        os.makedirs(os.path.dirname(checker_path), exist_ok=True)
 
         try:
-            if "{DUT}" in rtl_dir:
-                rtl_dir = rtl_dir.replace("{DUT}", dut_name)
-
+            # 查找 RTL 文件
             rtl_file_path = self._find_rtl_file(rtl_dir, dut_name)
-            str_info(f"Found RTL file: {rtl_file_path}")
+            str_info(f"Found RTL: {rtl_file_path}")
             
             port_decl_str, port_info, param_info = self._extract_ports(rtl_file_path)
 
@@ -176,9 +222,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 param_decl=param_decl_str,
                 port_decl=checker_port_decl_str
             )
-            with open(real_path, 'w', encoding='utf-8') as f:
+            with open(checker_path, 'w', encoding='utf-8') as f:
                 f.write(checker_code)
-            str_info(f"Checker generated at: {real_path}")
+            str_info(f"Checker generated at: {checker_path}")
 
             # 2. Generate Wrapper
             # Identify potential symbolic indexing candidates (ports with _0, _1...)
@@ -290,7 +336,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 f.write(wrapper_code)
             str_info(f"Wrapper generated at: {wrapper_path}")
 
-            return str_info(f"Checker skeleton created at: {real_path}\nWrapper created at: {wrapper_path}\n(Ports extracted from {rtl_file_path})")
+            return str_info(f"Checker skeleton created at: {checker_path}\nWrapper created at: {wrapper_path}\n(Ports extracted from {rtl_file_path})")
 
         except Exception as e:
             str_error(f"Error generating checker/wrapper: {e}")
@@ -305,30 +351,36 @@ class ArgGenerateFormalScript(BaseModel):
     dut_name: str = Field(description="DUT模块名称")
     checker_file: str = Field(description="checker.sv文件路径")
     output_file: str = Field(description="输出的.tcl文件路径")
-    rtl_path: str = Field(default="{DUT}_RTL", description="RTL源码路径")
-    clock_config: str = Field(default="def_clk clk", description="时钟配置")
-    reset_config: str = Field(default="def_rst rst_n -value 0", description="复位配置")
+    rtl_dir: str = Field(description="RTL源码所在目录路径")
 
 class GenerateFormalScript(UCTool, BaseReadWrite):
     name: str = "GenerateFormalScript"
     description: str = "2. tcl脚本创建：创建 `formal.tcl`，使用Wrapper作为顶层。"
     args_schema: Optional[ArgsSchema] = ArgGenerateFormalScript
 
-    def _run(self, dut_name: str, checker_file: str, output_file: str, rtl_path: str, clock_config: str, reset_config: str) -> str:
+    def _run(self, dut_name: str, checker_file: str, output_file: str, rtl_dir: str) -> str:
         workspace = os.path.join(os.getcwd(), "output")
         real_output_path = os.path.abspath(os.path.join(workspace, output_file))
 
         os.makedirs(os.path.dirname(real_output_path), exist_ok=True)
 
+        # 计算相对路径：从TCL脚本所在目录到RTL目录
         script_dir_from_ws = os.path.dirname(output_file)
-        rtl_path_from_ws = rtl_path.format(DUT=dut_name)
-        rel_rtl_dir = os.path.relpath(rtl_path_from_ws, script_dir_from_ws)
+        rel_rtl_dir = os.path.relpath(rtl_dir, script_dir_from_ws)
+        
+        str_info(f"Script directory (from workspace): {script_dir_from_ws}")
+        str_info(f"RTL directory: {rtl_dir}")
+        str_info(f"Relative RTL path: {rel_rtl_dir}")
         
         checker_basename = os.path.basename(checker_file)
         wrapper_basename = f"{dut_name}_wrapper.sv"
 
         # Use wrapper as top
         top_module = f"{dut_name}_wrapper"
+
+        # 使用默认的时钟和复位配置
+        clock_config = "def_clk clk"
+        reset_config = "def_rst rst_n -value 0"
 
         # Load template and generate script
         template_dir = os.path.join(os.path.dirname(__file__), "templates")

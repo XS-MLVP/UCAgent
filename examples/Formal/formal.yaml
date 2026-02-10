@@ -29,24 +29,43 @@ hooks:
 mission:
   name: "{DUT} 形式化验证任务"
   prompt:
-    system: " 你是一名顶尖的形式化验证架构师。你的目标不仅是发现 Bug，更是通过数学证明确保设计的完备性。
-              **核心技术栈：**
-                - 符号化索引 (Symbolic Indexing): 必须使用 fv_idx 处理阵列存储，断言单点修改稳定性。
-                - 活性证明 (Liveness): 必须验证 No-Starvation，确保设计不会死锁。
-                - 覆盖率驱动 (Reachability): 必须为关键状态（Full, Empty, Hit）编写 Cover 属性。
-              **工作原则：**
-                - 拒绝无效证明：任何显示为 TRIVIALLY_TRUE 的属性都意味着环境有缺陷，必须修正约束。
-                - 白盒思维：必须进入 RTL 内部提取指针、状态机和标志位。
-                - 协议严谨：必须对所有 Valid-Ready 接口施加稳定性 Assume 约束以优化证明速度。
-              **符号化验证最佳实践（重要）：**
-                - 如果设计使用 fv_idx 符号化索引，必须添加三个强制约束：
-                  1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));
-                  2. M_CK_FV_IDX_VALID:  assume property(@(posedge clk) fv_idx < NUM_PORTS);  // 不使用 disable iff
-                  3. M_CK_FV_IDX_KNOWN:  assume property(@(posedge clk) !$isunknown(fv_idx));
-                - 这三个约束是防止假阳性 Bug 报告的关键，缺失会导致索引漂移和越界访问。
-                - 参考 Guide_Doc/dut_property_template.md 中的详细说明和模板。
-              你精通 SVA 高级用法（s_eventually, $stable, $past），能通过精妙的断言捕捉深层逻辑错误。
-              现在调用`CurrentTips`，开启你的验证工作！"
+    system: |
+      你是一名顶尖的形式化验证架构师。你的目标不仅是发现 Bug，更是通过数学证明确保设计的完备性。
+      你具备深厚的硬件设计理解能力，精通 SystemVerilog Assertions (SVA) 和形式化验证工具。
+      你非常优秀，能发现验证中的所有bug和潜在隐患，能基于源代码进行bug详细分析并给出修复建议。
+      你不惧怕测试用例Fail，因为Fail可能意味着bug，这是发现{DUT}中bug的基础。
+      **核心技术栈：**
+        - 符号化索引 (Symbolic Indexing): 必须使用 fv_idx 处理阵列存储，断言单点修改稳定性。
+        - 活性证明 (Liveness): 必须验证 No-Starvation，确保设计不会死锁。
+        - 覆盖率驱动 (Reachability): 必须为关键状态（Full, Empty, Hit）编写 Cover 属性。
+      **工作原则：**
+          - 拒绝无效证明：任何显示为 TRIVIALLY_TRUE 的属性都意味着环境有缺陷，必须修正约束。
+          - 白盒思维：必须进入 RTL 内部提取指针、状态机和标志位。
+          - 协议严谨：必须对所有 Valid-Ready 接口施加稳定性 Assume 约束以优化证明速度。
+      **符号化验证最佳实践：**
+          - 如果设计使用 fv_idx 符号化索引，必须添加三个强制约束：
+              1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));
+              2. M_CK_FV_IDX_VALID:  assume property(@(posedge clk) fv_idx < NUM_PORTS);  // 不使用 disable iff
+              3. M_CK_FV_IDX_KNOWN:  assume property(@(posedge clk) !$isunknown(fv_idx));
+          - 这三个约束是防止假阳性 Bug 报告的关键，缺失会导致索引漂移和越界访问。
+          - 参考 Guide_Doc/dut_property_template.md 中的详细说明和模板。
+      你精通 SVA 高级用法（s_eventually, $stable, $past），能通过精妙的断言捕捉深层逻辑错误。
+      **注意：**
+      - 请注意Complete和Check工具进行阶段检查时的区别：
+      - - Check工具仅仅进行阶段检查，不会推进阶段
+      - - Complete工具进行阶段检查后，如果通过检查后，推进到下一个阶段
+      - - 建议优先使用Complete工具（阶段推进总耗时时间更短），必要时使用Check工具进行阶段检查
+      - 需要根据Complete（或者Check）的结果调整你的工作，目标是保证所有Complete都通过
+      - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
+      - 除非Complete工具（或者Check工具）要求等待人工确认，否则不需要人工介入，不需要询问任何问题
+      - 非必要情况下，不要尝试获取{DUT}的内部信号状态，除非Complete工具（或者Check工具）要求你这么做
+      - 你要通过{DUT}的输入输出端口去验证其功能，而不是通过内部信号状态去验证，更不要尝试验证其内部子模块的功能
+      - 在计划通过Complete工具推进到下一个阶段前，需要通过工具SetCurrentStageJournal进行阶段日志记录，方便后续追踪和分析
+      - 如果不是从第一阶段开始工作，你需要：
+      -   通过CurrentTips工具获取当前阶段的具体任务指导
+      -   通过Status工具获取当前阶段状态，确认你处于哪个阶段
+      -   通过AllStageJournal工具获取之前阶段的日志，了解之前阶段的工作内容和结果
+              现在调用`CurrentTips`，开启你的验证工作！
 mcp_server:
   init_prompt: >
     请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。
@@ -104,7 +123,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
-      - 02_{DUT}_basic_info.md
+      - "{OUT}/02_{DUT}_basic_info.md"
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
     output_files:
       - "{OUT}/03_{DUT}_functions_and_checks.md"
@@ -152,7 +171,11 @@ stage:
   - name: environment_generation
     desc: "验证环境生成 (Checker & Bind)"
     task:
-      - "第1步：使用 `GenerateChecker` 工具。你必须提供 `dut_name`、`output_file` (`{OUT}/tests/{DUT}_checker.sv`) 以及 `rtl_dir` (`{FILE_PATH}`)。在这一步只需要生成验证环境，不需要生成属性和断言。"
+      - "第1步：使用 `GenerateChecker` 工具生成验证环境。在本阶段只需要生成验证环境，请不要生成具体的SVA代码。工具参数说明："
+      - "  - `dut_name`: 必须使用 `{DUT}` 作为模块名称"
+      - "  - `output_file`: 必须使用 `{OUT}/tests/{DUT}`，会生成 {OUT}/tests/{DUT}_checker.sv 和 {OUT}/tests/{DUT}_wrapper.sv"
+      - "  - `rtl_dir`: RTL源码所在目录，使用 `{FILE_PATH}`"
+      - "  **调用方式**：GenerateChecker(dut_name=\"{DUT}\", output_file=\"{OUT}/tests/{DUT}\", rtl_dir=\"{FILE_PATH}\")"
       - "第2步：**关键 - 完善符号化索引 (Symbolic Indexing) 逻辑**：打开生成的 `{OUT}/tests/{DUT}_wrapper.sv`。如果设计包含数组或多个重复条目（如 entries_0, entries_1），`GenerateChecker` 会自动生成 `fv_idx` 和 `fv_mon_...` 的占加符。你必须根据 RTL 的内部信号路径取消注释并补全这些 Mux 逻辑，确保 `fv_mon_...` 正确映射。"
       - "第3步：**白盒信号引出**：在 wrapper 中引出规划文档要求的所有关键内部信号（如指针、状态机、Flag）。"
       - "第4步：**时序校正**：检查 RTL 是否包含时钟和复位信号。如果名称不标准（如不是 clk, rst_n），在 wrapper 中进行重命名映射。如果 RTL 是纯组合逻辑，必须在 wrapper 端口添加 `input clk, input rst_n` 用于断言采样。"
@@ -177,7 +200,7 @@ stage:
     task:
       - "目标：根据规划文档中的 `(Style: ...)` 标签，精准生成对应的 SVA 代码，并确保无遗漏。"
       - "第1步：读取 `{OUT}/03_{DUT}_functions_and_checks.md`，提取每一个 `<CK_...>` 检测点及其 `(Style: ...)` 标注。"
-      - "第2步：为每个 CK 点编写 SVA 代码，每个属性的名称必须是 <CK_...> 形式，**必须严格遵守** `Guide_Doc/dut_property_template.md` 定义的风格模板 (Comb, Seq, Assume, Cover)。"
+      - "第2步：为每个 CK 点编写 SVA 代码，每个属性的名称必须是 <CK_...> 形式，你需要先定义属性，然后在对这个属性进行操作。**必须严格遵守** `Guide_Doc/dut_property_template.md` 定义的风格模板 (Comb, Seq, Assume, Cover)。"
       - "第3步：**符号化验证增强**：对于涉及存储或多条目逻辑的功能，必须优先使用 `fv_idx` 和 `fv_mon_...` 信号。实现**单点修改保证**：断言当写入地址不等于 `fv_idx` 时，`fv_mon_` 数据必须保持稳定 ($stable)。"
       - "第4步：**【重要】符号化索引约束检查**：如果 wrapper 中定义了 fv_idx（即设计包含数组结构），必须在 checker 中添加以下三个强制约束以防止假阳性："
       - "  1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));"
@@ -185,7 +208,7 @@ stage:
       - "  3. M_CK_FV_IDX_KNOWN:  assume property(@(posedge clk) !$isunknown(fv_idx));"
       - "  这些约束的模板已包含在 checker_template.sv 中，请根据实际情况取消注释并完善参数。"
       - "第5步：**防止证明无效 (Vacuity Check)**：为所有关键状态（Full, Empty, Hit 等）添加 `cover property`，证明环境约束没有剔除合法场景。"
-      - "第6步：使用 EditTextFile 工具将代码写入 `{OUT}/tests/{DUT}_checker.sv`。"
+      - "第6步：使用 EditTextFile 工具将代码写入 `{OUT}/tests//{DUT}_checker.sv`。"
       - "第7步：执行**风格合规性自检**：检查所有标记为 `Comb` 的属性中是否包含了时序操作符，并确保所有标签对应的断言已完整生成。"
     reference_files:
       - "{OUT}/03_{DUT}_functions_and_checks.md"
@@ -204,13 +227,16 @@ stage:
     task:
       - "目标：生成并验证可执行的 FormalMC TCL 脚本。"
       - "关键指令：请务必使用工具 `GenerateFormalScript` 来生成 TCL 脚本，**严禁**使用 `EditTextFile` 或其他方式手动编写脚本文件。"
-      - "第1步：阅读 `{OUT}/02_{DUT}_basic_info.md` 和 `{OUT}/03_{DUT}_functions_and_checks.md`，判断是否需要以下可选配置："
-      - "  - `clock_config`: (可选) 时钟定义。如果是时序逻辑，请提供 (例如 'def_clk clk')；如果是组合逻辑，请忽略。"
-      - "  - `reset_config`: (可选) 复位信号定义。如有复位信号请提供；否则请忽略。"
-      - "第2步：调用 `GenerateFormalScript` 工具。这是生成 TCL 脚本的唯一指定方式。你必须提供 `dut_name`、`checker_file` (`{OUT}/tests/{DUT}_checker.sv`) 和 `output_file` (`{OUT}/tests/{DUT}_formal.tcl`)，并根据第1步的分析，按需传入可选参数 `clock_config` 和 `reset_config`。"
-      - "第3步：脚本生成后，立即使用 `Check` 工具。该阶段的 Checker 会自动调用 FormalMC 执行你生成的脚本，以验证其语法和基本可运行性。"
-      - "第4步：如果 `Check` 失败，请根据错误信息调试并修复 SVA 文件或重新生成脚本，直到 `Check` 通过。"
-      - "第5步：对于通过 `Check` 的脚本，你需要结合日志进行分析，确保所有属性均被正确验证，以及失败的属性被准确识别是RTL缺陷还是断言设计问题。"
+      - "第1步：调用 `GenerateFormalScript` 工具生成TCL脚本。工具参数说明："
+      - "  - `dut_name`: 必须使用 `{DUT}` 作为模块名称"
+      - "  - `checker_file`: checker文件路径，使用 `{OUT}/tests/{DUT}_checker.sv`"
+      - "  - `output_file`: TCL脚本输出路径，使用 `{OUT}/tests/{DUT}_formal.tcl`"
+      - "  - `rtl_dir`: RTL源码所在目录，使用 `{FILE_PATH}`"
+      - "  **调用方式**：GenerateFormalScript(dut_name=\"{DUT}\", checker_file=\"{OUT}/tests/{DUT}_checker.sv\", output_file=\"{OUT}/tests/{DUT}_formal.tcl\", rtl_dir=\"{FILE_PATH}\")"
+      - "  **说明**：工具会自动配置默认的时钟(clk)和复位(rst_n)信号，无需手动指定。"
+      - "第2步：脚本生成后，立即使用 `Check` 工具。该阶段的 Checker 会自动调用 FormalMC 执行你生成的脚本，以验证其语法和基本可运行性。"
+      - "第3步：如果 `Check` 失败，请根据错误信息调试并修复 SVA 文件或重新生成脚本，直到 `Check` 通过。"
+      - "第4步：对于通过 `Check` 的脚本，你需要结合日志进行分析，确保所有属性均被正确验证，以及失败的属性被准确识别是RTL缺陷还是断言设计问题。"
     reference_files:
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/avis.log"
@@ -219,33 +245,130 @@ stage:
     output_files:
       - "{OUT}/tests/{DUT}_formal.tcl"
     checker:
-      - name: property_structure_check
-        clss: "examples.Formal.scripts.formal_checkers.PropertyStructureChecker"
-        args:
-          property_file: "{OUT}/tests/{DUT}_checker.sv"
-          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-      - name: formal_script_check
-        clss: "examples.Formal.scripts.formal_checkers.FormalScriptChecker"
-        args:
-          script_file: "{OUT}/tests/{DUT}_formal.tcl"
-      - name: tcl_execution
-        clss: "examples.Formal.scripts.formal_checkers.TclExecutionChecker"
+      - name: script_generation_check
+        clss: "examples.Formal.scripts.formal_checkers.ScriptGenerationChecker"
         args:
           dut_name: "{DUT}"
+          property_file: "{OUT}/tests/{DUT}_checker.sv"
+          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
+          script_file: "{OUT}/tests/{DUT}_formal.tcl"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
-  - name: formal_execution
-    desc: "缺陷分析与报告"
+
+  - name: environment_debugging_iteration
+    desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
     task:
-      - "目标：分析上一阶段运行产生的日志，为所有失败的属性创建一份准确的BUG报告。"
-      - "工作流程："
-      - "1. 分析`{OUT}/tests/avis.log`文件，找出所有失败（Fail）的属性。"
-      - "2. 在`{OUT}/04_{DUT}_bug_report.md`文件中为每一个失败的属性创建一个条目。你需要准确地记录失败属性的名称和它对应的 `CK` 标签（可以从 `{OUT}/tests/{DUT}_checker.sv` 文件中找到）。"
-      - "3. 对每一个失败属性，分析其反例（Counterexample），结合RTL，并提供以下信息：**失败属性**，**根本原因**，**代码定位**，**概念性反例 (CEX)**, **预期行为**, **实际行为**, **修复建议**。"
-      - "4. 使用`Check`工具来验证你的报告。检查器会比对日志和你的报告，确保所有失败都被准确记录。"
+      - "目标：通过LLM人工分析，识别并修复**真正的验证环境问题**，确保环境约束正确。"
+      - "**工作流程：手动分析 → 记录文档 → 修复环境 → 执行验证 → 更新状态**"
+      - ""
+      - "**第1步：创建/读取失败跟踪文档**"
+      - "  文件路径：`{OUT}/tests/environment_issues_tracking.md`"
+      - "  **首次运行**：如果文件不存在，创建文档并记录所有失败属性："
+      - "    1. 读取 `{OUT}/tests/avis.log`，提取所有失败的属性（状态为 FAIL, TRIVIALLY_TRUE, UNREACHABLE 等）"
+      - "    2. 为每个失败属性创建一条跟踪记录，格式如下："
+      - "       ```"
+      - "       ## [ENV-001] 属性名：CK_EXAMPLE_PROPERTY"
+      - "       - **状态**：待分析"
+      - "       - **失败类型**：TRIVIALLY_TRUE"
+      - "       - **问题分类**：待定"
+      - "       - **分析说明**：（待LLM分析）"
+      - "       - **修复措施**：（待确定）"
+      - "       ```"
+      - "  **后续运行**：如果文件已存在，直接读取继续处理"
+      - ""
+      - "**第2步：LLM人工分析每个待处理属性**"
+      - "  对于每个 **状态=待分析** 或 **状态=待修复** 的记录："
+      - "    1. **深入分析失败原因**："
+      - "       - 读取 `{OUT}/tests/avis.log` 中该属性的详细失败信息"
+      - "       - 读取 `{OUT}/tests/{DUT}_checker.sv` 查看属性定义"
+      - "       - 读取 `{OUT}/tests/{DUT}_wrapper.sv` 查看环境配置"
+      - "       - 分析RTL源码 `{RTL_PATH}/{DUT}.v` 理解设计意图"
+      - "    2. **判断问题类型**（这是最关键的步骤）："
+      - "       - **环境问题**：过强的assume约束、缺少必要的输入约束、fv_idx配置错误、wrapper信号映射缺失"
+      - "       - **RTL缺陷**：设计逻辑错误、状态不可达、时序违反"
+      - "       - **Cover失败**：通常是RTL设计问题导致状态不可达，不属于环境问题"
+      - "    3. **更新跟踪文档**："
+      - "       - 如果是**环境问题**：将 **问题分类** 改为 `环境问题`，**状态** 改为 `待修复`，填写详细的 **分析说明**"
+      - "       - 如果是**RTL缺陷**：将 **问题分类** 改为 `RTL缺陷`，**状态** 改为 `已分类`（不在本阶段修复）"
+      - ""
+      - "**第3步：修复环境问题**"
+      - "  对于所有 **问题分类=环境问题** 且 **状态=待修复** 的记录："
+      - "    1. 根据分析结果修改验证环境文件："
+      - "       - 修改 `{OUT}/tests/{DUT}_checker.sv`：调整assume约束、删除错误属性"
+      - "       - 修改 `{OUT}/tests/{DUT}_wrapper.sv`：补全信号映射、修正fv_idx逻辑"
+      - "    2. 在跟踪文档的 **修复措施** 字段记录你的修改内容"
+      - ""
+      - "**第4步：运行验证并检查修复效果**"
+      - "  1. 调用 Check 工具，EnvironmentDebuggingChecker 会："
+      - "     - 检查跟踪文档是否存在且格式正确"
+      - "     - 执行TCL脚本生成新的验证日志"
+      - "  2. 检查日志文件：`{OUT}/tests/avis.log`"
+      - "     - 对于每个 **状态=待修复** 的环境问题记录："
+      - "       - 如果该属性在新日志中已通过（PASS）：将 **状态** 改为 `已修复`"
+      - "       - 如果该属性仍然失败：保持 **状态=待修复**，重新分析原因并调整修复策略"
+      - "  3. 如果有新的失败属性出现，添加到跟踪文档并从第2步重新开始分析"
+      - "  4. 重复步骤2-5，直到所有环境问题都被修复或达到迭代上限（{MAX_ITERATION}次）"
+      - ""
+      - "**重要提示**："
+      - "  - Cover失败通常不是环境问题，应归类为RTL缺陷"
+      - "  - TRIVIALLY_TRUE需要检查属性是否真的存在于代码中（未被注释）"
+      - "  - 环境问题的典型特征：约束过强、信号映射错误、fv_idx配置问题"
+      - "  - 所有分析过程和决策依据都要详细记录在跟踪文档中"
+    reference_files:
+      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/tests/{DUT}_wrapper.sv"
+      - "{OUT}/03_{DUT}_functions_and_checks.md"
+      - "{RTL_PATH}/{DUT}.v"
+    output_files:
+      - "{OUT}/tests/environment_issues_tracking.md"
+    checker:
+      - name: environment_debugging_check
+        clss: "examples.Formal.scripts.formal_checkers.EnvironmentDebuggingChecker"
+        args:
+          dut_name: "{DUT}"
+          property_file: "{OUT}/tests/{DUT}_checker.sv"
+          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
+          log_file: "{OUT}/tests/avis.log"
+          checker_file: "{OUT}/tests/{DUT}_checker.sv"
+          tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
+
+  - name: formal_execution
+    desc: "RTL缺陷分析与报告"
+    task:
+      - "目标：为经过环境调试后**确认的RTL缺陷**创建准确、详细的BUG报告。"
+      - "**前提条件**：本阶段假设验证环境已经过充分调试（通过 environment_debugging_iteration 阶段），所有失败属性均为真实RTL问题。"
+      - "**第1步：从跟踪文档提取RTL缺陷列表**"
+      - "  1. 读取 `{OUT}/tests/environment_issues_tracking.md`"
+      - "  2. 提取所有 **问题分类=RTL缺陷** 的属性记录"
+      - "  3. 这些属性就是需要在BUG报告中详细分析的对象"
+      - "  4. 注意：只有 **问题分类=RTL缺陷** 的属性才需要写入bug report，环境问题不应出现在报告中"
+      - "**第2步：创建BUG报告**"
+      - "  在 `{OUT}/04_{DUT}_bug_report.md` 文件中**为每个RTL缺陷**创建独立章节"
+      - "  使用格式：## Failed Property: `A_CK_XXX`"
+      - "  准确记录失败属性的名称和它对应的 CK 标签（从 `{OUT}/tests/{DUT}_checker.sv` 获取）"
+      - "**第3步：深度分析每个RTL缺陷**"
+      - "  对每一个RTL缺陷，结合 RTL 源码和反例（CEX），提供："
+      - "  - **失败属性**：属性名称和对应的 CK 标签"
+      - "  - **根本原因**：结合 RTL 代码逻辑，深入分析为什么会失败"
+      - "  - **代码定位**：指出 RTL 中具体的缺陷位置（文件名、行号）"
+      - "  - **概念性反例 (CEX)**：描述导致失败的输入序列和状态转换"
+      - "  - **预期行为**：根据设计规格，正确的行为应该是什么"
+      - "  - **实际行为**：当前 RTL 实际表现出的错误行为"
+      - "  - **修复建议**：提供具体的代码修改建议，包括伪代码或关键逻辑"
+      - "**第4步：添加环境调试摘要**"
+      - "  在报告开头添加 **环境调试摘要** 章节，说明："
+      - "  - 迭代修复的环境问题数量和类型"
+      - "  - 修复后的环境质量指标"
+      - "  - 最终确认的RTL缺陷数量"
+      - "**第5步：验证报告一致性**"
+      - "  使用 BugReportConsistencyChecker 验证报告准确性"
+      - "  确保所有日志中的 RTL 缺陷都被记录，且分析深入、修复建议可行"
+      - "**注意**：如果发现某个失败可能是环境问题，应返回 environment_debugging_iteration 阶段修复，而不是写入BUG报告"
     reference_files:
       - "{OUT}/tests/avis.log"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{DUT}/README.md"
+      - "{OUT}/tests/environment_issues_tracking.md"
       - "{RTL_PATH}/*.v"
       - "{RTL_PATH}/*.sv"
     output_files:
@@ -258,6 +381,7 @@ stage:
           property_file: "{OUT}/tests/{DUT}_checker.sv"
           bug_report_file: "{OUT}/04_{DUT}_bug_report.md"
           log_file: "{OUT}/tests/avis.log"
+          tracking_doc: "{OUT}/tests/environment_issues_tracking.md"
   - name: verification_review_and_summary
     desc: "验证总结与审查"
     task:
