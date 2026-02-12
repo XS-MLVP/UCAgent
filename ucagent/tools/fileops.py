@@ -696,6 +696,8 @@ class EditTextFile(UCTool, BaseReadWrite):
     def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 1, count: int = -1, preserve_indent: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Edit or create a text file in the workspace with specified mode."""
+        if not path:
+            return str_error("No path is provided, need a valid relative file path.")
         start = start - 1 # Convert to 0-based index
         self.create_file = True  # ensure file is created if not exists
         # Validate mode parameter
