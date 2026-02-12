@@ -261,6 +261,27 @@ class VerifyPDB(Pdb):
         self.agent.set_break(False)
         self.agent.custom_chat(arg)
 
+    def do_agent_break(self, arg):
+        """
+        Set agent break state to True, which will pause the agent's execution.
+        """
+        self.agent.set_break(True)
+        message("Agent break state set to True.")
+
+    def do_agent_unbreak(self, arg):
+        """
+        Set agent break state to False, which will resume the agent's execution if it was paused.
+        """
+        self.agent.set_break(False)
+        message("Agent break state set to False.")
+
+    def do_agent_is_break(self, arg):
+        """
+        Check if the agent is currently in a break state.
+        """
+        is_break = self.agent.is_break()
+        message(f"Agent break state: {is_break}")
+
     def do_tool_list(self, arg):
         """
         Display tools info.
