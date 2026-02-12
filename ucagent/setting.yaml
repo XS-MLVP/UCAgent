@@ -66,8 +66,8 @@ openai:
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
   openai_api_key: "$(OPENAI_API_KEY: [your_api_key])"
   openai_api_base: "$(OPENAI_API_BASE: http://<your_chat_model_url>/v1)"
-  #temperature: $(OPENAI_TEMPERATURE: 0.7)
-  #top_p: $(OPENAI_TOP_P: 0.9)
+  temperature: $(OPENAI_TEMPERATURE: null) # eg: 0.7
+  top_p: $(OPENAI_TOP_P: null)             # eg: 0.9
   model_kwargs:
     stop: ["."]
 
@@ -162,6 +162,8 @@ vmanager:
         openai_api_key: $(FAIL_SUGGESTION_API_KEY: <your_api_key>)
         openai_api_base: $(FAIL_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
         min_fail_count: $(FAIL_SUGGESTION_MFCOUNT: 3)
+        temperature: $(FAIL_SUGGESTION_TEMPERATURE: null)
+        top_p: $(FAIL_SUGGESTION_TOP_P: null)
       system_prompt: >
         You are a professional testing assistant. An LLM expert is testing a Device Under Test (DUT) (Current DUT is `{DUT}`) based on the high-level task requirements.
         Your job is to analyze the current task fail information, identify the reason
@@ -191,6 +193,8 @@ vmanager:
         model_name: $(PASS_SUGGESTION_MODEL: <your_chat_model_name>)
         openai_api_key: $(PASS_SUGGESTION_API_KEY: <your_api_key>)
         openai_api_base: $(PASS_SUGGESTION_API_BASE: http://<your_chat_model_url>/v1)
+        temperature: $(PASS_SUGGESTION_TEMPERATURE: null)
+        top_p: $(PASS_SUGGESTION_TOP_P: null)
       system_prompt: >
         You are a verification expert, highly skilled at identifying issues in others' verification work, with extremely high standards for the quality of verification projects.
         Another LLM verification expert is currently verifying the DUT ({DUT}). At the end of each critical stage, it requires your evaluation of the results.
