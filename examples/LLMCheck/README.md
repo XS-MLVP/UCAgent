@@ -51,3 +51,14 @@ export PASS_SUGGESTION_MODEL=glm-4.6
 export PASS_SUGGESTION_API_KEY=<your_key>
 export PASS_SUGGESTION_API_BASE=https://apis.iflow.cn/v1
 ```
+
+## 其他
+
+### 在MCP模式下启用
+
+如果要在纯MCP模式下启用 LLM 检查，需要在UCagent先执行命令：`agent_unbreak`，否则LLM check会被中断
+
+### 建议
+
+1. LLM 检查建议使用强的推理模型
+2. 长时间运行建议用API模式（或者 backend=<your_code_agent>）

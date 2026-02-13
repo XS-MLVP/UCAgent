@@ -64,7 +64,7 @@ pip3 install -r requirements.txt
 
 由于测试用例多了后运行时间较长，建议 `timeout` 值设置大一些，例如 300 秒。
 
-其他Code Agent 请参考对应文档，例如 [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli) 等。
+其他Code Agent 请参考对应文档，例如 [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart) 等。
 
 ### 4. 开始验证
 
@@ -74,6 +74,7 @@ pip3 install -r requirements.txt
 
 ```bash
 # 默认后端为 langchain，需要配置：OPENAI_API_BASE 等环境变量
+# backend can be: langchian, claude, opencode, copilot, kilo, qwen, iflow, etc.
 make mcp_Adder ARGS="--loop --backend=qwen"
 ```
 

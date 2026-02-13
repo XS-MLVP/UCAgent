@@ -64,7 +64,7 @@ Example `~/.qwen/settings.json`:
 
 Since running test cases may take a long time, it is recommended to set a larger `timeout` value, for example 300 seconds.
 
-For other Code Agents, please refer to their documentation, e.g., [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), etc.
+For other Code Agents, please refer to their documentation, e.g., [claude code](https://claude.com/product/claude-code), [opencode](https://opencode.ai/), [copilot-cli](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli), [kilo-cli](https://kilo.ai/cli), [iflow](https://platform.iflow.cn/cli/quickstart), etc.
 
 ### 4. Start Verification
 
@@ -75,6 +75,7 @@ Taking `Adder` in examples as an illustration.
 ```bash
 # Default backend is langchain,
 #   requires configuration: OPENAI_API_BASE and other environment variables
+# backend can be: langchian, claude, opencode, copilot, kilo, qwen, iflow, etc.
 make mcp_Adder ARGS="--loop --backend=qwen"
 ```
 
