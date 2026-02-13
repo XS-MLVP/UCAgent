@@ -95,6 +95,16 @@ mission:
       -   通过AllStageJournal工具获取之前阶段的日志，了解之前阶段的工作内容和结果
 
       现在调用`CurrentTips`，开始你的验证工作！
+    tips:
+      allways:
+        - "你需要通过Complete工具来判断你是否完成了当前阶段的任务"
+        - "你需要完成所有阶段的任务，才算完成整个验证任务"
+        - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
+      random:
+        - "如果工具Complete出现超时错误，请调大timeout参数重试"
+        - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
+        - "可通过工具RunTestCases运行指定测试用例来寻找问题"
+        - "Fail的测试用例可能意味着发现了bug，这是验证的目标，不要误报为Pass"
 
 mcp_server:
   init_prompt: >

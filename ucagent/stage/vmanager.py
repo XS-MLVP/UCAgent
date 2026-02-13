@@ -4,6 +4,7 @@
 import copy
 import time
 import traceback
+import random
 from collections import OrderedDict
 from typing import Optional, Callable
 
@@ -597,6 +598,16 @@ class StageManager(object):
         if ref_files:
             tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
+        mession_tips = self.mission.get_value("prompt.tips")
+        if mession_tips is not None:
+            mession_tips = mession_tips.as_dict()
+            current_tips = mession_tips.get("allways", [])
+            random_tips = mession_tips.get("random", [])
+            if random_tips:
+                rindex = random.randint(0, len(random_tips) - 1)
+                current_tips.append(random_tips[rindex])
+            if current_tips:
+                tips["tips"] = current_tips
         tips = make_llm_tool_ret(tips)
         return self.attach_todo_summary(tips)
 
