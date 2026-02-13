@@ -788,7 +788,7 @@ class StageManager(object):
         stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
-                return False, {"error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage when completing it."}
+                return False, {"error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         if ck_pass:
             llm_msg = self.gen_pass_suggestion(ck_info)
             ck_pass = stage.get_approved()

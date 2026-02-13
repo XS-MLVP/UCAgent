@@ -57,8 +57,8 @@ backend:
   iflow: # FIXME: too complex to parse the session id
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -o {CWD}/.iflow/s_int.json -p < {MSG_FILE}"
-      cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -o {CWD}/.iflow/s_lst.json -r `jq < {CWD}/.iflow/s_int.json '.\"session-id\"'|sed 's/\"//g'` -p < {MSG_FILE}"
+      cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -y -o {CWD}/.iflow/s_int.json -p < {MSG_FILE}"
+      cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -y -o {CWD}/.iflow/s_lst.json -r `jq < {CWD}/.iflow/s_int.json '.\"session-id\"'|sed 's/\"//g'` -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.iflow/"
         - "cp ~/.iflow/settings.json {CWD}/.iflow/settings.json"
