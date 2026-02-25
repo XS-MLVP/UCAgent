@@ -16,11 +16,13 @@ class ConsoleCapture:
 
     def __init__(self) -> None:
         self._queue: queue.SimpleQueue[str] = queue.SimpleQueue()
+        self._history: list[str] = []
 
     def write(self, text: str) -> int:
         if not text:
             return 0
         self._queue.put_nowait(text)
+        self._history.append(text)
         return len(text)
 
     def flush(self) -> None:
@@ -34,6 +36,9 @@ class ConsoleCapture:
             except queue.Empty:
                 break
         return "".join(items)
+
+    def get_history(self) -> str:
+        return "".join(self._history)
 
     def isatty(self) -> bool:
         return False

@@ -83,9 +83,10 @@ class ConsoleInput(Vertical):
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
-        yield Static(id="running-commands")
-        with Horizontal(id="console-input-row"):
+        with Horizontal(id="indicator-row"):
             yield BusyIndicator(id="console-loading")
+            yield Static(id="running-commands")
+        with Horizontal(id="console-input-row"):
             yield Input(placeholder=self.prompt, id="console-input")
         yield Static(id="console-suggest")
 
@@ -94,7 +95,6 @@ class ConsoleInput(Vertical):
         self.refresh_prompt()
         self._hide_suggestions()
         self._hide_running_commands()
-        self._set_loading_visible(False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         cmd = event.value.strip()
@@ -215,7 +215,7 @@ class ConsoleInput(Vertical):
 
     def set_busy(self, busy: bool) -> None:
         self.is_busy = busy
-        self._set_loading_visible(busy)
+        self.query_one("#indicator-row").styles.display = "block" if busy else "none"
 
     def set_page_mode(self, enabled: bool) -> None:
         """Set page mode prompt prefix."""
@@ -312,7 +312,3 @@ class ConsoleInput(Vertical):
         if parent is not None and hasattr(parent, "set_extra_height"):
             parent.set_extra_height(total)
 
-    def _set_loading_visible(self, visible: bool) -> None:
-        indicator = self.query_one("#console-loading", BusyIndicator)
-        indicator.set_class(visible, "is-visible")
-        indicator.refresh(layout=True)

@@ -72,7 +72,7 @@ Screen {
 /* Console - bottom, fixed height */
 #console {
     height: auto;
-    border: solid $primary;
+    border: solid $secondary;
     border-title-align: center;
     background: $panel;
 }
@@ -90,11 +90,26 @@ Screen {
 /* Status bar - bottom */
 #status-bar {
     height: 1;
-    padding: 0 1;
     background: $surface;
     color: $text;
+    overflow: hidden;
+}
+
+#status-left {
+    width: 1fr;
+    height: 1;
+    padding: 0 1;
     content-align: left middle;
     overflow: hidden;
+}
+
+#status-hint {
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    background: $success-muted;
+    color: $text;
+    text-style: bold;
 }
 
 #console-output {
@@ -108,11 +123,10 @@ Screen {
     width: 100%;
 }
 
-#console-input-row {
-    height: 3;
+#indicator-row {
+    height: auto;
     layout: horizontal;
-    border: solid $primary;
-    background: $surface;
+    border: solid $secondary;
 }
 
 #console-loading {
@@ -122,11 +136,22 @@ Screen {
     color: $accent;
     content-align: center middle;
     text-style: bold;
-    opacity: 0;
 }
 
-#console-loading.is-visible {
-    opacity: 1;
+#running-commands {
+    width: 1fr;
+    padding: 0 1;
+    color: $text;
+    background: transparent;
+    height: auto;
+    display: none;
+}
+
+#console-input-row {
+    height: 3;
+    layout: horizontal;
+    border: solid $primary;
+    background: $surface;
 }
 
 #console-input {
@@ -142,15 +167,6 @@ Screen {
     color: $text;
     background: $surface;
     height: auto;
-}
-
-#running-commands {
-    padding: 0 1;
-    color: $text;
-    background: $surface;
-    height: auto;
-    display: none;
-    border: solid $primary;
 }
 
 #console-input-row:focus-within {
