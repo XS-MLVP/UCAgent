@@ -79,6 +79,13 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._mcps_logger_prev = None
         self._ui_handlers_installed: bool = False
 
+        # Session output history for dumping to terminal after exit
+        self._session_output: str = ""
+
+    @property
+    def session_output(self) -> str:
+        return self._session_output
+
     def get_css_variables(self) -> dict[str, str]:
         """Provide extra theme variables for custom styles."""
         variables = super().get_css_variables()
@@ -128,7 +135,14 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:
-            self.call_later(self._process_batch_commands)
+            def process_batch():
+                while self.vpdb.init_cmd:
+                    cmd = self.vpdb.init_cmd.pop(0)
+                    self.key_handler.process_command(cmd)
+                console_input = self.query_one(ConsoleInput)
+                console_input.update_running_commands()
+
+            self.call_later(process_batch)
 
         # Focus the console input
         self.query_one(ConsoleInput).focus_input()
@@ -151,7 +165,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def on_unmount(self) -> None:
         """Cleanup on exit."""
-        self._cleanup()
+        self.cleanup()
 
     def message_echo(self, msg: str, end: str = "\n") -> None:
         """Thread-safe message echo handler.
@@ -172,27 +186,6 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         console = self.query_one("#console", ConsoleWidget)
         console.queue_output(text)
 
-    def update_task_panel(self) -> None:
-        """Update task panel content."""
-        task_panel = self.query_one("#task-panel", TaskPanel)
-        task_panel.update_content()
-
-    def update_status_bar(self) -> None:
-        """Update bottom status bar content."""
-        status_bar = self.query_one("#status-bar", StatusBar)
-        status_bar.update_content()
-
-    def _process_batch_commands(self) -> None:
-        if not self.vpdb.init_cmd:
-            return
-
-        while self.vpdb.init_cmd:
-            cmd = self.vpdb.init_cmd.pop(0)
-            self.key_handler.process_command(cmd)
-
-        console_input = self.query_one(ConsoleInput)
-        console_input.update_running_commands()
-
     # Action methods for key bindings
     def action_interrupt_or_quit(self) -> None:
         """Cancel running command or quit."""
@@ -200,7 +193,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def action_quit(self) -> None:
         """Handle quit action."""
-        self._cleanup()
+        self.cleanup()
         self.exit()
 
     def action_choose_theme(self) -> None:
@@ -286,9 +279,18 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             console_input.update_running_commands()
         return cancelled
 
-    def _cleanup(self) -> None:
+    def cleanup(self) -> None:
+        """Cleanup resources on exit."""
+        # Collect console history (best-effort, only on first call)
+        if self._console_capture is not None and not self._session_output:
+            try:
+                self._session_output = self._console_capture.get_history()
+            except Exception:
+                pass
+
         if self._ui_handlers_installed:
             self.vpdb.agent.unset_message_echo_handler()
             self.vpdb.agent._mcps_logger = self._mcps_logger_prev
+            self._ui_handlers_installed = False
         self.restore_sigint_handler()
         self.restore_console_capture()

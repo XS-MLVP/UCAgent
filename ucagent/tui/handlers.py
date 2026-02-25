@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from textual.worker import Worker, WorkerState
 
-from .widgets import ConsoleWidget, ConsoleInput
+from .widgets import ConsoleWidget, ConsoleInput, TaskPanel
 
 if TYPE_CHECKING:
     from .app import VerifyApp
@@ -96,7 +96,8 @@ class KeyHandler:
             if self.last_cmd:
                 cmd = self.last_cmd
             else:
-                self.app.update_task_panel()
+                task_panel = self.app.query_one("#task-panel", TaskPanel)
+                task_panel.update_content()
                 return
 
         self.last_cmd = cmd
@@ -161,7 +162,8 @@ class KeyHandler:
         console_input = self.app.query_one(ConsoleInput)
         console_input.update_running_commands()
         if not self.has_active_worker():
-            self.app.update_task_panel()
+            task_panel = self.app.query_one("#task-panel", TaskPanel)
+            task_panel.update_content()
 
     def _update_busy_state(self) -> None:
         console = self.app.query_one("#console", ConsoleWidget)
