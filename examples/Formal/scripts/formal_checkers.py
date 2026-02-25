@@ -1,12 +1,86 @@
 #coding=utf-8
 import os
 import re
-import glob
 import subprocess
 import pyslang
 from ucagent.checkers.base import Checker
 from ucagent.util.log import info, warning
 import psutil
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level helpers shared by multiple checkers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _strip_instance_prefix(prop_name: str) -> str:
+    """Strip module-instance prefix, e.g. 'checker_inst.A_CK_FOO' -> 'A_CK_FOO'."""
+    return prop_name.split('.')[-1] if '.' in prop_name else prop_name
+
+
+def _parse_avis_log(log_content: str) -> dict:
+    """Parse avis.log and return classified property name lists.
+
+    Returns a dict with keys:
+        'trivially_true' – TRIVIALLY_TRUE properties
+        'fail'           – FALSE / Fail properties (assert only)
+        'cover_fail'     – Cover properties (C_CK_*) with Fail status
+    """
+    result: dict = {'trivially_true': [], 'fail': [], 'cover_fail': []}
+
+    # Per-property Info-P016 lines (definitive source)
+    for m in re.finditer(r'property\s+([\w_.]+)\s+is\s+TRIVIALLY_TRUE', log_content):
+        result['trivially_true'].append(m.group(1))
+    for m in re.finditer(r'property\s+([\w_.]+)\s+is\s+FALSE', log_content):
+        result['fail'].append(m.group(1))
+
+    # show_prop -summary table – supplements any properties not seen above.
+    # Format: "  22  checker_inst.A_CK_TIMER_SHORT_VALID  :  TrivT"
+    summary = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
+    if summary:
+        for line in summary.group().split('\n'):
+            m = re.search(r'((?:\w+\.)?[A-Z_]\w+)\s*:\s*(Pass|Fail|TrivT)', line)
+            if m:
+                name, status = m.groups()
+                if status == 'TrivT' and name not in result['trivially_true']:
+                    result['trivially_true'].append(name)
+                elif status == 'Fail' and name not in result['fail']:
+                    result['fail'].append(name)
+
+    # Cover property failures (C_CK_* naming convention)
+    for line in log_content.split('\n'):
+        m = re.search(r'([\w.]*C_CK_\w+)\s*:\s+(Pass|Fail)', line)
+        if m and m.group(2) == 'Fail' and m.group(1) not in result['cover_fail']:
+            result['cover_fail'].append(m.group(1))
+
+    return result
+
+
+def _parse_tracking_issues(doc_path: str) -> list:
+    """Parse environment_issues_tracking.md into a list of issue dicts.
+
+    Each dict contains: 'property', 'status', 'classification', 'content'.
+    Returns an empty list if the file does not exist.
+    """
+    if not os.path.exists(doc_path):
+        return []
+    with open(doc_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    issues = []
+    for prop_name, body in re.findall(
+        r'##\s*\[ENV-\d+\]\s*属性名[：:]\s*(\S+)(.*?)(?=##\s*\[ENV-|\Z)', content, re.DOTALL
+    ):
+        sm = re.search(r'\*\*状态\*\*[：:]\s*(\S+)', body)
+        cm = re.search(r'\*\*问题分类\*\*[：:]\s*(\S+)', body)
+        issues.append({
+            'property': prop_name.strip(),
+            'status': sm.group(1).strip() if sm else '未知',
+            'classification': cm.group(1).strip() if cm else '未知',
+            'content': body.strip()
+        })
+    return issues
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 class FormalAnalysisChecker(Checker):
     def __init__(self, analysis_file, **kwargs):
@@ -112,7 +186,30 @@ class PropertyStructureChecker(Checker):
                 if impl['type'] in ['assume', 'cover']:
                     errors.append(f"'{ck_name}' is marked as assertion style ({style_str}), but implemented as '{impl['type']}'")
 
-            # 2. Check Symbolic Indexing Usage (Advanced Feature Check)
+            # 3. Comb style: must NOT contain temporal operators
+            if 'comb' in style and impl['body']:
+                temporal_ops = re.findall(
+                    r'@\s*\(posedge|@\s*\(negedge|##[\d$]|\$past\s*\(|\$rose\s*\(|\$fell\s*\(',
+                    impl['body']
+                )
+                if temporal_ops:
+                    errors.append(
+                        f"'{ck_name}' is marked as 'Comb' (combinational) but its body contains "
+                        f"temporal operator(s): {list(set(temporal_ops))}. "
+                        f"Comb properties must NOT use '@', '##', '$past', '$rose', or '$fell'."
+                    )
+
+            # 4. Liveness: Seq properties whose name/description implies liveness must use s_eventually
+            if 'seq' in style and impl['body']:
+                is_live_ck = bool(re.search(r'LIVE|LIVENESS|STARVATION|PROGRESS', ck_name, re.IGNORECASE))
+                if is_live_ck and 's_eventually' not in impl['body']:
+                    errors.append(
+                        f"'{ck_name}' appears to be a liveness property (name contains LIVE/STARVATION/PROGRESS) "
+                        f"but its body does not contain 's_eventually'. "
+                        f"Liveness properties MUST use 's_eventually' to avoid vacuous proofs."
+                )
+
+            # 5. Check Symbolic Indexing Usage (Advanced Feature Check)
             if 'symbolic' in style:
                 # Must use fv_idx or fv_mon_
                 if not re.search(r'fv_(idx|mon_)', impl['body']):
@@ -140,21 +237,31 @@ class EnvSyntaxChecker(Checker):
         self.env_file = env_file
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Checks the environment file for valid SystemVerilog module syntax."""
+        """Checks the environment file for valid SystemVerilog syntax using pyslang."""
         path = self.get_path(self.env_file)
         if not os.path.exists(path):
             return False, {"error": f"Environment file {self.env_file} not found."}
 
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        try:
+            tree = pyslang.SyntaxTree.fromFile(path)
+            # Collect diagnostics
+            diagnostics = list(tree.diagnostics)
+            errors = [str(d) for d in diagnostics if 'error' in str(d).lower()]
+            if errors:
+                error_summary = "\n".join(errors[:10])
+                return False, {"error": f"Syntax errors found in {self.env_file}:\n{error_summary}"}
 
-        if "module" not in content or "endmodule" not in content:
-            return False, {"error": "Environment file does not look like a valid SystemVerilog module."}
+            # Confirm at least one module declaration exists
+            has_module = any(
+                member.kind == pyslang.SyntaxKind.ModuleDeclaration
+                for member in tree.root.members
+            )
+            if not has_module:
+                return False, {"error": "No module declaration found in environment file."}
 
-        if "bind" not in content and "bind" not in self.env_file:
-             pass
-
-        return True, "Environment syntax check passed."
+            return True, f"Environment syntax check passed (pyslang parsed without errors)."
+        except Exception as e:
+            return False, {"error": f"Failed to parse environment file with pyslang: {e}"}
 
 class WrapperTimingChecker(Checker):
     def __init__(self, wrapper_file, rtl_path, **kwargs):
@@ -199,7 +306,7 @@ class FormalScriptChecker(Checker):
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
             
-        required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
+        required_cmds = ["read_design", "prove", "def_clk", "def_rst", "show_prop"]
         missing = [k for k in required_cmds if k not in content]
         
         if missing:
@@ -327,48 +434,6 @@ class EnvironmentIterationChecker(Checker):
         self.log_file = log_file
         self.checker_file = checker_file
     
-    def _parse_log_failures(self, log_content: str) -> dict:
-        """Parse avis.log to extract failure information."""
-        failures = {
-            'trivially_true': [],
-            'false_properties': [],
-            'cover_failures': [],
-            'environment_issues': [],
-            'rtl_defects': []
-        }
-        
-        # Extract TRIVIALLY_TRUE properties
-        trivial_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+TRIVIALLY_TRUE', log_content)
-        failures['trivially_true'] = trivial_matches
-        
-        # Extract FALSE properties
-        false_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+FALSE', log_content)
-        failures['false_properties'] = false_matches
-        
-        # Extract summary table
-        summary_section = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
-        if summary_section:
-            summary = summary_section.group()
-            # Parse each line: property_name : status
-            for line in summary.split('\n'):
-                match = re.search(r'(\S+)\s+:\s+(Pass|Fail|TrivT)', line)
-                if match:
-                    prop_name, status = match.groups()
-                    if status == 'TrivT':
-                        if prop_name not in failures['trivially_true']:
-                            failures['trivially_true'].append(prop_name)
-                    elif status == 'Fail':
-                        if prop_name not in failures['false_properties']:
-                            failures['false_properties'].append(prop_name)
-        
-        # Extract cover results
-        cover_summary = re.findall(r'([\w_.]+COVER)\s+:\s+(Pass|Fail)', log_content)
-        for name, status in cover_summary:
-            if status == 'Fail':
-                failures['cover_failures'].append(name)
-        
-        return failures
-    
     def _classify_failure(self, prop_name: str, checker_content: str, log_content: str) -> str:
         """
         Classify a failure as 'environment' or 'rtl_defect'.
@@ -417,7 +482,14 @@ class EnvironmentIterationChecker(Checker):
             checker_content = f.read()
         
         # Step 1: Parse and classify failures
-        failures = self._parse_log_failures(log_content)
+        parsed = _parse_avis_log(log_content)
+        failures = {
+            'trivially_true': parsed['trivially_true'],
+            'false_properties': parsed['fail'],
+            'cover_failures': parsed['cover_fail'],
+            'environment_issues': [],
+            'rtl_defects': []
+        }
         
         # Classify each false property
         for prop in failures['false_properties']:
@@ -435,11 +507,11 @@ class EnvironmentIterationChecker(Checker):
         issues = []
         suggestions = []
         
-        # Check 1: TRIVIALLY_TRUE (过约束) - 但需要验证属性是否真的存在于代码中
+        # Check 1: TRIVIALLY_TRUE (过约束) - 但需要验证属性是否真的存在于代码中且未被注释
         active_trivial_props = []
         for prop in failures['trivially_true']:
-            # 提取属性名（去掉checker_inst.前缀）
-            prop_short = prop.replace('checker_inst.', '')
+            # Strip instance prefix robustly (e.g. 'checker_inst.A_CK_FOO' -> 'A_CK_FOO')
+            prop_short = _strip_instance_prefix(prop)
             # 检查属性是否在checker代码中存在且未被注释
             # 匹配: prop_name: assert/assume property
             pattern = rf'{prop_short}\s*:\s*(assert|assume)\s+property'
@@ -453,7 +525,7 @@ class EnvironmentIterationChecker(Checker):
             suggestions.append(
                 "- 检查并放松过强的 assume 约束\n"
                 "- 确认约束之间没有冲突\n"
-                f"- 问题属性: {', '.join([p.replace('checker_inst.', '') for p in active_trivial_props[:3]])}"
+                f"- 问题属性: {', '.join([_strip_instance_prefix(p) for p in active_trivial_props[:3]])}"
                 + ("..." if len(active_trivial_props) > 3 else "")
             )
         
@@ -536,39 +608,20 @@ class BugReportConsistencyChecker(Checker):
         self.log_file = log_file if log_file else f"avis/{self.dut_name}.log"
         self.tracking_doc = tracking_doc
 
-    def _parse_tracking_doc(self, doc_path):
-        """解析跟踪文档，提取标记为 RTL缺陷 的属性列表"""
-        if not os.path.exists(doc_path):
-            return []
-        
-        with open(doc_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        rtl_defects = []
-        # 匹配格式：## [ENV-XXX] 属性名：YYY
-        issue_pattern = r'##\s*\[ENV-\d+\]\s*属性名[：:]\s*(\S+)(.*?)(?=##\s*\[ENV-|\Z)'
-        issues = re.findall(issue_pattern, content, re.DOTALL)
-        
-        for prop_name, issue_content in issues:
-            # 检查问题分类是否为 RTL缺陷
-            classification_match = re.search(r'\*\*问题分类\*\*[：:]\s*(\S+)', issue_content)
-            if classification_match and classification_match.group(1).strip() == 'RTL缺陷':
-                rtl_defects.append(prop_name.strip())
-        
-        return rtl_defects
-    
     def _get_ck_for_property(self, prop_name, prop_content_lines):
         """Finds the CK label associated with a given property name."""
         try:
+            # Strip instance prefix so 'checker_inst.A_CK_FOO' -> 'A_CK_FOO'
+            short_name = _strip_instance_prefix(prop_name)
             line_num = -1
             for i, line in enumerate(prop_content_lines):
-                if re.search(r'\b' + prop_name + r'\b\s*:\s*assert', line):
+                if re.search(r'\b' + re.escape(short_name) + r'\b\s*:\s*assert', line):
                     line_num = i
                     break
-            
+
             if line_num != -1:
                 for i in range(line_num - 1, -1, -1):
-                    match = re.search(r'//\s*<(CK-[\w-]+)>', prop_content_lines[i])
+                    match = re.search(r'//\s*<(CK_[\w]+)>', prop_content_lines[i])
                     if match:
                         return match.group(1)
         except Exception:
@@ -585,7 +638,10 @@ class BugReportConsistencyChecker(Checker):
         rtl_defects_from_tracking = []
         if self.tracking_doc:
             tracking_path = self.get_path(self.tracking_doc)
-            rtl_defects_from_tracking = self._parse_tracking_doc(tracking_path)
+            rtl_defects_from_tracking = [
+                i['property'] for i in _parse_tracking_issues(tracking_path)
+                if i['classification'] == 'RTL缺陷'
+            ]
         
         # 如果跟踪文档中有 RTL 缺陷记录，使用它作为验证依据
         if rtl_defects_from_tracking:
@@ -601,16 +657,7 @@ class BugReportConsistencyChecker(Checker):
                 log_content = f.read()
             
             # Only look for actual FALSE properties, excluding TRIVIALLY_TRUE
-            failed_properties = []
-            summary_section = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
-            if summary_section:
-                summary = summary_section.group()
-                for line in summary.split('\n'):
-                    match = re.search(r'(\S+)\s+:\s+Fail', line)
-                    if match:
-                        prop_name = match.group(1)
-                        failed_properties.append(prop_name)
-            
+            failed_properties = _parse_avis_log(log_content)['fail']
             info(f"从日志文件中提取到 {len(failed_properties)} 个失败属性")
         
         if not failed_properties:
@@ -669,10 +716,7 @@ class BugReportConsistencyChecker(Checker):
                  inconsistencies.append(f"Inconsistency for property '{prop_from_report}': Log implies CK is '{normalized_true_ck_map.get(norm_prop_from_report)}', but bug report states '{reported_ck}'.")
 
         for true_prop in true_ck_map:
-            # 提取属性的短名称（去除模块实例前缀）
-            # 例如：Adder_checker_inst.A_CK_ADD_OVERFLOW -> A_CK_ADD_OVERFLOW
-            short_prop = true_prop.split('.')[-1] if '.' in true_prop else true_prop
-            short_prop = short_prop.replace('assert_', '')
+            short_prop = _strip_instance_prefix(true_prop).replace('assert_', '')
             
             # 检查是否在 bug report 中记录
             found = False
@@ -777,118 +821,76 @@ class EnvironmentDebuggingChecker(Checker):
     - **分析说明**：...
     - **修复措施**：...
     """
-    def __init__(self, dut_name, property_file, spec_file, log_file, checker_file, tcl_script, **kwargs):
+    def __init__(self, dut_name, property_file, spec_file, log_file, checker_file, tcl_script, tracking_doc=None, **kwargs):
         self.dut_name = dut_name
         self.property_file = property_file
         self.spec_file = spec_file
         self.log_file = log_file
         self.checker_file = checker_file
         self.tcl_script = tcl_script
+        self.tracking_doc = tracking_doc  # explicit path; falls back to log_file sibling dir if None
     
-    def _parse_tracking_doc(self, doc_path: str) -> tuple[list, list]:
-        """
-        解析跟踪文档，提取环境问题
-        
-        返回:
-            (unresolved_env_issues, all_issues)
-            - unresolved_env_issues: 【问题分类=环境问题 且 状态=待修复】的记录列表
-            - all_issues: 所有问题记录列表
-        """
-        import re
-        
-        if not os.path.exists(doc_path):
-            return [], []
-        
-        with open(doc_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 使用正则提取每个问题记录
-        # 匹配格式：## [ENV-XXX] 属性名：...
-        issue_pattern = r'##\s*\[ENV-\d+\]\s*属性名[：:]\s*(\S+)(.*?)(?=##\s*\[ENV-|\Z)'
-        issues = re.findall(issue_pattern, content, re.DOTALL)
-        
-        all_issues = []
-        unresolved_env_issues = []
-        
-        for prop_name, issue_content in issues:
-            # 提取状态字段
-            status_match = re.search(r'\*\*状态\*\*[：:]\s*(\S+)', issue_content)
-            status = status_match.group(1).strip() if status_match else "未知"
-            
-            # 提取问题分类字段
-            classification_match = re.search(r'\*\*问题分类\*\*[：:]\s*(\S+)', issue_content)
-            classification = classification_match.group(1).strip() if classification_match else "未知"
-            
-            issue_info = {
-                "property": prop_name.strip(),
-                "status": status,
-                "classification": classification,
-                "content": issue_content.strip()
-            }
-            
-            all_issues.append(issue_info)
-            
-            # 判断是否为未解决的环境问题
-            # 条件：状态=待修复 且 问题分类=环境问题
-            if status == "待修复" and classification == "环境问题":
-                unresolved_env_issues.append(issue_info)
-        
-        return unresolved_env_issues, all_issues
-    
-    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """执行环境调试检查"""
-        
-        # Step 1: 检查跟踪文档是否存在
-        # 基于 log_file 路径构造跟踪文档路径
-        log_dir = os.path.dirname(self.get_path(self.log_file))
-        tracking_doc = os.path.join(log_dir, "environment_issues_tracking.md")
-        
-        if not os.path.exists(tracking_doc):
-            return False, {
-                "error": "❌ 跟踪文档不存在",
-                "missing_file": tracking_doc,
-                "suggestion": (
-                    "请创建跟踪文档 environment_issues_tracking.md 并记录所有失败属性：\n"
-                    "1. 读取 avis.log 提取所有失败属性\n"
-                    "2. 为每个失败创建一条记录，格式：\n"
-                    "   ## [ENV-001] 属性名：CK_XXX\n"
-                    "   - **状态**：待分析\n"
-                    "   - **失败类型**：TRIVIALLY_TRUE/FAIL/...\n"
-                    "   - **问题分类**：待定\n"
-                    "   - **分析说明**：（待LLM分析）\n"
-                    "   - **修复措施**：（待确定）\n"
-                )
-            }
-        
-        info(f"✅ 跟踪文档存在: {tracking_doc}")
-        
-        # Step 2: 执行TCL脚本生成新的验证日志
-        info("🚀 执行TCL脚本，生成最新验证日志...")
+    def _run_formalmc(self, timeout: int):
+        """Shared helper: run FormalMC via TclExecutionChecker and return (success, result)."""
         exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
         exec_checker.get_path = self.get_path
-        exec_success, exec_result = exec_checker.do_check(timeout)
-        
+        return exec_checker.do_check(timeout)
+
+    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
+        """执行环境调试检查。
+
+        当 tracking_doc 参数被显式提供且文件已存在时，使用跟踪文档模式（向后兼容）。
+        否则进入自动化模式：重新运行 FormalMC，然后用 EnvironmentIterationChecker 检测
+        TRIVIALLY_TRUE 属性和 fv_idx 约束完整性，无需维护任何中间文档。
+        """
+
+        # ── 自动化模式：无跟踪文档 ──────────────────────────────────────────────
+        tracking_doc_path = None
+        if self.tracking_doc:
+            tracking_doc_path = self.get_path(self.tracking_doc)
+
+        if not tracking_doc_path or not os.path.exists(tracking_doc_path):
+            # Step 1: 重新运行 FormalMC
+            info("🚀 运行 FormalMC，更新验证日志...")
+            exec_success, exec_result = self._run_formalmc(timeout)
+            if not exec_success:
+                return False, {
+                    "error": "❌ TCL脚本执行失败",
+                    "details": exec_result,
+                    "suggestion": "请检查 TCL 脚本及 checker/wrapper 文件是否有语法错误"
+                }
+            info("✅ FormalMC 执行完成，日志已更新")
+
+            # Step 2: 用 EnvironmentIterationChecker 检测环境质量
+            info("🔍 自动检测环境质量（TRIVIALLY_TRUE / fv_idx 约束）...")
+            iter_checker = EnvironmentIterationChecker(self.log_file, self.checker_file)
+            iter_checker.get_path = self.get_path
+            return iter_checker.do_check(timeout)
+
+        # ── 跟踪文档模式（向后兼容）───────────────────────────────────────────
+        info(f"✅ 跟踪文档存在: {tracking_doc_path}，使用跟踪文档模式")
+
+        # Step 1: 重新运行 FormalMC
+        info("🚀 执行TCL脚本，生成最新验证日志...")
+        exec_success, exec_result = self._run_formalmc(timeout)
         if not exec_success:
             return False, {
                 "error": "❌ TCL脚本执行失败",
                 "details": exec_result,
                 "suggestion": "请检查TCL脚本和checker/wrapper文件是否有语法错误"
             }
-        
-        info(f"✅ TCL执行成功，日志已生成")
-        
-        # Step 3: 解析跟踪文档
+        info("✅ TCL执行成功，日志已生成")
+
+        # Step 2: 解析跟踪文档，检查未修复的环境问题
         info("🔍 解析跟踪文档，检查未修复的环境问题...")
-        unresolved_issues, all_issues = self._parse_tracking_doc(tracking_doc)
-        
-        # Step 4: 判断是否通过
-        if len(unresolved_issues) > 0:
-            # 存在未修复的环境问题
+        all_issues = _parse_tracking_issues(tracking_doc_path)
+        unresolved_issues = [i for i in all_issues if i['status'] == '待修复' and i['classification'] == '环境问题']
+
+        if unresolved_issues:
             issue_list = "\n".join([
                 f"  - [{issue['property']}] 状态={issue['status']}, 分类={issue['classification']}"
                 for issue in unresolved_issues
             ])
-            
             return False, {
                 "error": f"❌ 存在 {len(unresolved_issues)} 个未修复的环境问题",
                 "unresolved_issues": unresolved_issues,
@@ -897,30 +899,24 @@ class EnvironmentDebuggingChecker(Checker):
                     "请继续环境调试流程：\n"
                     "1. 分析每个未修复的环境问题\n"
                     "2. 修改 checker.sv 或 wrapper.sv\n"
-                    "3. 重新生成TCL脚本\n"
-                    "4. 再次运行Check工具\n"
-                    "5. 根据新日志更新跟踪文档中的状态"
+                    "3. 再次运行Check工具"
                 ),
-                "tracking_doc_path": tracking_doc,
+                "tracking_doc_path": tracking_doc_path,
                 "total_issues": len(all_issues),
                 "unresolved_count": len(unresolved_issues)
             }
-        
-        # 所有环境问题已修复
-        resolved_count = sum(1 for issue in all_issues 
-                           if issue['status'] == '已修复' and issue['classification'] == '环境问题')
-        rtl_issues_count = sum(1 for issue in all_issues 
-                             if issue['classification'] == 'RTL缺陷')
-        
+
+        resolved_count = sum(1 for i in all_issues
+                             if i['status'] == '已修复' and i['classification'] == '环境问题')
+        rtl_issues_count = sum(1 for i in all_issues if i['classification'] == 'RTL缺陷')
         return True, {
             "message": "✅ 环境调试阶段检查通过",
-            "summary": f"所有环境问题已修复，可以进入RTL缺陷分析阶段",
+            "summary": "所有环境问题已修复，可以进入RTL缺陷分析阶段",
             "statistics": {
                 "total_issues": len(all_issues),
                 "resolved_env_issues": resolved_count,
                 "rtl_defects": rtl_issues_count,
                 "unresolved_env_issues": 0
             },
-            "tracking_doc_path": tracking_doc,
-            "details": f"共记录 {len(all_issues)} 个问题，其中环境问题已全部修复"
+            "tracking_doc_path": tracking_doc_path,
         }

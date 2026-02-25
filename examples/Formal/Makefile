@@ -17,7 +17,7 @@ init_%:
 	cp -r rtls/$* output/
 
 mcp_%: init_%
-	$(CMD) output/ $* --config ./formal.yaml -s -hm --legacy-ui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path ./FormalDoc/  ${ARGS}
+	$(CMD) output/ $* --config ./formal.yaml -s -hm --legacy-ui --mcp-server-no-file-tools --no-embed-tools --guid-doc-path ./FormalDoc/ --output unity_tests ${ARGS}
 
 run_formal_%:
 	cd output/$* && bash scripts/run_formal.sh

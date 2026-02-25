@@ -173,7 +173,14 @@ class GenerateChecker(UCTool, BaseReadWrite):
 
     def _run(self, dut_name: str, output_file: str, rtl_dir: str) -> str:
         """执行 checker 和 wrapper 生成"""
-        # RTL目录就是 rtl_dir，直接使用
+        # Resolve relative paths against workspace so the tool works regardless
+        # of the current working directory.
+        workspace = getattr(self, "workspace", os.getcwd())
+        if not os.path.isabs(rtl_dir):
+            rtl_dir = os.path.abspath(os.path.join(workspace, rtl_dir))
+        if not os.path.isabs(output_file):
+            output_file = os.path.abspath(os.path.join(workspace, output_file))
+
         str_info(f"RTL directory: {rtl_dir}")
         
         # output_file 是路径前缀，生成 {output_file}_checker.sv 和 {output_file}_wrapper.sv
@@ -359,13 +366,18 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgGenerateFormalScript
 
     def _run(self, dut_name: str, checker_file: str, output_file: str, rtl_dir: str) -> str:
-        workspace = os.path.join(os.getcwd(), "output")
-        real_output_path = os.path.abspath(os.path.join(workspace, output_file))
+        workspace = getattr(self, "workspace", os.getcwd())
+        if not os.path.isabs(output_file):
+            real_output_path = os.path.abspath(os.path.join(workspace, output_file))
+        else:
+            real_output_path = output_file
+        if not os.path.isabs(rtl_dir):
+            rtl_dir = os.path.abspath(os.path.join(workspace, rtl_dir))
 
         os.makedirs(os.path.dirname(real_output_path), exist_ok=True)
 
         # 计算相对路径：从TCL脚本所在目录到RTL目录
-        script_dir_from_ws = os.path.dirname(output_file)
+        script_dir_from_ws = os.path.dirname(real_output_path)
         rel_rtl_dir = os.path.relpath(rtl_dir, script_dir_from_ws)
         
         str_info(f"Script directory (from workspace): {script_dir_from_ws}")

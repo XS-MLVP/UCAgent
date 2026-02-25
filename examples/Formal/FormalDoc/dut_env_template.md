@@ -3,7 +3,7 @@
 > **UCAgent 机器可读模板**
 >
 > - **目的**: 本模板用于生成 `{DUT}` 的 SystemVerilog Checker 模块。
-> - **来源**: UCAgent 将读取 `{OUT}/{DUT}_properties.md` 中的 SVA 属性。
+> - **来源**: UCAgent 将读取 `{OUT}/03_{DUT}_functions_and_checks.md` 中的 SVA 属性。
 > - **使用者**: 在 `environment_generation` 阶段，UCAgent (AI) 会将提取的 SVA 代码注入到下方的“注入锚点”中，最终生成 `{OUT}/{DUT}_checker.sv` 文件。
 
 ## 模块定义

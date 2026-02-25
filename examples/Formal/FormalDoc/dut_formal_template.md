@@ -52,7 +52,7 @@
   - *描述*: 定义复位释放后的初始状态约束，例如 `add_cons -postreset {!req}`。
 
 ## 4. 验证流程交付物 (Verification Deliverables)
-- **属性定义**: `{OUT}/{DUT}_properties.md`
+- **属性定义**: `{OUT}/03_{DUT}_functions_and_checks.md`
 - **验证环境**: `{OUT}/{DUT}_checker.sv`
 - **执行脚本**: `{OUT}/{DUT}_formal.tcl`
 - **最终报告**: `{OUT}/{DUT}_formal_report.md`
