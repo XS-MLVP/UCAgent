@@ -35,3 +35,7 @@ prove
 
 # Report summary
 show_prop -summary
+
+# COI (Cone-of-Influence) coverage analysis
+# Generates avis/fanin.rep with line-level and net-level coverage statistics
+fanin -cover -list -dump

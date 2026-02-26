@@ -55,6 +55,48 @@ def _parse_avis_log(log_content: str) -> dict:
     return result
 
 
+def _parse_fanin_rep(rep_content: str) -> dict:
+    """Parse avis/fanin.rep and return COI coverage statistics.
+
+    Returns a dict with keys:
+        'categories' – list of {name, covered, total, pct} dicts (pct is float or None for '-')
+        'uncovered'  – list of {type, name} dicts for uncovered signals
+    """
+    result: dict = {'categories': [], 'uncovered': []}
+    in_uncovered_section = False
+    CATEGORY_NAMES = {'Undrivens', 'Inputs', 'Outputs', 'Dffs', 'Latchs', 'Cuts', 'Nets'}
+
+    for line in rep_content.split('\n'):
+        if re.match(r'^-{5,}', line.strip()):
+            in_uncovered_section = True
+            continue
+        # New command block resets the uncovered section
+        if re.match(r'^\[\d+\]', line.strip()):
+            in_uncovered_section = False
+            result['categories'].clear()
+            result['uncovered'].clear()
+            continue
+
+        if not in_uncovered_section:
+            m = re.match(r'^\s+(\w+)\s*:\s*(\d+)\s*/\s*(\d+)\s*([\d.]+%|-)', line)
+            if m:
+                name, covered, total, pct_str = m.groups()
+                if name in CATEGORY_NAMES:
+                    pct = float(pct_str.rstrip('%')) if pct_str != '-' else None
+                    result['categories'].append({
+                        'name': name,
+                        'covered': int(covered),
+                        'total': int(total),
+                        'pct': pct
+                    })
+        else:
+            m = re.match(r'^\s+(\w+)\s*:\s*(\S+)', line)
+            if m and m.group(1) not in CATEGORY_NAMES:
+                result['uncovered'].append({'type': m.group(1), 'name': m.group(2)})
+
+    return result
+
+
 def _parse_tracking_issues(doc_path: str) -> list:
     """Parse environment_issues_tracking.md into a list of issue dicts.
 
@@ -735,6 +777,149 @@ class BugReportConsistencyChecker(Checker):
             }
 
         return True, "Bug report is consistent with all RTL defect failures found in the log."
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coverage Analysis Checker
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CoverageAnalysisChecker(Checker):
+    """
+    覆盖率分析检查器，用于 coverage_analysis_and_optimization 阶段。
+
+    解析：
+      1. avis/fanin.rep  —— COI（影响锥）覆盖率，含 Net / Input / Output / Dff 维度
+      2. avis.log        —— 行覆盖率统计（断言通过数、失败数）
+
+    当 Net 覆盖率低于 COI_THRESHOLD 时返回 False，并给出未被覆盖信号列表
+    及断言优化建议，要求 LLM 补充断言后重新运行。
+    """
+
+    COI_THRESHOLD: float = 90.0  # Net 覆盖率低于此值时要求优化
+
+    def __init__(self, dut_name: str, checker_file: str, log_file: str,
+                 fanin_rep: str, coi_threshold: float = 90.0, **kwargs):
+        self.dut_name = dut_name
+        self.checker_file = checker_file
+        self.log_file = log_file
+        self.fanin_rep = fanin_rep
+        self.COI_THRESHOLD = coi_threshold
+
+    # ------------------------------------------------------------------
+    def _parse_log_summary(self, log_content: str) -> dict:
+        """Extract assertion pass/fail/total counts from avis.log."""
+        summary: dict = {'asserts': {}, 'covers': {}}
+        m = re.search(
+            r'Asserts\s*\(T/F/U/I/Total\):\s*(\d+)/(\d+)/(\d+)/(\d+)/(\d+)',
+            log_content)
+        if m:
+            t, f, u, i, total = [int(x) for x in m.groups()]
+            summary['asserts'] = {'true': t, 'false': f, 'unknown': u,
+                                  'inconclusive': i, 'total': total}
+        m = re.search(
+            r'Covers\s*\(T/F/U/I/Total\):\s*(\d+)/(\d+)/(\d+)/(\d+)/(\d+)',
+            log_content)
+        if m:
+            t, f, u, i, total = [int(x) for x in m.groups()]
+            summary['covers'] = {'true': t, 'false': f, 'unknown': u,
+                                 'inconclusive': i, 'total': total}
+        # Line statistics from design info block
+        lm = re.search(r'lines\s*:\s*(\d+)', log_content)
+        if lm:
+            summary['design_lines'] = int(lm.group(1))
+        return summary
+
+    # ------------------------------------------------------------------
+    def do_check(self, timeout: int = 0, **kwargs) -> tuple[bool, object]:
+        # ── 1. avis.log ───────────────────────────────────────────────
+        log_path = self.get_path(self.log_file)
+        log_summary: dict = {}
+        if os.path.exists(log_path):
+            with open(log_path, 'r', encoding='utf-8') as f:
+                log_summary = self._parse_log_summary(f.read())
+        else:
+            warning(f"avis.log not found at {self.log_file}, skipping log analysis.")
+
+        # ── 2. fanin.rep (COI coverage) ───────────────────────────────
+        rep_path = self.get_path(self.fanin_rep)
+        if not os.path.exists(rep_path):
+            return False, {
+                'error': (
+                    f"COI 覆盖率报告 '{self.fanin_rep}' 不存在。"
+                    "请确认 TCL 脚本中包含 'fanin -cover -list -dump' 命令，"
+                    "并重新运行验证工具生成该报告。"
+                )
+            }
+        with open(rep_path, 'r', encoding='utf-8') as f:
+            rep_data = _parse_fanin_rep(f.read())
+
+        categories = rep_data['categories']
+        uncovered  = rep_data['uncovered']
+
+        # ── 3. Build coverage report ──────────────────────────────────
+        cov_lines = []
+        net_pct: float = 100.0
+        for cat in categories:
+            if cat['pct'] is None:
+                cov_lines.append(f"  {cat['name']:12s}: {cat['covered']}/{cat['total']}  (N/A)")
+            else:
+                marker = " ⚠️" if (cat['name'] == 'Nets' and cat['pct'] < self.COI_THRESHOLD) else ""
+                cov_lines.append(
+                    f"  {cat['name']:12s}: {cat['covered']}/{cat['total']}  {cat['pct']:.2f}%{marker}"
+                )
+                if cat['name'] == 'Nets':
+                    net_pct = cat['pct']
+
+        cov_table = '\n'.join(cov_lines) if cov_lines else '  (报告为空，请确认生成正确)'
+
+        uncov_list = '\n'.join(
+            f"  [{u['type']}] {u['name']}" for u in uncovered
+        ) if uncovered else '  (无未覆盖信号)'
+
+        # ── 4. Log-based line/assertion summary ───────────────────────
+        log_lines = []
+        if log_summary.get('asserts'):
+            a = log_summary['asserts']
+            log_lines.append(
+                f"  Asserts : 通过 {a['true']} / 失败 {a['false']} / 总计 {a['total']}"
+            )
+        if log_summary.get('covers'):
+            c = log_summary['covers']
+            log_lines.append(
+                f"  Covers  : 通过 {c['true']} / 失败 {c['false']} / 总计 {c['total']}"
+            )
+        if log_summary.get('design_lines'):
+            log_lines.append(f"  设计总行数 : {log_summary['design_lines']}")
+        log_summary_str = '\n'.join(log_lines) if log_lines else '  (未找到统计信息)'
+
+        report = (
+            f"=== COI 覆盖率分析报告 ({self.dut_name}) ===\n"
+            f"\n【各维度 COI 覆盖率】\n{cov_table}\n"
+            f"\n【未覆盖信号列表（共 {len(uncovered)} 个）】\n{uncov_list}\n"
+            f"\n【行覆盖率 / 断言统计（来自 avis.log）】\n{log_summary_str}\n"
+        )
+
+        # ── 5. Pass / Fail decision ───────────────────────────────────
+        if net_pct < self.COI_THRESHOLD:
+            suggestions = (
+                f"\n【优化建议】\n"
+                f"当前 Net COI 覆盖率 {net_pct:.2f}% 低于阈值 {self.COI_THRESHOLD:.0f}%，"
+                f"说明有 {len(uncovered)} 个信号未被任何断言覆盖。\n"
+                "请按以下步骤优化断言：\n"
+                "  1. 查看上方未覆盖信号列表，识别设计中对应的逻辑路径；\n"
+                "  2. 在 checker.sv 中补充 assert/assume/cover 属性以覆盖这些信号；\n"
+                "  3. 补充断言后重新运行验证工具（FormalMC），然后再次调用 Check 工具。"
+            )
+            return False, {'error': report + suggestions,
+                           'net_coverage_pct': net_pct,
+                           'uncovered_signals': uncovered}
+
+        ok_msg = (
+            report +
+            f"\n✅ COI Net 覆盖率 {net_pct:.2f}% >= 阈值 {self.COI_THRESHOLD:.0f}%，覆盖率检查通过。"
+        )
+        return True, {'message': ok_msg, 'net_coverage_pct': net_pct,
+                      'uncovered_signals': uncovered}
 
 
 class ScriptGenerationChecker(Checker):

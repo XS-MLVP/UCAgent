@@ -267,6 +267,33 @@ stage:
           checker_file: "{OUT}/tests/{DUT}_checker.sv"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
 
+  - name: coverage_analysis_and_optimization
+    desc: "覆盖率分析与断言优化"
+    task:
+      - "目标：基于 COI（影响锥）覆盖率和行覆盖率，评估当前断言质量，并在覆盖率不足时补充优化断言。fanin.rep 已在上一阶段 TCL 执行时自动生成，无需重新运行。"
+      - "第1步：仔细阅读 Check 工具输出的覆盖率报告，重点关注："
+      - "  - Net COI 覆盖率是否达到 90% 阈值"
+      - "  - 未覆盖信号列表（哪些设计路径没有被任何断言触达）"
+      - "  - cover 属性通过/失败统计"
+      - "第2步：若 Check 失败（Net 覆盖率低于阈值），根据未覆盖信号列表，在 `{OUT_PATH}/tests/{DUT}_checker.sv` 中补充断言："
+      - "  - 针对未覆盖的组合逻辑路径，添加 (Style: Comb) 断言"
+      - "  - 针对未覆盖的时序路径，添加 (Style: Seq) 断言"
+      - "  - 针对未覆盖的状态，添加 (Style: Cover) 属性证明可达性"
+      - "第3步：修改断言后，重新运行验证工具（FormalMC），再次调用 Check 工具，直到覆盖率达标或确认剩余未覆盖信号属于不可达路径（需在日志中注明原因）。"
+    reference_files:
+      - "{OUT_PATH}/tests/avis/fanin.rep"
+      - "{OUT_PATH}/tests/avis.log"
+      - "{OUT_PATH}/tests/{DUT}_checker.sv"
+    checker:
+      - name: coverage_analysis_check
+        clss: "examples.Formal.scripts.formal_checkers.CoverageAnalysisChecker"
+        args:
+          dut_name: "{DUT}"
+          checker_file: "{OUT_PATH}/tests/{DUT}_checker.sv"
+          log_file: "{OUT_PATH}/tests/avis.log"
+          fanin_rep: "{OUT_PATH}/tests/avis/fanin.rep"
+          coi_threshold: 90.0
+
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
     task:
