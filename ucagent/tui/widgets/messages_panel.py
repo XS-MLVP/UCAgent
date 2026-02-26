@@ -29,20 +29,19 @@ class MessagesPanel(AutoScrollMixin, RichLog):
 
     def __init__(
             self,
-            message_queue: queue.SimpleQueue[str],
             **kwargs,
     ) -> None:
         super().__init__(
             highlight=True,
             markup=True,
             auto_scroll=True,
-            wrap=True,
+            wrap=False,
             max_lines=self.max_messages,
             **kwargs,
         )
         self.border_title = "Messages"
         self._message_lines: deque[str] = deque(maxlen=self.max_messages)
-        self._batch_queue: queue.SimpleQueue[str] = message_queue
+        self._batch_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
 
     def _get_scrollable(self) -> Any:
         return self
