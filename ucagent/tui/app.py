@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import queue
 from typing import TYPE_CHECKING, ClassVar
 
 from textual.app import App, ComposeResult
@@ -72,9 +71,6 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Daemon commands tracking
         self.daemon_cmds: dict[float, str] = {}
 
-        # Message queue for thread-safe UI updates (shared with MessagesPanel)
-        self._ui_message_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
-
         # Track previous logger for cleanup
         self._mcps_logger_prev = None
         self._ui_handlers_installed: bool = False
@@ -108,9 +104,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
                     "task_width", id="split-task", classes="splitter vertical"
                 )
                 with Vertical(id="right-container"):
-                    yield MessagesPanel(
-                        id="messages-panel", message_queue=self._ui_message_queue
-                    )
+                    yield MessagesPanel(id="messages-panel")
             yield HorizontalSplitter(
                 "console_height",
                 invert=True,
@@ -173,7 +167,8 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         This method is called from worker threads, so it posts
         a message to be processed on the main thread.
         """
-        self._ui_message_queue.put(f"{msg}{end}")
+        messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        messages_panel.append_message(f"{msg}{end}")
 
     def console_output(self, text: str) -> None:
         """Thread-safe console output method.
@@ -283,10 +278,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         """Cleanup resources on exit."""
         # Collect console history (best-effort, only on first call)
         if self._console_capture is not None and not self._session_output:
-            try:
-                self._session_output = self._console_capture.get_history()
-            except Exception:
-                pass
+            self._session_output = self._console_capture.get_history()
 
         if self._ui_handlers_installed:
             self.vpdb.agent.unset_message_echo_handler()
