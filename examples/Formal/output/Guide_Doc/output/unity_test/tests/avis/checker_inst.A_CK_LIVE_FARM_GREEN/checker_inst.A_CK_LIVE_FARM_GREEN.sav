@@ -1,0 +1,9 @@
+*-3.736966 0 0
+[color] 2
+traffic_wrapper/checker_inst A_CK_LIVE_FARM_GREEN
+[color] 4
+traffic_wrapper/checker_inst rst_n
+[color] 4
+traffic_wrapper/checker_inst car_present
+[color] 4
+traffic_wrapper/checker_inst farm_light[1:0]

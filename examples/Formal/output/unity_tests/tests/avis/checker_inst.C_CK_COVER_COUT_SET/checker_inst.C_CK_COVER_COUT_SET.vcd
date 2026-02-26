@@ -1,0 +1,46 @@
+$date
+    Thu Feb 26 10:45:43 2026
+$end
+$version
+    AveMC 1.0
+$end
+$timescale
+    1ns
+$end
+$timezero
+    0ns
+$end
+$scope module Adder_wrapper $end
+$var wire 1 $ rst_n $end
+$var wire 64 & a[63:0] $end
+$var wire 1 ( cin $end
+$var wire 1 ! clk $end
+$var wire 1 , cout $end
+$var wire 64 ' b[63:0] $end
+$scope module checker_inst $end
+$var wire 1 * rst_n $end
+$var wire 1 + cout $end
+$var wire 1 ) C_CK_COVER_COUT_SET $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+1!
+1$
+b0111111100111111100111111100111111111000101111001010001110110100 &
+b0111111111111111111111111111111110010011100110011011111000101000 '
+0(
+1)
+1*
+1+
+1,
+$end
+#5
+0!
+#10
+1!
+#11
+0)
+#15
+0!

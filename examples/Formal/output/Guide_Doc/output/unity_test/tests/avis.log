@@ -1,0 +1,493 @@
+Info-A002: opened file /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/avis.log for log
+FormalMc version 2025.12_cea6c741, 2025_12_12_15:42:23_release
+Using script: /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_formal.tcl
+Avis> read_design -top traffic_wrapper -sysv -mfcu {/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_wrapper.sv}
+Info-T001: read_design timer started
+Info: Analyzing Verilog file '/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v' (VERI-1482)
+Info: Analyzing Verilog file '/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv' (VERI-1482)
+Info: Analyzing Verilog file '/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_wrapper.sv' (VERI-1482)
+Info: compiling module 'traffic_wrapper' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_wrapper.sv:2)
+Info: compiling module 'main' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:12)
+Info: compiling module 'timer' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:61)
+Warning: expression size 6 truncated to fit in target size 5 (VERI-1209) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:82)
+Warning: expression size 6 truncated to fit in target size 5 (VERI-1209) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:88)
+Info: compiling module 'farm_control' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:110)
+Info: compiling module 'hwy_control' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/../../traffic/traffic.v:153)
+Info: compiling module 'traffic_checker' (VERI-1018) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:2)
+Warning: system function call isunknown with non-constant argument is not supported for synthesis (VERI-1796) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:50)
+Info: carry output from adder is not connected (VERI-9000) (/home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:173)
+Info-R005: set top module to "traffic_wrapper"
+Info-M073: created SVA assertion checker_inst.M_CK_API_RST_SYNC at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:34
+Info-M073: created SVA assertion checker_inst.M_CK_API_TIMER_THRESHOLD at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:40
+Info-M073: created SVA assertion checker_inst.M_CK_API_TIMER_MIN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:46
+Info-M073: created SVA assertion checker_inst.M_CK_API_INPUT_KNOWN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:52
+Info-M073: created SVA assertion checker_inst.A_CK_SAFE_MUTEX at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:62
+Info-M073: created SVA assertion checker_inst.A_CK_SAFE_NOT_BOTH_GREEN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:68
+Info-M073: created SVA assertion checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:74
+Info-M073: created SVA assertion checker_inst.A_CK_SAFE_FARM_VAL at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:80
+Info-M073: created SVA assertion checker_inst.A_CK_SAFE_HWY_VAL at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:86
+Info-M073: created SVA assertion checker_inst.A_CK_RESET_FARM_RED at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:96
+Info-M073: created SVA assertion checker_inst.A_CK_RESET_HWY_GREEN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:102
+Info-M073: created SVA assertion checker_inst.A_CK_FARM_G_TO_Y at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:109
+Info-M073: created SVA assertion checker_inst.A_CK_FARM_Y_TO_R at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:116
+Info-M073: created SVA assertion checker_inst.A_CK_FARM_R_TO_G at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:123
+Info-M073: created SVA assertion checker_inst.A_CK_FARM_STABLE at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:132
+Info-M073: created SVA assertion checker_inst.A_CK_HWY_G_TO_Y at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:139
+Info-M073: created SVA assertion checker_inst.A_CK_HWY_Y_TO_R at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:146
+Info-M073: created SVA assertion checker_inst.A_CK_HWY_R_TO_G at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:153
+Info-M073: created SVA assertion checker_inst.A_CK_HWY_STABLE at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:162
+Info-M073: created SVA assertion checker_inst.A_CK_TIMER_RESET at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:168
+Info-M073: created SVA assertion checker_inst.A_CK_TIMER_INC at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:175
+Info-M073: created SVA assertion checker_inst.A_CK_TIMER_SHORT_VALID at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:181
+Info-M073: created SVA assertion checker_inst.A_CK_TIMER_LONG_VALID at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:187
+Info-M073: created SVA assertion checker_inst.A_CK_LIVE_FARM_GREEN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:198
+Info-M073: created SVA assertion checker_inst.A_CK_LIVE_HWY_GREEN at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:205
+Info-M073: created SVA assertion checker_inst.C_CK_COVER_FARM_G at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:216
+Info-M073: created SVA assertion checker_inst.C_CK_COVER_FARM_Y at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:223
+Info-M073: created SVA assertion checker_inst.C_CK_COVER_HWY_Y at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:230
+Info-M073: created SVA assertion checker_inst.C_CK_COVER_HWY_R at /home/sfangyy/Documents/200-Work/210-Unitychip/UCAgent/examples/Formal/output/unity_test/tests/traffic_checker.sv:237
+Info: design statistics:
+      files         :  3
+      lines         :  420
+      modules       :  6
+      blackboxes    :  0
+      instances     :  6
+      bbinstances   :  0
+      flops         :  11
+      latches       :  0
+      assertions    :  29
+      fsms          :  0
+      rams          :  0
+      ram_bits      :  0
+Info-R003: design compilation gave 0 errors and 3 warnings
+Info-T003: read_design timer stopped: usr 0.02 sys 0.00 real 0.02 virt 586MB res 114MB
+Avis> def_clk clk
+Info: added clock "clk" with ratio 2 and initial value 0
+Avis> def_rst rst_n -value 0
+Info-C009: added reset "rst_n" with active reset value 0
+Avis> set_opt -time 100000
+Avis> prove
+Info: checkout license for FormalMc success
+Info: checkout license for FormalMc success
+Info-P012: verifying property checker_inst.A_CK_SAFE_MUTEX
+Info: synthesizing assertion checker_inst.A_CK_SAFE_MUTEX ...
+Info: synthesized automaton has 3 states
+Info: synthesizing constraint checker_inst.M_CK_API_RST_SYNC ...
+Info: synthesized automaton has 3 states
+Info: synthesizing constraint checker_inst.M_CK_API_TIMER_THRESHOLD ...
+Info: synthesized automaton has 3 states
+Info: synthesizing constraint checker_inst.M_CK_API_TIMER_MIN ...
+Info: synthesized automaton has 3 states
+Info: synthesizing constraint checker_inst.M_CK_API_INPUT_KNOWN ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 604MB res 125MB
+Info-M040: session has 16 flops, 12 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_SAFE_MUTEX cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_SAFE_MUTEX
+Info-T007: >>>  Memory used: 604MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_SAFE_MUTEX is TRUE
+Info-P012: verifying property checker_inst.A_CK_SAFE_NOT_BOTH_GREEN
+Info: synthesizing assertion checker_inst.A_CK_SAFE_NOT_BOTH_GREEN ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 16 flops, 12 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_SAFE_NOT_BOTH_GREEN cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_SAFE_NOT_BOTH_GREEN
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_SAFE_NOT_BOTH_GREEN is TRUE
+Info-P012: verifying property checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW
+Info: synthesizing assertion checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 16 flops, 12 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW is TRUE
+Info-P012: verifying property checker_inst.A_CK_SAFE_FARM_VAL
+Info: synthesizing assertion checker_inst.A_CK_SAFE_FARM_VAL ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 2 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 16 flops, 12 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_SAFE_FARM_VAL cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_SAFE_FARM_VAL
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_SAFE_FARM_VAL is TRUE
+Info-P012: verifying property checker_inst.A_CK_SAFE_HWY_VAL
+Info: synthesizing assertion checker_inst.A_CK_SAFE_HWY_VAL ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 2 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 16 flops, 12 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_SAFE_HWY_VAL cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_SAFE_HWY_VAL
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_SAFE_HWY_VAL is TRUE
+Info-P012: verifying property checker_inst.A_CK_RESET_FARM_RED
+Info: synthesizing assertion checker_inst.A_CK_RESET_FARM_RED ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_RESET_FARM_RED cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_RESET_FARM_RED
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_RESET_FARM_RED is TRUE
+Info-P012: verifying property checker_inst.A_CK_RESET_HWY_GREEN
+Info: synthesizing assertion checker_inst.A_CK_RESET_HWY_GREEN ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_RESET_HWY_GREEN cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_RESET_HWY_GREEN
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_RESET_HWY_GREEN is TRUE
+Info-P012: verifying property checker_inst.A_CK_FARM_G_TO_Y
+Info: synthesizing assertion checker_inst.A_CK_FARM_G_TO_Y ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 6 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_FARM_G_TO_Y cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_FARM_G_TO_Y
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_FARM_G_TO_Y is TRUE
+Info-P012: verifying property checker_inst.A_CK_FARM_Y_TO_R
+Info: synthesizing assertion checker_inst.A_CK_FARM_Y_TO_R ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_FARM_Y_TO_R cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_FARM_Y_TO_R
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_FARM_Y_TO_R is TRUE
+Info-P012: verifying property checker_inst.A_CK_FARM_R_TO_G
+Info: synthesizing assertion checker_inst.A_CK_FARM_R_TO_G ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_FARM_R_TO_G cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_FARM_R_TO_G
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_FARM_R_TO_G is TRUE
+Info-P012: verifying property checker_inst.A_CK_FARM_STABLE
+Info: synthesizing assertion checker_inst.A_CK_FARM_STABLE ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 8 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 20 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_FARM_STABLE cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_FARM_STABLE
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_FARM_STABLE is TRUE
+Info-P012: verifying property checker_inst.A_CK_HWY_G_TO_Y
+Info: synthesizing assertion checker_inst.A_CK_HWY_G_TO_Y ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 6 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_HWY_G_TO_Y cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_HWY_G_TO_Y
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_HWY_G_TO_Y is TRUE
+Info-P012: verifying property checker_inst.A_CK_HWY_Y_TO_R
+Info: synthesizing assertion checker_inst.A_CK_HWY_Y_TO_R ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_HWY_Y_TO_R cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_HWY_Y_TO_R
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_HWY_Y_TO_R is TRUE
+Info-P012: verifying property checker_inst.A_CK_HWY_R_TO_G
+Info: synthesizing assertion checker_inst.A_CK_HWY_R_TO_G ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_HWY_R_TO_G cpu time = 0.00
+Info-P014: property false: checker_inst.A_CK_HWY_R_TO_G
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_HWY_R_TO_G is FALSE
+Info-P012: verifying property checker_inst.A_CK_HWY_STABLE
+Info: synthesizing assertion checker_inst.A_CK_HWY_STABLE ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 8 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 20 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_HWY_STABLE cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_HWY_STABLE
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_HWY_STABLE is TRUE
+Info-P012: verifying property checker_inst.A_CK_TIMER_RESET
+Info: synthesizing assertion checker_inst.A_CK_TIMER_RESET ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 8 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_TIMER_RESET cpu time = 0.00
+Info-P014: property true: checker_inst.A_CK_TIMER_RESET
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_TIMER_RESET is TRUE
+Info-P012: verifying property checker_inst.A_CK_TIMER_INC
+Info: synthesizing assertion checker_inst.A_CK_TIMER_INC ...
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 10 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 23 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_TIMER_INC cpu time = 0.01
+Info-P014: property true: checker_inst.A_CK_TIMER_INC
+Info-T007: >>>  Memory used: 608MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_TIMER_INC is TRUE
+Info-P012: verifying property checker_inst.A_CK_TIMER_SHORT_VALID
+Info: synthesizing assertion checker_inst.A_CK_TIMER_SHORT_VALID ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 3 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-S002: property checker_inst.A_CK_TIMER_SHORT_VALID is trivially true due to constant propagation
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-S006: recoi reduced constraints from 3 to 0
+Info-S006: recoi reduced watch points from 7 to 1
+Info-P016: property checker_inst.A_CK_TIMER_SHORT_VALID is TRIVIALLY_TRUE
+Info-P012: verifying property checker_inst.A_CK_TIMER_LONG_VALID
+Info: synthesizing assertion checker_inst.A_CK_TIMER_LONG_VALID ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 3 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-S002: property checker_inst.A_CK_TIMER_LONG_VALID is trivially true due to constant propagation
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-S006: recoi reduced constraints from 3 to 0
+Info-S006: recoi reduced watch points from 7 to 1
+Info-P016: property checker_inst.A_CK_TIMER_LONG_VALID is TRIVIALLY_TRUE
+Info-P012: verifying property checker_inst.A_CK_LIVE_FARM_GREEN
+Info: synthesizing assertion checker_inst.A_CK_LIVE_FARM_GREEN ...
+Info[AR]: property checker_inst.A_CK_LIVE_FARM_GREEN has an orphan R state
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 608MB res 138MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_LIVE_FARM_GREEN cpu time = 0.01
+Info-P014: property false: checker_inst.A_CK_LIVE_FARM_GREEN
+Info-T007: >>>  Memory used: 617MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-T007: >>>  Memory used: 617MB   Real Time: 0.02s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.A_CK_LIVE_FARM_GREEN is FALSE
+Info-P012: verifying property checker_inst.A_CK_LIVE_HWY_GREEN
+Info: synthesizing assertion checker_inst.A_CK_LIVE_HWY_GREEN ...
+Info[AR]: property checker_inst.A_CK_LIVE_HWY_GREEN has an orphan R state
+Info: synthesized automaton has 4 states
+Info: verification session has single clock edge
+Info: added 5 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 617MB res 139MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.A_CK_LIVE_HWY_GREEN cpu time = 0.12
+Info-P014: property false: checker_inst.A_CK_LIVE_HWY_GREEN
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.12s   CPU Time: 0.12s  <<<
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.14s   CPU Time: 0.12s  <<<
+Info-P016: property checker_inst.A_CK_LIVE_HWY_GREEN is FALSE
+Info-P012: verifying property checker_inst.C_CK_COVER_FARM_G
+Info: synthesizing assertion checker_inst.C_CK_COVER_FARM_G ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 630MB res 139MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.C_CK_COVER_FARM_G cpu time = 0.00
+Info-P014: property true: checker_inst.C_CK_COVER_FARM_G
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.C_CK_COVER_FARM_G is TRUE
+Info-P012: verifying property checker_inst.C_CK_COVER_FARM_Y
+Info: synthesizing assertion checker_inst.C_CK_COVER_FARM_Y ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 630MB res 139MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.C_CK_COVER_FARM_Y cpu time = 0.00
+Info-P014: property true: checker_inst.C_CK_COVER_FARM_Y
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.C_CK_COVER_FARM_Y is TRUE
+Info-P012: verifying property checker_inst.C_CK_COVER_HWY_Y
+Info: synthesizing assertion checker_inst.C_CK_COVER_HWY_Y ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 630MB res 139MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.C_CK_COVER_HWY_Y cpu time = 0.00
+Info-P014: property true: checker_inst.C_CK_COVER_HWY_Y
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.C_CK_COVER_HWY_Y is TRUE
+Info-P012: verifying property checker_inst.C_CK_COVER_HWY_R
+Info: synthesizing assertion checker_inst.C_CK_COVER_HWY_R ...
+Info: synthesized automaton has 3 states
+Info: verification session has single clock edge
+Info: added 4 automatic watch points
+Info-T001: init_n_const_prop timer started
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_RST_SYNC_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_THRESHOLD_state[0]
+Info-S001: found constant 0 flop checker_inst._avis_M_CK_API_TIMER_MIN_state[0]
+Info-T003: init_n_const_prop timer stopped: usr 0.00 sys 0.00 real 0.00 virt 630MB res 139MB
+Info-M040: session has 18 flops, 13 inputs, 3 constants, 1 properties, and 3 constraints
+Info: update prop checker_inst.C_CK_COVER_HWY_R cpu time = 0.00
+Info-P014: property true: checker_inst.C_CK_COVER_HWY_R
+Info-T007: >>>  Memory used: 630MB   Real Time: 0.01s   CPU Time: 0.01s  <<<
+Info-P016: property checker_inst.C_CK_COVER_HWY_R is TRUE
+Info: checked 25 properties
+Avis> show_prop -summary
+Active assertions:
+-----------------------------------------------------------
+  5  checker_inst.A_CK_SAFE_MUTEX             :  Pass       
+  6  checker_inst.A_CK_SAFE_NOT_BOTH_GREEN    :  Pass       
+  7  checker_inst.A_CK_SAFE_NOT_BOTH_YELLOW   :  Pass       
+  8  checker_inst.A_CK_SAFE_FARM_VAL          :  Pass       
+  9  checker_inst.A_CK_SAFE_HWY_VAL           :  Pass       
+ 10  checker_inst.A_CK_RESET_FARM_RED         :  Pass       
+ 11  checker_inst.A_CK_RESET_HWY_GREEN        :  Pass       
+ 12  checker_inst.A_CK_FARM_G_TO_Y            :  Pass       
+ 13  checker_inst.A_CK_FARM_Y_TO_R            :  Pass       
+ 14  checker_inst.A_CK_FARM_R_TO_G            :  Pass       
+ 15  checker_inst.A_CK_FARM_STABLE            :  Pass       
+ 16  checker_inst.A_CK_HWY_G_TO_Y             :  Pass       
+ 17  checker_inst.A_CK_HWY_Y_TO_R             :  Pass       
+ 18  checker_inst.A_CK_HWY_R_TO_G             :  Fail  (14) 
+ 19  checker_inst.A_CK_HWY_STABLE             :  Pass       
+ 20  checker_inst.A_CK_TIMER_RESET            :  Pass       
+ 21  checker_inst.A_CK_TIMER_INC              :  Pass       
+ 22  checker_inst.A_CK_TIMER_SHORT_VALID      :  TrivT      
+ 23  checker_inst.A_CK_TIMER_LONG_VALID       :  TrivT      
+ 24  checker_inst.A_CK_LIVE_FARM_GREEN        :  Fail  (5)  
+ 25  checker_inst.A_CK_LIVE_HWY_GREEN         :  Fail  (22) 
+ 26  checker_inst.C_CK_COVER_FARM_G           :  Pass  (9)  
+ 27  checker_inst.C_CK_COVER_FARM_Y           :  Pass  (10) 
+ 28  checker_inst.C_CK_COVER_HWY_Y            :  Pass  (6)  
+ 29  checker_inst.C_CK_COVER_HWY_R            :  Pass  (9)  
+-----------------------------------------------------------
+Verification status:
+-------------------------------------------------
+Asserts (T/F/U/I/Total):  18/3/0/0/21
+Covers  (T/F/U/I/Total):  4/0/0/0/4
+-------------------------------------------------
+Info-T009: >>> CPU Time: usr 0.61s/0.61s, sys 0.10s/0.10s, Memory: virt 630MB res 139MB, CPU Cores: cur 1, max 1 <<<
+Info-T010: total verification time: 1 seconds

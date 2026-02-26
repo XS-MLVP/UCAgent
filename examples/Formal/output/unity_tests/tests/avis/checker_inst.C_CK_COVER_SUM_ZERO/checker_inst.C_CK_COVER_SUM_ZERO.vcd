@@ -1,0 +1,46 @@
+$date
+    Thu Feb 26 10:45:43 2026
+$end
+$version
+    AveMC 1.0
+$end
+$timescale
+    1ns
+$end
+$timezero
+    0ns
+$end
+$scope module Adder_wrapper $end
+$var wire 63 , sum[62:0] $end
+$var wire 1 ( cin $end
+$var wire 64 ' b[63:0] $end
+$var wire 64 & a[63:0] $end
+$var wire 1 ! clk $end
+$var wire 1 $ rst_n $end
+$scope module checker_inst $end
+$var wire 1 ) C_CK_COVER_SUM_ZERO $end
+$var wire 63 + sum[62:0] $end
+$var wire 1 * rst_n $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+#0
+$dumpvars
+1!
+1$
+bx000000000000000000000000000000001011100010000000010010010100101 &
+bx111111111111111111111111111111110100011101111111101101101011011 '
+0(
+1)
+1*
+b000000000000000000000000000000000000000000000000000000000000000 +
+b000000000000000000000000000000000000000000000000000000000000000 ,
+$end
+#5
+0!
+#10
+1!
+#11
+0)
+#15
+0!

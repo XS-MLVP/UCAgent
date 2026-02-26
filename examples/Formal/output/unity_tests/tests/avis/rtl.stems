@@ -1,0 +1,5 @@
+++ module Adder_wrapper file ./Adder_wrapper.sv line 5 - 58
+++ comp dut type Adder(WIDTH=64) parent Adder_wrapper line 28
+++ module Adder(WIDTH=64) file ./../../Adder/Adder.v line 4 - 14
+++ comp checker_inst type Adder_checker(WIDTH=64) parent Adder_wrapper line 58
+++ module Adder_checker(WIDTH=64) file ./Adder_checker.sv line 5 - 99

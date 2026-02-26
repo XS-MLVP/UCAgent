@@ -1,0 +1,9 @@
+*-6.129283 0 0
+[color] 2
+traffic_wrapper/checker_inst A_CK_LIVE_HWY_GREEN
+[color] 4
+traffic_wrapper/checker_inst rst_n
+[color] 4
+traffic_wrapper/checker_inst car_present
+[color] 4
+traffic_wrapper/checker_inst hwy_light[1:0]

@@ -1,0 +1,7 @@
+*-4.906891 0 0
+[color] 2
+traffic_wrapper/checker_inst C_CK_COVER_FARM_Y
+[color] 4
+traffic_wrapper/checker_inst rst_n
+[color] 4
+traffic_wrapper/checker_inst farm_light[1:0]

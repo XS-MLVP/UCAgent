@@ -1,0 +1,7 @@
+*-1.736966 0 0
+[color] 2
+Adder_wrapper/checker_inst C_CK_COVER_COUT_SET
+[color] 4
+Adder_wrapper/checker_inst rst_n
+[color] 4
+Adder_wrapper/checker_inst cout
