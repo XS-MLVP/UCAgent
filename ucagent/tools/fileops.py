@@ -128,6 +128,8 @@ class BaseReadWrite:
 
     def check_file(self, path: str) -> Tuple[bool, str]:
         """Check if the file is writable."""
+        if not isinstance(path, str):
+            return False, f"Invalid path: {path}. Path must be a string.", ""
         if path.endswith('/'):
             return False, f"Path '{path}' should not end with a slash. Please provide a file path, not a directory.", ""
         write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
