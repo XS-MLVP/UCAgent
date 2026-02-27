@@ -548,13 +548,6 @@ class UnityChipBatchTask:
                 return True, "Complete success."
             return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
 
-        if is_complete:
-            return False, (
-                f"Not all '{self.name}' in this batch have been completed ({self.get_process_str()}). "
-                f"If the quantity meets the requirements, but still show this error, it's because the '{self.name}' you have implemented is not all essential. "
-                f"{', '.join(self.tbd_task_list)} are still to be done.{exmsg}"
-            )
-
         # Update completed task list
         for task in self.tbd_task_list:
             if task in self.gen_task_list and task not in self.cmp_task_list:
@@ -598,7 +591,10 @@ class UnityChipBatchTask:
 
         # Check if all tasks are done
         if self.update_current_tbd():
-            success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
+            if is_complete:
+                success_msg["success"] += f" All {self.name} are done, complete success."
+            else:
+                success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
             return True, success_msg
         else:
             success_msg["success"] += (
