@@ -335,6 +335,7 @@ class UnityChipBatchTask:
         self.cmp_task_list = []  # Completed task list
         self.source_task_list = []  # Source task list (ground truth)
         self.gen_task_list = []  # Generated task list (actual results)
+        self.checkpoint_file = None
         checker.add_cb(CB_KEY_SET_STAGE, lambda c: self.on_init())
         assert hasattr(checker, "batch_size")
 
@@ -346,6 +347,8 @@ class UnityChipBatchTask:
 
     def savepoint_file(self):
         fpath = self.checkpoint_file
+        if not fpath:
+            return
         fdirname = os.path.dirname(fpath)
         if not os.path.exists(fdirname):
             os.makedirs(fdirname, exist_ok=True)
@@ -361,6 +364,9 @@ class UnityChipBatchTask:
 
     def loadpoint_file(self):
         fpath = self.checkpoint_file
+        if not fpath:
+            warning(f"{self.name} No checkpoint file path, skip loading checkpoint.")
+            return False
         if not os.path.isfile(fpath):
             return False
         try:
