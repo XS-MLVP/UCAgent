@@ -126,7 +126,7 @@ Screen {
 #indicator-row {
     height: auto;
     layout: horizontal;
-    border: solid $secondary;
+    border: transparent;
 }
 
 #console-loading {
