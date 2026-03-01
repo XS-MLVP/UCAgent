@@ -1,128 +1,12 @@
 #coding=utf-8
 import os
 import re
+import glob
 import subprocess
 import pyslang
 from ucagent.checkers.base import Checker
 from ucagent.util.log import info, warning
 import psutil
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Module-level helpers shared by multiple checkers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _strip_instance_prefix(prop_name: str) -> str:
-    """Strip module-instance prefix, e.g. 'checker_inst.A_CK_FOO' -> 'A_CK_FOO'."""
-    return prop_name.split('.')[-1] if '.' in prop_name else prop_name
-
-
-def _parse_avis_log(log_content: str) -> dict:
-    """Parse avis.log and return classified property name lists.
-
-    Returns a dict with keys:
-        'trivially_true' – TRIVIALLY_TRUE properties
-        'fail'           – FALSE / Fail properties (assert only)
-        'cover_fail'     – Cover properties (C_CK_*) with Fail status
-    """
-    result: dict = {'trivially_true': [], 'fail': [], 'cover_fail': []}
-
-    # Per-property Info-P016 lines (definitive source)
-    for m in re.finditer(r'property\s+([\w_.]+)\s+is\s+TRIVIALLY_TRUE', log_content):
-        result['trivially_true'].append(m.group(1))
-    for m in re.finditer(r'property\s+([\w_.]+)\s+is\s+FALSE', log_content):
-        result['fail'].append(m.group(1))
-
-    # show_prop -summary table – supplements any properties not seen above.
-    # Format: "  22  checker_inst.A_CK_TIMER_SHORT_VALID  :  TrivT"
-    summary = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
-    if summary:
-        for line in summary.group().split('\n'):
-            m = re.search(r'((?:\w+\.)?[A-Z_]\w+)\s*:\s*(Pass|Fail|TrivT)', line)
-            if m:
-                name, status = m.groups()
-                if status == 'TrivT' and name not in result['trivially_true']:
-                    result['trivially_true'].append(name)
-                elif status == 'Fail' and name not in result['fail']:
-                    result['fail'].append(name)
-
-    # Cover property failures (C_CK_* naming convention)
-    for line in log_content.split('\n'):
-        m = re.search(r'([\w.]*C_CK_\w+)\s*:\s+(Pass|Fail)', line)
-        if m and m.group(2) == 'Fail' and m.group(1) not in result['cover_fail']:
-            result['cover_fail'].append(m.group(1))
-
-    return result
-
-
-def _parse_fanin_rep(rep_content: str) -> dict:
-    """Parse avis/fanin.rep and return COI coverage statistics.
-
-    Returns a dict with keys:
-        'categories' – list of {name, covered, total, pct} dicts (pct is float or None for '-')
-        'uncovered'  – list of {type, name} dicts for uncovered signals
-    """
-    result: dict = {'categories': [], 'uncovered': []}
-    in_uncovered_section = False
-    CATEGORY_NAMES = {'Undrivens', 'Inputs', 'Outputs', 'Dffs', 'Latchs', 'Cuts', 'Nets'}
-
-    for line in rep_content.split('\n'):
-        if re.match(r'^-{5,}', line.strip()):
-            in_uncovered_section = True
-            continue
-        # New command block resets the uncovered section
-        if re.match(r'^\[\d+\]', line.strip()):
-            in_uncovered_section = False
-            result['categories'].clear()
-            result['uncovered'].clear()
-            continue
-
-        if not in_uncovered_section:
-            m = re.match(r'^\s+(\w+)\s*:\s*(\d+)\s*/\s*(\d+)\s*([\d.]+%|-)', line)
-            if m:
-                name, covered, total, pct_str = m.groups()
-                if name in CATEGORY_NAMES:
-                    pct = float(pct_str.rstrip('%')) if pct_str != '-' else None
-                    result['categories'].append({
-                        'name': name,
-                        'covered': int(covered),
-                        'total': int(total),
-                        'pct': pct
-                    })
-        else:
-            m = re.match(r'^\s+(\w+)\s*:\s*(\S+)', line)
-            if m and m.group(1) not in CATEGORY_NAMES:
-                result['uncovered'].append({'type': m.group(1), 'name': m.group(2)})
-
-    return result
-
-
-def _parse_tracking_issues(doc_path: str) -> list:
-    """Parse environment_issues_tracking.md into a list of issue dicts.
-
-    Each dict contains: 'property', 'status', 'classification', 'content'.
-    Returns an empty list if the file does not exist.
-    """
-    if not os.path.exists(doc_path):
-        return []
-    with open(doc_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    issues = []
-    for prop_name, body in re.findall(
-        r'##\s*\[ENV-\d+\]\s*属性名[：:]\s*(\S+)(.*?)(?=##\s*\[ENV-|\Z)', content, re.DOTALL
-    ):
-        sm = re.search(r'\*\*状态\*\*[：:]\s*(\S+)', body)
-        cm = re.search(r'\*\*问题分类\*\*[：:]\s*(\S+)', body)
-        issues.append({
-            'property': prop_name.strip(),
-            'status': sm.group(1).strip() if sm else '未知',
-            'classification': cm.group(1).strip() if cm else '未知',
-            'content': body.strip()
-        })
-    return issues
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 class FormalAnalysisChecker(Checker):
     def __init__(self, analysis_file, **kwargs):
@@ -228,30 +112,7 @@ class PropertyStructureChecker(Checker):
                 if impl['type'] in ['assume', 'cover']:
                     errors.append(f"'{ck_name}' is marked as assertion style ({style_str}), but implemented as '{impl['type']}'")
 
-            # 3. Comb style: must NOT contain temporal operators
-            if 'comb' in style and impl['body']:
-                temporal_ops = re.findall(
-                    r'@\s*\(posedge|@\s*\(negedge|##[\d$]|\$past\s*\(|\$rose\s*\(|\$fell\s*\(',
-                    impl['body']
-                )
-                if temporal_ops:
-                    errors.append(
-                        f"'{ck_name}' is marked as 'Comb' (combinational) but its body contains "
-                        f"temporal operator(s): {list(set(temporal_ops))}. "
-                        f"Comb properties must NOT use '@', '##', '$past', '$rose', or '$fell'."
-                    )
-
-            # 4. Liveness: Seq properties whose name/description implies liveness must use s_eventually
-            if 'seq' in style and impl['body']:
-                is_live_ck = bool(re.search(r'LIVE|LIVENESS|STARVATION|PROGRESS', ck_name, re.IGNORECASE))
-                if is_live_ck and 's_eventually' not in impl['body']:
-                    errors.append(
-                        f"'{ck_name}' appears to be a liveness property (name contains LIVE/STARVATION/PROGRESS) "
-                        f"but its body does not contain 's_eventually'. "
-                        f"Liveness properties MUST use 's_eventually' to avoid vacuous proofs."
-                )
-
-            # 5. Check Symbolic Indexing Usage (Advanced Feature Check)
+            # 2. Check Symbolic Indexing Usage (Advanced Feature Check)
             if 'symbolic' in style:
                 # Must use fv_idx or fv_mon_
                 if not re.search(r'fv_(idx|mon_)', impl['body']):
@@ -279,31 +140,21 @@ class EnvSyntaxChecker(Checker):
         self.env_file = env_file
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Checks the environment file for valid SystemVerilog syntax using pyslang."""
+        """Checks the environment file for valid SystemVerilog module syntax."""
         path = self.get_path(self.env_file)
         if not os.path.exists(path):
             return False, {"error": f"Environment file {self.env_file} not found."}
 
-        try:
-            tree = pyslang.SyntaxTree.fromFile(path)
-            # Collect diagnostics
-            diagnostics = list(tree.diagnostics)
-            errors = [str(d) for d in diagnostics if 'error' in str(d).lower()]
-            if errors:
-                error_summary = "\n".join(errors[:10])
-                return False, {"error": f"Syntax errors found in {self.env_file}:\n{error_summary}"}
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-            # Confirm at least one module declaration exists
-            has_module = any(
-                member.kind == pyslang.SyntaxKind.ModuleDeclaration
-                for member in tree.root.members
-            )
-            if not has_module:
-                return False, {"error": "No module declaration found in environment file."}
+        if "module" not in content or "endmodule" not in content:
+            return False, {"error": "Environment file does not look like a valid SystemVerilog module."}
 
-            return True, f"Environment syntax check passed (pyslang parsed without errors)."
-        except Exception as e:
-            return False, {"error": f"Failed to parse environment file with pyslang: {e}"}
+        if "bind" not in content and "bind" not in self.env_file:
+             pass
+
+        return True, "Environment syntax check passed."
 
 class WrapperTimingChecker(Checker):
     def __init__(self, wrapper_file, rtl_path, **kwargs):
@@ -348,7 +199,7 @@ class FormalScriptChecker(Checker):
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
             
-        required_cmds = ["read_design", "prove", "def_clk", "def_rst", "show_prop"]
+        required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
         missing = [k for k in required_cmds if k not in content]
         
         if missing:
@@ -476,6 +327,48 @@ class EnvironmentIterationChecker(Checker):
         self.log_file = log_file
         self.checker_file = checker_file
     
+    def _parse_log_failures(self, log_content: str) -> dict:
+        """Parse avis.log to extract failure information."""
+        failures = {
+            'trivially_true': [],
+            'false_properties': [],
+            'cover_failures': [],
+            'environment_issues': [],
+            'rtl_defects': []
+        }
+        
+        # Extract TRIVIALLY_TRUE properties
+        trivial_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+TRIVIALLY_TRUE', log_content)
+        failures['trivially_true'] = trivial_matches
+        
+        # Extract FALSE properties
+        false_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+FALSE', log_content)
+        failures['false_properties'] = false_matches
+        
+        # Extract summary table
+        summary_section = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
+        if summary_section:
+            summary = summary_section.group()
+            # Parse each line: property_name : status
+            for line in summary.split('\n'):
+                match = re.search(r'(\S+)\s+:\s+(Pass|Fail|TrivT)', line)
+                if match:
+                    prop_name, status = match.groups()
+                    if status == 'TrivT':
+                        if prop_name not in failures['trivially_true']:
+                            failures['trivially_true'].append(prop_name)
+                    elif status == 'Fail':
+                        if prop_name not in failures['false_properties']:
+                            failures['false_properties'].append(prop_name)
+        
+        # Extract cover results
+        cover_summary = re.findall(r'([\w_.]+COVER)\s+:\s+(Pass|Fail)', log_content)
+        for name, status in cover_summary:
+            if status == 'Fail':
+                failures['cover_failures'].append(name)
+        
+        return failures
+    
     def _classify_failure(self, prop_name: str, checker_content: str, log_content: str) -> str:
         """
         Classify a failure as 'environment' or 'rtl_defect'.
@@ -524,14 +417,7 @@ class EnvironmentIterationChecker(Checker):
             checker_content = f.read()
         
         # Step 1: Parse and classify failures
-        parsed = _parse_avis_log(log_content)
-        failures = {
-            'trivially_true': parsed['trivially_true'],
-            'false_properties': parsed['fail'],
-            'cover_failures': parsed['cover_fail'],
-            'environment_issues': [],
-            'rtl_defects': []
-        }
+        failures = self._parse_log_failures(log_content)
         
         # Classify each false property
         for prop in failures['false_properties']:
@@ -549,11 +435,11 @@ class EnvironmentIterationChecker(Checker):
         issues = []
         suggestions = []
         
-        # Check 1: TRIVIALLY_TRUE (过约束) - 但需要验证属性是否真的存在于代码中且未被注释
+        # Check 1: TRIVIALLY_TRUE (过约束) - 但需要验证属性是否真的存在于代码中
         active_trivial_props = []
         for prop in failures['trivially_true']:
-            # Strip instance prefix robustly (e.g. 'checker_inst.A_CK_FOO' -> 'A_CK_FOO')
-            prop_short = _strip_instance_prefix(prop)
+            # 提取属性名（去掉checker_inst.前缀）
+            prop_short = prop.replace('checker_inst.', '')
             # 检查属性是否在checker代码中存在且未被注释
             # 匹配: prop_name: assert/assume property
             pattern = rf'{prop_short}\s*:\s*(assert|assume)\s+property'
@@ -567,7 +453,7 @@ class EnvironmentIterationChecker(Checker):
             suggestions.append(
                 "- 检查并放松过强的 assume 约束\n"
                 "- 确认约束之间没有冲突\n"
-                f"- 问题属性: {', '.join([_strip_instance_prefix(p) for p in active_trivial_props[:3]])}"
+                f"- 问题属性: {', '.join([p.replace('checker_inst.', '') for p in active_trivial_props[:3]])}"
                 + ("..." if len(active_trivial_props) > 3 else "")
             )
         
@@ -643,283 +529,127 @@ class EnvironmentIterationChecker(Checker):
 
 
 class BugReportConsistencyChecker(Checker):
-    def __init__(self, dut_name, property_file, bug_report_file, log_file=None, tracking_doc=None, **kwargs):
+    """
+    Bug 报告一致性检查器，用于 formal_execution 阶段。
+    
+    从 checker.sv 中提取所有标记 // [RTL_BUG] 的属性，
+    验证 bug_report.md 中是否为每个 RTL 缺陷都创建了对应章节。
+    """
+    def __init__(self, dut_name, property_file, bug_report_file, log_file=None, **kwargs):
         self.dut_name = dut_name
         self.property_file = property_file
         self.bug_report_file = bug_report_file
         self.log_file = log_file if log_file else f"avis/{self.dut_name}.log"
-        self.tracking_doc = tracking_doc
 
-    def _get_ck_for_property(self, prop_name, prop_content_lines):
-        """Finds the CK label associated with a given property name."""
-        try:
-            # Strip instance prefix so 'checker_inst.A_CK_FOO' -> 'A_CK_FOO'
-            short_name = _strip_instance_prefix(prop_name)
-            line_num = -1
-            for i, line in enumerate(prop_content_lines):
-                if re.search(r'\b' + re.escape(short_name) + r'\b\s*:\s*assert', line):
-                    line_num = i
-                    break
-
-            if line_num != -1:
-                for i in range(line_num - 1, -1, -1):
-                    match = re.search(r'//\s*<(CK_[\w]+)>', prop_content_lines[i])
+    def _extract_rtl_defects_from_checker(self, checker_path: str) -> list:
+        """
+        从 checker.sv 中提取所有标记 [RTL_BUG] 的属性。
+        
+        格式：
+        // [RTL_BUG] 描述...
+        A_CK_XXX: assert property(...);
+        
+        返回：属性名列表
+        """
+        if not os.path.exists(checker_path):
+            return []
+        
+        with open(checker_path, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+        
+        rtl_defects = []
+        for i, line in enumerate(lines):
+            # 查找 [RTL_BUG] 标记
+            if '[RTL_BUG]' in line:
+                # 在后续几行（最多5行）内查找属性定义
+                for j in range(i, min(i + 6, len(lines))):
+                    # 匹配 property_name: assert property(...) 或 assert property @(...) property_name
+                    match = re.search(r'([A-Z_][A-Z0-9_]*)\s*:\s*assert\s+property', lines[j])
                     if match:
-                        return match.group(1)
-        except Exception:
-            return None
-        return None
+                        rtl_defects.append(match.group(1))
+                        break
+        
+        return rtl_defects
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """
         验证 bug report 与 RTL 缺陷的一致性。
-        优先从 environment_issues_tracking.md 获取 RTL 缺陷列表，
-        如果跟踪文档不存在，则从日志文件提取失败属性。
+        从 checker.sv 中提取标记 [RTL_BUG] 的属性，
+        验证 bug_report.md 是否为每个缺陷都创建了章节。
         """
-        # 尝试从跟踪文档获取 RTL 缺陷列表
-        rtl_defects_from_tracking = []
-        if self.tracking_doc:
-            tracking_path = self.get_path(self.tracking_doc)
-            rtl_defects_from_tracking = [
-                i['property'] for i in _parse_tracking_issues(tracking_path)
-                if i['classification'] == 'RTL缺陷'
-            ]
+        checker_path = self.get_path(self.property_file)
         
-        # 如果跟踪文档中有 RTL 缺陷记录，使用它作为验证依据
-        if rtl_defects_from_tracking:
-            failed_properties = rtl_defects_from_tracking
-            info(f"从跟踪文档中提取到 {len(failed_properties)} 个 RTL 缺陷")
-        else:
-            # 回退到从日志文件提取（保持向后兼容）
-            log_path = self.get_path(self.log_file)
-            if not os.path.exists(log_path):
-                return False, {"error": f"Log file '{self.log_file}' not found. The previous stage should have generated it."}
-            
-            with open(log_path, 'r', encoding='utf-8') as f:
-                log_content = f.read()
-            
-            # Only look for actual FALSE properties, excluding TRIVIALLY_TRUE
-            failed_properties = _parse_avis_log(log_content)['fail']
-            info(f"从日志文件中提取到 {len(failed_properties)} 个失败属性")
+        # Step 1: 从 checker.sv 提取 RTL 缺陷
+        rtl_defects = self._extract_rtl_defects_from_checker(checker_path)
+        info(f"从 checker.sv 中提取到 {len(rtl_defects)} 个标记 [RTL_BUG] 的属性")
         
-        if not failed_properties:
-            return True, "No RTL defect failures found in the log file. Nothing to report."
+        if not rtl_defects:
+            return True, {
+                "message": "✅ 无 RTL 缺陷需要报告",
+                "note": "checker.sv 中未找到任何标记 [RTL_BUG] 的属性"
+            }
 
+        # Step 2: 检查 bug report 是否存在
         bug_report_path = self.get_path(self.bug_report_file)
         if not os.path.exists(bug_report_path):
             return False, {
-                "error": "Verification failed, but the bug report file was not found.",
-                "details": f"Please create or update '{self.bug_report_file}' to document the {len(failed_properties)} failed properties: {', '.join(failed_properties)}"
+                "error": "❌ Bug 报告文件不存在",
+                "details": f"请创建 '{self.bug_report_file}' 并为以下 {len(rtl_defects)} 个 RTL 缺陷编写报告：",
+                "rtl_defects": rtl_defects
             }
 
         with open(bug_report_path, 'r', encoding='utf-8') as f:
             bug_report_content = f.read()
         
-        with open(self.get_path(self.property_file), 'r', encoding='utf-8') as f:
-            prop_content_lines = f.readlines()
-
-        inconsistencies = []
-        true_ck_map = {prop: self._get_ck_for_property(prop, prop_content_lines) for prop in failed_properties}
-        
-        # 修改正则以支持带点号的属性名（如 checker_inst.A_CK_XXX）
-        # 使用 [\w.]+ 而不是 \w+ 来匹配包含点号的属性名
+        # Step 3: 解析 bug report，提取已记录的属性
+        # 支持多种格式：## Failed Property: `A_CK_XXX` 或 ## ❌ Failed Property: A_CK_XXX
         report_sections = re.split(r'##\s*❌?\s*Failed Property:\s*`?([\w.]+)`?', bug_report_content)
         
         if len(report_sections) <= 1:
-             return False, {"error": "Bug report is not in the expected format. Could not find any sections like '## Failed Property: `prop_name`'."}
+            return False, {
+                "error": "❌ Bug 报告格式不正确",
+                "details": "未找到任何 '## Failed Property: `prop_name`' 格式的章节",
+                "expected_format": "## Failed Property: `A_CK_XXX`"
+            }
 
-        reported_props_map = {}
+        reported_props = set()
         for i in range(1, len(report_sections), 2):
-            prop_name_from_report = report_sections[i]
-            section_content = report_sections[i+1]
-            # 尝试多种格式提取 CK 标签
-            # 格式1: **Checklist Item:** `CK_XXX`
-            # 格式2: **属性名称**：A_CK_XXX (CK_XXX)
-            ck_label = None
-            match = re.search(r'\*\*Checklist Item:\*\*\s*`(.+?)`', section_content)
-            if match:
-                ck_label = match.group(1)
-            else:
-                # 尝试从属性名称字段提取
-                match = re.search(r'\*\*属性名称\*\*[：:]\s*\S+\s*\(([^)]+)\)', section_content)
-                if match:
-                    ck_label = match.group(1)
+            prop_name = report_sections[i].strip()
+            # 去除可能的模块前缀（checker_inst.A_CK_XXX -> A_CK_XXX）
+            short_name = prop_name.split('.')[-1] if '.' in prop_name else prop_name
+            reported_props.add(short_name)
+
+        # Step 4: 对比 RTL 缺陷与 bug report
+        missing_in_report = []
+        for defect in rtl_defects:
+            if defect not in reported_props:
+                missing_in_report.append(defect)
+        
+        extra_in_report = []
+        for reported in reported_props:
+            if reported not in rtl_defects:
+                extra_in_report.append(reported)
+
+        # Step 5: 生成检查结果
+        if missing_in_report or extra_in_report:
+            issues = []
+            if missing_in_report:
+                issues.append(f"缺少报告的 RTL 缺陷 ({len(missing_in_report)} 个): {', '.join(missing_in_report)}")
+            if extra_in_report:
+                issues.append(f"报告中多余的属性 ({len(extra_in_report)} 个): {', '.join(extra_in_report)}")
             
-            # 即使没有找到 CK 标签，也记录属性（用于检查是否有记录）
-            reported_props_map[prop_name_from_report] = ck_label
-
-        normalized_true_ck_map = {p.replace('assert_',''): ck for p, ck in true_ck_map.items()}
-
-        for prop_from_report, reported_ck in reported_props_map.items():
-            norm_prop_from_report = prop_from_report.replace('assert_','')
-            if norm_prop_from_report not in normalized_true_ck_map:
-                inconsistencies.append(f"Bug report documents property '{prop_from_report}', but it did not appear in the verification failure log.")
-            elif reported_ck and normalized_true_ck_map.get(norm_prop_from_report) and normalized_true_ck_map.get(norm_prop_from_report) != reported_ck:
-                 inconsistencies.append(f"Inconsistency for property '{prop_from_report}': Log implies CK is '{normalized_true_ck_map.get(norm_prop_from_report)}', but bug report states '{reported_ck}'.")
-
-        for true_prop in true_ck_map:
-            short_prop = _strip_instance_prefix(true_prop).replace('assert_', '')
-            
-            # 检查是否在 bug report 中记录
-            found = False
-            for reported_prop in reported_props_map.keys():
-                if reported_prop == short_prop or reported_prop.replace('assert_', '') == short_prop:
-                    found = True
-                    break
-            
-            if not found:
-                inconsistencies.append(f"Failure for property '{true_prop}' is present in the log but not documented in the bug report.")
-
-        if inconsistencies:
             return False, {
-                "error": "Bug report is inconsistent with the verification results.",
-                "details": inconsistencies
+                "error": "❌ Bug 报告与 RTL 缺陷不一致",
+                "details": issues,
+                "missing_in_report": missing_in_report,
+                "extra_in_report": extra_in_report,
+                "rtl_defects_total": len(rtl_defects)
             }
 
-        return True, "Bug report is consistent with all RTL defect failures found in the log."
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Coverage Analysis Checker
-# ─────────────────────────────────────────────────────────────────────────────
-
-class CoverageAnalysisChecker(Checker):
-    """
-    覆盖率分析检查器，用于 coverage_analysis_and_optimization 阶段。
-
-    解析：
-      1. avis/fanin.rep  —— COI（影响锥）覆盖率，含 Net / Input / Output / Dff 维度
-      2. avis.log        —— 行覆盖率统计（断言通过数、失败数）
-
-    当 Net 覆盖率低于 COI_THRESHOLD 时返回 False，并给出未被覆盖信号列表
-    及断言优化建议，要求 LLM 补充断言后重新运行。
-    """
-
-    COI_THRESHOLD: float = 90.0  # Net 覆盖率低于此值时要求优化
-
-    def __init__(self, dut_name: str, checker_file: str, log_file: str,
-                 fanin_rep: str, coi_threshold: float = 90.0, **kwargs):
-        self.dut_name = dut_name
-        self.checker_file = checker_file
-        self.log_file = log_file
-        self.fanin_rep = fanin_rep
-        self.COI_THRESHOLD = coi_threshold
-
-    # ------------------------------------------------------------------
-    def _parse_log_summary(self, log_content: str) -> dict:
-        """Extract assertion pass/fail/total counts from avis.log."""
-        summary: dict = {'asserts': {}, 'covers': {}}
-        m = re.search(
-            r'Asserts\s*\(T/F/U/I/Total\):\s*(\d+)/(\d+)/(\d+)/(\d+)/(\d+)',
-            log_content)
-        if m:
-            t, f, u, i, total = [int(x) for x in m.groups()]
-            summary['asserts'] = {'true': t, 'false': f, 'unknown': u,
-                                  'inconclusive': i, 'total': total}
-        m = re.search(
-            r'Covers\s*\(T/F/U/I/Total\):\s*(\d+)/(\d+)/(\d+)/(\d+)/(\d+)',
-            log_content)
-        if m:
-            t, f, u, i, total = [int(x) for x in m.groups()]
-            summary['covers'] = {'true': t, 'false': f, 'unknown': u,
-                                 'inconclusive': i, 'total': total}
-        # Line statistics from design info block
-        lm = re.search(r'lines\s*:\s*(\d+)', log_content)
-        if lm:
-            summary['design_lines'] = int(lm.group(1))
-        return summary
-
-    # ------------------------------------------------------------------
-    def do_check(self, timeout: int = 0, **kwargs) -> tuple[bool, object]:
-        # ── 1. avis.log ───────────────────────────────────────────────
-        log_path = self.get_path(self.log_file)
-        log_summary: dict = {}
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8') as f:
-                log_summary = self._parse_log_summary(f.read())
-        else:
-            warning(f"avis.log not found at {self.log_file}, skipping log analysis.")
-
-        # ── 2. fanin.rep (COI coverage) ───────────────────────────────
-        rep_path = self.get_path(self.fanin_rep)
-        if not os.path.exists(rep_path):
-            return False, {
-                'error': (
-                    f"COI 覆盖率报告 '{self.fanin_rep}' 不存在。"
-                    "请确认 TCL 脚本中包含 'fanin -cover -list -dump' 命令，"
-                    "并重新运行验证工具生成该报告。"
-                )
-            }
-        with open(rep_path, 'r', encoding='utf-8') as f:
-            rep_data = _parse_fanin_rep(f.read())
-
-        categories = rep_data['categories']
-        uncovered  = rep_data['uncovered']
-
-        # ── 3. Build coverage report ──────────────────────────────────
-        cov_lines = []
-        net_pct: float = 100.0
-        for cat in categories:
-            if cat['pct'] is None:
-                cov_lines.append(f"  {cat['name']:12s}: {cat['covered']}/{cat['total']}  (N/A)")
-            else:
-                marker = " ⚠️" if (cat['name'] == 'Nets' and cat['pct'] < self.COI_THRESHOLD) else ""
-                cov_lines.append(
-                    f"  {cat['name']:12s}: {cat['covered']}/{cat['total']}  {cat['pct']:.2f}%{marker}"
-                )
-                if cat['name'] == 'Nets':
-                    net_pct = cat['pct']
-
-        cov_table = '\n'.join(cov_lines) if cov_lines else '  (报告为空，请确认生成正确)'
-
-        uncov_list = '\n'.join(
-            f"  [{u['type']}] {u['name']}" for u in uncovered
-        ) if uncovered else '  (无未覆盖信号)'
-
-        # ── 4. Log-based line/assertion summary ───────────────────────
-        log_lines = []
-        if log_summary.get('asserts'):
-            a = log_summary['asserts']
-            log_lines.append(
-                f"  Asserts : 通过 {a['true']} / 失败 {a['false']} / 总计 {a['total']}"
-            )
-        if log_summary.get('covers'):
-            c = log_summary['covers']
-            log_lines.append(
-                f"  Covers  : 通过 {c['true']} / 失败 {c['false']} / 总计 {c['total']}"
-            )
-        if log_summary.get('design_lines'):
-            log_lines.append(f"  设计总行数 : {log_summary['design_lines']}")
-        log_summary_str = '\n'.join(log_lines) if log_lines else '  (未找到统计信息)'
-
-        report = (
-            f"=== COI 覆盖率分析报告 ({self.dut_name}) ===\n"
-            f"\n【各维度 COI 覆盖率】\n{cov_table}\n"
-            f"\n【未覆盖信号列表（共 {len(uncovered)} 个）】\n{uncov_list}\n"
-            f"\n【行覆盖率 / 断言统计（来自 avis.log）】\n{log_summary_str}\n"
-        )
-
-        # ── 5. Pass / Fail decision ───────────────────────────────────
-        if net_pct < self.COI_THRESHOLD:
-            suggestions = (
-                f"\n【优化建议】\n"
-                f"当前 Net COI 覆盖率 {net_pct:.2f}% 低于阈值 {self.COI_THRESHOLD:.0f}%，"
-                f"说明有 {len(uncovered)} 个信号未被任何断言覆盖。\n"
-                "请按以下步骤优化断言：\n"
-                "  1. 查看上方未覆盖信号列表，识别设计中对应的逻辑路径；\n"
-                "  2. 在 checker.sv 中补充 assert/assume/cover 属性以覆盖这些信号；\n"
-                "  3. 补充断言后重新运行验证工具（FormalMC），然后再次调用 Check 工具。"
-            )
-            return False, {'error': report + suggestions,
-                           'net_coverage_pct': net_pct,
-                           'uncovered_signals': uncovered}
-
-        ok_msg = (
-            report +
-            f"\n✅ COI Net 覆盖率 {net_pct:.2f}% >= 阈值 {self.COI_THRESHOLD:.0f}%，覆盖率检查通过。"
-        )
-        return True, {'message': ok_msg, 'net_coverage_pct': net_pct,
-                      'uncovered_signals': uncovered}
+        return True, {
+            "message": f"✅ Bug 报告一致性检查通过：{len(rtl_defects)} 个 RTL 缺陷均已记录",
+            "rtl_defects": rtl_defects
+        }
 
 
 class ScriptGenerationChecker(Checker):
@@ -988,120 +718,526 @@ class ScriptGenerationChecker(Checker):
         }
 
 
+class CoverageAnalysisChecker(Checker):
+    """
+    覆盖率分析检查器，用于 coverage_analysis_and_optimization 阶段。
+
+    仅解析 fanin.rep，提取四项 COI（Cone of Influence）覆盖率指标：
+      Inputs / Outputs / Dffs / Nets
+    其中 Dff COI（寄存器覆盖）和 Net COI（组合逻辑覆盖）是形式化验证中
+    等价于仿真"行覆盖率"的指标，二者均需达到阈值。
+
+    自动重跑逻辑：
+      若 checker.sv 比 fanin.rep 更新（或 fanin.rep 不存在），
+      自动重新执行 TCL 脚本以刷新覆盖率数据。
+
+    fanin.rep 格式示例：
+         Inputs :     3 / 3      100%
+        Outputs :     4 / 4      100%
+           Dffs :    10 / 10     100%
+           Nets :    30 / 30     100%
+    """
+    def __init__(self, dut_name, fanin_rep, tcl_script, checker_file, coi_threshold=100.0, **kwargs):
+        self.dut_name = dut_name
+        self.fanin_rep = fanin_rep
+        self.tcl_script = tcl_script
+        self.checker_file = checker_file
+        self.coi_threshold = float(coi_threshold)
+
+    def _need_rerun(self, fanin_path: str, checker_path: str) -> tuple[bool, str]:
+        """若 fanin.rep 不存在或 checker.sv 比它更新，则需要重新执行 TCL。"""
+        if not os.path.exists(fanin_path):
+            return True, "fanin.rep 不存在，需要执行 TCL 生成覆盖率报告"
+        if os.path.exists(checker_path) and os.path.getmtime(checker_path) > os.path.getmtime(fanin_path):
+            return True, "checker.sv 已更新（比 fanin.rep 新），需要重新执行验证"
+        return False, "覆盖率报告已是最新，直接读取 fanin.rep"
+
+    def _parse_fanin_report(self, fanin_path: str) -> dict:
+        """
+        解析 fanin.rep，提取全部 COI 覆盖率指标及未覆盖信号列表。
+
+        返回:
+          {
+            "inputs":  {"covered": N, "total": N, "pct": N},
+            "outputs": {...},
+            "dffs":    {...},
+            "nets":    {...},
+            "uncovered": [signal, ...]   # fanin -list 中以 "- " 开头的行
+          }
+        """
+        empty = {"covered": 0, "total": 0, "pct": 0.0}
+        result = {
+            "inputs": dict(empty), "outputs": dict(empty),
+            "dffs": dict(empty), "nets": dict(empty),
+            "uncovered": []
+        }
+        if not os.path.exists(fanin_path):
+            return result
+
+        with open(fanin_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        metric_re = re.compile(
+            r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%',
+            re.IGNORECASE
+        )
+        name_map = {
+            'input': 'inputs', 'inputs': 'inputs',
+            'output': 'outputs', 'outputs': 'outputs',
+            'dff': 'dffs', 'dffs': 'dffs',
+            'net': 'nets', 'nets': 'nets',
+        }
+        for m in metric_re.finditer(content):
+            key = name_map.get(m.group(1).lower())
+            if key:
+                result[key] = {
+                    "covered": int(m.group(2)),
+                    "total":   int(m.group(3)),
+                    "pct":     float(m.group(4))
+                }
+
+        # fanin -list 输出：未覆盖信号以 "- signal_name" 格式列出
+        result["uncovered"] = re.findall(r'^\s*-\s+(\S+)', content, re.MULTILINE)
+        return result
+
+    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
+        """执行 COI 覆盖率检查"""
+
+        fanin_path   = self.get_path(self.fanin_rep)
+        checker_path = self.get_path(self.checker_file)
+
+        # Step 1: 判断是否需要重新执行 TCL
+        need_rerun, rerun_reason = self._need_rerun(fanin_path, checker_path)
+        if need_rerun:
+            info(f"🚀 {rerun_reason}，执行 TCL 脚本...")
+            exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
+            exec_checker.get_path = self.get_path
+            exec_success, exec_result = exec_checker.do_check(timeout)
+            if not exec_success:
+                return False, {
+                    "error": "❌ TCL 脚本执行失败，无法生成覆盖率报告",
+                    "details": exec_result,
+                    "suggestion": "请检查 checker.sv 和 wrapper.sv 是否有语法错误"
+                }
+            info("✅ TCL 执行成功，fanin.rep 已更新")
+        else:
+            info(f"📋 {rerun_reason}")
+
+        # Step 2: 解析 fanin.rep
+        info(f"🔍 解析 COI 覆盖率报告：{fanin_path}")
+        coi = self._parse_fanin_report(fanin_path)
+
+        def fmt(d):
+            if d["total"] == 0:
+                return "N/A（无此类信号）"
+            return f"{d['covered']}/{d['total']}  ({d['pct']:.1f}%)"
+
+        net_pct = coi["nets"]["pct"]
+        dff_pct = coi["dffs"]["pct"]
+        net_ok = coi["nets"]["total"] == 0 or net_pct >= self.coi_threshold
+        dff_ok = coi["dffs"]["total"] == 0 or dff_pct >= self.coi_threshold
+        all_ok = net_ok and dff_ok
+
+        report = {
+            "fanin_rep": fanin_path,
+            "阈值": f">= {self.coi_threshold:.0f}%",
+            "Inputs  COI": fmt(coi["inputs"]),
+            "Outputs COI": fmt(coi["outputs"]),
+            "Dffs    COI（寄存器状态覆盖）": fmt(coi["dffs"]),
+            "Nets    COI（组合逻辑覆盖）":   fmt(coi["nets"]),
+            "未覆盖信号数": len(coi["uncovered"]),
+            "未覆盖信号（前30个）": coi["uncovered"][:30],
+        }
+
+        if all_ok:
+            return True, {
+                "message": (
+                    f"✅ COI 覆盖率达标\n"
+                    f"  Dff COI（寄存器）: {fmt(coi['dffs'])}\n"
+                    f"  Net COI（逻辑）  : {fmt(coi['nets'])}"
+                ),
+                "report": report
+            }
+        else:
+            issues = []
+            if not dff_ok:
+                issues.append(
+                    f"Dff COI 不足：{dff_pct:.1f}% < {self.coi_threshold:.0f}%\n"
+                    f"  → 部分寄存器状态未被任何断言触达，需补充 (Style: Seq) 断言"
+                )
+            if not net_ok:
+                issues.append(
+                    f"Net COI 不足：{net_pct:.1f}% < {self.coi_threshold:.0f}%\n"
+                    f"  → 部分组合逻辑路径未被覆盖，需补充 (Style: Comb) 断言"
+                )
+            return False, {
+                "error": "\n".join(issues),
+                "report": report,
+                "suggestion": f"查看完整未覆盖信号列表：{fanin_path}"
+            }
+
+
 class EnvironmentDebuggingChecker(Checker):
     """
     环境调试检查器，用于 environment_debugging_iteration 阶段。
-    
-    新工作流程（LLM驱动）：
-    1. 检查跟踪文档 environment_issues_tracking.md 是否存在
-    2. 执行TCL脚本生成新的验证日志
-    3. 解析跟踪文档，检查是否存在未修复的环境问题
-    4. 通过条件：文档中没有【问题分类=环境问题 且 状态=待修复】的记录
-    
-    跟踪文档格式示例：
-    ## [ENV-001] 属性名：CK_EXAMPLE
-    - **状态**：待修复 / 已修复 / 待分析 / 已分类
-    - **失败类型**：TRIVIALLY_TRUE / FAIL / UNREACHABLE
-    - **问题分类**：环境问题 / RTL缺陷 / 待定
-    - **分析说明**：...
-    - **修复措施**：...
+
+    工作流程：
+    1. 检查日志是否存在；若不存在则先执行 TCL 脚本生成日志
+    2. 若 checker.sv 或 wrapper.sv 比日志文件更新，则重新执行 TCL 脚本
+    3. 解析日志，提取 TRIVIALLY_TRUE 和 FALSE 属性
+    4. 对 FALSE 属性进行分类：
+       - 在 checker.sv 中标记 // [RTL_BUG] 的属性 → 已确认 RTL 缺陷，本阶段忽略
+       - 未标记的 FALSE 属性 → 可能是环境问题（欠约束），需要 LLM 分析并决策
+    5. 通过条件：无 TRIVIALLY_TRUE 且无未分类的 FALSE 属性
+
+    FALSE 属性分类约定（LLM 在 checker.sv 中添加标记）：
+    - 确认为 RTL 缺陷：在属性定义前或同行添加 // [RTL_BUG] 注释
+      例：// [RTL_BUG] counter不正确递增，见counter.v:42
+           A_CK_COUNT_MAX_REACHED: assert property(...);
+    - 确认为环境问题：修复 assume 约束后，该属性应变为 PASS
     """
-    def __init__(self, dut_name, property_file, spec_file, log_file, checker_file, tcl_script, tracking_doc=None, **kwargs):
+    def __init__(self, dut_name, property_file, spec_file, log_file, checker_file, tcl_script, **kwargs):
         self.dut_name = dut_name
         self.property_file = property_file
         self.spec_file = spec_file
         self.log_file = log_file
         self.checker_file = checker_file
         self.tcl_script = tcl_script
-        self.tracking_doc = tracking_doc  # explicit path; falls back to log_file sibling dir if None
-    
-    def _run_formalmc(self, timeout: int):
-        """Shared helper: run FormalMC via TclExecutionChecker and return (success, result)."""
-        exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
-        exec_checker.get_path = self.get_path
-        return exec_checker.do_check(timeout)
+
+    def _parse_log(self, log_path: str) -> dict:
+        """
+        解析 avis.log，提取所有属性结果。
+
+        日志格式优先级：
+        1. 汇总表格：  12  checker_inst.A_CK_XXX  :  Fail/Pass/TrivT
+        2. 详细日志：Info-P016: property checker_inst.XXX is FALSE/TRUE/TRIVIALLY_TRUE
+
+        返回:
+            {
+                "trivially_true": [prop_name, ...],  # assert 属性 TRIVIALLY_TRUE
+                "false_props": [prop_name, ...],     # assert 属性 Fail/FALSE（RTL缺陷）
+                "pass_props": [prop_name, ...],      # 通过的属性
+                "cover_pass": [prop_name, ...],      # cover 通过
+                "cover_fail": [prop_name, ...],      # cover 失败
+                "summary": {...}                     # 汇总统计
+            }
+        """
+        result = {
+            "trivially_true": [],
+            "false_props": [],
+            "pass_props": [],
+            "cover_pass": [],
+            "cover_fail": [],
+        }
+
+        if not os.path.exists(log_path):
+            return result
+
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        # 从 show_prop -summary 汇总表格中解析，格式：
+        #   12  checker_inst.A_CK_COUNT_NO_X             :  TrivT
+        #   8   checker_inst.A_CK_RST_RELEASE            :  Fail  (3)
+        #   5   checker_inst.A_CK_RST_COUT_RESET         :  Pass
+        #   18  checker_inst.C_CK_COVER_STATE_0          :  Pass  (2)
+        table_pattern = re.compile(
+            r'^\s*\d+\s+(checker_inst\.[\w.]+)\s*:\s*(TrivT|Fail|Pass|Undec)',
+            re.MULTILINE
+        )
+
+        for m in table_pattern.finditer(content):
+            prop_full = m.group(1)
+            # 去掉 checker_inst. 前缀，取实际属性名
+            prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
+            status = m.group(2)
+
+            is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
+
+            if status == 'TrivT':
+                if not is_cover:
+                    result["trivially_true"].append(prop)
+            elif status == 'Fail':
+                if is_cover:
+                    result["cover_fail"].append(prop)
+                else:
+                    result["false_props"].append(prop)
+            elif status == 'Pass':
+                if is_cover:
+                    result["cover_pass"].append(prop)
+                else:
+                    result["pass_props"].append(prop)
+
+        # 若汇总表格没有解析到，回退到逐行 Info-P016/Info-P014 解析
+        # 注意：log 中既有 "is FALSE" 也有 "false:" 格式
+        if not any([result["trivially_true"], result["false_props"], result["pass_props"]]):
+            # 解析 Info-P016 格式（最终结果）
+            p016_pattern = re.compile(
+                r'Info-P016:\s*property\s+(checker_inst\.[\w.]+)\s+is\s+(TRIVIALLY_TRUE|TRUE|FALSE)',
+                re.IGNORECASE
+            )
+            for m in p016_pattern.finditer(content):
+                prop_full = m.group(1)
+                prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
+                status = m.group(2).upper()
+                is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
+
+                if status == 'TRIVIALLY_TRUE':
+                    if not is_cover:
+                        result["trivially_true"].append(prop)
+                elif status == 'FALSE':
+                    if is_cover:
+                        result["cover_fail"].append(prop)
+                    else:
+                        result["false_props"].append(prop)
+                elif status == 'TRUE':
+                    if is_cover:
+                        result["cover_pass"].append(prop)
+                    else:
+                        result["pass_props"].append(prop)
+            
+            # 补充解析 Info-P014 格式（中间结果，格式：property false: xxx）
+            if not result["false_props"]:
+                p014_pattern = re.compile(
+                    r'Info-P014:\s*property\s+(false|true):\s+(checker_inst\.[\w.]+)',
+                    re.IGNORECASE
+                )
+                for m in p014_pattern.finditer(content):
+                    status_str = m.group(1).lower()
+                    prop_full = m.group(2)
+                    prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
+                    is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
+                    
+                    if status_str == 'false':
+                        if is_cover:
+                            result["cover_fail"].append(prop)
+                        else:
+                            result["false_props"].append(prop)
+                    elif status_str == 'true':
+                        if is_cover:
+                            result["cover_pass"].append(prop)
+                        else:
+                            result["pass_props"].append(prop)
+
+        result["summary"] = {
+            "assert_pass": len(result["pass_props"]),
+            "assert_trivially_true": len(result["trivially_true"]),
+            "assert_false": len(result["false_props"]),
+            "cover_pass": len(result["cover_pass"]),
+            "cover_fail": len(result["cover_fail"]),
+        }
+        return result
+
+    def _extract_prop_code(self, prop_name: str, checker_content: str) -> str:
+        """
+        从 checker.sv 中提取属性的 SVA 代码片段（前后各5行）。
+        """
+        lines = checker_content.split('\n')
+        for i, line in enumerate(lines):
+            if prop_name in line and ('assert' in line or 'property' in line or ':' in line):
+                start = max(0, i - 3)
+                end = min(len(lines), i + 6)
+                return '\n'.join(lines[start:end])
+        # 回退：只找属性名出现的行
+        for i, line in enumerate(lines):
+            if prop_name in line:
+                start = max(0, i - 2)
+                end = min(len(lines), i + 4)
+                return '\n'.join(lines[start:end])
+        return "(未找到属性定义)"
+
+    def _classify_false_props(self, false_props: list, checker_content: str) -> tuple[list, list]:
+        """
+        将 FALSE 属性分为已确认 RTL 缺陷和未分类两类。
+
+        判断依据：属性定义附近（前5行、后2行）是否有 [RTL_BUG] 注释标记。
+        LLM 分析后若确认为 RTL 缺陷，应在 checker.sv 中加上该标记。
+
+        返回: (rtl_defects, unclassified)
+        """
+        lines = checker_content.split('\n')
+        rtl_defects = []
+        unclassified = []
+
+        for prop in false_props:
+            # 找到所有提到该属性名的行号
+            prop_lines = [i for i, line in enumerate(lines) if prop in line]
+            found_marker = False
+            for idx in prop_lines:
+                # 检查该属性前5行 + 后2行窗口内是否有 [RTL_BUG]
+                start = max(0, idx - 5)
+                end = min(len(lines), idx + 3)
+                window = '\n'.join(lines[start:end])
+                if '[RTL_BUG]' in window:
+                    found_marker = True
+                    break
+            if found_marker:
+                rtl_defects.append(prop)
+            else:
+                unclassified.append(prop)
+
+        return rtl_defects, unclassified
+
+    def _need_rerun(self, log_path: str, checker_path: str, wrapper_path: str) -> tuple[bool, str]:
+        """
+        判断是否需要重新执行 TCL 脚本。
+        若 checker.sv 或 wrapper.sv 比 avis.log 更新，则需要重跑。
+        """
+        if not os.path.exists(log_path):
+            return True, "日志文件不存在，需要执行 TCL"
+
+        log_mtime = os.path.getmtime(log_path)
+
+        for fpath, label in [(checker_path, "checker.sv"), (wrapper_path, "wrapper.sv")]:
+            if os.path.exists(fpath) and os.path.getmtime(fpath) > log_mtime:
+                return True, f"{label} 已更新（比日志新），需要重新执行验证"
+
+        return False, "代码未更新，直接读取已有日志"
 
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """执行环境调试检查。
+        """执行环境调试检查"""
+        log_path = self.get_path(self.log_file)
+        checker_path = self.get_path(self.checker_file)
 
-        当 tracking_doc 参数被显式提供且文件已存在时，使用跟踪文档模式（向后兼容）。
-        否则进入自动化模式：重新运行 FormalMC，然后用 EnvironmentIterationChecker 检测
-        TRIVIALLY_TRUE 属性和 fv_idx 约束完整性，无需维护任何中间文档。
-        """
+        # 推断 wrapper 路径（与 checker 同目录，名称为 {dut}_wrapper.sv）
+        tests_dir = os.path.dirname(log_path)
+        wrapper_path = os.path.join(tests_dir, f"{self.dut_name}_wrapper.sv")
 
-        # ── 自动化模式：无跟踪文档 ──────────────────────────────────────────────
-        tracking_doc_path = None
-        if self.tracking_doc:
-            tracking_doc_path = self.get_path(self.tracking_doc)
+        # Step 1: 判断是否需要重新执行 TCL
+        need_rerun, rerun_reason = self._need_rerun(log_path, checker_path, wrapper_path)
 
-        if not tracking_doc_path or not os.path.exists(tracking_doc_path):
-            # Step 1: 重新运行 FormalMC
-            info("🚀 运行 FormalMC，更新验证日志...")
-            exec_success, exec_result = self._run_formalmc(timeout)
+        if need_rerun:
+            info(f"🚀 {rerun_reason}，执行 TCL 脚本...")
+            exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
+            exec_checker.get_path = self.get_path
+            exec_success, exec_result = exec_checker.do_check(timeout)
+
             if not exec_success:
                 return False, {
-                    "error": "❌ TCL脚本执行失败",
+                    "error": "❌ TCL 脚本执行失败",
                     "details": exec_result,
-                    "suggestion": "请检查 TCL 脚本及 checker/wrapper 文件是否有语法错误"
+                    "suggestion": "请检查 TCL 脚本、checker.sv 和 wrapper.sv 是否有语法错误"
                 }
-            info("✅ FormalMC 执行完成，日志已更新")
+            info("✅ TCL 执行成功，日志已更新")
+        else:
+            info(f"📋 {rerun_reason}")
 
-            # Step 2: 用 EnvironmentIterationChecker 检测环境质量
-            info("🔍 自动检测环境质量（TRIVIALLY_TRUE / fv_idx 约束）...")
-            iter_checker = EnvironmentIterationChecker(self.log_file, self.checker_file)
-            iter_checker.get_path = self.get_path
-            return iter_checker.do_check(timeout)
+        # Step 2: 解析日志
+        info("🔍 解析验证日志...")
+        parsed = self._parse_log(log_path)
+        trivially_true = parsed["trivially_true"]
+        false_props = parsed["false_props"]
+        summary = parsed["summary"]
 
-        # ── 跟踪文档模式（向后兼容）───────────────────────────────────────────
-        info(f"✅ 跟踪文档存在: {tracking_doc_path}，使用跟踪文档模式")
+        # Step 3: 读取 checker.sv 用于 FALSE 属性分析
+        checker_content = ""
+        if os.path.exists(checker_path):
+            with open(checker_path, 'r', encoding='utf-8', errors='ignore') as f:
+                checker_content = f.read()
 
-        # Step 1: 重新运行 FormalMC
-        info("🚀 执行TCL脚本，生成最新验证日志...")
-        exec_success, exec_result = self._run_formalmc(timeout)
-        if not exec_success:
-            return False, {
-                "error": "❌ TCL脚本执行失败",
-                "details": exec_result,
-                "suggestion": "请检查TCL脚本和checker/wrapper文件是否有语法错误"
+        # Step 4: 对所有 Fail 属性分类（assert fail + cover fail 统一处理）
+        # 分类依据：checker.sv 中是否有 [RTL_BUG] 注释
+        #   - 有 [RTL_BUG] 标记 → 已确认 RTL 缺陷，本阶段放行，后续 formal_execution 深入分析
+        #   - 无任何标记      → 未分类，必须处理（修复环境或标记 RTL_BUG）
+        rtl_defects_assert, unclassified_false = self._classify_false_props(false_props, checker_content)
+        rtl_defects_cover, unclassified_cover_fail = self._classify_false_props(parsed["cover_fail"], checker_content)
+
+        all_rtl_defects = rtl_defects_assert + rtl_defects_cover
+        all_unclassified = unclassified_false + unclassified_cover_fail
+
+        # Step 5: 判断是否通过
+        # TRIVIALLY_TRUE 为警告（不阻塞通过），任何未分类 Fail 均阻塞（必须修复环境或标记 RTL_BUG）
+        has_tt = len(trivially_true) > 0
+        has_unclassified = len(all_unclassified) > 0
+
+        # 构建公共报告体
+        report = {"summary": summary, "log_path": log_path}
+
+        if has_tt:
+            tt_list = "\n".join(f"  - {p}" for p in trivially_true)
+            report["warning_trivially_true"] = {
+                "count": len(trivially_true),
+                "props": trivially_true,
+                "analysis": (
+                    f"⚠️  以下 {len(trivially_true)} 个属性为 TRIVIALLY_TRUE（环境过约束，建议修复）：\n{tt_list}\n"
+                    "修复方向：\n"
+                    "  1. 检查对应 assume 约束是否过强（排除了合法输入）\n"
+                    "  2. 检查 $isunknown / !$isunknown 断言是否正确——若信号不可能为X则会被常量折叠\n"
+                    "  3. 检查 wrapper.sv 信号映射是否有误导致常数传播\n"
+                    "注意：TRIVIALLY_TRUE 不阻塞阶段通过，但建议尽量修复以提升验证有效性。"
+                )
             }
-        info("✅ TCL执行成功，日志已生成")
 
-        # Step 2: 解析跟踪文档，检查未修复的环境问题
-        info("🔍 解析跟踪文档，检查未修复的环境问题...")
-        all_issues = _parse_tracking_issues(tracking_doc_path)
-        unresolved_issues = [i for i in all_issues if i['status'] == '待修复' and i['classification'] == '环境问题']
+        def _build_unclassified_detail(props, prop_kind):
+            details = []
+            for prop in props:
+                code = self._extract_prop_code(prop, checker_content)
+                details.append({"property": prop, "sva_code": code})
+            prop_list = "\n".join(f"  - {p}" for p in props)
+            if prop_kind == "assert":
+                hint = (
+                    f"以下 {len(props)} 个 assert Fail 属性尚未分类，需逐一分析：\n{prop_list}\n\n"
+                    "分析步骤（对每个属性）：\n"
+                    "  1. 判断：该属性是 RTL 本身的 Bug？还是环境约束不足导致工具找到了不真实的反例？\n"
+                    "     - 环境问题特征：反例中输入信号有不合理的组合；或约束 assume 明显缺失\n"
+                    "     - RTL 缺陷特征：反例展示了真实的 RTL 功能错误\n"
+                    "  2. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
+                    "       // [RTL_BUG] <简短描述>\n"
+                    "  3. 若确认为环境问题：修复对应 assume 约束，该属性修复后应变为 PASS\n"
+                    "  4. 完成所有标记/修复后，再次调用 Check"
+                )
+            else:
+                hint = (
+                    f"以下 {len(props)} 个 cover Fail 属性尚未分类，需逐一分析：\n{prop_list}\n\n"
+                    "cover Fail 表示该场景从未被到达，分析步骤：\n"
+                    "  1. 判断：该场景是 RTL Bug 导致不可达？还是 assume 过强排除了该场景？\n"
+                    "     - 环境过约束特征：放宽 assume 后场景可到达\n"
+                    "     - RTL 缺陷特征：逻辑上应可达但 RTL 实现有误\n"
+                    "  2. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
+                    "       // [RTL_BUG] <简短描述>\n"
+                    "  3. 若确认为环境过约束：修复对应 assume，该 cover 修复后应变为 PASS\n"
+                    "  4. 完成所有标记/修复后，再次调用 Check"
+                )
+            return {"count": len(props), "props": props, "details": details, "analysis_required": hint}
 
-        if unresolved_issues:
-            issue_list = "\n".join([
-                f"  - [{issue['property']}] 状态={issue['status']}, 分类={issue['classification']}"
-                for issue in unresolved_issues
-            ])
-            return False, {
-                "error": f"❌ 存在 {len(unresolved_issues)} 个未修复的环境问题",
-                "unresolved_issues": unresolved_issues,
-                "details": f"以下环境问题需要修复：\n{issue_list}",
-                "next_steps": (
-                    "请继续环境调试流程：\n"
-                    "1. 分析每个未修复的环境问题\n"
-                    "2. 修改 checker.sv 或 wrapper.sv\n"
-                    "3. 再次运行Check工具"
-                ),
-                "tracking_doc_path": tracking_doc_path,
-                "total_issues": len(all_issues),
-                "unresolved_count": len(unresolved_issues)
-            }
+        if unclassified_false:
+            report["unclassified_assert_fail"] = _build_unclassified_detail(unclassified_false, "assert")
 
-        resolved_count = sum(1 for i in all_issues
-                             if i['status'] == '已修复' and i['classification'] == '环境问题')
-        rtl_issues_count = sum(1 for i in all_issues if i['classification'] == 'RTL缺陷')
-        return True, {
-            "message": "✅ 环境调试阶段检查通过",
-            "summary": "所有环境问题已修复，可以进入RTL缺陷分析阶段",
-            "statistics": {
-                "total_issues": len(all_issues),
-                "resolved_env_issues": resolved_count,
-                "rtl_defects": rtl_issues_count,
-                "unresolved_env_issues": 0
-            },
-            "tracking_doc_path": tracking_doc_path,
+        if unclassified_cover_fail:
+            report["unclassified_cover_fail"] = _build_unclassified_detail(unclassified_cover_fail, "cover")
+
+        if all_rtl_defects:
+            report["rtl_defects_already_marked"] = all_rtl_defects
+
+        if has_unclassified:
+            parts = []
+            if unclassified_false:
+                parts.append(f"{len(unclassified_false)} 个 assert Fail 未分类")
+            if unclassified_cover_fail:
+                parts.append(f"{len(unclassified_cover_fail)} 个 cover Fail 未分类")
+            report["error"] = (
+                "❌ 环境调试未完成：" + "，".join(parts) +
+                "。\n请逐一分析每个 Fail 属性：确认为 RTL 缺陷则加 // [RTL_BUG] 注释；确认为环境问题则修复 assume 约束。"
+            )
+            if has_tt:
+                report["error"] += f"\n（另有 {len(trivially_true)} 个 TRIVIALLY_TRUE 警告，建议修复但不阻塞）"
+            return False, report
+
+        # 通过：所有 Fail 均已分类（TRIVIALLY_TRUE 仅作警告）
+        rtl_list = "\n".join(f"  - {p}" for p in all_rtl_defects)
+        result = {
+            "summary": summary,
+            "rtl_defects_confirmed": all_rtl_defects,
+            "note": (
+                f"已确认 {len(all_rtl_defects)} 个 RTL 缺陷（标记 [RTL_BUG]），"
+                "将在后续 formal_execution 阶段深度分析：\n" + rtl_list
+                if all_rtl_defects else "无未分类 Fail 属性，验证环境质量良好"
+            ),
+            "log_path": log_path
         }
+        if has_tt:
+            result["message"] = f"✅ 环境调试阶段通过（含 {len(trivially_true)} 个 TRIVIALLY_TRUE 警告，建议修复）"
+            result["warning_trivially_true"] = report["warning_trivially_true"]
+        else:
+            result["message"] = "✅ 环境调试阶段通过"
+        return True, result

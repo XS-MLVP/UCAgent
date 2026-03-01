@@ -1,7 +1,0 @@
-*-4.736966 0 0
-[color] 2
-traffic_wrapper/checker_inst C_CK_COVER_HWY_R
-[color] 4
-traffic_wrapper/checker_inst rst_n
-[color] 4
-traffic_wrapper/checker_inst hwy_light[1:0]

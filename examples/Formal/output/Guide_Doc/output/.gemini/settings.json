@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "unitytest": {
-      "url": "http://localhost:5000/mcp",
-      "type": "http"
-    }
-  }
-}
