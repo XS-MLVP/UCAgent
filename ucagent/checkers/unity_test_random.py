@@ -1,11 +1,39 @@
 #coding=utf-8
 
 
+import ast
+import fnmatch
 import ucagent.util.functions as fc
 from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from typing import Tuple
-import inspect
 from ucagent.checkers.toffee_report import check_report
+
+
+def _inspect_funcs_by_ast(file_path: str, func_pattern: str):
+    """
+    Parse a Python source file with AST to find functions matching a glob pattern.
+
+    Avoids importing the file, so DUT packages (which may call os.execve() to
+    restart the process with LD_PRELOAD) are never triggered in the parent
+    UCAgent process.  This is the same approach used in UnityChipCheckerTestMustPass
+    and UnityChipCheckerDutApi ("Skip direct import to avoid TLS errors").
+
+    Returns:
+        list of (func_name: str, arg_names: list[str], source_text: str)
+    """
+    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+        source = f.read()
+    tree = ast.parse(source, filename=file_path)
+    results = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not fnmatch.fnmatch(node.name, func_pattern):
+            continue
+        args = [arg.arg for arg in node.args.args]
+        func_src = ast.get_source_segment(source, node) or ""
+        results.append((node.name, args, func_src))
+    return results
 
 
 class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
@@ -51,18 +79,25 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                           f"expected at least {self.mini_file_count} files with pattern: {self.target_test_file}."
         total_test_count = 0
         for tfile in test_files:
-            random_tc_list = fc.get_target_from_file(self.get_path(tfile), self.test_case_name_pattern,
-                                           ex_python_path=self.workspace,
-                                           dtype="FUNC")
-            total_test_count += len(random_tc_list)
-            for tfunc in random_tc_list:
-                args = fc.get_func_arg_list(tfunc)
+            # Use AST-based inspection to avoid importing test files in the parent process.
+            # Test files import DUT packages (e.g. from Adder import DUTAdder) which trigger
+            # os.execve() in __init__.py to restart with LD_PRELOAD, replacing the UCAgent
+            # process entirely and causing a git import failure at startup.
+            # This follows the same pattern as UnityChipCheckerTestMustPass and
+            # UnityChipCheckerDutApi: skip direct import to avoid TLS/LD_PRELOAD issues.
+            try:
+                func_infos = _inspect_funcs_by_ast(self.get_path(tfile), self.test_case_name_pattern)
+            except SyntaxError as e:
+                return False, {"error": f"Syntax error in test file '{tfile}': {e}"}
+            except OSError as e:
+                return False, {"error": f"Cannot read test file '{tfile}': {e}"}
+            total_test_count += len(func_infos)
+            for func_name, args, func_source in func_infos:
                 if len(args) < 1 or args[0] != "env":
-                    return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
-                func_source = inspect.getsource(tfunc)
+                    return False, {"error": f"The '{tfile + ':' + func_name}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
                 for mc, v in self.must_func_code_snippet.items():
                     if mc not in func_source:
-                        return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function must contain "
+                        return False, {"error": f"The '{tfile + ':' + func_name}' Env test function must contain "
                                                 f"'{mc}', {v}"}
         if total_test_count < self.min_test_count:
             return False, f"Random test cases check fail: found {total_test_count} test cases, " \
