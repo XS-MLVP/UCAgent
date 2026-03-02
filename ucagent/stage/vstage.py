@@ -71,6 +71,11 @@ class VerifyStage(object):
                 **c.extra_args.as_dict()
             ).set_workspace(workspace).set_stage(self) for c in self._checker
         ]
+        # Propagate check_script_env to every checker when configured
+        _cse = getattr(self.cfg, "check_script_env", None)
+        if _cse:
+            for _c in self.checker:
+                _c.check_script_env = os.path.abspath(_cse)
         if not self.need_human_check:
             for c in self.checker:
                 if c.is_human_check_needed():

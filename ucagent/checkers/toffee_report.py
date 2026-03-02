@@ -260,9 +260,13 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         return ret, doc_ck_list, -1
     if report["test_function_with_no_check_point_mark"] > 0:
         unmarked_functions = report['test_function_with_no_check_point_mark_list']
-        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace, func_RunTestCases=func_RunTestCases, timeout_RunTestCases=timeout_RunTestCases)
-        return False, f"Test function mapping incomplete: {report['test_function_with_no_check_point_mark']} test functions not associated with check points. " + \
-                       mark_function_desc, -1
+        # Filter out infrastructure test files (env check and env fixture tests are not required to call mark_function)
+        unmarked_functions = [f for f in unmarked_functions
+                              if "test_env_check.py:" not in f and "_env_fixture.py:" not in f]
+        if len(unmarked_functions) > 0:
+            mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace, func_RunTestCases=func_RunTestCases, timeout_RunTestCases=timeout_RunTestCases)
+            return False, f"Test function mapping incomplete: {len(unmarked_functions)} test functions not associated with check points. " + \
+                           mark_function_desc, -1
 
     checks_in_tc  = [b for b in report.get("all_check_point_list", []) if b.startswith(target_ck_prefix)]
     if len(checks_in_tc) == 0:

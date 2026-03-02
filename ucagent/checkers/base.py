@@ -3,6 +3,8 @@
 
 import os
 import sys
+import subprocess
+import json
 from typing import Tuple
 from ucagent.util.config import Config
 from ucagent.util.functions import render_template, rm_workspace_prefix, fill_template
@@ -33,6 +35,7 @@ class Checker:
     _is_init = False
     _need_human_check = False
     _cb_list = {}
+    check_script_env = None
 
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,
@@ -73,6 +76,158 @@ class Checker:
 
     def get_template_data(self):
         return None
+
+    @staticmethod
+    def _find_real_python_binary() -> str:
+        """Find the real Python ELF binary, not a shell wrapper.
+        
+        Returns:
+            Path to the real Python binary.
+        """
+        def _is_elf(path):
+            try:
+                with open(path, 'rb') as f:
+                    return f.read(4) == b'\x7fELF'
+            except:
+                return False
+        
+        resolved = os.path.realpath(sys.executable)
+        if _is_elf(resolved):
+            return resolved
+        
+        # If sys.executable is a shell wrapper, search for pythonX.Y in the same directory
+        bin_dir = os.path.dirname(resolved)
+        version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        candidates = [
+            os.path.join(bin_dir, f"python{version}"),
+            os.path.join(bin_dir, f"python{sys.version_info.major}"),
+            os.path.join(bin_dir, "python"),
+        ]
+        for candidate in candidates:
+            if os.path.exists(candidate) and _is_elf(candidate):
+                return candidate
+        
+        # Fallback: return sys.executable and hope for the best
+        return sys.executable
+
+    @staticmethod
+    def _find_libpython() -> str:
+        """Find the libpython shared library for the running Python interpreter.
+        
+        libpython must be preloaded before any Python C extension .so files so
+        that Python API symbols (e.g. PyExc_ValueError) are available in every
+        child process that inherits LD_PRELOAD — including /bin/sh.
+        
+        Returns:
+            Absolute path to libpython*.so, or empty string if not found.
+        """
+        import sysconfig
+        import glob
+        ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+        # Candidate library names in preference order
+        lib_names = [
+            f"libpython{ver}.so.1.0",
+            f"libpython{ver}.so",
+            f"libpython{ver}m.so.1.0",
+            f"libpython{ver}m.so",
+        ]
+        # Search directories
+        search_dirs = []
+        libdir = sysconfig.get_config_var('LIBDIR')
+        if libdir:
+            search_dirs.append(libdir)
+        # Also try <prefix>/lib based on sys.executable
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        search_dirs.append(os.path.join(os.path.dirname(exe_dir), "lib"))
+        search_dirs.append(exe_dir)
+        for d in search_dirs:
+            for name in lib_names:
+                path = os.path.join(d, name)
+                if os.path.exists(path):
+                    return path
+            # Glob fallback for this directory
+            matches = sorted(glob.glob(os.path.join(d, f"libpython{ver}*.so*")))
+            if matches:
+                return matches[0]
+        return ""
+
+    def _get_ld_preload_env(self) -> dict:
+        """Get environment variables with LD_PRELOAD configured.
+        
+        Prepends libpython to the .so path so that Python C API symbols
+        (e.g. PyExc_ValueError) are available in every subprocess that
+        inherits LD_PRELOAD, including /bin/sh spawned by VCS simulation.
+        
+        Returns:
+            Dictionary with LD_PRELOAD and _LD_PRELOAD_HANDLED set.
+        """
+        if not self.check_script_env:
+            return {}
+        
+        so_file = os.path.abspath(self.check_script_env)
+        libpython = self._find_libpython()
+        ld_preload = f"{libpython}:{so_file}" if libpython else so_file
+        return {
+            "LD_PRELOAD": ld_preload,
+            "_LD_PRELOAD_HANDLED": "1"
+        }
+    
+    def _run_subprocess_check(self, script_name: str, *args, timeout=30) -> Tuple[bool, object]:
+        """Run a checker script in a subprocess with LD_PRELOAD.
+        
+        Args:
+            script_name: Name of the script file (e.g., 'run_check_dut_creation.py')
+            *args: Additional arguments to pass to the script
+            timeout: Timeout in seconds
+        
+        Returns:
+            Tuple of (success: bool, result: dict or error message)
+        """
+        if not self.check_script_env:
+            raise RuntimeError("check_script_env is not set, cannot run subprocess check")
+        
+        script_dir = os.path.join(os.path.dirname(__file__), "scripts")
+        script = os.path.join(script_dir, script_name)
+        
+        if not os.path.exists(script):
+            return False, {"error": f"Checker script '{script_name}' not found at {script}"}
+        
+        # Setup environment with LD_PRELOAD
+        env = os.environ.copy()
+        env.update(self._get_ld_preload_env())
+        
+        # Use the real Python binary
+        python_bin = self._find_real_python_binary()
+        
+        # Build command
+        cmd = [python_bin, script] + list(args)
+        
+        try:
+            proc = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            
+            # Parse JSON from stdout
+            try:
+                result = json.loads(proc.stdout.strip())
+                if not result.get("success", False):
+                    # Return full result dict including error_key
+                    return False, result
+                return True, result
+            except json.JSONDecodeError:
+                return False, {
+                    "error": f"Failed to parse subprocess output as JSON",
+                    "stdout": proc.stdout[:500],
+                    "stderr": proc.stderr[:500]
+                }
+        except subprocess.TimeoutExpired:
+            return False, {"error": f"Subprocess timed out after {timeout} seconds"}
+        except Exception as e:
+            return False, {"error": f"Subprocess failed: {str(e)}"}
 
     def get_attr(self):
         cfg = {}

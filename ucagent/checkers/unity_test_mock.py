@@ -16,6 +16,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
                  last_arg="",
                  batch_size=1, 
                  min_file_tests=1, timeout=300, **kw):
+        super().__init__(**kw)
         self.target_file = target_file
         self.test_file_prefix = test_file_prefix
         self.test_prefix = test_prefix
@@ -35,6 +36,10 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             "TOTAL_MOCKS", "COMPLETED_MOCKS", "LIST_CURRENT_MOCKS"
         )
         return ret
+    
+    def _get_pytest_env(self):
+        """Get pytest environment variables including LD_PRELOAD if check_script_env is set."""
+        return self._get_ld_preload_env()
 
     def on_init(self):
         self.batch_task.source_task_list = fc.find_files_by_pattern(
@@ -154,7 +159,8 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             test_dir_full_path,
             pytest_ex_args=" ".join(py_case_files),
             return_stdout=True, return_stderr=True, return_all_checks=True,
-            timeout=timeout
+            timeout=timeout,
+            pytest_ex_env=self._get_pytest_env()
         )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:

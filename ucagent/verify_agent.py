@@ -75,6 +75,7 @@ class VerifyAgent:
         no_history: bool = False,
         enable_context_manage_tools: bool = False,
         exit_on_completion: bool = False,
+        check_script_env: str = None,
         use_new_ui: bool = True,
     ):
         """Initialize the Verify Agent with configuration and an optional agent.
@@ -127,6 +128,7 @@ class VerifyAgent:
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
+        self.cfg.check_script_env = check_script_env
         self.cfg.freeze()
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace

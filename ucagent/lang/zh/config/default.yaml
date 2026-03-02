@@ -702,6 +702,7 @@ stage:
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
+          use_real_dut: true
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
@@ -783,6 +784,7 @@ stage:
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
+            use_real_dut: true
         need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: line_coverage_analysis_and_improvement
