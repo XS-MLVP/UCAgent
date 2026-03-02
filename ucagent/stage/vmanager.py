@@ -716,12 +716,18 @@ class StageManager(object):
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
         ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout})
+        
+        # Count checker status
+        passed_count = sum(1 for c in ck_info if isinstance(c, dict) and c.get('status') == '✓ PASSED')
+        total_count = len([c for c in ck_info if c is not None])
+        
         ret_data = OrderedDict({
+            "stage_status": f"{'✓ ALL CHECKERS PASSED' if ck_pass else f'✗ INCOMPLETE: {passed_count}/{total_count} checkers passed'}",
             "check_info": ck_info,
             "check_pass": ck_pass,
         })
         if not ck_pass:
-            ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            ret_data["action"] = "Please fix the issues reported in 'check_info' for failed checkers, then use the `Check` tool again to re-validate your work."
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."

@@ -1,39 +1,11 @@
 #coding=utf-8
 
 
-import ast
-import fnmatch
 import ucagent.util.functions as fc
 from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from typing import Tuple
+import inspect
 from ucagent.checkers.toffee_report import check_report
-
-
-def _inspect_funcs_by_ast(file_path: str, func_pattern: str):
-    """
-    Parse a Python source file with AST to find functions matching a glob pattern.
-
-    Avoids importing the file, so DUT packages (which may call os.execve() to
-    restart the process with LD_PRELOAD) are never triggered in the parent
-    UCAgent process.  This is the same approach used in UnityChipCheckerTestMustPass
-    and UnityChipCheckerDutApi ("Skip direct import to avoid TLS errors").
-
-    Returns:
-        list of (func_name: str, arg_names: list[str], source_text: str)
-    """
-    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-        source = f.read()
-    tree = ast.parse(source, filename=file_path)
-    results = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        if not fnmatch.fnmatch(node.name, func_pattern):
-            continue
-        args = [arg.arg for arg in node.args.args]
-        func_src = ast.get_source_segment(source, node) or ""
-        results.append((node.name, args, func_src))
-    return results
 
 
 class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
@@ -79,18 +51,26 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                           f"expected at least {self.mini_file_count} files with pattern: {self.target_test_file}."
         total_test_count = 0
         for tfile in test_files:
-            # Use AST-based inspection to avoid importing test files in the parent process.
-            # Test files import DUT packages (e.g. from Adder import DUTAdder) which trigger
-            # os.execve() in __init__.py to restart with LD_PRELOAD, replacing the UCAgent
-            # process entirely and causing a git import failure at startup.
-            # This follows the same pattern as UnityChipCheckerTestMustPass and
-            # UnityChipCheckerDutApi: skip direct import to avoid TLS/LD_PRELOAD issues.
-            try:
-                func_infos = _inspect_funcs_by_ast(self.get_path(tfile), self.test_case_name_pattern)
-            except SyntaxError as e:
-                return False, {"error": f"Syntax error in test file '{tfile}': {e}"}
-            except OSError as e:
-                return False, {"error": f"Cannot read test file '{tfile}': {e}"}
+            if self.check_script_env:
+                # When check_script_env is set, run inspection in a subprocess
+                # with LD_PRELOAD so the DUT .so is loaded before Python starts.
+                # This prevents Adder/__init__.py from calling os.execve() in the
+                # parent UCAgent process (which would restart it and trigger the
+                # git LD_PRELOAD symbol-lookup error).
+                ret, func_infos = self._inspect_funcs_subprocess(self.get_path(tfile))
+                if not ret:
+                    return False, func_infos  # func_infos is the error dict here
+            else:
+                # Original direct-import path (no DUT .so involved)
+                raw_list = fc.get_target_from_file(self.get_path(tfile), self.test_case_name_pattern,
+                                                   ex_python_path=self.workspace,
+                                                   dtype="FUNC")
+                func_infos = [
+                    (f.__name__,
+                     fc.get_func_arg_list(f),
+                     inspect.getsource(f))
+                    for f in raw_list
+                ]
             total_test_count += len(func_infos)
             for func_name, args, func_source in func_infos:
                 if len(args) < 1 or args[0] != "env":
@@ -130,3 +110,27 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         if not ret:
             return ret, get_emsg(msg["error"])
         return True, f"Random test cases({total_test_count}) check Pass"
+
+    def _inspect_funcs_subprocess(self, target_file: str):
+        """
+        Run function inspection inside a fresh subprocess that has LD_PRELOAD
+        set before Python starts (via _run_subprocess_check), so DUT .so files
+        load correctly without triggering os.execve() in the parent process.
+
+        Returns:
+            (True,  list of (name, args, source))   on success
+            (False, {"error": ...})                  on failure
+        """
+        success, result = self._run_subprocess_check(
+            "run_check_random_funcs.py",
+            target_file,
+            self.workspace,
+            self.test_case_name_pattern,
+        )
+        if not success:
+            return False, {"error": result.get("error", str(result))}
+        func_infos = [
+            (f["name"], f["args"], f["source"])
+            for f in result.get("functions", [])
+        ]
+        return True, func_infos
