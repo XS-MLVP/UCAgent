@@ -100,6 +100,8 @@ class VerifyStage(object):
         self.llm_approved = True
         self.is_batch_success = False # set True when reset continue_fail_count due to batch success
         self.is_complete = False
+        self.force_unactive = False
+        self.vmanager = None
         self.meta_data = {}
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
@@ -171,6 +173,12 @@ class VerifyStage(object):
     def is_completed(self):
         return self.is_complete
 
+    def is_curent_active(self):
+        return self.vmanager and self.vmanager.get_current_stage() == self
+
+    def set_force_unactive(self, unactive: bool):
+        self.force_unactive = unactive
+
     def set_approved(self, approved: bool):
         self.llm_approved = approved
         return approved
@@ -237,13 +245,18 @@ class VerifyStage(object):
         assert manager is not None, "Stage Manager cannot be None."
         for c in self.checker:
             c.set_stage_manager(manager)
+        self.vmanager = manager
 
     def on_file_read(self, success, file_path, content):
+        if not self.is_curent_active():
+            return
+        if self.force_unactive:
+            return
         if not success:
             return
         if file_path in self.reference_files:
             self.reference_files[file_path] = True
-            info(f"[{self.__class__.__name__}] Reference file {file_path} has been read by the LLM.")
+            info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description()}, "+\

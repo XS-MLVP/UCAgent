@@ -535,10 +535,14 @@ class StageManager(object):
             return raw_msg
         if callable(pre_llm_cb):
             pre_llm_cb()
-        return suggestion_instance.suggest([
-                stage.task_info(),
-                raw_msg],
-                stage)
+        stage.set_force_unactive(True)
+        try:
+            return suggestion_instance.suggest([
+                    stage.task_info(),
+                    raw_msg],
+                    stage)
+        finally:
+            stage.set_force_unactive(False)
 
     def get_time_cost(self):
         if self.time_end is None:

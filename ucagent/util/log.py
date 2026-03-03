@@ -5,6 +5,7 @@ import logging
 import logging.handlers
 import os
 from typing import Optional
+from datetime import datetime
 
 RESET = "\033[0m"
 GREEN = "\033[32m"
@@ -18,6 +19,11 @@ L_YELLOW = "\033[93m"
 L_BLUE = "\033[94m"
 
 __log_logger__: Optional[logging.Logger] = None
+
+
+def get_log_time_str():
+    """Returns the current time as a formatted string."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
 def get_log_logger() -> Optional[logging.Logger]:
@@ -106,7 +112,7 @@ def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
 
 def debug(msg: str):
     """Prints a debug message."""
-    print(f"[DEBUG] {msg}")
+    print(f"[{get_log_time_str()} DEBUG] {msg}")
     log_msg(msg, logging.DEBUG)
 
 
@@ -136,19 +142,19 @@ def echo_y(msg: str):
 
 def info(msg: str):
     """Prints an info message."""
-    print(f"{GREEN}[INFO] %s{RESET}" % msg, flush=True)
+    print(f"{GREEN}[{get_log_time_str()} INFO] %s{RESET}" % msg, flush=True)
     log_msg(msg, logging.INFO)
 
 
 def warning(msg: str):
     """Prints a warning message."""
-    print(f"{YELLOW}[WARN] %s{RESET}" % msg, flush=True)
+    print(f"{YELLOW}[{get_log_time_str()} WARN] %s{RESET}" % msg, flush=True)
     log_msg(msg, logging.WARNING)
 
 
 def error(msg: str):
     """Prints an error message."""
-    print(f"{RED}[ERROR] %s{RESET}" % msg, flush=True)
+    print(f"{RED}[{get_log_time_str()} ERROR] %s{RESET}" % msg, flush=True)
     log_msg(msg, logging.ERROR)
 
 
