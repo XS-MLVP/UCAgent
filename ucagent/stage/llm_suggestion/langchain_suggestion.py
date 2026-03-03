@@ -15,14 +15,22 @@ from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.log import warning
 
 
-class KeepFirstSummarizationMiddleware(SummarizationMiddleware):
+class RemoveAllSummarizationMiddleware(SummarizationMiddleware):
     def before_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:  # noqa: ARG002
         """Process messages before model invocation, potentially triggering summarization."""
-        ret = super().before_model(state, runtime)
-        if ret is not None:
-            if "messages" in state and len(state["messages"]) > 0 and "messages" in ret and len(ret["messages"]) > 0:
-                ret["messages"].insert(1, state["messages"][0])
-        return ret
+        if getattr(self, "_remove_all", False) == True:
+            self._remove_all = False
+            warning(f"{self._remove_msg}")
+            return {"messages": [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                *state["messages"][-self._tail_message_count:], # Keep the last message
+            ]}
+        return super().before_model(state, runtime)
+
+    def remove_all_messages(self, msg, tail_message_count=2):
+        self._remove_all = True
+        self._remove_msg = msg
+        self._tail_message_count = tail_message_count
 
 
 def do_work_values(self, instructions, config):
@@ -69,6 +77,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
         self.mem_saver = MemorySaver()
         self.current_vstage = None
         self.system_prompt = None
+        self.summary_middleware = None
         self.suggestion_prompt = "Extract key details from the test information above (such as critical errors or important prompts) and present them to the tester."
 
     def bind_tools(self, tools: list,
@@ -76,19 +85,22 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
                    suggestion_prompt: str):  # return self
         self.system_prompt = system_prompt
         self.suggestion_prompt = suggestion_prompt
+        self.summary_middleware = RemoveAllSummarizationMiddleware(
+                                          model=self.llm,
+                                          trigger=("tokens", self.summary_trigger_tokens),
+                                          keep=('messages', self.summary_keep_messages)
+                                        )
         self.agent = create_agent(self.llm,
                                   tools=tools,
-                                  middleware=[
-                                        KeepFirstSummarizationMiddleware(
-                                          model=self.llm,
-                                          max_tokens_before_summary=self.summary_trigger_tokens,
-                                          messages_to_keep=self.summary_keep_messages,
-                                        ),
-                                  ],
+                                  middleware=[self.summary_middleware],
                                   system_prompt=system_prompt,
                                   checkpointer=self.mem_saver,
                                 )
         return self
+
+    def on_stage_complete(self, stage):
+        if self.summary_middleware:
+            self.summary_middleware.remove_all_messages(f"Fail check message history is cleaned due to stage[{stage.name}] complete.")
 
     def get_work_cfg(self):
         return {"configurable": {"thread_id": self.get_thread_id()}}
@@ -172,6 +184,7 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
         self.agent = None
         self.mem_saver = MemorySaver()
         self.current_vstage = None
+        self.summary_middleware = None
 
     def bind_tools(self, tools: list,
                    system_prompt: str,
@@ -180,19 +193,22 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
         self.system_prompt = system_prompt
         self.suggestion_prompt = suggestion_prompt
         assert suggestion_prompt is not None, "suggestion_prompt should not be None"
+        self.summary_middleware = RemoveAllSummarizationMiddleware(
+                                          model=self.llm,
+                                          trigger=("tokens", self.summary_trigger_tokens),
+                                          keep=('messages', self.summary_keep_messages)
+                                        )
         self.agent = create_agent(self.llm,
                                   tools=tools,
-                                  middleware=[
-                                        KeepFirstSummarizationMiddleware(
-                                          model=self.llm,
-                                          max_tokens_before_summary=self.summary_trigger_tokens,
-                                          messages_to_keep=self.summary_keep_messages,
-                                        ),
-                                  ],
+                                  middleware=[self.summary_middleware],
                                   system_prompt=system_prompt,
                                   checkpointer=self.mem_saver,
                                 )
         return self
+
+    def on_stage_complete(self, stage):
+        if self.summary_middleware:
+            self.summary_middleware.remove_all_messages(f"Pass check message history is cleaned due to stage[{stage.name}] complete.")
 
     def get_work_cfg(self):
         return {"configurable": {"thread_id": self.get_thread_id()}}

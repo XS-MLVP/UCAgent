@@ -52,6 +52,9 @@ class BaseLLMSuggestion:
     def get_cfg(self):
         return self._cfg
 
+    def on_stage_complete(self, stage: VerifyStage):
+        pass
+
     def bind_tools(self, tools: list,
                    system_prompt: str,
                    suggestion_prompt: str): # return self

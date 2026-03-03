@@ -636,7 +636,10 @@ class StageManager(object):
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
                 "is_skipped": stage.is_skipped(),
+                "time_start": stage.get_time_start_str(),
+                "time_end": stage.get_time_end_str(),
                 "time_cost": stage.get_time_cost_str(),
+                "is_completed": stage.is_completed(),
                 "needs_human_check": stage.is_hmcheck_needed(),
                 "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
                 "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
@@ -787,6 +790,13 @@ class StageManager(object):
         else:
             warning(f"Invalid stage index: {index}, can not set unskip.")
 
+    def _stage_complete(self, stage):
+        stage.on_complete()
+        if self.llm_fail_suggestion:
+            self.llm_fail_suggestion.on_stage_complete(stage)
+        if self.llm_pass_suggestion:
+            self.llm_pass_suggestion.on_stage_complete(stage)
+
     def complete(self, timeout):
         if self.stage_index >= len(self.stages):
             return {
@@ -799,26 +809,29 @@ class StageManager(object):
         stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
-                return False, {"error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
+                return {"complete": False,
+                        "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
         if ck_pass:
             llm_msg = self.gen_pass_suggestion(ck_info)
             ck_pass = stage.get_approved()
             if not ck_pass:
                 if isinstance(llm_msg, str):
-                    return "Stage Complete Fail:\n\n" + llm_msg
-                return {"Stage Complete Fail": llm_msg}
+                    return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
+                return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
                 self.agent._need_human = True
                 return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
                                   "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
-                                  "Then wait for human review and approval.")}
+                                  "Then wait for human review and approval."),
+                        "complete": False}
             elif hm_passed is False:
                 self.agent._need_human = True
                 return {"error": ("Human check did not approve your work for this stage. "
                                   "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
-                         "human_review_msg": ck_msg
+                         "human_review_msg": ck_msg,
+                         "complete": False
                         }
             else:
                 assert hm_passed is True, "hm_passed should be True here"
@@ -830,7 +843,7 @@ class StageManager(object):
         })
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
-            self.stages[self.stage_index].on_complete()
+            self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
             if self.stage_index >= len(self.stages):
                 message = ("All stages completed successfully. "

@@ -99,6 +99,7 @@ class VerifyStage(object):
         self.time_prev_cost = 0.0
         self.llm_approved = True
         self.is_batch_success = False # set True when reset continue_fail_count due to batch success
+        self.is_complete = False
         self.meta_data = {}
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
@@ -155,13 +156,20 @@ class VerifyStage(object):
     def on_init(self):
         for c in self.checker:
             c.on_init()
-        self.time_start = time.time()
+        if self.time_start is None:
+            self.time_start = time.time()
+        else:
+            warning(f"Stage {self.name} is already inited, cannot recall on_init.")
 
     def on_complete(self):
         if self.time_end is not None:
             return
         self.time_end = time.time()
+        self.is_complete = True
         self.hist_commit(msg="Stage completed.")
+
+    def is_completed(self):
+        return self.is_complete
 
     def set_approved(self, approved: bool):
         self.llm_approved = approved
@@ -169,6 +177,16 @@ class VerifyStage(object):
 
     def get_approved(self):
         return self.llm_approved
+
+    def get_time_start_str(self):
+        if self.time_start is None:
+            return ""
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.time_start))
+
+    def get_time_end_str(self):
+        if self.time_end is None:
+            return ""
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.time_end))
 
     def get_time_cost(self):
         if self.time_start is None:
