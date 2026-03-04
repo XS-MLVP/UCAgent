@@ -23,68 +23,41 @@ Docker 环境已包含所有必需的验证工具（Verilator、SWIG、Python、
 # 拉取镜像
 docker pull ghcr.io/xs-mlvp/ucagent:latest
 
-# 启动容器（交互式）
-docker run -it --rm \
-  -v $(pwd):/workspace/examples/Formal \
-  -e OPENAI_API_KEY=${OPENAI_API_KEY:-} \
-  -w /workspace/examples/Formal \
+# 启动容器（交互式），命名容器方便后续 exec 进入
+docker run -it --rm --name ucagent-server \
+  -w /workspace/ucagent/examples/Formal \
   ghcr.io/xs-mlvp/ucagent:latest
 ```
 
-#### 步骤 2：在容器内安装配置 Code Agent
+#### 步骤 2：在容器内启动 MCP Server
 
 ```bash
-# 安装 qwen-code-cli
-npm install -g @qwen/qwen-code-cli
 
-# 配置 MCP Server
-mkdir -p ~/.qwen
-cat > ~/.qwen/settings.json << 'EOF'
-{
-    "mcpServers": {
-        "unitytest": {
-            "httpUrl": "http://localhost:5000/mcp",
-            "timeout": 300000
-        }
-    }
-}
-EOF
+# 初始化并启动 MCP Server（以 Adder 为例）
+make mcp_Adder
+# MCP Server 启动在 http://127.0.0.1:5000/mcp
+# 此终端会持续运行，保持不动
 ```
 
-**其他 Code Agent 选项**：
+#### 步骤 3：新开一个终端，进入同一个容器
+
+```bash
+# 在宿主机新开一个终端，exec 进入同一个容器
+docker exec -it ucagent-server bash
+```
+
+#### 步骤 4：安装配置并启动 Code Agent
+
+根据需要选择并安装合适的 Code Agent，配置 MCP Server 地址后启动：
+
+- [Qwen Code](https://qwenlm.github.io/qwen-code-docs/en/)
 - [Claude Code](https://claude.com/product/claude-code)
 - [OpenCode](https://opencode.ai/)
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli)
-- [Kilo CLI](https://kilo.ai/cli)
 
-#### 步骤 3：开始验证
+MCP Server 地址：`http://localhost:5000/mcp`，超时建议设置 300 秒以上。
 
-**方式一：自动运行（推荐）**
-
-```bash
-# 指定后端自动运行，无需手动启动 Code Agent
-make mcp_Adder ARGS="--loop --backend=qwen"
-
-# 或使用其他支持的后端，参考 ../../ucagent/setting.yaml
-```
-
-**方式二：手动运行 Code Agent**
-
-在第一个终端启动 MCP Server：
-```bash
-make mcp_Adder
-# 启动 MCP Server 在 http://127.0.0.1:5000/mcp
-```
-
-在第二个终端（容器内另开一个 shell）启动 Code Agent：
-```bash
-# 进入同一容器
-docker exec -it <container_id> bash
-cd /workspace/examples/Formal/output
-qwen
-```
-
-在 Code Agent 中输入提示词：
+之后进入 `/workspace/ucagent/output` 目录，启动 Code Agent，输入提示词：
 > 请通过工具 `RoleInfo` 获取你的角色信息和基本指导，然后完成任务。请使用工具 `ReadTextFile` 读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
 ### 本地环境
@@ -92,7 +65,7 @@ qwen
 如果已安装所需依赖（Python 3.11+, Verilator, Node.js, 形式化验证工具等）：
 
 ```bash
-# 1. 安装 UCAgent
+# 1. 安装 UCAgent 及其依赖
 pip install -e ../../
 
 # 2. 安装 Formal 特定依赖
@@ -103,40 +76,23 @@ npm install -g @qwen/qwen-code-cli
 # 配置 ~/.qwen/settings.json（参考上述 Docker 步骤）
 
 # 4. 运行验证
-make mcp_Adder ARGS="--loop --backend=qwen"
+make mcp_Adder
 ```
 
 ## 🔄 工作流程
 
 Formal Agent 将验证任务分解为 8 个自动化阶段：
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  1. 需求分析与规划                                            │
-│     → 理解设计范围，制定验证策略                                │
-├─────────────────────────────────────────────────────────────┤
-│  2. DUT 功能理解                                             │
-│     → 解析 RTL 接口、时钟域、内部结构                         │
-├─────────────────────────────────────────────────────────────┤
-│  3. 功能规格分析                                             │
-│     → 分解为功能组 <FG>、功能点 <FC>、检测点 <CK>            │
-├─────────────────────────────────────────────────────────────┤
-│  4. 验证环境生成                                             │
-│     → 生成 Checker + Wrapper，实现白盒信号可见               │
-├─────────────────────────────────────────────────────────────┤
-│  5. SVA 属性生成                                             │
-│     → 将每个 <CK> 转换为对应的 SVA 代码                      │
-├─────────────────────────────────────────────────────────────┤
-│  6. 脚本生成                                                 │
-│     → 自动生成形式化验证工具 TCL 脚本                         │
-├─────────────────────────────────────────────────────────────┤
-│  7. 环境调试                                                 │
-│     → 迭代消除 TRIVIALLY_TRUE 等环境问题                     │
-├─────────────────────────────────────────────────────────────┤
-│  8. Bug 分析与报告                                           │
-│     → 分析反例，定位根因，生成修复建议                        │
-└─────────────────────────────────────────────────────────────┘
-```
+| 阶段 | 名称 | 说明 |
+|:---:|------|------|
+| 1 | 需求分析与规划 | 理解设计范围，制定验证策略 |
+| 2 | DUT 功能理解 | 解析 RTL 接口、时钟域、内部结构 |
+| 3 | 功能规格分析 | 分解为功能组 `<FG>`、功能点 `<FC>`、检测点 `<CK>` |
+| 4 | 验证环境生成 | 生成 Checker + Wrapper，实现白盒信号可见 |
+| 5 | SVA 属性生成 | 将每个 `<CK>` 转换为对应的 SVA 代码 |
+| 6 | 脚本生成 | 自动生成形式化验证工具 TCL 脚本 |
+| 7 | 环境调试 | 迭代消除 TRIVIALLY_TRUE 等环境问题 |
+| 8 | Bug 分析与报告 | 分析反例，定位根因，生成修复建议 |
 
 ## 📦 生成产物说明
 
@@ -185,38 +141,13 @@ cat output/unity_tests/tests/avis.log
 - 2-4 条环境约束（输入有效性）
 - 2-3 条覆盖属性（边界条件可达性）
 
-### 示例 2：验证交通灯控制器
-
-```bash
-# 初始化交通灯设计（包含已知 Bug）
-make init_traffic
-cd output/traffic
-
-# 运行 UCAgent
-ucagent . traffic --config ../../formal.yaml \
-  --guid-doc-path ../../FormalDoc/ \
-  --output ../../unity_tests
-（可选）
-
-```bash
-# OpenAI API（使用 OpenAI 模型时需要）
-export OPENAI_API_KEY=sk-xxx
-
-# 或使用其他兼容 API
-export OPENAI_API_BASE=https://your-api-endpoint
-export OPENAI_API_KEY=your-api-key
-
-# LangChain 追踪（可选，用于调试）
-export LANGCHAIN_API_KEY=lsv2_xxx
-export LANGCHAIN_TRACING_V2=true
-```
-
-> **提示**：具体需要哪些环境变量取决于你选择的 AI 模型后端，详见配置文件 `formal.yaml# 示例 3：自定义设计验证
+### 示例 2：添加新的测试任务
 
 ```bash
 # 1. 准备设计文件
 mkdir -p rtls/MyDesign
-cp your_design.v rtls/MyDesign/
+cp MyDesign.v rtls/MyDesign/
+cp MyDesignREADME.md rtls/MyDesign/README.md
 
 # 2. 运行验证
 make mcp_MyDesign
@@ -262,17 +193,6 @@ mission:
         - 覆盖率驱动 (Cover)
 ```
 
-### 环境变量
-
-```bash
-# OpenAI API（必需）
-export OPENAI_API_KEY=sk-xxx
-
-# LangChain 追踪（可选）
-export LANGCHAIN_API_KEY=lsv2_xxx
-export LANGCHAIN_TRACING_V2=true
-```
-
 ## 🏗️ 技术架构
 
 ### 核心特性
@@ -312,10 +232,6 @@ A: 查看 `avis.log` 分析失败原因，Agent 会自动生成 Bug 报告和修
 
 - Bug 报告：https://github.com/XS-MLVP/UCAgent/issues
 - 功能建议：https://github.com/XS-MLVP/UCAgent/discussions
-
-## 📄 许可证
-
-MIT License - 详见 [LICENSE](../../LICENSE)
 
 ---
 
