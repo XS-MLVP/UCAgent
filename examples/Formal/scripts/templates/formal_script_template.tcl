@@ -3,12 +3,12 @@
 
 set SCRIPT_DIR [file dirname [info script]]
 
-# RTL Files
-# Use glob to catch all relevant Verilog files. {rel_rtl_dir} should point to the directory.
-set RTL_FILES [glob -nocomplain [file join $SCRIPT_DIR {rel_rtl_dir} *.v]]
+# RTL Files - glob both .v and .sv from the RTL directory
+set RTL_FILES [glob -nocomplain \
+    [file join $SCRIPT_DIR {rel_rtl_dir} *.v] \
+    [file join $SCRIPT_DIR {rel_rtl_dir} *.sv]]
 if {{[llength $RTL_FILES] == 0}} {{
-    puts "Warning: No RTL files found in {rel_rtl_dir}. Checking for specific file if provided."
-    set RTL_FILES [glob -nocomplain [file join $SCRIPT_DIR {rel_rtl_dir}]]
+    error "ERROR: No RTL source files (*.v / *.sv) found in: [file join $SCRIPT_DIR {rel_rtl_dir}]"
 }}
 
 # Verification Files (Checker + Wrapper)

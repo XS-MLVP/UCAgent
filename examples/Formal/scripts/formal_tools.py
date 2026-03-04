@@ -171,6 +171,63 @@ class GenerateChecker(UCTool, BaseReadWrite):
             str_error(f"Failed to load template {template_name}: {e}")
             raise
 
+    def _detect_clock_reset(
+        self, port_info: List[Tuple[str, str]]
+    ) -> Tuple[Optional[str], Optional[str], bool]:
+        """Detect clock and reset ports from port_info.
+
+        Returns:
+            clk_port:       name of the detected clock port (None if not found)
+            rst_port:       name of the detected reset port (None if not found)
+            rst_active_low: True if the reset is active-low, False if active-high
+        """
+        # Known clock port names (case-insensitive exact match)
+        clk_exact = frozenset({
+            "clk", "clock", "sys_clk", "i_clk", "i_clock",
+            "pclk", "aclk", "hclk", "fclk", "clk_i", "clk_in",
+        })
+        # Known reset port names (case-insensitive exact match)
+        rst_exact = frozenset({
+            "rst_n", "rstn", "rst", "reset", "reset_n", "resetn",
+            "sys_rst", "arst_n", "arst", "nreset", "n_reset",
+            "rst_b", "reset_b", "i_rst", "i_reset", "i_rstn", "i_rst_n",
+            "rst_ni", "rst_i",
+        })
+
+        clk_port: Optional[str] = None
+        rst_port: Optional[str] = None
+
+        # First pass: exact name match (case-insensitive)
+        for port_name, _ in port_info:
+            lower = port_name.lower()
+            if clk_port is None and lower in clk_exact:
+                clk_port = port_name
+            if rst_port is None and lower in rst_exact:
+                rst_port = port_name
+
+        # Second pass: substring fallback (only if not yet found)
+        if clk_port is None or rst_port is None:
+            for port_name, _ in port_info:
+                lower = port_name.lower()
+                if clk_port is None and ("clk" in lower or "clock" in lower):
+                    clk_port = port_name
+                if rst_port is None and ("rst" in lower or "reset" in lower):
+                    rst_port = port_name
+
+        # Determine reset polarity (active-low is most common in modern RTL)
+        rst_active_low = True
+        if rst_port:
+            lower_rst = rst_port.lower()
+            # Plain names without a negation suffix/prefix are active-high
+            if lower_rst in ("rst", "reset", "arst", "sys_rst", "i_rst", "i_reset"):
+                rst_active_low = False
+
+        str_info(
+            f"Detected clock: '{clk_port}', reset: '{rst_port}' "
+            f"(active-{'low' if rst_active_low else 'high'})"
+        )
+        return clk_port, rst_port, rst_active_low
+
     def _run(self, dut_name: str, output_file: str, rtl_dir: str) -> str:
         """执行 checker 和 wrapper 生成"""
         # Resolve relative paths against workspace so the tool works regardless
@@ -209,16 +266,25 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 param_inst_str = ""
                 str_info("No parameters found in DUT")
 
+            # Detect clock and reset ports for normalization
+            clk_port, rst_port, rst_active_low = self._detect_clock_reset(port_info)
+
             # 1. Generate Checker
-            # Convert all ports to input for checker
+            # Convert all ports to input, normalizing clock/reset names to 'clk'/'rst_n'
             checker_ports = []
+            # Prepend standard ports if RTL has no clock/reset (pure combinational design)
+            if clk_port is None:
+                checker_ports.append("input clk")
+            if rst_port is None:
+                checker_ports.append("input rst_n")
             for port_name, port_def in port_info:
-                # Replace direction with 'input' while preserving the rest
-                # This handles cases like "input [WIDTH-1:0] a", "output [WIDTH-2:0] sum", etc.
-                # Use regex to replace the direction at the start
-                import re
-                # Match the direction at the beginning (input/output/inout)
                 checker_port = re.sub(r'^(input|output|inout)\s+', 'input ', port_def, count=1)
+                # Normalize clock port name to standard 'clk'
+                if port_name == clk_port and port_name != "clk":
+                    checker_port = re.sub(rf'\b{re.escape(port_name)}\s*$', 'clk', checker_port)
+                # Normalize reset port name to standard 'rst_n'
+                elif port_name == rst_port and port_name != "rst_n":
+                    checker_port = re.sub(rf'\b{re.escape(port_name)}\s*$', 'rst_n', checker_port)
                 checker_ports.append(checker_port)
             checker_port_decl_str = ",\n  ".join(checker_ports)
 
@@ -297,19 +363,77 @@ class GenerateChecker(UCTool, BaseReadWrite):
                         symbolic_logic += f"  // end\n"
                         symbolic_logic += f"  //\n"
 
-            # Wrapper ports: all DUT ports
-            wrapper_ports = [info[1] for info in port_info]
+            # Build clock/reset remapping wires for wrapper
+            # The wrapper interface always uses standard 'clk'/'rst_n'; internal wires
+            # map them to the RTL-specific names so DUT connections remain unchanged.
+            clk_rst_remap_lines = []
+            if clk_port is None or rst_port is None:
+                missing = []
+                if clk_port is None:
+                    missing.append("clk")
+                if rst_port is None:
+                    missing.append("rst_n")
+                clk_rst_remap_lines.append(
+                    f"  // No {'/' .join(missing)} detected in RTL "
+                    f"(combinational design); added for SVA sampling only"
+                )
+            if clk_port and clk_port != "clk":
+                clk_rst_remap_lines.append(
+                    f"  // Clock remapping: RTL uses '{clk_port}', wrapper standardizes to 'clk'"
+                )
+                clk_rst_remap_lines.append(f"  wire {clk_port} = clk;")
+            if rst_port and rst_port != "rst_n":
+                if rst_active_low:
+                    clk_rst_remap_lines.append(
+                        f"  // Reset remapping: RTL uses '{rst_port}' (active-low), mapped from 'rst_n'"
+                    )
+                    clk_rst_remap_lines.append(f"  wire {rst_port} = rst_n;")
+                else:
+                    clk_rst_remap_lines.append(
+                        f"  // Reset remapping: RTL uses '{rst_port}' (active-high), inverted from 'rst_n'"
+                    )
+                    clk_rst_remap_lines.append(f"  wire {rst_port} = ~rst_n;")
+            clk_rst_remap = "\n".join(clk_rst_remap_lines)
+
+            # Wrapper ports: all DUT ports with clock/reset normalized to 'clk'/'rst_n'
+            wrapper_ports = []
+            # If RTL has no clock/reset, prepend standard ports for SVA sampling
+            if clk_port is None:
+                wrapper_ports.append("input clk")
+            if rst_port is None:
+                wrapper_ports.append("input rst_n")
+            for port_name, port_def in port_info:
+                if port_name == clk_port and port_name != "clk":
+                    normalized = re.sub(rf'\b{re.escape(port_name)}\s*$', 'clk', port_def)
+                    wrapper_ports.append(normalized)
+                elif port_name == rst_port and port_name != "rst_n":
+                    normalized = re.sub(rf'\b{re.escape(port_name)}\s*$', 'rst_n', port_def)
+                    wrapper_ports.append(normalized)
+                else:
+                    wrapper_ports.append(port_def)
             # Add fv_idx to wrapper if symbols detected
             if symbolic_groups:
                 wrapper_ports.append(f"input [{fv_idx_width-1}:0] fv_idx")
             wrapper_ports_str = ",\n  ".join(wrapper_ports)
 
-            # DUT Instance connections
+            # DUT Instance connections: use RTL original names (resolved via remapping wires)
             dut_conns = [f".{name}({name})" for name, _ in port_info]
             dut_conns_str = ",\n    ".join(dut_conns)
 
-            # Checker Instance connections
-            checker_conns = [f".{name}({name})" for name, _ in port_info]
+            # Checker Instance connections: always use normalized 'clk'/'rst_n'
+            checker_conns = []
+            # If RTL has no clock/reset, connect the wrapper-added ports first
+            if clk_port is None:
+                checker_conns.append(".clk(clk)")
+            if rst_port is None:
+                checker_conns.append(".rst_n(rst_n)")
+            for port_name, _ in port_info:
+                if port_name == clk_port:
+                    checker_conns.append(".clk(clk)")
+                elif port_name == rst_port:
+                    checker_conns.append(".rst_n(rst_n)")
+                else:
+                    checker_conns.append(f".{port_name}({port_name})")
             if symbolic_groups:
                 checker_conns.append(f".fv_idx(fv_idx)")
                 # Placeholder for monitored signals
@@ -334,6 +458,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 param_inst=param_inst_str,
                 dut_conns=dut_conns_str,
                 checker_conns=checker_conns_str,
+                clk_rst_remap=clk_rst_remap,
                 dut_name_wrapper=f"{dut_name}_wrapper"
             )
             # Inject symbolic logic into template placeholder

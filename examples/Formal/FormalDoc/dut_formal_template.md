@@ -57,7 +57,7 @@
 - **执行脚本**: `{OUT}/{DUT}_formal.tcl`
 - **最终报告**: `{OUT}/{DUT}_formal_report.md`
 
-## 5. FormalMC 特定注意事项
+## 5. 特定注意事项
 - **SystemVerilog 语法兼容性**: 
   - 避免使用对表达式进行位选择的语法，如 `(a + b)[WIDTH-1:0]`
   - 使用单行属性语法，如 `assert property (prop) else $error(...)`

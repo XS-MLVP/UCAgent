@@ -7,6 +7,12 @@ module {dut_name_wrapper} (
 );
 
   // ---------------------------------------------------------------------------
+  // Clock/Reset Remapping (auto-generated)
+  // Wrapper interface uses standard 'clk'/'rst_n'; internal wires map to RTL names.
+  // ---------------------------------------------------------------------------
+{clk_rst_remap}
+
+  // ---------------------------------------------------------------------------
   // DUT Instantiation
   // ---------------------------------------------------------------------------
   {dut_name}{param_inst} dut (

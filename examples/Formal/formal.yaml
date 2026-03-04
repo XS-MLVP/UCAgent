@@ -177,9 +177,10 @@ stage:
       - "  - `output_file`: 必须使用 `{OUT_PATH}/tests/{DUT}`，会生成 {OUT_PATH}/tests/{DUT}_checker.sv 和 {OUT_PATH}/tests/{DUT}_wrapper.sv"
       - "  - `rtl_dir`: RTL源码所在目录，使用 `{FILE_PATH}`"
       - "  **调用方式**：GenerateChecker(dut_name=\"{DUT}\", output_file=\"{OUT_PATH}/tests/{DUT}\", rtl_dir=\"{FILE_PATH}\")"
-      - "第2步：**关键 - 完善符号化索引 (Symbolic Indexing) 逻辑**：打开生成的 `{OUT}/tests/{DUT}_wrapper.sv`。如果设计包含数组或多个重复条目（如 entries_0, entries_1），`GenerateChecker` 会自动生成 `fv_idx` 和 `fv_mon_...` 的占加符。你必须根据 RTL 的内部信号路径取消注释并补全这些 Mux 逻辑，确保 `fv_mon_...` 正确映射。"
+      - "  **时钟/复位自动规范化**：工具会自动识别 RTL 的时钟和复位端口名，在 wrapper 中生成映射 wire（如 `wire reset_n = rst_n;`），并将 wrapper 对外端口、checker 端口统一规范为 `clk` 和 `rst_n`。无需手动修改时钟/复位信号名。"
+      - "第2步：**关键 - 完善符号化索引 (Symbolic Indexing) 逻辑**：打开生成的 `{OUT}/tests/{DUT}_wrapper.sv`。如果设计包含数组或多个重复条目（如 entries_0, entries_1），`GenerateChecker` 会自动生成 `fv_idx` 和 `fv_mon_...` 的占位符。你必须根据 RTL 的内部信号路径取消注释并补全这些 Mux 逻辑，确保 `fv_mon_...` 正确映射。"
       - "第3步：**白盒信号引出**：在 wrapper 中引出规划文档要求的所有关键内部信号（如指针、状态机、Flag）。"
-      - "第4步：**时序校正**：检查 RTL 是否包含时钟和复位信号。如果名称不标准（如不是 clk, rst_n），在 wrapper 中进行重命名映射。如果 RTL 是纯组合逻辑，必须在 wrapper 端口添加 `input clk, input rst_n` 用于断言采样。"
+      - "第4步：**时序校正确认**：查看生成的 wrapper 顶部 `Clock/Reset Remapping` 区域，确认工具自动生成的映射是否符合预期（尤其是复位极性）。如有异常（如主动高复位被错误识别为主动低），手动修正该区域的 wire 赋值即可。"
       - "第5步：检查生成的代码，确保其符合规格且无语法错误。"
     reference_files:
       - "{OUT}/02_{DUT}_basic_info.md"
