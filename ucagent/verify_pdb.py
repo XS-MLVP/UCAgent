@@ -44,6 +44,12 @@ class VerifyPDB(Pdb):
         self._in_tui = False
         # Control whether empty line repeats last command
         self._repeat_last_command = True
+        # CMD API server instance (created on demand)
+        self._cmd_api_server = None
+        # Master API server instance (created on demand)
+        self._master_api_server = None
+        # Master client (heartbeat sender to a remote master)
+        self._master_client = None
         self.max_loop_retry = max_loop_retry
         self.retry_delay_start, self.retry_delay_end = retry_delay
         self.loop_alive_time = loop_alive_time
@@ -734,6 +740,508 @@ class VerifyPDB(Pdb):
         Start the MCP server without file operations.
         """
         return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
+
+    # ------------------------------------------------------------------
+    # CMD API server commands
+    # ------------------------------------------------------------------
+
+    # Default Unix socket path used when no --sock argument is provided
+    _CMD_API_DEFAULT_SOCK = "/tmp/ucagent_cmd.sock"
+
+    def do_cmd_api_start(self, arg):
+        """
+        Start the CMD API server (FastAPI).  TCP and Unix socket listeners are
+        independent and both enabled by default.
+
+        Usage: cmd_api_start [options] [host [port]]
+
+        Options:
+          --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd.sock)
+          --sock none     Disable Unix socket listener
+          --no-tcp        Disable TCP listener
+          host            TCP bind address  (default: 127.0.0.1)
+          port            TCP bind port     (default: 8765)
+
+        Examples:
+          cmd_api_start                          # both TCP + socket (defaults)
+          cmd_api_start 0.0.0.0 9000             # custom TCP, default socket
+          cmd_api_start --sock /run/uc.sock      # custom socket, default TCP
+          cmd_api_start --sock none              # TCP only
+          cmd_api_start --no-tcp                 # socket only
+          cmd_api_start --sock none 0.0.0.0 9000 # TCP only, custom address
+
+        Once running, external tools can call:
+          GET  /api/status              - Agent status
+          GET  /api/tasks               - Task list
+          GET  /api/task/<index>        - Task detail
+          GET  /api/mission             - Mission overview
+          GET  /api/cmds[?prefix=]      - List PDB commands
+          GET  /api/help[?cmd=]         - Command help
+          GET  /api/tools               - Tool list
+          GET  /api/changed_files[?count=10] - Changed output files
+          POST /api/cmd                 - Enqueue a command  {"cmd": "..."}
+          POST /api/cmds/batch          - Enqueue commands   {"cmds": [...]}
+          GET  /docs                    - Interactive API docs (Swagger UI)
+        """
+        if self._cmd_api_server is not None and self._cmd_api_server.is_running:
+            echo_y(f"CMD API server is already running at {self._cmd_api_server.url()}.")
+            echo_y("Use 'cmd_api_stop' first before starting a new instance.")
+            return
+        from ucagent.server import PdbCmdApiServer
+        host = "127.0.0.1"
+        port = 8765
+        sock = self._CMD_API_DEFAULT_SOCK  # Unix socket enabled by default
+        tcp = True                          # TCP enabled by default
+        # Parse flags and positional args
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--sock", "-s"):
+                if i + 1 < len(parts):
+                    val = parts[i + 1]
+                    sock = None if val.lower() == "none" else val
+                    i += 2
+                else:
+                    echo_r("--sock requires a path or 'none'.")
+                    return
+            elif token.startswith("--sock="):
+                val = token[7:]
+                sock = None if val.lower() == "none" else val
+                i += 1
+            elif token == "--no-tcp":
+                tcp = False
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if not tcp and not sock:
+            echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
+            return
+        # Positional args set TCP address
+        if len(positional) >= 1 and positional[0] not in ("", "None"):
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
+                return
+        try:
+            self._cmd_api_server = PdbCmdApiServer(
+                self, host=host, port=port, sock=sock, tcp=tcp
+            )
+            ok, msg = self._cmd_api_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start CMD API server: {e}")
+            return
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_cmd_api_stop(self, arg):
+        """
+        Stop the CMD API server.
+        Usage: cmd_api_stop
+        """
+        if self._cmd_api_server is None or not self._cmd_api_server.is_running:
+            echo_y("CMD API server is not running.")
+            return
+        ok, msg = self._cmd_api_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_cmd_api_status(self, arg):
+        """
+        Show the current status of the CMD API server.
+        Usage: cmd_api_status
+        """
+        if self._cmd_api_server is None:
+            echo_y("CMD API server has not been started.")
+            return
+        if self._cmd_api_server.is_running:
+            s = self._cmd_api_server
+            echo_g(f"CMD API server is running at {s.url()}")
+            if s.tcp:
+                echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
+            if s.sock:
+                echo_g(f"  Sock curl: curl --unix-socket {s.sock} http://localhost/api/status")
+                echo_g(f"  Sock docs: curl --unix-socket {s.sock} http://localhost/docs")
+        else:
+            echo_y("CMD API server is stopped.")
+
+    # ------------------------------------------------------------------
+    # Master API server commands
+    # ------------------------------------------------------------------
+
+    _MASTER_API_DEFAULT_SOCK = "/tmp/ucagent_master.sock"
+
+    def do_master_api_start(self, arg):
+        """
+        Start the Master API server (FastAPI).  Acts as a central aggregator
+        that collects heartbeats from multiple UCAgent instances.
+
+        Usage: master_api_start [options] [host [port]]
+
+        Options:
+          --sock <path>       Unix socket path  (default: /tmp/ucagent_master.sock)
+          --sock none         Disable Unix socket listener
+          --no-tcp            Disable TCP listener
+          --timeout <secs>    Seconds without heartbeat before marking offline (default: 30)
+          host                TCP bind address  (default: 0.0.0.0)
+          port                TCP bind port     (default: 8800)
+
+        Examples:
+          master_api_start                       # both TCP + socket (defaults)
+          master_api_start 0.0.0.0 9900          # custom TCP, default socket
+          master_api_start --sock none           # TCP only
+          master_api_start --no-tcp              # socket only
+          master_api_start --timeout 60          # 60-second offline threshold
+
+        Endpoints exposed:
+          GET    /api/agents                     - List all agents (?include_offline=true)
+          GET    /api/agent/{id}                 - Agent detail
+          DELETE /api/agent/{id}                 - Remove agent (client notified)
+          POST   /api/register                   - Register / heartbeat
+          GET    /docs                           - Swagger UI
+        """
+        if self._master_api_server is not None and self._master_api_server.is_running:
+            echo_y(f"Master API server is already running at {self._master_api_server.url()}.")
+            echo_y("Use 'master_api_stop' first before starting a new instance.")
+            return
+        from ucagent.server import PdbMasterApiServer
+        host = "0.0.0.0"
+        port = 8800
+        sock = self._MASTER_API_DEFAULT_SOCK
+        tcp = True
+        offline_timeout = 30.0
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--sock", "-s"):
+                if i + 1 < len(parts):
+                    val = parts[i + 1]
+                    sock = None if val.lower() == "none" else val
+                    i += 2
+                else:
+                    echo_r("--sock requires a path or 'none'.")
+                    return
+            elif token.startswith("--sock="):
+                val = token[7:]
+                sock = None if val.lower() == "none" else val
+                i += 1
+            elif token == "--no-tcp":
+                tcp = False
+                i += 1
+            elif token in ("--timeout", "-t"):
+                if i + 1 < len(parts):
+                    try:
+                        offline_timeout = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid timeout: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--timeout requires a number.")
+                    return
+            elif token.startswith("--timeout="):
+                try:
+                    offline_timeout = float(token[10:])
+                except ValueError:
+                    echo_r(f"Invalid timeout: {token[10:]}")
+                    return
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if not tcp and not sock:
+            echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
+            return
+        if len(positional) >= 1:
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}.")
+                return
+        try:
+            self._master_api_server = PdbMasterApiServer(
+                host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout
+            )
+            ok, msg = self._master_api_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start Master API server: {e}")
+            return
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_master_api_stop(self, arg):
+        """
+        Stop the Master API server.
+        Usage: master_api_stop
+        """
+        if self._master_api_server is None or not self._master_api_server.is_running:
+            echo_y("Master API server is not running.")
+            return
+        ok, msg = self._master_api_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_master_api_status(self, arg):
+        """
+        Show the current status of the Master API server.
+        Usage: master_api_status
+        """
+        if self._master_api_server is None:
+            echo_y("Master API server has not been started.")
+            return
+        if self._master_api_server.is_running:
+            s = self._master_api_server
+            counts = s.agent_count()
+            echo_g(f"Master API server is running at {s.url()}")
+            echo_g(f"  Agents: {counts['online']} online, {counts['offline']} offline")
+            if s.tcp:
+                echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
+            if s.sock:
+                echo_g(f"  Sock curl: curl --unix-socket {s.sock} http://localhost/api/agents")
+                echo_g(f"  Sock docs: curl --unix-socket {s.sock} http://localhost/docs")
+        else:
+            echo_y("Master API server is stopped.")
+
+    def do_master_api_list(self, arg):
+        """
+        Query the Master API server for all registered agents and display a
+        summary table.  When a local master is running the query is made
+        directly; otherwise the --master option selects a remote master.
+
+        Usage: master_api_list [--master <url>] [--all]
+
+        Options:
+          --master <url>   Base URL of the master  (default: local master if running)
+          --all            Include offline agents  (default: online only)
+
+        Examples:
+          master_api_list
+          master_api_list --all
+          master_api_list --master http://192.168.1.10:8800
+        """
+        try:
+            import requests
+        except ImportError:
+            echo_r("'requests' is required.  pip install requests")
+            return
+        parts = arg.strip().split()
+        master_url = None
+        include_all = False
+        i = 0
+        while i < len(parts):
+            t = parts[i]
+            if t in ("--master", "-m"):
+                if i + 1 < len(parts):
+                    master_url = parts[i + 1].rstrip("/")
+                    i += 2
+                else:
+                    echo_r("--master requires a URL.")
+                    return
+            elif t.startswith("--master="):
+                master_url = t[9:].rstrip("/")
+                i += 1
+            elif t == "--all":
+                include_all = True
+                i += 1
+            else:
+                i += 1
+        if master_url is None:
+            if self._master_api_server and self._master_api_server.is_running:
+                s = self._master_api_server
+                master_url = f"http://{s.host}:{s.port}"
+                if not s.tcp and s.sock:
+                    echo_y("Note: local master has no TCP listener; querying socket is not "
+                           "supported from here.  Provide --master <url> instead.")
+                    return
+            else:
+                echo_r("No local master running.  Use --master <url> to specify a remote master, "
+                       "or start one with 'master_api_start'.")
+                return
+        url = f"{master_url}/api/agents?include_offline={'true' if include_all else 'false'}"
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            echo_r(f"Failed to query master at {master_url}: {e}")
+            return
+        agents = data.get("agents", [])
+        if not agents:
+            echo_y(f"No agents found at {master_url}.")
+            return
+        # Pre-compute display strings for each row
+        rows = []
+        for a in agents:
+            cur = a.get("current_stage_index", -1)
+            tot = a.get("total_stage_count", 0)
+            rows.append({
+                "id":       a.get("id", ""),
+                "host":     a.get("host", ""),
+                "status":   a.get("status", "?"),
+                "version":  a.get("version", ""),
+                "progress": f"{cur}/{tot}" if tot > 0 else "-",
+                "done":     "YES" if a.get("is_mission_complete", False) else "no",
+                "mcp":      "yes" if a.get("mcp_running", False) else "no",
+                "break":    "yes" if a.get("is_break", False) else "no",
+                "stage":    a.get("current_stage_name", ""),
+                "cmd":      a.get("last_cmd", "")[:40],
+                "mission":  a.get("mission", ""),
+            })
+        # Compute column widths from data + header labels
+        cols = ["id", "host", "status", "version", "progress", "done", "mcp", "break", "stage", "cmd", "mission"]
+        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "DONE", "MCP", "BREAK", "STAGE", "CMD", "MISSION"]
+        widths = {c: len(h) for c, h in zip(cols, hdrs)}
+        for r in rows:
+            for c in cols:
+                widths[c] = max(widths[c], len(r[c]))
+        # Render header (last column is not padded)
+        sep = "  "
+        hdr_parts = [f"{h:<{widths[c]}}" for c, h in zip(cols[:-1], hdrs[:-1])]
+        hdr_parts.append(hdrs[-1])
+        HDR = sep.join(hdr_parts)
+        echo_g(HDR)
+        echo_g("-" * len(HDR))
+        for r in rows:
+            color = echo_g if r["status"] == "online" else echo_y
+            row_parts = [f"{r[c]:<{widths[c]}}" for c in cols[:-1]]
+            row_parts.append(r["mission"])
+            color(sep.join(row_parts))
+        echo_g(f"\nTotal: {data.get('count', len(agents))} agent(s).")
+
+    def do_connect_master_to(self, arg):
+        """
+        Connect this agent as a heartbeat client to a Master API server.
+
+        Usage: connect_master_to <host> [port] [options]
+
+        Options:
+          --port <n>      TCP port of the master  (default: 8800)
+          --interval <n>  Heartbeat interval in seconds  (default: 5)
+          --id <agent_id> Custom agent identifier  (default: <hostname>-<pid>)
+
+        Examples:
+          connect_master_to 192.168.1.10
+          connect_master_to 192.168.1.10 9900
+          connect_master_to 192.168.1.10 --interval 10
+          connect_master_to 192.168.1.10 --id my-agent-01
+        """
+        from ucagent.server import PdbMasterClient
+        parts = arg.strip().split()
+        if not parts:
+            echo_r("Usage: connect_master_to <host> [port] [--interval N] [--id <id>]")
+            return
+        host = parts[0]
+        port = 8800
+        interval = 5.0
+        agent_id = None
+        positional_left = []
+        i = 1
+        while i < len(parts):
+            t = parts[i]
+            if t in ("--port", "-p"):
+                if i + 1 < len(parts):
+                    try:
+                        port = int(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid port: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--port requires a number.")
+                    return
+            elif t.startswith("--port="):
+                try:
+                    port = int(t[7:])
+                except ValueError:
+                    echo_r(f"Invalid port: {t[7:]}")
+                    return
+                i += 1
+            elif t in ("--interval", "-i"):
+                if i + 1 < len(parts):
+                    try:
+                        interval = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid interval: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--interval requires a number.")
+                    return
+            elif t.startswith("--interval="):
+                try:
+                    interval = float(t[11:])
+                except ValueError:
+                    echo_r(f"Invalid interval: {t[11:]}")
+                    return
+                i += 1
+            elif t in ("--id",):
+                if i + 1 < len(parts):
+                    agent_id = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--id requires an identifier.")
+                    return
+            elif t.startswith("--id="):
+                agent_id = t[5:]
+                i += 1
+            else:
+                positional_left.append(t)
+                i += 1
+        # allow port as second positional
+        if positional_left:
+            try:
+                port = int(positional_left[0])
+            except ValueError:
+                echo_r(f"Invalid port: {positional_left[0]}")
+                return
+        master_url = f"http://{host}:{port}"
+        # disconnect existing client if necessary
+        if self._master_client is not None and self._master_client.is_running:
+            echo_y(f"Stopping existing connection to {self._master_client.master_url} …")
+            self._master_client.stop()
+        try:
+            self._master_client = PdbMasterClient(
+                self, master_url=master_url, agent_id=agent_id, interval=interval
+            )
+            ok, msg = self._master_client.start()
+        except Exception as e:
+            echo_r(f"Failed to connect to master: {e}")
+            return
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_connect_master_close(self, arg):
+        """
+        Disconnect from the Master API server (stop sending heartbeats).
+        Usage: connect_master_close
+        """
+        if self._master_client is None or not self._master_client.is_running:
+            echo_y("Not connected to any master.")
+            return
+        ok, msg = self._master_client.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
 
     def do_list_demo_cmds(self, arg):
         """

@@ -49,10 +49,10 @@ init_%:
 	fi
 
 test_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
 
 mcp_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS}
 
 mcp_all_tools_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}
@@ -74,6 +74,9 @@ clean_test:
 
 continue:
 	python3 ucagent.py $(CWD)/ ${DUT} --config config.yaml ${ARGS}
+
+as_master:
+	python3 ucagent.py --as-master ${ARGS}
 
 # Include docs Makefile
 -include docs/Makefile

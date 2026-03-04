@@ -125,15 +125,18 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "workspace", 
-        type=str, 
-        default=os.getcwd(), 
-        help="Workspace directory to run the agent in"
+        "workspace",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Workspace directory to run the agent in. Optional when '--as-master/--upgrade' is used."
     )
     parser.add_argument(
-        "dut", 
-        type=str, 
-        help="DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU"
+        "dut",
+        type=str,
+        nargs="?",
+        default=None,
+        help="DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU. Optional when '--as-master/--upgrade' is used."
     )
     
     # Configuration arguments
@@ -239,9 +242,12 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-embed-tools",
-        action="store_true", 
-        default=False, 
-        help="Disable embedded tools in the agent"
+        nargs="?",
+        const=True,
+        default=True,
+        metavar="true_or_false",
+        type=lambda x: x.lower() not in ("false", "0", "no"),
+        help="Disable embedded tools in the agent. Bare '--no-embed-tools' (or '--no-embed-tools true') disables them; '--no-embed-tools false' keeps them enabled."
     )
     
     # Loop and message arguments
@@ -354,6 +360,32 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--icmd", action="append", default=[], type=str,
                         help="Initial command(s) to run at the start of the agent (can be used multiple times)")
 
+    parser.add_argument(
+        "--as-master",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[ip[:port]]",
+        help=(
+            "Start this agent as a Master API server. "
+            "Bare '--as-master' uses the default host/port. "
+            "'--as-master ip[:port]' binds the server to the given address. "
+            "workspace and dut positional args are optional when this flag is used."
+        )
+    )
+
+    parser.add_argument(
+        "--master",
+        type=str,
+        default=None,
+        metavar="host[:port]",
+        help=(
+            "Connect this agent to an existing Master API server at the given address (connect_master_to). "
+            "Format: host or host:port."
+        )
+    )
+
     parser.add_argument("--no-history", action="store_true", default=False,
                         help="Disable history loading from previous runs in the workspace")
 
@@ -372,8 +404,13 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--upgrade",
-        action=UpgradeAction,
-        help="Upgrade UCAgent to the latest version from GitHub main branch"
+        nargs="?",
+        const="",
+        default=None,
+        metavar="pip_extra_args",
+        help="Upgrade UCAgent to the latest version from GitHub main branch. "
+             "Optional value is passed as extra arguments to pip install (e.g. --upgrade '--index-url https://...'). "
+             "workspace and dut positional args are not required when this flag is used."
     )
 
     parser.add_argument(
@@ -396,9 +433,9 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def upgrade() -> None:
+def upgrade(extra_pip_args: str = "") -> None:
     import subprocess
-    exargs = sys.argv[2:]
+    exargs = extra_pip_args.split() if extra_pip_args.strip() else []
     print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
     print(f"Python executable: {sys.executable}")
     for url in ["https://github.com/XS-MLVP",
@@ -494,6 +531,27 @@ def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
 
+    # --upgrade: run before workspace/dut validation, then exit
+    if getattr(args, 'upgrade', None) is not None:
+        upgrade(args.upgrade)
+        sys.exit(0)
+
+    # --as-master with no positional args → spin up a fake DUT under /tmp
+    if getattr(args, 'as_master', None) is not None and args.workspace is None:
+        import pathlib
+        _fake_dut_dir = pathlib.Path("/tmp/ucagent_master")
+        _fake_dut_dir.mkdir(parents=True, exist_ok=True)
+        (_fake_dut_dir / "__init__.py").touch()
+        args.workspace = "/tmp"
+        args.dut = "ucagent_master"
+        args.human = True
+
+    # Validate required positional args for normal (non-as-master) usage
+    if args.workspace is None or args.dut is None:
+        import argparse as _argparse
+        _p = _argparse.ArgumentParser(prog="ucagent")
+        _p.error("the following arguments are required: workspace, dut")
+
     from .verify_agent import VerifyAgent
     from .util.log import init_log_logger, init_msg_logger
     from .util.functions import append_python_path, find_available_port
@@ -511,7 +569,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.new_ui or args.legacy_ui
+    use_tui = args.tui or args.legacy_ui
     if use_tui:
         init_cmds += ["tui"]
     
@@ -546,6 +604,28 @@ def run() -> None:
             with open(cfg_file, 'r') as f:
                 cfg_data = yaml.safe_load(f)
                 template_cfg_overrides.update(cfg_data)
+
+    # Handle --as-master: start this agent as a Master API server
+    if args.as_master is not None:
+        if args.as_master == "":
+            init_cmds += ["master_api_start"]
+        else:
+            addr = args.as_master
+            if ":" in addr:
+                m_host, m_port = addr.rsplit(":", 1)
+                init_cmds += [f"master_api_start {m_host} {m_port}"]
+            else:
+                init_cmds += [f"master_api_start {addr}"]
+
+    # Handle --master: connect to an existing Master API server
+    if args.master is not None:
+        master_addr = args.master
+        if ":" in master_addr:
+            m_host, m_port = master_addr.rsplit(":", 1)
+            master_cmd = f"connect_master_to {m_host} {m_port}"
+        else:
+            master_cmd = f"connect_master_to {master_addr}"
+        init_cmds += [master_cmd]
 
     if args.icmd:
         init_cmds += args.icmd
