@@ -129,6 +129,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:
+
             def process_batch():
                 while self.vpdb.init_cmd:
                     cmd = self.vpdb.init_cmd.pop(0)
@@ -253,7 +254,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.console_height = new_value
 
     def on_console_input_command_submitted(
-            self, event: ConsoleInput.CommandSubmitted
+        self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         self.key_handler.process_command(event.command, event.daemon)
         console_input = self.query_one(ConsoleInput)

@@ -1,0 +1,72 @@
+=== TASK 2: ScrollView render_line Contract Research ===
+Date: 2026-03-05T17:20:00Z
+Status: COMPLETE ✓
+
+DELIVERABLES COMPLETED:
+========================
+
+1. ✓ RichLog Source Analysis
+   - Examined _rich_log.py L301-307 (render_line)
+   - Examined _rich_log.py L309-319 (_render_line)
+   - Examined _rich_log.py L175-284 (write/rendering pipeline)
+   - Examined _rich_log.py L286-299 (clear/state reset)
+
+2. ✓ ScrollView Base Class Analysis
+   - Read scroll_view.py complete contract
+   - Identified render_line() as inherited from Widget base class
+   - Documented virtual_size property usage
+
+3. ✓ Documentation Saved
+   - Evidence: .sisyphus/evidence/task-2-scrollview-check.txt
+   - Learnings: .sisyphus/notepads/messages-panel-scrollview/learnings.md (230 lines)
+   - Summary: This file
+
+4. ✓ Verification Completed
+   - Command: python -c "from textual.scroll_view import ScrollView; print(hasattr(ScrollView, 'render_line'))"
+   - Output: True
+   - Saved to evidence file
+
+KEY FINDINGS:
+==============
+
+render_line() Contract:
+  - Receives widget-relative y coordinate (0 = first visible line)
+  - Must return Strip object (textual rendering unit)
+  - Coordinate conversion: content_index = scroll_offset.y + widget_y
+
+Cache Pattern (from RichLog):
+  - Key structure: (content_y + _start_line, scroll_x, width, _widest_line_width)
+  - Enables LRU cache with proper invalidation
+  - Includes scroll_x and display width for responsive caching
+
+Rendering Pipeline (Segment → Strip):
+  1. console.render(renderable, options) → Segment iterator
+  2. Segment.split_lines(segments) → List[List[Segment]]
+  3. Strip.from_lines(lines) → List[Strip]
+
+Critical Implementation Points:
+  1. Override render_line(y) returning Strip
+  2. Maintain self.virtual_size = Size(width, height)
+  3. Apply horizontal cropping: strip.crop_extend(scroll_x, scroll_x + width)
+  4. Cache with scroll offset compensation
+  5. Track _start_line for line trimming support
+
+This research blocks Task 3 (core MessagesScrollView implementation).
+
+VERIFICATION CHECKLIST:
+========================
+[✓] RichLog L301-307 read
+[✓] RichLog L309-319 read
+[✓] RichLog L175-284 read
+[✓] RichLog L286-299 read
+[✓] ScrollView base class read
+[✓] render_line contract identified
+[✓] Cache key structure documented
+[✓] Strip rendering pipeline documented
+[✓] Coordinate systems documented
+[✓] Verification command passed (True)
+[✓] Evidence saved to .sisyphus/evidence/
+[✓] Findings appended to learnings.md with timestamp
+
+BLOCKERS FOR TASK 3: None identified
+READY TO PROCEED: YES
