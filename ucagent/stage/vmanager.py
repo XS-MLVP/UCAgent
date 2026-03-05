@@ -39,48 +39,52 @@ class ManagerTool(UCTool):
 class ArgApproveStagePass(BaseModel):
     pass_or_not: bool = Field(
         default=True,
-        description="Indicates whether to pass or not current stage task, True means pass and False means fail. Default is True."
+        description="Indicates whether to pass or not current stage task, True means pass and False means fail. Default is True.",
     )
 
 
 class ApproveStagePass(ManagerTool):
     """Approve the current stage as passed."""
+
     name: str = "ApproveStagePass"
     args_schema: Optional[ArgsSchema] = ArgApproveStagePass
     description: str = (
         "Approve the current stage as passed. \n"
         "This tool is used when you have verified that the current stage has been properly completed. \n"
     )
-    def _run(self, pass_or_not: bool = True, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+
+    def _run(
+        self,
+        pass_or_not: bool = True,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
         return self.function(pass_or_not)
 
 
 class ToolStatus(ManagerTool):
     """List current missoin status."""
+
     name: str = "Status"
-    description: str = (
-        "Returns the current status of your mission."
-    )
+    description: str = "Returns the current status of your mission."
 
 
 class ToolCurrentTips(ManagerTool):
     """Get tips for the current task."""
+
     name: str = "CurrentTips"
-    description: str = (
-        "Returns the tips for the current task."
-    )
+    description: str = "Returns the tips for the current task."
 
 
 class ToolDetail(ManagerTool):
     """Get current missoin detials."""
+
     name: str = "Detail"
-    description: str = (
-        "Returns the detail info of your mission, including all stages and their details. \n"
-    )
+    description: str = "Returns the detail info of your mission, including all stages and their details. \n"
 
 
 class ToolKillCheck(ManagerTool):
     """Kill the current check process."""
+
     name: str = "KillCheck"
     description: str = (
         "Kill the current check process. \n"
@@ -90,14 +94,14 @@ class ToolKillCheck(ManagerTool):
 
 class ToolStageJournal(ManagerTool):
     """Get the journal of the current stage."""
+
     name: str = "StageJournal"
-    description: str = (
-        "Get the journal of the current stage. "
-    )
+    description: str = "Get the journal of the current stage. "
 
 
 class ToolAllStageJournal(ManagerTool):
     """get the journal of the all stages."""
+
     name: str = "AllStageJournal"
     description: str = (
         "Get the journal of all stages. \n"
@@ -113,6 +117,7 @@ class ArgSetCurrentStageJournal(BaseModel):
 
 class ToolSetCurrentStageJournal(ManagerTool):
     """set the journal of the current stage."""
+
     name: str = "SetCurrentStageJournal"
     description: str = (
         "Set the journal of the current stage. \n"
@@ -126,22 +131,34 @@ class ToolSetCurrentStageJournal(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgSetCurrentStageJournal
 
-    def _run(self, journal: str = "",
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, journal: str = "", run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         if not journal:
             return "Journal content cannot be empty."
         return self.function(journal)
 
 
 class ArgStageDiff(BaseModel):
-    target_file: str = Field(".", description="The target file or path to get diff, default is current workspace directory.")
-    show_detail: bool = Field(False, description="Whether to show detailed diff output, default is False.")
-    start_line: int = Field(1, description="The starting line number for diff output, default is 1")
-    line_count: int = Field(-1, description="The number of lines to show in the diff output, default is -1 (show all lines)")
+    target_file: str = Field(
+        ".",
+        description="The target file or path to get diff, default is current workspace directory.",
+    )
+    show_detail: bool = Field(
+        False, description="Whether to show detailed diff output, default is False."
+    )
+    start_line: int = Field(
+        1, description="The starting line number for diff output, default is 1"
+    )
+    line_count: int = Field(
+        -1,
+        description="The number of lines to show in the diff output, default is -1 (show all lines)",
+    )
 
 
 class ToolStageDiff(ManagerTool):
     """Retrieve the differences between the current file and the file at the last `StageCommit`."""
+
     name: str = "StageDiff"
     description: str = (
         "Get the differences between the current file and the file at the last `StageCommit`. \n"
@@ -149,20 +166,27 @@ class ToolStageDiff(ManagerTool):
         "Use this tool to review modifications before proceeding with further actions. \n"
     )
     args_schema: Optional[ArgsSchema] = ArgStageDiff
-    def _run(self, target_file: str = ".",
-             show_detail: bool = False,
-             start_line: int = 1,
-             line_count: int = -1,
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+
+    def _run(
+        self,
+        target_file: str = ".",
+        show_detail: bool = False,
+        start_line: int = 1,
+        line_count: int = -1,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
         return self.function(target_file, show_detail, start_line, line_count)
 
 
 class ArgStageCommit(BaseModel):
-    commit_message: str = Field(..., description="The commit message for the changes in the current stage.")
+    commit_message: str = Field(
+        ..., description="The commit message for the changes in the current stage."
+    )
 
 
 class ToolStageCommit(ManagerTool):
     """Commit current stage changes."""
+
     name: str = "StageCommit"
     description: str = (
         "Commit current stage changes. \n"
@@ -172,22 +196,24 @@ class ToolStageCommit(ManagerTool):
         "you cannot undo this action. \n"
     )
     args_schema: Optional[ArgsSchema] = ArgStageCommit
-    def _run(self, commit_message: str = "",
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+
+    def _run(
+        self,
+        commit_message: str = "",
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
         if not commit_message:
             return "Commit message cannot be empty."
         return self.function(commit_message)
 
 
 class ArgStdCheck(BaseModel):
-    lines: int = Field(
-        default=-1,
-        description="lines to read, -1 means read all"
-    )
+    lines: int = Field(default=-1, description="lines to read, -1 means read all")
 
 
 class ToolStdCheck(ManagerTool):
     """get the standard output of the current check process."""
+
     name: str = "StdCheck"
     description: str = (
         "Get the standard output of the current check process. \n"
@@ -196,7 +222,9 @@ class ToolStdCheck(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgStdCheck
 
-    def _run(self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, lines: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         return self.function(lines)
 
 
@@ -212,20 +240,21 @@ class ArgCheck(BaseModel):
             "• 'test_file.py::TestClass::test_method': Run a specific test method in a class\n"
             "• '-k pattern': Run tests matching the given pattern\n"
             "• '-m marker': Run tests with specific markers\n"
-        )
+        ),
     )
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out.",
     )
     return_line_coverage: bool = Field(
         default=False,
-        description="Whether to return line coverage information in the test results."
+        description="Whether to return line coverage information in the test results.",
     )
 
 
 class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""
+
     name: str = "RunTestCases"
     description: str = (
         "This tool is used to execute the test cases in the workspace. "
@@ -234,8 +263,13 @@ class ToolRunTestCases(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
-    def _run(self, target="", timeout=0, return_line_coverage=False,
-             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self,
+        target="",
+        timeout=0,
+        return_line_coverage=False,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
         try:
             if timeout <= 0:
                 timeout = self.get_call_time_out()
@@ -250,12 +284,13 @@ class ToolRunTestCases(ManagerTool):
 class ArgTimeout(BaseModel):
     timeout: int = Field(
         default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
+        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out.",
     )
 
 
 class ToolDoCheck(ManagerTool):
     """Advanced validation tool for stage requirements and implementation quality."""
+
     name: str = "Check"
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
@@ -263,14 +298,16 @@ class ToolDoCheck(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
-        
+
         Args:
             target: Test target specification (pytest format)
             run_manager: Callback manager for tool execution
-            
+
         Returns:
             str: Comprehensive validation report in JSON format
         """
@@ -282,14 +319,12 @@ class ToolDoCheck(ManagerTool):
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
             info(error_msg)
-            return make_llm_tool_ret({
-                "check_pass": False,
-                "check_info": error_msg
-            })
+            return make_llm_tool_ret({"check_pass": False, "check_info": error_msg})
 
 
 class ToolDoComplete(ManagerTool):
     """Tell the manager that you have completed the current stage."""
+
     name: str = "Complete"
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
@@ -297,7 +332,9 @@ class ToolDoComplete(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgTimeout
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         try:
             if timeout <= 0:
                 timeout = self.get_call_time_out()
@@ -310,14 +347,12 @@ class ToolDoComplete(ManagerTool):
 
 
 class ArgToolGoToStage(BaseModel):
-    index: int = Field(
-        default=-1,
-        description="Stage index to go to. "
-    )
+    index: int = Field(default=-1, description="Stage index to go to. ")
 
 
 class ToolGoToStage(ManagerTool):
     """Go to a specific stage by index."""
+
     name: str = "GoToStage"
     description: str = (
         "Go to a specific stage by index. Only those stages that have been reached can be selected. \n"
@@ -327,12 +362,15 @@ class ToolGoToStage(ManagerTool):
     )
     args_schema: Optional[ArgsSchema] = ArgToolGoToStage
 
-    def _run(self, index: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(
+        self, index: int = -1, run_manager: Optional[CallbackManagerForToolRun] = None
+    ) -> str:
         return self.function(index)
 
 
 class ToolDoExit(ManagerTool):
     """Exit the agent and end the mission after all stages are completed."""
+
     name: str = "Exit"
     description: str = (
         "Exit the agent and end the mission after all stages are completed. \n"
@@ -343,14 +381,19 @@ class ToolDoExit(ManagerTool):
 
 class StageManager(object):
     def __init__(
-            self, workspace, cfg, agent, tool_read_text, ucagent_info: dict,
-            force_stage_index=0,
-            force_todo=False,
-            todo_panel=None,
-            stage_skip_list=None,
-            stage_unskip_list=None,
-            tool_inspect_file=None,
-            reference_files=None,
+        self,
+        workspace,
+        cfg,
+        agent,
+        tool_read_text,
+        ucagent_info: dict,
+        force_stage_index=0,
+        force_todo=False,
+        todo_panel=None,
+        stage_skip_list=None,
+        stage_unskip_list=None,
+        tool_inspect_file=None,
+        reference_files=None,
     ):
         """
         Initialize the StageManager with an empty list of stages.
@@ -360,7 +403,9 @@ class StageManager(object):
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
-        self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        self.free_pytest_run = UnityChipCheckerTestFree(
+            "", cfg.tools.RunTestCases.test_dir, ""
+        ).set_workspace(workspace)
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -372,6 +417,7 @@ class StageManager(object):
 
     def init_stage(self):
         from ucagent.stage import VerifyStage
+
         self.root_stage = get_root_stage(self.cfg, self.workspace, self.tool_read_text)
         self.stages = self.root_stage.get_substages()
         if self.reference_files:
@@ -387,9 +433,21 @@ class StageManager(object):
                     warning(f"Invalid stage index {si} in reference_files, ignored.")
         self.mission = self.cfg.mission
         info(f"Initialized StageManager with {len(self.stages)} stages.")
-        info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
-        self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
-        for i in range(self.stage_index + 1):
+        info(
+            "Stages:\n"
+            + "\n".join(
+                [
+                    f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}"
+                    for i, stage in enumerate(self.stages)
+                ]
+            )
+        )
+        restored_all_completed = self.ucagent_info.get("all_completed", False)
+        if restored_all_completed and self.force_stage_index >= len(self.stages):
+            self.stage_index = len(self.stages)
+        else:
+            self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
+        for i in range(min(self.stage_index + 1, len(self.stages))):
             self.stages[i].set_reached(True)
         stages_info = self.ucagent_info.get("stages_info", {})
 
@@ -400,15 +458,20 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
-            stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
+            stage.set_reference_file_status(
+                stage_info.get("task", {}).get("reference_files", {})
+            )
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
-        self.stages[self.stage_index].on_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.all_completed = False
+        self.all_completed = restored_all_completed and self.stage_index >= len(
+            self.stages
+        )
         if self.stage_skip_list:
             for si in self.stage_skip_list:
                 self.skip_stage(si)
@@ -423,16 +486,20 @@ class StageManager(object):
         self.llm_fail_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_fail_refinement,
             self,
-            self.tool_inspect_file
+            self.tool_inspect_file,
         )
         self.llm_pass_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_pass_refinement,
             self,
-            self.tool_inspect_file + [ApproveStagePass().set_function(self.tool_stage_approve),
-                                      ToolStageDiff().set_function(self.tool_stage_diff),
-                                      ToolStageCommit().set_function(self.tool_stage_commit)]
+            self.tool_inspect_file
+            + [
+                ApproveStagePass().set_function(self.tool_stage_approve),
+                ToolStageDiff().set_function(self.tool_stage_diff),
+                ToolStageCommit().set_function(self.tool_stage_commit),
+            ],
         )
-        self.stages[self.stage_index].hist_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].hist_init()
 
     def is_break(self):
         return self.agent.is_break()
@@ -473,7 +540,9 @@ class StageManager(object):
             warning(f"Generate fail suggestion failed: {str(e)}")
             return error_msg
 
-    def is_llm_suggestion_needed(self, stage_name, suggestion_ins, need_llm_suggestion) -> bool:
+    def is_llm_suggestion_needed(
+        self, stage_name, suggestion_ins, need_llm_suggestion
+    ) -> bool:
         if not suggestion_ins:
             return False
         if need_llm_suggestion is not None:
@@ -517,19 +586,25 @@ class StageManager(object):
                 stage,
                 self.llm_pass_suggestion,
                 self.stage_need_llm_pass_suggestion,
-                pre_llm_cb = lambda: stage.set_approved(False),
+                pre_llm_cb=lambda: stage.set_approved(False),
             )
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate pass suggestion failed: {str(e)}")
-            warning("Set stage as approved due to exception in generating pass suggestion.")
+            warning(
+                "Set stage as approved due to exception in generating pass suggestion."
+            )
             stage.set_approved(True)
             return raw_msg
 
-    def gen_llm_suggestion(self, raw_msg, stage,
-                           suggestion_instance,
-                           stage_need_llm_suggestion_fc,
-                           pre_llm_cb=None) -> str:
+    def gen_llm_suggestion(
+        self,
+        raw_msg,
+        stage,
+        suggestion_instance,
+        stage_need_llm_suggestion_fc,
+        pre_llm_cb=None,
+    ) -> str:
         assert stage is not None, "stage can not be None"
         if stage_need_llm_suggestion_fc(stage) is False:
             return raw_msg
@@ -537,10 +612,7 @@ class StageManager(object):
             pre_llm_cb()
         stage.set_force_unactive(True)
         try:
-            return suggestion_instance.suggest([
-                    stage.task_info(),
-                    raw_msg],
-                    stage)
+            return suggestion_instance.suggest([stage.task_info(), raw_msg], stage)
         finally:
             stage.set_force_unactive(False)
 
@@ -550,7 +622,9 @@ class StageManager(object):
         return self.time_end - self.time_begin
 
     def attach_todo_summary(self, data):
-        assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
+        assert isinstance(data, str), (
+            "the target data type of attach_todo_summary must be str"
+        )
         if not self.force_todo:
             return data
         if not self.todo_panel:
@@ -571,7 +645,9 @@ class StageManager(object):
             ToolCurrentTips().set_function(self.tool_current_tips),
             ToolDetail().set_function(self.tool_detail),
             ToolStatus().set_function(self.tool_status),
-            ToolRunTestCases().set_function(self.tool_run_test_cases).render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
+            ToolRunTestCases()
+            .set_function(self.tool_run_test_cases)
+            .render_desc({"TEST_DIR": self.free_pytest_run.test_dir}),
             ToolDoCheck().set_function(self.tool_check),
             ToolKillCheck().set_function(self.tool_kill_check),
             ToolStdCheck().set_function(self.tool_std_check),
@@ -590,17 +666,21 @@ class StageManager(object):
         cstage = self.stages[self.stage_index]
         tips = OrderedDict()
         tips["mission"] = self.mission.name
-        tips["current_stage"] = OrderedDict({
-            "index": self.stage_index,
-            **cstage.detail(),
-        })
+        tips["current_stage"] = OrderedDict(
+            {
+                "index": self.stage_index,
+                **cstage.detail(),
+            }
+        )
         ref_files = []
         for k, v in cstage.reference_files.items():
             if v:
                 continue
             ref_files.append(k)
         if ref_files:
-            tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
+            tips["notes"] = (
+                f"You need use tool: {self.tool_read_text.name} to read the reference files."
+            )
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
         if mession_tips is not None:
@@ -626,7 +706,11 @@ class StageManager(object):
             ret["stage_list"].append(stage.detail())
             ret["stage_list"][-1]["index"] = i
         ret["current_stage_index"] = self.stage_index
-        ret["current_stage_name"] = self.stages[self.stage_index].name if self.stage_index < len(self.stages) else None
+        ret["current_stage_name"] = (
+            self.stages[self.stage_index].name
+            if self.stage_index < len(self.stages)
+            else None
+        )
         return ret
 
     def status(self):
@@ -634,23 +718,35 @@ class StageManager(object):
         ret["mission"] = self.mission.name
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
-            ret["stage_list"].append({
-                "index": i,
-                "title": stage.title(),
-                "reached": stage.is_reached(),
-                "fail_count": stage.fail_count,
-                "is_skipped": stage.is_skipped(),
-                "time_start": stage.get_time_start_str(),
-                "time_end": stage.get_time_end_str(),
-                "time_cost": stage.get_time_cost_str(),
-                "is_completed": stage.is_completed(),
-                "needs_human_check": stage.is_hmcheck_needed(),
-                "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
-                "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
-            })
+            ret["stage_list"].append(
+                {
+                    "index": i,
+                    "title": stage.title(),
+                    "reached": stage.is_reached(),
+                    "fail_count": stage.fail_count,
+                    "is_skipped": stage.is_skipped(),
+                    "time_start": stage.get_time_start_str(),
+                    "time_end": stage.get_time_end_str(),
+                    "time_cost": stage.get_time_cost_str(),
+                    "is_completed": stage.is_completed(),
+                    "needs_human_check": stage.is_hmcheck_needed(),
+                    "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(
+                        stage
+                    ),
+                    "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(
+                        stage
+                    ),
+                }
+            )
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
-        cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None
-        ret["current_task"] = "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
+        cstage = (
+            self.stages[self.stage_index]
+            if self.stage_index < len(self.stages)
+            else None
+        )
+        ret["current_task"] = (
+            "No stages available (Maybe mission is completed, you can use the `GoToStage` tool to go back to a previous stage if needed)"
+        )
         if cstage:
             ret["current_stage_index"] = self.stage_index
             ret["current_stage_name"] = cstage.name
@@ -718,33 +814,45 @@ class StageManager(object):
 
     def check(self, timeout):
         if not self.stage_index < len(self.stages):
-            return OrderedDict({
-                "check_pass": False,
-                "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
-            })
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout})
-        ret_data = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+            return OrderedDict(
+                {
+                    "check_pass": False,
+                    "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
+                }
+            )
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+            **{"timeout": timeout}
+        )
+        ret_data = OrderedDict(
+            {
+                "check_info": ck_info,
+                "check_pass": ck_pass,
+            }
+        )
         if not ck_pass:
-            ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            ret_data["action"] = (
+                "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            )
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
-            ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+            ret_data["message"] = (
+                f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+            )
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
 
     def save_stage_info(self):
         info = self.agent.get_stat_info()
-        info.update({
-            "stage_index": self.stage_index,
-            "all_completed": self.all_completed,
-            "time_begin": self.time_begin,
-            "time_end": self.time_end,
-            "is_agent_exit": self.agent.is_exit(),
-        })
+        info.update(
+            {
+                "stage_index": self.stage_index,
+                "all_completed": self.all_completed,
+                "time_begin": self.time_begin,
+                "time_end": self.time_end,
+                "is_agent_exit": self.agent.is_exit(),
+            }
+        )
         info["stages_info"] = {}
         for idx in range(self.stage_index + 1):
             if idx >= len(self.stages):
@@ -805,55 +913,77 @@ class StageManager(object):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
-                "message": ("No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed. "
-                            "Or you can use the `Exit` tool to exit the mission."),
+                "message": (
+                    "No more stages to complete. You can review your work and use the `GoToStage` tool to go back to a previous stage if needed. "
+                    "Or you can use the `Exit` tool to exit the mission."
+                ),
                 "last_check_result": self.last_check_info,
             }
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "is_complete": True})
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+            **{"timeout": timeout, "is_complete": True}
+        )
         stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
-                return {"complete": False,
-                        "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it."}
+                return {
+                    "complete": False,
+                    "error": "Please use tool 'SetCurrentStageJournal' to set the journal of this stage before completing it.",
+                }
         if ck_pass:
             llm_msg = self.gen_pass_suggestion(ck_info)
             ck_pass = stage.get_approved()
             if not ck_pass:
                 if isinstance(llm_msg, str):
-                    return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
-                return {"complete": False, "error": "Stage Complete Fail:\n\n" + llm_msg}
+                    return {
+                        "complete": False,
+                        "error": "Stage Complete Fail:\n\n" + llm_msg,
+                    }
+                return {
+                    "complete": False,
+                    "error": "Stage Complete Fail:\n\n" + llm_msg,
+                }
         if ck_pass and stage.is_hmcheck_needed():
             hm_passed, ck_msg = stage.get_hmcheck_state()
             if hm_passed is None:
                 self.agent._need_human = True
-                return {"error": ("Now you have passed the self check of this stage, but human check is needed before completing this stage. "
-                                  "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
-                                  "Then wait for human review and approval."),
-                        "complete": False}
+                return {
+                    "error": (
+                        "Now you have passed the self check of this stage, but human check is needed before completing this stage. "
+                        "Please give a bref introduction of your work to help the human reviewer understand your implementation. "
+                        "Then wait for human review and approval."
+                    ),
+                    "complete": False,
+                }
             elif hm_passed is False:
                 self.agent._need_human = True
-                return {"error": ("Human check did not approve your work for this stage. "
-                                  "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."),
-                         "human_review_msg": ck_msg,
-                         "complete": False
-                        }
+                return {
+                    "error": (
+                        "Human check did not approve your work for this stage. "
+                        "Please address the issues raised by the human reviewer and then use the `Complete` tool again to complete this stage."
+                    ),
+                    "human_review_msg": ck_msg,
+                    "complete": False,
+                }
             else:
                 assert hm_passed is True, "hm_passed should be True here"
                 info("Human check approved for stage " + stage.name)
 
-        self.last_check_info = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+        self.last_check_info = OrderedDict(
+            {
+                "check_info": ck_info,
+                "check_pass": ck_pass,
+            }
+        )
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
             if self.stage_index >= len(self.stages):
-                message = ("All stages completed successfully. "
-                           "Now you should review your work to check if everything is correct and all the users needs are matched. "
-                           "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
-                           )
+                message = (
+                    "All stages completed successfully. "
+                    "Now you should review your work to check if everything is correct and all the users needs are matched. "
+                    "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
+                )
                 self.all_completed = True
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
@@ -861,13 +991,17 @@ class StageManager(object):
                 self.stages[self.stage_index].on_init()
         else:
             message = f"Stage {self.stage_index} not completed. Please check the task requirements."
-        ret = OrderedDict({
-            "complete": ck_pass,
-            "message": message,
-            "last_check_result": self.last_check_info,
-        })
+        ret = OrderedDict(
+            {
+                "complete": ck_pass,
+                "message": message,
+                "last_check_result": self.last_check_info,
+            }
+        )
         if not ck_pass:
-            ret["action"] = "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
+            ret["action"] = (
+                "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
+            )
             return self.gen_fail_suggestion(self.last_check_info)
         return ret
 
@@ -885,11 +1019,11 @@ class StageManager(object):
                 ex_msg = " UCAgent has quit. The MCP server is shutting down — all MCP tools will become unavailable. You need to stop Now!"
             return {
                 "exit": True,
-                "message": "All stages completed. Exiting the mission." + ex_msg
+                "message": "All stages completed. Exiting the mission." + ex_msg,
             }
         return {
             "exit": False,
-            "message": "Not all stages are completed yet. Please complete all stages before exiting."
+            "message": "Not all stages are completed yet. Please complete all stages before exiting.",
         }
 
     def tool_set_journal(self, journal):
@@ -979,12 +1113,24 @@ class StageManager(object):
         info("Tips:\n" + tips)
         return tips
 
-    def tool_run_test_cases(self, pytest_args="", timeout=0, return_line_coverage=False, raw_return=False, detail=False):
+    def tool_run_test_cases(
+        self,
+        pytest_args="",
+        timeout=0,
+        return_line_coverage=False,
+        raw_return=False,
+        detail=False,
+    ):
         """
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        ret = self.free_pytest_run.do_check(
+            pytest_args,
+            timeout=timeout,
+            return_line_coverage=return_line_coverage,
+            detail=detail,
+        )
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

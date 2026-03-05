@@ -323,7 +323,15 @@ class VerifyAgent:
         self.stream_output = stream_output
         self.invoke_round = 0
         self._tool__call_error = []
-        self._is_exit = False
+        self._is_exit = saved_info.get("is_agent_exit", False) and saved_info.get(
+            "all_completed", False
+        )
+        if self._is_exit:
+            from ucagent.util.log import info
+
+            info(
+                "Restored exit state from saved info — all stages were previously completed."
+            )
         self._tip_index = 0
         self._need_break = False
         self._break_threads: set[int] = set()
