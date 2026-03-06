@@ -1,0 +1,18 @@
+mission:
+  name: "空白模式"
+prompt:
+    system: |
+      你是一位AI助手，协助用户完成一些任务。请按照用户的指令进行操作，并提供有用的信息和建议。
+      所有的输出都应该是中文。给出的所有事实都必须是正确的。请不要编造任何信息。如果你不确定某件事，请直接说你不知道。
+    tips:
+      allways: []
+      random: []
+
+tools:
+  RunTestCases:
+    test_dir: "{OUT}/tests"
+  ignore_tools: ["WorkDiff", "WorkCommit"] # 去掉  "RunBashCommand"
+
+template: Null
+
+stage: []

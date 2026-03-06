@@ -377,13 +377,33 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--master",
-        type=str,
-        default=None,
+        nargs="+",
+        action="append",
+        default=[],
         metavar="host[:port]",
         help=(
-            "Connect this agent to an existing Master API server at the given address (connect_master_to). "
-            "Format: host or host:port."
+            "Connect this agent to a Master API server (can be used multiple times). "
+            "Format: host[:port] [access_key]. "
+            "E.g. --master 192.168.1.10:8800 --master 192.168.1.20:8800 secretkey"
         )
+    )
+
+    parser.add_argument(
+        "--as-master-key",
+        type=str,
+        default=None,
+        metavar="key",
+        help="Access key that clients must supply to register with this master "
+             "(used with --as-master). Passed as --key to master_api_start."
+    )
+
+    parser.add_argument(
+        "--as-master-password",
+        type=str,
+        default=None,
+        metavar="password",
+        help="HTTP Basic Auth password to protect the Master API dashboard and all API endpoints "
+             "(used with --as-master). Passed as --password to master_api_start."
     )
 
     parser.add_argument("--no-history", action="store_true", default=False,
@@ -539,12 +559,12 @@ def run() -> None:
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
         import pathlib
-        _fake_dut_dir = pathlib.Path("/tmp/ucagent_master")
-        _fake_dut_dir.mkdir(parents=True, exist_ok=True)
-        (_fake_dut_dir / "__init__.py").touch()
-        args.workspace = "/tmp"
-        args.dut = "ucagent_master"
+        _fake_cwd_dir = pathlib.Path("/tmp/ucagent_master")
+        _fake_cwd_dir.mkdir(parents=True, exist_ok=True)
+        args.workspace = _fake_cwd_dir.as_posix()
+        args.dut = "empty"
         args.human = True
+        args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
 
     # Validate required positional args for normal (non-as-master) usage
     if args.workspace is None or args.dut is None:
@@ -607,24 +627,32 @@ def run() -> None:
 
     # Handle --as-master: start this agent as a Master API server
     if args.as_master is not None:
+        extra_master_opts = ""
+        if getattr(args, 'as_master_key', None):
+            extra_master_opts += f" --key {args.as_master_key}"
+        if getattr(args, 'as_master_password', None):
+            extra_master_opts += f" --password {args.as_master_password}"
         if args.as_master == "":
-            init_cmds += ["master_api_start"]
+            init_cmds += [f"master_api_start{extra_master_opts}".strip()]
         else:
             addr = args.as_master
             if ":" in addr:
                 m_host, m_port = addr.rsplit(":", 1)
-                init_cmds += [f"master_api_start {m_host} {m_port}"]
+                init_cmds += [f"master_api_start {m_host} {m_port}{extra_master_opts}"]
             else:
-                init_cmds += [f"master_api_start {addr}"]
+                init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
 
-    # Handle --master: connect to an existing Master API server
-    if args.master is not None:
-        master_addr = args.master
+    # Handle --master: connect to one or more Master API servers
+    # Each entry is a list: [host[:port]] or [host[:port], access_key]
+    for master_tokens in args.master:
+        master_addr = master_tokens[0]
+        access_key = master_tokens[1] if len(master_tokens) > 1 else ""
+        extra_client_opts = f" --key {access_key}" if access_key else ""
         if ":" in master_addr:
             m_host, m_port = master_addr.rsplit(":", 1)
-            master_cmd = f"connect_master_to {m_host} {m_port}"
+            master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
         else:
-            master_cmd = f"connect_master_to {master_addr}"
+            master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
         init_cmds += [master_cmd]
 
     if args.icmd:
