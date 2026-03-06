@@ -258,6 +258,18 @@ class PdbMasterApiServer:
             version="1.0.0",
         )
 
+        import re as _re
+        _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+
+        def _fix_cmd_api_url(url: str, client_ip: str) -> str:
+            """Replace a localhost/any-interface host in url with the real client IP."""
+            if not url or not client_ip:
+                return url
+            m = _re.match(r'^(https?://)([^:/]+)((?::\d+)?.*)$', url)
+            if m and m.group(2).strip().lower() in _LOCAL_HOSTS:
+                return m.group(1) + client_ip + m.group(3)
+            return url
+
         agents = self._agents
         agents_lock = self._agents_lock
         removed = self._removed
@@ -293,7 +305,7 @@ class PdbMasterApiServer:
         @app.get("/", summary="Dashboard", response_class=HTMLResponse,
                  dependencies=[Depends(_check_password)])
         def index():
-            html_path = os.path.join(_template_dir, "index.html")
+            html_path = os.path.join(_template_dir, "master.html")
             try:
                 with open(html_path, "r", encoding="utf-8") as fh:
                     content = fh.read()
@@ -306,12 +318,16 @@ class PdbMasterApiServer:
                 )
 
         # ── POST /api/register ──────────────────────────────────────────
+        from fastapi import Request as _Request
+
         @app.post("/api/register", summary="Register or heartbeat",
                   dependencies=[Depends(_check_access_key)])
-        def register(body: RegisterBody):
+        def register(body: RegisterBody, request: _Request):
             agent_id = body.id.strip()
             if not agent_id:
                 raise HTTPException(status_code=400, detail="'id' must not be empty")
+            # Resolve the actual client IP for localhost-style cmd_api addresses
+            _client_ip = request.client.host if request.client else ""
 
             # notify removed agents
             if agent_id in removed:
@@ -324,11 +340,12 @@ class PdbMasterApiServer:
             with agents_lock:
                 existing = agents.get(agent_id, {})
                 is_new = not existing
+                _tcp = _fix_cmd_api_url(body.cmd_api_tcp, _client_ip)
                 agents[agent_id] = {
                     "id": agent_id,
                     "host": body.host or existing.get("host", ""),
                     "version": body.version or existing.get("version", ""),
-                    "cmd_api_tcp": body.cmd_api_tcp or existing.get("cmd_api_tcp", ""),
+                    "cmd_api_tcp": _tcp or existing.get("cmd_api_tcp", ""),
                     "cmd_api_sock": body.cmd_api_sock or existing.get("cmd_api_sock", ""),
                     "task_list": body.task_list if body.task_list is not None else existing.get("task_list"),
                     # task progress

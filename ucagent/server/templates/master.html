@@ -43,7 +43,7 @@
   #batch-delete-btn{display:none}
 
   /* ── Main ────────────────────────────────────────────────────────────── */
-  main{padding:24px 28px;max-width:1600px}
+  main{padding:24px 28px;max-width:1600px;width:100%;overflow-x:hidden}
 
   /* ── Stats ───────────────────────────────────────────────────────────── */
   .stats{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap}
@@ -63,8 +63,8 @@
   .filter-select:focus{outline:none;border-color:var(--accent)}
 
   /* ── Table ───────────────────────────────────────────────────────────── */
-  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-  table{width:100%;border-collapse:collapse}
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;overflow-y:hidden}
+  table{width:100%;min-width:900px;border-collapse:collapse}
   thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:11px;
     text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);white-space:nowrap;
     border-bottom:1px solid var(--border)}
@@ -141,6 +141,34 @@
   .toast-ok{border-left:3px solid var(--online)}
   .toast-err{border-left:3px solid var(--red)}
   @keyframes slide-in{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+
+  /* ── Responsive ─────────────────────────────────────────────────────── */
+  @media(max-width:768px){
+    header{padding:10px 14px}
+    main{padding:14px 12px}
+    .stat-value{font-size:22px}
+    .cmd-cell{max-width:100px}
+    .mission-cell{max-width:100px}
+    .stage-cell{max-width:90px}
+    .id-cell{max-width:120px}
+  }
+
+  /* ── Sticky horizontal scrollbar ───────────────────────────────── */
+  /* Hide native scrollbar on the table so only the sticky one is visible */
+  .table-wrap{scrollbar-width:none}           /* Firefox */
+  .table-wrap::-webkit-scrollbar{display:none} /* Chrome/Safari */
+  /* The sticky bar itself */
+  .sticky-hscroll{
+    position:fixed;bottom:0;left:0;right:0;
+    height:14px;overflow-x:auto;overflow-y:hidden;
+    background:var(--surface);border-top:1px solid var(--border);
+    z-index:50;display:none}
+  .sticky-hscroll-inner{height:1px;pointer-events:none}
+  .sticky-hscroll::-webkit-scrollbar{height:6px}
+  .sticky-hscroll::-webkit-scrollbar-track{background:var(--surface)}
+  .sticky-hscroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  .sticky-hscroll::-webkit-scrollbar-thumb:hover{background:var(--text-dim)}
+  .sticky-hscroll{scrollbar-width:thin;scrollbar-color:var(--border) var(--surface)}
 </style>
 </head>
 <body>
@@ -231,7 +259,8 @@
 
 <!-- ── Toast container ───────────────────────────────────────────────── -->
 <div id="toast-container"></div>
-
+<!-- Sticky horizontal scrollbar (must be before <script>) -->
+<div class="sticky-hscroll" id="sticky-hscroll"><div class="sticky-hscroll-inner" id="sticky-hscroll-inner"></div></div>
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let _allAgents = [];          // raw API data (always include_offline=true)
@@ -301,7 +330,7 @@ function renderTable() {
   updateBatchBtn();
 
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No agents found.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No agents found.</td></tr>';
     syncHeaderCheckbox();
     return;
   }
@@ -336,12 +365,14 @@ function renderTable() {
       <td><span class="mission-cell" title="${esc(a.mission || '')}">${esc(a.mission || '—')}</span></td>
       <td style="white-space:nowrap;display:flex;gap:6px">
         <button class="btn btn-ghost btn-sm" onclick="openDetail('${esc(a.id)}')">👁 Detail</button>
+        ${(()=>{const u=a.cmd_api_tcp||'';return u?`<a href="${esc(u)}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none" title="Open CMD API dashboard">📡 API</a>`:'<button class="btn btn-ghost btn-sm" disabled title="CMD API not running" style="opacity:.35;cursor:not-allowed">📡 API</button>';})()}
         <button class="btn btn-danger btn-sm" onclick="confirmDelete('${esc(a.id)}')">🗑</button>
       </td>
     </tr>`;
   }).join('');
 
   syncHeaderCheckbox();
+  if (window._updateStickyScroll) window._updateStickyScroll();
 }
 
 // ── Select / batch ─────────────────────────────────────────────────────────
@@ -434,15 +465,18 @@ function openDetail(id) {
     ['MCP Running',  a.mcp_running ? 'Yes' : 'No'],
     ['Break',        a.is_break    ? 'Yes' : 'No'],
     ['Last CMD',     a.last_cmd || '—'],
-    ['CMD API TCP',  a.cmd_api_tcp  || '—'],
     ['CMD API Sock', a.cmd_api_sock || '—'],
     ['First Seen',   a.first_seen  ? new Date(a.first_seen  * 1000).toLocaleString() : '—'],
     ['Last Seen',    a.last_seen   ? new Date(a.last_seen   * 1000).toLocaleString() : '—'],
   ];
 
+  const cmdApiHtml = a.cmd_api_tcp
+    ? `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value"><a href="${esc(a.cmd_api_tcp)}" target="_blank" style="color:var(--accent)">📡 ${esc(a.cmd_api_tcp)}</a></div></div>`
+    : `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value" style="color:var(--text-dim)">📡 —</div></div>`;
+
   const grid = fields.map(([k, v]) =>
     `<div class="detail-field"><div class="detail-field-label">${esc(k)}</div><div class="detail-field-value">${esc(String(v))}</div></div>`
-  ).join('');
+  ).join('') + cmdApiHtml;
 
   // ── Stage timeline (ANSI-rendered mission info) ────────────────────────
   const stageHtml = buildMissionInfo(a);
@@ -623,7 +657,50 @@ document.getElementById('confirm-overlay').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { closeDetailModal(); closeConfirm(); }
 });
+// ── Sticky horizontal scrollbar ───────────────────────────────────────────────
+(function () {
+  const bar   = document.getElementById('sticky-hscroll');
+  const inner = document.getElementById('sticky-hscroll-inner');
+  if (!bar || !inner) return;  // safety guard
+  const wrap  = () => document.querySelector('.table-wrap');
+  let syncing = false;
 
+  function updateBar() {
+    const w = wrap();
+    if (!w) return;
+    const overflows = w.scrollWidth > w.clientWidth;
+    bar.style.display = overflows ? 'block' : 'none';
+    if (overflows) {
+      const rect = w.getBoundingClientRect();
+      bar.style.left  = rect.left  + 'px';
+      bar.style.right = (window.innerWidth - rect.right) + 'px';
+      inner.style.width = w.scrollWidth + 'px';
+      bar.scrollLeft    = w.scrollLeft;
+    }
+  }
+
+  bar.addEventListener('scroll', () => {
+    if (syncing) return; syncing = true;
+    const w = wrap(); if (w) w.scrollLeft = bar.scrollLeft;
+    syncing = false;
+  });
+
+  // Re-sync table → sticky bar
+  document.addEventListener('scroll', () => {
+    const w = wrap(); if (!w || syncing) return;
+    syncing = true; bar.scrollLeft = w.scrollLeft; syncing = false;
+  }, true);
+
+  const ro = new ResizeObserver(updateBar);
+  document.addEventListener('DOMContentLoaded', () => {
+    const w = wrap(); if (w) ro.observe(w);
+    updateBar();
+  });
+  // also update on window resize
+  window.addEventListener('resize', updateBar);
+  // expose for renderTable to call after re-render
+  window._updateStickyScroll = updateBar;
+})();
 // ── Boot ───────────────────────────────────────────────────────────────────
 fetchAgents().then(startCountdown);
 </script>

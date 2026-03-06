@@ -1188,13 +1188,14 @@ class VerifyPDB(Pdb):
                 "done":     "YES" if a.get("is_mission_complete", False) else "no",
                 "mcp":      "yes" if a.get("mcp_running", False) else "no",
                 "break":    "yes" if a.get("is_break", False) else "no",
+                "api":      "on"  if a.get("cmd_api_tcp") else "off",
                 "stage":    a.get("current_stage_name", ""),
                 "cmd":      a.get("last_cmd", "")[:40],
                 "mission":  a.get("mission", ""),
             })
         # Compute column widths from data + header labels
-        cols = ["id", "host", "status", "version", "progress", "run_time", "done", "mcp", "break", "stage", "cmd", "mission"]
-        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "RUN_TIME", "DONE", "MCP", "BREAK", "STAGE", "CMD", "MISSION"]
+        cols = ["id", "host", "status", "version", "progress", "run_time", "done", "mcp", "break", "api", "stage", "cmd", "mission"]
+        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "RUN_TIME", "DONE", "MCP", "BREAK", "API", "STAGE", "CMD", "MISSION"]
         widths = {c: len(h) for c, h in zip(cols, hdrs)}
         for r in rows:
             for c in cols:
