@@ -32,7 +32,7 @@ import threading
 import time
 import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
-from ucagent.util.log import echo_g
+from ucagent.util.log import echo_g, warning
 from ucagent.util.functions import get_abs_path_cwd_ucagent
 
 if TYPE_CHECKING:
@@ -283,6 +283,7 @@ class PdbMasterApiServer:
             last_cmd: str = ""              # last PDB command executed
             # raw ANSI-colored output of api_mission_info() (list joined with \n)
             mission_info_ansi: str = ""
+            run_time: str = ""              # formatted total run time (e.g. "01:20:05")
             extra: Optional[dict] = None    # any additional metadata
             force: bool = False             # if True, clear removed status and re-register
 
@@ -340,6 +341,7 @@ class PdbMasterApiServer:
                     "is_break": body.is_break,
                     "last_cmd": body.last_cmd or existing.get("last_cmd", ""),
                     "mission_info_ansi": body.mission_info_ansi or existing.get("mission_info_ansi", ""),
+                    "run_time": body.run_time or existing.get("run_time", ""),
                     "extra": body.extra or existing.get("extra", {}),
 
                     "first_seen": existing.get("first_seen", now),
@@ -392,6 +394,7 @@ class PdbMasterApiServer:
                         "mcp_running": a.get("mcp_running", False),
                         "is_break": a.get("is_break", False),
                         "last_cmd": a.get("last_cmd", ""),
+                        "run_time": a.get("run_time", ""),
                         # mission info (ANSI or stripped)
                         "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                         # full task_list payload for detail views
@@ -432,6 +435,7 @@ class PdbMasterApiServer:
                 "mcp_running": a.get("mcp_running", False),
                 "is_break": a.get("is_break", False),
                 "last_cmd": a.get("last_cmd", ""),
+                "run_time": a.get("run_time", ""),
                 "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                 "task_list": a.get("task_list"),
             }
@@ -697,6 +701,20 @@ class PdbMasterClient:
             if not current_stage_name and 0 <= raw_index < total_stage_count:
                 current_stage_name = stage_list[raw_index].get("title", "")
 
+        # run time
+        run_time = ""
+        try:
+            from ucagent.util.functions import fmt_time_deta as _fmt_time_deta
+            agent_tmp = getattr(pdb, "agent", None)
+            if agent_tmp is not None:
+                run_time = _fmt_time_deta(agent_tmp.stage_manager.get_time_cost())
+            else:
+                run_time = "-"
+                warning("Cannot get run_time: pdb.agent is None")
+        except Exception as e:
+            warning("Failed to get run_time from agent.stage_manager.get_time_cost(): " + str(e))
+            run_time = "-"
+
         # runtime state
         agent = getattr(pdb, "agent", None)
         mcp_running = False
@@ -712,7 +730,8 @@ class PdbMasterClient:
         try:
             mission_info_lines = pdb.api_mission_info()
             mission_info_ansi = "\n".join(str(l) for l in mission_info_lines)
-        except Exception:
+        except Exception as e:
+            warning("Failed to get mission_info_ansi: " + str(e))
             mission_info_ansi = ""
 
         return {
@@ -726,6 +745,7 @@ class PdbMasterClient:
             "total_stage_count": total_stage_count,
             "is_mission_complete": is_mission_complete,
             "current_stage_name": current_stage_name,
+            "run_time": run_time,
             "mcp_running": mcp_running,
             "is_break": is_break,
             "last_cmd": last_cmd,

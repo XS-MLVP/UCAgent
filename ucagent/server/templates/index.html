@@ -72,7 +72,7 @@
   tbody tr{border-bottom:1px solid var(--border);transition:background .12s}
   tbody tr:last-child{border-bottom:none}
   tbody tr:hover{background:var(--surface2)}
-  tbody td{padding:10px 12px;vertical-align:middle;word-break:break-word}
+  tbody td{padding:10px 12px;vertical-align:middle;white-space:nowrap}
   tbody td:first-child{text-align:center}
   .empty-row td{text-align:center;padding:48px;color:var(--text-dim);font-style:italic}
   .loading-row td{text-align:center;padding:32px;color:var(--text-dim)}
@@ -86,13 +86,13 @@
   .progress-bar-wrap{background:var(--bg);border-radius:4px;height:6px;min-width:60px;overflow:hidden;margin-bottom:3px}
   .progress-bar{height:100%;border-radius:4px;background:var(--accent);transition:width .3s}
   .progress-label{font-size:11px;color:var(--text-dim)}
-  .cmd-cell{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  .cmd-cell{display:inline-block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     font-family:'Consolas','Courier New',monospace;font-size:12px;color:var(--text-dim)}
-  .mission-cell{max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  .mission-cell{display:inline-block;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     font-size:12px;color:var(--text-dim)}
-  .id-cell{font-family:'Consolas','Courier New',monospace;font-size:12px;max-width:180px;
+  .id-cell{display:inline-block;font-family:'Consolas','Courier New',monospace;font-size:12px;max-width:180px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .stage-cell{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  .stage-cell{display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
   input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
 
   /* ── Modal ───────────────────────────────────────────────────────────── */
@@ -185,6 +185,7 @@
           <th>Status</th>
           <th>Version</th>
           <th>Progress</th>
+          <th>Run Time</th>
           <th>Stage</th>
           <th>MCP</th>
           <th>Break</th>
@@ -194,7 +195,7 @@
         </tr>
       </thead>
       <tbody id="agents-tbody">
-        <tr class="loading-row"><td colspan="12">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="13">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -300,7 +301,7 @@ function renderTable() {
   updateBatchBtn();
 
   if (visible.length === 0) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="12">No agents found.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No agents found.</td></tr>';
     syncHeaderCheckbox();
     return;
   }
@@ -318,7 +319,7 @@ function renderTable() {
     return `<tr ${rowClass}>
       <td><input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/></td>
       <td><span class="id-cell" title="${esc(a.id)}">${esc(a.id)}</span></td>
-      <td>${esc(a.host)}</td>
+      <td style="white-space:nowrap">${esc(a.host)}</td>
       <td><span class="badge ${st ? 'badge-online' : 'badge-offline'}">${esc(a.status)}</span></td>
       <td style="font-size:12px">${esc(a.version || '—')}</td>
       <td>
@@ -327,6 +328,7 @@ function renderTable() {
              <div class="progress-label">${progLabel}${done ? ' ✓' : ''}</div>`
           : '<span style="color:var(--text-dim)">—</span>'}
       </td>
+      <td style="font-size:12px;white-space:nowrap;color:var(--text-dim)">${esc(a.run_time || '—')}</td>
       <td><span class="stage-cell" title="${esc(a.current_stage_name || '')}">${esc(a.current_stage_name || '—')}</span></td>
       <td>${a.mcp_running ? '<span class="badge badge-yes">on</span>' : '<span style="color:var(--text-dim);font-size:12px">—</span>'}</td>
       <td>${a.is_break    ? '<span class="badge badge-break">yes</span>' : '<span style="color:var(--text-dim);font-size:12px">—</span>'}</td>
@@ -427,6 +429,7 @@ function openDetail(id) {
     ['Mission',      a.mission || '—'],
     ['Stage',        a.current_stage_name || '—'],
     ['Progress',     a.total_stage_count > 0 ? `${a.current_stage_index}/${a.total_stage_count}` : '—'],
+    ['Run Time',     a.run_time || '—'],
     ['Complete',     a.is_mission_complete ? 'Yes ✓' : 'No'],
     ['MCP Running',  a.mcp_running ? 'Yes' : 'No'],
     ['Break',        a.is_break    ? 'Yes' : 'No'],
