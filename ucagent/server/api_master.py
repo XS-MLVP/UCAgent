@@ -24,6 +24,7 @@ POST /api/register              - Register / heartbeat  (called by clients)
 GET  /docs                      - Swagger UI
 """
 
+import json
 import os
 import re
 import socket
@@ -32,6 +33,7 @@ import time
 import warnings
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from ucagent.util.log import echo_g
+from ucagent.util.functions import get_abs_path_cwd_ucagent
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
@@ -79,6 +81,9 @@ class PdbMasterApiServer:
         sock: Optional[str] = None,
         tcp: bool = True,
         offline_timeout: float = 30.0,
+        workspace: str = "",
+        access_key: str = "",
+        password: str = "",
     ) -> None:
         """
         Parameters
@@ -93,6 +98,15 @@ class PdbMasterApiServer:
             Enable TCP listener (default True).
         offline_timeout : float
             Seconds without a heartbeat before an agent is marked offline.
+        workspace : str
+            Base workspace directory used to locate the persistent database.
+            The database is stored at ``<workspace>/.ucagent/master_db/agents.json``.
+        access_key : str
+            If non-empty, POST /api/register requires ``X-Access-Key: <key>``
+            header to match this value.  Clients without the key get HTTP 403.
+        password : str
+            If non-empty, the dashboard (GET /) and all read/write API endpoints
+            require HTTP Basic Auth with this password.  Username is ignored.
         """
         try:
             import fastapi  # noqa: F401
@@ -111,6 +125,15 @@ class PdbMasterApiServer:
         self.sock = sock
         self.tcp = tcp
         self.offline_timeout = offline_timeout
+        self.access_key = access_key  # Required X-Access-Key header for POST /api/register
+        self.password = password       # HTTP Basic password for dashboard / API access
+
+        # Persistent storage path
+        if not workspace:
+            raise ValueError("'workspace' is required and must not be empty.")
+        _db_dir = get_abs_path_cwd_ucagent(workspace, "master_db")
+        os.makedirs(_db_dir, exist_ok=True)
+        self._db_path: str = os.path.join(_db_dir, "agents.json")
 
         # agent registry: {agent_id: {...}}
         self._agents: Dict[str, Dict[str, Any]] = {}
@@ -127,7 +150,55 @@ class PdbMasterApiServer:
         self._monitor_thread: Optional[threading.Thread] = None
         self._monitor_stop = threading.Event()
         self._online_cache: Dict[str, bool] = {}  # agent_id -> last known online state
+
+        # Dirty-write tracking: save only when necessary
+        self._dirty: bool = False          # unsaved changes exist
+        self._last_saved: float = 0.0      # epoch of last successful save
+
+        # Load persisted agents before building the app
+        self._load_db()
         self._app = self._build_app()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    def _load_db(self) -> None:
+        """Load the persisted agent registry from disk (called once at startup)."""
+        if not os.path.exists(self._db_path):
+            return
+        try:
+            with open(self._db_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            agents = data.get("agents", {})
+            removed = data.get("removed", [])
+            with self._agents_lock:
+                self._agents.update(agents)
+            self._removed.update(removed)
+            _master_log(
+                f"Loaded {len(agents)} agent(s) from persistent DB: {self._db_path}"
+            )
+        except Exception as exc:
+            _master_log(f"Warning: failed to load persistent DB: {exc}")
+
+    # Seconds of accumulated changes before the monitor loop flushes to disk.
+    PERIODIC_SAVE_INTERVAL: float = 20.0
+
+    def _save_db(self) -> None:
+        """Persist the current agent registry to disk (thread-safe snapshot)."""
+        try:
+            with self._agents_lock:
+                agents_snapshot = {k: dict(v) for k, v in self._agents.items()}
+            removed_snapshot = list(self._removed)
+            data = {"agents": agents_snapshot, "removed": removed_snapshot}
+            tmp_path = self._db_path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, self._db_path)
+            self._dirty = False
+            self._last_saved = time.time()
+        except Exception as exc:
+            _master_log(f"Warning: failed to save persistent DB: {exc}")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -149,6 +220,34 @@ class PdbMasterApiServer:
             from fastapi import FastAPI, HTTPException
         from fastapi.responses import HTMLResponse
         from pydantic import BaseModel
+        import secrets as _secrets
+        from fastapi import Depends, Header as _Header
+        from fastapi.security import HTTPBasic as _HTTPBasic, HTTPBasicCredentials as _HTTPBasicCredentials
+
+        # ── auth helpers ──────────────────────────────────────────────────
+        _access_key = self.access_key
+        _password = self.password
+        _security = _HTTPBasic(auto_error=False)
+
+        async def _check_access_key(x_access_key: str = _Header(default="")):
+            """Verify X-Access-Key header for the register endpoint."""
+            if _access_key and x_access_key != _access_key:
+                raise HTTPException(status_code=403, detail="Invalid or missing access key.")
+
+        async def _check_password(
+            credentials: Optional[_HTTPBasicCredentials] = Depends(_security),
+        ):
+            """Verify HTTP Basic Auth password for dashboard / API endpoints."""
+            if not _password:
+                return
+            if credentials is None or not _secrets.compare_digest(
+                credentials.password.encode("utf-8"), _password.encode("utf-8")
+            ):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication required.",
+                    headers={"WWW-Authenticate": 'Basic realm="UCAgent Master"'},
+                )
 
         app = FastAPI(
             title="UCAgent Master API",
@@ -162,6 +261,7 @@ class PdbMasterApiServer:
         agents = self._agents
         agents_lock = self._agents_lock
         removed = self._removed
+        save_db = self._save_db
 
         # ── request body ────────────────────────────────────────────────
         class RegisterBody(BaseModel):
@@ -189,7 +289,8 @@ class PdbMasterApiServer:
         # ── index ────────────────────────────────────────────────────────
         _template_dir = self._TEMPLATE_DIR
 
-        @app.get("/", summary="Dashboard", response_class=HTMLResponse)
+        @app.get("/", summary="Dashboard", response_class=HTMLResponse,
+                 dependencies=[Depends(_check_password)])
         def index():
             html_path = os.path.join(_template_dir, "index.html")
             try:
@@ -204,7 +305,8 @@ class PdbMasterApiServer:
                 )
 
         # ── POST /api/register ──────────────────────────────────────────
-        @app.post("/api/register", summary="Register or heartbeat")
+        @app.post("/api/register", summary="Register or heartbeat",
+                  dependencies=[Depends(_check_access_key)])
         def register(body: RegisterBody):
             agent_id = body.id.strip()
             if not agent_id:
@@ -247,10 +349,16 @@ class PdbMasterApiServer:
                 action = "rejoined" if body.force else "joined"
                 host = body.host or "?"
                 _master_log(f"Agent '{agent_id}' {action}  host={host}")
+                # Agent count changed (new join / forced rejoin): save immediately.
+                save_db()
+            else:
+                # Regular heartbeat: just mark dirty; monitor loop will flush.
+                self._dirty = True
             return {"status": "ok", "message": f"Agent '{agent_id}' registered."}
 
         # ── GET /api/agents ─────────────────────────────────────────────
-        @app.get("/api/agents", summary="List all agents")
+        @app.get("/api/agents", summary="List all agents",
+                 dependencies=[Depends(_check_password)])
         def list_agents(include_offline: bool = True, strip_ansi: bool = True):
             with agents_lock:
                 data = []
@@ -292,7 +400,8 @@ class PdbMasterApiServer:
             return {"status": "ok", "count": len(data), "agents": data}
 
         # ── GET /api/agent/{agent_id} ───────────────────────────────────
-        @app.get("/api/agent/{agent_id}", summary="Agent detail")
+        @app.get("/api/agent/{agent_id}", summary="Agent detail",
+                 dependencies=[Depends(_check_password)])
         def get_agent(agent_id: str, strip_ansi: bool = True):
             with agents_lock:
                 a = agents.get(agent_id)
@@ -329,7 +438,8 @@ class PdbMasterApiServer:
             return {"status": "ok", "agent_status": st, "data": data}
 
         # ── DELETE /api/agent/{agent_id} ────────────────────────────────
-        @app.delete("/api/agent/{agent_id}", summary="Remove an agent")
+        @app.delete("/api/agent/{agent_id}", summary="Remove an agent",
+                    dependencies=[Depends(_check_password)])
         def delete_agent(agent_id: str):
             with agents_lock:
                 if agent_id not in agents:
@@ -337,6 +447,7 @@ class PdbMasterApiServer:
                 del agents[agent_id]
             removed.add(agent_id)
             _master_log(f"Agent '{agent_id}' removed by operator")
+            save_db()
             return {"status": "ok", "message": f"Agent '{agent_id}' removed."}
 
         return app
@@ -346,7 +457,7 @@ class PdbMasterApiServer:
     # ------------------------------------------------------------------
 
     def _monitor_loop(self) -> None:
-        """Background thread: log when agents go offline."""
+        """Background thread: log when agents go offline and flush dirty DB."""
         while not self._monitor_stop.is_set():
             self._monitor_stop.wait(10)  # check every 10 s
             if self._monitor_stop.is_set():
@@ -368,7 +479,9 @@ class PdbMasterApiServer:
             for aid in list(self._online_cache):
                 if aid not in current_ids:
                     del self._online_cache[aid]
-
+            # Periodic flush: write dirty data once the interval has elapsed.
+            if self._dirty and (now - self._last_saved) >= self.PERIODIC_SAVE_INTERVAL:
+                self._save_db()
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -446,6 +559,9 @@ class PdbMasterApiServer:
         self._monitor_stop.set()
         self._monitor_thread = None
         self._online_cache.clear()
+        # Flush any unsaved changes accumulated before shutdown.
+        if self._dirty:
+            self._save_db()
         if self.sock:
             try:
                 if os.path.exists(self.sock):
@@ -499,6 +615,8 @@ class PdbMasterClient:
         master_url: str,
         agent_id: Optional[str] = None,
         interval: float = 5.0,
+        reconnect_interval: float = 10.0,
+        access_key: str = "",
     ) -> None:
         """
         Parameters
@@ -511,6 +629,12 @@ class PdbMasterClient:
             Unique id for this agent.  Defaults to ``<hostname>-<pid>``.
         interval : float
             Heartbeat interval in seconds (default 5).
+        reconnect_interval : float
+            Seconds to wait between reconnect attempts after a network
+            failure (default 10).  Set to 0 to disable auto-reconnect.
+        access_key : str
+            If the master requires an access key, supply it here.  Sent as
+            the ``X-Access-Key`` HTTP header on every heartbeat request.
         """
         try:
             import requests  # noqa: F401
@@ -524,8 +648,13 @@ class PdbMasterClient:
         self.master_url = master_url.rstrip("/")
         self.agent_id = agent_id or f"{socket.gethostname()}-{os.getpid()}"
         self.interval = interval
+        self.reconnect_interval = reconnect_interval
+        self.access_key = access_key
 
         self._running = False
+        self._kicked = False       # True when master explicitly removed this agent
+        self._auth_failed = False  # True when master rejected our access key (HTTP 403)
+        self._connected = False    # True only while heartbeats are succeeding
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._force_next = False  # set True by start() so first heartbeat uses force=True
@@ -609,22 +738,29 @@ class PdbMasterClient:
 
     def _heartbeat_loop(self):
         import requests
+        from ucagent.util.log import echo_r, echo_y
 
         register_url = f"{self.master_url}/api/register"
+        _connected = False  # local mirror; synced to self._connected
+        _headers = {"X-Access-Key": self.access_key} if self.access_key else {}
+
         while not self._stop_event.is_set():
             try:
                 payload = self._build_payload()
-                if self._force_next:
+                # Use force=True on the very first send or on each reconnect
+                if self._force_next or not _connected:
                     payload["force"] = True
                     self._force_next = False
-                resp = requests.post(register_url, json=payload, timeout=10)
+                resp = requests.post(register_url, json=payload, timeout=10, headers=_headers)
                 if resp.ok:
                     data = resp.json()
                     if data.get("status") == "removed":
+                        # Server has explicitly removed this agent — do NOT reconnect.
+                        self._kicked = True
+                        self._running = False
                         try:
-                            from ucagent.util.log import echo_r
                             echo_r(
-                                f"\n[MasterClient] This agent '{self.agent_id}' has been "
+                                f"\n[MasterClient] Agent '{self.agent_id}' has been "
                                 f"REMOVED from master {self.master_url}. "
                                 f"Stopping heartbeat.\n"
                             )
@@ -633,10 +769,59 @@ class PdbMasterClient:
                                 f"[MasterClient] Agent '{self.agent_id}' removed from master. "
                                 "Stopping heartbeat."
                             )
-                        self._running = False
                         return
-            except Exception:
-                pass  # network errors are ignored; we just keep retrying
+                    # Successful heartbeat
+                    if not _connected:
+                        _master_log(
+                            f"[MasterClient] (Re)connected to master {self.master_url} "
+                            f"as '{self.agent_id}'"
+                        )
+                    _connected = True
+                    self._connected = True
+                else:
+                    # Non-OK HTTP response — check whether it's a fatal auth error.
+                    if resp.status_code == 403:
+                        # Wrong or missing access key — do NOT reconnect.
+                        self._auth_failed = True
+                        self._running = False
+                        self._connected = False
+                        try:
+                            from ucagent.util.log import echo_r as _echo_r
+                            _echo_r(
+                                f"\n[MasterClient] Access key rejected by master "
+                                f"{self.master_url} (HTTP 403). "
+                                f"Stopping heartbeat — check your --key value.\n"
+                            )
+                        except Exception:
+                            print(
+                                f"[MasterClient] Access key rejected by {self.master_url} "
+                                "(HTTP 403). Stopping heartbeat."
+                            )
+                        return
+                    # Other non-OK HTTP response (e.g. 5xx) — treat as transient failure.
+                    if _connected:
+                        _master_log(
+                            f"[MasterClient] Lost connection to {self.master_url} "
+                            f"(HTTP {resp.status_code}). "
+                            f"Retrying in {self.reconnect_interval}s …"
+                        )
+                    _connected = False
+                    self._connected = False
+                    self._stop_event.wait(self.reconnect_interval)
+                    continue
+            except Exception as exc:
+                # Network-level error (connection refused, timeout, …)
+                if _connected:
+                    _master_log(
+                        f"[MasterClient] Connection to {self.master_url} lost: {exc}. "
+                        f"Retrying in {self.reconnect_interval}s …"
+                    )
+                _connected = False
+                self._connected = False
+                self._stop_event.wait(self.reconnect_interval)
+                continue
+
+            # Normal heartbeat cadence
             self._stop_event.wait(self.interval)
 
     # ------------------------------------------------------------------
@@ -646,6 +831,16 @@ class PdbMasterClient:
     def start(self) -> Tuple[bool, str]:
         if self._running:
             return False, f"Already connected to master at {self.master_url}"
+        if self._kicked:
+            return False, (
+                f"This agent was removed from master {self.master_url}. "
+                "Use a new PdbMasterClient instance to reconnect."
+            )
+        if self._auth_failed:
+            return False, (
+                f"Access key was rejected by master {self.master_url} (HTTP 403). "
+                "Provide the correct --key value and use a new connection."
+            )
         self._stop_event.clear()
         self._force_next = True
         self._thread = threading.Thread(
@@ -655,17 +850,30 @@ class PdbMasterClient:
         self._running = True
         return True, (
             f"Connected to master {self.master_url} "
-            f"as '{self.agent_id}' (interval={self.interval}s)"
+            f"as '{self.agent_id}' (interval={self.interval}s, "
+            f"reconnect_interval={self.reconnect_interval}s)"
         )
 
     def stop(self) -> Tuple[bool, str]:
         if not self._running:
             return False, "Not connected to master"
+        # Signal the loop to exit — this is a voluntary stop, not a kick.
         self._stop_event.set()
         self._running = False
+        self._connected = False
         self._thread = None
         return True, f"Disconnected from master {self.master_url}"
 
     @property
     def is_running(self) -> bool:
         return self._running and self._thread is not None and self._thread.is_alive()
+
+    @property
+    def is_kicked(self) -> bool:
+        """True if the master explicitly removed this agent."""
+        return self._kicked
+
+    @property
+    def is_auth_failed(self) -> bool:
+        """True if the master rejected our access key (HTTP 403)."""
+        return self._auth_failed
