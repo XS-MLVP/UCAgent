@@ -4,15 +4,17 @@
 import os
 import re
 import glob
+import subprocess
 from typing import Optional, List, Tuple
 import pyslang
+import psutil
 from ucagent.tools.uctool import UCTool
 from ucagent.tools.fileops import BaseReadWrite
 from ucagent.util.log import info, str_info, str_error, str_data
 from pydantic import BaseModel, Field
 from langchain_core.tools.base import ArgsSchema
 
-__all__ = ["GenerateChecker", "GenerateFormalScript"]
+__all__ = ["GenerateChecker", "GenerateFormalScript", "RunFormalVerification"]
 
 class ArgGenerateChecker(BaseModel):
     """Arguments for GenerateChecker tool.
@@ -544,3 +546,163 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
             return str_info(f"TCL script created at: {real_output_path}")
         except Exception as e:
             return str_error(f"Error writing to {output_file}: {e}")
+
+
+class ArgRunFormalVerification(BaseModel):
+    """Arguments for RunFormalVerification tool."""
+    tcl_script: str = Field(
+        description="TCL脚本路径（相对workspace），例如 'output/unity_tests/tests/Adder_formal.tcl'"
+    )
+    timeout: int = Field(
+        default=300,
+        description="超时时间（秒），默认300秒"
+    )
+
+
+class RunFormalVerification(UCTool, BaseReadWrite):
+    name: str = "RunFormalVerification"
+    description: str = """立即执行形式化验证并返回结果摘要。
+
+适用场景：
+- 修改 checker.sv 或 wrapper.sv 后，想立即重新运行验证查看结果
+- 不想等待 Check/Complete 工具触发自动重跑
+- 在覆盖率分析阶段补充断言后刷新 fanin.rep
+
+工具会：
+1. 执行指定的 FormalMC TCL 脚本
+2. 解析 avis.log，返回 pass/fail/trivially_true 属性统计
+3. 列出所有失败属性名称，便于快速定位问题
+
+使用示例：
+  RunFormalVerification(tcl_script="output/unity_tests/tests/Adder_formal.tcl")
+"""
+    args_schema: Optional[ArgsSchema] = ArgRunFormalVerification
+
+    def _parse_log_summary(self, log_path: str) -> dict:
+        """解析 avis.log，返回属性结果统计。"""
+        result = {
+            "pass": [], "trivially_true": [], "false": [],
+            "cover_pass": [], "cover_fail": []
+        }
+        if not os.path.exists(log_path):
+            return result
+
+        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        # 优先从汇总表格解析
+        table_pattern = re.compile(
+            r'^\s*\d+\s+(checker_inst\.[\w.]+)\s*:\s*(TrivT|Fail|Pass|Undec)',
+            re.MULTILINE
+        )
+        for m in table_pattern.finditer(content):
+            prop = m.group(1).split('.')[-1]
+            status = m.group(2)
+            is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
+            if status == 'TrivT':
+                if not is_cover:
+                    result["trivially_true"].append(prop)
+            elif status == 'Fail':
+                (result["cover_fail"] if is_cover else result["false"]).append(prop)
+            elif status == 'Pass':
+                (result["cover_pass"] if is_cover else result["pass"]).append(prop)
+
+        # 回退：从 Info-P016 逐行解析
+        if not any([result["pass"], result["trivially_true"], result["false"]]):
+            p016 = re.compile(
+                r'Info-P016:\s*property\s+(checker_inst\.[\w.]+)\s+is\s+(TRIVIALLY_TRUE|TRUE|FALSE)',
+                re.IGNORECASE
+            )
+            for m in p016.finditer(content):
+                prop = m.group(1).split('.')[-1]
+                status = m.group(2).upper()
+                is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
+                if status == 'TRIVIALLY_TRUE':
+                    if not is_cover:
+                        result["trivially_true"].append(prop)
+                elif status == 'FALSE':
+                    (result["cover_fail"] if is_cover else result["false"]).append(prop)
+                elif status == 'TRUE':
+                    (result["cover_pass"] if is_cover else result["pass"]).append(prop)
+
+        return result
+
+    def _run(self, tcl_script: str, timeout: int = 300) -> str:
+        workspace = getattr(self, "workspace", os.getcwd())
+        if not os.path.isabs(tcl_script):
+            tcl_path = os.path.abspath(os.path.join(workspace, tcl_script))
+        else:
+            tcl_path = tcl_script
+
+        if not os.path.exists(tcl_path):
+            return str_error(f"TCL脚本不存在：{tcl_path}")
+
+        exec_dir = os.path.dirname(tcl_path)
+        log_path = os.path.join(exec_dir, "avis.log")
+
+        cmd = ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
+        str_info(f"执行命令：{' '.join(cmd)}")
+
+        try:
+            worker = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=exec_dir
+            )
+            try:
+                stdout, stderr = worker.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                try:
+                    worker.terminate()
+                    psutil.wait_procs([psutil.Process(worker.pid)], timeout=3)
+                except Exception:
+                    pass
+                worker.kill()
+                worker.communicate()
+                return str_error(f"❌ 验证超时（>{timeout}s），请检查约束是否过弱或设计状态空间过大")
+
+            if worker.returncode != 0:
+                return str_error(
+                    f"❌ FormalMC 返回非零退出码 {worker.returncode}\n"
+                    f"stderr: {stderr[:500] if stderr else '(empty)'}"
+                )
+        except FileNotFoundError:
+            return str_error("❌ 未找到 FormalMC 命令，请确认工具已安装并在 PATH 中")
+
+        # 解析日志
+        parsed = self._parse_log_summary(log_path)
+
+        total = (len(parsed["pass"]) + len(parsed["trivially_true"]) +
+                 len(parsed["false"]) + len(parsed["cover_pass"]) + len(parsed["cover_fail"]))
+        if total == 0:
+            return str_error(f"❌ 验证执行完毕但日志中未找到属性结果，请检查 {log_path}")
+
+        lines = [
+            f"✅ FormalMC 执行完毕，日志：{log_path}",
+            f"",
+            f"📊 验证结果摘要：",
+            f"  Assert Pass        : {len(parsed['pass'])}",
+            f"  Assert TRIVIALLY_TRUE : {len(parsed['trivially_true'])}",
+            f"  Assert Fail        : {len(parsed['false'])}",
+            f"  Cover  Pass        : {len(parsed['cover_pass'])}",
+            f"  Cover  Fail        : {len(parsed['cover_fail'])}",
+        ]
+
+        if parsed["false"]:
+            lines.append(f"\n❌ 失败的 Assert 属性（{len(parsed['false'])} 个）：")
+            for p in parsed["false"]:
+                lines.append(f"  - {p}")
+
+        if parsed["trivially_true"]:
+            lines.append(f"\n⚠️  TRIVIALLY_TRUE 属性（{len(parsed['trivially_true'])} 个，环境过约束）：")
+            for p in parsed["trivially_true"]:
+                lines.append(f"  - {p}")
+
+        if parsed["cover_fail"]:
+            lines.append(f"\n⚠️  失败的 Cover 属性（{len(parsed['cover_fail'])} 个）：")
+            for p in parsed["cover_fail"]:
+                lines.append(f"  - {p}")
+
+        return str_info("\n".join(lines))
