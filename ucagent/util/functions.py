@@ -1106,28 +1106,38 @@ def create_verify_mcps(mcp_tools: list, host: str, port: int, logger=None):
         return logger
     if logger:
         logging.getLogger = __getLogger
-    from mcp.server.fastmcp import FastMCP
-    from ucagent.tools.uctool import to_fastmcp
-    from ucagent.util.log import info
-    fastmcp_tools = []
-    for tool in mcp_tools:
-        fastmcp_tools.append(to_fastmcp(tool))
-    # Start the FastMCP server
-    info(f"create FastMCP server with tools: {[tool.name for tool in fastmcp_tools]}")
-    mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
-    s = mcp.settings
-    info(f"FastMCP server started at {s.host}:{s.port}")
-    starlette_app = mcp.streamable_http_app()
-    import uvicorn
-    config = uvicorn.Config(
-        starlette_app,
-        host=mcp.settings.host,
-        port=mcp.settings.port,
-        log_level=mcp.settings.log_level.lower(),
-        timeout_keep_alive=300,
-        timeout_graceful_shutdown=60,
-    )
-    return uvicorn.Server(config), __old_getLogger
+    try:
+        from mcp.server.fastmcp import FastMCP
+        from ucagent.tools.uctool import to_fastmcp
+        from ucagent.util.log import info
+        fastmcp_tools = []
+        for tool in mcp_tools:
+            fastmcp_tools.append(to_fastmcp(tool))
+        # Start the FastMCP server
+        info(f"create FastMCP server with tools: {[tool.name for tool in fastmcp_tools]}")
+        mcp = FastMCP("UnityTest", tools=fastmcp_tools, host=host, port=port)
+        s = mcp.settings
+        info(f"FastMCP server started at {s.host}:{s.port}")
+        starlette_app = mcp.streamable_http_app()
+        import uvicorn
+        config = uvicorn.Config(
+            starlette_app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level=mcp.settings.log_level.lower(),
+            timeout_keep_alive=300,
+            timeout_graceful_shutdown=60,
+        )
+        server = uvicorn.Server(config)
+    finally:
+        # Restore logging.getLogger immediately after all FastMCP/uvicorn objects are
+        # constructed.  All loggers are initialised synchronously inside
+        # uvicorn.Config.__init__ (configure_logging) and FastMCP.__init__, so the
+        # patch is no longer needed after this point.  Holding it beyond here would
+        # redirect *any* future logging.getLogger() call (e.g. from PdbCmdApiServer's
+        # uvicorn) to a potentially dead TUI logger after the TUI exits.
+        logging.getLogger = __old_getLogger
+    return server, __old_getLogger
 
 
 def start_verify_mcps(server, old_getLogger):
@@ -1141,7 +1151,10 @@ def start_verify_mcps(server, old_getLogger):
     except Exception as e:
         info(f"FastMCP server exit with: {e}")
     info("FastMCP server stopped.")
-    logging.getLogger = old_getLogger
+    # logging.getLogger was already restored in create_verify_mcps; this is kept
+    # for safety in case old_getLogger is still the real function (no-op then).
+    if old_getLogger is not None:
+        logging.getLogger = old_getLogger
 
 
 def stop_verify_mcps(server):

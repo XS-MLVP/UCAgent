@@ -644,12 +644,42 @@ class VerifyPDB(Pdb):
             from ucagent.tui import enter_tui
         else:
             from ucagent.verify_ui import enter_simple_tui as enter_tui
+        import sys as _sys
+        _saved_sys_stdout = _sys.stdout
+        _saved_sys_stderr = _sys.stderr
+        _saved_pdb_stdout = self.stdout
+        _saved_pdb_stderr = getattr(self, "stderr", None)
         self._in_tui = True
         try:
             enter_tui(self)
         except Exception as e:
             import traceback
             echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())
+        finally:
+            self.agent.unset_message_echo_handler()
+            # Restore sys.stdout/stderr and pdb.stdout/stderr to their pre-TUI
+            # values.  TUI frameworks (Textual in particular) have their OWN
+            # save/restore of sys.stdout that runs AFTER our cleanup, which can
+            # clobber any wrapper we tried to keep in place.  Therefore we
+            # first force everything back to the pre-TUI baseline, then
+            # re-install PdbCmdApiServer's _ConsoleCapture if the server is
+            # still active.
+            _sys.stdout = _saved_sys_stdout
+            _sys.stderr = _saved_sys_stderr
+            self.stdout = _saved_pdb_stdout
+            if _saved_pdb_stderr is not None:
+                self.stderr = _saved_pdb_stderr
+            # If PdbCmdApiServer is running, its _ConsoleCapture MUST wrap
+            # sys.stdout and pdb.stdout so the ring-buffer continues to
+            # receive all output.
+            if (self._cmd_api_server is not None
+                    and self._cmd_api_server.is_running):
+                cc = self._cmd_api_server._console_capture
+                if _sys.stdout is not cc:
+                    cc._original = _sys.stdout
+                    _sys.stdout = cc
+                if self.stdout is not cc:
+                    self.stdout = cc
         self._in_tui = False
         if self.init_cmd:
             self.cmdqueue.extend(self.init_cmd)

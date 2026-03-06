@@ -871,11 +871,21 @@ class VerifyUI:
         return output
 
     def _handle_stdout_error(self):
+        self._sys_stdout_patched = None  # may be set below
         if getattr(self.vpdb, "stdout", None):
             self.old_stdout = self.vpdb.stdout
-            self.vpdb.stdout = self._pdio
             self.sys_stdout = sys.stdout
-            sys.stdout = self._pdio
+            # If pdb.stdout / sys.stdout is a forwarding wrapper (e.g. PdbCmdApiServer's
+            # _ConsoleCapture), redirect its downstream to _pdio rather than replacing
+            # sys.stdout entirely.  This keeps the ring-buffer live so /api/console
+            # continues to receive output during the TUI session.
+            if hasattr(self.vpdb.stdout, '_original'):
+                self._sys_stdout_patched = self.vpdb.stdout  # = _ConsoleCapture
+                self._sys_stdout_original_backup = self.vpdb.stdout._original
+                self.vpdb.stdout._original = self._pdio  # redirects both pdb.stdout & sys.stdout
+            else:
+                self.vpdb.stdout = self._pdio
+                sys.stdout = self._pdio
         else:
             self.old_stdout = sys.stdout
             sys.stdout = self._pdio
@@ -888,13 +898,47 @@ class VerifyUI:
             self.old_stderr = sys.stderr
             sys.stderr = self._pdio
 
+    @staticmethod
+    def _restore_stream(current, tui_sink, backup):
+        """Relink or replace a stream reference on TUI exit.
+
+        If something was stacked on top of ``tui_sink`` during the TUI
+        session (e.g. cmd_api_start called inside TUI), keep the outer
+        wrapper alive by updating its ``_original`` to ``backup`` rather
+        than discarding it via a plain assignment.
+
+        Returns (value_to_assign_to_stream, should_assign).
+        """
+        if current is tui_sink:
+            return backup, True   # normal restore
+        if hasattr(current, '_original'):
+            current._original = backup  # relink; keep wrapper in place
+            return current, False
+        return backup, True       # unexpected — fall back to normal restore
+
     def _clear_stdout_error(self):
         if getattr(self, "old_stdout", None):
-            if getattr(self.vpdb, "stdout", None):
-                self.vpdb.stdout = self.old_stdout
-                sys.stdout = self.sys_stdout
+            if getattr(self, '_sys_stdout_patched', None) is not None:
+                # Patched mode (cmd_api was running *before* TUI entered):
+                # restore the downstream of the forwarding wrapper.
+                self._sys_stdout_patched._original = self._sys_stdout_original_backup
+                self._sys_stdout_patched = None
+            elif getattr(self.vpdb, "stdout", None):
+                # pdb.stdout restore
+                new_pdb, do_assign = self._restore_stream(
+                    self.vpdb.stdout, self._pdio, self.old_stdout)
+                if do_assign:
+                    self.vpdb.stdout = new_pdb
+                # sys.stdout restore
+                new_sys, do_assign = self._restore_stream(
+                    sys.stdout, self._pdio, self.sys_stdout)
+                if do_assign:
+                    sys.stdout = new_sys
             else:
-                sys.stdout = self.old_stdout
+                new_sys, do_assign = self._restore_stream(
+                    sys.stdout, self._pdio, self.old_stdout)
+                if do_assign:
+                    sys.stdout = new_sys
         if getattr(self, "old_stderr", None):
             if getattr(self.vpdb, "stderr", None):
                 self.vpdb.stderr = self.old_stderr
