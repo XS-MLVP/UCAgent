@@ -1050,8 +1050,9 @@ class EnvironmentDebuggingChecker(Checker):
         """
         将 FALSE 属性分为已确认 RTL 缺陷和未分类两类。
 
-        判断依据：属性定义附近（前5行、后2行）是否有 [RTL_BUG] 注释标记。
-        LLM 分析后若确认为 RTL 缺陷，应在 checker.sv 中加上该标记。
+        判断依据：在属性对应的 property...endproperty 块及其前面注释区域内是否有 [RTL_BUG] 标记。
+        搜索范围：从 `property CK_XXX;` 定义行往前 3 行，到 assert 语句行往后 2 行。
+        这样无论 LLM 将 [RTL_BUG] 放在 property 块前还是 assert 行前，都能被正确检测到。
 
         返回: (rtl_defects, unclassified)
         """
@@ -1060,17 +1061,43 @@ class EnvironmentDebuggingChecker(Checker):
         unclassified = []
 
         for prop in false_props:
-            # 找到所有提到该属性名的行号
-            prop_lines = [i for i, line in enumerate(lines) if prop in line]
             found_marker = False
-            for idx in prop_lines:
-                # 检查该属性前5行 + 后2行窗口内是否有 [RTL_BUG]
-                start = max(0, idx - 5)
-                end = min(len(lines), idx + 3)
-                window = '\n'.join(lines[start:end])
-                if '[RTL_BUG]' in window:
-                    found_marker = True
+
+            # 从 A_CK_XXX 推导 property 块名 CK_XXX（去掉 A_ 前缀）
+            ck_name = prop[2:] if prop.startswith('A_') else prop
+
+            # 1. 找 assert 行：A_CK_XXX: assert property(...)
+            assert_idx = None
+            for i, line in enumerate(lines):
+                if prop in line and 'assert' in line:
+                    assert_idx = i
                     break
+
+            # 2. 找 property 定义行：property CK_XXX; 或 property CK_XXX (
+            prop_def_idx = None
+            for i, line in enumerate(lines):
+                if re.search(rf'\bproperty\s+{re.escape(ck_name)}\b', line):
+                    prop_def_idx = i
+                    break
+
+            # 3. 确定搜索范围
+            if prop_def_idx is not None:
+                # 从 property 定义往前 3 行（覆盖 [RTL_BUG] 注释区域）
+                search_start = max(0, prop_def_idx - 3)
+            elif assert_idx is not None:
+                # 找不到 property 定义时，从 assert 行往前 10 行兜底
+                search_start = max(0, assert_idx - 10)
+            else:
+                # 完全找不到，标记为未分类
+                unclassified.append(prop)
+                continue
+
+            search_end = min(len(lines), (assert_idx if assert_idx is not None else prop_def_idx + 10) + 3)
+
+            window = '\n'.join(lines[search_start:search_end])
+            if '[RTL_BUG]' in window:
+                found_marker = True
+
             if found_marker:
                 rtl_defects.append(prop)
             else:
@@ -1178,25 +1205,29 @@ class EnvironmentDebuggingChecker(Checker):
                 hint = (
                     f"以下 {len(props)} 个 assert Fail 属性尚未分类，需逐一分析：\n{prop_list}\n\n"
                     "分析步骤（对每个属性）：\n"
-                    "  1. 判断：该属性是 RTL 本身的 Bug？还是环境约束不足导致工具找到了不真实的反例？\n"
-                    "     - 环境问题特征：反例中输入信号有不合理的组合；或约束 assume 明显缺失\n"
-                    "     - RTL 缺陷特征：反例展示了真实的 RTL 功能错误\n"
-                    "  2. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
+                    "  1. 阅读上面显示的SVA代码，理解该属性要验证什么\n"
+                    "  2. 使用ReadTextFile工具查看RTL代码，分析该属性失败的原因\n"
+                    "  3. 判断：该属性是 RTL 本身的 Bug？还是环境约束不足导致工具找到了不真实的反例？\n"
+                    "     环境问题特征：反例中输入信号有不合理的组合；或约束 assume 明显缺失\n"
+                    "     RTL缺陷特征：反例展示了真实的 RTL 功能错误（如位宽错误、算术错误、逻辑错误）\n"
+                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上:\n"
                     "       // [RTL_BUG] <简短描述>\n"
-                    "  3. 若确认为环境问题：修复对应 assume 约束，该属性修复后应变为 PASS\n"
-                    "  4. 完成所有标记/修复后，再次调用 Check"
+                    "  5. 若确认为环境问题：修复对应 assume 约束，该属性修复后应变为 PASS\n"
+                    "  6. 完成所有标记/修复后，再次调用 Check"
                 )
             else:
                 hint = (
                     f"以下 {len(props)} 个 cover Fail 属性尚未分类，需逐一分析：\n{prop_list}\n\n"
                     "cover Fail 表示该场景从未被到达，分析步骤：\n"
-                    "  1. 判断：该场景是 RTL Bug 导致不可达？还是 assume 过强排除了该场景？\n"
-                    "     - 环境过约束特征：放宽 assume 后场景可到达\n"
-                    "     - RTL 缺陷特征：逻辑上应可达但 RTL 实现有误\n"
-                    "  2. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
+                    "  1. 阅读上面显示的SVA代码，理解该cover要到达什么状态\n"
+                    "  2. 使用ReadTextFile工具查看RTL代码和assume约束\n"
+                    "  3. 判断：该场景是 RTL Bug 导致不可达？还是 assume 过强排除了该场景？\n"
+                    "     环境过约束特征：放宽 assume 后场景可到达\n"
+                    "     RTL缺陷特征：逻辑上应可达但 RTL 实现有误\n"
+                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上:\n"
                     "       // [RTL_BUG] <简短描述>\n"
-                    "  3. 若确认为环境过约束：修复对应 assume，该 cover 修复后应变为 PASS\n"
-                    "  4. 完成所有标记/修复后，再次调用 Check"
+                    "  5. 若确认为环境过约束：修复对应 assume，该 cover 修复后应变为 PASS\n"
+                    "  6. 完成所有标记/修复后，再次调用 Check"
                 )
             return {"count": len(props), "props": props, "details": details, "analysis_required": hint}
 

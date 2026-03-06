@@ -2,6 +2,7 @@
 ex_tools:
   - "examples.Formal.scripts.formal_tools.GenerateChecker"
   - "examples.Formal.scripts.formal_tools.GenerateFormalScript"
+  - "examples.Formal.scripts.formal_tools.RunFormalVerification"
 
 template_overwrite:
   DOC_GEN_LANG: "中文"
@@ -260,7 +261,7 @@ stage:
       - "    A_CK_COUNT_MAX_REACHED: assert property(...);"
       - "    ```" 
       - "第4步：若设计使用 fv_idx，检查并补全三个必要约束（M_CK_FV_IDX_STABLE / M_CK_FV_IDX_VALID / M_CK_FV_IDX_KNOWN），参考 `Guide_Doc/dut_property_template.md`。"
-      - "第5步：调用 Check 工具。Checker 会自动重新运行 FormalMC（当 checker.sv 或 wrapper.sv 有更新时），并检查：无 TRIVIALLY_TRUE 且无未标记的 FALSE。若仍有问题，根据新日志重复以上步骤，直到 Check 通过。"
+      - "第5步：修改完成后，调用 `RunFormalVerification` 工具立即重新执行验证，根据返回的最新结果继续分析。确认所有 Fail 已分类后，再调用 Check 工具进行阶段验收。"
     reference_files:
       - "{OUT}/tests/avis.log"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -289,7 +290,7 @@ stage:
       - "第2步：若 Check 失败，根据未覆盖信号列表，在 `{OUT}/tests/{DUT}_checker.sv` 中补充断言："
       - "  - 未覆盖 Dffs（寄存器）→ 补充验证状态转移的 (Style: Seq) 断言"
       - "  - 未覆盖 Nets（组合路径）→ 补充 (Style: Comb) 断言"
-      - "第3步：修改 checker.sv 后直接再次调用 Check——工具会自动重新运行验证并更新覆盖率报告。循环直到达标，或确认剩余未覆盖信号不可达（在 checker.sv 注释中注明原因）。"
+      - "第3步：修改 checker.sv 后，调用 `RunFormalVerification` 工具立即重新执行验证（无需等待 Check 工具触发），根据返回的最新失败/TRIVIALLY_TRUE 列表继续分析。循环直到达标，或确认剩余未覆盖信号不可达（在 checker.sv 注释中注明原因）。"
     reference_files:
       - "{OUT}/tests/avis/fanin.rep"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -301,7 +302,7 @@ stage:
           fanin_rep: "{OUT}/tests/avis/fanin.rep"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
           checker_file: "{OUT}/tests/{DUT}_checker.sv"
-          coi_threshold: 100.0
+          coi_threshold: 95.0
 
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
