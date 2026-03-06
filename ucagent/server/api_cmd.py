@@ -7,13 +7,88 @@ PDB instance's api_* methods and command queue via REST endpoints so
 external tools can inspect/control the agent without touching the console.
 """
 
+import collections
+import io
 import re
+import sys
 import threading
 import warnings
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
+
+
+# ---------------------------------------------------------------------------
+# Console capture – tees sys.stdout into a fixed-size ring buffer so the
+# REST API can surface recent output without re-running commands.
+# ---------------------------------------------------------------------------
+
+class _ConsoleCapture:
+    """Thread-safe wrapper that mirrors writes to both the original stream and
+    an in-memory ring buffer of *complete* lines.
+
+    Install via ``sys.stdout = _ConsoleCapture(sys.stdout)``.
+    """
+
+    def __init__(self, original, maxlines: int = 2000) -> None:
+        self._original = original
+        self._buf: collections.deque = collections.deque(maxlen=maxlines)
+        self._lock = threading.Lock()
+        self._pending = ""          # accumulates bytes until a newline arrives
+
+    # ---- stream interface -----------------------------------------------
+
+    def write(self, s) -> int:
+        if isinstance(s, (bytes, bytearray)):
+            s = s.decode(getattr(self._original, "encoding", "utf-8") or "utf-8",
+                          errors="replace")
+        elif not isinstance(s, str):
+            s = str(s)
+        self._original.write(s)
+        # Split on newlines; every complete segment goes into the ring buffer
+        with self._lock:
+            text = self._pending + s
+            lines = text.split("\n")
+            for line in lines[:-1]:   # all complete lines
+                self._buf.append(line)
+            self._pending = lines[-1]  # remainder (possibly empty)
+        return len(s)
+
+    def flush(self):
+        self._original.flush()
+
+    def isatty(self) -> bool:
+        return getattr(self._original, "isatty", lambda: False)()
+
+    def fileno(self) -> int:
+        return self._original.fileno()
+
+    @property
+    def encoding(self):
+        return getattr(self._original, "encoding", "utf-8")
+
+    @property
+    def errors(self):
+        return getattr(self._original, "errors", "replace")
+
+    def __getattr__(self, name):
+        return getattr(self._original, name)
+
+    # ---- buffer helpers -------------------------------------------------
+
+    def get_lines(self, n: int = 200) -> list:
+        """Return the most recent *n* lines (including any pending partial line)."""
+        with self._lock:
+            lines = list(self._buf)
+            if self._pending:
+                lines.append(self._pending)
+        return lines[-n:] if n > 0 else lines
+
+    def clear(self) -> None:
+        with self._lock:
+            self._buf.clear()
+            self._pending = ""
 
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -28,7 +103,7 @@ class PdbCmdApiServer:
 
     Endpoints
     ---------
-    GET  /                             - API index / usage
+    GET  /                             - HTML dashboard (agent status + file manager)
     GET  /api/status                   - Agent status string
     GET  /api/tasks                    - Task list
     GET  /api/task/{index}             - Task detail
@@ -37,8 +112,15 @@ class PdbCmdApiServer:
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
-    POST /api/cmd                      - Enqueue one command   body: {"cmd": "..."}
-    POST /api/cmds/batch               - Enqueue multiple cmds body: {"cmds": [...]}
+    GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
+    DELETE /api/console                - Clear captured stdout buffer
+    GET  /api/files                    - List workspace directory  (?path=subdir)
+    GET  /api/file                     - Read text file content  (?path=...)
+    POST /api/file/edit                - Save/overwrite text file  body: {"path":"...","content":"..."}
+    DELETE /api/file                   - Delete file or empty directory  (?path=...)
+    GET  /api/file/download            - Download file as attachment  (?path=...)
+    POST /api/file/upload              - Upload file (multipart)  (?path=target_dir)
+    GET  /workspace/{path}             - Serve workspace files as static assets
     GET  /docs                         - Swagger UI (auto-generated)
     GET  /redoc                        - ReDoc (auto-generated)
     """
@@ -91,23 +173,36 @@ class PdbCmdApiServer:
         # Unix socket listener state
         self._sock_server = None
         self._sock_thread: Optional[threading.Thread] = None
+        # Install stdout ring-buffer capture so /api/console can surface output
+        self._original_stdout = sys.stdout
+        self._console_capture = _ConsoleCapture(sys.stdout)
+        sys.stdout = self._console_capture
+        # Also redirect pdb.stdout so PDB prompt/output goes into the capture
+        pdb_instance.stdout = self._console_capture
         self._app = self._build_app()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_app(self):
+    def _build_app(self):  # noqa: C901 – intentionally long; each section is self-contained
+        import mimetypes
+        import os
+        import pathlib
+        import shutil
+
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastapi")
-            from fastapi import FastAPI, HTTPException, Query
+            from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+            from fastapi.responses import FileResponse, HTMLResponse, Response
         from pydantic import BaseModel
 
         app = FastAPI(
             title="UCAgent PDB CMD API",
             description=(
-                "REST API for inspecting and controlling the UCAgent VerifyPDB instance. "
-                "Use POST /api/cmd or POST /api/cmds/batch to enqueue PDB commands."
+                "REST API for inspecting the UCAgent VerifyPDB instance. "
+                "Use GET /api/status, /api/mission, /api/tasks, /api/console for monitoring. "
+                "GET /api/cmds lists available PDB commands."
             ),
             version="1.0.0",
         )
@@ -115,32 +210,61 @@ class PdbCmdApiServer:
         pdb = self.pdb  # capture for closures
 
         # ── request bodies ─────────────────────────────────────────────
-        class CmdBody(BaseModel):
-            cmd: str
+        class FileEditBody(BaseModel):
+            path: str
+            content: str
 
-        class CmdsBatchBody(BaseModel):
-            cmds: List[str]
+        # ── path helpers ───────────────────────────────────────────────
+        def _workspace_root() -> str:
+            return os.path.abspath(pdb.agent.workspace)
 
-        # ── index ──────────────────────────────────────────────────────
-        @app.get("/", summary="API index")
+        def _safe_abs(rel_path: str) -> str:
+            """Resolve rel_path within workspace, raise 403 on traversal."""
+            root = _workspace_root()
+            clean = rel_path.strip().lstrip("/")
+            if clean:
+                candidate = os.path.normpath(os.path.join(root, clean))
+            else:
+                candidate = root
+            if not (candidate == root or candidate.startswith(root + os.sep)):
+                raise HTTPException(status_code=403, detail="Path traversal not allowed")
+            return candidate
+
+        def _rel(abs_path: str) -> str:
+            root = _workspace_root()
+            rel = os.path.relpath(abs_path, root)
+            return "" if rel == "." else rel
+
+        def _fmt_size(n: int) -> str:
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024:
+                    return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+                n /= 1024
+            return f"{n:.1f} TB"
+
+        _TEXT_EXTS = {
+            ".txt", ".md", ".rst", ".py", ".js", ".ts", ".css", ".html", ".htm",
+            ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".sh",
+            ".bash", ".zsh", ".fish", ".v", ".sv", ".svh", ".vhd", ".vhdl",
+            ".c", ".h", ".cpp", ".hpp", ".java", ".rs", ".go", ".rb", ".php",
+            ".xml", ".csv", ".log", ".env", ".gitignore", ".makefile", ".mk",
+            ".scala", ".lua", ".r", ".m", ".tex", ".bib", ".diff", ".patch",
+        }
+
+        def _is_text_file(path: str) -> bool:
+            ext = pathlib.Path(path).suffix.lower()
+            if ext in _TEXT_EXTS:
+                return True
+            mime, _ = mimetypes.guess_type(path)
+            return bool(mime and mime.startswith("text/"))
+
+        # ── HTML dashboard template (loaded from templates/agent.html) ────
+        _TMPL_PATH = pathlib.Path(__file__).resolve().parent / "templates" / "agent.html"
+        _HTML = _TMPL_PATH.read_text(encoding="utf-8")
+        # ── index: HTML dashboard ───────────────────────────────────────
+        @app.get("/", summary="HTML dashboard", response_class=HTMLResponse)
         def index():
-            return {
-                "service": "UCAgent PDB CMD API",
-                "version": "1.0.0",
-                "endpoints": [
-                    "GET  /api/status                   - Agent status",
-                    "GET  /api/tasks                    - Task list",
-                    "GET  /api/task/{index}             - Task detail",
-                    "GET  /api/mission                  - Mission overview (raw ANSI; ?strip_ansi=true to strip)",
-                    "GET  /api/cmds[?prefix=]           - List PDB commands",
-                    "GET  /api/help[?cmd=]              - Command help",
-                    "GET  /api/tools                    - Tool list",
-                    "GET  /api/changed_files[?count=10] - Changed output files",
-                    'POST /api/cmd                      - Enqueue command {"cmd":"..."}',
-                    'POST /api/cmds/batch               - Enqueue commands {"cmds":[...]}',
-                    "GET  /docs                         - Swagger UI",
-                ],
-            }
+            return HTMLResponse(content=_HTML)
 
         # ── GET /api/status ────────────────────────────────────────────
         @app.get("/api/status", summary="Agent status")
@@ -244,36 +368,216 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
-        # ── POST /api/cmd ──────────────────────────────────────────────
-        @app.post("/api/cmd", summary="Enqueue a single PDB command")
-        def send_cmd(body: CmdBody):
-            cmd = body.cmd.strip()
-            if not cmd:
-                raise HTTPException(
-                    status_code=400,
-                    detail="'cmd' must be a non-empty string",
-                )
+        # ── GET /api/console ───────────────────────────────────────────
+        _capture = self._console_capture  # capture ref for closures
+
+        @app.get("/api/console", summary="Captured stdout ring buffer")
+        def get_console(
+            lines: int = Query(default=200, description="Max lines to return (0 = all)"),
+            strip_ansi: bool = Query(default=False, description="Strip ANSI colour codes"),
+        ):
             try:
-                pdb.add_cmds(cmd)
-                return {"status": "ok", "message": f"Command '{cmd}' added to queue"}
+                data = _capture.get_lines(lines)
+                if strip_ansi:
+                    data = [_strip_ansi(l) for l in data]
+                return {"status": "ok", "data": data, "count": len(data)}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
-        # ── POST /api/cmds/batch ───────────────────────────────────────
-        @app.post("/api/cmds/batch", summary="Enqueue multiple PDB commands")
-        def send_cmds_batch(body: CmdsBatchBody):
-            cmds = body.cmds
-            if not cmds:
-                raise HTTPException(
-                    status_code=400,
-                    detail="'cmds' must be a non-empty list",
-                )
+        @app.delete("/api/console", summary="Clear captured stdout buffer")
+        def clear_console():
             try:
-                pdb.add_cmds(cmds)
+                _capture.clear()
+                return {"status": "ok", "message": "Console buffer cleared"}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/files ─────────────────────────────────────────────
+        @app.get("/api/files", summary="List workspace directory")
+        def list_files(
+            path: str = Query(default="", description="Relative path within workspace (default: root)")
+        ):
+            try:
+                import datetime
+                abs_path = _safe_abs(path)
+                if not os.path.isdir(abs_path):
+                    raise HTTPException(status_code=400, detail=f"'{path}' is not a directory")
+                entries = []
+                for name in sorted(os.listdir(abs_path)):
+                    full = os.path.join(abs_path, name)
+                    try:
+                        st = os.stat(full)
+                    except OSError:
+                        continue
+                    is_dir = os.path.isdir(full)
+                    rel_entry = os.path.join(_rel(abs_path), name) if _rel(abs_path) else name
+                    ext = pathlib.Path(name).suffix.lstrip(".").lower() if not is_dir else ""
+                    entries.append({
+                        "name": name,
+                        "path": rel_entry,
+                        "is_dir": is_dir,
+                        "size": st.st_size if not is_dir else 0,
+                        "mtime": st.st_mtime,
+                        "mtime_str": datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                        "type": ext,
+                        "is_text": (not is_dir) and _is_text_file(full),
+                    })
+                entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+                rel_path = _rel(abs_path)
                 return {
                     "status": "ok",
-                    "message": f"{len(cmds)} command(s) added to queue",
+                    "path": rel_path,
+                    "workspace": _workspace_root(),
+                    "data": entries,
                 }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/file ──────────────────────────────────────────────
+        @app.get("/api/file", summary="Read text file content")
+        def read_file_api(
+            path: str = Query(..., description="Relative path within workspace")
+        ):
+            try:
+                abs_path = _safe_abs(path)
+                if not os.path.isfile(abs_path):
+                    raise HTTPException(status_code=404, detail=f"File '{path}' not found")
+                if not _is_text_file(abs_path):
+                    raise HTTPException(status_code=400, detail=f"'{path}' does not appear to be a text file")
+                st = os.stat(abs_path)
+                for enc in ("utf-8", "utf-8-sig", "latin-1"):
+                    try:
+                        content = abs_path and open(abs_path, encoding=enc).read()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    raise HTTPException(status_code=400, detail="File encoding not supported (tried utf-8, latin-1)")
+                return {
+                    "status": "ok",
+                    "path": path,
+                    "size": st.st_size,
+                    "content": content,
+                }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/file/edit ────────────────────────────────────────
+        @app.post("/api/file/edit", summary="Save/overwrite a text file")
+        def edit_file(body: FileEditBody):
+            try:
+                abs_path = _safe_abs(body.path)
+                parent = os.path.dirname(abs_path)
+                if not os.path.isdir(parent):
+                    raise HTTPException(status_code=400, detail=f"Parent directory does not exist: {parent}")
+                with open(abs_path, "w", encoding="utf-8") as fh:
+                    fh.write(body.content)
+                return {"status": "ok", "message": f"File '{body.path}' saved", "size": len(body.content.encode("utf-8"))}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── DELETE /api/file ───────────────────────────────────────────
+        @app.delete("/api/file", summary="Delete a file or empty directory")
+        def delete_file(
+            path: str = Query(..., description="Relative path within workspace")
+        ):
+            try:
+                abs_path = _safe_abs(path)
+                if not os.path.exists(abs_path):
+                    raise HTTPException(status_code=404, detail=f"'{path}' not found")
+                if os.path.isdir(abs_path):
+                    try:
+                        os.rmdir(abs_path)
+                    except OSError:
+                        # non-empty dir — remove recursively but only inside workspace
+                        shutil.rmtree(abs_path)
+                else:
+                    os.remove(abs_path)
+                return {"status": "ok", "message": f"Deleted '{path}'"}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/file/download ─────────────────────────────────────
+        @app.get("/api/file/download", summary="Download a file as attachment")
+        def download_file(
+            path: str = Query(..., description="Relative path within workspace")
+        ):
+            try:
+                abs_path = _safe_abs(path)
+                if not os.path.isfile(abs_path):
+                    raise HTTPException(status_code=404, detail=f"File '{path}' not found")
+                filename = os.path.basename(abs_path)
+                media_type, _ = mimetypes.guess_type(abs_path)
+                return FileResponse(
+                    path=abs_path,
+                    filename=filename,
+                    media_type=media_type or "application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                )
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/file/upload ──────────────────────────────────────
+        @app.post("/api/file/upload", summary="Upload a file into the workspace")
+        async def upload_file(
+            path: str = Query(default="", description="Target directory (relative to workspace root)"),
+            file: UploadFile = File(...),
+        ):
+            try:
+                target_dir = _safe_abs(path)
+                if not os.path.isdir(target_dir):
+                    raise HTTPException(status_code=400, detail=f"Target path '{path}' is not a directory")
+                filename = pathlib.Path(file.filename or "upload").name  # strip any dir components
+                dest = os.path.join(target_dir, filename)
+                with open(dest, "wb") as fh:
+                    while True:
+                        chunk = await file.read(1 << 20)  # 1 MiB chunks
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+                size = os.path.getsize(dest)
+                return {
+                    "status": "ok",
+                    "message": f"Uploaded '{filename}'",
+                    "path": _rel(dest),
+                    "size": size,
+                }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /workspace — redirect to dashboard ────────────────────
+        @app.get("/workspace", summary="Workspace root (redirects to dashboard)", include_in_schema=False)
+        @app.get("/workspace/", include_in_schema=False)
+        def serve_workspace_root():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/")
+
+        # ── GET /workspace/{path} — static asset serving ──────────────
+        @app.get("/workspace/{path:path}", summary="Serve workspace file as static asset")
+        def serve_workspace_file(path: str):
+            try:
+                abs_path = _safe_abs(path)
+                if not os.path.isfile(abs_path):
+                    raise HTTPException(status_code=404, detail=f"'{path}' not found or is a directory")
+                media_type, _ = mimetypes.guess_type(abs_path)
+                return FileResponse(
+                    path=abs_path,
+                    media_type=media_type or "application/octet-stream",
+                )
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -308,6 +612,7 @@ class PdbCmdApiServer:
                     host=self.host,
                     port=self.port,
                     log_level="error",
+                    lifespan="off",
                     ws="none",
                 )
                 self._tcp_server = uvicorn.Server(tcp_cfg)
@@ -339,6 +644,7 @@ class PdbCmdApiServer:
                         self._app,
                         uds=self.sock,
                         log_level="error",
+                        lifespan="off",
                         ws="none",
                     )
                     self._sock_server = uvicorn.Server(sock_cfg)
@@ -383,6 +689,12 @@ class PdbCmdApiServer:
         self._sock_thread = None
 
         self._running = False
+
+        # Restore stdout capture
+        if sys.stdout is self._console_capture:
+            sys.stdout = self._original_stdout
+        if self.pdb.stdout is self._console_capture:
+            self.pdb.stdout = self._original_stdout
 
         # Clean up the socket file
         if self.sock:
