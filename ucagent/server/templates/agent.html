@@ -128,11 +128,21 @@ td.col-name .fn.dir{color:var(--accent)}
 .upload-area p{font-size:13px;margin-top:8px}
 #upload-list{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-dim);font-family:var(--mono)}
 /* ── changed files bar ── */
-#changed-files-bar{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 16px;padding:4px 12px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:120px;overflow-y:auto}
-.cf-header{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);white-space:nowrap;align-self:center;flex-shrink:0;margin-right:4px}
+#changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
+#cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
+#cf-chips{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin-top:3px}
+.cf-header{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);white-space:nowrap;flex-shrink:0}
+.cf-dir-link{font-size:10px;letter-spacing:.7px;color:var(--accent);white-space:nowrap;flex-shrink:0;cursor:pointer;text-transform:none}
+.cf-dir-link:hover{text-decoration:underline}
 .cf-chip{font-family:var(--mono);font-size:11px;white-space:nowrap;cursor:pointer;padding:1px 0;color:var(--text)}
 .cf-chip.recent{color:var(--green)}
 .cf-chip:hover{text-decoration:underline}
+.cf-count-ctrl{display:flex;align-items:center;border:1px solid var(--border);border-radius:4px;overflow:hidden;height:18px;margin-left:6px;flex-shrink:0}
+.cf-count-ctrl input{width:26px;background:var(--bg3);border:none;color:var(--text);font-size:11px;text-align:center;padding:0 2px;height:100%;outline:none;-moz-appearance:textfield}
+.cf-count-ctrl input::-webkit-inner-spin-button,.cf-count-ctrl input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.cf-count-ctrl button{background:var(--bg3);border:none;color:var(--text-dim);cursor:pointer;padding:0 5px;font-size:9px;height:100%;line-height:1;border-left:1px solid var(--border)}
+.cf-count-ctrl button:first-child{border-left:none;border-right:1px solid var(--border)}
+.cf-count-ctrl button:hover{background:var(--bg4);color:var(--accent)}
 /* ── editor (line numbers) ── */
 .editor-wrap{display:flex;height:480px;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
 .editor-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:13px;line-height:1.6;padding:10px 8px;text-align:right;user-select:none;overflow:hidden;min-width:44px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
@@ -163,9 +173,9 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 /* ── hljs override ── */
 pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 </style>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
+<script src="/static/highlight.min.js"></script>
+<script src="/static/marked.min.js"></script>
 </head>
 <body>
 <!-- header -->
@@ -207,7 +217,17 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
       <button class="fm-btn primary" onclick="openUpload()">&#8679; Upload</button>
     </div>
-    <div id="changed-files-bar"><span class="cf-header">Recent Changes</span></div>
+    <div id="changed-files-bar">
+      <div id="cf-meta">
+        <span id="cf-title"><span class="cf-header">Recent Changes</span></span>
+        <div class="cf-count-ctrl">
+          <button onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
+          <input id="cf-count-input" type="number" value="5" min="1" max="99" onchange="fetchChangedFiles()" title="Files to show">
+          <button onclick="cfCountStep(1)" title="Show more">&#9650;</button>
+        </div>
+      </div>
+      <div id="cf-chips"></div>
+    </div>
     <div id="fm-table-wrap">
       <div id="fm-loading">Loading…</div>
       <div id="fm-empty">This directory is empty.</div>
@@ -505,24 +525,39 @@ function _fmtTimeDelta(sec){
 }
 async function fetchChangedFiles(){
   try{
-    const j=await apiFetch("/api/changed_files?count=20");
+    const countEl=qs("#cf-count-input");
+    const count=Math.max(1,Math.min(99,parseInt(countEl?countEl.value:5)||5));
+    const j=await apiFetch(`/api/changed_files?count=${count}`);
     const data=j.data||[];
-    const bar=qs("#changed-files-bar");
-    if(!data.length){bar.innerHTML='<span class="cf-header">Recent Changes</span><span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">none</span>';return;}
-    let html='<span class="cf-header">Recent Changes</span>';
-    html+=data.map(f=>{
-      const parts=f.file.split("/");
+    const titleEl=qs("#cf-title");
+    const chipsEl=qs("#cf-chips");
+    const outDir=j.output_dir||"";
+    const outDirLabel=outDir?outDir.split("/").pop():"";
+    const cfHeaderHtml=outDirLabel
+      ?`<span class="cf-header">Recent Changes in </span><span class="cf-dir-link" onclick="fetchFiles('${esc(outDir)}')" title="${esc(outDir)}">${esc(outDirLabel)}:</span>`
+      :'<span class="cf-header">Recent Changes</span>';
+    if(titleEl) titleEl.innerHTML=cfHeaderHtml;
+    if(!data.length){chipsEl.innerHTML='<span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">none</span>';return;}
+    chipsEl.innerHTML=data.map(f=>{
+      const fullPath=outDir?`${outDir}/${f.file}`:f.file;
+      const parts=fullPath.split("/");
       const name=parts.pop();
       const ext=name.includes(".")?name.split(".").pop():"";
       const ts=_fmtTimestamp(f.timestamp);
       const recent=f.delta_seconds<180;
       const label=recent?`${ts} (${_fmtTimeDelta(f.delta_seconds)}) ${f.file}`:`${ts} ${f.file}`;
       const canView=_TEXT_EXTS.has(ext)||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const onclick=canView?`openView('${esc(f.file)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:"fetchFiles('"+esc(parts.join("/"))+"')";
-      return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(f.file)}">${esc(label)}</span>`;
+      const onclick=canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
+      return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(fullPath)}">${esc(label)}</span>`;
     }).join("");
-    bar.innerHTML=html;
   }catch(e){}
+}
+function cfCountStep(d){
+  const el=qs("#cf-count-input");
+  if(!el)return;
+  const v=Math.max(1,Math.min(99,(parseInt(el.value)||5)+d));
+  el.value=v;
+  fetchChangedFiles();
 }
 
 /* ── edit gutter ── */

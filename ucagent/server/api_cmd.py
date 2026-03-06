@@ -364,7 +364,10 @@ class PdbCmdApiServer:
                     {"delta_seconds": d, "timestamp": t, "file": f}
                     for d, t, f in files
                 ]
-                return {"status": "ok", "data": data}
+                _workspace = os.path.abspath(pdb.agent.workspace)
+                _output_dir = os.path.abspath(pdb.agent.output_dir)
+                output_dir_rel = os.path.relpath(_output_dir, _workspace)
+                return {"status": "ok", "data": data, "output_dir": output_dir_rel}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -581,6 +584,19 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
+        # ── GET /static/{path} — bundled static assets ─────────────────
+        _STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
+
+        @app.get("/static/{path:path}", summary="Serve bundled static assets", include_in_schema=False)
+        def serve_static(path: str):
+            abs_path = (_STATIC_DIR / path).resolve()
+            if not str(abs_path).startswith(str(_STATIC_DIR)):
+                raise HTTPException(status_code=403, detail="Forbidden")
+            if not abs_path.is_file():
+                raise HTTPException(status_code=404, detail=f"Static asset '{path}' not found")
+            media_type, _ = mimetypes.guess_type(str(abs_path))
+            return FileResponse(path=str(abs_path), media_type=media_type or "application/octet-stream")
+
         return app
 
     # ------------------------------------------------------------------
@@ -690,11 +706,17 @@ class PdbCmdApiServer:
 
         self._running = False
 
-        # Restore stdout capture
+        # Restore stdout/stderr.  Use the *current* downstream of the capture
+        # wrapper (``_original``), NOT the value saved at __init__ time.  If
+        # PdbCmdApiServer was created inside a TUI session, _original_stdout
+        # captures the TUI's sink, which is dead after TUI exits.  However,
+        # the TUI exit path relinks _console_capture._original to the real
+        # stdout, so _console_capture._original is always the correct target.
+        restore_to = getattr(self._console_capture, '_original', self._original_stdout)
         if sys.stdout is self._console_capture:
-            sys.stdout = self._original_stdout
+            sys.stdout = restore_to
         if self.pdb.stdout is self._console_capture:
-            self.pdb.stdout = self._original_stdout
+            self.pdb.stdout = restore_to
 
         # Clean up the socket file
         if self.sock:
