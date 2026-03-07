@@ -95,6 +95,8 @@ class ConsoleInput(Vertical):
         self.refresh_prompt()
         self._hide_suggestions()
         self._hide_running_commands()
+        # Ensure spinner row reflects runtime state on first render.
+        self.set_busy(self.app.key_handler.has_active_worker())
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         cmd = event.value.strip()
@@ -311,4 +313,3 @@ class ConsoleInput(Vertical):
         parent = self.parent
         if parent is not None and hasattr(parent, "set_extra_height"):
             parent.set_extra_height(total)
-
