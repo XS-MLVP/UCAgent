@@ -105,6 +105,7 @@ mission:
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
         - "可通过工具RunTestCases运行指定测试用例来寻找问题"
         - "Fail的测试用例可能意味着发现了bug，这是验证的目标，不要误报为Pass"
+        - "全面验证阶段需优先复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
 
 mcp_server:
   init_prompt: >
@@ -229,6 +230,52 @@ stage:
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+
+  - name: static_bug_analysis
+    desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
+    task:
+      - "目标：逐批次分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md"
+      - "当前批次待分析文件：{CURRENT_FILE_NAMES}"
+      - "分析步骤："
+      - "  第1步：读取当前批次源文件，理解模块功能与架构（模块层次、关键信号、状态机、数据流）"
+      - "  第2步：结合{OUT}/{DUT}_functions_and_checks.md中的功能点与检测点，针对每个<CK-*>逐项审查RTL实现"
+      - "  第3步：系统排查常见设计缺陷："
+      - "    - 状态机逻辑：状态枚举是否完整，转移条件是否正确，是否有孤立/死锁状态，default分支是否缺失"
+      - "    - 边界与溢出：算术运算溢出/下溢、位宽截断、有符号/无符号类型不匹配"
+      - "    - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态"
+      - "    - 接口协议：valid/ready握手时序、数据有效窗口、读写使能逻辑"
+      - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
+      - "  第4步：按格式将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md（格式规范参考Guide_Doc/dut_bug_analysis.md）"
+      - "    - 每条Bug记录包含：<BG-STATIC-NNN-NAME>、<LINK-BUG-[BG-TBD]>、<FILE-path:lines>，及Bug描述、触发条件、修复建议"
+      - "    - 若未发现Bug，在对应<CK-*>下添加<BG-STATIC-000-NULL>"
+      - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
+      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾追加完成标记（每个分析文件一行）："
+      - "         完成分析<file>文件路径</file>，发现N个疑似static bug"
+      - "注意："
+      - "  - 静态分析阶段不运行任何测试，仅通过源码审查发现问题"
+      - "  - <file>标签路径须与源文件路径一致（相对workspace根目录，例如：{DUT}/dut.v）"
+      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
+    reference_files:
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "{DUT}/__init__.py"
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_basic_info.md"
+    output_files:
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+    checker:
+      - name: static_bug_batch_analysis_check
+        clss: "UnityChipBatchCheckerStaticBug"
+        args:
+          static_doc: "{OUT}/{DUT}_static_bug_analysis.md"
+          functions_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
+          file_list:
+            - "{DUT}/**/{DUT}.v"
+            - "{RTL_PATH}/**/*.v"
+            - "{RTL_PATH}/**/*.sv"
+            - "{RTL_PATH}/**/*.scala"
+          batch_size: 1
+    need_human_check: false
+
   - name: dut_wrapper_implementation
     desc: "DUT封装"
     task:
@@ -657,6 +704,7 @@ stage:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_function_coverage_def.md"
       - "Guide_Doc/dut_test_case.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
 
   - name: create_test_case_templates
     desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS}|{CASE_TESTS_COUNT}]"
@@ -683,6 +731,7 @@ stage:
       - "  - 请忽略test_{DUT}_api_*.py和test_{DUT}_mock_*.py中的测试用例（前缀为test_api_{DUT}_），他们已经在之前阶段实现完成"
       - "  - 该阶段编写的测试用例不能以test_api_{DUT}_开头"
       - "  - 该阶段不会生成有效代码行覆盖率数据、测试报告等，因此请忽略相关错误提示"
+      - "  - 若存在{OUT}/{DUT}_static_bug_analysis.md，请优先为其中高/中置信度潜在Bug（<BG-STATIC-*>）创建针对性测试用例模板"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
@@ -705,6 +754,7 @@ stage:
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
 
   - name: comprehensive_verification_and_bug_analysis
     desc: "全面验证与缺陷分析"
@@ -722,6 +772,8 @@ stage:
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
       - "  - 对<BG-*-0>标记置信度为0的bug进行分析{BUG_ZERO_RATE_LIST}，确认是否真的需要"
+      - "  - 优先尝试复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
+      - "  - 静态分析确认的Bug需在{OUT}/{DUT}_bug_analysis.md中添加对应完整记录（源码分析+修复建议）"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -736,6 +788,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
     stage:
       - name: test_case_implementation_in_batch
         need_pass_llm_suggestion: false
@@ -766,6 +819,7 @@ stage:
         reference_files:
           - "Guide_Doc/dut_test_case.md"
           - "Guide_Doc/dut_bug_analysis.md"
+          - "{OUT}/{DUT}_static_bug_analysis.md"
         checker:
         - name: no_conftest_file
           clss: FilesMustNotExist
@@ -861,22 +915,86 @@ stage:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_case_random.md"
       - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+
+  - name: static_bug_validation
+    desc: "静态分析Bug验证与动态关联"
+    task:
+      - "目标：通过动态测试消除{OUT}/{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
+      - "第1步：扫描{OUT}/{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
+      - "第2步：检查{OUT}/{DUT}_bug_analysis.md及已有测试用例，确认是否有测试用例已能对应某些<LINK-BUG-[BG-TBD]>条目"
+      - "  - 若已有Fail测试用例可证实该静态Bug：直接执行第3步替换，无需重复编写"
+      - "  - 若尚无针对该Bug的测试：进入第3步编写验证用例"
+      - "第3步：针对每个仍为<LINK-BUG-[BG-TBD]>的静态Bug，编写动态验证测试用例"
+      - "  - 测试文件写入{OUT}/tests/test_{DUT}_static_verify_*.py"
+      - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
+      - "  - 通过`from {DUT}_api import *`导入env fixture和API"
+      - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
+      - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
+      - "  情况A - 测试Fail（Bug已证实）："
+      - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
+      - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
+      - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
+      - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
+      - "    3. 同步更新汇总表格中的'动态Bug关联'列"
+      - "  情况B - 测试Pass（误报）："
+      - "    1. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为 '<LINK-BUG-[BG-NA]>'"
+      - "    2. 在 '<LINK-BUG-[BG-NA]>' 下方可选添加一行误判说明（如 '- 误判说明：...'）"
+      - "    3. 同步更新汇总表格中的'动态Bug关联'列为 LINK-BUG-[BG-NA]"
+      - "第5步：重复第3-4步直到所有<LINK-BUG-[BG-TBD]>均被替换"
+      - "第6步：评估本次静态分析的整体效果：发现的潜在Bug数量、证实比例、误报比例及对整体验证的贡献"
+      - "注意："
+      - "  - 静态分析的误报是正常现象，无需为误报感到遗憾"
+      - "  - 阶段完成时{OUT}/{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
+      - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/{DUT}_bug_analysis.md中"
+      - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
+      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
+    reference_files:
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+      - "{OUT}/{DUT}_bug_analysis.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_case.md"
+    output_files:
+      - "{OUT}/tests/test_{DUT}_static_verify_*.py"
+    checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+            - ["{OUT}/**/conftest.py",
+               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+      - name: no_pending_static_bugs
+        clss: "UnityChipCheckerStaticBugValidation"
+        args:
+          static_doc: "{OUT}/{DUT}_static_bug_analysis.md"
+          bug_analysis_doc: "{OUT}/{DUT}_bug_analysis.md"
+          functions_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
+      - name: static_confirmed_bugs_test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
+    need_human_check: false
 
   - name: verification_review_and_summary
     desc: "验证审查与总结"
     task:
       - "目标：查漏补缺，对测试过程进行回顾，提炼经验教训"
       - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
-      - "第2步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
-      - "第3步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"
-      - "第4步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
-      - "第5步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
-      - "第6步：根据需要判断是否进行验证补充，或者调整验证规划"
-      - "第7步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
+      - "第2步：回顾{OUT}/{DUT}_static_bug_analysis.md，确认所有静态分析Bug的验证结论已完整记录，已证实的Bug在{OUT}/{DUT}_bug_analysis.md中均有对应完整记录"
+      - "第3步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
+      - "第4步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"
+      - "第5步：总结测试经验，形成文档{OUT}/{DUT}_test_summary.md"
+      - "第6步：回顾验证规划{OUT}/{DUT}_verification_needs_and_plan.md，检测是否满足验证需求"
+      - "第7步：根据需要判断是否进行验证补充，或者调整验证规划"
+      - "第8步：如果有必要可通过 GotoStage工具重新进入某个阶段进行补充验证"
       - "注意：任务中涉及到的文档和注释，主体需要用{DOC_GEN_LANG}编写"
     reference_files:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_summary.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
     checker:
