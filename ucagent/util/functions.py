@@ -1961,6 +1961,17 @@ def find_available_port(start_port=5000, end_port=65000):
     raise RuntimeError(f"No available port found in range {start_port}-{end_port}.")
 
 
+def is_port_free(host: str, port: int) -> bool:
+    """Return True if *host:port* is available to bind."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
 def chmode_ro_by_pattern(workspace, pattern_list: str, ignore_list: list = ["__pycache__"]) -> list:
     """Change file mode to read-only."""
     file_list = []

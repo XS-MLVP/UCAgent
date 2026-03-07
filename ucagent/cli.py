@@ -694,7 +694,7 @@ def run() -> None:
     )
     
     # Set break mode if human interaction or TUI is requested
-    if args.human or use_tui:
+    if args.human or args.tui:
         agent.set_break(True)
     
     # Run the agent

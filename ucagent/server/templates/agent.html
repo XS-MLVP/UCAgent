@@ -4,6 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>UCAgent Dashboard</title>
+<script>
+(function(){
+  var CH='ucagent-dashboard';
+  var bc=typeof BroadcastChannel!=='undefined'?new BroadcastChannel(CH):null;
+  var _overlay=null;
+  function showSuperseded(){
+    if(_overlay)return;
+    _overlay=document.createElement('div');
+    _overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(15,17,23,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:monospace;';
+    _overlay.innerHTML='<div style="font-size:22px;color:#f87272;">&#9888; Dashboard opened in another tab</div>'
+      +'<div style="color:#6b7280;font-size:13px;">This tab has been superseded. Close it or</div>'
+      +'<button onclick="location.reload()" style="padding:8px 22px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Reactivate this tab</button>';
+    document.body?document.body.appendChild(_overlay):document.addEventListener('DOMContentLoaded',function(){document.body.appendChild(_overlay)});
+  }
+  if(bc){
+    bc.onmessage=function(e){if(e.data==='opened')showSuperseded();};
+    bc.postMessage('opened');
+    window.addEventListener('beforeunload',function(){bc.close();});
+  }
+})();
+</script>
 <style>
 :root{--bg:#0f1117;--bg2:#1a1d25;--bg3:#22262f;--bg4:#2a2e3a;
       --border:#2e3340;--text:#c8cdd6;--text-dim:#6b7280;--text-bright:#e8ecf2;
@@ -778,12 +799,15 @@ let _cmdHistorySaved = "";
 let _acItems = [];
 let _acIdx = -1;
 
-function _acShow(items) {
+function _acShow(items, stripPrefix) {
   const ac = qs("#pdb-autocomplete");
   _acItems = items;
   _acIdx = -1;
   if (!items.length) { ac.style.display = "none"; return; }
-  ac.innerHTML = items.map((t,i) => `<div class="ac-item" data-i="${i}" onmousedown="_acPick(${i})">${esc(t)}</div>`).join("");
+  ac.innerHTML = items.map((t,i) => {
+    const disp = stripPrefix && t.startsWith(stripPrefix) ? t.slice(stripPrefix.length) : t;
+    return `<div class="ac-item" data-i="${i}" onmousedown="_acPick(${i})">${esc(disp || t)}</div>`;
+  }).join("");
   ac.style.display = "block";
 }
 
@@ -800,9 +824,8 @@ function _acHighlight(idx) {
 function _acPick(idx) {
   const input = qs("#pdb-cmd-input");
   if (idx >= 0 && idx < _acItems.length) {
-    const val = input.value;
-    const spaceIdx = val.lastIndexOf(" ");
-    input.value = (spaceIdx >= 0 ? val.substring(0, spaceIdx + 1) : "") + _acItems[idx] + " ";
+    // Items are always full input-ready strings (command or "cmd arg")
+    input.value = _acItems[idx] + " ";
   }
   _acHide();
   input.focus();
@@ -810,27 +833,25 @@ function _acPick(idx) {
 
 async function _acComplete() {
   const input = qs("#pdb-cmd-input");
-  const val = input.value;
-  const parts = val.trimStart().split(/\s+/);
-  const prefix = parts.length <= 1 ? val.trimStart() : parts[parts.length - 1];
-  const isFirstWord = parts.length <= 1;
+  // Use the raw value; trimStart removes only leading whitespace so a
+  // trailing space ("tool_invoke ") is preserved, which signals arg mode.
+  const val = input.value.replace(/^\s+/, "");
+  const isArgMode = val.includes(" ");  // space present → argument completion
   try {
-    const url = isFirstWord ? `/api/cmds?prefix=${encodeURIComponent(prefix)}` : `/api/cmds?prefix=`;
-    const j = await apiFetch(url);
-    let items = j.data || [];
-    if (!isFirstWord) items = items.filter(c => c.startsWith(prefix));
-    if (items.length === 1) { _acPick(0); _acItems = [items[0]]; _acPick(0); }
-    else if (items.length > 1) {
-      // Find common prefix among matches
+    const j = await apiFetch(`/api/cmds?prefix=${encodeURIComponent(val)}`);
+    const items = j.data || [];
+    if (items.length === 1) {
+      input.value = items[0] + " ";
+      _acHide();
+    } else if (items.length > 1) {
+      // Apply the longest common prefix across all completions
       let common = items[0];
       for (let i = 1; i < items.length; i++) {
         while (common && !items[i].startsWith(common)) common = common.slice(0, -1);
       }
-      if (common.length > prefix.length) {
-        const spaceIdx = val.lastIndexOf(" ");
-        input.value = (spaceIdx >= 0 ? val.substring(0, spaceIdx + 1) : "") + common;
-      }
-      _acShow(items);
+      if (common.length > val.length) input.value = common;
+      // Strip the typed prefix from dropdown display (show only the completion part)
+      _acShow(items, isArgMode ? val : "");
     } else { _acHide(); }
   } catch(e) { _acHide(); }
 }

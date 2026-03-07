@@ -4,6 +4,27 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>UCAgent Master Dashboard</title>
+<script>
+(function(){
+  var CH='ucagent-master-dashboard';
+  var bc=typeof BroadcastChannel!=='undefined'?new BroadcastChannel(CH):null;
+  var _overlay=null;
+  function showSuperseded(){
+    if(_overlay)return;
+    _overlay=document.createElement('div');
+    _overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(15,17,23,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:monospace;';
+    _overlay.innerHTML='<div style="font-size:22px;color:#ef4444;">&#9888; Dashboard opened in another tab</div>'
+      +'<div style="color:#8892a4;font-size:13px;">This tab has been superseded. Close it or</div>'
+      +'<button onclick="location.reload()" style="padding:8px 22px;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Reactivate this tab</button>';
+    document.body?document.body.appendChild(_overlay):document.addEventListener('DOMContentLoaded',function(){document.body.appendChild(_overlay)});
+  }
+  if(bc){
+    bc.onmessage=function(e){if(e.data==='opened')showSuperseded();};
+    bc.postMessage('opened');
+    window.addEventListener('beforeunload',function(){bc.close();});
+  }
+})();
+</script>
 <style>
   :root{
     --bg:#0f1117; --surface:#1a1d26; --surface2:#22263a;

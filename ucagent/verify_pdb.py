@@ -4,7 +4,7 @@
 from pdb import Pdb
 import os
 from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
-from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
+from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
 import traceback
@@ -565,16 +565,43 @@ class VerifyPDB(Pdb):
 
     def api_all_cmds(self, prefix=""):
         """
-        List all available commands in the current workspace.
-        Returns:
-            list: List of command names.
+        List available completions for *prefix*.
+
+        - If *prefix* contains no space: return all command names that start
+          with *prefix* (standard command-name completion).
+        - If *prefix* contains a space: treat it as a full input line and
+          delegate to the appropriate ``complete_<cmd>`` method (or
+          ``completedefault``), returning full lines (``"<cmd> <arg>"``)
+          so the caller can substitute them directly into the input field.
         """
-        ret = []
-        for cmd in self.get_names():
-            if cmd.startswith("do_"):
-                text = cmd[3:]
-                ret.append(text)
-        return [c for c in ret if c.startswith(prefix)]
+        # ── command-name completion ───────────────────────────────────────
+        if " " not in prefix:
+            ret = []
+            for name in self.get_names():
+                if name.startswith("do_"):
+                    ret.append(name[3:])
+            return [c for c in ret if c.startswith(prefix)]
+
+        # ── argument completion ───────────────────────────────────────────
+        line = prefix
+        endidx = len(line)
+        if line.endswith(" "):
+            text = ""
+            begidx = endidx
+        else:
+            text = line.split()[-1]
+            begidx = endidx - len(text)
+        cmd_name = line.split()[0]
+        completer = getattr(self, f"complete_{cmd_name}", None)
+        if completer is None:
+            completer = self.completedefault
+        try:
+            completions = completer(text, line, begidx, endidx) or []
+        except Exception:
+            completions = []
+        # Return full input-ready lines so the client can replace the field directly
+        prefix_base = line[:begidx]
+        return [prefix_base + c for c in completions]
 
     def api_changed_files(self, count=10):
         """
@@ -863,6 +890,7 @@ class VerifyPDB(Pdb):
         from ucagent.server import PdbCmdApiServer
         host = "127.0.0.1"
         port = 8765
+        port_specified = False
         sock = self._CMD_API_DEFAULT_SOCK  # Unix socket enabled by default
         tcp = True                          # TCP enabled by default
         passwd = ""                         # password disabled by default
@@ -912,9 +940,19 @@ class VerifyPDB(Pdb):
         if len(positional) >= 2:
             try:
                 port = int(positional[1])
+                port_specified = True
             except ValueError:
                 echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
                 return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
         try:
             self._cmd_api_server = PdbCmdApiServer(
                 self, host=host, port=port, sock=sock, tcp=tcp, password=passwd
@@ -1012,6 +1050,7 @@ class VerifyPDB(Pdb):
         from ucagent.server import PdbMasterApiServer
         host = "0.0.0.0"
         port = 8800
+        port_specified = False
         sock = self._MASTER_API_DEFAULT_SOCK
         tcp = True
         offline_timeout = 30.0
@@ -1086,9 +1125,19 @@ class VerifyPDB(Pdb):
         if len(positional) >= 2:
             try:
                 port = int(positional[1])
+                port_specified = True
             except ValueError:
                 echo_r(f"Invalid port number: {positional[1]}.")
                 return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
         try:
             self._master_api_server = PdbMasterApiServer(
                 host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout,
