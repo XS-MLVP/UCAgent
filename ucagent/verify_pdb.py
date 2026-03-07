@@ -58,6 +58,15 @@ class VerifyPDB(Pdb):
         self._api_wakeup = False
         self._api_wakeup_done = False  # set after API wakeup to suppress message
         self._tui_app = None  # set by enter_tui() while TUI is running
+        self._current_cmd: str | None = None  # the command currently being executed
+
+    def precmd(self, line: str) -> str:
+        self._current_cmd = line or None
+        return line
+
+    def postcmd(self, stop: bool, line: str) -> bool:
+        self._current_cmd = None
+        return stop
 
     def interaction(self, frame, traceback):
         if self.init_cmd:

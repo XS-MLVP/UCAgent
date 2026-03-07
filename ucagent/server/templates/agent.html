@@ -121,6 +121,10 @@ td.col-name .fn.dir{color:var(--accent)}
 #pdb-status-badge.busy{border-color:var(--red);color:var(--red)}
 #pdb-status-badge.idle{border-color:var(--green);color:var(--green)}
 #pdb-status-badge.tui{border-color:var(--accent);color:var(--accent)}
+#pdb-running{display:none;align-items:center;gap:6px;padding:2px 8px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);background:var(--bg2);min-height:22px}
+#pdb-running.visible{display:flex}
+#pdb-running-label{white-space:nowrap;opacity:.7}
+#pdb-running-cmds{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:monospace;color:var(--accent)}
 #pdb-autocomplete{display:none;position:absolute;bottom:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px 4px 0 0;margin-bottom:2px;z-index:50;font-family:var(--mono);font-size:12px}
 #pdb-autocomplete .ac-item{padding:3px 10px;cursor:pointer;color:var(--text);white-space:nowrap}
 #pdb-autocomplete .ac-item:hover,#pdb-autocomplete .ac-item.active{background:var(--accent);color:#fff}
@@ -269,6 +273,10 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <span class="csep"></span>
         <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
         <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
+      </div>
+      <div id="pdb-running">
+        <span id="pdb-running-label">running:</span>
+        <span id="pdb-running-cmds"></span>
       </div>
       <div id="console-output"></div>
       <div id="pdb-cmd-bar">
@@ -901,8 +909,18 @@ async function fetchPdbStatus() {
     const j = await apiFetch("/api/pdb_status");
     const d = j.data || {};
     const inTui = !!d.in_tui;
-    const busy = !inTui && (d.pending_count > 0);
+    const busy = !inTui && (d.pending_count > 0 || (d.running_cmds && d.running_cmds.length > 0));
     _setPdbBusy(busy, inTui);
+    // running commands
+    const running = d.running_cmds || [];
+    const runEl = qs("#pdb-running");
+    const runCmds = qs("#pdb-running-cmds");
+    if (running.length) {
+      runCmds.textContent = running.join("  |  ");
+      runEl.classList.add("visible");
+    } else {
+      runEl.classList.remove("visible");
+    }
   } catch(e) {}
 }
 
