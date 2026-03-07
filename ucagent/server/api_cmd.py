@@ -90,6 +90,13 @@ class _ConsoleCapture:
             self._buf.clear()
             self._pending = ""
 
+    def inject(self, line: str) -> None:
+        """Add a line directly to the ring buffer without writing to the
+        underlying stream.  Used to echo API-submitted commands so the
+        web console shows prompt + command like the terminal does."""
+        with self._lock:
+            self._buf.append(line)
+
 _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
@@ -105,6 +112,7 @@ class PdbCmdApiServer:
     ---------
     GET  /                             - HTML dashboard (agent status + file manager)
     GET  /api/status                   - Agent status string
+    GET  /api/pdb_status               - PDB runtime status (tui, pending cmds, break state)
     GET  /api/tasks                    - Task list
     GET  /api/task/{index}             - Task detail
     GET  /api/mission                  - Mission overview (raw ANSI; ?strip_ansi=true to strip)
@@ -114,6 +122,9 @@ class PdbCmdApiServer:
     GET  /api/changed_files            - Recently changed output files  (?count=10)
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
     DELETE /api/console                - Clear captured stdout buffer
+    POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
+    POST /api/cmds/batch               - Enqueue multiple PDB commands  {"cmds": [...]}
+    POST /api/interrupt                - Send Ctrl-C interrupt to PDB
     GET  /api/files                    - List workspace directory  (?path=subdir)
     GET  /api/file                     - Read text file content  (?path=...)
     POST /api/file/edit                - Save/overwrite text file  body: {"path":"...","content":"..."}
@@ -132,6 +143,7 @@ class PdbCmdApiServer:
         port: int = 8765,
         sock: Optional[str] = None,
         tcp: bool = True,
+        password: str = "",
     ) -> None:
         """
         Parameters
@@ -148,6 +160,9 @@ class PdbCmdApiServer:
         tcp : bool
             Whether to enable the TCP listener.  Defaults to True.
             Set to False to run on Unix socket only.
+        password : str
+            If non-empty, all API endpoints (except /docs and /redoc) require
+            HTTP Basic Auth with this password.  Username is ignored.
         """
         try:
             import fastapi  # noqa: F401
@@ -166,6 +181,7 @@ class PdbCmdApiServer:
         self.port = port
         self.sock = sock
         self.tcp = tcp
+        self.password = password
         self._running = False
         # TCP listener state
         self._tcp_server = None
@@ -207,13 +223,50 @@ class PdbCmdApiServer:
             version="1.0.0",
         )
 
+        # ── auth middleware (HTTP Basic, skips /docs and /redoc) ──────────
+        import base64 as _base64
+        import secrets as _secrets
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.requests import Request as _Request
+        from fastapi.responses import JSONResponse as _JSONResponse
+
+        _password = self.password
+        _EXCLUDED_PATHS = {"/docs", "/redoc", "/openapi.json"}
+
+        class _AuthMiddleware(BaseHTTPMiddleware):
+            async def dispatch(self, request: _Request, call_next):
+                if not _password or request.url.path in _EXCLUDED_PATHS:
+                    return await call_next(request)
+                auth = request.headers.get("Authorization", "")
+                if auth.startswith("Basic "):
+                    try:
+                        decoded = _base64.b64decode(auth[6:]).decode("utf-8")
+                        _, _, pwd = decoded.partition(":")
+                        if _secrets.compare_digest(
+                            pwd.encode("utf-8"), _password.encode("utf-8")
+                        ):
+                            return await call_next(request)
+                    except Exception:
+                        pass
+                return _JSONResponse(
+                    status_code=401,
+                    content={"detail": "Authentication required."},
+                    headers={"WWW-Authenticate": 'Basic realm="UCAgent CMD API"'},
+                )
+
+        app.add_middleware(_AuthMiddleware)
+
         pdb = self.pdb  # capture for closures
 
         # ── request bodies ─────────────────────────────────────────────
         class FileEditBody(BaseModel):
             path: str
             content: str
+        class CmdBody(BaseModel):
+            cmd: str
 
+        class CmdsBody(BaseModel):
+            cmds: List[str]
         # ── path helpers ───────────────────────────────────────────────
         def _workspace_root() -> str:
             return os.path.abspath(pdb.agent.workspace)
@@ -271,6 +324,28 @@ class PdbCmdApiServer:
         def get_status():
             try:
                 return {"status": "ok", "data": pdb.api_status()}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/pdb_status ─────────────────────────────────────────────
+        @app.get("/api/pdb_status", summary="PDB runtime status")
+        def get_pdb_status():
+            try:
+                in_tui = getattr(pdb, "_in_tui", False)
+                init_cmd = list(pdb.init_cmd) if pdb.init_cmd else []
+                cmdqueue = list(pdb.cmdqueue) if pdb.cmdqueue else []
+                pending = init_cmd if in_tui else cmdqueue
+                is_break = pdb.agent.is_break()
+                return {
+                    "status": "ok",
+                    "data": {
+                        "in_tui": in_tui,
+                        "is_break": is_break,
+                        "pending_cmds": pending,
+                        "pending_count": len(pending),
+                        "prompt": pdb.prompt,
+                    },
+                }
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -392,6 +467,52 @@ class PdbCmdApiServer:
             try:
                 _capture.clear()
                 return {"status": "ok", "message": "Console buffer cleared"}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/cmd ─────────────────────────────────────────────────
+        @app.post("/api/cmd", summary="Enqueue a single PDB command")
+        def post_cmd(body: CmdBody):
+            try:
+                cmd = body.cmd.strip()
+                if not cmd:
+                    raise HTTPException(status_code=400, detail="'cmd' must not be empty")
+                _capture.inject(f"{pdb.prompt}{cmd}")
+                pdb.add_cmds(cmd)
+                return {"status": "ok", "message": f"Command enqueued", "cmd": cmd}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/cmds/batch ─────────────────────────────────────────────
+        @app.post("/api/cmds/batch", summary="Enqueue multiple PDB commands")
+        def post_cmds_batch(body: CmdsBody):
+            try:
+                cmds = [c.strip() for c in body.cmds if c.strip()]
+                if not cmds:
+                    raise HTTPException(status_code=400, detail="'cmds' list is empty or all blank")
+                for c in cmds:
+                    _capture.inject(f"{pdb.prompt}{c}")
+                pdb.add_cmds(cmds)
+                return {"status": "ok", "message": f"{len(cmds)} command(s) enqueued", "count": len(cmds), "cmds": cmds}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/interrupt ──────────────────────────────────────────────
+        @app.post("/api/interrupt", summary="Send Ctrl-C interrupt to PDB")
+        def post_interrupt():
+            import signal as _signal
+            try:
+                # Set the break flag first so the installed signal handler
+                # will NOT raise KeyboardInterrupt when the OS signal arrives.
+                pdb.agent.set_break(True)
+                # Deliver SIGINT to the main thread (Python always delivers
+                # signals to the main thread, where the handler is registered).
+                os.kill(os.getpid(), _signal.SIGINT)
+                return {"status": "ok", "message": "Interrupt sent"}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 

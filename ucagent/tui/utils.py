@@ -52,7 +52,6 @@ class UIMsgLogger(logging.Logger):
     flow. This is necessary because uvicorn's AccessFormatter expects
     specific log record attributes that normal log records don't have.
 
-    This implementation matches verify_ui.py's UIMsgLogger.
     """
 
     def __init__(self, ui: "VerifyApp", level: int | str = logging.INFO) -> None:

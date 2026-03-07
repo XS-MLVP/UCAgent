@@ -53,6 +53,11 @@ class VerifyPDB(Pdb):
         self.max_loop_retry = max_loop_retry
         self.retry_delay_start, self.retry_delay_end = retry_delay
         self.loop_alive_time = loop_alive_time
+        # Flag: when True the next SIGINT is an API-triggered wakeup,
+        # not a real Ctrl-C from the user.
+        self._api_wakeup = False
+        self._api_wakeup_done = False  # set after API wakeup to suppress message
+        self._tui_app = None  # set by enter_tui() while TUI is running
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -61,6 +66,20 @@ class VerifyPDB(Pdb):
                 cmd = self.init_cmd.pop(0)
                 self.onecmd(cmd)
         return super().interaction(frame, traceback)
+
+    def _cmdloop(self):
+        """Override Pdb._cmdloop to suppress the ``--KeyboardInterrupt--``
+        message when the interrupt was triggered by the API (add_cmds)."""
+        while True:
+            try:
+                self.allow_kbdint = True
+                self.cmdloop()
+                self.allow_kbdint = False
+                break
+            except KeyboardInterrupt:
+                if not self._api_wakeup_done:
+                    self.message('--KeyboardInterrupt--')
+                self._api_wakeup_done = False
 
     def add_cmds(self, cmds):
         """
@@ -71,17 +90,34 @@ class VerifyPDB(Pdb):
         if isinstance(cmds, str):
             cmds = [cmds]
         if self._in_tui:
-            if self.init_cmd is None:
-                self.init_cmd = cmds
+            tui_app = self._tui_app
+            if tui_app is not None:
+                for cmd in cmds:
+                    tui_app.call_from_thread(tui_app.key_handler.process_command, cmd)
             else:
-                self.init_cmd.extend(cmds)
+                if self.init_cmd is None:
+                    self.init_cmd = cmds
+                else:
+                    self.init_cmd.extend(cmds)
         else:
             self.cmdqueue.extend(cmds)
+            # Send SIGINT to interrupt the blocking input() call inside
+            # cmd.Cmd.cmdloop.  Pdb._cmdloop catches the resulting
+            # KeyboardInterrupt and restarts cmdloop(), which re-checks
+            # cmdqueue at the top of its loop – executing our commands.
+            self._api_wakeup = True
+            os.kill(os.getpid(), signal.SIGINT)
 
     def _sigint_handler(self, signum, frame):
         """
         Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
+        Also handles API-triggered wakeup to interrupt blocking input().
         """
+        # Check if this SIGINT was sent by add_cmds to wake up input()
+        if self._api_wakeup:
+            self._api_wakeup = False
+            self._api_wakeup_done = True
+            raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
         if self.agent.is_break():
@@ -639,11 +675,7 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
-        use_new_ui = getattr(self.agent, "use_new_ui", False)
-        if use_new_ui:
-            from ucagent.tui import enter_tui
-        else:
-            from ucagent.verify_ui import enter_simple_tui as enter_tui
+        from ucagent.tui import enter_tui
         import sys as _sys
         _saved_sys_stdout = _sys.stdout
         _saved_sys_stderr = _sys.stderr
@@ -789,6 +821,7 @@ class VerifyPDB(Pdb):
           --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd.sock)
           --sock none     Disable Unix socket listener
           --no-tcp        Disable TCP listener
+          --passwd <pwd>  HTTP Basic password to protect API endpoints (default: none)
           host            TCP bind address  (default: 127.0.0.1)
           port            TCP bind port     (default: 8765)
 
@@ -799,6 +832,7 @@ class VerifyPDB(Pdb):
           cmd_api_start --sock none              # TCP only
           cmd_api_start --no-tcp                 # socket only
           cmd_api_start --sock none 0.0.0.0 9000 # TCP only, custom address
+          cmd_api_start --passwd secret123       # enable password protection
 
         Once running, external tools can call:
           GET  /api/status              - Agent status
@@ -822,6 +856,7 @@ class VerifyPDB(Pdb):
         port = 8765
         sock = self._CMD_API_DEFAULT_SOCK  # Unix socket enabled by default
         tcp = True                          # TCP enabled by default
+        passwd = ""                         # password disabled by default
         # Parse flags and positional args
         parts = arg.strip().split()
         positional = []
@@ -843,6 +878,19 @@ class VerifyPDB(Pdb):
             elif token == "--no-tcp":
                 tcp = False
                 i += 1
+            elif token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
             else:
                 positional.append(token)
                 i += 1
@@ -860,13 +908,15 @@ class VerifyPDB(Pdb):
                 return
         try:
             self._cmd_api_server = PdbCmdApiServer(
-                self, host=host, port=port, sock=sock, tcp=tcp
+                self, host=host, port=port, sock=sock, tcp=tcp, password=passwd
             )
             ok, msg = self._cmd_api_server.start()
         except Exception as e:
             echo_r(f"Failed to start CMD API server: {e}")
             return
         if ok:
+            if passwd:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             echo_g(msg)
         else:
             echo_r(msg)
@@ -896,6 +946,8 @@ class VerifyPDB(Pdb):
         if self._cmd_api_server.is_running:
             s = self._cmd_api_server
             echo_g(f"CMD API server is running at {s.url()}")
+            if s.password:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             if s.tcp:
                 echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
             if s.sock:

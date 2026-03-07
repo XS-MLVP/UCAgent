@@ -224,12 +224,6 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
-        "--legacy-ui",
-        action="store_true",
-        default=False,
-        help="Use legacy urwid-based UI (implies TUI mode)"
-    )
-    parser.add_argument(
         "--sys-tips", 
         type=str, 
         default="", 
@@ -589,8 +583,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.legacy_ui
-    if use_tui:
+    if args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
@@ -698,7 +691,6 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
-        use_new_ui=not args.legacy_ui,
     )
     
     # Set break mode if human interaction or TUI is requested

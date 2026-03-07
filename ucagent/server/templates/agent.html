@@ -108,6 +108,22 @@ td.col-name .fn.dir{color:var(--accent)}
 .con-btn:hover{border-color:var(--accent);color:var(--accent)}
 .con-btn.active{border-color:var(--green);color:var(--green)}
 .con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
+/* ── pdb command input bar ── */
+#pdb-cmd-bar{display:flex;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0}
+#pdb-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
+#pdb-cmd-input:focus{border-color:var(--accent)}
+#pdb-cmd-input:disabled{opacity:.45;cursor:not-allowed}
+#pdb-cmd-send{background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#pdb-cmd-send:disabled{opacity:.45;cursor:not-allowed}
+#pdb-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#pdb-interrupt-btn:hover{background:rgba(248,114,114,.12)}
+#pdb-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
+#pdb-status-badge.busy{border-color:var(--red);color:var(--red)}
+#pdb-status-badge.idle{border-color:var(--green);color:var(--green)}
+#pdb-status-badge.tui{border-color:var(--accent);color:var(--accent)}
+#pdb-autocomplete{display:none;position:absolute;bottom:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px 4px 0 0;margin-bottom:2px;z-index:50;font-family:var(--mono);font-size:12px}
+#pdb-autocomplete .ac-item{padding:3px 10px;cursor:pointer;color:var(--text);white-space:nowrap}
+#pdb-autocomplete .ac-item:hover,#pdb-autocomplete .ac-item.active{background:var(--accent);color:#fff}
 
 /* ── modals ── */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center}
@@ -255,6 +271,16 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
       </div>
       <div id="console-output"></div>
+      <div id="pdb-cmd-bar">
+        <span id="pdb-status-badge">&#8226; idle</span>
+        <div style="position:relative;flex:1;display:flex">
+          <div id="pdb-autocomplete"></div>
+          <input id="pdb-cmd-input" type="text" placeholder="PDB command…" autocomplete="off"
+                 onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
+        </div>
+        <button id="pdb-cmd-send" onclick="sendPdbCmd()">Send</button>
+        <button id="pdb-interrupt-btn" onclick="sendPdbInterrupt()" title="Send Ctrl-C">&#9632; Interrupt</button>
+      </div>
     </div>
   </div>
 </div>
@@ -612,10 +638,10 @@ async function openView(path,name,ext){
   try{
     if(_HTML_EXTS.has(ext)){
       body.style.padding="0";
-      body.innerHTML=`<iframe id="view-frame" src="/workspace/${encodeURIComponent(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      body.innerHTML=`<iframe id="view-frame" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" sandbox="allow-scripts allow-same-origin"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
       body.style.padding="14px";
-      body.innerHTML=`<img id="view-img" src="/workspace/${encodeURIComponent(path)}" alt="${esc(name)}">`;
+      body.innerHTML=`<img id="view-img" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" alt="${esc(name)}">`;
     }else{
       body.style.padding="0";
       const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
@@ -648,7 +674,7 @@ function toggleViewRaw(){
 }
 
 /* ── serve / download ── */
-function serveFile(path){window.open("/workspace/"+encodeURIComponent(path),"_blank");}
+function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURIComponent).join("/"),"_blank");}
 
 function downloadFile(path){
   const a=document.createElement("a");
@@ -734,6 +760,174 @@ function _ansiToHtml(s){
     }
   }
   return out;
+}
+
+/* ── pdb command bar ── */
+let _pdbBusy = false;
+let _cmdHistory = [];
+let _cmdHistoryIdx = -1;
+let _cmdHistorySaved = "";
+let _acItems = [];
+let _acIdx = -1;
+
+function _acShow(items) {
+  const ac = qs("#pdb-autocomplete");
+  _acItems = items;
+  _acIdx = -1;
+  if (!items.length) { ac.style.display = "none"; return; }
+  ac.innerHTML = items.map((t,i) => `<div class="ac-item" data-i="${i}" onmousedown="_acPick(${i})">${esc(t)}</div>`).join("");
+  ac.style.display = "block";
+}
+
+function _acHide() { qs("#pdb-autocomplete").style.display = "none"; _acItems = []; _acIdx = -1; }
+
+function _acHighlight(idx) {
+  const ac = qs("#pdb-autocomplete");
+  const els = ac.querySelectorAll(".ac-item");
+  els.forEach(e => e.classList.remove("active"));
+  if (idx >= 0 && idx < els.length) { els[idx].classList.add("active"); els[idx].scrollIntoView({block:"nearest"}); }
+  _acIdx = idx;
+}
+
+function _acPick(idx) {
+  const input = qs("#pdb-cmd-input");
+  if (idx >= 0 && idx < _acItems.length) {
+    const val = input.value;
+    const spaceIdx = val.lastIndexOf(" ");
+    input.value = (spaceIdx >= 0 ? val.substring(0, spaceIdx + 1) : "") + _acItems[idx] + " ";
+  }
+  _acHide();
+  input.focus();
+}
+
+async function _acComplete() {
+  const input = qs("#pdb-cmd-input");
+  const val = input.value;
+  const parts = val.trimStart().split(/\s+/);
+  const prefix = parts.length <= 1 ? val.trimStart() : parts[parts.length - 1];
+  const isFirstWord = parts.length <= 1;
+  try {
+    const url = isFirstWord ? `/api/cmds?prefix=${encodeURIComponent(prefix)}` : `/api/cmds?prefix=`;
+    const j = await apiFetch(url);
+    let items = j.data || [];
+    if (!isFirstWord) items = items.filter(c => c.startsWith(prefix));
+    if (items.length === 1) { _acPick(0); _acItems = [items[0]]; _acPick(0); }
+    else if (items.length > 1) {
+      // Find common prefix among matches
+      let common = items[0];
+      for (let i = 1; i < items.length; i++) {
+        while (common && !items[i].startsWith(common)) common = common.slice(0, -1);
+      }
+      if (common.length > prefix.length) {
+        const spaceIdx = val.lastIndexOf(" ");
+        input.value = (spaceIdx >= 0 ? val.substring(0, spaceIdx + 1) : "") + common;
+      }
+      _acShow(items);
+    } else { _acHide(); }
+  } catch(e) { _acHide(); }
+}
+
+function handleCmdKeydown(event) {
+  const ac = qs("#pdb-autocomplete");
+  const visible = ac.style.display !== "none" && _acItems.length > 0;
+  if (event.key === "Tab") {
+    event.preventDefault();
+    if (visible && _acIdx >= 0) { _acPick(_acIdx); }
+    else { _acComplete(); }
+    return;
+  }
+  if (event.key === "Escape") { _acHide(); return; }
+  if (visible && event.key === "ArrowDown") {
+    event.preventDefault();
+    _acHighlight((_acIdx + 1) % _acItems.length);
+    return;
+  }
+  if (visible && event.key === "ArrowUp") {
+    event.preventDefault();
+    _acHighlight((_acIdx - 1 + _acItems.length) % _acItems.length);
+    return;
+  }
+  if (visible && event.key === "Enter" && _acIdx >= 0) {
+    event.preventDefault();
+    _acPick(_acIdx);
+    return;
+  }
+  if (event.key === "Enter") { _acHide(); sendPdbCmd(); return; }
+  // Command history: Up/Down when autocomplete is not visible
+  if (!visible && event.key === "ArrowUp") {
+    event.preventDefault();
+    if (_cmdHistory.length === 0) return;
+    if (_cmdHistoryIdx === -1) { _cmdHistorySaved = qs("#pdb-cmd-input").value; _cmdHistoryIdx = _cmdHistory.length; }
+    if (_cmdHistoryIdx > 0) { _cmdHistoryIdx--; qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    return;
+  }
+  if (!visible && event.key === "ArrowDown") {
+    event.preventDefault();
+    if (_cmdHistoryIdx === -1) return;
+    _cmdHistoryIdx++;
+    if (_cmdHistoryIdx >= _cmdHistory.length) { _cmdHistoryIdx = -1; qs("#pdb-cmd-input").value = _cmdHistorySaved; }
+    else { qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    return;
+  }
+  // Any other key hides autocomplete
+  setTimeout(() => _acHide(), 0);
+}
+
+function _setPdbBusy(busy, inTui) {
+  _pdbBusy = busy;
+  const input = qs("#pdb-cmd-input");
+  const sendBtn = qs("#pdb-cmd-send");
+  const badge = qs("#pdb-status-badge");
+  if (inTui) {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    badge.className = "tui";
+    badge.textContent = "\u25cf TUI";
+  } else if (busy) {
+    input.disabled = true;
+    sendBtn.disabled = true;
+    badge.className = "busy";
+    badge.textContent = "\u25cf busy";
+  } else {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    badge.className = "idle";
+    badge.textContent = "\u25cf idle";
+  }
+}
+
+async function fetchPdbStatus() {
+  try {
+    const j = await apiFetch("/api/pdb_status");
+    const d = j.data || {};
+    const inTui = !!d.in_tui;
+    const busy = !inTui && (d.pending_count > 0);
+    _setPdbBusy(busy, inTui);
+  } catch(e) {}
+}
+
+async function sendPdbCmd() {
+  const input = qs("#pdb-cmd-input");
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  try {
+    await apiFetch("/api/cmd", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({cmd})
+    });
+    // Record in local history (dedup consecutive)
+    if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== cmd) _cmdHistory.push(cmd);
+    _cmdHistoryIdx = -1;
+    input.value = "";
+    _setPdbBusy(true);
+  } catch(e) { showErr(e.message); }
+}
+
+async function sendPdbInterrupt() {
+  try {
+    await apiFetch("/api/interrupt", {method: "POST"});
+  } catch(e) { showErr(e.message); }
 }
 
 /* ── console panel ── */
@@ -827,10 +1021,11 @@ async function clearConsole(){
 function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();}
 
 /* ── init ── */
-fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();
+fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
+setInterval(fetchPdbStatus,2000);
 </script>
 </body>
 </html>
