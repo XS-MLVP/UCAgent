@@ -51,8 +51,14 @@ init_%:
 test_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
 
+test_with_master_%: init_%
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --master 127.0.0.1 --export-cmd-api  ${ARGS}
+
 mcp_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS}
+
+mcp_with_master_%: init_%
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --master 127.0.0.1 --export-cmd-api ${ARGS}
 
 mcp_all_tools_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}

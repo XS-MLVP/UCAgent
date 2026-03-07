@@ -400,6 +400,22 @@ def get_args() -> argparse.Namespace:
              "(used with --as-master). Passed as --password to master_api_start."
     )
 
+    parser.add_argument(
+        "--export-cmd-api",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[ip[:port]][ passwd]",
+        help=(
+            "Start the CMD API server (PdbCmdApiServer) as part of agent startup. "
+            "Bare '--export-cmd-api' uses default host/port (127.0.0.1:8765). "
+            "'--export-cmd-api ip[:port]' binds to the given address. "
+            "Append a password after a space to enable HTTP Basic Auth, "
+            "e.g. --export-cmd-api '0.0.0.0:8765 mysecret'."
+        )
+    )
+
     parser.add_argument("--no-history", action="store_true", default=False,
                         help="Disable history loading from previous runs in the workspace")
 
@@ -634,6 +650,25 @@ def run() -> None:
                 init_cmds += [f"master_api_start {m_host} {m_port}{extra_master_opts}"]
             else:
                 init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
+
+    # Handle --export-cmd-api: start the CMD API server
+    if args.export_cmd_api is not None:
+        extra_cmd_api_opts = ""
+        addr_part = args.export_cmd_api.strip()
+        passwd_part = ""
+        # Allow embedded password after a space: "ip[:port] passwd" or just "passwd"
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_cmd_api_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"cmd_api_start{extra_cmd_api_opts}".strip()]
+        elif ":" in addr_part:
+            c_host, c_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"cmd_api_start {c_host} {c_port}{extra_cmd_api_opts}"]
+        else:
+            init_cmds += [f"cmd_api_start {addr_part}{extra_cmd_api_opts}"]
 
     # Handle --master: connect to one or more Master API servers
     # Each entry is a list: [host[:port]] or [host[:port], access_key]
