@@ -883,8 +883,6 @@ stage:
       - "{OUT}/{DUT}_bug_analysis.md"
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_case.md"
-    output_files:
-      - "{OUT}/tests/test_{DUT}_static_verify_*.py"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist

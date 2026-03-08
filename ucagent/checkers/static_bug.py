@@ -57,12 +57,12 @@ _RE_LINK_TBD = re.compile(r'^LINK-BUG-\[BG-TBD\]$', re.IGNORECASE)
 _RE_LINK_NA = re.compile(r'^LINK-BUG-\[BG-NA\]$', re.IGNORECASE)
 # LINK-BUG-[BG-NAME-xx]...— one or more confirmed bracket groups
 _RE_LINK_CONFIRMED = re.compile(
-    r'^LINK-BUG-(\[BG-[A-Za-z][A-Za-z0-9-]+-\d{1,3}\])+$', re.IGNORECASE
+    r'^LINK-BUG-(\[BG-[A-Za-z][A-Za-z0-9_-]+-\d{1,3}\])+$', re.IGNORECASE
 )
 # Extract individual BG-NAME-xx from a confirmed key like
 # LINK-BUG-[BG-N1-92][BG-N2-85]
 _RE_BRACKET_TAG = re.compile(
-    r'\[BG-([A-Za-z][A-Za-z0-9-]+-\d{1,3})\]', re.IGNORECASE
+    r'\[BG-([A-Za-z][A-Za-z0-9_-]+-\d{1,3})\]', re.IGNORECASE
 )
 
 # Key value for <BG-STATIC-000-NULL>: no bugs found after review
@@ -147,7 +147,7 @@ def _extract_confirmed_dynamic_tags(bug_analysis_path: str) -> set:
         return set()
     result: set = set()
     for m in re.finditer(
-        r'<BG-([A-Za-z][A-Za-z0-9-]+-\d{1,3})>', content, re.IGNORECASE
+        r'<BG-([A-Za-z][A-Za-z0-9_-]+-\d{1,3})>', content, re.IGNORECASE
     ):
         name = m.group(1).upper()
         if not name.startswith('STATIC-') and name not in ('TBD', 'NA'):
@@ -187,6 +187,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
         self.functions_and_checks_doc = functions_and_checks_doc
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Validate static bug tag format and mandatory LINK-BUG/FILE child tags."""
         real_path = self.get_path(self.static_doc)
         if not os.path.exists(real_path):
             return False, {
@@ -388,6 +389,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
         self.functions_and_checks_doc = functions_and_checks_doc
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Validate static bug analysis: resolve placeholders and cross-reference dynamic bugs."""
         static_path = self.get_path(self.static_doc)
         if not os.path.exists(static_path):
             return False, {
