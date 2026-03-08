@@ -32,7 +32,7 @@ import os
 from typing import List, Tuple
 
 import ucagent.util.functions as fc
-from ucagent.util.log import info
+from ucagent.util.log import info, warning
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 
 # ---------------------------------------------------------------------------
@@ -542,7 +542,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
                     "Each <LINK-BUG-*> must have at least one <FILE-filepath:line1-line2> child tag",
                     f"Each confirmed tag must have a full <BG-*>+<TC-*> record in "
                     f"'{self.bug_analysis_doc}'",
-                    "See Guide_Doc/dut_bug_analysis.md '动态Bug关联标签规范' section",
+                    "See the 'Dynamic Bug Link Tag Specification' section in Guide_Doc/dut_bug_analysis.md",
                 ],
             }
 
@@ -564,10 +564,14 @@ class UnityChipBatchCheckerStaticBug(Checker):
     """Batch RTL static bug analysis checker.
 
     Drives the LLM to analyze RTL source files in batches of *batch_size*.
-    After analyzing each batch the LLM must append a completion marker to
-    ``static_doc``::
+    After each batch the LLM must update (or create) a progress-table section
+    at the end of ``static_doc``::
 
-        Analyzed <file>path/to/file.v</file>, found N potential static bug(s)
+        ## Batch Analysis Progress
+
+        | Source file | Potential bugs | Status |
+        |-------------|---------------|--------|
+        | <file>path/to/file.v</file> | N | ✅ Done |
 
     On the next invocation the checker parses every ``<file>…</file>`` tag
     in ``static_doc`` to determine which files have been analyzed and which
@@ -628,7 +632,12 @@ class UnityChipBatchCheckerStaticBug(Checker):
             return []
 
     def _init_batch_state(self) -> bool:
-        """Stateless init: rebuild batch state from *static_doc* every call.
+        """Refresh source/gen lists from the filesystem and *static_doc*.
+
+        Called by :meth:`on_init` to populate lists before the framework
+        renders stage descriptions, and NOT from :meth:`do_check` — the
+        ``do_check`` path uses ``sync_source_task`` / ``sync_gen_task``
+        + ``do_complete`` for proper lifecycle management.
 
         Returns ``False`` when no source files match the configured patterns.
         """
@@ -638,12 +647,16 @@ class UnityChipBatchCheckerStaticBug(Checker):
 
         analyzed = self._get_analyzed_files()
         source = sorted(all_files)
-        # Only credit files that are actually in the source list
         gen = [f for f in analyzed if f in source]
 
         self.batch_task.source_task_list = source
         self.batch_task.gen_task_list = gen
-        self.batch_task.tbd_task_list = []
+        # Retain only still-valid tbd items loaded from checkpoint
+        # (drop items already analyzed or no longer in source).
+        self.batch_task.tbd_task_list = [
+            f for f in self.batch_task.tbd_task_list
+            if f in source and f not in gen
+        ]
         self.batch_task.cmp_task_list = []
         self.batch_task.update_current_tbd()
 
@@ -653,7 +666,63 @@ class UnityChipBatchCheckerStaticBug(Checker):
         )
         return True
 
+    def _handle_no_source_files(self) -> Tuple[bool, object]:
+        """Handle the case where no RTL source files match the patterns.
+
+        In black-box verification scenarios the DUT has no accessible source
+        code.  If the LLM has already documented this situation in
+        *static_doc* (non-empty content), the check passes with a warning.
+        Otherwise it fails and instructs the LLM to write an explanation.
+        """
+        doc_path = self.get_path(self.static_doc)
+        content = ""
+        if os.path.exists(doc_path):
+            try:
+                with open(doc_path, 'r', encoding='utf-8') as fh:
+                    content = fh.read().strip()
+            except Exception:
+                content = ""
+
+        if content:
+            warning(
+                f"UnityChipBatchCheckerStaticBug: No source files found "
+                f"matching {self.file_list}. Black-box verification mode — "
+                f"static bug analysis skipped."
+            )
+            return True, {
+                "message": (
+                    "No RTL source files found (black-box verification). "
+                    "Static bug analysis is not applicable. "
+                    f"Explanation documented in '{self.static_doc}'."
+                ),
+            }
+
+        return False, {
+            "error": (
+                f"No source files found matching patterns: {self.file_list}. "
+                "This appears to be a black-box verification scenario. "
+                f"Document this in '{self.static_doc}' — explain that static "
+                "bug analysis is not applicable because no RTL source files "
+                "are available."
+            ),
+            "task": [
+                f"No RTL source files were found matching: {self.file_list}",
+                "This is likely a black-box verification scenario.",
+                f"Create or update '{self.static_doc}' to explain that:",
+                "  - Static bug analysis cannot be performed because no RTL source files are accessible",
+                "  - The verification is running in black-box mode",
+                "  - Any other relevant context about the verification approach",
+                f"The document '{self.static_doc}' must not be empty.",
+            ],
+        }
+
     # ── Checker interface ─────────────────────────────────────────────────────
+
+    def on_init(self):
+        """Populate batch state from the static doc so that get_template_data()
+        returns correct values when called by the framework before do_check()."""
+        self._init_batch_state()
+        return super().on_init()
 
     def get_template_data(self) -> dict:
         source = self.batch_task.source_task_list
@@ -668,40 +737,60 @@ class UnityChipBatchCheckerStaticBug(Checker):
         }
 
     def do_check(self, is_complete: bool = False, **kw) -> Tuple[bool, object]:
-        """Drive batch static bug analysis; validate on completion."""
-        if not self._init_batch_state():
-            return False, {
-                "error": (
-                    f"No source files found matching patterns: {self.file_list}. "
-                    "Verify the file_list patterns are correct and source files exist "
-                    "(e.g. '{DUT}/**/*.v', '{RTL_PATH}/**/*.v')."
-                )
-            }
+        """Drive batch static bug analysis; validate on completion.
+
+        Uses ``sync_source_task`` / ``sync_gen_task`` to reconcile the
+        file lists with the current filesystem and document state, then
+        delegates batch lifecycle management to ``do_complete()``.
+
+        When ``do_complete`` returns ``True`` (all files analyzed) the
+        checker runs :class:`UnityChipCheckerStaticBugFormat` for final
+        validation.  Otherwise the result dict is enriched with detailed
+        ``task`` instructions for the LLM.
+        """
+        all_files = self._get_all_source_files()
+        if not all_files:
+            return self._handle_no_source_files()
+
+        analyzed = self._get_analyzed_files()
+        gen = [f for f in analyzed if f in all_files]
+
+        note_msg: List[str] = []
+        self.batch_task.sync_source_task(
+            sorted(all_files), note_msg, "Source file list changed."
+        )
+        self.batch_task.sync_gen_task(
+            gen, note_msg, "Analyzed files updated from document."
+        )
 
         total = len(self.batch_task.source_task_list)
         analyzed_count = len(self.batch_task.gen_task_list)
-        current_batch = self.batch_task.tbd_task_list
+
+        passed, result = self.batch_task.do_complete(
+            note_msg, is_complete,
+            f"in source file patterns {self.file_list}",
+            f"in {self.static_doc} <file> progress tags",
+            " Refer to the 'task' field for detailed analysis steps.",
+        )
 
         # ── All files analyzed — run format validation ────────────────────────
-        if not current_batch:
+        if passed:
             fmt_checker = UnityChipCheckerStaticBugFormat(
                 self.static_doc, self.functions_and_checks_doc
             )
             fmt_checker.set_workspace(self.workspace)
-            passed, result = fmt_checker.do_check(**kw)
-            if passed and isinstance(result, dict):
-                result["analysis_progress"] = f"{analyzed_count}/{total}"
-                result["analyzed_files"] = self.batch_task.gen_task_list
-            return passed, result
+            fmt_passed, fmt_result = fmt_checker.do_check(**kw)
+            if fmt_passed and isinstance(fmt_result, dict):
+                fmt_result["analysis_progress"] = f"{analyzed_count}/{total}"
+                fmt_result["analyzed_files"] = self.batch_task.gen_task_list
+            return fmt_passed, fmt_result
 
-        # ── Files remaining — instruct LLM to analyze next batch ─────────────
+        # ── Files remaining — enrich result with analysis task details ────────
+        current_batch = self.batch_task.tbd_task_list
         remaining = total - analyzed_count
-        return False, {
-            "error": (
-                f"Static bug analysis progress: {analyzed_count}/{total} file(s) done, "
-                f"{remaining} file(s) remaining."
-            ),
-            "task": [
+
+        if isinstance(result, dict) and current_batch:
+            result["task"] = [
                 f"Perform static bug analysis on the following {len(current_batch)} source file(s) "
                 f"and record any findings in {self.static_doc}:",
                 *[f"  - {f}" for f in current_batch],
@@ -714,12 +803,21 @@ class UnityChipBatchCheckerStaticBug(Checker):
                 "  5. If no bugs are found for a check-point, add <BG-STATIC-000-NULL> under the corresponding <CK-*>.",
                 "  6. For high/medium confidence bugs, add new <CK-*> check-points to functions_and_checks.md.",
                 "",
-                f"After finishing this batch, append one completion marker per analyzed file to {self.static_doc}:",
-                "  Analyzed <file>path/to/file.v</file>, found N potential static bug(s)",
+                f"After finishing this batch, update the '## Batch Analysis Progress' section at the end of {self.static_doc}.",
+                "If this section does not exist yet, create it at the very end of the document with the table header:",
+                "",
+                "  ## Batch Analysis Progress",
+                "",
+                "  | Source file | Potential bugs | Status |",
+                "  |-------------|---------------|--------|",
+                "",
+                "Then append one table row per analyzed file in this batch:",
+                "  | <file>path/to/file.v</file> | N | ✅ Done |",
                 "",
                 "Note: the path inside <file> tags must match the workspace-relative source path exactly.",
-            ],
-            "current_batch": current_batch,
-            "progress": f"{analyzed_count}/{total}",
-            "remaining_files": remaining,
-        }
+            ]
+            result["current_batch"] = current_batch
+            result["progress"] = f"{analyzed_count}/{total}"
+            result["remaining_files"] = remaining
+
+        return passed, result
