@@ -1365,60 +1365,47 @@ def clean_report_with_keys(report: dict,
 
 def description_bug_doc():
     return [
-         "Bug analysis document format:",
-         "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK>, <BG-NAME-XX>, <TC-FAILEDTESTCASE>.",
-         "   Where XX is an integer between 0 and 100 representing the confidence level. The format of FAILEDTESTCASE is 'test_python_file.py::testcase_name'.",
-         "   For example:",
+         "[Bug Analysis Document Format] (see Guide_Doc/dut_bug_analysis.md for details)",
+         "  Tag hierarchy: <FG-GROUP> / <FC-FUNCTION> / <CK-CHECKPOINT> / <BG-BUGNAME-XX> / <TC-FAILEDTESTCASE>",
+         "  - Confidence(XX): integer 0~100, indicating confidence level (0=known ignore/placeholder, 100=confirmed bug)",
+         "  - <TC-*> format: <TC-test_xxx.py::[ClassName::]test_func_name>, ClassName is optional",
+         "  - Each <BG-*> must have at least one FAILED <TC-*> test case",
+         "  - Failed checkpoints should also be recorded as bugs, using 'assert False' as placeholder if needed",
+         "  Format example:",
          "    <FG-LOGIC>",
          "            <FC-ADD>",
          "                <CK-BASIC>",
-         "                    <BG-NAME1-80> Bug NAME1 explain and its has 80% confidence to be a DUT bug.",
-         "                       <TC-test.py::test_my_test1> failed test case test.py::test_my_test1 explain",
-         "                       <TC-test.py::test_my_test2> failed test case test.py::test_my_test2 explain",
-         "                   Bug reason analysis:",
+         "                    <BG-ADD_OVERFLOW-80> Addition overflow handling error, 80% confidence",
+         "                       <TC-test_add.py::test_add_overflow> Overflow boundary test",
+         "                       <TC-test_add.py::test_add_max_value> Max value test",
+         "                   Bug root cause analysis:",
          "                   ```verilog",
-         "                     assert (a + b == c) else $error('Addition error');",
-         "                     // use comments to explain why this is a bug in DUT",
-         "                   ...",
-         "                   Bug fix suggestion:",
+         "                     // Adder.v line 10, bit-width error",
+         "                     10: output [WIDTH-2:0] sum,  // BUG: should be [WIDTH-1:0]",
+         "                   ```",
+         "                   Fix suggestion:",
          "                   ```verilog",
-         "                     // Ensure proper handling of XXX cases",
-         "                     <BG-NAME2-90> ....",
-         "                     ...",
-         "                <CK-OVERFLOW>",
-         "                    <BG-NAME3-50> Bug NAME3 explain and its has 50% confidence to be a DUT bug.",
-         "                      <TC-test2.py::test_overflow> failed test case test2.py::test_overflow explain",
-         "                   Bug reason analysis:",
-         "                   ```verilog",
-         "                     assert (a + b >= a) else $error('Overflow error');",
-         "                     // use comments to explain why this is a bug in DUT",
-         "                   ...",
-         "                   Bug fix suggestion:",
-         "                   ```verilog",
-         "                     // Ensure proper handling of overflow cases",
-         "             <FC-MUL>",
-         "                ...",
+         "                     10: output [WIDTH-1:0] sum,  // FIX: restore correct bit-width",
+         "                   ```",
     ]
 
 
 
 def description_func_doc():
     return [
-         "Functions and check points document format:",
-         "   You must use the format <FG-GROUP>, <FC-FUNCTION>, <CK-CHECK> to tag the functions and its checkpoints.",
-         "   For example:",
+         "[Functions and Checkpoints Document Format] (see Guide_Doc/dut_functions_and_checks.md for details)",
+         "  Tag hierarchy: <FG-GROUP> / <FC-FUNCTION> / <CK-CHECKPOINT>, tags must be on separate lines",
+         "  Format example:",
          "    <FG-LOGIC>",
-         "          group description.",
+         "          Group description...",
          "            <FC-ADD>",
-         "               function description: This function performs addition of two numbers.",
+         "               Function description: Performs addition of two numbers.",
          "                <CK-BASIC>",
-         "                  check description: This check verifies basic addition functionality.",
+         "                  Checkpoint description: Verifies basic addition functionality.",
          "                <CK-OVERFLOW>",
-         "                  check description: This check verifies addition overflow handling.",
+         "                  Checkpoint description: Verifies addition overflow handling.",
          "             <FC-MUL>",
          "                ...",
-         "             <FC-DIV>",
-         "                 ...",
          "    <FG-MEMORY>",
          "          ...",
     ]
@@ -1480,9 +1467,11 @@ def description_mark_function_doc(func_list=[], workspace=None, func_RunTestCase
     """
     Description for marking functions in test cases.
     """
-    simple_msg = ("At the test functions beginning, you need use proper `mark_function` to associate them with the related check points. "
-            "For example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
-            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). If a test case covers checkpoints of multiple functions, you should call it multiple times. If the test case is redundant, you need to delete it. "
+    simple_msg = ("You need to use `mark_function` at the beginning of test functions to associate them with checkpoints. "
+            "Example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
+            "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). "
+            "If a test case covers checkpoints of multiple functions, call mark_function multiple times. "
+            "If the test case is redundant, delete it. (See Guide_Doc/dut_test_case.md)"
            )
     def parse_test_case_name(tc):
         # file.py:xx-yy::[ClassName::]test_func
@@ -1520,13 +1509,13 @@ def description_mark_function_doc(func_list=[], workspace=None, func_RunTestCase
         emsg = ""
         if len(er_mark_tc_list) > 0:
             tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
-            tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors, you need call tool RunTestCases('{tc_to_run}') " + \
-                    "to get the detail errors to check if the names of 'function point', 'test case' and 'check point' are correct. "
+            tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors. " + \
+                    f"Please call RunTestCases('{tc_to_run}') to see detailed errors and verify that function point, test case, and checkpoint names match the documentation."
             if func_RunTestCases is not None:
                 warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
                 _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
-                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called function 'mark_function' but has errors:\n STD_OUT:\n{run_msg['STDOUT']}\nSTD_ERR:\n{run_msg['STDERR']}\n" + \
-                         f"Note:\nIf you cannot find the root cause, you can call tool RunTestCases('{tc_to_run}') to get more detail information. "
+                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors:\n STDOUT:\n{run_msg['STDOUT']}\nSTDERR:\n{run_msg['STDERR']}\n" + \
+                         f"Note: If you cannot find the root cause, call RunTestCases('{tc_to_run}') to get more detailed information."
             emsg += tc_msg
         if len(no_mark_tc_list) > 0:
             emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
@@ -1546,7 +1535,7 @@ def check_source_code_in_tc(workspace, report, checker, target_tc_prefix="", ign
         warning("target_tc_prefix: " + target_tc_prefix)
         warning("ignore_tc_preifx: " + ignore_tc_preifx)
         warning("raw test cases: " + ", ".join(report.get("tests", {}).get("test_cases", {}).keys()))
-        return False, {"error": "no test cases find in test report"}
+        return False, {"error": "[No Test Cases] No matching test cases found in the test report. Please check that test files exist and are named with 'test_' prefix, and that the filter prefix settings are correct."}
     # file.py:line1-line2::[class::]test_case_name
     # block fmt: {'file1.py': {"k1": [line_from, line_to], 'k2': [line_from, line_to]}, ...}
     file_blocks = {}
@@ -1590,10 +1579,11 @@ def check_has_assert_in_tc(workspace, report, target_tc_prefix="", ignore_tc_pre
             return True, "All test cases have assert statements."
         failed_str = list_str_abbr(failed_tc)
         return False, {
-            "error": f"The following {len(failed_tc)} test cases do not contain assert statements: {failed_str}. " + \
-                      "Note: A test case MUST contain at least one assert statement to verify the DUT behavior. "+\
-                      "Its format is 'assert output == expected_output, \"Error message\". or 'with pytest.raises(ExpectedException): ...'. "+\
-                      "Donot use 'self.assertEqual' or other unittest assert methods, as they are not supported in this verification framework.",
+            "error": f"[Missing Assertions] The following {len(failed_tc)} test cases do not contain assert statements: {failed_str}. " +
+                      "[Problem] Every test case MUST contain at least one assert statement to verify DUT behavior, otherwise it cannot be determined whether the test truly passes. " +
+                      "[Solution] Add assertions in test functions, format: assert output == expected_output, 'error description'. " +
+                      "You can also use 'with pytest.raises(ExpectedException): ...' to verify exceptions. " +
+                      "Note: Do not use 'self.assertEqual' or other unittest methods; this framework only supports assert and pytest.raises.",
             }
     except Exception as e:
         warning(f"check_has_assert_in_tc error: {e}")
@@ -1906,7 +1896,7 @@ def is_run_report_pass(report, stdout, stderr):
     run_pass = report.get("run_test_success", False)
     if run_pass:
         return True, ""
-    return False, {"error": "Run test cases/generate report fail!", "STDOUT": stdout, "STDERR": stderr}
+    return False, {"error": "[Run Failed] Running test cases / generating report failed! Check STDOUT and STDERR output to identify the cause (common issues: import errors, syntax errors, undefined fixtures, DUT compilation failures, etc.).", "STDOUT": stdout, "STDERR": stderr}
 
 
 def get_tools_from_cfg(tool_list, cfg: dict):
