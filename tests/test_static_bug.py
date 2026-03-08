@@ -30,6 +30,7 @@ Directory layout:
   static_tbd_remaining.md            — LINK-BUG still [BG-TBD] (validation stage fail)
   static_invalid_link_value.md       — LINK-BUG value not [BG-TBD]/[BG-NA]/confirmed
   static_confirmed_tag_missing.md    — confirmed LINK-BUG whose BG tag is absent from bug_analysis.md
+  blackbox_explanation.md             — non-empty explanation for black-box verification (no source files)
 """
 
 import os
@@ -467,19 +468,50 @@ def batch_checker(
 
 
 class TestBatchCheckerNoSourceFiles:
-    """Behaviour when no source files match the patterns."""
+    """Behaviour when no source files match the patterns (black-box verification)."""
 
-    def test_no_files_found_returns_false(self):
-        c = batch_checker("batch_progress_none.md", file_list=["rtl/*.xyz"])
+    def test_no_files_no_doc_returns_false(self):
+        """No source files and static_doc doesn't exist → fail with task."""
+        c = batch_checker("nonexistent_blackbox_doc.md", file_list=["rtl/*.xyz"])
         passed, msg = c.do_check()
         assert passed is False
         assert "No source files found" in str(msg.get("error", ""))
+        assert "task" in msg
 
-    def test_empty_file_list_returns_false(self):
-        c = batch_checker("batch_progress_none.md", file_list=[])
+    def test_no_files_empty_doc_returns_false(self):
+        """No source files and static_doc is empty → fail with task."""
+        c = batch_checker("empty_doc.md", file_list=["rtl/*.xyz"])
         passed, msg = c.do_check()
         assert passed is False
         assert "No source files found" in str(msg.get("error", ""))
+        assert "task" in msg
+        task_str = " ".join(msg["task"])
+        assert "black-box" in task_str.lower()
+
+    def test_no_files_with_explanation_passes(self):
+        """No source files but static_doc has content → warn and pass."""
+        c = batch_checker("blackbox_explanation.md", file_list=["rtl/*.xyz"])
+        passed, msg = c.do_check()
+        assert passed is True
+        assert "black-box" in str(msg.get("message", "")).lower()
+
+    def test_no_files_with_explanation_message_mentions_doc(self):
+        """Pass message should reference the static_doc."""
+        c = batch_checker("blackbox_explanation.md", file_list=["rtl/*.xyz"])
+        passed, msg = c.do_check()
+        assert passed is True
+        assert "blackbox_explanation.md" in str(msg.get("message", ""))
+
+    def test_empty_file_list_with_explanation_passes(self):
+        """Empty file_list pattern with documented explanation → pass."""
+        c = batch_checker("blackbox_explanation.md", file_list=[])
+        passed, msg = c.do_check()
+        assert passed is True
+
+    def test_empty_file_list_no_doc_returns_false(self):
+        c = batch_checker("empty_doc.md", file_list=[])
+        passed, msg = c.do_check()
+        assert passed is False
 
 
 class TestBatchCheckerProgressTracking:
