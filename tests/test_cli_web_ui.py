@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import shlex
+import sys
+from argparse import Namespace
+
+import ucagent.cli as cli
+
+
+def test_get_args_allows_web_ui_with_legacy_ui(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ucagent", "/tmp/workspace", "Adder", "--web-ui", "--legacy-ui"],
+    )
+    args = cli.get_args()
+    assert args.web_ui is True
+    assert args.legacy_ui is True
+
+
+def test_build_web_ui_command_removes_web_ui_and_adds_tui():
+    cmd = cli._build_web_ui_command(
+        [
+            "ucagent",
+            "/tmp/workspace",
+            "Adder",
+            "--web-ui",
+            "--config",
+            "config.yaml",
+        ]
+    )
+    parts = shlex.split(cmd)
+    assert parts[:6] == [
+        "env",
+        "PYTHONWARNINGS=ignore",
+        sys.executable,
+        "-m",
+        "ucagent.cli",
+        "/tmp/workspace",
+    ]
+    assert "--web-ui" not in parts
+    assert "--tui" in parts
+    assert "--web-ui-session" in parts
+    assert "--config" in parts
+    assert "config.yaml" in parts
+
+
+def test_build_web_ui_command_does_not_duplicate_tui():
+    cmd = cli._build_web_ui_command(
+        ["ucagent", "/tmp/workspace", "Adder", "--web-ui", "--tui"]
+    )
+    parts = shlex.split(cmd)
+    assert parts.count("--tui") == 1
+
+
+def test_build_web_ui_command_ignores_legacy_ui():
+    cmd = cli._build_web_ui_command(
+        ["ucagent", "/tmp/workspace", "Adder", "--web-ui", "--legacy-ui", "--tui"]
+    )
+    parts = shlex.split(cmd)
+    assert "--legacy-ui" not in parts
+    assert parts.count("--tui") == 1
+
+
+def test_suppress_web_ui_session_logs_noop():
+    import ucagent.util.log as log
+    log.set_silent(False)
+    cli._suppress_web_ui_session_logs()
+    assert log.is_silent() is True
+    log.set_silent(False)
+
+
+def test_silent_still_outputs_error(capsys):
+    import ucagent.util.log as log
+
+    log.set_silent(True)
+    try:
+        log.error("web-ui-session error")
+        out = capsys.readouterr().out
+        assert "web-ui-session error" in out
+    finally:
+        log.set_silent(False)
+
+
+def test_run_web_ui_branch_short_circuits(monkeypatch):
+    args = Namespace(
+        upgrade=None,
+        as_master=None,
+        workspace="/tmp/workspace",
+        dut="Adder",
+        web_ui=True,
+        web_ui_session=False,
+    )
+    called = {"serve": False}
+
+    def _fake_get_args():
+        return args
+
+    def _fake_serve(argv=None):
+        called["serve"] = True
+
+    monkeypatch.setattr(cli, "get_args", _fake_get_args)
+    monkeypatch.setattr(cli, "_serve_web_ui", _fake_serve)
+
+    cli.run()
+    assert called["serve"] is True

@@ -11,6 +11,7 @@ import os
 import sys
 import argparse
 import bdb
+import shlex
 from typing import Dict, List, Any, Optional
 from .version import __version__
 
@@ -224,6 +225,12 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
+        "--web-ui",
+        action="store_true",
+        default=False,
+        help="Enable browser-based Textual UI via textual-serve (implies --tui)"
+    )
+    parser.add_argument(
         "--legacy-ui",
         action="store_true",
         default=False,
@@ -428,9 +435,53 @@ def get_args() -> argparse.Namespace:
               " Format: [config_file.yaml::]continue_prompt_key[|stop_prompt_key]"
               )
     )
+    parser.add_argument(
+        "--web-ui-session",
+        action="store_true",
+        default=False,
+        help=argparse.SUPPRESS,
+    )
 
     args = parser.parse_args()
     return args
+
+
+def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
+    """Build the subprocess command served by textual-serve."""
+    source_argv = list(sys.argv if argv is None else argv)
+    ignored_args = {"--web-ui", "--tui", "--legacy-ui", "--web-ui-session"}
+    forwarded_args = [arg for arg in source_argv[1:] if arg not in ignored_args]
+    forwarded_args.append("--tui")
+    if "--web-ui-session" not in forwarded_args:
+        forwarded_args.append("--web-ui-session")
+    cmd = [
+        "env",
+        "PYTHONWARNINGS=ignore",
+        sys.executable,
+        "-m",
+        "ucagent.cli",
+        *forwarded_args,
+    ]
+    return shlex.join(cmd)
+
+
+def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
+    """Serve the Textual app in browser using textual-serve."""
+    try:
+        from textual_serve.server import Server
+    except Exception:
+        print("Fail: '--web-ui' requires 'textual-serve'. Install it with: pip install textual-serve")
+        sys.exit(1)
+
+    command = _build_web_ui_command(argv)
+    server = Server(command)
+    server.serve()
+
+
+def _suppress_web_ui_session_logs() -> None:
+    """Silence pre-TUI logs so textual-serve can receive handshake promptly."""
+    import ucagent.util.log as log
+    log.set_silent(True)
 
 
 def upgrade(extra_pip_args: str = "") -> None:
@@ -536,6 +587,9 @@ def run() -> None:
         upgrade(args.upgrade)
         sys.exit(0)
 
+    if args.web_ui_session:
+        _suppress_web_ui_session_logs()
+
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
         import pathlib
@@ -551,6 +605,10 @@ def run() -> None:
         import argparse as _argparse
         _p = _argparse.ArgumentParser(prog="ucagent")
         _p.error("the following arguments are required: workspace, dut")
+
+    if args.web_ui:
+        _serve_web_ui()
+        return
 
     from .verify_agent import VerifyAgent
     from .util.log import init_log_logger, init_msg_logger
@@ -569,7 +627,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.legacy_ui
+    use_tui = args.tui or args.legacy_ui or args.web_ui
     if use_tui:
         init_cmds += ["tui"]
     

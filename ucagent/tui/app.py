@@ -126,6 +126,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Install console capture and signal handler
         self.install_console_capture()
         self.install_sigint_handler()
+        # Re-enable log output after web handshake so console panel works normally.
+        from ucagent.util.log import set_silent
+        set_silent(False)
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:

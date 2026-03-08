@@ -327,8 +327,6 @@ class VerifyAgent:
             "all_completed", False
         )
         if self._is_exit:
-            from ucagent.util.log import info
-
             info(
                 "Restored exit state from saved info — all stages were previously completed."
             )
