@@ -36,6 +36,7 @@ class VerifyPDB(Pdb):
         self.prompt = prompt
         self.original_sigint = signal.getsignal(signal.SIGINT)
         signal.signal(signal.SIGINT, self._sigint_handler)
+        self._sigint_exit_hint = "Press Ctrl+C again to exit immediately."
         self.init_cmd = init_cmd
         if init_cmd is not None:
             if isinstance(init_cmd, str):
@@ -80,15 +81,16 @@ class VerifyPDB(Pdb):
 
     def _sigint_handler(self, signum, frame):
         """
-        Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
+        Handle SIGINT (Ctrl+C) with two-step behavior:
+        - First Ctrl+C: request graceful stop (set break flag)
+        - Next Ctrl+C: exit immediately
         """
+        if self.agent.is_break():
+            echo_r("SIGINT received again. Exiting PDB.")
+            raise KeyboardInterrupt
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
-        if self.agent.is_break():
-            echo_y("PDB interrupted. Use 'continue' to resume execution.")
-        else:
-            echo_r("SIGINT received. Exiting PDB.")
-            raise KeyboardInterrupt
+        echo_y(f"PDB interrupted. Use 'continue' to resume execution. {self._sigint_exit_hint}")
 
     def emptyline(self):
         """
