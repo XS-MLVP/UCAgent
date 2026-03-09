@@ -23,7 +23,6 @@ dependencies = [
     "langgraph>=1.0.5",
     "langchain_openai>=1.1.6",
     "langmem>=0.0.30",
-    "urwid>=3.0.3",
     "mem0ai>=0.1.118",
     "langchain_mcp_adapters>=0.1.11",
     "psutil>=7.1.0",

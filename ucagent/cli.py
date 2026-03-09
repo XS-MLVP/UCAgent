@@ -224,12 +224,6 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
-        "--legacy-ui",
-        action="store_true",
-        default=False,
-        help="Use legacy urwid-based UI (implies TUI mode)"
-    )
-    parser.add_argument(
         "--sys-tips", 
         type=str, 
         default="", 
@@ -377,12 +371,48 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--master",
-        type=str,
-        default=None,
+        nargs="+",
+        action="append",
+        default=[],
         metavar="host[:port]",
         help=(
-            "Connect this agent to an existing Master API server at the given address (connect_master_to). "
-            "Format: host or host:port."
+            "Connect this agent to a Master API server (can be used multiple times). "
+            "Format: host[:port] [access_key]. "
+            "E.g. --master 192.168.1.10:8800 --master 192.168.1.20:8800 secretkey"
+        )
+    )
+
+    parser.add_argument(
+        "--as-master-key",
+        type=str,
+        default=None,
+        metavar="key",
+        help="Access key that clients must supply to register with this master "
+             "(used with --as-master). Passed as --key to master_api_start."
+    )
+
+    parser.add_argument(
+        "--as-master-password",
+        type=str,
+        default=None,
+        metavar="password",
+        help="HTTP Basic Auth password to protect the Master API dashboard and all API endpoints "
+             "(used with --as-master). Passed as --password to master_api_start."
+    )
+
+    parser.add_argument(
+        "--export-cmd-api",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[ip[:port]][ passwd]",
+        help=(
+            "Start the CMD API server (PdbCmdApiServer) as part of agent startup. "
+            "Bare '--export-cmd-api' uses default host/port (127.0.0.1:8765). "
+            "'--export-cmd-api ip[:port]' binds to the given address. "
+            "Append a password after a space to enable HTTP Basic Auth, "
+            "e.g. --export-cmd-api '0.0.0.0:8765 mysecret'."
         )
     )
 
@@ -539,12 +569,12 @@ def run() -> None:
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
         import pathlib
-        _fake_dut_dir = pathlib.Path("/tmp/ucagent_master")
-        _fake_dut_dir.mkdir(parents=True, exist_ok=True)
-        (_fake_dut_dir / "__init__.py").touch()
-        args.workspace = "/tmp"
-        args.dut = "ucagent_master"
+        _fake_cwd_dir = pathlib.Path("/tmp/ucagent_master")
+        _fake_cwd_dir.mkdir(parents=True, exist_ok=True)
+        args.workspace = _fake_cwd_dir.as_posix()
+        args.dut = "empty"
         args.human = True
+        args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
 
     # Validate required positional args for normal (non-as-master) usage
     if args.workspace is None or args.dut is None:
@@ -569,8 +599,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.legacy_ui
-    if use_tui:
+    if args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
@@ -607,24 +636,51 @@ def run() -> None:
 
     # Handle --as-master: start this agent as a Master API server
     if args.as_master is not None:
+        extra_master_opts = ""
+        if getattr(args, 'as_master_key', None):
+            extra_master_opts += f" --key {args.as_master_key}"
+        if getattr(args, 'as_master_password', None):
+            extra_master_opts += f" --password {args.as_master_password}"
         if args.as_master == "":
-            init_cmds += ["master_api_start"]
+            init_cmds += [f"master_api_start{extra_master_opts}".strip()]
         else:
             addr = args.as_master
             if ":" in addr:
                 m_host, m_port = addr.rsplit(":", 1)
-                init_cmds += [f"master_api_start {m_host} {m_port}"]
+                init_cmds += [f"master_api_start {m_host} {m_port}{extra_master_opts}"]
             else:
-                init_cmds += [f"master_api_start {addr}"]
+                init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
 
-    # Handle --master: connect to an existing Master API server
-    if args.master is not None:
-        master_addr = args.master
+    # Handle --export-cmd-api: start the CMD API server
+    if args.export_cmd_api is not None:
+        extra_cmd_api_opts = ""
+        addr_part = args.export_cmd_api.strip()
+        passwd_part = ""
+        # Allow embedded password after a space: "ip[:port] passwd" or just "passwd"
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_cmd_api_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"cmd_api_start{extra_cmd_api_opts}".strip()]
+        elif ":" in addr_part:
+            c_host, c_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"cmd_api_start {c_host} {c_port}{extra_cmd_api_opts}"]
+        else:
+            init_cmds += [f"cmd_api_start {addr_part}{extra_cmd_api_opts}"]
+
+    # Handle --master: connect to one or more Master API servers
+    # Each entry is a list: [host[:port]] or [host[:port], access_key]
+    for master_tokens in args.master:
+        master_addr = master_tokens[0]
+        access_key = master_tokens[1] if len(master_tokens) > 1 else ""
+        extra_client_opts = f" --key {access_key}" if access_key else ""
         if ":" in master_addr:
             m_host, m_port = master_addr.rsplit(":", 1)
-            master_cmd = f"connect_master_to {m_host} {m_port}"
+            master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
         else:
-            master_cmd = f"connect_master_to {master_addr}"
+            master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
         init_cmds += [master_cmd]
 
     if args.icmd:
@@ -670,11 +726,10 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
-        use_new_ui=not args.legacy_ui,
     )
     
     # Set break mode if human interaction or TUI is requested
-    if args.human or use_tui:
+    if args.human or args.tui:
         agent.set_break(True)
     
     # Run the agent

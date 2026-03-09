@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>UCAgent Dashboard</title>
+<script>
+(function(){
+  var CH='ucagent-dashboard';
+  var bc=typeof BroadcastChannel!=='undefined'?new BroadcastChannel(CH):null;
+  var _overlay=null;
+  function showSuperseded(){
+    if(_overlay)return;
+    _overlay=document.createElement('div');
+    _overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(15,17,23,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:monospace;';
+    _overlay.innerHTML='<div style="font-size:22px;color:#f87272;">&#9888; Dashboard opened in another tab</div>'
+      +'<div style="color:#6b7280;font-size:13px;">This tab has been superseded. Close it or</div>'
+      +'<button onclick="location.reload()" style="padding:8px 22px;background:#4f8ef7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Reactivate this tab</button>';
+    document.body?document.body.appendChild(_overlay):document.addEventListener('DOMContentLoaded',function(){document.body.appendChild(_overlay)});
+  }
+  if(bc){
+    bc.onmessage=function(e){if(e.data==='opened')showSuperseded();};
+    bc.postMessage('opened');
+    window.addEventListener('beforeunload',function(){bc.close();});
+  }
+})();
+</script>
+<style>
+:root{--bg:#0f1117;--bg2:#1a1d25;--bg3:#22262f;--bg4:#2a2e3a;
+      --border:#2e3340;--text:#c8cdd6;--text-dim:#6b7280;--text-bright:#e8ecf2;
+      --accent:#4f8ef7;--accent2:#2d5cb8;--green:#36d399;--red:#f87272;
+      --yellow:#fbbd23;--orange:#f97316;--radius:6px;--mono:'Consolas','Menlo',monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+
+/* ── header ── */
+#hdr{display:flex;align-items:center;padding:0 16px;height:48px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;gap:12px}
+#hdr .logo{font-weight:700;font-size:16px;color:var(--text-bright);letter-spacing:.5px}
+#hdr .logo span{color:var(--accent)}
+#hdr .sep{flex:1}
+#status-bar{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px;flex-shrink:0}
+.dot.err{background:var(--red)}
+#refresh-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
+#refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── layout ── */
+#layout{display:flex;flex:1;overflow:hidden}
+
+/* ── sidebar ── */
+#sidebar{width:280px;min-width:160px;background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;position:relative}
+#sb-resizer{width:4px;background:var(--border);cursor:col-resize;flex-shrink:0;transition:background .15s;z-index:10}
+#sb-resizer:hover,#sb-resizer.dragging{background:var(--accent)}
+.sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
+.sb-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+#status-text{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
+#mission-list{overflow-y:auto;flex:1;font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
+.task-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:12px;cursor:default}
+.task-row:hover{background:var(--bg3)}
+.task-row .idx{color:var(--text-dim);width:18px;text-align:right;flex-shrink:0;font-family:var(--mono);font-size:11px}
+.task-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-row.done .name{color:var(--green)}
+.task-row.active .name{color:var(--yellow);font-weight:600}
+.task-row.pending .name{color:var(--text-dim)}
+.task-row.fail .name{color:var(--red)}
+#tools-list{display:flex;flex-wrap:wrap;gap:4px}
+.tool-chip{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:11px;white-space:nowrap}
+.tool-chip.hot{border-color:var(--orange);color:var(--orange)}
+#sidebar-bottom{padding:12px 14px;flex-shrink:0}
+#sidebar-bottom h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+.cmd-row{display:flex;gap:6px}
+#cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;font-family:var(--mono);outline:none}
+#cmd-input:focus{border-color:var(--accent)}
+#cmd-send{background:var(--accent2);border:none;color:#fff;padding:5px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
+#cmd-send:hover{background:var(--accent)}
+#cmd-result{margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--green);min-height:16px;word-break:break-all}
+.sb-scroll{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#mission-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#tools-section{flex-shrink:0;padding:12px 14px;border-top:1px solid var(--border)}
+#tools-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+
+/* ── file manager ── */
+#fm{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#fm-bar{display:flex;align-items:center;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0;flex-wrap:wrap}
+#breadcrumb{flex:1;font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
+#breadcrumb span{cursor:pointer;color:var(--accent)}#breadcrumb span:hover{text-decoration:underline}
+#breadcrumb .sep{color:var(--text-dim);margin:0 2px}
+.fm-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px;white-space:nowrap}
+.fm-btn:hover{border-color:var(--accent);color:var(--accent)}
+.fm-btn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
+.fm-btn.primary:hover{background:var(--accent)}
+.fm-btn.danger{background:none;border-color:var(--red);color:var(--red)}
+.fm-btn.danger:hover{background:var(--red);color:#fff}
+#fm-table-wrap{flex:1;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{background:var(--bg3);color:var(--text-dim);font-size:11px;font-weight:600;padding:8px 12px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--border)}
+td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
+tr:hover td{background:var(--bg3)}
+.col-name{width:40%}
+.col-type{width:8%}
+.col-size{width:10%;text-align:right}
+.col-mtime{width:18%}
+.col-act{width:28%;white-space:nowrap}
+td.col-size{font-family:var(--mono);font-size:12px;color:var(--text-dim);text-align:right}
+td.col-mtime{font-family:var(--mono);font-size:11px;color:var(--text-dim)}
+td.col-name .icon{margin-right:6px;font-size:13px}
+td.col-name .fn{cursor:pointer;color:var(--text-bright)}
+td.col-name .fn:hover{color:var(--accent)}
+td.col-name .fn.dir{color:var(--accent)}
+.act-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 7px;border-radius:4px;cursor:pointer;font-size:11px;margin-right:3px}
+.act-btn:hover{border-color:var(--accent);color:var(--accent)}
+.act-btn.del:hover{border-color:var(--red);color:var(--red)}
+.badge-dir{background:var(--bg4);color:var(--accent);border-radius:3px;padding:1px 5px;font-size:10px}
+.badge-file{background:var(--bg4);color:var(--text-dim);border-radius:3px;padding:1px 5px;font-size:10px}
+.badge-text{background:#1e3a2f;color:var(--green);border-radius:3px;padding:1px 5px;font-size:10px}
+#fm-empty{display:none;padding:40px;text-align:center;color:var(--text-dim);font-size:13px}
+#fm-loading{display:none;padding:20px;text-align:center;color:var(--text-dim)}
+
+/* ── console panel ── */
+#fm-resizer{height:4px;background:var(--border);cursor:row-resize;flex-shrink:0;transition:background .15s}
+#fm-resizer:hover,#fm-resizer.dragging{background:var(--accent)}
+#console-panel{height:220px;min-height:60px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#console-bar{display:flex;align-items:center;padding:4px 12px;background:var(--bg2);border-bottom:1px solid var(--border);border-top:1px solid var(--border);gap:8px;flex-shrink:0}
+#console-bar .label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);font-weight:600}
+#console-bar .csep{flex:1}
+#console-output{flex:1;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:var(--bg);white-space:pre-wrap;word-break:break-all;color:var(--text)}
+.con-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
+.con-btn:hover{border-color:var(--accent);color:var(--accent)}
+.con-btn.active{border-color:var(--green);color:var(--green)}
+.con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
+/* ── pdb command input bar ── */
+#pdb-cmd-bar{display:flex;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0}
+#pdb-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
+#pdb-cmd-input:focus{border-color:var(--accent)}
+#pdb-cmd-input:disabled{opacity:.45;cursor:not-allowed}
+#pdb-cmd-send{background:var(--accent);border:none;color:#fff;padding:3px 12px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#pdb-cmd-send:disabled{opacity:.45;cursor:not-allowed}
+#pdb-interrupt-btn{background:none;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#pdb-interrupt-btn:hover{background:rgba(248,114,114,.12)}
+#pdb-status-badge{font-size:10px;white-space:nowrap;padding:2px 7px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim)}
+#pdb-status-badge.busy{border-color:var(--red);color:var(--red)}
+#pdb-status-badge.idle{border-color:var(--green);color:var(--green)}
+#pdb-status-badge.tui{border-color:var(--accent);color:var(--accent)}
+#pdb-running{display:none;align-items:center;gap:6px;padding:2px 8px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);background:var(--bg2);min-height:22px}
+#pdb-running.visible{display:flex}
+#pdb-running-label{white-space:nowrap;opacity:.7}
+#pdb-running-cmds{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:monospace;color:var(--accent)}
+#pdb-autocomplete{display:none;position:absolute;bottom:100%;left:0;right:0;max-height:180px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:4px 4px 0 0;margin-bottom:2px;z-index:50;font-family:var(--mono);font-size:12px}
+#pdb-autocomplete .ac-item{padding:3px 10px;cursor:pointer;color:var(--text);white-space:nowrap}
+#pdb-autocomplete .ac-item:hover,#pdb-autocomplete .ac-item.active{background:var(--accent);color:#fff}
+
+/* ── modals ── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal-backdrop.hidden{display:none}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;max-height:90vh;width:860px;max-width:95vw}
+.modal-box.small{width:440px}
+.modal-hdr{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:8px}
+.modal-hdr h2{flex:1;font-size:14px;font-weight:600;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal-close{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.modal-close:hover{color:var(--red)}
+.modal-body{flex:1;overflow:auto;padding:14px 16px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px;border-top:1px solid var(--border)}
+.confirm-msg{color:var(--text);font-size:13px;line-height:1.6;padding:8px 0}
+.confirm-msg b{color:var(--red)}
+.upload-area{border:2px dashed var(--border);border-radius:8px;padding:30px;text-align:center;color:var(--text-dim);cursor:pointer;transition:border-color .15s}
+.upload-area:hover,.upload-area.over{border-color:var(--accent);color:var(--accent)}
+.upload-area input{display:none}
+.upload-area p{font-size:13px;margin-top:8px}
+#upload-list{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-dim);font-family:var(--mono)}
+/* ── changed files bar ── */
+#changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
+#cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
+#cf-chips{display:flex;flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin-top:3px}
+.cf-header{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--text-dim);white-space:nowrap;flex-shrink:0}
+.cf-dir-link{font-size:10px;letter-spacing:.7px;color:var(--accent);white-space:nowrap;flex-shrink:0;cursor:pointer;text-transform:none}
+.cf-dir-link:hover{text-decoration:underline}
+.cf-chip{font-family:var(--mono);font-size:11px;white-space:nowrap;cursor:pointer;padding:1px 0;color:var(--text)}
+.cf-chip.recent{color:var(--green)}
+.cf-chip:hover{text-decoration:underline}
+.cf-count-ctrl{display:flex;align-items:center;border:1px solid var(--border);border-radius:4px;overflow:hidden;height:18px;margin-left:6px;flex-shrink:0}
+.cf-count-ctrl input{width:26px;background:var(--bg3);border:none;color:var(--text);font-size:11px;text-align:center;padding:0 2px;height:100%;outline:none;-moz-appearance:textfield}
+.cf-count-ctrl input::-webkit-inner-spin-button,.cf-count-ctrl input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.cf-count-ctrl button{background:var(--bg3);border:none;color:var(--text-dim);cursor:pointer;padding:0 5px;font-size:9px;height:100%;line-height:1;border-left:1px solid var(--border)}
+.cf-count-ctrl button:first-child{border-left:none;border-right:1px solid var(--border)}
+.cf-count-ctrl button:hover{background:var(--bg4);color:var(--accent)}
+/* ── editor (line numbers) ── */
+.editor-wrap{display:flex;height:480px;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
+.editor-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:13px;line-height:1.6;padding:10px 8px;text-align:right;user-select:none;overflow:hidden;min-width:44px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
+textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;padding:10px;font-family:var(--mono);font-size:13px;line-height:1.6;resize:none;outline:none;overflow:auto}
+/* ── view with line numbers ── */
+.view-wrap{display:flex;height:520px;overflow:hidden;border-radius:var(--radius);background:var(--bg)}
+.view-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px 8px;text-align:right;user-select:none;overflow:hidden;min-width:42px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
+#view-pre{flex:1;font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px;white-space:pre;overflow:auto;background:var(--bg);color:var(--text);margin:0}
+#view-frame{width:100%;height:520px;border:none;background:#fff}
+#view-img{max-width:100%;max-height:540px;display:block;margin:auto}
+/* ── markdown render ── */
+#view-md{padding:16px 20px;overflow:auto;height:520px;color:var(--text);font-size:13px;line-height:1.8}
+#view-md h1,#view-md h2,#view-md h3,#view-md h4{color:var(--text-bright);margin:18px 0 8px;padding-bottom:4px}
+#view-md h1,#view-md h2{border-bottom:1px solid var(--border)}
+#view-md p{margin:6px 0}
+#view-md code{background:var(--bg3);border-radius:3px;padding:1px 5px;font-family:var(--mono);font-size:12px}
+#view-md pre{background:var(--bg3);border-radius:var(--radius);padding:12px;overflow:auto;margin:8px 0}
+#view-md pre code{background:none;padding:0}
+#view-md a{color:var(--accent)}
+#view-md blockquote{border-left:3px solid var(--border);padding-left:12px;color:var(--text-dim);margin:8px 0}
+#view-md table{border-collapse:collapse;margin:8px 0;width:100%}
+#view-md th,#view-md td{border:1px solid var(--border);padding:5px 10px;text-align:left}
+#view-md th{background:var(--bg3);color:var(--text-dim);font-size:12px}
+#view-md img{max-width:100%}
+#view-md ul,#view-md ol{padding-left:22px;margin:4px 0}
+#view-md li{margin:2px 0}
+#view-md hr{border:none;border-top:1px solid var(--border);margin:10px 0}
+/* ── hljs override ── */
+pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
+</style>
+<link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
+<script src="/static/highlight.min.js"></script>
+<script src="/static/marked.min.js"></script>
+</head>
+<body>
+<!-- header -->
+<div id="hdr">
+  <div class="logo">UC<span>Agent</span></div>
+  <div id="status-bar"><span class="dot"></span>Loading...</div>
+  <div class="sep"></div>
+  <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+</div>
+
+<!-- layout -->
+<div id="layout">
+
+  <!-- sidebar -->
+  <div id="sidebar" style="border-right:none">
+    <div class="sb-scroll">
+      <div class="sb-section">
+        <h3>Agent Status</h3>
+        <pre id="status-text">Loading…</pre>
+      </div>
+      <div class="sb-section" id="mission-section">
+        <h3>Mission / Tasks</h3>
+        <div id="mission-list">Loading…</div>
+      </div>
+    </div>
+    <div id="tools-section">
+      <h3>Tools</h3>
+      <div id="tools-list">Loading…</div>
+    </div>
+  </div>
+
+  <!-- resize handle -->
+  <div id="sb-resizer"></div>
+
+  <!-- file manager -->
+  <div id="fm">
+    <div id="fm-bar">
+      <span id="breadcrumb"></span>
+      <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
+      <button class="fm-btn primary" onclick="openUpload()">&#8679; Upload</button>
+    </div>
+    <div id="changed-files-bar">
+      <div id="cf-meta">
+        <span id="cf-title"><span class="cf-header">Recent Changes</span></span>
+        <div class="cf-count-ctrl">
+          <button onclick="cfCountStep(-1)" title="Show fewer">&#9660;</button>
+          <input id="cf-count-input" type="number" value="5" min="1" max="99" onchange="fetchChangedFiles()" title="Files to show">
+          <button onclick="cfCountStep(1)" title="Show more">&#9650;</button>
+        </div>
+      </div>
+      <div id="cf-chips"></div>
+    </div>
+    <div id="fm-table-wrap">
+      <div id="fm-loading">Loading…</div>
+      <div id="fm-empty">This directory is empty.</div>
+      <table id="fm-table">
+        <thead><tr>
+          <th class="col-name">Name</th>
+          <th class="col-type">Type</th>
+          <th class="col-size">Size</th>
+          <th class="col-mtime">Modified</th>
+          <th class="col-act">Actions</th>
+        </tr></thead>
+        <tbody id="fm-body"></tbody>
+      </table>
+    </div>
+
+    <!-- console resize handle -->
+    <div id="fm-resizer"></div>
+
+    <!-- console output panel -->
+    <div id="console-panel">
+      <div id="console-bar">
+        <span class="label">Console Output</span>
+        <span class="csep"></span>
+        <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
+        <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
+      </div>
+      <div id="pdb-running">
+        <span id="pdb-running-label">running:</span>
+        <span id="pdb-running-cmds"></span>
+      </div>
+      <div id="console-output"></div>
+      <div id="pdb-cmd-bar">
+        <span id="pdb-status-badge">&#8226; idle</span>
+        <div style="position:relative;flex:1;display:flex">
+          <div id="pdb-autocomplete"></div>
+          <input id="pdb-cmd-input" type="text" placeholder="PDB command…" autocomplete="off"
+                 onkeydown="handleCmdKeydown(event)" onblur="setTimeout(_acHide,150)" style="flex:1">
+        </div>
+        <button id="pdb-cmd-send" onclick="sendPdbCmd()">Send</button>
+        <button id="pdb-interrupt-btn" onclick="sendPdbInterrupt()" title="Send Ctrl-C">&#9632; Interrupt</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- edit modal -->
+<div class="modal-backdrop hidden" id="edit-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <h2 id="edit-title">Edit file</h2>
+      <button class="modal-close" onclick="closeModal('edit-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="padding:0;overflow:hidden">
+      <div class="editor-wrap">
+        <div id="edit-gutter" class="editor-gutter">1</div>
+        <textarea id="edit-content"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button>
+      <button class="fm-btn primary" onclick="saveFile()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- view modal -->
+<div class="modal-backdrop hidden" id="view-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <h2 id="view-title">View file</h2>
+      <button class="modal-close" onclick="closeModal('view-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" id="view-body"></div>
+    <div class="modal-footer">
+      <button class="fm-btn" id="view-raw-btn" onclick="toggleViewRaw()" style="display:none;margin-right:auto">Show Raw</button>
+      <button class="fm-btn" onclick="closeModal('view-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- confirm delete modal -->
+<div class="modal-backdrop hidden" id="delete-modal">
+  <div class="modal-box small">
+    <div class="modal-hdr">
+      <h2>Confirm Delete</h2>
+      <button class="modal-close" onclick="closeModal('delete-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="confirm-msg">Are you sure you want to delete<br><b id="delete-name"></b>?<br>This action cannot be undone.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="fm-btn" onclick="closeModal('delete-modal')">Cancel</button>
+      <button class="fm-btn danger" id="delete-confirm-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- upload modal -->
+<div class="modal-backdrop hidden" id="upload-modal">
+  <div class="modal-box small">
+    <div class="modal-hdr">
+      <h2 id="upload-title">Upload Files</h2>
+      <button class="modal-close" onclick="closeModal('upload-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div class="upload-area" id="upload-area" onclick="document.getElementById('upload-input').click()"
+           ondragover="event.preventDefault();this.classList.add('over')"
+           ondragleave="this.classList.remove('over')"
+           ondrop="handleDrop(event)">
+        <input type="file" id="upload-input" multiple onchange="handleFiles(this.files)">
+        <div style="font-size:28px">&#128228;</div>
+        <p>Click to select files, or drag &amp; drop here</p>
+      </div>
+      <div id="upload-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="fm-btn" onclick="closeModal('upload-modal')">Close</button>
+      <button class="fm-btn primary" id="upload-do-btn" onclick="doUpload()" style="display:none">Upload</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+let _curPath = "";
+let _editPath = "";
+let _uploadFiles = [];
+
+/* ── helpers ── */
+function qs(s){return document.querySelector(s)}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function closeModal(id){qs("#"+id).classList.add("hidden")}
+function openModal(id){qs("#"+id).classList.remove("hidden")}
+function showErr(msg){alert("Error: "+msg)}
+
+async function apiFetch(path,opts){
+  const r=await fetch(path,opts);
+  const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
+  if(!r.ok||j.status==="error") throw new Error(j.detail||j.message||"Request failed");
+  return j;
+}
+
+/* ── status ── */
+async function fetchStatus(){
+  try{
+    const j=await apiFetch("/api/status");
+    const txt=j.data||"";
+    qs("#status-text").textContent=_stripAnsi(txt);
+    const firstLine=_stripAnsi(txt).split("\n")[0]||"";
+    qs("#status-bar").innerHTML='<span class="dot"></span>'+esc(firstLine.slice(0,80));
+  }catch(e){
+    qs("#status-text").textContent="(unavailable)";
+    qs("#status-bar").innerHTML='<span class="dot err"></span>Agent unreachable';
+  }
+}
+
+/* ── mission ── */
+async function fetchMission(){
+  try{
+    const j=await apiFetch("/api/mission");
+    const lines=j.data||[];
+    const html=lines.map(l=>_ansiToHtml(l)).join("\n");
+    qs("#mission-list").innerHTML=html||"(no tasks)";
+  }catch(e){qs("#mission-list").textContent="(unavailable)";}
+}
+
+/* ── tools ── */
+async function fetchTools(){
+  try{
+    const j=await apiFetch("/api/tools");
+    let html="";
+    for(const t of (j.data||[])){
+      const hot=t.is_hot?"hot":"";
+      html+=`<div class="tool-chip ${hot}" title="${esc(t.name)}: ${t.call_count} calls">${esc(t.name)}<span style="opacity:.6;font-size:10px"> ×${t.call_count}</span></div>`;
+    }
+    qs("#tools-list").innerHTML=html||"(no tools)";
+  }catch(e){qs("#tools-list").textContent="(unavailable)";}
+}
+
+/* ── file manager ── */
+async function fetchFiles(path){
+  _curPath=path||"";
+  qs("#fm-loading").style.display="block";
+  qs("#fm-empty").style.display="none";
+  qs("#fm-table").style.display="none";
+  try{
+    const j=await apiFetch("/api/files?path="+encodeURIComponent(_curPath));
+    _renderBreadcrumb(j.path||"");
+    _renderFiles(j.data||[]);
+  }catch(e){showErr(e.message);}
+  finally{qs("#fm-loading").style.display="none";}
+}
+
+function refreshFiles(){fetchFiles(_curPath);}
+
+function _renderBreadcrumb(p){
+  let html='<span onclick="fetchFiles(\'\')" title="workspace root">workspace</span>';
+  if(p){
+    const parts=p.split("/").filter(Boolean);
+    let built="";
+    for(const part of parts){
+      built=built?built+"/"+part:part;
+      const b=built;
+      html+='<span class="sep">/</span><span onclick="fetchFiles(\''+b+'\')" title="'+esc(b)+'">'+esc(part)+'</span>';
+    }
+  }
+  qs("#breadcrumb").innerHTML=html;
+}
+
+function _fmtSize(n){
+  if(n===0)return"—";
+  const units=["B","KB","MB","GB"];
+  let i=0;
+  while(n>=1024&&i<units.length-1){n/=1024;i++;}
+  return(i===0?n.toFixed(0):n.toFixed(1))+" "+units[i];
+}
+
+function _extBadge(e){
+  if(!e)return'<span class="badge-file">file</span>';
+  const text_exts=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","java","rs","go","log","toml","ini","conf","xml","lua"]);
+  const img_exts=new Set(["png","jpg","jpeg","gif","svg","webp","ico"]);
+  const html_exts=new Set(["html","htm"]);
+  if(text_exts.has(e))return`<span class="badge-text">.${esc(e)}</span>`;
+  if(img_exts.has(e)||html_exts.has(e))return`<span class="badge-file">.${esc(e)}</span>`;
+  return`<span class="badge-file">.${esc(e)}</span>`;
+}
+
+const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
+const _HTML_EXTS=new Set(["html","htm"]);
+const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
+
+function _renderFiles(entries){
+  if(!entries.length){
+    qs("#fm-empty").style.display="block";
+    qs("#fm-table").style.display="none";
+    return;
+  }
+  qs("#fm-table").style.display="table";
+  let html="";
+  if(_curPath){
+    const parent=_curPath.includes("/")?_curPath.rsplit?_curPath.split("/").slice(0,-1).join("/"):""  : "";
+    const ppath=_curPath.split("/").slice(0,-1).join("/");
+    html+=`<tr><td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(ppath)}')">..</span></td><td></td><td class="col-size">—</td><td class="col-mtime">—</td><td></td></tr>`;
+  }
+  for(const e of entries){
+    const fpath=e.path;
+    const name=e.name;
+    const ext=e.type||"";
+    if(e.is_dir){
+      html+=`<tr>
+        <td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(fpath)}')">${esc(name)}</span></td>
+        <td><span class="badge-dir">dir</span></td>
+        <td class="col-size">—</td>
+        <td class="col-mtime">${esc(e.mtime_str)}</td>
+        <td class="col-act">
+          <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
+        </td>
+      </tr>`;
+    }else{
+      const canEdit=_TEXT_EXTS.has(ext);
+      const canView=canEdit||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
+      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":"&#128196;";
+      html+=`<tr>
+        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${canView?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
+        <td>${_extBadge(ext)}</td>
+        <td class="col-size">${_fmtSize(e.size)}</td>
+        <td class="col-mtime">${esc(e.mtime_str)}</td>
+        <td class="col-act">
+          ${canEdit?`<button class="act-btn" onclick="openEdit('${esc(fpath)}','${esc(name)}')">Edit</button>`:""}
+          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
+          <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>
+        </td>
+      </tr>`;
+    }
+  }
+  qs("#fm-body").innerHTML=html;
+}
+
+/* ── edit ── */
+async function openEdit(path,name){
+  try{
+    const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
+    _editPath=path;
+    qs("#edit-title").textContent="Edit — "+name;
+    qs("#edit-content").value=j.content||"";    _updateEditGutter();    openModal("edit-modal");
+  }catch(e){showErr(e.message);}
+}
+
+async function saveFile(){
+  const content=qs("#edit-content").value;
+  try{
+    await apiFetch("/api/file/edit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:_editPath,content})});
+    closeModal("edit-modal");
+    refreshFiles();
+  }catch(e){showErr(e.message);}
+}
+
+/* ── changed files ── */
+function _fmtTimestamp(t){
+  const d=new Date(t*1000);
+  const Y=d.getFullYear(),M=String(d.getMonth()+1).padStart(2,'0'),D=String(d.getDate()).padStart(2,'0');
+  const h=String(d.getHours()).padStart(2,'0'),m=String(d.getMinutes()).padStart(2,'0'),s=String(d.getSeconds()).padStart(2,'0');
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
+}
+function _fmtTimeDelta(sec){
+  sec=Math.max(0,Math.floor(sec));
+  const s=sec%60,m=Math.floor(sec/60)%60,h=Math.floor(sec/3600)%24;
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+async function fetchChangedFiles(){
+  try{
+    const countEl=qs("#cf-count-input");
+    const count=Math.max(1,Math.min(99,parseInt(countEl?countEl.value:5)||5));
+    const j=await apiFetch(`/api/changed_files?count=${count}`);
+    const data=j.data||[];
+    const titleEl=qs("#cf-title");
+    const chipsEl=qs("#cf-chips");
+    const outDir=j.output_dir||"";
+    const outDirLabel=outDir?outDir.split("/").pop():"";
+    const cfHeaderHtml=outDirLabel
+      ?`<span class="cf-header">Recent Changes in </span><span class="cf-dir-link" onclick="fetchFiles('${esc(outDir)}')" title="${esc(outDir)}">${esc(outDirLabel)}:</span>`
+      :'<span class="cf-header">Recent Changes</span>';
+    if(titleEl) titleEl.innerHTML=cfHeaderHtml;
+    if(!data.length){chipsEl.innerHTML='<span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)">none</span>';return;}
+    chipsEl.innerHTML=data.map(f=>{
+      const fullPath=outDir?`${outDir}/${f.file}`:f.file;
+      const parts=fullPath.split("/");
+      const name=parts.pop();
+      const ext=name.includes(".")?name.split(".").pop():"";
+      const ts=_fmtTimestamp(f.timestamp);
+      const recent=f.delta_seconds<180;
+      const label=recent?`${ts} (${_fmtTimeDelta(f.delta_seconds)}) ${f.file}`:`${ts} ${f.file}`;
+      const canView=_TEXT_EXTS.has(ext)||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
+      const onclick=canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
+      return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(fullPath)}">${esc(label)}</span>`;
+    }).join("");
+  }catch(e){}
+}
+function cfCountStep(d){
+  const el=qs("#cf-count-input");
+  if(!el)return;
+  const v=Math.max(1,Math.min(99,(parseInt(el.value)||5)+d));
+  el.value=v;
+  fetchChangedFiles();
+}
+
+/* ── edit gutter ── */
+function _updateEditGutter(){
+  const ta=qs("#edit-content");
+  const gutter=qs("#edit-gutter");
+  if(!gutter||!ta)return;
+  const n=ta.value.split("\n").length;
+  if(+(gutter.dataset.lines||0)===n)return;
+  gutter.dataset.lines=n;
+  let s="";for(let i=1;i<=n;i++)s+=i+"\n";
+  gutter.textContent=s;
+}
+
+/* ── view ── */
+const _EXT_LANG={py:"python",js:"javascript",ts:"typescript",css:"css",
+  json:"json",yaml:"yaml",yml:"yaml",sh:"bash",bash:"bash",zsh:"bash",
+  v:"verilog",sv:"verilog",c:"c",h:"c",cpp:"cpp",hpp:"cpp",
+  java:"java",rs:"rust",go:"go",rb:"ruby",scala:"scala",lua:"lua",
+  toml:"toml",xml:"xml",html:"xml",htm:"xml"};
+const _MD_EXTS=new Set(["md","markdown"]);
+let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewIsRaw=false;
+
+function _renderViewCode(content,ext){
+  const gutter=qs("#view-gutter"),pre=qs("#view-pre");
+  if(!gutter||!pre)return;
+  const lines=content.split("\n");
+  let s="";for(let i=1;i<=lines.length;i++)s+=i+"\n";
+  gutter.textContent=s;
+  const lang=_EXT_LANG[ext]||"";
+  if(lang&&typeof hljs!=="undefined"){
+    try{const r=hljs.highlight(content,{language:lang,ignoreIllegals:true});pre.innerHTML=r.value;}
+    catch(err){pre.textContent=content;}
+  }else{pre.textContent=content;}
+  pre.onscroll=()=>{gutter.scrollTop=pre.scrollTop;};
+}
+
+function _renderViewMarkdown(content){
+  const el=qs("#view-md");
+  if(!el)return;
+  try{el.innerHTML=typeof marked!=="undefined"?marked.parse(content):'<pre>'+esc(content)+'</pre>';}
+  catch(e){el.innerHTML='<pre>'+esc(content)+'</pre>';}
+}
+
+async function openView(path,name,ext){
+  _viewCurrentPath=path;_viewCurrentExt=ext;_viewCurrentContent="";_viewIsRaw=false;
+  qs("#view-title").textContent=name;
+  qs("#view-raw-btn").style.display="none";
+  const body=qs("#view-body");
+  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
+  openModal("view-modal");
+  try{
+    if(_HTML_EXTS.has(ext)){
+      body.style.padding="0";
+      body.innerHTML=`<iframe id="view-frame" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+    }else if(_IMG_EXTS.has(ext)){
+      body.style.padding="14px";
+      body.innerHTML=`<img id="view-img" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" alt="${esc(name)}">`;
+    }else{
+      body.style.padding="0";
+      const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
+      _viewCurrentContent=j.content||"";
+      if(_MD_EXTS.has(ext)){
+        qs("#view-raw-btn").style.display="inline-flex";
+        qs("#view-raw-btn").textContent="Show Raw";
+        body.innerHTML='<div id="view-md"></div>';
+        _renderViewMarkdown(_viewCurrentContent);
+      }else{
+        body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
+        _renderViewCode(_viewCurrentContent,ext);
+      }
+    }
+  }catch(e){body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;}
+}
+
+function toggleViewRaw(){
+  const body=qs("#view-body"),btn=qs("#view-raw-btn");
+  body.style.padding="0";
+  if(_viewIsRaw){
+    _viewIsRaw=false;btn.textContent="Show Raw";
+    body.innerHTML='<div id="view-md"></div>';
+    _renderViewMarkdown(_viewCurrentContent);
+  }else{
+    _viewIsRaw=true;btn.textContent="Rendered";
+    body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
+    _renderViewCode(_viewCurrentContent,_viewCurrentExt);
+  }
+}
+
+/* ── serve / download ── */
+function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURIComponent).join("/"),"_blank");}
+
+function downloadFile(path){
+  const a=document.createElement("a");
+  a.href="/api/file/download?path="+encodeURIComponent(path);
+  a.download="";
+  a.click();
+}
+
+/* ── delete ── */
+function confirmDelete(path,name){
+  qs("#delete-name").textContent=name;
+  qs("#delete-confirm-btn").onclick=async()=>{
+    try{
+      await apiFetch("/api/file?path="+encodeURIComponent(path),{method:"DELETE"});
+      closeModal("delete-modal");
+      refreshFiles();
+    }catch(e){showErr(e.message);}
+  };
+  openModal("delete-modal");
+}
+
+/* ── upload ── */
+function openUpload(){
+  _uploadFiles=[];
+  qs("#upload-list").innerHTML="";
+  qs("#upload-do-btn").style.display="none";
+  qs("#upload-input").value="";
+  qs("#upload-title").textContent="Upload to: workspace/"+_curPath;
+  openModal("upload-modal");
+}
+
+function handleFiles(files){
+  _uploadFiles=Array.from(files);
+  qs("#upload-list").innerHTML=_uploadFiles.map(f=>`<div>&#128196; ${esc(f.name)} <span style="color:var(--text-dim)">(${_fmtSize(f.size)})</span></div>`).join("");
+  qs("#upload-do-btn").style.display=_uploadFiles.length?"inline-block":"none";
+}
+
+function handleDrop(ev){
+  ev.preventDefault();
+  qs("#upload-area").classList.remove("over");
+  handleFiles(ev.dataTransfer.files);
+}
+
+async function doUpload(){
+  if(!_uploadFiles.length)return;
+  const btn=qs("#upload-do-btn");
+  btn.disabled=true;
+  btn.textContent="Uploading…";
+  let ok=0,fail=0;
+  for(const f of _uploadFiles){
+    const fd=new FormData();
+    fd.append("file",f);
+    try{
+      const r=await fetch("/api/file/upload?path="+encodeURIComponent(_curPath),{method:"POST",body:fd});
+      if(r.ok)ok++;else{const j=await r.json().catch(()=>({detail:"failed"}));fail++;console.warn(f.name,j.detail);}
+    }catch(e){fail++;}
+  }
+  btn.disabled=false;
+  btn.textContent="Upload";
+  qs("#upload-list").innerHTML+=`<div style="color:${fail?"var(--red)":"var(--green)"};margin-top:8px">Done: ${ok} uploaded${fail?", "+fail+" failed":""}</div>`;
+  refreshFiles();
+}
+
+/* ── ANSI helpers ── */
+function _stripAnsi(s){return s.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -\/]*[@-~])/g,"");}
+const _ANSI_FG={30:"#4a4a4a",31:"#f87272",32:"#36d399",33:"#fbbd23",34:"#4f8ef7",35:"#c084fc",36:"#22d3ee",37:"#c8cdd6",90:"#6b7280",91:"#ff9999",92:"#6ee7b7",93:"#fde68a",94:"#93c5fd",95:"#d8b4fe",96:"#67e8f9",97:"#f0f4ff"};
+function _ansiToHtml(s){
+  let out="",bold=false,color="";
+  const parts=s.split(/(\x1B\[[0-9;]*m)/);
+  for(const p of parts){
+    if(p.startsWith("\x1B[")){
+      const codes=p.slice(2,-1).split(";").map(Number);
+      for(const c of codes){
+        if(c===0){bold=false;color="";}
+        else if(c===1){bold=true;}
+        else if((c>=30&&c<=37)||(c>=90&&c<=97)){color=_ANSI_FG[c]||"";}}
+    }else{
+      let style="";
+      if(bold)style+="font-weight:700;";
+      if(color)style+="color:"+color+";";
+      const safe=p.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      out+=style?`<span style="${style}">${safe}</span>`:safe;
+    }
+  }
+  return out;
+}
+
+/* ── pdb command bar ── */
+let _pdbBusy = false;
+let _cmdHistory = [];
+let _cmdHistoryIdx = -1;
+let _cmdHistorySaved = "";
+let _acItems = [];
+let _acIdx = -1;
+
+function _acShow(items, stripPrefix) {
+  const ac = qs("#pdb-autocomplete");
+  _acItems = items;
+  _acIdx = -1;
+  if (!items.length) { ac.style.display = "none"; return; }
+  ac.innerHTML = items.map((t,i) => {
+    const disp = stripPrefix && t.startsWith(stripPrefix) ? t.slice(stripPrefix.length) : t;
+    return `<div class="ac-item" data-i="${i}" onmousedown="_acPick(${i})">${esc(disp || t)}</div>`;
+  }).join("");
+  ac.style.display = "block";
+}
+
+function _acHide() { qs("#pdb-autocomplete").style.display = "none"; _acItems = []; _acIdx = -1; }
+
+function _acHighlight(idx) {
+  const ac = qs("#pdb-autocomplete");
+  const els = ac.querySelectorAll(".ac-item");
+  els.forEach(e => e.classList.remove("active"));
+  if (idx >= 0 && idx < els.length) { els[idx].classList.add("active"); els[idx].scrollIntoView({block:"nearest"}); }
+  _acIdx = idx;
+}
+
+function _acPick(idx) {
+  const input = qs("#pdb-cmd-input");
+  if (idx >= 0 && idx < _acItems.length) {
+    // Items are always full input-ready strings (command or "cmd arg")
+    input.value = _acItems[idx] + " ";
+  }
+  _acHide();
+  input.focus();
+}
+
+async function _acComplete() {
+  const input = qs("#pdb-cmd-input");
+  // Use the raw value; trimStart removes only leading whitespace so a
+  // trailing space ("tool_invoke ") is preserved, which signals arg mode.
+  const val = input.value.replace(/^\s+/, "");
+  const isArgMode = val.includes(" ");  // space present → argument completion
+  try {
+    const j = await apiFetch(`/api/cmds?prefix=${encodeURIComponent(val)}`);
+    const items = j.data || [];
+    if (items.length === 1) {
+      input.value = items[0] + " ";
+      _acHide();
+    } else if (items.length > 1) {
+      // Apply the longest common prefix across all completions
+      let common = items[0];
+      for (let i = 1; i < items.length; i++) {
+        while (common && !items[i].startsWith(common)) common = common.slice(0, -1);
+      }
+      if (common.length > val.length) input.value = common;
+      // Strip the typed prefix from dropdown display (show only the completion part)
+      _acShow(items, isArgMode ? val : "");
+    } else { _acHide(); }
+  } catch(e) { _acHide(); }
+}
+
+function handleCmdKeydown(event) {
+  const ac = qs("#pdb-autocomplete");
+  const visible = ac.style.display !== "none" && _acItems.length > 0;
+  if (event.key === "Tab") {
+    event.preventDefault();
+    if (visible && _acIdx >= 0) { _acPick(_acIdx); }
+    else { _acComplete(); }
+    return;
+  }
+  if (event.key === "Escape") { _acHide(); return; }
+  if (visible && event.key === "ArrowDown") {
+    event.preventDefault();
+    _acHighlight((_acIdx + 1) % _acItems.length);
+    return;
+  }
+  if (visible && event.key === "ArrowUp") {
+    event.preventDefault();
+    _acHighlight((_acIdx - 1 + _acItems.length) % _acItems.length);
+    return;
+  }
+  if (visible && event.key === "Enter" && _acIdx >= 0) {
+    event.preventDefault();
+    _acPick(_acIdx);
+    return;
+  }
+  if (event.key === "Enter") { _acHide(); sendPdbCmd(); return; }
+  // Command history: Up/Down when autocomplete is not visible
+  if (!visible && event.key === "ArrowUp") {
+    event.preventDefault();
+    if (_cmdHistory.length === 0) return;
+    if (_cmdHistoryIdx === -1) { _cmdHistorySaved = qs("#pdb-cmd-input").value; _cmdHistoryIdx = _cmdHistory.length; }
+    if (_cmdHistoryIdx > 0) { _cmdHistoryIdx--; qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    return;
+  }
+  if (!visible && event.key === "ArrowDown") {
+    event.preventDefault();
+    if (_cmdHistoryIdx === -1) return;
+    _cmdHistoryIdx++;
+    if (_cmdHistoryIdx >= _cmdHistory.length) { _cmdHistoryIdx = -1; qs("#pdb-cmd-input").value = _cmdHistorySaved; }
+    else { qs("#pdb-cmd-input").value = _cmdHistory[_cmdHistoryIdx]; }
+    return;
+  }
+  // Any other key hides autocomplete
+  setTimeout(() => _acHide(), 0);
+}
+
+function _setPdbBusy(busy, inTui) {
+  _pdbBusy = busy;
+  const input = qs("#pdb-cmd-input");
+  const sendBtn = qs("#pdb-cmd-send");
+  const badge = qs("#pdb-status-badge");
+  if (inTui) {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    badge.className = "tui";
+    badge.textContent = "\u25cf TUI";
+  } else if (busy) {
+    input.disabled = true;
+    sendBtn.disabled = true;
+    badge.className = "busy";
+    badge.textContent = "\u25cf busy";
+  } else {
+    input.disabled = false;
+    sendBtn.disabled = false;
+    badge.className = "idle";
+    badge.textContent = "\u25cf idle";
+  }
+}
+
+async function fetchPdbStatus() {
+  try {
+    const j = await apiFetch("/api/pdb_status");
+    const d = j.data || {};
+    const inTui = !!d.in_tui;
+    const busy = !inTui && (d.pending_count > 0 || (d.running_cmds && d.running_cmds.length > 0));
+    _setPdbBusy(busy, inTui);
+    // running commands
+    const running = d.running_cmds || [];
+    const runEl = qs("#pdb-running");
+    const runCmds = qs("#pdb-running-cmds");
+    if (running.length) {
+      runCmds.textContent = running.join("  |  ");
+      runEl.classList.add("visible");
+    } else {
+      runEl.classList.remove("visible");
+    }
+  } catch(e) {}
+}
+
+async function sendPdbCmd() {
+  const input = qs("#pdb-cmd-input");
+  const cmd = input.value.trim();
+  if (!cmd) return;
+  try {
+    await apiFetch("/api/cmd", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({cmd})
+    });
+    // Record in local history (dedup consecutive)
+    if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== cmd) _cmdHistory.push(cmd);
+    _cmdHistoryIdx = -1;
+    input.value = "";
+    _setPdbBusy(true);
+  } catch(e) { showErr(e.message); }
+}
+
+async function sendPdbInterrupt() {
+  try {
+    await apiFetch("/api/interrupt", {method: "POST"});
+  } catch(e) { showErr(e.message); }
+}
+
+/* ── console panel ── */
+let _consoleAutoScroll=true;
+
+async function fetchConsole(){
+  try{
+    const j=await apiFetch("/api/console?lines=500");
+    const out=qs("#console-output");
+    const lines=j.data||[];
+    if(!lines.length){out.innerHTML="";return;}
+    out.innerHTML=lines.map(l=>_ansiToHtml(l)).join("\n");
+    if(_consoleAutoScroll)out.scrollTop=out.scrollHeight;
+  }catch(e){}
+}
+
+function toggleAutoScroll(){
+  _consoleAutoScroll=!_consoleAutoScroll;
+  const btn=qs("#console-autoscroll-btn");
+  if(_consoleAutoScroll){btn.classList.add("active");btn.textContent="Auto-scroll";}
+  else{btn.classList.remove("active");btn.textContent="Auto-scroll";}
+}
+
+async function clearConsole(){
+  try{
+    await fetch("/api/console",{method:"DELETE"});
+    qs("#console-output").innerHTML="";
+  }catch(e){}
+}
+
+/* ── console resize (vertical drag) ── */
+(function(){
+  const resizer=document.getElementById("fm-resizer");
+  const panel=document.getElementById("console-panel");
+  if(!resizer||!panel)return;
+  let startY,startH;
+  resizer.addEventListener("pointerdown",e=>{
+    startY=e.clientY;startH=panel.offsetHeight;
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add("dragging");
+    document.body.style.userSelect="none";
+    resizer.addEventListener("pointermove",onMove);
+    resizer.addEventListener("pointerup",onUp,{once:true});
+  });
+  function onMove(e){
+    const h=Math.max(startH-(e.clientY-startY),60);
+    panel.style.height=h+"px";
+  }
+  function onUp(){
+    resizer.classList.remove("dragging");
+    document.body.style.userSelect="";
+    resizer.removeEventListener("pointermove",onMove);
+  }
+})();
+
+/* ── edit gutter sync ── */
+(function(){
+  const ta=document.getElementById("edit-content");
+  const gutter=document.getElementById("edit-gutter");
+  if(!ta||!gutter)return;
+  ta.addEventListener("input",_updateEditGutter);
+  ta.addEventListener("scroll",()=>{gutter.scrollTop=ta.scrollTop;});
+})();
+
+/* ── sidebar resize ── */
+(function(){
+  const resizer=document.getElementById("sb-resizer");
+  const sidebar=document.getElementById("sidebar");
+  if(!resizer||!sidebar)return;
+  let startX,startW;
+  resizer.addEventListener("pointerdown",e=>{
+    startX=e.clientX;startW=sidebar.offsetWidth;
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add("dragging");
+    document.body.style.userSelect="none";
+    resizer.addEventListener("pointermove",onMove);
+    resizer.addEventListener("pointerup",onUp,{once:true});
+  });
+  function onMove(e){
+    const w=Math.max(startW+(e.clientX-startX),160);
+    sidebar.style.width=w+"px";
+  }
+  function onUp(){
+    resizer.classList.remove("dragging");
+    document.body.style.userSelect="";
+    resizer.removeEventListener("pointermove",onMove);
+  }
+})();
+
+/* ── refresh all ── */
+function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();}
+
+/* ── init ── */
+fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();
+setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
+setInterval(fetchChangedFiles,15000);
+setInterval(fetchConsole,2000);
+setInterval(fetchPdbStatus,2000);
+</script>
+</body>
+</html>

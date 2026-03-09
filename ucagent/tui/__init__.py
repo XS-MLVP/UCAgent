@@ -16,9 +16,11 @@ def enter_tui(vpdb: "VerifyPDB") -> None:
     """
     from .app import VerifyApp
     app = VerifyApp(vpdb)
+    vpdb._tui_app = app
     try:
         app.run()
     finally:
+        vpdb._tui_app = None
         app.cleanup()
         if app.session_output:
             print(app.session_output)

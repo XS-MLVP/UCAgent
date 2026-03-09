@@ -4,7 +4,7 @@
 from pdb import Pdb
 import os
 from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
-from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
+from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
 import traceback
@@ -48,11 +48,25 @@ class VerifyPDB(Pdb):
         self._cmd_api_server = None
         # Master API server instance (created on demand)
         self._master_api_server = None
-        # Master client (heartbeat sender to a remote master)
-        self._master_client = None
+        # Master clients keyed by master_url (supports multiple simultaneous connections)
+        self._master_clients: dict = {}  # {master_url: PdbMasterClient}
         self.max_loop_retry = max_loop_retry
         self.retry_delay_start, self.retry_delay_end = retry_delay
         self.loop_alive_time = loop_alive_time
+        # Flag: when True the next SIGINT is an API-triggered wakeup,
+        # not a real Ctrl-C from the user.
+        self._api_wakeup = False
+        self._api_wakeup_done = False  # set after API wakeup to suppress message
+        self._tui_app = None  # set by enter_tui() while TUI is running
+        self._current_cmd: str | None = None  # the command currently being executed
+
+    def precmd(self, line: str) -> str:
+        self._current_cmd = line or None
+        return line
+
+    def postcmd(self, stop: bool, line: str) -> bool:
+        self._current_cmd = None
+        return stop
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -61,6 +75,20 @@ class VerifyPDB(Pdb):
                 cmd = self.init_cmd.pop(0)
                 self.onecmd(cmd)
         return super().interaction(frame, traceback)
+
+    def _cmdloop(self):
+        """Override Pdb._cmdloop to suppress the ``--KeyboardInterrupt--``
+        message when the interrupt was triggered by the API (add_cmds)."""
+        while True:
+            try:
+                self.allow_kbdint = True
+                self.cmdloop()
+                self.allow_kbdint = False
+                break
+            except KeyboardInterrupt:
+                if not self._api_wakeup_done:
+                    self.message('--KeyboardInterrupt--')
+                self._api_wakeup_done = False
 
     def add_cmds(self, cmds):
         """
@@ -71,17 +99,34 @@ class VerifyPDB(Pdb):
         if isinstance(cmds, str):
             cmds = [cmds]
         if self._in_tui:
-            if self.init_cmd is None:
-                self.init_cmd = cmds
+            tui_app = self._tui_app
+            if tui_app is not None:
+                for cmd in cmds:
+                    tui_app.call_from_thread(tui_app.key_handler.process_command, cmd)
             else:
-                self.init_cmd.extend(cmds)
+                if self.init_cmd is None:
+                    self.init_cmd = cmds
+                else:
+                    self.init_cmd.extend(cmds)
         else:
             self.cmdqueue.extend(cmds)
+            # Send SIGINT to interrupt the blocking input() call inside
+            # cmd.Cmd.cmdloop.  Pdb._cmdloop catches the resulting
+            # KeyboardInterrupt and restarts cmdloop(), which re-checks
+            # cmdqueue at the top of its loop – executing our commands.
+            self._api_wakeup = True
+            os.kill(os.getpid(), signal.SIGINT)
 
     def _sigint_handler(self, signum, frame):
         """
         Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
+        Also handles API-triggered wakeup to interrupt blocking input().
         """
+        # Check if this SIGINT was sent by add_cmds to wake up input()
+        if self._api_wakeup:
+            self._api_wakeup = False
+            self._api_wakeup_done = True
+            raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
         if self.agent.is_break():
@@ -520,16 +565,43 @@ class VerifyPDB(Pdb):
 
     def api_all_cmds(self, prefix=""):
         """
-        List all available commands in the current workspace.
-        Returns:
-            list: List of command names.
+        List available completions for *prefix*.
+
+        - If *prefix* contains no space: return all command names that start
+          with *prefix* (standard command-name completion).
+        - If *prefix* contains a space: treat it as a full input line and
+          delegate to the appropriate ``complete_<cmd>`` method (or
+          ``completedefault``), returning full lines (``"<cmd> <arg>"``)
+          so the caller can substitute them directly into the input field.
         """
-        ret = []
-        for cmd in self.get_names():
-            if cmd.startswith("do_"):
-                text = cmd[3:]
-                ret.append(text)
-        return [c for c in ret if c.startswith(prefix)]
+        # ── command-name completion ───────────────────────────────────────
+        if " " not in prefix:
+            ret = []
+            for name in self.get_names():
+                if name.startswith("do_"):
+                    ret.append(name[3:])
+            return [c for c in ret if c.startswith(prefix)]
+
+        # ── argument completion ───────────────────────────────────────────
+        line = prefix
+        endidx = len(line)
+        if line.endswith(" "):
+            text = ""
+            begidx = endidx
+        else:
+            text = line.split()[-1]
+            begidx = endidx - len(text)
+        cmd_name = line.split()[0]
+        completer = getattr(self, f"complete_{cmd_name}", None)
+        if completer is None:
+            completer = self.completedefault
+        try:
+            completions = completer(text, line, begidx, endidx) or []
+        except Exception:
+            completions = []
+        # Return full input-ready lines so the client can replace the field directly
+        prefix_base = line[:begidx]
+        return [prefix_base + c for c in completions]
 
     def api_changed_files(self, count=10):
         """
@@ -639,17 +711,43 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
-        use_new_ui = getattr(self.agent, "use_new_ui", False)
-        if use_new_ui:
-            from ucagent.tui import enter_tui
-        else:
-            from ucagent.verify_ui import enter_simple_tui as enter_tui
+        from ucagent.tui import enter_tui
+        import sys as _sys
+        _saved_sys_stdout = _sys.stdout
+        _saved_sys_stderr = _sys.stderr
+        _saved_pdb_stdout = self.stdout
+        _saved_pdb_stderr = getattr(self, "stderr", None)
         self._in_tui = True
         try:
             enter_tui(self)
         except Exception as e:
             import traceback
             echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())
+        finally:
+            self.agent.unset_message_echo_handler()
+            # Restore sys.stdout/stderr and pdb.stdout/stderr to their pre-TUI
+            # values.  TUI frameworks (Textual in particular) have their OWN
+            # save/restore of sys.stdout that runs AFTER our cleanup, which can
+            # clobber any wrapper we tried to keep in place.  Therefore we
+            # first force everything back to the pre-TUI baseline, then
+            # re-install PdbCmdApiServer's _ConsoleCapture if the server is
+            # still active.
+            _sys.stdout = _saved_sys_stdout
+            _sys.stderr = _saved_sys_stderr
+            self.stdout = _saved_pdb_stdout
+            if _saved_pdb_stderr is not None:
+                self.stderr = _saved_pdb_stderr
+            # If PdbCmdApiServer is running, its _ConsoleCapture MUST wrap
+            # sys.stdout and pdb.stdout so the ring-buffer continues to
+            # receive all output.
+            if (self._cmd_api_server is not None
+                    and self._cmd_api_server.is_running):
+                cc = self._cmd_api_server._console_capture
+                if _sys.stdout is not cc:
+                    cc._original = _sys.stdout
+                    _sys.stdout = cc
+                if self.stdout is not cc:
+                    self.stdout = cc
         self._in_tui = False
         if self.init_cmd:
             self.cmdqueue.extend(self.init_cmd)
@@ -759,6 +857,7 @@ class VerifyPDB(Pdb):
           --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd.sock)
           --sock none     Disable Unix socket listener
           --no-tcp        Disable TCP listener
+          --passwd <pwd>  HTTP Basic password to protect API endpoints (default: none)
           host            TCP bind address  (default: 127.0.0.1)
           port            TCP bind port     (default: 8765)
 
@@ -769,6 +868,7 @@ class VerifyPDB(Pdb):
           cmd_api_start --sock none              # TCP only
           cmd_api_start --no-tcp                 # socket only
           cmd_api_start --sock none 0.0.0.0 9000 # TCP only, custom address
+          cmd_api_start --passwd secret123       # enable password protection
 
         Once running, external tools can call:
           GET  /api/status              - Agent status
@@ -790,8 +890,10 @@ class VerifyPDB(Pdb):
         from ucagent.server import PdbCmdApiServer
         host = "127.0.0.1"
         port = 8765
+        port_specified = False
         sock = self._CMD_API_DEFAULT_SOCK  # Unix socket enabled by default
         tcp = True                          # TCP enabled by default
+        passwd = ""                         # password disabled by default
         # Parse flags and positional args
         parts = arg.strip().split()
         positional = []
@@ -813,6 +915,19 @@ class VerifyPDB(Pdb):
             elif token == "--no-tcp":
                 tcp = False
                 i += 1
+            elif token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
             else:
                 positional.append(token)
                 i += 1
@@ -825,18 +940,30 @@ class VerifyPDB(Pdb):
         if len(positional) >= 2:
             try:
                 port = int(positional[1])
+                port_specified = True
             except ValueError:
                 echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
                 return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
         try:
             self._cmd_api_server = PdbCmdApiServer(
-                self, host=host, port=port, sock=sock, tcp=tcp
+                self, host=host, port=port, sock=sock, tcp=tcp, password=passwd
             )
             ok, msg = self._cmd_api_server.start()
         except Exception as e:
             echo_r(f"Failed to start CMD API server: {e}")
             return
         if ok:
+            if passwd:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             echo_g(msg)
         else:
             echo_r(msg)
@@ -866,6 +993,8 @@ class VerifyPDB(Pdb):
         if self._cmd_api_server.is_running:
             s = self._cmd_api_server
             echo_g(f"CMD API server is running at {s.url()}")
+            if s.password:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             if s.tcp:
                 echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
             if s.sock:
@@ -892,15 +1021,20 @@ class VerifyPDB(Pdb):
           --sock none         Disable Unix socket listener
           --no-tcp            Disable TCP listener
           --timeout <secs>    Seconds without heartbeat before marking offline (default: 30)
+          --key <key>         Access key: clients must send this to register (default: none)
+          --password <pwd>    HTTP Basic password to access dashboard/API (default: none)
           host                TCP bind address  (default: 0.0.0.0)
           port                TCP bind port     (default: 8800)
 
         Examples:
-          master_api_start                       # both TCP + socket (defaults)
-          master_api_start 0.0.0.0 9900          # custom TCP, default socket
-          master_api_start --sock none           # TCP only
-          master_api_start --no-tcp              # socket only
-          master_api_start --timeout 60          # 60-second offline threshold
+          master_api_start                           # both TCP + socket, no auth
+          master_api_start 0.0.0.0 9900              # custom TCP, default socket
+          master_api_start --sock none               # TCP only
+          master_api_start --no-tcp                  # socket only
+          master_api_start --timeout 60              # 60-second offline threshold
+          master_api_start --key secret123           # require key from clients
+          master_api_start --password mypass         # protect dashboard with password
+          master_api_start --key k1 --password p1    # both auth mechanisms
 
         Endpoints exposed:
           GET    /api/agents                     - List all agents (?include_offline=true)
@@ -916,9 +1050,12 @@ class VerifyPDB(Pdb):
         from ucagent.server import PdbMasterApiServer
         host = "0.0.0.0"
         port = 8800
+        port_specified = False
         sock = self._MASTER_API_DEFAULT_SOCK
         tcp = True
         offline_timeout = 30.0
+        access_key = ""
+        password = ""
         parts = arg.strip().split()
         positional = []
         i = 0
@@ -957,6 +1094,26 @@ class VerifyPDB(Pdb):
                     echo_r(f"Invalid timeout: {token[10:]}")
                     return
                 i += 1
+            elif token in ("--key", "-k"):
+                if i + 1 < len(parts):
+                    access_key = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--key requires a value.")
+                    return
+            elif token.startswith("--key="):
+                access_key = token[6:]
+                i += 1
+            elif token == "--password":
+                if i + 1 < len(parts):
+                    password = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--password requires a value.")
+                    return
+            elif token.startswith("--password="):
+                password = token[11:]
+                i += 1
             else:
                 positional.append(token)
                 i += 1
@@ -968,18 +1125,34 @@ class VerifyPDB(Pdb):
         if len(positional) >= 2:
             try:
                 port = int(positional[1])
+                port_specified = True
             except ValueError:
                 echo_r(f"Invalid port number: {positional[1]}.")
                 return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
         try:
             self._master_api_server = PdbMasterApiServer(
-                host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout
+                host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout,
+                workspace=self.agent.workspace,
+                access_key=access_key, password=password,
             )
             ok, msg = self._master_api_server.start()
         except Exception as e:
             echo_r(f"Failed to start Master API server: {e}")
             return
         if ok:
+            if access_key:
+                echo_g(f"  Access key : set (clients must supply --key)")
+            if password:
+                echo_g(f"  Password   : set (dashboard/API requires HTTP Basic Auth)")
             echo_g(msg)
         else:
             echo_r(msg)
@@ -1025,16 +1198,18 @@ class VerifyPDB(Pdb):
         summary table.  When a local master is running the query is made
         directly; otherwise the --master option selects a remote master.
 
-        Usage: master_api_list [--master <url>] [--all]
+        Usage: master_api_list [--master <url>] [--passwd <password>] [--all]
 
         Options:
-          --master <url>   Base URL of the master  (default: local master if running)
-          --all            Include offline agents  (default: online only)
+          --master <url>      Base URL of the master  (default: local master if running)
+          --passwd <password> HTTP Basic password for remote master (default: none)
+          --all               Include offline agents  (default: online only)
 
         Examples:
           master_api_list
           master_api_list --all
           master_api_list --master http://192.168.1.10:8800
+          master_api_list --master http://192.168.1.10:8800 --passwd mypass
         """
         try:
             import requests
@@ -1044,6 +1219,7 @@ class VerifyPDB(Pdb):
         parts = arg.strip().split()
         master_url = None
         include_all = False
+        remote_passwd = ""
         i = 0
         while i < len(parts):
             t = parts[i]
@@ -1057,15 +1233,31 @@ class VerifyPDB(Pdb):
             elif t.startswith("--master="):
                 master_url = t[9:].rstrip("/")
                 i += 1
+            elif t in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    remote_passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif t.startswith("--passwd="):
+                remote_passwd = t[9:]
+                i += 1
+            elif t.startswith("--password="):
+                remote_passwd = t[11:]
+                i += 1
             elif t == "--all":
                 include_all = True
                 i += 1
             else:
                 i += 1
+        _local_server = None
         if master_url is None:
             if self._master_api_server and self._master_api_server.is_running:
                 s = self._master_api_server
-                master_url = f"http://{s.host}:{s.port}"
+                _local_server = s
+                _query_host = "127.0.0.1" if s.host in ("0.0.0.0", "") else s.host
+                master_url = f"http://{_query_host}:{s.port}"
                 if not s.tcp and s.sock:
                     echo_y("Note: local master has no TCP listener; querying socket is not "
                            "supported from here.  Provide --master <url> instead.")
@@ -1075,8 +1267,13 @@ class VerifyPDB(Pdb):
                        "or start one with 'master_api_start'.")
                 return
         url = f"{master_url}/api/agents?include_offline={'true' if include_all else 'false'}"
+        _auth = None
+        if _local_server and _local_server.password and not remote_passwd:
+            _auth = ("", _local_server.password)
+        elif remote_passwd:
+            _auth = ("", remote_passwd)
         try:
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(url, timeout=10, auth=_auth)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
@@ -1097,16 +1294,18 @@ class VerifyPDB(Pdb):
                 "status":   a.get("status", "?"),
                 "version":  a.get("version", ""),
                 "progress": f"{cur}/{tot}" if tot > 0 else "-",
+                "run_time": str(a.get("run_time") or ""),
                 "done":     "YES" if a.get("is_mission_complete", False) else "no",
                 "mcp":      "yes" if a.get("mcp_running", False) else "no",
                 "break":    "yes" if a.get("is_break", False) else "no",
+                "api":      "on"  if a.get("cmd_api_tcp") else "off",
                 "stage":    a.get("current_stage_name", ""),
                 "cmd":      a.get("last_cmd", "")[:40],
                 "mission":  a.get("mission", ""),
             })
         # Compute column widths from data + header labels
-        cols = ["id", "host", "status", "version", "progress", "done", "mcp", "break", "stage", "cmd", "mission"]
-        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "DONE", "MCP", "BREAK", "STAGE", "CMD", "MISSION"]
+        cols = ["id", "host", "status", "version", "progress", "run_time", "done", "mcp", "break", "api", "stage", "cmd", "mission"]
+        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "RUN_TIME", "DONE", "MCP", "BREAK", "API", "STAGE", "CMD", "MISSION"]
         widths = {c: len(h) for c, h in zip(cols, hdrs)}
         for r in rows:
             for c in cols:
@@ -1128,6 +1327,7 @@ class VerifyPDB(Pdb):
     def do_connect_master_to(self, arg):
         """
         Connect this agent as a heartbeat client to a Master API server.
+        Multiple masters can be connected simultaneously.
 
         Usage: connect_master_to <host> [port] [options]
 
@@ -1135,22 +1335,28 @@ class VerifyPDB(Pdb):
           --port <n>      TCP port of the master  (default: 8800)
           --interval <n>  Heartbeat interval in seconds  (default: 5)
           --id <agent_id> Custom agent identifier  (default: <hostname>-<pid>)
+          --reconnect <n> Seconds between reconnect attempts  (default: 10)
+          --key <key>     Access key required by the master  (default: none)
 
         Examples:
           connect_master_to 192.168.1.10
           connect_master_to 192.168.1.10 9900
           connect_master_to 192.168.1.10 --interval 10
           connect_master_to 192.168.1.10 --id my-agent-01
+          connect_master_to 192.168.1.10 --key secret123
+          connect_master_to 192.168.1.20 9900   # connect to a second master
         """
         from ucagent.server import PdbMasterClient
         parts = arg.strip().split()
         if not parts:
-            echo_r("Usage: connect_master_to <host> [port] [--interval N] [--id <id>]")
+            echo_r("Usage: connect_master_to <host> [port] [--interval N] [--id <id>] [--reconnect N] [--key <key>]")
             return
         host = parts[0]
         port = 8800
         interval = 5.0
+        reconnect_interval = 10.0
         agent_id = None
+        access_key = ""
         positional_left = []
         i = 1
         while i < len(parts):
@@ -1191,6 +1397,24 @@ class VerifyPDB(Pdb):
                     echo_r(f"Invalid interval: {t[11:]}")
                     return
                 i += 1
+            elif t in ("--reconnect", "-r"):
+                if i + 1 < len(parts):
+                    try:
+                        reconnect_interval = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid reconnect interval: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--reconnect requires a number.")
+                    return
+            elif t.startswith("--reconnect="):
+                try:
+                    reconnect_interval = float(t[12:])
+                except ValueError:
+                    echo_r(f"Invalid reconnect interval: {t[12:]}")
+                    return
+                i += 1
             elif t in ("--id",):
                 if i + 1 < len(parts):
                     agent_id = parts[i + 1]
@@ -1200,6 +1424,16 @@ class VerifyPDB(Pdb):
                     return
             elif t.startswith("--id="):
                 agent_id = t[5:]
+                i += 1
+            elif t in ("--key", "-k"):
+                if i + 1 < len(parts):
+                    access_key = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--key requires a value.")
+                    return
+            elif t.startswith("--key="):
+                access_key = t[6:]
                 i += 1
             else:
                 positional_left.append(t)
@@ -1212,36 +1446,106 @@ class VerifyPDB(Pdb):
                 echo_r(f"Invalid port: {positional_left[0]}")
                 return
         master_url = f"http://{host}:{port}"
-        # disconnect existing client if necessary
-        if self._master_client is not None and self._master_client.is_running:
-            echo_y(f"Stopping existing connection to {self._master_client.master_url} …")
-            self._master_client.stop()
+        # Warn if already connected to this master
+        existing = self._master_clients.get(master_url)
+        if existing is not None and existing.is_running:
+            echo_y(f"Already connected to {master_url}. Use 'connect_master_close {master_url}' first to reconnect.")
+            return
         try:
-            self._master_client = PdbMasterClient(
-                self, master_url=master_url, agent_id=agent_id, interval=interval
+            client = PdbMasterClient(
+                self, master_url=master_url, agent_id=agent_id,
+                interval=interval, reconnect_interval=reconnect_interval,
+                access_key=access_key,
             )
-            ok, msg = self._master_client.start()
+            ok, msg = client.start()
         except Exception as e:
             echo_r(f"Failed to connect to master: {e}")
             return
         if ok:
+            self._master_clients[master_url] = client
             echo_g(msg)
         else:
             echo_r(msg)
 
     def do_connect_master_close(self, arg):
         """
-        Disconnect from the Master API server (stop sending heartbeats).
-        Usage: connect_master_close
+        Disconnect from one or all Master API servers.
+
+        Usage:
+          connect_master_close                    - disconnect all masters
+          connect_master_close <url>              - disconnect a specific master
+          connect_master_close http://1.2.3.4:8800
         """
-        if self._master_client is None or not self._master_client.is_running:
-            echo_y("Not connected to any master.")
-            return
-        ok, msg = self._master_client.stop()
-        if ok:
-            echo_g(msg)
+        url = arg.strip()
+        if url:
+            client = self._master_clients.get(url)
+            if client is None:
+                echo_y(f"No connection found for '{url}'.")
+                echo_y("Use 'connect_master_list' to see all active connections.")
+                return
+            ok, msg = client.stop()
+            if ok:
+                del self._master_clients[url]
+                echo_g(msg)
+            else:
+                echo_r(msg)
         else:
-            echo_r(msg)
+            if not self._master_clients:
+                echo_y("Not connected to any master.")
+                return
+            for u, client in list(self._master_clients.items()):
+                ok, msg = client.stop()
+                if ok:
+                    del self._master_clients[u]
+                    echo_g(msg)
+                else:
+                    echo_r(msg)
+
+    def do_connect_master_list(self, arg):
+        """
+        List all master connections and their current status.
+        Usage: connect_master_list
+        """
+        if not self._master_clients:
+            echo_y("No master connections configured.")
+            return
+        # Build rows
+        rows = []
+        for url, client in self._master_clients.items():
+            if client.is_kicked:
+                state = "kicked"
+            elif client.is_auth_failed:
+                state = "forbidden"
+            elif not client.is_running:
+                state = "stopped"
+            elif client._connected:
+                state = "connected"
+            else:
+                state = "reconnecting"
+            rows.append({
+                "url":       url,
+                "agent_id":  client.agent_id,
+                "interval":  f"{client.interval}s",
+                "reconnect": f"{client.reconnect_interval}s",
+                "status":    state,
+            })
+        # Compute column widths
+        cols = ["url", "agent_id", "interval", "reconnect", "status"]
+        hdrs = ["MASTER URL", "AGENT ID", "INTERVAL", "RECONNECT", "STATUS"]
+        sep = "  "
+        widths = {c: len(h) for c, h in zip(cols, hdrs)}
+        for r in rows:
+            for c in cols:
+                widths[c] = max(widths[c], len(r[c]))
+        header = sep.join(f"{h:<{widths[c]}}" for c, h in zip(cols, hdrs))
+        echo_g(f"Master connections ({len(rows)}):")
+        echo_g(header)
+        echo_g("-" * len(header))
+        _color = {"connected": echo_g, "reconnecting": echo_y, "kicked": echo_r,
+                  "forbidden": echo_r, "stopped": echo_y}
+        for r in rows:
+            line = sep.join(f"{r[c]:<{widths[c]}}" for c in cols)
+            _color.get(r["status"], echo_y)(line)
 
     def do_list_demo_cmds(self, arg):
         """
