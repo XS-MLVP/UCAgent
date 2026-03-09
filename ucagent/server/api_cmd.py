@@ -127,6 +127,8 @@ class PdbCmdApiServer:
     POST /api/interrupt                - Send Ctrl-C interrupt to PDB
     GET  /api/files                    - List workspace directory  (?path=subdir)
     GET  /api/file                     - Read text file content  (?path=...)
+    POST /api/file/new                 - Create new text file  body: {"path":"...","content":"..."}
+    POST /api/file/rename              - Rename file or directory  body: {"path":"...","new_name":"..."}
     POST /api/file/edit                - Save/overwrite text file  body: {"path":"...","content":"..."}
     DELETE /api/file                   - Delete file or empty directory  (?path=...)
     GET  /api/file/download            - Download file as attachment  (?path=...)
@@ -592,6 +594,58 @@ class PdbCmdApiServer:
                     "size": st.st_size,
                     "content": content,
                 }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/file/new ──────────────────────────────────────────
+        class FileNewBody(BaseModel):
+            path: str      # relative path including filename
+            content: str = ""
+
+        @app.post("/api/file/new", summary="Create a new text file (fails if already exists)")
+        def new_file(body: FileNewBody):
+            try:
+                abs_path = _safe_abs(body.path)
+                if os.path.exists(abs_path):
+                    raise HTTPException(status_code=409, detail=f"'{body.path}' already exists")
+                parent = os.path.dirname(abs_path)
+                if not os.path.isdir(parent):
+                    raise HTTPException(status_code=400, detail=f"Parent directory does not exist: {os.path.relpath(parent, _workspace_root())}")
+                with open(abs_path, "w", encoding="utf-8") as fh:
+                    fh.write(body.content)
+                return {"status": "ok", "message": f"File '{body.path}' created", "path": body.path, "size": len(body.content.encode("utf-8"))}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── POST /api/file/rename ─────────────────────────────────────
+        class FileRenameBody(BaseModel):
+            path: str       # current relative path
+            new_name: str   # new filename only (no directory component)
+
+        @app.post("/api/file/rename", summary="Rename a file or directory")
+        def rename_file(body: FileRenameBody):
+            try:
+                abs_src = _safe_abs(body.path)
+                if not os.path.exists(abs_src):
+                    raise HTTPException(status_code=404, detail=f"'{body.path}' not found")
+                new_name = os.path.basename(body.new_name.strip())
+                if not new_name:
+                    raise HTTPException(status_code=400, detail="new_name must not be empty")
+                if new_name != os.path.basename(new_name):
+                    raise HTTPException(status_code=400, detail="new_name must be a plain name without path separators")
+                parent = os.path.dirname(abs_src)
+                abs_dst = os.path.join(parent, new_name)
+                # ensure destination is still inside workspace
+                _safe_abs(os.path.relpath(abs_dst, _workspace_root()))
+                if os.path.exists(abs_dst):
+                    raise HTTPException(status_code=409, detail=f"'{new_name}' already exists in the same directory")
+                os.rename(abs_src, abs_dst)
+                new_rel = os.path.relpath(abs_dst, _workspace_root())
+                return {"status": "ok", "message": f"Renamed to '{new_name}'", "path": new_rel}
             except HTTPException:
                 raise
             except Exception as exc:
