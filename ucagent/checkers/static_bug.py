@@ -515,7 +515,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
                         f"(e.g. 'rtl/dut.v:50-56' not '/abs/path/dut.v:50-56')."
                     )
         # ── check 3: cross-reference confirmed tags against bug_analysis_doc ─
-        if confirmed_refs:
+        unique_confirmed = {tag_name for tag_name, _ in confirmed_refs}
+        if unique_confirmed:
             bug_path = self.get_path(self.bug_analysis_doc)
             if not os.path.exists(bug_path):
                 errors.append(
@@ -524,7 +525,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
                 )
             else:
                 known = _extract_confirmed_dynamic_tags(bug_path)
-                for tag_name, _ in confirmed_refs:
+                for tag_name in unique_confirmed:
                     if tag_name not in known:
                         errors.append(
                             f"Confirmed dynamic bug tag '<BG-{tag_name}>' not found in "
@@ -552,9 +553,9 @@ class UnityChipCheckerStaticBugValidation(Checker):
             "message": (
                 f"UnityChipCheckerStaticBugValidation passed: "
                 f"no <LINK-BUG-[BG-TBD]> remaining, "
-                f"{len(confirmed_refs)} confirmed tag reference(s) verified."
+                f"{len(unique_confirmed)} confirmed tag reference(s) verified."
             ),
-            "confirmed_count": len(confirmed_refs),
+            "confirmed_count": len(unique_confirmed),
         }
 
 
