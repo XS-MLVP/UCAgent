@@ -3,7 +3,7 @@
 
 import shlex
 import sys
-from argparse import Namespace
+import types
 
 import ucagent.cli as cli
 
@@ -83,25 +83,111 @@ def test_silent_still_outputs_error(capsys):
         log.set_silent(False)
 
 
-def test_run_web_ui_branch_short_circuits(monkeypatch):
-    args = Namespace(
-        upgrade=None,
-        as_master=None,
-        workspace="/tmp/workspace",
-        dut="Adder",
-        web_ui=True,
-        web_ui_session=False,
+def test_run_web_ui_bootstrap_injects_web_ui_start(monkeypatch):
+    import ucagent.verify_agent as verify_agent
+
+    captured = {}
+
+    class _FakeVerifyAgent:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            captured["set_break"] = None
+            captured["run_called"] = False
+
+        def set_break(self, value=True):
+            captured["set_break"] = value
+
+        def run(self):
+            captured["run_called"] = True
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ucagent", "/tmp/workspace", "Adder", "--web-ui"],
     )
-    called = {"serve": False}
+    monkeypatch.setattr(verify_agent, "VerifyAgent", _FakeVerifyAgent)
+    def _unexpected_serve(argv=None):
+        raise AssertionError("unexpected call")
 
-    def _fake_get_args():
-        return args
-
-    def _fake_serve(argv=None):
-        called["serve"] = True
-
-    monkeypatch.setattr(cli, "get_args", _fake_get_args)
-    monkeypatch.setattr(cli, "_serve_web_ui", _fake_serve)
+    monkeypatch.setattr(cli, "_serve_web_ui", _unexpected_serve)
 
     cli.run()
-    assert called["serve"] is True
+
+    assert captured["kwargs"]["init_cmd"] == ["web_ui_start"]
+    assert captured["set_break"] is True
+    assert captured["run_called"] is True
+
+
+def test_run_web_ui_bootstrap_skips_parent_init_cmds(monkeypatch):
+    import ucagent.verify_agent as verify_agent
+    import ucagent.util.functions as functions
+
+    captured = {}
+
+    class _FakeVerifyAgent:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+
+        def set_break(self, value=True):
+            captured["set_break"] = value
+
+        def run(self):
+            captured["run_called"] = True
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ucagent",
+            "/tmp/workspace",
+            "Adder",
+            "--web-ui",
+            "--mcp-server",
+            "--mcp-server-port",
+            "-1",
+            "--master",
+            "127.0.0.1:9999",
+            "--loop",
+            "--loop-msg",
+            "hello",
+            "--icmd",
+            "status",
+        ],
+    )
+    def _unexpected_find_port():
+        raise AssertionError(
+            "find_available_port should not be called in web-ui bootstrap"
+        )
+
+    monkeypatch.setattr(functions, "find_available_port", _unexpected_find_port)
+    monkeypatch.setattr(verify_agent, "VerifyAgent", _FakeVerifyAgent)
+
+    cli.run()
+
+    assert captured["kwargs"]["init_cmd"] == ["web_ui_start"]
+    assert captured["set_break"] is True
+    assert captured["run_called"] is True
+
+
+def test_serve_web_ui_uses_fresh_event_loop_each_time(monkeypatch):
+    serve_called = []
+
+    class _FakeServer:
+        def __init__(self, command):
+            self.command = command
+
+        def serve(self):
+            serve_called.append(True)
+
+    fake_root = types.ModuleType("textual_serve")
+    fake_server_mod = types.ModuleType("textual_serve.server")
+    fake_server_mod.Server = _FakeServer
+
+    monkeypatch.setitem(sys.modules, "textual_serve", fake_root)
+    monkeypatch.setitem(sys.modules, "textual_serve.server", fake_server_mod)
+    monkeypatch.setattr(cli, "_build_web_ui_command", lambda argv=None: "fake command")
+
+    cli._serve_web_ui()
+    cli._serve_web_ui()
+
+    assert len(serve_called) == 2

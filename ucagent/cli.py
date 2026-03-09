@@ -228,7 +228,7 @@ def get_args() -> argparse.Namespace:
         "--web-ui",
         action="store_true",
         default=False,
-        help="Enable browser-based Textual UI via textual-serve (implies --tui)"
+        help="Start in PDB and auto-run 'web_ui_start' to launch browser-based Textual UI via textual-serve"
     )
     parser.add_argument(
         "--legacy-ui",
@@ -467,11 +467,7 @@ def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
 
 def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
     """Serve the Textual app in browser using textual-serve."""
-    try:
-        from textual_serve.server import Server
-    except Exception:
-        print("Fail: '--web-ui' requires 'textual-serve'. Install it with: pip install textual-serve")
-        sys.exit(1)
+    from textual_serve.server import Server
 
     command = _build_web_ui_command(argv)
     server = Server(command)
@@ -581,6 +577,7 @@ def do_check() -> None:
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
+    web_ui_bootstrap = bool(args.web_ui and not args.web_ui_session)
 
     # --upgrade: run before workspace/dut validation, then exit
     if getattr(args, 'upgrade', None) is not None:
@@ -606,10 +603,6 @@ def run() -> None:
         _p = _argparse.ArgumentParser(prog="ucagent")
         _p.error("the following arguments are required: workspace, dut")
 
-    if args.web_ui:
-        _serve_web_ui()
-        return
-
     from .verify_agent import VerifyAgent
     from .util.log import init_log_logger, init_msg_logger
     from .util.functions import append_python_path, find_available_port
@@ -628,27 +621,30 @@ def run() -> None:
     # Prepare initial commands
     init_cmds = []
     use_tui = args.tui or args.legacy_ui or args.web_ui
-    if use_tui:
+    if web_ui_bootstrap:
+        init_cmds += ["web_ui_start"]
+    elif use_tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
-    if args.mcp_server_port == -1:
-        args.mcp_server_port = find_available_port()
-    mcp_cmd = None
-    if args.mcp_server:
-        mcp_cmd = "start_mcp_server"
-    if args.mcp_server_no_file_tools:
-        mcp_cmd = "start_mcp_server_no_file_ops"
-    if mcp_cmd is not None:
-        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+    if not web_ui_bootstrap:
+        if args.mcp_server_port == -1:
+            args.mcp_server_port = find_available_port()
+        mcp_cmd = None
+        if args.mcp_server:
+            mcp_cmd = "start_mcp_server"
+        if args.mcp_server_no_file_tools:
+            mcp_cmd = "start_mcp_server_no_file_ops"
+        if mcp_cmd is not None:
+            init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
 
-    if args.mcp_server_port is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.port"] = args.mcp_server_port
+        if args.mcp_server_port is not None:
+            args.override = args.override or {}
+            args.override["mcp_server.port"] = args.mcp_server_port
 
-    if args.mcp_server_host is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.host"] = args.mcp_server_host
+        if args.mcp_server_host is not None:
+            args.override = args.override or {}
+            args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
         args.override = args.override or {}
@@ -664,7 +660,7 @@ def run() -> None:
                 template_cfg_overrides.update(cfg_data)
 
     # Handle --as-master: start this agent as a Master API server
-    if args.as_master is not None:
+    if not web_ui_bootstrap and args.as_master is not None:
         if args.as_master == "":
             init_cmds += ["master_api_start"]
         else:
@@ -676,7 +672,7 @@ def run() -> None:
                 init_cmds += [f"master_api_start {addr}"]
 
     # Handle --master: connect to an existing Master API server
-    if args.master is not None:
+    if not web_ui_bootstrap and args.master is not None:
         master_addr = args.master
         if ":" in master_addr:
             m_host, m_port = master_addr.rsplit(":", 1)
@@ -685,10 +681,10 @@ def run() -> None:
             master_cmd = f"connect_master_to {master_addr}"
         init_cmds += [master_cmd]
 
-    if args.icmd:
+    if not web_ui_bootstrap and args.icmd:
         init_cmds += args.icmd
     
-    if args.loop:
+    if not web_ui_bootstrap and args.loop:
         init_cmds += ["loop " + args.loop_msg]
 
     if args.append_py_path:

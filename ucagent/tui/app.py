@@ -119,8 +119,12 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         """Initialize after mounting."""
         # Install message echo handler and UI logger now that widgets are ready
         self.vpdb.agent.set_message_echo_handler(self.message_echo)
-        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
-        self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
+        self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None) or create_ui_logger(
+            self, level="INFO"
+        )
+        # Reuse the same logger object so MCP threads keep a valid reference.
+        self.vpdb.agent._mcps_logger = self._mcps_logger_prev
+        self.vpdb.agent._mcps_logger.bind_ui(self)
         self._ui_handlers_installed = True
 
         # Install console capture and signal handler
@@ -286,7 +290,11 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         if self._ui_handlers_installed:
             self.vpdb.agent.unset_message_echo_handler()
-            self.vpdb.agent._mcps_logger = self._mcps_logger_prev
+            self.vpdb.agent._mcps_logger.bind_ui(None)
+
+            mcp_running = self.vpdb.agent._mcps
+            if not mcp_running:
+                self.vpdb.agent._mcps_logger = self._mcps_logger_prev
             self._ui_handlers_installed = False
         self.restore_sigint_handler()
         self.restore_console_capture()
