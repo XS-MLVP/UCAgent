@@ -725,6 +725,31 @@ class PdbCmdApiServer:
             media_type, _ = mimetypes.guess_type(str(abs_path))
             return FileResponse(path=str(abs_path), media_type=media_type or "application/octet-stream")
 
+        # ── GET /surfer — waveform viewer (redirects to /surfer/) ─────
+        _SURFER_DIR = _STATIC_DIR / "surfer"
+
+        @app.get("/surfer", include_in_schema=False)
+        def serve_surfer_redirect():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(url="/surfer/")
+
+        @app.get("/surfer/", include_in_schema=False)
+        def serve_surfer_root():
+            abs_path = _SURFER_DIR / "index.html"
+            if not abs_path.is_file():
+                raise HTTPException(status_code=404, detail="Surfer waveform viewer not found")
+            return FileResponse(path=str(abs_path), media_type="text/html")
+
+        @app.get("/surfer/{path:path}", include_in_schema=False)
+        def serve_surfer_asset(path: str):
+            abs_path = (_SURFER_DIR / path).resolve()
+            if not str(abs_path).startswith(str(_SURFER_DIR)):
+                raise HTTPException(status_code=403, detail="Forbidden")
+            if not abs_path.is_file():
+                raise HTTPException(status_code=404, detail=f"Surfer asset '{path}' not found")
+            media_type, _ = mimetypes.guess_type(str(abs_path))
+            return FileResponse(path=str(abs_path), media_type=media_type or "application/octet-stream")
+
         return app
 
     # ------------------------------------------------------------------

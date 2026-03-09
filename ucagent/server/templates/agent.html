@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>UCAgent Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1117'/%3E%3Crect x='8' y='8' width='16' height='16' rx='2.5' fill='%231a1d25' stroke='%234f8ef7' stroke-width='1.5'/%3E%3Cline x1='8' y1='12.5' x2='3.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='16' x2='3.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='19.5' x2='3.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='12.5' x2='28.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='16' x2='28.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='19.5' x2='28.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Ccircle cx='3.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ctext x='16' y='20.5' font-family='monospace' font-size='8.5' font-weight='700' fill='%234f8ef7' text-anchor='middle'%3EUC%3C/text%3E%3C/svg%3E">
 <script>
 (function(){
   var CH='ucagent-dashboard';
@@ -499,6 +500,7 @@ function _extBadge(e){
 const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
 const _HTML_EXTS=new Set(["html","htm"]);
 const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
+const _WAVE_EXTS=new Set(["vcd","fst"]);
 
 function _renderFiles(entries){
   if(!entries.length){
@@ -530,15 +532,17 @@ function _renderFiles(entries){
     }else{
       const canEdit=_TEXT_EXTS.has(ext);
       const canView=canEdit||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":"&#128196;";
+      const canWave=_WAVE_EXTS.has(ext);
+      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":canWave?"&#127976;":"&#128196;";
       html+=`<tr>
-        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${canView?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
+        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canWave?`openWaveform('${esc(fpath)}')`:canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${(canView||canWave)?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
         <td>${_extBadge(ext)}</td>
         <td class="col-size">${_fmtSize(e.size)}</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
           ${canEdit?`<button class="act-btn" onclick="openEdit('${esc(fpath)}','${esc(name)}')">Edit</button>`:""}
-          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
+          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}
+          ${canWave?`<button class="act-btn" onclick="openWaveform('${esc(fpath)}')" title="Open waveform viewer">&#127976; Wave</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>
         </td>
       </tr>`;
@@ -602,7 +606,8 @@ async function fetchChangedFiles(){
       const recent=f.delta_seconds<180;
       const label=recent?`${ts} (${_fmtTimeDelta(f.delta_seconds)}) ${f.file}`:`${ts} ${f.file}`;
       const canView=_TEXT_EXTS.has(ext)||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const onclick=canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
+      const canWave=_WAVE_EXTS.has(ext);
+      const onclick=canWave?`openWaveform('${esc(fullPath)}');fetchFiles('${esc(parts.join("/"))}')`:canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
       return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(fullPath)}">${esc(label)}</span>`;
     }).join("");
   }catch(e){}
@@ -700,6 +705,12 @@ function toggleViewRaw(){
     body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
     _renderViewCode(_viewCurrentContent,_viewCurrentExt);
   }
+}
+
+/* ── waveform viewer ── */
+function openWaveform(path){
+  const fileUrl=window.location.origin+"/workspace/"+path.split("/").map(encodeURIComponent).join("/");
+  window.open("/surfer/?load_url="+encodeURIComponent(fileUrl),"_blank");
 }
 
 /* ── serve / download ── */
