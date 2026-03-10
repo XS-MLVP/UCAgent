@@ -11,6 +11,7 @@ import os
 import sys
 import argparse
 import bdb
+import shlex
 from typing import Dict, List, Any, Optional
 from .version import __version__
 
@@ -222,6 +223,12 @@ def get_args() -> argparse.Namespace:
         action="store_true", 
         default=False, 
         help="Enable TUI mode (Textual UI by default)"
+    )
+    parser.add_argument(
+        "--web-ui",
+        action="store_true",
+        default=False,
+        help="Start browser-based Web UI via textual-serve"
     )
     parser.add_argument(
         "--sys-tips", 
@@ -458,9 +465,53 @@ def get_args() -> argparse.Namespace:
               " Format: [config_file.yaml::]continue_prompt_key[|stop_prompt_key]"
               )
     )
+    parser.add_argument(
+        "--web-ui-session",
+        action="store_true",
+        default=False,
+        help=argparse.SUPPRESS,
+    )
 
     args = parser.parse_args()
     return args
+
+
+def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
+    """Build the subprocess command served by textual-serve."""
+    source_argv = list(sys.argv if argv is None else argv)
+    forwarded_args = [
+        arg for arg in source_argv[1:]
+        if arg not in {"--web-ui", "--web-ui-session"}
+    ]
+    if "--tui" not in forwarded_args:
+        forwarded_args.append("--tui")
+    if "--web-ui-session" not in forwarded_args:
+        forwarded_args.append("--web-ui-session")
+    cmd = [
+        "env",
+        "PYTHONWARNINGS=ignore",
+        sys.executable,
+        "-m",
+        "ucagent.cli",
+        *forwarded_args,
+    ]
+    return shlex.join(cmd)
+
+
+def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
+    """Serve the Textual app in a browser using textual-serve."""
+    from textual_serve.server import Server
+
+    command = _build_web_ui_command(argv)
+    server = Server(command)
+    server.serve()
+
+
+def _suppress_web_ui_session_logs() -> None:
+    """Silence non-error logs until the browser TUI finishes its handshake."""
+    import ucagent.util.log as log
+
+    log.set_silent(True)
 
 
 def upgrade(extra_pip_args: str = "") -> None:
@@ -560,11 +611,15 @@ def do_check() -> None:
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
+    web_ui_bootstrap = bool(args.web_ui and not args.web_ui_session)
 
     # --upgrade: run before workspace/dut validation, then exit
     if getattr(args, 'upgrade', None) is not None:
         upgrade(args.upgrade)
         sys.exit(0)
+
+    if args.web_ui_session:
+        _suppress_web_ui_session_logs()
 
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
@@ -599,27 +654,30 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    if args.tui:
+    if web_ui_bootstrap:
+        init_cmds += ["web_ui_start"]
+    elif args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
-    if args.mcp_server_port == -1:
-        args.mcp_server_port = find_available_port()
-    mcp_cmd = None
-    if args.mcp_server:
-        mcp_cmd = "start_mcp_server"
-    if args.mcp_server_no_file_tools:
-        mcp_cmd = "start_mcp_server_no_file_ops"
-    if mcp_cmd is not None:
-        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+    if not web_ui_bootstrap:
+        if args.mcp_server_port == -1:
+            args.mcp_server_port = find_available_port()
+        mcp_cmd = None
+        if args.mcp_server:
+            mcp_cmd = "start_mcp_server"
+        if args.mcp_server_no_file_tools:
+            mcp_cmd = "start_mcp_server_no_file_ops"
+        if mcp_cmd is not None:
+            init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
 
-    if args.mcp_server_port is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.port"] = args.mcp_server_port
+        if args.mcp_server_port is not None:
+            args.override = args.override or {}
+            args.override["mcp_server.port"] = args.mcp_server_port
 
-    if args.mcp_server_host is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.host"] = args.mcp_server_host
+        if args.mcp_server_host is not None:
+            args.override = args.override or {}
+            args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
         args.override = args.override or {}
@@ -635,7 +693,7 @@ def run() -> None:
                 template_cfg_overrides.update(cfg_data)
 
     # Handle --as-master: start this agent as a Master API server
-    if args.as_master is not None:
+    if not web_ui_bootstrap and args.as_master is not None:
         extra_master_opts = ""
         if getattr(args, 'as_master_key', None):
             extra_master_opts += f" --key {args.as_master_key}"
@@ -652,7 +710,7 @@ def run() -> None:
                 init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
 
     # Handle --export-cmd-api: start the CMD API server
-    if args.export_cmd_api is not None:
+    if not web_ui_bootstrap and args.export_cmd_api is not None:
         extra_cmd_api_opts = ""
         addr_part = args.export_cmd_api.strip()
         passwd_part = ""
@@ -672,21 +730,22 @@ def run() -> None:
 
     # Handle --master: connect to one or more Master API servers
     # Each entry is a list: [host[:port]] or [host[:port], access_key]
-    for master_tokens in args.master:
-        master_addr = master_tokens[0]
-        access_key = master_tokens[1] if len(master_tokens) > 1 else ""
-        extra_client_opts = f" --key {access_key}" if access_key else ""
-        if ":" in master_addr:
-            m_host, m_port = master_addr.rsplit(":", 1)
-            master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
-        else:
-            master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
-        init_cmds += [master_cmd]
+    if not web_ui_bootstrap:
+        for master_tokens in args.master:
+            master_addr = master_tokens[0]
+            access_key = master_tokens[1] if len(master_tokens) > 1 else ""
+            extra_client_opts = f" --key {access_key}" if access_key else ""
+            if ":" in master_addr:
+                m_host, m_port = master_addr.rsplit(":", 1)
+                master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
+            else:
+                master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
+            init_cmds += [master_cmd]
 
-    if args.icmd:
+    if not web_ui_bootstrap and args.icmd:
         init_cmds += args.icmd
     
-    if args.loop:
+    if not web_ui_bootstrap and args.loop:
         init_cmds += ["loop " + args.loop_msg]
 
     if args.append_py_path:
@@ -727,9 +786,10 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
     )
+    agent.web_ui_session = args.web_ui_session
     
     # Set break mode if human interaction or TUI is requested
-    if args.human or args.tui:
+    if args.human or args.tui or args.web_ui:
         agent.set_break(True)
     
     # Run the agent

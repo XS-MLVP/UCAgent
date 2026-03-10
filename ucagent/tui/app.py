@@ -124,8 +124,12 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._ui_handlers_installed = True
 
         # Install console capture and signal handler
-        self.install_console_capture()
+        if not getattr(self.vpdb.agent, "web_ui_session", False):
+            self.install_console_capture()
         self.install_sigint_handler()
+        if getattr(self.vpdb.agent, "web_ui_session", False):
+            from ucagent.util.log import set_silent
+            set_silent(False)
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:

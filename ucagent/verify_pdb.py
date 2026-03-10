@@ -754,6 +754,27 @@ class VerifyPDB(Pdb):
             self.init_cmd = None
         message("Exited TUI mode. Returning to PDB.")
 
+    def do_web_ui_start(self, arg):
+        """
+        Start browser-based Web UI in the foreground.
+        Usage: web_ui_start
+        """
+        if arg.strip():
+            echo_y("web_ui_start does not accept arguments.")
+            echo_y("Usage: web_ui_start")
+            return
+        prev_sigint = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, signal.default_int_handler)
+        try:
+            from ucagent.cli import _serve_web_ui
+            _serve_web_ui()
+        except KeyboardInterrupt:
+            echo_y("Web UI server interrupted by user.")
+        except Exception as e:
+            echo_r(str(e))
+        finally:
+            signal.signal(signal.SIGINT, prev_sigint)
+
     def do_export_agent(self, arg):
         """
         Export the current agent state to a file.
