@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>UCAgent Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1117'/%3E%3Crect x='8' y='8' width='16' height='16' rx='2.5' fill='%231a1d25' stroke='%234f8ef7' stroke-width='1.5'/%3E%3Cline x1='8' y1='12.5' x2='3.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='16' x2='3.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='19.5' x2='3.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='12.5' x2='28.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='16' x2='28.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='19.5' x2='28.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Ccircle cx='3.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ctext x='16' y='20.5' font-family='monospace' font-size='8.5' font-weight='700' fill='%234f8ef7' text-anchor='middle'%3EUC%3C/text%3E%3C/svg%3E">
 <script>
 (function(){
   var CH='ucagent-dashboard';
@@ -256,6 +257,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <div id="fm-bar">
       <span id="breadcrumb"></span>
       <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
+      <button class="fm-btn" onclick="openNewFile()">&#43; New File</button>
       <button class="fm-btn primary" onclick="openUpload()">&#8679; Upload</button>
     </div>
     <div id="changed-files-bar">
@@ -362,6 +364,58 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <div class="modal-footer">
       <button class="fm-btn" onclick="closeModal('delete-modal')">Cancel</button>
       <button class="fm-btn danger" id="delete-confirm-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- new-file modal -->
+<div class="modal-backdrop hidden" id="newfile-modal">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <h2>New File</h2>
+      <button class="modal-close" onclick="closeModal('newfile-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--text-dim);white-space:nowrap;min-width:60px">File name</label>
+        <input id="newfile-name" type="text" placeholder="e.g. notes.txt or subdir/script.py"
+               style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;font-family:var(--mono);outline:none"
+               oninput="_nfValidate()" onkeydown="if(event.key==='Enter')doNewFile()">
+      </div>
+      <div id="newfile-err" style="font-size:11px;color:var(--red);min-height:15px"></div>
+      <div style="font-size:11px;color:var(--text-dim)">Initial content (optional):</div>
+      <div class="editor-wrap" style="height:320px">
+        <div id="newfile-gutter" class="editor-gutter">1</div>
+        <textarea id="newfile-content" style="flex:1;background:var(--bg);color:var(--text);border:none;padding:10px;font-family:var(--mono);font-size:13px;line-height:1.6;resize:none;outline:none;overflow:auto"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="fm-btn" onclick="closeModal('newfile-modal')">Cancel</button>
+      <button class="fm-btn primary" id="newfile-create-btn" onclick="doNewFile()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- rename modal -->
+<div class="modal-backdrop hidden" id="rename-modal">
+  <div class="modal-box small">
+    <div class="modal-hdr">
+      <h2>Rename</h2>
+      <button class="modal-close" onclick="closeModal('rename-modal')">&#x2715;</button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:12px;color:var(--text-dim)">Current name: <span id="rename-old" style="color:var(--text);font-family:var(--mono)"></span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--text-dim);white-space:nowrap;min-width:60px">New name</label>
+        <input id="rename-input" type="text"
+               style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;font-family:var(--mono);outline:none"
+               onkeydown="if(event.key==='Enter')doRename()">
+      </div>
+      <div id="rename-err" style="font-size:11px;color:var(--red);min-height:15px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="fm-btn" onclick="closeModal('rename-modal')">Cancel</button>
+      <button class="fm-btn primary" onclick="doRename()">Rename</button>
     </div>
   </div>
 </div>
@@ -499,6 +553,7 @@ function _extBadge(e){
 const _IMG_EXTS=new Set(["png","jpg","jpeg","gif","svg","webp","ico","bmp"]);
 const _HTML_EXTS=new Set(["html","htm"]);
 const _TEXT_EXTS=new Set(["txt","md","py","js","ts","css","json","yaml","yml","sh","v","sv","c","h","cpp","hpp","java","rs","go","log","toml","ini","conf","xml","lua","rst","scala","r","tex"]);
+const _WAVE_EXTS=new Set(["vcd","fst"]);
 
 function _renderFiles(entries){
   if(!entries.length){
@@ -524,21 +579,25 @@ function _renderFiles(entries){
         <td class="col-size">—</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
+          <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
         </td>
       </tr>`;
     }else{
       const canEdit=_TEXT_EXTS.has(ext);
       const canView=canEdit||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":"&#128196;";
+      const canWave=_WAVE_EXTS.has(ext);
+      const icon=_IMG_EXTS.has(ext)?"&#128444;":_HTML_EXTS.has(ext)?"&#127760;":canWave?"&#127976;":"&#128196;";
       html+=`<tr>
-        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${canView?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
+        <td class="col-name"><span class="icon">${icon}</span><span class="fn" onclick="${canWave?`openWaveform('${esc(fpath)}')`:canView?`openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')`:""}" style="${(canView||canWave)?"cursor:pointer":"cursor:default"}">${esc(name)}</span></td>
         <td>${_extBadge(ext)}</td>
         <td class="col-size">${_fmtSize(e.size)}</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
           ${canEdit?`<button class="act-btn" onclick="openEdit('${esc(fpath)}','${esc(name)}')">Edit</button>`:""}
-          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
+          ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}
+          ${canWave?`<button class="act-btn" onclick="openWaveform('${esc(fpath)}')" title="Open waveform viewer">&#127976; Wave</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
+          <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')" title="Rename">&#9998;</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>
         </td>
       </tr>`;
@@ -565,6 +624,64 @@ async function saveFile(){
     refreshFiles();
   }catch(e){showErr(e.message);}
 }
+
+/* ── new file ── */
+function _nfValidate(){
+  const v=qs("#newfile-name").value.trim();
+  const err=qs("#newfile-err");
+  if(!v){err.textContent="";return false;}
+  if(/[<>:|?*\\]/.test(v)){err.textContent="Filename contains invalid characters.";return false;}
+  err.textContent="";
+  return true;
+}
+
+function _nfGutterUpdate(){
+  const ta=qs("#newfile-content"),g=qs("#newfile-gutter");
+  if(!ta||!g)return;
+  const n=ta.value.split("\n").length;
+  if(+(g.dataset.lines||0)===n)return;
+  g.dataset.lines=n;
+  let s="";for(let i=1;i<=n;i++)s+=i+"\n";
+  g.textContent=s;
+}
+
+function openNewFile(){
+  qs("#newfile-name").value=_curPath?_curPath+"/":"";
+  qs("#newfile-content").value="";
+  qs("#newfile-err").textContent="";
+  _nfGutterUpdate();
+  openModal("newfile-modal");
+  setTimeout(()=>{
+    const el=qs("#newfile-name");
+    el.focus();
+    el.setSelectionRange(el.value.length,el.value.length);
+  },50);
+}
+
+async function doNewFile(){
+  const nameEl=qs("#newfile-name");
+  const path=nameEl.value.trim();
+  if(!path){qs("#newfile-err").textContent="Please enter a file name.";return;}
+  if(!_nfValidate())return;
+  const content=qs("#newfile-content").value;
+  try{
+    await apiFetch("/api/file/new",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path,content})});
+    closeModal("newfile-modal");
+    const parts=path.split("/");parts.pop();
+    fetchFiles(parts.join("/"));
+  }catch(e){qs("#newfile-err").textContent=e.message;}
+}
+
+(function(){
+  document.addEventListener("DOMContentLoaded",function(){
+    const ta=document.getElementById("newfile-content");
+    const g=document.getElementById("newfile-gutter");
+    if(ta&&g){
+      ta.addEventListener("input",_nfGutterUpdate);
+      ta.addEventListener("scroll",()=>{g.scrollTop=ta.scrollTop;});
+    }
+  });
+})();
 
 /* ── changed files ── */
 function _fmtTimestamp(t){
@@ -602,7 +719,8 @@ async function fetchChangedFiles(){
       const recent=f.delta_seconds<180;
       const label=recent?`${ts} (${_fmtTimeDelta(f.delta_seconds)}) ${f.file}`:`${ts} ${f.file}`;
       const canView=_TEXT_EXTS.has(ext)||_IMG_EXTS.has(ext)||_HTML_EXTS.has(ext);
-      const onclick=canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
+      const canWave=_WAVE_EXTS.has(ext);
+      const onclick=canWave?`openWaveform('${esc(fullPath)}');fetchFiles('${esc(parts.join("/"))}')`:canView?`openView('${esc(fullPath)}','${esc(name)}','${esc(ext)}');fetchFiles('${esc(parts.join("/"))}')`:`fetchFiles('`+esc(parts.join("/"))+`')`;
       return `<span class="cf-chip${recent?' recent':''}" onclick="${onclick}" title="${esc(fullPath)}">${esc(label)}</span>`;
     }).join("");
   }catch(e){}
@@ -702,6 +820,12 @@ function toggleViewRaw(){
   }
 }
 
+/* ── waveform viewer ── */
+function openWaveform(path){
+  const fileUrl=window.location.origin+"/workspace/"+path.split("/").map(encodeURIComponent).join("/");
+  window.open("/surfer/?load_url="+encodeURIComponent(fileUrl),"_blank");
+}
+
 /* ── serve / download ── */
 function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURIComponent).join("/"),"_blank");}
 
@@ -723,6 +847,36 @@ function confirmDelete(path,name){
     }catch(e){showErr(e.message);}
   };
   openModal("delete-modal");
+}
+
+/* ── rename ── */
+let _renamePath="";
+function openRename(path,name){
+  _renamePath=path;
+  qs("#rename-old").textContent=name;
+  qs("#rename-input").value=name;
+  qs("#rename-err").textContent="";
+  openModal("rename-modal");
+  setTimeout(()=>{
+    const el=qs("#rename-input");
+    el.focus();
+    const dot=el.value.lastIndexOf(".");
+    el.setSelectionRange(0,dot>0?dot:el.value.length);
+  },50);
+}
+
+async function doRename(){
+  const newName=qs("#rename-input").value.trim();
+  if(!newName){qs("#rename-err").textContent="Name cannot be empty.";return;}
+  if(newName.includes("/")||newName.includes("\\")){
+    qs("#rename-err").textContent="Name cannot contain path separators.";
+    return;
+  }
+  try{
+    await apiFetch("/api/file/rename",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:_renamePath,new_name:newName})});
+    closeModal("rename-modal");
+    refreshFiles();
+  }catch(e){qs("#rename-err").textContent=e.message;}
 }
 
 /* ── upload ── */
