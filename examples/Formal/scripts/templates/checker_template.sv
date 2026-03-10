@@ -7,10 +7,16 @@ module {dut_name}_checker{param_decl} (
 );
 
   // ---------------------------------------------------------------------------
+  // 0. Default Clocking & Disable (simplifies SVA — no need to repeat @(posedge clk))
+  // ---------------------------------------------------------------------------
+  default clocking cb @(posedge clk); endclocking
+  default disable iff (!rst_n);
+
+  // ---------------------------------------------------------------------------
   // 1. Auxiliary Logic & Internal Reset
   // ---------------------------------------------------------------------------
-  // Identify reset polarity (assuming 'reset' is high-active, adjust if 'rst_n')
-  // wire rst_n = ~reset; 
+  // [LLM-TODO-1]: Define auxiliary wires/regs for complex property construction.
+  // Example: wire is_bypass = empty & write_valid & read_ready;
 
   // ---------------------------------------------------------------------------
   // 2. FG-ENVIRONMENT: Assumptions & Protocol Constraints

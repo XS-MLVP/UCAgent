@@ -1,4 +1,21 @@
 #coding=utf-8
+"""Formal verification checkers for the Formal workflow example.
+
+Each Checker class implements a ``do_check(timeout, **kwargs)`` method that
+returns ``(success: bool, result: object)``.
+
+Changes from previous version:
+- Removed unused ``EnvironmentIterationChecker`` (superseded by
+  ``EnvironmentDebuggingChecker``).
+- ``EnvSyntaxChecker`` now performs real SystemVerilog syntax validation via
+  ``pyslang`` instead of a naive string search.
+- ``PropertyStructureChecker`` validates that *Comb*-style properties contain
+  no temporal operators.
+- Bare ``except:`` clauses replaced with ``except Exception as e:`` and logged.
+- ``EnvironmentDebuggingChecker._parse_log()`` now delegates to the shared
+  ``parse_avis_log()`` utility in ``formal_tools``.
+"""
+
 import os
 import re
 import glob
@@ -8,7 +25,20 @@ from ucagent.checkers.base import Checker
 from ucagent.util.log import info, warning
 import psutil
 
+# Shared log parser – single source of truth
+from examples.Formal.scripts.formal_tools import parse_avis_log
+
+
+# =============================================================================
+# Basic Checkers
+# =============================================================================
+
 class FormalAnalysisChecker(Checker):
+    """检查形式化分析文件(验证规划文档)的基本结构。
+
+    .. deprecated::
+        该 Checker 当前未被 formal.yaml 引用，保留仅为向后兼容。
+    """
     def __init__(self, analysis_file, **kwargs):
         self.analysis_file = analysis_file
 
@@ -17,22 +47,35 @@ class FormalAnalysisChecker(Checker):
         path = self.get_path(self.analysis_file)
         if not os.path.exists(path):
             return False, {"error": f"Formal analysis file {self.analysis_file} not found."}
-        
+
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-            
+
         required_keywords = ["验证目标", "验证范围", "属性", "FormalMC"]
         missing = [k for k in required_keywords if k not in content]
-        
+
         if missing:
             return False, {"error": f"Formal analysis file missing keywords: {missing}"}
-            
+
         return True, "Formal analysis file check passed."
 
+
 class PropertyStructureChecker(Checker):
+    """验证 SVA 属性结构与规格文档的一致性。
+
+    增强项（相比上版）:
+    - 对 Comb 风格的属性，检查是否误用了时序操作符。
+    """
     def __init__(self, property_file, spec_file=None, **kwargs):
         self.property_file = property_file
         self.spec_file = spec_file
+
+    # Temporal operators that must NOT appear in Comb-style properties
+    _TEMPORAL_OPS = (
+        '@(posedge', '@(negedge', '##', '$past', '$rose', '$fell',
+        '$changed', '$stable',  # $stable is temporal in Comb context
+        '|=>', 's_eventually',
+    )
 
     def _extract_property_details(self, file_path: str) -> dict:
         """
@@ -57,9 +100,10 @@ class PropertyStructureChecker(Checker):
                 else:
                     # Direct definition in assert/assume/cover without separate property block
                     details[prop_name] = {'body': '', 'type': p_type}
-            
+
             return details
-        except Exception:
+        except Exception as e:
+            warning(f"Failed to extract property details from {file_path}: {e}")
             return {}
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
@@ -83,25 +127,25 @@ class PropertyStructureChecker(Checker):
         # Parse Spec Requirements
         with open(spec_path, 'r', encoding='utf-8') as f:
             spec_content = f.read()
-        
+
         # Regex to find: <CK_NAME> (Style: STYLE_STR), allowing optional markdown bold/italic markers
-        spec_items = re.findall(r'<(CK_[A-Za-z0-9_]+)>\s*[\*_]*\((Style:\s*[^)]+)\)[\*_]*', spec_content)
+        spec_items = re.findall(r'<(CK_[A-Za-z0-9_]+)>\s*[*_]*\((Style:\s*[^)]+)\)[*_]*', spec_content)
         if not spec_items:
             return False, {"error": f"No valid CK tags with (Style: ...) found in spec file {self.spec_file}."}
 
         errors = []
-        warnings = []
-        
+        warnings_list = []
+
         for ck_name, style_str in spec_items:
             style = style_str.lower()
-            
+
             # Check for Existence
             if ck_name not in implemented_map:
                 errors.append(f"Missing implementation for '{ck_name}' ({style_str})")
                 continue
-            
+
             impl = implemented_map[ck_name]
-            
+
             # 1. Check Keyword Consistency (Type Check)
             if 'assume' in style and impl['type'] != 'assume':
                 errors.append(f"'{ck_name}' is marked as 'Assume' in spec, but implemented as '{impl['type'] or 'unknown'}'")
@@ -112,30 +156,47 @@ class PropertyStructureChecker(Checker):
                 if impl['type'] in ['assume', 'cover']:
                     errors.append(f"'{ck_name}' is marked as assertion style ({style_str}), but implemented as '{impl['type']}'")
 
-            # 2. Check Symbolic Indexing Usage (Advanced Feature Check)
+            # 2. Comb-style temporal operator check (NEW)
+            if 'comb' in style and impl['body']:
+                for op in self._TEMPORAL_OPS:
+                    if op in impl['body']:
+                        errors.append(
+                            f"'{ck_name}' is Comb style but contains temporal operator '{op}'. "
+                            f"Comb properties must be purely combinational."
+                        )
+                        break  # one error per property is enough
+
+            # 3. Check Symbolic Indexing Usage (Advanced Feature Check)
             if 'symbolic' in style:
                 # Must use fv_idx or fv_mon_
                 if not re.search(r'fv_(idx|mon_)', impl['body']):
                     errors.append(f"'{ck_name}' is marked as 'Symbolic', but its implementation does not use 'fv_idx' or 'fv_mon_' signals.")
 
-            # 3. Placeholder Detection (Quality Check)
+            # 4. Placeholder Detection (Quality Check)
             if re.search(r'\|->\s*(1\'b1|1|true)\s*;', impl['body']):
-                warnings.append(f"'{ck_name}' implementation appears to be a vacuous placeholder (... |-> 1'b1).")
+                warnings_list.append(f"'{ck_name}' implementation appears to be a vacuous placeholder (... |-> 1'b1).")
 
         if errors:
             error_msg = f"Property Structure Consistency Check Failed for '{self.property_file}':\n"
             error_msg += "\n".join([f"  [ERROR] {e}" for e in errors])
-            if warnings:
-                error_msg += "\n" + "\n".join([f"  [WARN]  {w}" for w in warnings])
+            if warnings_list:
+                error_msg += "\n" + "\n".join([f"  [WARN]  {w}" for w in warnings_list])
             return False, {"error": error_msg}
 
         success_msg = f"All {len(spec_items)} CKs from spec are correctly implemented."
-        if warnings:
-            success_msg += "\nWarnings:\n" + "\n".join([f"  - {w}" for w in warnings])
-        
+        if warnings_list:
+            success_msg += "\nWarnings:\n" + "\n".join([f"  - {w}" for w in warnings_list])
+
         return True, success_msg
 
+
 class EnvSyntaxChecker(Checker):
+    """验证环境文件的 SystemVerilog 语法。
+
+    增强项（相比上版）:
+    - 使用 pyslang 进行真正的 SV 语法解析验证
+    - 检查 module 名是否为 {dut}_checker 格式
+    """
     def __init__(self, env_file, **kwargs):
         self.env_file = env_file
 
@@ -148,13 +209,39 @@ class EnvSyntaxChecker(Checker):
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        # Basic structure check
         if "module" not in content or "endmodule" not in content:
             return False, {"error": "Environment file does not look like a valid SystemVerilog module."}
 
-        if "bind" not in content and "bind" not in self.env_file:
-             pass
+        # Verify module name follows convention (optional but recommended)
+        module_match = re.search(r'\bmodule\s+(\w+)', content)
+        if module_match:
+            module_name = module_match.group(1)
+            if not module_name.endswith('_checker'):
+                # Warning, not error — the module might have a valid alternative name
+                info(f"Warning: checker module name '{module_name}' does not end with '_checker'")
 
-        return True, "Environment syntax check passed."
+        # Use pyslang for real syntax validation
+        errors = []
+        try:
+            tree = pyslang.SyntaxTree.fromText(content)
+            # Check for syntax diagnostics
+            for diag in tree.diagnostics:
+                diag_str = str(diag).strip()
+                if diag_str:
+                    errors.append(diag_str)
+        except Exception as e:
+            errors.append(f"pyslang parse error: {e}")
+
+        if errors:
+            error_msg = f"SystemVerilog syntax errors in {self.env_file}:\n"
+            error_msg += "\n".join([f"  - {e}" for e in errors[:10]])  # Cap at 10 errors
+            if len(errors) > 10:
+                error_msg += f"\n  ... and {len(errors) - 10} more errors"
+            return False, {"error": error_msg}
+
+        return True, "Environment syntax check passed (pyslang validated)."
+
 
 class WrapperTimingChecker(Checker):
     def __init__(self, wrapper_file, rtl_path, **kwargs):
@@ -186,6 +273,11 @@ class WrapperTimingChecker(Checker):
 
         return True, "Wrapper timing check passed. Wrapper includes clk and rst_n for formal verification."
 
+
+# =============================================================================
+# Script / Execution Checkers
+# =============================================================================
+
 class FormalScriptChecker(Checker):
     def __init__(self, script_file, **kwargs):
         self.script_file = script_file
@@ -195,17 +287,18 @@ class FormalScriptChecker(Checker):
         path = self.get_path(self.script_file)
         if not os.path.exists(path):
             return False, {"error": f"Formal script file {self.script_file} not found."}
-            
+
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-            
+
         required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
         missing = [k for k in required_cmds if k not in content]
-        
+
         if missing:
             return False, {"error": f"Formal script missing commands: {missing}"}
 
         return True, "Formal script check passed."
+
 
 class TclExecutionChecker(Checker):
     def __init__(self, tcl_script, dut_name, **kwargs):
@@ -223,11 +316,11 @@ class TclExecutionChecker(Checker):
 
         # Use the TCL script's directory as the execution and work directory
         exec_dir = os.path.dirname(tcl_path)
-        
+
         # The log file is now relative to the execution directory
         log_file_name = "avis.log"
         log_path = os.path.join(exec_dir, log_file_name)
-        
+
         # The -work_dir argument tells FormalMC where to place its output files.
         cmd = ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
         info(f"Running command: {' '.join(cmd)} in directory {exec_dir}")
@@ -240,7 +333,7 @@ class TclExecutionChecker(Checker):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=exec_dir # Execute from the script's directory
+                cwd=exec_dir  # Execute from the script's directory
             )
             self.set_check_process(worker, timeout)
             stdout_log, stderr_log = worker.communicate(timeout=timeout)
@@ -257,9 +350,9 @@ class TclExecutionChecker(Checker):
             return False, {"error": "The 'FormalMC' command was not found. Please ensure it is installed and in your PATH."}
         except subprocess.TimeoutExpired:
             try:
-                worker.terminate()
-                _, alive = psutil.wait_procs([worker], timeout=3)
-                if alive: worker.kill()
+                # Import shared helper for robust cleanup
+                from examples.Formal.scripts.formal_tools import _terminate_process_tree
+                _terminate_process_tree(worker, timeout=5)
             except Exception as ex:
                 warning(f"Error terminating process after timeout: {ex}")
             stdout_log, stderr_log = worker.communicate()
@@ -268,16 +361,15 @@ class TclExecutionChecker(Checker):
                 "stdout": stdout_log,
                 "stderr": stderr_log
             }
-        
+
         # --- Analyze the log to see if verification ran and produced results ---
         if not os.path.exists(log_path):
             return False, {"error": f"Log file '{log_file_name}' was not generated in '{os.path.dirname(self.tcl_script)}' by the verification run."}
-        
+
         with open(log_path, 'r', encoding='utf-8') as f:
             log_content = f.read()
 
         # Check for non-zero blackboxes in log statistics
-        # Pattern matches "blackboxes : N" where N > 0
         blackbox_stats = re.search(r"blackboxes\s*:\s*(\d+)", log_content, re.IGNORECASE)
         if blackbox_stats:
             count = int(blackbox_stats.group(1))
@@ -288,12 +380,6 @@ class TclExecutionChecker(Checker):
                     "stdout": stdout_log,
                     "stderr": stderr_log
                 }
-        elif "blackbox" in log_content.lower():
-             # If summary stats are missing but "blackbox" keyword appears, it might be an error.
-             # But we must be careful not to match benign text. 
-             # Given the tool produces a summary table, we largely rely on that. 
-             # Only fail if we are sure it's not a false positive.
-             pass
 
         # Per user request, check passes if ANY result is found, indicating a successful run.
         if re.search(r"Info-P016: property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)", log_content):
@@ -306,7 +392,7 @@ class TclExecutionChecker(Checker):
                 }
             else:
                  return True, "Verification run completed successfully. All properties passed."
-        
+
         # If no TRUE or FALSE results, it's a failure of the run itself.
         return False, {
             "error": "TCL script execution failed to produce results.",
@@ -315,223 +401,15 @@ class TclExecutionChecker(Checker):
             "stderr": stderr_log
         }
 
-class EnvironmentIterationChecker(Checker):
-    """
-    整合的环境迭代检查器，用于 environment_debugging_iteration 阶段。
-    功能包括：
-    1. 失败分类 (FailureClassification)
-    2. 环境质量检查 (EnvironmentQuality)
-    3. 综合诊断和修复建议
-    """
-    def __init__(self, log_file, checker_file, **kwargs):
-        self.log_file = log_file
-        self.checker_file = checker_file
-    
-    def _parse_log_failures(self, log_content: str) -> dict:
-        """Parse avis.log to extract failure information."""
-        failures = {
-            'trivially_true': [],
-            'false_properties': [],
-            'cover_failures': [],
-            'environment_issues': [],
-            'rtl_defects': []
-        }
-        
-        # Extract TRIVIALLY_TRUE properties
-        trivial_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+TRIVIALLY_TRUE', log_content)
-        failures['trivially_true'] = trivial_matches
-        
-        # Extract FALSE properties
-        false_matches = re.findall(r'property\s+([\w_.]+)\s+is\s+FALSE', log_content)
-        failures['false_properties'] = false_matches
-        
-        # Extract summary table
-        summary_section = re.search(r'Active assertions:.*?Verification status:', log_content, re.DOTALL)
-        if summary_section:
-            summary = summary_section.group()
-            # Parse each line: property_name : status
-            for line in summary.split('\n'):
-                match = re.search(r'(\S+)\s+:\s+(Pass|Fail|TrivT)', line)
-                if match:
-                    prop_name, status = match.groups()
-                    if status == 'TrivT':
-                        if prop_name not in failures['trivially_true']:
-                            failures['trivially_true'].append(prop_name)
-                    elif status == 'Fail':
-                        if prop_name not in failures['false_properties']:
-                            failures['false_properties'].append(prop_name)
-        
-        # Extract cover results
-        cover_summary = re.findall(r'([\w_.]+COVER)\s+:\s+(Pass|Fail)', log_content)
-        for name, status in cover_summary:
-            if status == 'Fail':
-                failures['cover_failures'].append(name)
-        
-        return failures
-    
-    def _classify_failure(self, prop_name: str, checker_content: str, log_content: str) -> str:
-        """
-        Classify a failure as 'environment' or 'rtl_defect'.
-        
-        环境问题的明确标准：
-        1. TRIVIALLY_TRUE：过约束，属性无法被触发
-        2. assume property失败：约束本身不满足
-        
-        RTL缺陷的明确标准：
-        1. assert property失败且有合理反例
-        2. Cover失败：可能是环境问题，但更可能是RTL设计缺陷导致状态不可达
-        """
-        # Check if it's already marked as TRIVIALLY_TRUE
-        if re.search(rf'{prop_name}\s+is\s+TRIVIALLY_TRUE', log_content):
-            return 'environment'
-        
-        # Check if this is an assume property
-        if re.search(rf'{prop_name}\s*:\s*assume\s+property', checker_content):
-            return 'environment'
-        
-        # Cover失败：不再默认当作环境问题
-        # 因为Cover失败往往是因为RTL设计缺陷导致某些状态无法达到
-        # 只有在明确检测到约束问题时才归类为环境问题
-        
-        # Default: assume it's an RTL defect if it has a reasonable failure
-        return 'rtl_defect'
-    
-    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """
-        执行综合的环境迭代检查。
-        返回：成功时通过，失败时提供详细的诊断和修复建议。
-        """
-        log_path = self.get_path(self.log_file)
-        checker_path = self.get_path(self.checker_file)
-        
-        if not os.path.exists(log_path):
-            return False, {"error": f"Log file '{self.log_file}' not found."}
-        
-        if not os.path.exists(checker_path):
-            return False, {"error": f"Checker file '{self.checker_file}' not found."}
-        
-        with open(log_path, 'r', encoding='utf-8') as f:
-            log_content = f.read()
-        
-        with open(checker_path, 'r', encoding='utf-8') as f:
-            checker_content = f.read()
-        
-        # Step 1: Parse and classify failures
-        failures = self._parse_log_failures(log_content)
-        
-        # Classify each false property
-        for prop in failures['false_properties']:
-            classification = self._classify_failure(prop, checker_content, log_content)
-            if classification == 'environment':
-                failures['environment_issues'].append(prop)
-            else:
-                failures['rtl_defects'].append(prop)
-        
-        # All TRIVIALLY_TRUE are environment issues
-        failures['environment_issues'].extend(failures['trivially_true'])
-        failures['environment_issues'] = list(set(failures['environment_issues']))
-        
-        # Step 2: Environment quality checks
-        issues = []
-        suggestions = []
-        
-        # Check 1: TRIVIALLY_TRUE (过约束) - 但需要验证属性是否真的存在于代码中
-        active_trivial_props = []
-        for prop in failures['trivially_true']:
-            # 提取属性名（去掉checker_inst.前缀）
-            prop_short = prop.replace('checker_inst.', '')
-            # 检查属性是否在checker代码中存在且未被注释
-            # 匹配: prop_name: assert/assume property
-            pattern = rf'{prop_short}\s*:\s*(assert|assume)\s+property'
-            if re.search(pattern, checker_content):
-                active_trivial_props.append(prop)
-        
-        if active_trivial_props:
-            issues.append(
-                f"❌ 发现 {len(active_trivial_props)} 个 TRIVIALLY_TRUE 属性（过约束）"
-            )
-            suggestions.append(
-                "- 检查并放松过强的 assume 约束\n"
-                "- 确认约束之间没有冲突\n"
-                f"- 问题属性: {', '.join([p.replace('checker_inst.', '') for p in active_trivial_props[:3]])}"
-                + ("..." if len(active_trivial_props) > 3 else "")
-            )
-        
-        # Check 2: fv_idx约束 - 只在真正使用fv_idx时才检查
-        # 检查wrapper中是否定义了fv_idx信号（未被注释）
-        has_fv_idx_signal = False
-        try:
-            wrapper_file = self.checker_file.replace('_checker.sv', '_wrapper.sv')
-            wrapper_path = self.get_path(wrapper_file)
-            if os.path.exists(wrapper_path):
-                with open(wrapper_path, 'r', encoding='utf-8') as f:
-                    wrapper_content = f.read()
-                # 检查是否有活跃的fv_idx定义（未被注释）
-                if re.search(r'^\s*input\s+.*fv_idx', wrapper_content, re.MULTILINE):
-                    has_fv_idx_signal = True
-        except:
-            pass
-        
-        if has_fv_idx_signal:
-            # 只在真正使用fv_idx时才检查约束
-            has_stable = bool(re.search(r'M_CK_FV_IDX_STABLE.*assume.*\$stable\(fv_idx\)', checker_content, re.DOTALL))
-            has_valid = bool(re.search(r'M_CK_FV_IDX_VALID.*assume.*fv_idx\s*<', checker_content, re.DOTALL))
-            has_known = bool(re.search(r'M_CK_FV_IDX_KNOWN.*assume.*\$isunknown\(fv_idx\)', checker_content, re.DOTALL))
-            
-            if not (has_stable and has_valid and has_known):
-                issues.append("⚠️  检测到 fv_idx 符号化索引，但缺少必要约束")
-                missing = []
-                if not has_stable: missing.append("M_CK_FV_IDX_STABLE")
-                if not has_valid: missing.append("M_CK_FV_IDX_VALID")
-                if not has_known: missing.append("M_CK_FV_IDX_KNOWN")
-                suggestions.append(
-                    f"- 添加缺失的 fv_idx 约束: {', '.join(missing)}\n"
-                    "- 参考模板添加三个强制约束防止假阳性"
-                )
-        
-        # Step 3: Generate result
-        total_failures = len(failures['false_properties']) + len(failures['trivially_true'])
-        
-        if issues:
-            error_msg = f"🔍 环境迭代检查发现 {len(issues)} 类问题需要修复\n\n"
-            error_msg += "**问题列表:**\n" + "\n".join([f"{i+1}. {issue}" for i, issue in enumerate(issues)])
-            error_msg += "\n\n**修复建议:**\n" + "\n".join(suggestions)
-            error_msg += f"\n\n**统计信息:**\n"
-            error_msg += f"- 真实环境问题: {len(active_trivial_props)} 个\n"
-            error_msg += f"- 疑似RTL缺陷: {len(failures['rtl_defects'])} 个\n"
-            error_msg += f"- Cover失败: {len(failures['cover_failures'])} 个 (可能由RTL缺陷导致)\n"
-            error_msg += f"- 总失败数: {total_failures} 个\n"
-            error_msg += f"\n**注意:** Cover属性失败不一定是环境问题，可能是RTL缺陷导致状态不可达。"
-            
-            return False, {
-                "error": error_msg,
-                "environment_issues": active_trivial_props,
-                "rtl_defects": failures['rtl_defects'],
-                "trivially_true": active_trivial_props,
-                "cover_failures": failures['cover_failures']
-            }
-        
-        # All checks passed
-        success_msg = "✅ 验证环境质量检查通过\n\n"
-        success_msg += f"- 无活跃的 TRIVIALLY_TRUE 属性\n"
-        success_msg += f"- 环境约束合理\n"
-        if has_fv_idx_signal:
-            success_msg += f"- 符号化索引约束完整\n"
-        success_msg += f"- 检测到RTL缺陷: {len(failures['rtl_defects'])} 个（将在下阶段分析）\n"
-        success_msg += f"- Cover失败: {len(failures['cover_failures'])} 个（可能由RTL缺陷导致）"
-        
-        return True, {
-            "message": success_msg,
-            "rtl_defects": failures['rtl_defects'],
-            "cover_failures": failures['cover_failures'],
-            "environment_quality": "excellent"
-        }
 
+# =============================================================================
+# Composite Checkers
+# =============================================================================
 
 class BugReportConsistencyChecker(Checker):
     """
     Bug 报告一致性检查器，用于 formal_execution 阶段。
-    
+
     从 checker.sv 中提取所有标记 // [RTL_BUG] 的属性，
     验证 bug_report.md 中是否为每个 RTL 缺陷都创建了对应章节。
     """
@@ -544,19 +422,19 @@ class BugReportConsistencyChecker(Checker):
     def _extract_rtl_defects_from_checker(self, checker_path: str) -> list:
         """
         从 checker.sv 中提取所有标记 [RTL_BUG] 的属性。
-        
+
         格式：
         // [RTL_BUG] 描述...
         A_CK_XXX: assert property(...);
-        
+
         返回：属性名列表
         """
         if not os.path.exists(checker_path):
             return []
-        
+
         with open(checker_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
-        
+
         rtl_defects = []
         for i, line in enumerate(lines):
             # 查找 [RTL_BUG] 标记
@@ -568,7 +446,7 @@ class BugReportConsistencyChecker(Checker):
                     if match:
                         rtl_defects.append(match.group(1))
                         break
-        
+
         return rtl_defects
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
@@ -578,11 +456,11 @@ class BugReportConsistencyChecker(Checker):
         验证 bug_report.md 是否为每个缺陷都创建了章节。
         """
         checker_path = self.get_path(self.property_file)
-        
+
         # Step 1: 从 checker.sv 提取 RTL 缺陷
         rtl_defects = self._extract_rtl_defects_from_checker(checker_path)
         info(f"从 checker.sv 中提取到 {len(rtl_defects)} 个标记 [RTL_BUG] 的属性")
-        
+
         if not rtl_defects:
             return True, {
                 "message": "✅ 无 RTL 缺陷需要报告",
@@ -600,11 +478,11 @@ class BugReportConsistencyChecker(Checker):
 
         with open(bug_report_path, 'r', encoding='utf-8') as f:
             bug_report_content = f.read()
-        
+
         # Step 3: 解析 bug report，提取已记录的属性
         # 支持多种格式：## Failed Property: `A_CK_XXX` 或 ## ❌ Failed Property: A_CK_XXX
         report_sections = re.split(r'##\s*❌?\s*Failed Property:\s*`?([\w.]+)`?', bug_report_content)
-        
+
         if len(report_sections) <= 1:
             return False, {
                 "error": "❌ Bug 报告格式不正确",
@@ -620,15 +498,8 @@ class BugReportConsistencyChecker(Checker):
             reported_props.add(short_name)
 
         # Step 4: 对比 RTL 缺陷与 bug report
-        missing_in_report = []
-        for defect in rtl_defects:
-            if defect not in reported_props:
-                missing_in_report.append(defect)
-        
-        extra_in_report = []
-        for reported in reported_props:
-            if reported not in rtl_defects:
-                extra_in_report.append(reported)
+        missing_in_report = [d for d in rtl_defects if d not in reported_props]
+        extra_in_report = [r for r in reported_props if r not in rtl_defects]
 
         # Step 5: 生成检查结果
         if missing_in_report or extra_in_report:
@@ -637,7 +508,7 @@ class BugReportConsistencyChecker(Checker):
                 issues.append(f"缺少报告的 RTL 缺陷 ({len(missing_in_report)} 个): {', '.join(missing_in_report)}")
             if extra_in_report:
                 issues.append(f"报告中多余的属性 ({len(extra_in_report)} 个): {', '.join(extra_in_report)}")
-            
+
             return False, {
                 "error": "❌ Bug 报告与 RTL 缺陷不一致",
                 "details": issues,
@@ -666,57 +537,61 @@ class ScriptGenerationChecker(Checker):
         self.spec_file = spec_file
         self.script_file = script_file
         self.tcl_script = tcl_script
-    
+
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
         """执行三阶段综合检查"""
-        
+
         # Stage 1: Formal Script Check
         info("📝 Stage 1/3: 检查TCL脚本语法...")
         script_checker = FormalScriptChecker(self.script_file)
         script_checker.get_path = self.get_path
         success, result = script_checker.do_check(timeout)
-        
+
         if not success:
             return False, {
                 "error": "❌ Stage 1/3 失败: TCL脚本检查未通过",
                 "details": result
             }
-        
+
         info(f"✅ Stage 1/3 通过: {result}")
-        
+
         # Stage 2: Property Structure Check
         info("🔍 Stage 2/3: 检查属性结构一致性...")
         prop_checker = PropertyStructureChecker(self.property_file, self.spec_file)
         prop_checker.get_path = self.get_path
         success, result = prop_checker.do_check(timeout)
-        
+
         if not success:
             return False, {
                 "error": "❌ Stage 2/3 失败: 属性结构检查未通过",
                 "details": result
             }
-        
+
         info(f"✅ Stage 2/3 通过: {result}")
-        
+
         # Stage 3: TCL Execution Check
         info("🚀 Stage 3/3: 执行TCL脚本并验证...")
         exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
         exec_checker.get_path = self.get_path
         success, result = exec_checker.do_check(timeout)
-        
+
         if not success:
             return False, {
                 "error": "❌ Stage 3/3 失败: TCL执行验证未通过",
                 "details": result
             }
-        
+
         info(f"✅ Stage 3/3 通过")
-        
+
         return True, {
             "message": "✅ 脚本生成阶段所有检查通过",
             "details": result
         }
 
+
+# =============================================================================
+# Coverage Analysis
+# =============================================================================
 
 class CoverageAnalysisChecker(Checker):
     """
@@ -877,6 +752,10 @@ class CoverageAnalysisChecker(Checker):
             }
 
 
+# =============================================================================
+# Environment Debugging (main iteration checker)
+# =============================================================================
+
 class EnvironmentDebuggingChecker(Checker):
     """
     环境调试检查器，用于 environment_debugging_iteration 阶段。
@@ -905,126 +784,27 @@ class EnvironmentDebuggingChecker(Checker):
         self.tcl_script = tcl_script
 
     def _parse_log(self, log_path: str) -> dict:
-        """
-        解析 avis.log，提取所有属性结果。
+        """Parse avis.log using the shared parser, returning a structured result.
 
-        日志格式优先级：
-        1. 汇总表格：  12  checker_inst.A_CK_XXX  :  Fail/Pass/TrivT
-        2. 详细日志：Info-P016: property checker_inst.XXX is FALSE/TRUE/TRIVIALLY_TRUE
-
-        返回:
-            {
-                "trivially_true": [prop_name, ...],  # assert 属性 TRIVIALLY_TRUE
-                "false_props": [prop_name, ...],     # assert 属性 Fail/FALSE（RTL缺陷）
-                "pass_props": [prop_name, ...],      # 通过的属性
-                "cover_pass": [prop_name, ...],      # cover 通过
-                "cover_fail": [prop_name, ...],      # cover 失败
-                "summary": {...}                     # 汇总统计
-            }
+        Delegates to ``parse_avis_log`` for the heavy lifting, then adds a
+        summary dict for convenience.
         """
+        parsed = parse_avis_log(log_path)
+
+        # Re-key to match previous API expected by do_check
         result = {
-            "trivially_true": [],
-            "false_props": [],
-            "pass_props": [],
-            "cover_pass": [],
-            "cover_fail": [],
-        }
-
-        if not os.path.exists(log_path):
-            return result
-
-        with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-
-        # 从 show_prop -summary 汇总表格中解析，格式：
-        #   12  checker_inst.A_CK_COUNT_NO_X             :  TrivT
-        #   8   checker_inst.A_CK_RST_RELEASE            :  Fail  (3)
-        #   5   checker_inst.A_CK_RST_COUT_RESET         :  Pass
-        #   18  checker_inst.C_CK_COVER_STATE_0          :  Pass  (2)
-        table_pattern = re.compile(
-            r'^\s*\d+\s+(checker_inst\.[\w.]+)\s*:\s*(TrivT|Fail|Pass|Undec)',
-            re.MULTILINE
-        )
-
-        for m in table_pattern.finditer(content):
-            prop_full = m.group(1)
-            # 去掉 checker_inst. 前缀，取实际属性名
-            prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
-            status = m.group(2)
-
-            is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
-
-            if status == 'TrivT':
-                if not is_cover:
-                    result["trivially_true"].append(prop)
-            elif status == 'Fail':
-                if is_cover:
-                    result["cover_fail"].append(prop)
-                else:
-                    result["false_props"].append(prop)
-            elif status == 'Pass':
-                if is_cover:
-                    result["cover_pass"].append(prop)
-                else:
-                    result["pass_props"].append(prop)
-
-        # 若汇总表格没有解析到，回退到逐行 Info-P016/Info-P014 解析
-        # 注意：log 中既有 "is FALSE" 也有 "false:" 格式
-        if not any([result["trivially_true"], result["false_props"], result["pass_props"]]):
-            # 解析 Info-P016 格式（最终结果）
-            p016_pattern = re.compile(
-                r'Info-P016:\s*property\s+(checker_inst\.[\w.]+)\s+is\s+(TRIVIALLY_TRUE|TRUE|FALSE)',
-                re.IGNORECASE
-            )
-            for m in p016_pattern.finditer(content):
-                prop_full = m.group(1)
-                prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
-                status = m.group(2).upper()
-                is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
-
-                if status == 'TRIVIALLY_TRUE':
-                    if not is_cover:
-                        result["trivially_true"].append(prop)
-                elif status == 'FALSE':
-                    if is_cover:
-                        result["cover_fail"].append(prop)
-                    else:
-                        result["false_props"].append(prop)
-                elif status == 'TRUE':
-                    if is_cover:
-                        result["cover_pass"].append(prop)
-                    else:
-                        result["pass_props"].append(prop)
-            
-            # 补充解析 Info-P014 格式（中间结果，格式：property false: xxx）
-            if not result["false_props"]:
-                p014_pattern = re.compile(
-                    r'Info-P014:\s*property\s+(false|true):\s+(checker_inst\.[\w.]+)',
-                    re.IGNORECASE
-                )
-                for m in p014_pattern.finditer(content):
-                    status_str = m.group(1).lower()
-                    prop_full = m.group(2)
-                    prop = prop_full.split('.')[-1] if '.' in prop_full else prop_full
-                    is_cover = prop.startswith('C_') or 'COVER' in prop.upper()
-                    
-                    if status_str == 'false':
-                        if is_cover:
-                            result["cover_fail"].append(prop)
-                        else:
-                            result["false_props"].append(prop)
-                    elif status_str == 'true':
-                        if is_cover:
-                            result["cover_pass"].append(prop)
-                        else:
-                            result["pass_props"].append(prop)
-
-        result["summary"] = {
-            "assert_pass": len(result["pass_props"]),
-            "assert_trivially_true": len(result["trivially_true"]),
-            "assert_false": len(result["false_props"]),
-            "cover_pass": len(result["cover_pass"]),
-            "cover_fail": len(result["cover_fail"]),
+            "trivially_true": parsed["trivially_true"],
+            "false_props":    parsed["false"],
+            "pass_props":     parsed["pass"],
+            "cover_pass":     parsed["cover_pass"],
+            "cover_fail":     parsed["cover_fail"],
+            "summary": {
+                "assert_pass":            len(parsed["pass"]),
+                "assert_trivially_true":  len(parsed["trivially_true"]),
+                "assert_false":           len(parsed["false"]),
+                "cover_pass":             len(parsed["cover_pass"]),
+                "cover_fail":             len(parsed["cover_fail"]),
+            },
         }
         return result
 
@@ -1210,7 +990,7 @@ class EnvironmentDebuggingChecker(Checker):
                     "  3. 判断：该属性是 RTL 本身的 Bug？还是环境约束不足导致工具找到了不真实的反例？\n"
                     "     环境问题特征：反例中输入信号有不合理的组合；或约束 assume 明显缺失\n"
                     "     RTL缺陷特征：反例展示了真实的 RTL 功能错误（如位宽错误、算术错误、逻辑错误）\n"
-                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上:\n"
+                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
                     "       // [RTL_BUG] <简短描述>\n"
                     "  5. 若确认为环境问题：修复对应 assume 约束，该属性修复后应变为 PASS\n"
                     "  6. 完成所有标记/修复后，再次调用 Check"
@@ -1224,7 +1004,7 @@ class EnvironmentDebuggingChecker(Checker):
                     "  3. 判断：该场景是 RTL Bug 导致不可达？还是 assume 过强排除了该场景？\n"
                     "     环境过约束特征：放宽 assume 后场景可到达\n"
                     "     RTL缺陷特征：逻辑上应可达但 RTL 实现有误\n"
-                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上:\n"
+                    "  4. 若确认为 RTL 缺陷：在 checker.sv 中该属性定义的前一行加上：\n"
                     "       // [RTL_BUG] <简短描述>\n"
                     "  5. 若确认为环境过约束：修复对应 assume，该 cover 修复后应变为 PASS\n"
                     "  6. 完成所有标记/修复后，再次调用 Check"

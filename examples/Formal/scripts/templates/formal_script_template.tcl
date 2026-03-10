@@ -30,7 +30,13 @@ read_design -top {top_module} -sysv -mfcu $RTL_FILES
 # Set timeout (default 100000s)
 set_opt -time 100000
 
-# Start proof
+# Engine Configuration (uncomment as needed):
+# prove -engine pdrx          ;# Full proof engine — recommended for complete verification
+# prove -engine bmc -depth 50 ;# Bounded Model Checking — fast debug, finds shallow bugs
+# set_opt -par -t 4           ;# Parallel execution — uses multi-core for faster convergence
+# For liveness properties (s_eventually), specialized liveness engine may be needed.
+
+# Start proof (default engine)
 prove
 
 # Report summary
