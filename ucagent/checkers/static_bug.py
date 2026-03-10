@@ -739,17 +739,7 @@ class UnityChipBatchCheckerStaticBug(Checker):
         }
 
     def do_check(self, is_complete: bool = False, **kw) -> Tuple[bool, object]:
-        """Drive batch static bug analysis; validate on completion.
-
-        Uses ``sync_source_task`` / ``sync_gen_task`` to reconcile the
-        file lists with the current filesystem and document state, then
-        delegates batch lifecycle management to ``do_complete()``.
-
-        When ``do_complete`` returns ``True`` (all files analyzed) the
-        checker runs :class:`UnityChipCheckerStaticBugFormat` for final
-        validation.  Otherwise the result dict is enriched with detailed
-        ``task`` instructions for the LLM.
-        """
+        """Drive batch static bug analysis."""
         all_files = self._get_all_source_files()
         if not all_files:
             return self._handle_no_source_files()
