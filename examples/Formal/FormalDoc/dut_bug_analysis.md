@@ -17,18 +17,54 @@
 
 ---
 
+## ⚠️ 标签格式强制规则（违反将被 Checker 拒绝）
+
+### 规则 1：标签必须独立成行
+标签不能与 Markdown 标题（`###`、`####`）混用，必须单独占一行。
+
+✅ 正确：
+```markdown
+<CK-ARITH-RESULT-CORRECTNESS>
+
+<BG-STATIC-001-SUM-WIDTH-ERROR>
+<LINK-BUG-[BG-TBD]>
+<FILE-Adder/Adder.v:10>
+```
+
+❌ 错误（Checker 无法解析）：
+```markdown
+### <CK-ARITH-RESULT-CORRECTNESS>
+#### <BG-STATIC-001-SUM-WIDTH-ERROR> Bug 标题
+```
+
+### 规则 2：标签名必须与功能检测点文档完全一致
+所有 `<CK-*>` 标签必须从 `03_{DUT}_functions_and_checks.md` 中精确复制，不可自行创造或添加前缀。
+
+❌ 错误：`<CK-CK-ENV-WIDTH-POSITIVE>` （多了一层 CK- 前缀）
+
+### 规则 3：子标签必须紧跟父标签
+每个 `<BG-STATIC-*>` 后立即跟 `<LINK-BUG-[BG-TBD]>` 和 `<FILE-*>`，中间不能插入其他内容。
+
+### 规则 4：NULL 标记与真实 Bug 不可共存
+- 有真实 Bug → 只记录 `<BG-STATIC-NNN-NAME>`，**不要**使用 `<BG-STATIC-000-NULL>`
+- 没有 Bug → 只使用 `<BG-STATIC-000-NULL>`（无需 LINK-BUG 子标签）
+
+### 规则 5：标签不要放在表格中
+统计汇总表格中引用 Bug ID 时使用纯文本（如 `BG-STATIC-001`），不要使用 `<>` 包裹的标签。
+
+---
+
 ## 按功能检测点的 Bug 分析
 
-<!-- 按照 FG/FC/CK 层级结构组织 -->
+<!-- 按照 FG/FC/CK 层级结构组织，标签必须独立成行 -->
 
 <FG-功能组名>
 
 <FC-功能点名>
 
-### <CK-检测点名>
+<CK-检测点名>
 
-#### <BG-STATIC-NNN-NAME> Bug 标题
-
+<BG-STATIC-NNN-BUG-NAME>
 <LINK-BUG-[BG-TBD]>
 <FILE-RTL文件路径:行号>
 
@@ -48,27 +84,25 @@
 **置信度**: 高 | 中 | 低
 **优先级**: 最高 | 高 | 中 | 低
 
-<!-- 若该检测点未发现 Bug，添加以下空记录 -->
-<!-- <BG-STATIC-000-NULL> -->
-
 ---
 
 ## 统计汇总
 
+<!-- 表格中不要使用 <> 标签，使用纯文本 -->
+
 | Bug ID | 类型 | 严重性 | 置信度 | 影响检测点数 | 动态 Bug 关联 |
 |--------|------|--------|--------|-------------|---------------|
-| BG-STATIC-001 | 描述 | 严重/中等/低 | 高/中/低 | N 个 | LINK-BUG-[BG-TBD] |
+| BG-STATIC-001 | 描述 | 严重/中等/低 | 高/中/低 | N 个 | 待验证 |
 
 ---
 
 ## LINK-BUG 标签生命周期
 
-每条静态 Bug 记录中的 `<LINK-BUG-*>` 标签在后续验证阶段（阶段11）中**必须**被替换：
+每条静态 Bug 记录中的 LINK-BUG 标签在后续验证阶段中**必须**被替换：
 
-| 初始状态 | 验证结果 | 替换为 | 说明 |
-|----------|----------|--------|------|
-| `<LINK-BUG-[BG-TBD]>` | 测试 Fail（Bug 证实） | `<LINK-BUG-[BG-XXX]>` | 同时在 bug_report.md 中添加动态 Bug 记录 |
-| `<LINK-BUG-[BG-TBD]>` | 测试 Pass（误报） | `<LINK-BUG-[BG-NA]>` | 可选添加误判说明 |
+- 初始状态：待验证
+- 测试 Fail（Bug 证实）：替换为具体 Bug 标签
+- 测试 Pass（误报）：替换为 BG-NA 标签
 
 ⚠️ **阶段完成条件**: 文档中不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留。
 
@@ -76,9 +110,9 @@
 
 ## Bug 记录必需字段清单
 
-- [ ] `<BG-STATIC-NNN-NAME>` 标签
-- [ ] `<LINK-BUG-[BG-TBD]>` 或 `<LINK-BUG-[BG-XXX]>` 或 `<LINK-BUG-[BG-NA]>`
-- [ ] `<FILE-路径:行号>` 标签
+- [ ] `<BG-STATIC-NNN-NAME>` 标签（独立成行）
+- [ ] `<LINK-BUG-[BG-TBD]>` 标签（紧跟 BG-STATIC 下一行）
+- [ ] `<FILE-路径:行号>` 标签（紧跟 LINK-BUG 下一行）
 - [ ] 问题描述
 - [ ] 触发条件
 - [ ] 根本原因
