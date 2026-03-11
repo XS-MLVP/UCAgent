@@ -267,7 +267,7 @@ stage:
           - "为每个功能点设计具体的属性检查点（<CK-检查点>）。"
           - "**强制要求**：每个标签后必须紧跟属性风格标注，例如：`<CK-ADD-BASIC> (Style: Comb)`。"
           - "**形式化完备性要求**：在设计检测点时，必须包含以下三类高级模式（参考 Guide_Doc/dut_functions_and_checks.md）："
-          - "  1. **稳定性检查 (Stability/Frame Conditions)**: 为所有存储/状态条目设计单点修改保证检测点（使用 fv_idx）。Frame Condition 是通过 $stable 断言"不该变的没有变"，是发现隐蔽 Bug 的利器。"
+          - "  1. **稳定性检查 (Stability/Frame Conditions)**: 为所有存储/状态条目设计单点修改保证检测点（使用 fv_idx）。Frame Condition 是通过 $stable 断言'不该变的没有变'，是发现隐蔽 Bug 的利器。"
           - "  2. **可达性覆盖 (Reachability)**: 为 Full, Empty, Hit, Error 等关键标志位设计 Cover 检测点，防止环境过约束导致证明无效。"
           - "  3. **活性验证 (Liveness)**: 为所有请求-响应通路设计 No-Starvation 检测点（使用 s_eventually）。"
           - "明确该检查点是安全性属性（Safety）、活性属性（Liveness）还是覆盖属性（Cover），并简要描述其逻辑。"
@@ -312,20 +312,20 @@ stage:
       - "  - 静态分析阶段不运行任何测试，仅通过源码审查发现问题"
       - "  - <file>标签路径须与源文件路径一致（相对workspace根目录，例如：{DUT}/dut.v）"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
-      - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
+      - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/04_{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
     reference_files:
       - "Guide_Doc/dut_bug_analysis.md"
       - "{DUT}/__init__.py"
-      - "{OUT}/{DUT}_functions_and_checks.md"
-      - "{OUT}/{DUT}_basic_info.md"
+      - "{OUT}/03_{DUT}_functions_and_checks.md"
+      - "{OUT}/04_{DUT}_basic_info.md"
     output_files:
-      - "{OUT}/{DUT}_static_bug_analysis.md"
+      - "{OUT}/04_{DUT}_static_bug_analysis.md"
     checker:
       - name: static_bug_batch_analysis_check
         clss: "UnityChipBatchCheckerStaticBug"
         args:
-          static_doc: "{OUT}/{DUT}_static_bug_analysis.md"
-          functions_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
+          static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
+          functions_and_checks_doc: "{OUT}/03_{DUT}_functions_and_checks.md"
           file_list:
             - "{RTL_PATH}/**/.vhd*"
             - "{RTL_PATH}/**/*.v"
@@ -473,65 +473,6 @@ stage:
           checker_file: "{OUT}/tests/{DUT}_checker.sv"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
 
-  - name: static_bug_validation
-    desc: "静态分析Bug验证与动态关联"
-    task:
-      - "目标：通过动态测试消除{OUT}/{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
-      - "第1步：扫描{OUT}/{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
-      - "第2步：检查{OUT}/{DUT}_bug_analysis.md及已有测试用例，确认是否有测试用例已能对应某些<LINK-BUG-[BG-TBD]>条目"
-      - "  - 若已有Fail测试用例可证实该静态Bug：直接执行第3步替换，无需重复编写"
-      - "  - 若尚无针对该Bug的测试：进入第3步编写验证用例"
-      - "第3步：针对每个仍为<LINK-BUG-[BG-TBD]>的静态Bug，编写动态验证测试用例"
-      - "  - 测试文件写入{OUT}/tests/test_{DUT}_static_verify_*.py"
-      - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
-      - "  - 通过`from {DUT}_api import *`导入env fixture和API"
-      - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
-      - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
-      - "  情况A - 测试Fail（Bug已证实）："
-      - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
-      - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
-      - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
-      - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
-      - "    3. 同步更新汇总表格中的'动态Bug关联'列"
-      - "  情况B - 测试Pass（误报）："
-      - "    1. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为 '<LINK-BUG-[BG-NA]>'"
-      - "    2. 在 '<LINK-BUG-[BG-NA]>' 下方可选添加一行误判说明（如 '- 误判说明：...'）"
-      - "    3. 同步更新汇总表格中的'动态Bug关联'列为 LINK-BUG-[BG-NA]"
-      - "第5步：重复第3-4步直到所有<LINK-BUG-[BG-TBD]>均被替换"
-      - "第6步：评估本次静态分析的整体效果：发现的潜在Bug数量、证实比例、误报比例及对整体验证的贡献"
-      - "注意："
-      - "  - 静态分析的误报是正常现象，无需为误报感到遗憾"
-      - "  - 阶段完成时{OUT}/{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
-      - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/{DUT}_bug_analysis.md中"
-      - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
-      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
-    reference_files:
-      - "{OUT}/{DUT}_static_bug_analysis.md"
-      - "{OUT}/{DUT}_bug_analysis.md"
-      - "Guide_Doc/dut_bug_analysis.md"
-      - "Guide_Doc/dut_test_case.md"
-    checker:
-      - name: no_conftest_file
-        clss: FilesMustNotExist
-        args:
-          target_files:
-            - ["{OUT}/**/conftest.py",
-               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
-      - name: no_pending_static_bugs
-        clss: "UnityChipCheckerStaticBugValidation"
-        args:
-          static_doc: "{OUT}/{DUT}_static_bug_analysis.md"
-          bug_analysis_doc: "{OUT}/{DUT}_bug_analysis.md"
-          functions_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
-      - name: static_confirmed_bugs_test_check
-        clss: "UnityChipCheckerTestCase"
-        args:
-          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
-          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
-          test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
-    need_human_check: false
-
   # ========== 阶段 8: 覆盖率分析与断言优化 ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
@@ -564,6 +505,9 @@ stage:
           coi_threshold: 95.0
 
   # ========== 阶段 9: RTL 缺陷分析与报告 ==========
+
+
+
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
     task:
@@ -595,6 +539,55 @@ stage:
           bug_report_file: "{OUT}/04_{DUT}_bug_report.md"
           log_file: "{OUT}/tests/avis.log"
 
+  - name: static_bug_validation
+    desc: "静态分析Bug验证与动态关联"
+    task:
+      - "目标：通过动态测试消除{OUT}/{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
+      - "第1步：扫描{OUT}/{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
+      - "第2步：检查{OUT}/04_{DUT}_bug_report.md及已有测试用例，确认是否有测试用例已能对应某些<LINK-BUG-[BG-TBD]>条目"
+      - "  - 若已有Fail测试用例可证实该静态Bug：直接执行第3步替换，无需重复编写"
+      - "  - 若尚无针对该Bug的测试：进入第3步编写验证用例"
+      - "第3步：针对每个仍为<LINK-BUG-[BG-TBD]>的静态Bug，编写动态验证测试用例"
+      - "  - 测试文件写入{OUT}/tests/test_{DUT}_static_verify_*.py"
+      - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
+      - "  - 通过`from {DUT}_api import *`导入env fixture和API"
+      - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
+      - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
+      - "  情况A - 测试Fail（Bug已证实）："
+      - "    1. 在{OUT}/04_{DUT}_bug_report.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
+      - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
+      - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
+      - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
+      - "    3. 同步更新汇总表格中的'动态Bug关联'列"
+      - "  情况B - 测试Pass（误报）："
+      - "    1. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为 '<LINK-BUG-[BG-NA]>'"
+      - "    2. 在 '<LINK-BUG-[BG-NA]>' 下方可选添加一行误判说明（如 '- 误判说明：...'）"
+      - "    3. 同步更新汇总表格中的'动态Bug关联'列为 LINK-BUG-[BG-NA]"
+      - "第5步：重复第3-4步直到所有<LINK-BUG-[BG-TBD]>均被替换"
+      - "第6步：评估本次静态分析的整体效果：发现的潜在Bug数量、证实比例、误报比例及对整体验证的贡献"
+      - "注意："
+      - "  - 静态分析的误报是正常现象，无需为误报感到遗憾"
+      - "  - 阶段完成时{OUT}/{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
+      - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/04_{DUT}_bug_report.md中"
+      - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
+      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
+    reference_files:
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+      - "{OUT}/04_{DUT}_bug_report.md"
+    checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+            - ["{OUT}/**/conftest.py",
+               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+      - name: no_pending_static_bugs
+        clss: "UnityChipCheckerStaticBugValidation"
+        args:
+          static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
+          bug_analysis_doc: "{OUT}/04_{DUT}_bug_report.md"
+          functions_and_checks_doc: "{OUT}/03_{DUT}_functions_and_checks.md"
+          
   # ========== 阶段 10: 验证总结与审查 ==========
   - name: verification_review_and_summary
     desc: "验证总结与审查"
