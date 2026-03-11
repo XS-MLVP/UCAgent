@@ -18,6 +18,7 @@ L_RED = "\033[91m"
 L_YELLOW = "\033[93m"
 L_BLUE = "\033[94m"
 
+__silent__: bool = False
 __log_logger__: Optional[logging.Logger] = None
 
 
@@ -45,6 +46,17 @@ def get_msg_logger() -> Optional[logging.Logger]:
         Message logger instance or None if not initialized.
     """
     return __msg_logger__
+
+
+def set_silent(silent: bool = True) -> None:
+    """Enable or disable non-error console logging output."""
+    global __silent__
+    __silent__ = bool(silent)
+
+
+def is_silent() -> bool:
+    """Return whether logging output is currently silenced."""
+    return __silent__
 
 
 def init_log_logger(name: str = "ucagent-log", level: int = logging.DEBUG,
@@ -83,6 +95,8 @@ def init_msg_logger(name: str = "ucagent-msg", level: int = logging.INFO,
 
 def msg_msg(msg: str, end: str = "\n"):
     """Prints a message with a newline at the end."""
+    if is_silent():
+        return
     logger = get_msg_logger()
     if logger:
         logger.info(msg, extra={"end": end})
@@ -90,11 +104,15 @@ def msg_msg(msg: str, end: str = "\n"):
 
 def message(msg: str, end: str = "\n"):
     """Prints a message."""
+    if is_silent():
+        return
     print(msg, flush=True, end=end)
     msg_msg(msg, end)
 
 
 def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
+    if is_silent() and level < logging.ERROR:
+        return
     logger = get_log_logger()
     if logger:
         extra = {"end": end}
@@ -112,18 +130,24 @@ def log_msg(msg: str, level = logging.INFO, end: str = "\n"):
 
 def debug(msg: str):
     """Prints a debug message."""
+    if is_silent():
+        return
     print(f"[{get_log_time_str()} DEBUG] {msg}")
     log_msg(msg, logging.DEBUG)
 
 
 def echo(msg: str):
     """Prints a message without any formatting."""
+    if is_silent():
+        return
     print(msg, flush=True)
     log_msg(msg, logging.INFO)
 
 
 def echo_g(msg: str):
     """Prints an info message green."""
+    if is_silent():
+        return
     print(f"{GREEN}%s{RESET}" % msg, flush=True)
     log_msg(msg, logging.INFO)
 
@@ -136,18 +160,24 @@ def echo_r(msg: str):
 
 def echo_y(msg: str):
     """Prints a warning message yellow."""
+    if is_silent():
+        return
     print(f"{YELLOW}%s{RESET}" % msg, flush=True)
     log_msg(msg, logging.WARNING)
 
 
 def info(msg: str):
     """Prints an info message."""
+    if is_silent():
+        return
     print(f"{GREEN}[{get_log_time_str()} INFO] %s{RESET}" % msg, flush=True)
     log_msg(msg, logging.INFO)
 
 
 def warning(msg: str):
     """Prints a warning message."""
+    if is_silent():
+        return
     print(f"{YELLOW}[{get_log_time_str()} WARN] %s{RESET}" % msg, flush=True)
     log_msg(msg, logging.WARNING)
 

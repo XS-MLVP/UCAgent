@@ -126,13 +126,12 @@ Screen {
 #indicator-row {
     height: auto;
     layout: horizontal;
-    border: transparent;
 }
 
 #console-loading {
     width: auto;
     height: auto;
-    background: transparent;
+    background: $surface;
     color: $accent;
     content-align: center middle;
     text-style: bold;
@@ -142,7 +141,7 @@ Screen {
     width: 1fr;
     padding: 0 1;
     color: $text;
-    background: transparent;
+    background: $surface;
     height: auto;
     display: none;
 }
