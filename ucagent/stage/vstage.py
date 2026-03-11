@@ -455,6 +455,7 @@ class VerifyStage(object):
                 "section_index": self.prefix,
                 "checker": [str(c) for c in self.checker],
                 "reached": self.is_reached(),
+                "is_completed": self.is_completed(),
                 "check_pass": self.check_pass,
                 "fail_count": self.fail_count,
                 "is_skipped": self.is_skipped(),

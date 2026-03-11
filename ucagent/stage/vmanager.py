@@ -388,8 +388,8 @@ class StageManager(object):
         self.mission = self.cfg.mission
         info(f"Initialized StageManager with {len(self.stages)} stages.")
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
-        self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
-        for i in range(self.stage_index + 1):
+        self.stage_index = min(max(0, self.force_stage_index), len(self.stages))
+        for i in range(min(self.stage_index + 1, len(self.stages))):
             self.stages[i].set_reached(True)
         stages_info = self.ucagent_info.get("stages_info", {})
 
@@ -400,15 +400,19 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
+            stage.set_reached(stage_info.get("reached", stage.is_reached()))
+            stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
+            stage.is_complete = stage_info.get("is_completed", stage.is_completed())
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
-        self.stages[self.stage_index].on_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.all_completed = False
+        self.all_completed = bool(self.ucagent_info.get("all_completed", False))
         if self.stage_skip_list:
             for si in self.stage_skip_list:
                 self.skip_stage(si)
@@ -417,9 +421,10 @@ class StageManager(object):
             for sui in self.stage_unskip_list:
                 self.unskip_stage(sui)
                 info(f"Stage {sui} is set to be unskipped.")
+        self._refresh_all_completed()
         info("Current stage index is " + str(self.stage_index) + ".")
-        self.time_begin = time.time()
-        self.time_end = None
+        self.time_begin = self.ucagent_info.get("time_begin", time.time())
+        self.time_end = self.ucagent_info.get("time_end", None)
         self.llm_fail_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_fail_refinement,
             self,
@@ -432,7 +437,8 @@ class StageManager(object):
                                       ToolStageDiff().set_function(self.tool_stage_diff),
                                       ToolStageCommit().set_function(self.tool_stage_commit)]
         )
-        self.stages[self.stage_index].hist_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].hist_init()
 
     def is_break(self):
         return self.agent.is_break()
@@ -549,6 +555,17 @@ class StageManager(object):
             return time.time() - self.time_begin
         return self.time_end - self.time_begin
 
+    def _compute_all_completed(self):
+        if not self.stages:
+            return True
+        if self.stage_index >= len(self.stages):
+            return True
+        return all(stage.is_skipped() or stage.is_completed() for stage in self.stages)
+
+    def _refresh_all_completed(self):
+        self.all_completed = self._compute_all_completed()
+        return self.all_completed
+
     def attach_todo_summary(self, data):
         assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
         if not self.force_todo:
@@ -632,6 +649,7 @@ class StageManager(object):
     def status(self):
         ret = OrderedDict()
         ret["mission"] = self.mission.name
+        ret["all_completed"] = self._compute_all_completed()
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
             ret["stage_list"].append({
@@ -737,19 +755,17 @@ class StageManager(object):
         return ret_data
 
     def save_stage_info(self):
+        all_completed = self._refresh_all_completed()
         info = self.agent.get_stat_info()
         info.update({
             "stage_index": self.stage_index,
-            "all_completed": self.all_completed,
+            "all_completed": all_completed,
             "time_begin": self.time_begin,
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
         })
         info["stages_info"] = {}
-        for idx in range(self.stage_index + 1):
-            if idx >= len(self.stages):
-                break
-            stage = self.stages[idx]
+        for idx, stage in enumerate(self.stages):
             stage_info = stage.detail()
             stage_info["time_cost"] = stage.get_time_cost()
             stage_info["meta_data"] = stage.meta_data
@@ -764,6 +780,7 @@ class StageManager(object):
     def next_stage(self):
         self.stage_index += 1
         self._go_skip_stage()
+        self._refresh_all_completed()
         self.save_stage_info()
 
     def _go_skip_stage(self):
@@ -849,12 +866,11 @@ class StageManager(object):
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
-            if self.stage_index >= len(self.stages):
+            if self.all_completed:
                 message = ("All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "
                            "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
-                self.all_completed = True
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
                 self.stages[self.stage_index].set_reached(True)
@@ -875,7 +891,7 @@ class StageManager(object):
         """
         Exit the agent and end the mission after all stages are completed.
         """
-        if self.all_completed:
+        if self._refresh_all_completed():
             self.time_end = time.time()
             self.agent.exit()  # Exit the agent if all stages are completed
             self.save_stage_info()
