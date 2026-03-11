@@ -1177,6 +1177,8 @@ async function clearConsole(){
   const resizer=document.getElementById("fm-resizer");
   const panel=document.getElementById("console-panel");
   if(!resizer||!panel)return;
+  const savedH=+localStorage.getItem('ucagent.console.h');
+  if(savedH>=60)panel.style.height=savedH+'px';
   let startY,startH;
   resizer.addEventListener("pointerdown",e=>{
     startY=e.clientY;startH=panel.offsetHeight;
@@ -1194,6 +1196,7 @@ async function clearConsole(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
+    try{localStorage.setItem('ucagent.console.h',panel.offsetHeight);}catch(e){}
   }
 })();
 
@@ -1211,6 +1214,8 @@ async function clearConsole(){
   const resizer=document.getElementById("sb-resizer");
   const sidebar=document.getElementById("sidebar");
   if(!resizer||!sidebar)return;
+  const savedW=+localStorage.getItem('ucagent.sidebar.w');
+  if(savedW>=160)sidebar.style.width=savedW+'px';
   let startX,startW;
   resizer.addEventListener("pointerdown",e=>{
     startX=e.clientX;startW=sidebar.offsetWidth;
@@ -1228,11 +1233,12 @@ async function clearConsole(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
+    try{localStorage.setItem('ucagent.sidebar.w',sidebar.offsetWidth);}catch(e){}
   }
 })();
 
 /* ── draggable modals ── */
-const _modalDragState={};
+const _modalDragState=(function(){try{return JSON.parse(localStorage.getItem('ucagent.modal.drag')||'{}');}catch(e){return {};}})();
 document.addEventListener('mousedown',function(e){
   if(e.button!==0)return;
   const hdr=e.target.closest('.modal-hdr');
@@ -1258,7 +1264,7 @@ document.addEventListener('mousedown',function(e){
     const newT=Math.max(0,Math.min(window.innerHeight-box.offsetHeight,startT+(me.clientY-startY)));
     box.style.left=newL+'px';
     box.style.top=newT+'px';
-    if(modalId)_modalDragState[modalId]={x:newL,y:newT};
+    if(modalId){_modalDragState[modalId]={x:newL,y:newT};try{localStorage.setItem('ucagent.modal.drag',JSON.stringify(_modalDragState));}catch(e){}}
   }
   function onUp(){
     document.body.style.userSelect='';
@@ -1272,7 +1278,7 @@ document.addEventListener('mousedown',function(e){
 });
 
 /* ── resizable modals ── */
-const _modalResizeState={};
+const _modalResizeState=(function(){try{return JSON.parse(localStorage.getItem('ucagent.modal.resize')||'{}');}catch(e){return {};}})();
 function _resizeModalContent(box){
   const hdr=box.querySelector('.modal-hdr');
   const footer=box.querySelector('.modal-footer');
@@ -1323,7 +1329,7 @@ function _applyStoredModalResize(modalId){
           box.style.width=newW+'px';box.style.maxWidth='none';
           box.style.height=newH+'px';box.style.maxHeight='none';
           _resizeModalContent(box);
-          if(modalId)_modalResizeState[modalId]={w:newW,h:newH};
+          if(modalId){_modalResizeState[modalId]={w:newW,h:newH};try{localStorage.setItem('ucagent.modal.resize',JSON.stringify(_modalResizeState));}catch(e){}}
         }
         function onUp(){
           document.body.style.userSelect='';
