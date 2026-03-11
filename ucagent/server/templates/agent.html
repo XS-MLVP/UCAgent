@@ -154,7 +154,7 @@ td.col-name .fn.dir{color:var(--accent)}
 /* ── modals ── */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center}
 .modal-backdrop.hidden{display:none}
-.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;max-height:90vh;width:860px;max-width:95vw}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;max-height:90vh;width:860px;max-width:95vw;position:relative}
 .modal-box.small{width:440px}
 .modal-hdr{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:8px}
 .modal-hdr h2{flex:1;font-size:14px;font-weight:600;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -169,6 +169,10 @@ td.col-name .fn.dir{color:var(--accent)}
 .upload-area input{display:none}
 .upload-area p{font-size:13px;margin-top:8px}
 #upload-list{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-dim);font-family:var(--mono)}
+/* ── modal resize handle ── */
+.modal-resize-handle{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:se-resize;z-index:10;border-bottom-right-radius:8px;opacity:0.4;transition:opacity .15s}
+.modal-resize-handle::after{content:'';position:absolute;right:3px;bottom:3px;width:11px;height:11px;background:linear-gradient(135deg,transparent 0%,transparent 30%,var(--text-dim) 30%,var(--text-dim) 42%,transparent 42%,transparent 58%,var(--text-dim) 58%,var(--text-dim) 70%,transparent 70%,transparent 86%,var(--text-dim) 86%,var(--text-dim) 100%)}
+.modal-resize-handle:hover{opacity:1}
 /* ── changed files bar ── */
 #changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
 #cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
@@ -333,6 +337,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button>
       <button class="fm-btn primary" onclick="saveFile()">Save</button>
     </div>
+    <div class="modal-resize-handle"></div>
   </div>
 </div>
 
@@ -348,6 +353,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" id="view-raw-btn" onclick="toggleViewRaw()" style="display:none;margin-right:auto">Show Raw</button>
       <button class="fm-btn" onclick="closeModal('view-modal')">Close</button>
     </div>
+    <div class="modal-resize-handle"></div>
   </div>
 </div>
 
@@ -393,6 +399,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" onclick="closeModal('newfile-modal')">Cancel</button>
       <button class="fm-btn primary" id="newfile-create-btn" onclick="doNewFile()">Create</button>
     </div>
+    <div class="modal-resize-handle"></div>
   </div>
 </div>
 
@@ -613,6 +620,7 @@ async function openEdit(path,name){
     _editPath=path;
     qs("#edit-title").textContent="Edit — "+name;
     qs("#edit-content").value=j.content||"";    _updateEditGutter();    openModal("edit-modal");
+    _applyStoredModalResize('edit-modal');
   }catch(e){showErr(e.message);}
 }
 
@@ -651,6 +659,7 @@ function openNewFile(){
   qs("#newfile-err").textContent="";
   _nfGutterUpdate();
   openModal("newfile-modal");
+  _applyStoredModalResize('newfile-modal');
   setTimeout(()=>{
     const el=qs("#newfile-name");
     el.focus();
@@ -804,6 +813,7 @@ async function openView(path,name,ext){
       }
     }
   }catch(e){body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;}
+  _applyStoredModalResize('view-modal');
 }
 
 function toggleViewRaw(){
@@ -818,6 +828,7 @@ function toggleViewRaw(){
     body.innerHTML='<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>';
     _renderViewCode(_viewCurrentContent,_viewCurrentExt);
   }
+  _applyStoredModalResize('view-modal');
 }
 
 /* ── waveform viewer ── */
@@ -1208,6 +1219,82 @@ async function clearConsole(){
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
   }
+})();
+
+/* ── resizable modals ── */
+const _modalResizeState={};
+function _resizeModalContent(box){
+  const hdr=box.querySelector('.modal-hdr');
+  const footer=box.querySelector('.modal-footer');
+  const body=box.querySelector('.modal-body');
+  if(!body)return;
+  const hdrH=hdr?hdr.offsetHeight:0;
+  const footH=footer?footer.offsetHeight:0;
+  const bodyH=Math.max(60,box.offsetHeight-hdrH-footH);
+  body.style.height=bodyH+'px';
+  body.style.maxHeight='none';
+  const editorWrap=body.querySelector('.editor-wrap');
+  if(editorWrap){
+    const cs=window.getComputedStyle(body);
+    const padV=parseFloat(cs.paddingTop||0)+parseFloat(cs.paddingBottom||0);
+    const gap=parseFloat(cs.gap||cs.rowGap||0)||0;
+    let otherH=0,siblings=0;
+    for(const c of body.children){if(c!==editorWrap){otherH+=c.offsetHeight;siblings++;}}
+    editorWrap.style.height=Math.max(80,bodyH-padV-otherH-siblings*gap)+'px';
+    return;
+  }
+  const viewWrap=body.querySelector('.view-wrap');
+  if(viewWrap){viewWrap.style.height=Math.max(80,bodyH)+'px';return;}
+  const viewMd=body.querySelector('#view-md');
+  if(viewMd){
+    const cs=window.getComputedStyle(viewMd);
+    const padV=parseFloat(cs.paddingTop||0)+parseFloat(cs.paddingBottom||0);
+    viewMd.style.height=Math.max(80,bodyH-padV)+'px';
+    return;
+  }
+  const viewFrame=body.querySelector('#view-frame');
+  if(viewFrame){viewFrame.style.height=Math.max(80,bodyH)+'px';}
+}
+function _applyStoredModalResize(modalId){
+  const s=_modalResizeState[modalId];
+  if(!s)return;
+  const box=qs('#'+modalId+' .modal-box');
+  if(!box)return;
+  box.style.width=s.w+'px';box.style.maxWidth='none';
+  box.style.height=s.h+'px';box.style.maxHeight='none';
+  _resizeModalContent(box);
+}
+(function(){
+  document.addEventListener('DOMContentLoaded',function(){
+    document.querySelectorAll('.modal-resize-handle').forEach(function(handle){
+      handle.addEventListener('pointerdown',function(e){
+        if(e.button!==0)return;
+        const box=handle.closest('.modal-box');
+        if(!box)return;
+        const backdrop=box.closest('.modal-backdrop');
+        const modalId=backdrop?backdrop.id:null;
+        const startX=e.clientX,startY=e.clientY;
+        const startW=box.offsetWidth,startH=box.offsetHeight;
+        handle.setPointerCapture(e.pointerId);
+        document.body.style.userSelect='none';
+        function onMove(me){
+          const newW=Math.min(window.innerWidth*0.98,Math.max(400,startW+(me.clientX-startX)));
+          const newH=Math.min(window.innerHeight*0.97,Math.max(260,startH+(me.clientY-startY)));
+          box.style.width=newW+'px';box.style.maxWidth='none';
+          box.style.height=newH+'px';box.style.maxHeight='none';
+          _resizeModalContent(box);
+          if(modalId)_modalResizeState[modalId]={w:newW,h:newH};
+        }
+        function onUp(){
+          document.body.style.userSelect='';
+          handle.removeEventListener('pointermove',onMove);
+        }
+        handle.addEventListener('pointermove',onMove);
+        handle.addEventListener('pointerup',onUp,{once:true});
+        e.preventDefault();e.stopPropagation();
+      });
+    });
+  });
 })();
 
 /* ── refresh all ── */
