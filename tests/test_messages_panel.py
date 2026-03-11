@@ -173,23 +173,7 @@ class TestMessagesPanelPayloadProcessing:
 
 
 class TestSoftWrap:
-    """Tests for _soft_wrap_text and _char_display_width static methods."""
-
-    def test_char_width_ascii(self):
-        """Test ASCII character width."""
-        assert MessagesPanel._char_display_width("A") == 1
-        assert MessagesPanel._char_display_width("1") == 1
-        assert MessagesPanel._char_display_width(" ") == 1
-
-    def test_char_width_cjk(self):
-        """Test CJK character width."""
-        assert MessagesPanel._char_display_width("中") == 2
-        assert MessagesPanel._char_display_width("文") == 2
-        assert MessagesPanel._char_display_width("日") == 2
-
-    def test_char_width_empty(self):
-        """Test empty string width."""
-        assert MessagesPanel._char_display_width("") == 0
+    """Tests for _soft_wrap_text static method."""
 
     def test_soft_wrap_no_wrap_needed(self):
         """Test text that fits within width."""

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import queue
-import unicodedata
 from collections import deque
 from typing import Any, ClassVar
 
+from rich.cells import cell_len, chop_cells
 from rich.segment import Segment
 from rich.text import Text
 from textual import events
@@ -39,6 +39,8 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         self._lines: list[Strip] = []  # Finalized rendered lines
         self._line_cache: LRUCache = LRUCache(1024)
         self._render_history: deque[Text] = deque(maxlen=self.max_messages)
+        # Track how many Strip lines each history entry produces (for pruning)
+        self._lines_per_entry: deque[int] = deque(maxlen=self.max_messages)
 
         # Batch queue (thread-safe)
         self._batch_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
@@ -50,18 +52,16 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         # Layout state
         self._last_wrap_width: int = 0
         self._widest_line_width: int = 0
-        self._start_line: int = 0  # For line pruning
+        self._start_line: int = 0  # For cache key stability
 
         # Deferred rendering
         self._size_known: bool = False
         self._deferred_payloads: list[str] = []
 
     def render_line(self, y: int) -> Strip:
-        """Render a line of content (ScrollView contract)."""
         scroll_x, scroll_y = self.scroll_offset
         content_y = scroll_y + y
 
-        # Total lines = finalized + pending
         total_finalized = len(self._lines)
         total_pending = len(self._pending_strips)
         total_lines = total_finalized + total_pending
@@ -70,27 +70,27 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
             width = self.scrollable_content_region.width
             return Strip.blank(width, self.rich_style)
 
-        # Check cache
-        key = (
-            content_y + self._start_line,
-            scroll_x,
-            self.scrollable_content_region.width,
-            self._widest_line_width,
-        )
-        if key in self._line_cache:
-            return self._line_cache[key].apply_style(self.rich_style)
+        width = self.scrollable_content_region.width
 
-        # Get line: finalized or pending
-        if content_y < total_finalized:
-            line = self._lines[content_y]
-        else:
+        if content_y >= total_finalized:
             pending_index = content_y - total_finalized
             line = self._pending_strips[pending_index]
+            return line.crop_extend(
+                scroll_x, scroll_x + width, self.rich_style
+            ).apply_style(self.rich_style)
 
-        # Crop and cache
-        width = self.scrollable_content_region.width
+        cache_key = (
+            content_y + self._start_line,
+            scroll_x,
+            width,
+            self._widest_line_width,
+        )
+        if cache_key in self._line_cache:
+            return self._line_cache[cache_key].apply_style(self.rich_style)
+
+        line = self._lines[content_y]
         cropped = line.crop_extend(scroll_x, scroll_x + width, self.rich_style)
-        self._line_cache[key] = cropped
+        self._line_cache[cache_key] = cropped
         return cropped.apply_style(self.rich_style)
 
     def _render_text_to_strips(self, text: Text) -> list[Strip]:
@@ -119,7 +119,7 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
 
     def on_mount(self) -> None:
         """Initialize periodic batch flushing."""
-        self.set_interval(0.2, self._flush_batch)
+        self.set_interval(0.1, self._flush_batch)
         self._size_known = True
 
         # Flush any deferred payloads
@@ -207,45 +207,41 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         self.refresh()
 
     def _finalize_current_line(self) -> None:
-        """Finalize the current line buffer into permanent lines."""
+        was_full = len(self._render_history) == self.max_messages
+        evicted_line_count = self._lines_per_entry[0] if was_full else 0
+
         if not self._current_line_buffer:
-            # Empty line — still track in history for proper pruning
-            was_full = len(self._render_history) == self.max_messages
             self._render_history.append(Text(""))
             width = max(1, self.scrollable_content_region.width or 80)
             self._lines.append(Strip.blank(width))
-            # Trigger pruning if deque was full (oldest entry was dropped)
-            if was_full:
-                self._start_line += 1
-                self._reflow_history()
+            self._lines_per_entry.append(1)
         else:
-            # Parse ANSI, add to history, soft-wrap, render
             text = Text.from_ansi(self._current_line_buffer)
-            was_full = len(self._render_history) == self.max_messages
             self._render_history.append(text.copy())
 
             wrap_width = max(1, self.scrollable_content_region.width or 80)
             wrapped = self._soft_wrap_text(text, wrap_width)
 
+            line_count = 0
             for wrapped_text in wrapped:
                 strips = self._render_text_to_strips(wrapped_text)
                 self._lines.extend(strips)
+                line_count += len(strips)
                 for strip in strips:
                     self._widest_line_width = max(
                         self._widest_line_width, strip.cell_length
                     )
+            self._lines_per_entry.append(line_count)
 
-            # Trigger pruning if deque was full (oldest entry was dropped)
-            if was_full:
-                self._start_line += 1
-                self._reflow_history()
+        if was_full and evicted_line_count > 0:
+            del self._lines[:evicted_line_count]
+            self._start_line += 1
+            self._line_cache.clear()
 
         self._current_line_buffer = ""
         self._pending_strips = []
-        self._line_cache.clear()
 
     def _update_pending_line(self) -> None:
-        """Render the current incomplete line as pending strips."""
         if not self._current_line_buffer:
             self._pending_strips = []
             return
@@ -258,9 +254,6 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         for wrapped_text in wrapped:
             strips = self._render_text_to_strips(wrapped_text)
             self._pending_strips.extend(strips)
-
-        # Invalidate cache for pending line positions
-        self._line_cache.clear()
 
     def _update_title(self) -> None:
         self.border_title = "Messages"
@@ -310,25 +303,28 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         self._check_and_restore_auto_scroll()
 
     def _reflow_history(self) -> None:
-        """Rebuild lines from render history."""
         if not self._render_history:
             return
 
         was_manual = self._manual_scroll
         self._lines.clear()
+        self._lines_per_entry.clear()
         self._line_cache.clear()
         self._widest_line_width = 0
 
         wrap_width = max(1, self.scrollable_content_region.width or 80)
         for text in self._render_history:
             wrapped = self._soft_wrap_text(text, wrap_width)
+            line_count = 0
             for wrapped_text in wrapped:
                 strips = self._render_text_to_strips(wrapped_text)
                 self._lines.extend(strips)
+                line_count += len(strips)
                 for strip in strips:
                     self._widest_line_width = max(
                         self._widest_line_width, strip.cell_length
                     )
+            self._lines_per_entry.append(line_count)
 
         total_lines = len(self._lines) + len(self._pending_strips)
         self.virtual_size = Size(self._widest_line_width, total_lines)
@@ -339,9 +335,9 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         self.refresh()
 
     def clear(self) -> None:
-        """Clear all content."""
         self._lines.clear()
         self._line_cache.clear()
+        self._lines_per_entry.clear()
         self._current_line_buffer = ""
         self._pending_strips = []
         self._start_line = 0
@@ -358,32 +354,20 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         wrapped: list[Text] = []
         for source_line in text.split(allow_blank=True):
             plain = source_line.plain
-            if not plain:
+            if not plain or cell_len(plain) <= width:
+                wrapped.append(source_line)
+                continue
+
+            chunks = chop_cells(plain, width)
+            if len(chunks) <= 1:
                 wrapped.append(source_line)
                 continue
 
             offsets: list[int] = []
-            current_width = 0
-            for i, ch in enumerate(plain):
-                ch_width = MessagesPanel._char_display_width(ch)
-                if current_width + ch_width > width and i > 0:
-                    offsets.append(i)
-                    current_width = ch_width
-                else:
-                    current_width += ch_width
+            pos = 0
+            for chunk in chunks[:-1]:
+                pos += len(chunk)
+                offsets.append(pos)
 
-            if offsets:
-                wrapped.extend(source_line.divide(offsets))
-            else:
-                wrapped.append(source_line)
+            wrapped.extend(source_line.divide(offsets))
         return wrapped
-
-    @staticmethod
-    def _char_display_width(ch: str) -> int:
-        if not ch:
-            return 0
-        if unicodedata.combining(ch):
-            return 0
-        if unicodedata.east_asian_width(ch) in {"F", "W"}:
-            return 2
-        return 1
