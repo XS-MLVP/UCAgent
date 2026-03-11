@@ -152,11 +152,11 @@ td.col-name .fn.dir{color:var(--accent)}
 #pdb-autocomplete .ac-item:hover,#pdb-autocomplete .ac-item.active{background:var(--accent);color:#fff}
 
 /* ── modals ── */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:block}
 .modal-backdrop.hidden{display:none}
-.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;max-height:90vh;width:860px;max-width:95vw;position:relative}
+.modal-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;max-height:90vh;width:860px;max-width:95vw;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
 .modal-box.small{width:440px}
-.modal-hdr{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:8px}
+.modal-hdr{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:8px;cursor:move;user-select:none}
 .modal-hdr h2{flex:1;font-size:14px;font-weight:600;color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .modal-close{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
 .modal-close:hover{color:var(--red)}
@@ -194,13 +194,13 @@ td.col-name .fn.dir{color:var(--accent)}
 .editor-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:13px;line-height:1.6;padding:10px 8px;text-align:right;user-select:none;overflow:hidden;min-width:44px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
 textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;padding:10px;font-family:var(--mono);font-size:13px;line-height:1.6;resize:none;outline:none;overflow:auto}
 /* ── view with line numbers ── */
-.view-wrap{display:flex;height:520px;overflow:hidden;border-radius:var(--radius);background:var(--bg)}
+.view-wrap{display:flex;height:100%;overflow:hidden;border-radius:var(--radius);background:var(--bg)}
 .view-gutter{background:var(--bg2);color:var(--text-dim);font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px 8px;text-align:right;user-select:none;overflow:hidden;min-width:42px;border-right:1px solid var(--border);white-space:pre;flex-shrink:0}
-#view-pre{flex:1;font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px;white-space:pre;overflow:auto;background:var(--bg);color:var(--text);margin:0}
-#view-frame{width:100%;height:520px;border:none;background:#fff}
+#view-pre{flex:1;font-family:var(--mono);font-size:12px;line-height:1.6;padding:12px;white-space:pre;overflow:auto;background:var(--bg);color:var(--text);margin:0;min-height:0}
+#view-frame{width:100%;height:100%;border:none;background:#fff}
 #view-img{max-width:100%;max-height:540px;display:block;margin:auto}
 /* ── markdown render ── */
-#view-md{padding:16px 20px;overflow:auto;height:520px;color:var(--text);font-size:13px;line-height:1.8}
+#view-md{padding:16px 20px;overflow:auto;height:100%;color:var(--text);font-size:13px;line-height:1.8;box-sizing:border-box}
 #view-md h1,#view-md h2,#view-md h3,#view-md h4{color:var(--text-bright);margin:18px 0 8px;padding-bottom:4px}
 #view-md h1,#view-md h2{border-bottom:1px solid var(--border)}
 #view-md p{margin:6px 0}
@@ -462,7 +462,17 @@ let _uploadFiles = [];
 function qs(s){return document.querySelector(s)}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function closeModal(id){qs("#"+id).classList.add("hidden")}
-function openModal(id){qs("#"+id).classList.remove("hidden")}
+function openModal(id){
+  qs("#"+id).classList.remove("hidden");
+  const box=qs("#"+id+" .modal-box");
+  if(!box)return;
+  const s=_modalDragState[id];
+  if(s){
+    box.style.left=s.x+'px';box.style.top=s.y+'px';box.style.transform='none';
+  }else{
+    box.style.left='50%';box.style.top='50%';box.style.transform='translate(-50%,-50%)';
+  }
+}
 function showErr(msg){alert("Error: "+msg)}
 
 async function apiFetch(path,opts){
@@ -793,13 +803,13 @@ async function openView(path,name,ext){
   openModal("view-modal");
   try{
     if(_HTML_EXTS.has(ext)){
-      body.style.padding="0";
+      body.style.padding="0";body.style.overflow="hidden";
       body.innerHTML=`<iframe id="view-frame" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" sandbox="allow-scripts allow-same-origin"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
-      body.style.padding="14px";
+      body.style.padding="14px";body.style.overflow="auto";
       body.innerHTML=`<img id="view-img" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" alt="${esc(name)}">`;
     }else{
-      body.style.padding="0";
+      body.style.padding="0";body.style.overflow="hidden";
       const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
       _viewCurrentContent=j.content||"";
       if(_MD_EXTS.has(ext)){
@@ -818,7 +828,7 @@ async function openView(path,name,ext){
 
 function toggleViewRaw(){
   const body=qs("#view-body"),btn=qs("#view-raw-btn");
-  body.style.padding="0";
+  body.style.padding="0";body.style.overflow="hidden";
   if(_viewIsRaw){
     _viewIsRaw=false;btn.textContent="Show Raw";
     body.innerHTML='<div id="view-md"></div>';
@@ -1221,6 +1231,46 @@ async function clearConsole(){
   }
 })();
 
+/* ── draggable modals ── */
+const _modalDragState={};
+document.addEventListener('mousedown',function(e){
+  if(e.button!==0)return;
+  const hdr=e.target.closest('.modal-hdr');
+  if(!hdr||e.target.closest('button'))return;
+  const box=hdr.closest('.modal-box');
+  if(!box)return;
+  const backdrop=box.closest('.modal-backdrop');
+  if(backdrop&&backdrop.classList.contains('hidden'))return;
+  const modalId=backdrop?backdrop.id:null;
+  // Convert CSS centering (left:50% + transform) to explicit px coords.
+  // backdrop is position:fixed;inset:0, so viewport origin == backdrop origin.
+  // getBoundingClientRect() values are therefore exactly the correct left/top px.
+  const rect=box.getBoundingClientRect();
+  box.style.left=rect.left+'px';
+  box.style.top=rect.top+'px';
+  box.style.transform='none';
+  const startX=e.clientX,startY=e.clientY;
+  const startL=rect.left,startT=rect.top;
+  document.body.style.userSelect='none';
+  hdr.style.cursor='grabbing';
+  function onMove(me){
+    const newL=Math.max(0,Math.min(window.innerWidth-box.offsetWidth,startL+(me.clientX-startX)));
+    const newT=Math.max(0,Math.min(window.innerHeight-box.offsetHeight,startT+(me.clientY-startY)));
+    box.style.left=newL+'px';
+    box.style.top=newT+'px';
+    if(modalId)_modalDragState[modalId]={x:newL,y:newT};
+  }
+  function onUp(){
+    document.body.style.userSelect='';
+    hdr.style.cursor='';
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+  e.preventDefault();
+});
+
 /* ── resizable modals ── */
 const _modalResizeState={};
 function _resizeModalContent(box){
@@ -1243,17 +1293,7 @@ function _resizeModalContent(box){
     editorWrap.style.height=Math.max(80,bodyH-padV-otherH-siblings*gap)+'px';
     return;
   }
-  const viewWrap=body.querySelector('.view-wrap');
-  if(viewWrap){viewWrap.style.height=Math.max(80,bodyH)+'px';return;}
-  const viewMd=body.querySelector('#view-md');
-  if(viewMd){
-    const cs=window.getComputedStyle(viewMd);
-    const padV=parseFloat(cs.paddingTop||0)+parseFloat(cs.paddingBottom||0);
-    viewMd.style.height=Math.max(80,bodyH-padV)+'px';
-    return;
-  }
-  const viewFrame=body.querySelector('#view-frame');
-  if(viewFrame){viewFrame.style.height=Math.max(80,bodyH)+'px';}
+  // view-wrap / view-md / view-frame use height:100% → they auto-fill the body
 }
 function _applyStoredModalResize(modalId){
   const s=_modalResizeState[modalId];
