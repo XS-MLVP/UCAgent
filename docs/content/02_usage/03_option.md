@@ -43,7 +43,7 @@ ucagent <workspace> <dut_name> {参数与选项}
 | --human            | -hm  | flag                       | 关闭     | 启动时进入人工输入/断点模式                                   |
 | --interaction-mode | -im  | standard/enhanced/advanced | standard | 交互模式；enhanced 含规划与记忆管理，advanced 含自适应策略    |
 | --tui              |      | flag                       | 关闭     | 启用终端 TUI 界面                                              |
-| --web-ui           |      | flag                       | 关闭     | 启用浏览器 Web UI（基于 textual-serve，隐含启用 `--tui`）     |
+| --web-ui           |      | [base_url:port[:password]] | 关闭     | 启用浏览器 Web UI（基于 textual-serve，隐含启用 `--tui`）。可选 `base_url:port[:password]`，其中 `password` 会启用 HTTP Basic Auth。 |
 | --loop             | -l   | flag                       | 关闭     | 启动后立即进入主循环（可配合 --loop-msg），适用于直接使用模式 |
 | --loop-msg         |      | str                        | 空       | 进入循环时注入的首条消息                                      |
 | --seed             |      | int                        | 随机     | 随机种子（未指定则自动随机）                                  |
@@ -220,7 +220,7 @@ python3 ucagent.py ./output Adder \
   - -hm：启动即人工可介入
   - -im enhanced：交互模式为增强（含规划与记忆）
   - --tui：启用 TUI
-  - --web-ui：启用浏览器 Web UI（需要安装 `textual-serve`）
+  - --web-ui：启用浏览器 Web UI（需要安装 `textual-serve`）；可写 `--web-ui 0.0.0.0:18000[:password]`
   - -l：启动后立即进入循环
   - --loop/--loop-msg：进入循环注入首条消息
   - --seed 12345：固定随机种子

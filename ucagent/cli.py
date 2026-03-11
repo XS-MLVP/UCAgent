@@ -11,6 +11,8 @@ import os
 import sys
 import argparse
 import bdb
+import base64
+import hmac
 import shlex
 from typing import Dict, List, Any, Optional
 from .version import __version__
@@ -226,9 +228,17 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--web-ui",
-        action="store_true",
-        default=False,
-        help="Start browser-based Web UI via textual-serve"
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[base_url:port[:password]]",
+        help=(
+            "Start browser-based Web UI via textual-serve. "
+            "Bare '--web-ui' uses defaults (localhost:8000, no auth). "
+            "Use '--web-ui base_url:port[:password]' to customize host/port "
+            "and optionally enable HTTP Basic Auth."
+        )
     )
     parser.add_argument(
         "--sys-tips", 
@@ -479,10 +489,26 @@ def get_args() -> argparse.Namespace:
 def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
     """Build the subprocess command served by textual-serve."""
     source_argv = list(sys.argv if argv is None else argv)
-    forwarded_args = [
-        arg for arg in source_argv[1:]
-        if arg not in {"--web-ui", "--web-ui-session"}
-    ]
+    raw_args = source_argv[1:]
+    forwarded_args = []
+    i = 0
+    while i < len(raw_args):
+        arg = raw_args[i]
+        if arg == "--web-ui-session":
+            i += 1
+            continue
+        if arg == "--web-ui":
+            # argparse optional-value form: "--web-ui" [value]
+            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
+                i += 2
+            else:
+                i += 1
+            continue
+        if arg.startswith("--web-ui="):
+            i += 1
+            continue
+        forwarded_args.append(arg)
+        i += 1
     if "--tui" not in forwarded_args:
         forwarded_args.append("--tui")
     if "--web-ui-session" not in forwarded_args:
@@ -501,10 +527,123 @@ def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
 def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
     """Serve the Textual app in a browser using textual-serve."""
     from textual_serve.server import Server
+    from aiohttp import web
+
+    class _AuthTextualServer(Server):
+        def __init__(self, *args, password: str = "", **kwargs):
+            super().__init__(*args, **kwargs)
+            self._password = password
+
+        async def _make_app(self):
+            app = await super()._make_app()
+            if not self._password:
+                return app
+
+            password = self._password
+
+            @web.middleware
+            async def _basic_auth_middleware(request, handler):
+                auth_header = request.headers.get("Authorization", "")
+                if _is_valid_basic_auth(auth_header, password):
+                    return await handler(request)
+                raise web.HTTPUnauthorized(
+                    text="Unauthorized",
+                    headers={"WWW-Authenticate": 'Basic realm="UCAgent Web UI"'},
+                )
+
+            app.middlewares.append(_basic_auth_middleware)
+            return app
 
     command = _build_web_ui_command(argv)
-    server = Server(command)
+    web_ui_spec = _extract_web_ui_spec(argv)
+    host, port, password = _resolve_web_ui_bind(web_ui_spec)
+    server = _AuthTextualServer(command, host=host, port=port, password=password)
     server.serve()
+
+
+def _extract_web_ui_spec(argv: Optional[List[str]] = None) -> str:
+    """Extract web-ui optional value from argv."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    for i, arg in enumerate(raw_args):
+        if arg == "--web-ui":
+            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
+                return raw_args[i + 1]
+            return ""
+        if arg.startswith("--web-ui="):
+            return arg.split("=", 1)[1]
+    return ""
+
+
+def _parse_web_ui_spec(spec: str) -> tuple[str, int, str]:
+    """Parse '--web-ui host:port[:password]' value."""
+    if not spec:
+        return "localhost", 8000, ""
+
+    parts = spec.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Expected format: base_url:port[:password]"
+        )
+
+    host = parts[0].strip()
+    if not host:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. base_url cannot be empty."
+        )
+
+    port_str = parts[1].strip()
+    try:
+        port = int(port_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Port must be an integer."
+        ) from e
+    if port < 1 or port > 65535:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Port must be in range 1..65535."
+        )
+
+    password = parts[2] if len(parts) == 3 else ""
+    return host, port, password
+
+
+def _resolve_web_ui_bind(spec: str) -> tuple[str, int, str]:
+    """Resolve final web-ui bind host/port/password with conflict policy."""
+    from .util.functions import find_available_port, is_port_free
+
+    host, port, password = _parse_web_ui_spec(spec)
+    if is_port_free(host, port):
+        return host, port, password
+
+    # Bare '--web-ui' uses defaults. If default 8000 is busy, auto-increase.
+    if spec.strip() == "":
+        return host, find_available_port(start_port=port, end_port=65535), password
+
+    raise ValueError(
+        f"Port {port} on host '{host}' is unavailable for --web-ui."
+    )
+
+
+def _is_valid_basic_auth(auth_header: str, password: str) -> bool:
+    """Validate HTTP Basic Auth header against expected password."""
+    if not password:
+        return True
+    if not auth_header or not auth_header.startswith("Basic "):
+        return False
+
+    encoded = auth_header[6:].strip()
+    if not encoded:
+        return False
+    try:
+        decoded = base64.b64decode(encoded).decode("utf-8")
+    except Exception:
+        return False
+
+    _, sep, pwd = decoded.partition(":")
+    if not sep:
+        return False
+    return hmac.compare_digest(pwd.encode("utf-8"), password.encode("utf-8"))
 
 
 def _suppress_web_ui_session_logs() -> None:
@@ -611,7 +750,8 @@ def do_check() -> None:
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
-    web_ui_bootstrap = bool(args.web_ui and not args.web_ui_session)
+    web_ui_enabled = args.web_ui is not None
+    web_ui_bootstrap = bool(web_ui_enabled and not args.web_ui_session)
 
     # --upgrade: run before workspace/dut validation, then exit
     if getattr(args, 'upgrade', None) is not None:
@@ -789,7 +929,7 @@ def run() -> None:
     agent.web_ui_session = args.web_ui_session
     
     # Set break mode if human interaction or TUI is requested
-    if args.human or args.tui or args.web_ui:
+    if args.human or args.tui or web_ui_enabled:
         agent.set_break(True)
     
     # Run the agent
