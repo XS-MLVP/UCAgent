@@ -207,6 +207,13 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="Enable ToDo related tools"
     )
+    parser.add_argument(
+        "--use-skill",
+        nargs='?',
+        const=True,
+        default=None,
+        help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
+    )
      # Miscellaneous arguments
     parser.add_argument(
         "--seed", 
@@ -586,6 +593,7 @@ def run() -> None:
         stage_skip_list=args.skip,
         stage_unskip_list=args.unskip,
         use_todo_tools=args.use_todo_tools,
+        use_skill=args.use_skill,
         reference_files=parse_reference_files(args.ref),
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,

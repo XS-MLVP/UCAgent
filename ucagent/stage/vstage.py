@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Verification stage management for UCAgent."""
 
+from typing import Dict, Any
 from ucagent.util.functions import import_class_from_str, find_files_by_pattern
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
@@ -41,6 +42,7 @@ class VerifyStage(object):
                  task,
                  checker,
                  reference_files,
+                 skill_list,
                  output_files,
                  prefix = "",
                  skip=False,
@@ -85,6 +87,7 @@ class VerifyStage(object):
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
+        self.skill_list = {k:[False,False,False] for k in skill_list}
         self.output_files = output_files
         self.tool_read_text = tool_read_text
         if self.tool_read_text is not None:
@@ -114,6 +117,17 @@ class VerifyStage(object):
 
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
+
+    def meta_set_skill_usage_journal(self, skill_usage_journal: Dict[str, Any]):
+        self.meta_data['skill_usage_journal'] = skill_usage_journal
+
+    def meta_get_skill_usage_journal(self) -> Dict[str, Any]:
+        return self.meta_data.get('skill_usage_journal', None)
+    
+    def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
+        if skill_name in self.skill_list:
+            [u,v,w] = self.skill_list[skill_name]
+            self.skill_list[skill_name] = [listed or u, read or v, used or w]
 
     def hist_init(self):
         if not os.path.exists(self.hist_sav_dir):
@@ -257,6 +271,10 @@ class VerifyStage(object):
         if file_path in self.reference_files:
             self.reference_files[file_path] = True
             info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
+        skill_name = file_path.split("/")[1]
+        if skill_name in self.skill_list:
+            self.set_usage_skill_list(skill_name, read=True)
+            info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description()}, "+\
@@ -488,6 +506,8 @@ class VerifyStage(object):
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
+        if self.cfg.use_skill:
+            data["skill_list"] = {k: ["Listed" if u else "Not Listed", "Read" if v else "Not Read", "Used" if w else "Not Used"] for k, [u,v,w] in self.skill_list.items()}
         if with_parent:
             if self.parent:
                 data["upper_task"] = self.parent.task_info(with_parent=False)
@@ -512,6 +532,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         checker = stage.get_value('checker', [])
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
+        skill_list = stage.get_value('skill_list', [])
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
@@ -540,6 +561,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             task=stage.task,
             checker=checker,
             reference_files=reference_files,
+            skill_list=skill_list,
             output_files=output_files,
             tool_read_text=tool_read_text,
             substages=substages,
@@ -560,6 +582,7 @@ def get_root_stage(cfg, workspace, tool_read_text):
         task=[],
         checker=[],
         reference_files=[],
+        skill_list=[],
         output_files=[],
     )
     root.substages = parse_vstage(cfg, cfg.stage, workspace, tool_read_text)

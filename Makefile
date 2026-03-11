@@ -49,10 +49,10 @@ init_%:
 	fi
 
 test_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --use-skill --no-embed-tools ${ARGS}
 
 mcp_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --no-embed-tools ${ARGS}
+	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --use-skill --mcp-server-no-file-tools --no-embed-tools ${ARGS}
 
 mcp_all_tools_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}

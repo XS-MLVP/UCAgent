@@ -441,6 +441,7 @@ stage:
 					markdown_file_list: "{OUT}/{DUT}_lint_report.md" # MD 文件路径或列表
 					no_line_break: true # 禁止字面量 "\n" 作为换行
 		reference_files: []
+    skill_list: []
 		output_files:
 			- "{OUT}/{DUT}_lint_report.md"
 		skip: false
@@ -840,6 +841,7 @@ stage:
     desc: "阶段描述"
     task: [...]
     reference_files: [...]
+    skill_list: [...]
     output_files: [...]
     checker: [...]
 ```
@@ -941,6 +943,10 @@ stage:
     reference_files:
       - "Guide_Doc/project_analysis_guide.md"
 
+    # 必用技能(Skill)
+    skill_list:
+      - "fail-analyze"
+
     # 预期输出文件（Output Files）
     output_files:
       - "{OUT}/{PROJECT}_analysis.md"
@@ -1016,6 +1022,7 @@ stage:
 | `desc`            | string       | 是   | 阶段的简短描述，显示在 TUI 界面    |
 | `task`            | list[string] | 是   | 任务列表，用自然语言描述要做的事   |
 | `reference_files` | list[string] | 否   | 参考文件列表，Agent 会读取这些文件 |
+| `skill_list`      | list[string] | 否   | 必用技能列表，Agent 将在本阶段使用这些技能 |
 | `output_files`    | list[string] | 否   | 预期输出文件，用于文档说明         |
 | `checker`         | list[object] | 否   | 检查器列表，验证阶段输出质量       |
 

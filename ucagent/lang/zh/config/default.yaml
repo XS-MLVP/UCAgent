@@ -13,6 +13,12 @@ hooks:
   cagent_init: >
     请通过工具RoleInfo获取你的角色信息和基本指导，然后完成任务。请使务必用工具ReadTextFile读取文件，这样才能让UCAgent知晓你阅读了哪些文件。
 
+# 忽略以下技能,不列举出来
+# ignore_skill_list: 
+
+# 通用技能,适合各阶段使用,始终列举
+general_skills: 
+    - "fail_analyze"
 
 mission:
   name: "{DUT}芯片验证任务"
@@ -93,8 +99,13 @@ mission:
       -   通过CurrentTips工具获取当前阶段的具体任务指导
       -   通过Status工具获取当前阶段状态，确认你处于哪个阶段
       -   通过AllStageJournal工具获取之前阶段的日志，了解之前阶段的工作内容和结果
+      {skill_system}
 
       现在调用`CurrentTips`，开始你的验证工作！
+    skill_system: |
+      - 你可以使用工具`SkillList`来获取所有可用技能的描述以及路径
+      - 在使用工具`CurrentTips`获得当前阶段的任务知道后,优先使用工具`SkillList`列举并学习可用技能
+      - 在计划通过`Complete`工具推进到下一个阶段前,需要通过工具`CheckSkillUsage`检查技能使用情况,本工具使用要早于`SetCurrentStageJournal`,因为技能使用情况可能会影响阶段任务的完成情况
     tips:
       allways:
         - "你需要通过Complete工具来判断你是否完成了当前阶段的任务"
@@ -122,6 +133,8 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
+    skill_list:
+      - "markdown-write"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
@@ -133,7 +146,6 @@ stage:
             args:
               files:
                 - "{DUT}/__init__.py"
-
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
     task:

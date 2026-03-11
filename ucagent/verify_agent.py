@@ -8,6 +8,7 @@ from .util.functions import (
     fmt_time_stamp,
     get_template_path,
     render_template_dir,
+    copytree_incremental,
     import_and_instance_tools,
 )
 from .util.functions import yam_str
@@ -32,12 +33,14 @@ import random
 import signal
 import copy
 import threading
+import shutil
+import os
 
 from .abackend import get_backend
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 from uuid import uuid4
-from typing import Any, Dict, List, Optional, OrderedDict
+from typing import Any, Dict, List, Optional, OrderedDict, Union
 import traceback
 
 
@@ -71,6 +74,7 @@ class VerifyAgent:
         stage_skip_list: Optional[List[int]] = None,
         stage_unskip_list: Optional[List[int]] = None,
         use_todo_tools: bool = False,
+        use_skill: Optional[Union[bool, str]] = None,
         reference_files: dict = None,
         no_history: bool = False,
         enable_context_manage_tools: bool = False,
@@ -127,6 +131,7 @@ class VerifyAgent:
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
+        self.cfg.use_skill = use_skill
         self.cfg.freeze()
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
@@ -162,6 +167,68 @@ class VerifyAgent:
             shutil.copytree(doc_guide_path, guide_doc_path)
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
+        
+        # Copy skills to workspace(incrementally and skip existing files)
+        self.tool_skill=[]
+        if self.cfg.use_skill:
+            # Load default skills
+            skills_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "lang",
+                self.cfg.lang,
+                "skills",
+            )
+            skills_dst_path = os.path.join(self.workspace, "skills")
+            ignore_skills = self.cfg.get_value("ignore_skill_list", [])
+            
+            if os.path.exists(skills_path):
+                # get skills to ignore from config
+                if ignore_skills:
+                    info(f"Ignore skills: {', '.join(ignore_skills)}")
+                try:
+                    copied, skipped, ignored = copytree_incremental(
+                        skills_path, 
+                        skills_dst_path, 
+                        skip_existing=True,
+                        ignore_dirs=ignore_skills
+                    )
+                    if copied:
+                        info(f"Copy {len(copied)} new skill file(s)")
+                    if skipped:
+                        info(f"Skip {len(skipped)} existing skill file(s)")
+                    if ignored:
+                        info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
+                except Exception as e:
+                    warning(f"Failed to copy skills: {e}")
+            else:
+                info(f"Skills not found at {skills_path}, skipping")
+            
+            # Load additional skills from custom path if provided
+            if isinstance(self.cfg.use_skill, str):
+                extra_skills_path = os.path.abspath(self.cfg.use_skill)
+                if os.path.exists(extra_skills_path) and os.path.isdir(extra_skills_path):
+                    info(f"Copying additional skills from {extra_skills_path}")
+                    try:
+                        copied, skipped, ignored = copytree_incremental(
+                            extra_skills_path, 
+                            skills_dst_path, 
+                            skip_existing=True,
+                            ignore_dirs=ignore_skills
+                        )
+                        if copied:
+                            info(f"Copy {len(copied)} additional skill file(s) from custom path")
+                        if skipped:
+                            info(f"Skip {len(skipped)} existing skill file(s) from custom path")
+                        if ignored:
+                            info(f"Ignore {len(ignored)} skill dir(s) from custom path: {', '.join(ignored)}")
+                    except Exception as e:
+                        warning(f"Failed to copy skills from {extra_skills_path}: {e}")
+                else:
+                    warning(f"Additional skills path does not exist or is not a directory: {extra_skills_path}")
+            
+            self.tool_skill += [SkillList(self.workspace).bind(self)]
+            
+        
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
         )
@@ -377,7 +444,8 @@ class VerifyAgent:
             + self.tool_list_task
             + self.tool_list_ext
             + self.planning_tools
-            + self.context_tools,
+            + self.context_tools
+            + self.tool_skill,
             self.cfg.tools.as_dict(),
         )
         self.pdb = VerifyPDB(
@@ -490,7 +558,7 @@ class VerifyAgent:
             host = self.cfg.mcp_server.host
         if port is None:
             port = self.cfg.mcp_server.port
-        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
+        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext + self.tool_skill
         if not no_file_ops:
             tools += self.tool_list_file
         self.cfg.update_template(
@@ -610,7 +678,9 @@ class VerifyAgent:
 
     def get_default_system_prompt(self):
         """Get the default system prompt for the agent."""
-        return self.cfg.mission.prompt.get_value("system", "").strip()
+        system = self.cfg.mission.prompt.get_value("system", "").strip()
+        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.use_skill else "")
+        return system
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""
