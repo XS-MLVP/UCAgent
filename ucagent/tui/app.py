@@ -123,9 +123,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
         self._ui_handlers_installed = True
 
-        # Install console capture and signal handler
-        if not getattr(self.vpdb.agent, "web_ui_session", False):
-            self.install_console_capture()
+        # Install console capture and signal handler for both TUI and web-ui
+        # sessions so stdout/log output appears in the Console panel.
+        self.install_console_capture()
         self.install_sigint_handler()
         if getattr(self.vpdb.agent, "web_ui_session", False):
             from ucagent.util.log import set_silent

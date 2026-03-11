@@ -92,6 +92,8 @@ make mcp_Adder  # workspace is set to output directory
 #   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 # Browser Web UI mode (requires textual-serve):
 #   ucagent output/ Adder -s -hm --web-ui --mcp-server-no-file-tools --no-embed-tools
+# Custom Web UI host/port/password (HTTP Basic Auth):
+#   ucagent output/ Adder -s -hm --web-ui 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 The default MCP Server address is: http://127.0.0.1:5000/mcp

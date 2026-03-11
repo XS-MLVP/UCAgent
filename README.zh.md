@@ -91,6 +91,8 @@ make mcp_Adder  # workspace 设置为当前目录下的 output
 #   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
 # 浏览器 Web UI 模式（需要 textual-serve）：
 #   ucagent output/ Adder -s -hm --web-ui --mcp-server-no-file-tools --no-embed-tools
+# 自定义 Web UI 地址/端口/密码（HTTP Basic Auth）：
+#   ucagent output/ Adder -s -hm --web-ui 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 MCP Server的默认地址为：http://127.0.0.1:5000/mcp
