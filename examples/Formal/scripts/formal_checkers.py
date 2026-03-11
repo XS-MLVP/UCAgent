@@ -128,20 +128,25 @@ class PropertyStructureChecker(Checker):
         with open(spec_path, 'r', encoding='utf-8') as f:
             spec_content = f.read()
 
-        # Regex to find: <CK_NAME> (Style: STYLE_STR), allowing optional markdown bold/italic markers
-        spec_items = re.findall(r'<(CK_[A-Za-z0-9_]+)>\s*[*_]*\((Style:\s*[^)]+)\)[*_]*', spec_content)
+        # Regex to find: <CK-NAME> or <CK_NAME> (Style: STYLE_STR), allowing optional markdown bold/italic markers
+        # Supports both CK- (document-side) and CK_ (legacy) formats
+        spec_items = re.findall(r'<(CK[-_][A-Za-z0-9_-]+)>\s*[*_]*\((Style:\s*[^)]+)\)[*_]*', spec_content)
         if not spec_items:
             return False, {"error": f"No valid CK tags with (Style: ...) found in spec file {self.spec_file}."}
 
         errors = []
         warnings_list = []
 
-        for ck_name, style_str in spec_items:
+        for ck_name_raw, style_str in spec_items:
             style = style_str.lower()
+
+            # Normalize: convert document-side CK- format to code-side CK_ format
+            # e.g., CK-DATA-STABILITY -> CK_DATA_STABILITY
+            ck_name = ck_name_raw.replace('-', '_')
 
             # Check for Existence
             if ck_name not in implemented_map:
-                errors.append(f"Missing implementation for '{ck_name}' ({style_str})")
+                errors.append(f"Missing implementation for '{ck_name_raw}' ({style_str})")
                 continue
 
             impl = implemented_map[ck_name]
