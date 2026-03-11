@@ -37,6 +37,32 @@
 
 ---
 
+## 1.5 SVA 属性命名规范
+
+### 名称前缀映射（文档 → 代码）
+
+文档中的 `<CK-...>` 检测点在 SVA 代码中需按以下规则命名：
+
+| 文档标签 | property 定义 | 实例化标签 | 说明 |
+|----------|-------------|-----------|------|
+| `<CK-NAME>` | `property CK_NAME;` | `A_CK_NAME: assert property(CK_NAME);` | Comb/Seq 风格 |
+| `<CK-NAME>` | `property CK_NAME;` | `M_CK_NAME: assume property(CK_NAME);` | Assume 风格 |
+| `<CK-NAME>` | `property CK_NAME;` | `C_CK_NAME: cover property(CK_NAME);` | Cover 风格 |
+
+> **规则**：property 定义统一使用 `CK_NAME`（无前缀），实例化语句根据意图添加 `A_`/`M_`/`C_` 前缀。文档标签中的 `-` 在代码中替换为 `_`。
+
+### Comb 风格禁止项
+
+以下时序操作符在 `(Style: Comb)` 属性中**严禁**使用（Checker 会自动检测）：
+
+- ❌ `##` — 时序延迟操作符
+- ❌ `$past()` — 历史值函数
+- ❌ `$rose()`, `$fell()`, `$stable()` — 边沿检测
+- ❌ `s_eventually` — 活性操作符
+- ❌ `|=>` — 非重叠蕴含（Comb 属性应使用 `|->` 或直接等式）
+
+---
+
 ## 2. 标准代码模板 (Standard Templates)
 
 根据规划文档中的 `(Style: ...)` 标签选择模板。

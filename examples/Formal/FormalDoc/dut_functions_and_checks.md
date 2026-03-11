@@ -54,11 +54,46 @@ DUT整体功能
 在定义每个 `<CK-...>` 时，必须紧随其后用括号注明其**属性风格**。这直接指导大模型如何生成代码。
 
 **可用风格标签：**
-- **`(Style: Comb)`**: **组合逻辑断言**。描述永恒成立的逻辑等式（Invariant）。代码中**严禁**包含时钟边沿触发或时序操作符（如 `|->`）。
+- **`(Style: Comb)`**: **组合逻辑断言**。描述永恒成立的逻辑等式（Invariant）。代码中**严禁**包含时钟边沿触发或时序操作符（如 `|->`, `##`, `$past`）。
 - **`(Style: Seq)`**: **时序逻辑断言**。描述跨周期的行为、状态转移或时序协议。代码中**必须**包含时钟 (`@(posedge clk)`) 和时序操作符。
 - **`(Style: Cover)`**: **可达性证明**。用于证明关键状态（如 Error、Full）是可达的，以及环境约束（Assume）没有导致验证环境过约束（Over-constrained）。
 - **`(Style: Assume)`**: **环境约束**。定义 DUT 输入端口的合法行为。这是 Formal 验证的基石，错误的 Assume 会导致验证结果无效。
 - **`(Style: Symbolic)`**: **符号化验证扩展**。专门针对多条目存储（如 FIFO、RAM、Register File）。标记该断言**必须**通过 `fv_idx`（符号化索引）和 `fv_mon_...` 信号来验证阵列的任意单元。通常与其他风格结合，如 `(Style: Seq, Symbolic)`。
+
+### Style 类型与 SVA 意图映射
+
+| Style | SVA 意图 | 属性名前缀 | 说明 |
+|-------|----------|-----------|------|
+| Comb | assert | `A_CK_` | 组合逻辑等式，禁止时序操作符 |
+| Seq | assert | `A_CK_` | 时序逻辑断言，必须含时钟和时序操作符 |
+| Cover | cover | `C_CK_` | 可达性证明，验证状态可达 |
+| Assume | assume | `M_CK_` | 环境约束，约束输入信号行为 |
+| Symbolic | (配合上述) | (同上) | 符号化索引扩展，需使用 fv_idx |
+
+### 格式要求（正确 vs 错误示例）
+
+✅ **正确格式**：
+```markdown
+<CK-ADD-BASIC-WIDTH-CHECK> (Style: Comb) 验证结果位宽正确性：{cout, sum} == a + b + cin
+<CK-ENV-INPUT-KNOWN> (Style: Assume) 假设输入信号无 X 态
+<CK-COVER-FULL-STATE> (Style: Cover) 证明 Full 状态可达
+```
+
+❌ **错误格式（将被 Checker 拒绝）**：
+```markdown
+<CK-ADD-BASIC-WIDTH-CHECK>  <!-- 缺少 (Style: ...) 标注 -->
+<CK-ADD-BASIC-WIDTH-CHECK> Style: Comb  <!-- 缺少括号 -->
+<CK_ADD_BASIC> (Style: Comb)  <!-- 文档侧应使用横杠 CK- 而非下划线 CK_ -->
+```
+
+### 强制功能组声明
+
+每份功能点与检测点文档**必须**包含以下两个功能组：
+
+1. **`<FG-ENVIRONMENT>`** — 环境假设与约束，包含所有 `(Style: Assume)` 的检测点。
+   至少包含复位假设和关键输入信号约束。
+2. **`<FG-COVERAGE>`** — 可达性覆盖检查，包含所有 `(Style: Cover)` 的检测点。
+   至少包含关键状态标志位（如 Full、Empty、Error）的可达性证明。
 
 ## 标准文档格式
 
