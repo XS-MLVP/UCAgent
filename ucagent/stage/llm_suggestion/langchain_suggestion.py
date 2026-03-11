@@ -1,5 +1,7 @@
 #coding=utf-8
 
+import asyncio
+import concurrent.futures
 from ucagent.stage.llm_suggestion.base_suggestion import BaseLLMSuggestion
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
@@ -33,11 +35,11 @@ class RemoveAllSummarizationMiddleware(SummarizationMiddleware):
         self._tail_message_count = tail_message_count
 
 
-def do_work_values(self, instructions, config):
+async def _do_work_values_async(self, instructions, config):
     self.unset_interrupted()
     last_msg_index = None
     msg = "LLM Suggestion in progress..."
-    for _, step in self.agent.stream(instructions, config, stream_mode=["values"]):
+    async for _, step in self.agent.astream(instructions, config, stream_mode=["values"]):
         if self.is_interrupted() or self.is_break():
             warning("LLM Suggestion interrupted during streaming.")
             msg = "\n\n=== LLM Suggestion Interrupted ===\n\n"
@@ -50,6 +52,18 @@ def do_work_values(self, instructions, config):
         msg = ret_msg.text
         self.message_echo(ret_msg.pretty_repr())
     return msg
+
+
+def do_work_values(self, instructions, config):
+    try:
+        asyncio.get_running_loop()
+        # Already inside a running event loop — run in a separate thread with its own loop
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, _do_work_values_async(self, instructions, config))
+            return future.result()
+    except RuntimeError:
+        # No running event loop — safe to call asyncio.run directly
+        return asyncio.run(_do_work_values_async(self, instructions, config))
 
 
 class OpenAILLMFailSuggestion(BaseLLMSuggestion):
