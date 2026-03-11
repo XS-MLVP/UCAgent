@@ -20,7 +20,7 @@
 ## ⚠️ 标签格式强制规则（违反将被 Checker 拒绝）
 
 ### 规则 1：标签必须独立成行
-标签不能与 Markdown 标题（`###`、`####`）混用，必须单独占一行。
+标签不能与 Markdown 标题（`###`、`####`）混用，必须单独占一行，不能出现在行内文本中。
 
 ✅ 正确：
 ```markdown
@@ -38,26 +38,91 @@
 ```
 
 ### 规则 2：标签名必须与功能检测点文档完全一致
-所有 `<CK-*>` 标签必须从 `03_{DUT}_functions_and_checks.md` 中精确复制，不可自行创造或添加前缀。
+所需要的 `<CK-*>`、`<FC-*>`、`<FG-*>` 标签必须从 `03_{DUT}_functions_and_checks.md` 中精确复制，不可自行创造或添加前缀。
 
-❌ 错误：`<CK-CK-ENV-WIDTH-POSITIVE>` （多了一层 CK- 前缀）
+❌ 错误：`<CK-CK-ENV-WIDTH-POSITIVE>` （多了一层 CK- 前缀）  
+❌ 错误：`<CK-ENV-WIDTH-POSITIVE-CHECK>` （自行添加后缀）  
+✅ 正确：`<CK-ENV-WIDTH-POSITIVE>` （与源文档完全一致）
 
-### 规则 3：子标签必须紧跟父标签
-每个 `<BG-STATIC-*>` 后立即跟 `<LINK-BUG-[BG-TBD]>` 和 `<FILE-*>`，中间不能插入其他内容。
+### 规则 3：子标签必须紧跟父标签，中间不能插入任何内容
+每个 `<BG-STATIC-*>` 的下一行必须是 `<LINK-BUG-[BG-TBD]>`，`<LINK-BUG-[BG-TBD]>` 的下一行必须是 `<FILE-路径:行号>`。
 
-### 规则 4：NULL 标记与真实 Bug 不可共存
-- 有真实 Bug → 只记录 `<BG-STATIC-NNN-NAME>`，**不要**使用 `<BG-STATIC-000-NULL>`
-- 没有 Bug → 只使用 `<BG-STATIC-000-NULL>`（无需 LINK-BUG 子标签）
+✅ 正确：
+```markdown
+<BG-STATIC-001-SUM-WIDTH-ERROR>
+<LINK-BUG-[BG-TBD]>
+<FILE-Adder/Adder.v:10>
+
+**问题描述**: ...
+```
+
+❌ 错误（在子标签前插入了内容）：
+```markdown
+<BG-STATIC-001-SUM-WIDTH-ERROR>
+
+**问题描述**: ...
+
+<LINK-BUG-[BG-TBD]>
+<FILE-Adder/Adder.v:10>
+```
+
+### 规则 4：NULL 标记与真实 Bug 不可共存，二选一
+- 有真实 Bug → 只记录 `<BG-STATIC-NNN-NAME>` + `<LINK-BUG-[BG-TBD]>` + `<FILE-*>`，**绝对不要**同时写 `<BG-STATIC-000-NULL>`
+- 没有 Bug → 只使用 `<BG-STATIC-000-NULL>`（**无需** LINK-BUG 或 FILE 子标签）
+
+✅ 正确（有 Bug 时）：
+```markdown
+<CK-ARITH-RESULT-CORRECTNESS>
+
+<BG-STATIC-001-SUM-WIDTH-ERROR>
+<LINK-BUG-[BG-TBD]>
+<FILE-Adder/Adder.v:10>
+```
+
+✅ 正确（无 Bug 时）：
+```markdown
+<CK-ENV-WIDTH-POSITIVE>
+
+<BG-STATIC-000-NULL>
+```
+
+❌ 错误（NULL 与真实 Bug 共存）：
+```markdown
+<CK-ARITH-RESULT-CORRECTNESS>
+
+<BG-STATIC-000-NULL>
+
+<BG-STATIC-001-SUM-WIDTH-ERROR>
+<LINK-BUG-[BG-TBD]>
+<FILE-Adder/Adder.v:10>
+```
 
 ### 规则 5：标签不要放在表格中
-统计汇总表格中引用 Bug ID 时使用纯文本（如 `BG-STATIC-001`），不要使用 `<>` 包裹的标签。
+统计汇总等 Markdown 表格中只能使用纯文本引用（如 `BG-STATIC-001`），不要在表格单元格内使用 `<>` 包裹的标签。
+
+❌ 错误：`| <BG-STATIC-001-SUM-WIDTH-ERROR> | ... |`  
+✅ 正确：`| BG-STATIC-001 | 端口位宽错误 | ... |`
+
+---
+
+## 提交前自查清单
+
+在完成文档写入后，对照以下清单逐项检查，确保 Checker 能一次通过：
+
+- [ ] 所有 `<CK-*>` 标签是否与 `03_{DUT}_functions_and_checks.md` 完全一致？（登录原文逐字对比）
+- [ ] 所有标签是否独立成行，未嵌入标题或行内文本？
+- [ ] 每个 `<BG-STATIC-*>` 的下一行是否紧跟 `<LINK-BUG-[BG-TBD]>`，再下一行是否紧跟 `<FILE-路径:行号>`？
+- [ ] 有 Bug 的 `<CK-*>` 下是否没有 `<BG-STATIC-000-NULL>`？
+- [ ] 没有 Bug 的 `<CK-*>` 下是否只写了 `<BG-STATIC-000-NULL>` 且没有 LINK-BUG？
+- [ ] 统计汇总表格中是否全部使用纯文本，没有 `<>` 标签？
 
 ---
 
 ## 按功能检测点的 Bug 分析
 
-<!-- 按照 FG/FC/CK 层级结构组织，标签必须独立成行 -->
+<!-- 按照 FG/FC/CK 层级结构组织，标签必须独立成行，不能嵌入标题或行内文本 -->
 
+<!-- ✅ 示例：发现 Bug 时的写法 -->
 <FG-功能组名>
 
 <FC-功能点名>
@@ -83,6 +148,13 @@
 **影响范围**: 严重 | 中等 | 低
 **置信度**: 高 | 中 | 低
 **优先级**: 最高 | 高 | 中 | 低
+
+---
+
+<!-- ✅ 示例：该检测点未发现 Bug 时的写法（NULL 独占，不得与真实 Bug 共存） -->
+<CK-另一个检测点名>
+
+<BG-STATIC-000-NULL>
 
 ---
 
