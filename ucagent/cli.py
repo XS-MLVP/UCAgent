@@ -800,6 +800,7 @@ def run() -> None:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
+    args.override = args.override or {}
     if not web_ui_bootstrap:
         if args.mcp_server_port == -1:
             args.mcp_server_port = find_available_port()
@@ -809,7 +810,7 @@ def run() -> None:
         if args.mcp_server_no_file_tools:
             mcp_cmd = "start_mcp_server_no_file_ops"
         if mcp_cmd is not None:
-            init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
+            init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
 
         if args.mcp_server_port is not None:
             args.override = args.override or {}
@@ -820,7 +821,6 @@ def run() -> None:
             args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
-        args.override = args.override or {}
         args.override["backend.key_name"] = args.backend
 
     template_cfg_overrides = {}

@@ -117,6 +117,15 @@ class PdbMasterApiServer:
                 "Install with:  pip install fastapi uvicorn"
             ) from exc
 
+        # Resolve sock:
+        #   None  → auto-generate a default path that embeds the port
+        #   ""    → explicitly disabled
+        #   other → use as-is (user-supplied path)
+        if sock is None:
+            sock = f"/tmp/ucagent_master_{port}.sock"
+        elif sock == "":
+            sock = None
+
         if not tcp and not sock:
             raise ValueError("At least one of 'tcp' or 'sock' must be enabled.")
 
@@ -142,6 +151,7 @@ class PdbMasterApiServer:
         self._removed: set = set()
 
         self._running = False
+        self.started_at: Optional[float] = None
         self._tcp_server = None
         self._tcp_thread: Optional[threading.Thread] = None
         self._sock_server = None
@@ -601,6 +611,19 @@ class PdbMasterApiServer:
             return False, "Master API server failed to start:\n  " + "\n  ".join(errors)
 
         self._running = True
+        self.started_at = __import__('time').time()
+        # Register atexit cleanup so the sock file is removed even if stop()
+        # is never called (e.g. process exits via sys.exit or reaches end).
+        if self.sock:
+            import atexit as _atexit, os as _os
+            _sock = self.sock
+            def _cleanup_sock():
+                try:
+                    if _os.path.exists(_sock):
+                        _os.unlink(_sock)
+                except OSError:
+                    pass
+            _atexit.register(_cleanup_sock)
         self._monitor_stop.clear()
         self._monitor_thread = threading.Thread(
             target=self._monitor_loop, daemon=True, name="master-monitor")
@@ -622,6 +645,7 @@ class PdbMasterApiServer:
             self._sock_server = None
         self._sock_thread = None
         self._running = False
+        self.started_at = None
         self._monitor_stop.set()
         self._monitor_thread = None
         self._online_cache.clear()

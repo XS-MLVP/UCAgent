@@ -12,9 +12,6 @@ from .util.functions import (
 )
 from .util.functions import yam_str
 from .util.functions import (
-    start_verify_mcps,
-    create_verify_mcps,
-    stop_verify_mcps,
     rm_workspace_prefix,
 )
 from .util.test_tools import ucagent_lib_path
@@ -328,7 +325,8 @@ class VerifyAgent:
         self._need_human = False
         self._force_trace = False
         self._continue_msg = None
-        self._mcps = None
+        self._mcps = None               # set by PdbMcpServer for api_master heartbeat
+        self._mcp_server_thread = None   # set by PdbMcpServer for api_master heartbeat
         self._mcps_logger = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
@@ -476,44 +474,6 @@ class VerifyAgent:
                         f"Failed to render template from {self.template} to {tmp_dir}: {e}"
                     )
                     raise e
-
-    def start_mcps(self, no_file_ops=False, host=None, port=None):
-        if self._mcps is not None:
-            warning(
-                f"MCPs server is already running ({self._mcps.config.host}:{self._mcps.config.port})."
-            )
-            return
-        if host is None:
-            host = self.cfg.mcp_server.host
-        if port is None:
-            port = self.cfg.mcp_server.port
-        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
-        if not no_file_ops:
-            tools += self.tool_list_file
-        self.cfg.update_template(
-            {
-                "TOOLS": ", ".join([t.name for t in tools]),
-            }
-        )
-        self._mcps, glogger = create_verify_mcps(
-            tools, host=host, port=port, logger=self._mcps_logger
-        )
-        info("Init Prompt:\n" + self.cfg.mcp_server.init_prompt)
-
-        def run_cmd():
-            start_verify_mcps(self._mcps, glogger)
-
-        self._mcp_server_thread = threading.Thread(target=run_cmd)
-        self._mcp_server_thread.daemon = True
-        self._mcp_server_thread.start()
-
-    def stop_mcps(self):
-        """Stop the MCPs server if it is running."""
-        if self._mcps is not None:
-            stop_verify_mcps(self._mcps)
-            self._mcps = None
-        else:
-            warning("MCPs server is not running.")
 
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""
