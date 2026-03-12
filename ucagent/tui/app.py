@@ -166,11 +166,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.cleanup()
 
     def message_echo(self, msg: str, end: str = "\n") -> None:
-        """Thread-safe message echo handler.
-
-        This method is called from worker threads, so it posts
-        a message to be processed on the main thread.
-        """
+        """Thread-safe message echo handler invoked from worker threads."""
+        if not msg:
+            return
         messages_panel = self.query_one("#messages-panel", MessagesPanel)
         messages_panel.append_message(f"{msg}{end}")
 
@@ -257,7 +255,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.console_height = new_value
 
     def on_console_input_command_submitted(
-            self, event: ConsoleInput.CommandSubmitted
+        self, event: ConsoleInput.CommandSubmitted
     ) -> None:
         self.key_handler.process_command(event.command, event.daemon)
         console_input = self.query_one(ConsoleInput)
