@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import base64
+import asyncio
 import shlex
 import sys
 import types
@@ -29,7 +30,7 @@ def test_get_args_allows_web_ui_with_spec(monkeypatch):
     assert args.web_ui == "127.0.0.1:18000:secret"
 
 
-def test_build_web_ui_command_removes_web_ui_and_adds_tui():
+def test_build_web_ui_command_removes_web_ui_and_adds_session():
     cmd = cli._build_web_ui_command(
         [
             "ucagent",
@@ -50,17 +51,17 @@ def test_build_web_ui_command_removes_web_ui_and_adds_tui():
         "/tmp/workspace",
     ]
     assert "--web-ui" not in parts
-    assert "--tui" in parts
     assert "--web-ui-session" in parts
     assert "--config" in parts
     assert "config.yaml" in parts
 
 
-def test_build_web_ui_command_does_not_duplicate_tui():
+def test_build_web_ui_command_does_not_duplicate_session():
     cmd = cli._build_web_ui_command(
         ["ucagent", "/tmp/workspace", "Adder", "--web-ui", "--tui"]
     )
     parts = shlex.split(cmd)
+    assert parts.count("--web-ui-session") == 1
     assert parts.count("--tui") == 1
 
 
@@ -78,7 +79,7 @@ def test_build_web_ui_command_removes_web_ui_value():
     parts = shlex.split(cmd)
     assert "--web-ui" not in parts
     assert "0.0.0.0:18000:pw" not in parts
-    assert parts.count("--tui") == 1
+    assert "--web-ui-session" in parts
 
 
 def test_suppress_web_ui_session_logs_noop():
@@ -183,6 +184,45 @@ def test_run_web_ui_bootstrap_skips_parent_init_cmds(monkeypatch):
     assert captured["kwargs"]["init_cmd"] == ["web_ui_start"]
     assert captured["set_break"] is True
     assert captured["run_called"] is True
+
+
+def test_run_web_ui_session_uses_server_runner(monkeypatch):
+    import ucagent.verify_agent as verify_agent
+    import ucagent.server.web_ui_session as web_ui_session
+
+    captured = {}
+
+    class _FakeVerifyAgent:
+        def __init__(self, **kwargs):
+            captured["kwargs"] = kwargs
+            captured["set_break_called"] = False
+            captured["run_called"] = False
+            self.web_ui_session = False
+
+        def set_break(self, value=True):
+            captured["set_break_called"] = True
+
+        def run(self):
+            captured["run_called"] = True
+
+    def _fake_run_web_ui_session(agent, init_cmd=None):
+        captured["runner_agent"] = agent
+        captured["runner_init_cmd"] = list(init_cmd or [])
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["ucagent", "/tmp/workspace", "Adder", "--web-ui-session"],
+    )
+    monkeypatch.setattr(verify_agent, "VerifyAgent", _FakeVerifyAgent)
+    monkeypatch.setattr(web_ui_session, "run_web_ui_session", _fake_run_web_ui_session)
+
+    cli.run()
+
+    assert captured["runner_init_cmd"] == []
+    assert captured["runner_agent"].web_ui_session is True
+    assert captured["set_break_called"] is False
+    assert captured["run_called"] is False
 
 
 def test_extract_web_ui_spec_from_eq_form():
@@ -303,3 +343,37 @@ def test_serve_web_ui_can_run_multiple_times(monkeypatch):
     assert captured["serve_calls"] == 2
     assert captured["hosts"] == ["localhost", "0.0.0.0"]
     assert captured["ports"] == [8000, 18000]
+
+
+def test_serve_web_ui_recreates_closed_event_loop(monkeypatch):
+    captured = {"loop_closed": None}
+
+    class _FakeServer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def serve(self):
+            loop = asyncio.get_event_loop()
+            captured["loop_closed"] = loop.is_closed()
+
+    fake_root = types.ModuleType("textual_serve")
+    fake_server_mod = types.ModuleType("textual_serve.server")
+    fake_server_mod.Server = _FakeServer
+
+    monkeypatch.setitem(sys.modules, "textual_serve", fake_root)
+    monkeypatch.setitem(sys.modules, "textual_serve.server", fake_server_mod)
+    monkeypatch.setattr(cli, "_build_web_ui_command", lambda argv=None: "fake command")
+    monkeypatch.setattr(cli, "_resolve_web_ui_bind", lambda spec: ("localhost", 8000, ""))
+
+    closed_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(closed_loop)
+    closed_loop.close()
+
+    try:
+        cli._serve_web_ui(["ucagent", "/tmp/workspace", "Adder", "--web-ui"])
+        assert captured["loop_closed"] is False
+    finally:
+        current_loop = asyncio.get_event_loop()
+        if not current_loop.is_closed():
+            current_loop.close()
+        asyncio.set_event_loop(None)
