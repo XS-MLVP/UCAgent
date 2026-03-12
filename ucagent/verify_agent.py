@@ -179,7 +179,7 @@ class VerifyAgent:
                 "skills",
             )
             skills_dst_path = os.path.join(self.workspace, "skills")
-            ignore_skills = self.cfg.get_value("ignore_skill_list", [])
+            ignore_skills = self.cfg.get_value("mission.ignore_skills", [])
             
             if os.path.exists(skills_path):
                 # get skills to ignore from config

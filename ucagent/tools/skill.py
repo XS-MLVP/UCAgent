@@ -295,7 +295,7 @@ class SkillList(UCTool):
                     skills_to_list.append(skill)
                     skill_names_added.add(skill['name'])      
         # 2. add skills in general_skills
-        general_skills = stage_manager.cfg.get_value('general_skills', [])
+        general_skills = stage_manager.cfg.get_value('mission.general_skills', [])
         if general_skills:
             for skill in skills:
                 if skill['name'] in general_skills and skill['name'] not in skill_names_added:
@@ -327,7 +327,7 @@ class SkillList(UCTool):
                 result_lines.append(f"   路径: {skill['path']}")
         result_lines.append("提示: 当任务描述与技能描述匹配时,使用`ReadTextFile`工具读取对应技能的SKILL.md文档,学习技能并使用")      
         result= "\n".join(result_lines)
-        
+
         return result
 
 __all__ = ["SkillList"]

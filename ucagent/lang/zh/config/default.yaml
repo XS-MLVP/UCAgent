@@ -13,13 +13,6 @@ hooks:
   cagent_init: >
     请通过工具RoleInfo获取你的角色信息和基本指导，然后完成任务。请使务必用工具ReadTextFile读取文件，这样才能让UCAgent知晓你阅读了哪些文件。
 
-# 忽略以下技能,不列举出来
-# ignore_skill_list: 
-
-# 通用技能,适合各阶段使用,始终列举
-general_skills: 
-    - "fail_analyze"
-
 mission:
   name: "{DUT}芯片验证任务"
   prompt:
@@ -116,6 +109,11 @@ mission:
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
         - "可通过工具RunTestCases运行指定测试用例来寻找问题"
         - "Fail的测试用例可能意味着发现了bug，这是验证的目标，不要误报为Pass"
+  # ignore_skills: 
+  #   - "ieee754"
+
+  general_skills: 
+    - "fail_analyze"
 
 mcp_server:
   init_prompt: >
@@ -133,8 +131,6 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
-    skill_list:
-      - "markdown-write"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
