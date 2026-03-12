@@ -509,8 +509,6 @@ def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
             continue
         forwarded_args.append(arg)
         i += 1
-    if "--tui" not in forwarded_args:
-        forwarded_args.append("--tui")
     if "--web-ui-session" not in forwarded_args:
         forwarded_args.append("--web-ui-session")
     cmd = [
@@ -526,6 +524,7 @@ def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
 
 def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
     """Serve the Textual app in a browser using textual-serve."""
+    import asyncio
     from textual_serve.server import Server
     from aiohttp import web
 
@@ -557,6 +556,12 @@ def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
     command = _build_web_ui_command(argv)
     web_ui_spec = _extract_web_ui_spec(argv)
     host, port, password = _resolve_web_ui_bind(web_ui_spec)
+    try:
+        loop = asyncio.get_event_loop()
+    except Exception:
+        loop = None
+    if loop is None or loop.is_closed():
+        asyncio.set_event_loop(asyncio.new_event_loop())
     server = _AuthTextualServer(command, host=host, port=port, password=password)
     server.serve()
 
@@ -796,7 +801,7 @@ def run() -> None:
     init_cmds = []
     if web_ui_bootstrap:
         init_cmds += ["web_ui_start"]
-    elif args.tui:
+    elif args.tui and not args.web_ui_session:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
@@ -927,6 +932,16 @@ def run() -> None:
         exit_on_completion=args.exit_on_completion,
     )
     agent.web_ui_session = args.web_ui_session
+
+    if args.web_ui_session:
+        from .server.web_ui_session import run_web_ui_session
+
+        try:
+            run_web_ui_session(agent, init_cmd=init_cmds)
+        except AssertionError as e:
+            print(f"Fail: {e}")
+            sys.exit(1)
+        return
     
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui or web_ui_enabled:
