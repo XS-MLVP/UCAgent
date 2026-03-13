@@ -675,7 +675,7 @@ class VerifyPDB(Pdb):
         # ── MCP ──────────────────────────────────────────────────────────
         s = self._mcp_server
         if s is not None and s.is_running:
-            mcp = {
+            mcp_server = {
                 "host":         s.host,
                 "port":         s.port,
                 "no_file_ops":  s.no_file_ops,
@@ -684,18 +684,18 @@ class VerifyPDB(Pdb):
                 "url":          s.url(),
             }
         else:
-            mcp = None
+            mcp_server = None
 
         # ── Web UI ───────────────────────────────────────────────────────
-        web_ui = None
+        web_console = None
         if hasattr(self.agent, "web_console_session_info"):
-            web_ui = self.agent.web_console_session_info
+            web_console = self.agent.web_console_session_info
 
         return {
-            "cmd_api":    cmd_api,
-            "master_api": master_api,
-            "mcp":        mcp,
-            "web_ui":     web_ui,
+            "cmd_api":     cmd_api,
+            "master_api":  master_api,
+            "mcp_server":  mcp_server,
+            "web_console": web_console,
         }
 
     def api_changed_files(self, count=10):

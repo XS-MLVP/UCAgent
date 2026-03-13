@@ -1,6 +1,6 @@
 
 # Current Workspace Dir
-CWD ?= output
+CWD ?= output/workspace_$*
 CFG ?= config.yaml
 BBV ?= false
 
@@ -63,8 +63,10 @@ mcp_with_master_%: init_%
 mcp_all_tools_%: init_%
 	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}
 
-clean:
+clean_%:
 	rm -rf $(CWD)
+
+clean:
 	rm -rf .pytest_cache
 	rm -rf UCAgent.egg-info
 	rm -rf build
@@ -75,10 +77,10 @@ clean:
 	find ./ -name __pycache__|xargs rm -rf
 	find ./ -name output|xargs rm -rf
 
-clean_test:
+clean_test_%:
 	rm -rf $(CWD)/unity_test
 
-continue:
+continue_%:
 	python3 ucagent.py $(CWD)/ ${DUT} --config config.yaml ${ARGS}
 
 as_master:
