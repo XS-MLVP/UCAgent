@@ -11,9 +11,6 @@ import os
 import sys
 import argparse
 import bdb
-import base64
-import hmac
-import shlex
 from typing import Dict, List, Any, Optional
 from .version import __version__
 
@@ -482,180 +479,22 @@ def get_args() -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
 
-    args = parser.parse_args()
-    return args
-
-
-def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
-    """Build the subprocess command served by textual-serve."""
-    source_argv = list(sys.argv if argv is None else argv)
-    raw_args = source_argv[1:]
-    forwarded_args = []
-    i = 0
-    while i < len(raw_args):
-        arg = raw_args[i]
-        if arg == "--web-ui-session":
-            i += 1
-            continue
-        if arg == "--web-ui":
-            # argparse optional-value form: "--web-ui" [value]
-            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
-                i += 2
-            else:
-                i += 1
-            continue
-        if arg.startswith("--web-ui="):
-            i += 1
-            continue
-        forwarded_args.append(arg)
-        i += 1
-    if "--web-ui-session" not in forwarded_args:
-        forwarded_args.append("--web-ui-session")
-    cmd = [
-        "env",
-        "PYTHONWARNINGS=ignore",
-        sys.executable,
-        "-m",
-        "ucagent.cli",
-        *forwarded_args,
-    ]
-    return shlex.join(cmd)
-
-
-def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
-    """Serve the Textual app in a browser using textual-serve."""
-    import asyncio
-    from textual_serve.server import Server
-    from aiohttp import web
-
-    class _AuthTextualServer(Server):
-        def __init__(self, *args, password: str = "", **kwargs):
-            super().__init__(*args, **kwargs)
-            self._password = password
-
-        async def _make_app(self):
-            app = await super()._make_app()
-            if not self._password:
-                return app
-
-            password = self._password
-
-            @web.middleware
-            async def _basic_auth_middleware(request, handler):
-                auth_header = request.headers.get("Authorization", "")
-                if _is_valid_basic_auth(auth_header, password):
-                    return await handler(request)
-                raise web.HTTPUnauthorized(
-                    text="Unauthorized",
-                    headers={"WWW-Authenticate": 'Basic realm="UCAgent Web UI"'},
-                )
-
-            app.middlewares.append(_basic_auth_middleware)
-            return app
-
-    command = _build_web_ui_command(argv)
-    web_ui_spec = _extract_web_ui_spec(argv)
-    host, port, password = _resolve_web_ui_bind(web_ui_spec)
-    try:
-        loop = asyncio.get_event_loop()
-    except Exception:
-        loop = None
-    if loop is None or loop.is_closed():
-        asyncio.set_event_loop(asyncio.new_event_loop())
-    server = _AuthTextualServer(command, host=host, port=port, password=password)
-    server.serve()
-
-
-def _extract_web_ui_spec(argv: Optional[List[str]] = None) -> str:
-    """Extract web-ui optional value from argv."""
-    source_argv = list(sys.argv if argv is None else argv)
-    raw_args = source_argv[1:]
-    for i, arg in enumerate(raw_args):
-        if arg == "--web-ui":
-            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
-                return raw_args[i + 1]
-            return ""
-        if arg.startswith("--web-ui="):
-            return arg.split("=", 1)[1]
-    return ""
-
-
-def _parse_web_ui_spec(spec: str) -> tuple[str, int, str]:
-    """Parse '--web-ui host:port[:password]' value."""
-    if not spec:
-        return "localhost", 8000, ""
-
-    parts = spec.split(":", 2)
-    if len(parts) < 2:
-        raise ValueError(
-            f"Invalid --web-ui value '{spec}'. Expected format: base_url:port[:password]"
-        )
-
-    host = parts[0].strip()
-    if not host:
-        raise ValueError(
-            f"Invalid --web-ui value '{spec}'. base_url cannot be empty."
-        )
-
-    port_str = parts[1].strip()
-    try:
-        port = int(port_str)
-    except ValueError as e:
-        raise ValueError(
-            f"Invalid --web-ui value '{spec}'. Port must be an integer."
-        ) from e
-    if port < 1 or port > 65535:
-        raise ValueError(
-            f"Invalid --web-ui value '{spec}'. Port must be in range 1..65535."
-        )
-
-    password = parts[2] if len(parts) == 3 else ""
-    return host, port, password
-
-
-def _resolve_web_ui_bind(spec: str) -> tuple[str, int, str]:
-    """Resolve final web-ui bind host/port/password with conflict policy."""
-    from .util.functions import find_available_port, is_port_free
-
-    host, port, password = _parse_web_ui_spec(spec)
-    if is_port_free(host, port):
-        return host, port, password
-
-    # Bare '--web-ui' uses defaults. If default 8000 is busy, auto-increase.
-    if spec.strip() == "":
-        return host, find_available_port(start_port=port, end_port=65535), password
-
-    raise ValueError(
-        f"Port {port} on host '{host}' is unavailable for --web-ui."
+    parser.add_argument(
+        "--web-ui-session-host",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
     )
 
+    parser.add_argument(
+        "--web-ui-session-port",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
 
-def _is_valid_basic_auth(auth_header: str, password: str) -> bool:
-    """Validate HTTP Basic Auth header against expected password."""
-    if not password:
-        return True
-    if not auth_header or not auth_header.startswith("Basic "):
-        return False
-
-    encoded = auth_header[6:].strip()
-    if not encoded:
-        return False
-    try:
-        decoded = base64.b64decode(encoded).decode("utf-8")
-    except Exception:
-        return False
-
-    _, sep, pwd = decoded.partition(":")
-    if not sep:
-        return False
-    return hmac.compare_digest(pwd.encode("utf-8"), password.encode("utf-8"))
-
-
-def _suppress_web_ui_session_logs() -> None:
-    """Silence non-error logs until the browser TUI finishes its handshake."""
-    import ucagent.util.log as log
-
-    log.set_silent(True)
+    args = parser.parse_args()
+    return args
 
 
 def upgrade(extra_pip_args: str = "") -> None:
@@ -755,15 +594,22 @@ def do_check() -> None:
 def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
-    web_ui_enabled = args.web_ui is not None
-    web_ui_bootstrap = bool(web_ui_enabled and not args.web_ui_session)
 
     # --upgrade: run before workspace/dut validation, then exit
     if getattr(args, 'upgrade', None) is not None:
         upgrade(args.upgrade)
         sys.exit(0)
 
+    if args.web_ui is not None:
+        from ucagent.server.web_ui_session import _serve_web_ui
+        try:
+            return _serve_web_ui()
+        except Exception as e:
+            print(f"Failed to start Web UI: {e}")
+            sys.exit(1)
+
     if args.web_ui_session:
+        from ucagent.server.web_ui_session import _suppress_web_ui_session_logs
         _suppress_web_ui_session_logs()
 
     # --as-master with no positional args → spin up a fake DUT under /tmp
@@ -799,31 +645,26 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    if web_ui_bootstrap:
-        init_cmds += ["web_ui_start"]
-    elif args.tui and not args.web_ui_session:
+    if args.tui and not args.web_ui_session:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
     args.override = args.override or {}
-    if not web_ui_bootstrap:
-        if args.mcp_server_port == -1:
-            args.mcp_server_port = find_available_port()
-        mcp_cmd = None
-        if args.mcp_server:
-            mcp_cmd = "start_mcp_server"
-        if args.mcp_server_no_file_tools:
-            mcp_cmd = "start_mcp_server_no_file_ops"
-        if mcp_cmd is not None:
-            init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
-
-        if args.mcp_server_port is not None:
-            args.override = args.override or {}
-            args.override["mcp_server.port"] = args.mcp_server_port
-
-        if args.mcp_server_host is not None:
-            args.override = args.override or {}
-            args.override["mcp_server.host"] = args.mcp_server_host
+    if args.mcp_server_port == -1:
+        args.mcp_server_port = find_available_port()
+    mcp_cmd = None
+    if args.mcp_server:
+        mcp_cmd = "start_mcp_server"
+    if args.mcp_server_no_file_tools:
+        mcp_cmd = "start_mcp_server_no_file_ops"
+    if mcp_cmd is not None:
+        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
+    if args.mcp_server_port is not None:
+        args.override = args.override or {}
+        args.override["mcp_server.port"] = args.mcp_server_port
+    if args.mcp_server_host is not None:
+        args.override = args.override or {}
+        args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
         args.override["backend.key_name"] = args.backend
@@ -838,7 +679,7 @@ def run() -> None:
                 template_cfg_overrides.update(cfg_data)
 
     # Handle --as-master: start this agent as a Master API server
-    if not web_ui_bootstrap and args.as_master is not None:
+    if args.as_master is not None:
         extra_master_opts = ""
         if getattr(args, 'as_master_key', None):
             extra_master_opts += f" --key {args.as_master_key}"
@@ -855,7 +696,7 @@ def run() -> None:
                 init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
 
     # Handle --export-cmd-api: start the CMD API server
-    if not web_ui_bootstrap and args.export_cmd_api is not None:
+    if args.export_cmd_api is not None:
         extra_cmd_api_opts = ""
         addr_part = args.export_cmd_api.strip()
         passwd_part = ""
@@ -875,22 +716,21 @@ def run() -> None:
 
     # Handle --master: connect to one or more Master API servers
     # Each entry is a list: [host[:port]] or [host[:port], access_key]
-    if not web_ui_bootstrap:
-        for master_tokens in args.master:
-            master_addr = master_tokens[0]
-            access_key = master_tokens[1] if len(master_tokens) > 1 else ""
-            extra_client_opts = f" --key {access_key}" if access_key else ""
-            if ":" in master_addr:
-                m_host, m_port = master_addr.rsplit(":", 1)
-                master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
-            else:
-                master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
-            init_cmds += [master_cmd]
+    for master_tokens in args.master:
+        master_addr = master_tokens[0]
+        access_key = master_tokens[1] if len(master_tokens) > 1 else ""
+        extra_client_opts = f" --key {access_key}" if access_key else ""
+        if ":" in master_addr:
+            m_host, m_port = master_addr.rsplit(":", 1)
+            master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
+        else:
+            master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
+        init_cmds += [master_cmd]
 
-    if not web_ui_bootstrap and args.icmd:
+    if args.icmd:
         init_cmds += args.icmd
     
-    if not web_ui_bootstrap and args.loop:
+    if args.loop:
         init_cmds += ["loop " + args.loop_msg]
 
     if args.append_py_path:
@@ -931,20 +771,14 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
     )
-    agent.web_ui_session = args.web_ui_session
-
     if args.web_ui_session:
-        from .server.web_ui_session import run_web_ui_session
+        agent.web_ui_session_info = {
+            "host": args.web_ui_session_host,
+            "port": args.web_ui_session_port,
+        }
 
-        try:
-            run_web_ui_session(agent, init_cmd=init_cmds)
-        except AssertionError as e:
-            print(f"Fail: {e}")
-            sys.exit(1)
-        return
-    
     # Set break mode if human interaction or TUI is requested
-    if args.human or args.tui or web_ui_enabled:
+    if args.human or args.tui:
         agent.set_break(True)
     
     # Run the agent
