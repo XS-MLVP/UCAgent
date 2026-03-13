@@ -168,63 +168,43 @@ class VerifyAgent:
         
         # Copy skills to workspace(incrementally and skip existing files)
         self.tool_skill=[]
-        warning(f"use_skill:  {self.cfg.skill.use_skill}")
         if self.cfg.skill.use_skill:
-            # Load default skills
-            skills_path = os.path.join(
+            skills_dst_path = os.path.join(self.workspace, "skills")
+            ignore_skills = self.cfg.get_value("mission.ignore_skills", [])
+            skill_path=[]
+            # Load default skills path
+            default_skill_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "lang",
                 self.cfg.lang,
                 "skills",
             )
-            skills_dst_path = os.path.join(self.workspace, "skills")
-            ignore_skills = self.cfg.get_value("mission.ignore_skills", [])
-            
-            if os.path.exists(skills_path):
-                # get skills to ignore from config
-                if ignore_skills:
-                    info(f"Ignore skills: {', '.join(ignore_skills)}")
-                try:
-                    copied, skipped, ignored = copytree_incremental(
-                        skills_path, 
-                        skills_dst_path, 
-                        skip_existing=True,
-                        ignore_dirs=ignore_skills
-                    )
-                    if copied:
-                        info(f"Copy {len(copied)} new skill file(s)")
-                    if skipped:
-                        info(f"Skip {len(skipped)} existing skill file(s)")
-                    if ignored:
-                        info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
-                except Exception as e:
-                    warning(f"Failed to copy skills: {e}")
-            else:
-                info(f"Skills not found at {skills_path}, skipping")
-            
-            # Load additional skills from custom path if provided
+            skill_path.append(default_skill_path)
+            # Load additional skills path
             if isinstance(self.cfg.skill.use_skill, str):
                 extra_skills_path = os.path.abspath(self.cfg.skill.use_skill)
-                if os.path.exists(extra_skills_path) and os.path.isdir(extra_skills_path):
-                    info(f"Copying additional skills from {extra_skills_path}")
+                skill_path.append(extra_skills_path)
+            # Copy skills to workspace
+            for path in skill_path:
+                if os.path.exists(path):
                     try:
                         copied, skipped, ignored = copytree_incremental(
-                            extra_skills_path, 
+                            path, 
                             skills_dst_path, 
                             skip_existing=True,
                             ignore_dirs=ignore_skills
                         )
                         if copied:
-                            info(f"Copy {len(copied)} additional skill file(s) from custom path")
+                            info(f"Copy {len(copied)} new skill file(s)")
                         if skipped:
-                            info(f"Skip {len(skipped)} existing skill file(s) from custom path")
+                            info(f"Skip {len(skipped)} existing skill file(s)")
                         if ignored:
-                            info(f"Ignore {len(ignored)} skill dir(s) from custom path: {', '.join(ignored)}")
+                            info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
                     except Exception as e:
-                        warning(f"Failed to copy skills from {extra_skills_path}: {e}")
+                        warning(f"Failed to copy skills: {e}")
                 else:
-                    warning(f"Additional skills path does not exist or is not a directory: {extra_skills_path}")
-            
+                    info(f"Skills not found at {path}, skipping")
+            # Add skill tool   
             self.tool_skill += [SkillList(self.workspace).bind(self)]
             
         
