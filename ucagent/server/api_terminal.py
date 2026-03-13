@@ -576,7 +576,7 @@ class WebTerminalServer:
 
     def start_blocking(self) -> None:
         """Start and block the calling thread (for use as the main entry
-        point, e.g. ``_serve_web_ui`` replacement)."""
+        point, e.g. ``_serve_web_console`` replacement)."""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop

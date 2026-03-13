@@ -86,14 +86,14 @@ For supported backends, please refer to the `backend` section in [ucagent/settin
 **（1）Start MCP-Server**
 
 ```bash
-make mcp_Adder  # workspace is set to output directory
+make mcp_Adder  # workspace is set to output/workspace_Adder directory
 # Calls the following commands:
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
-#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
-# Browser Web UI mode (requires textual-serve):
-#   ucagent output/ Adder -s -hm --web-ui --mcp-server-no-file-tools --no-embed-tools
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
+#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+# Browser Web UI mode:
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
 # Custom Web UI host/port/password (HTTP Basic Auth):
-#   ucagent output/ Adder -s -hm --web-ui 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 The default MCP Server address is: http://127.0.0.1:5000/mcp
