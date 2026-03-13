@@ -8,13 +8,156 @@ reusing the existing VerifyPDB command surface as the backend command engine.
 from __future__ import annotations
 
 import readline
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional, List
 
 from ucagent.util.log import echo_g, echo_y
 
 if TYPE_CHECKING:
     from ucagent.verify_agent import VerifyAgent
     from ucagent.verify_pdb import VerifyPDB
+
+import base64
+import hmac
+import shlex
+import sys
+
+
+def _build_web_ui_command(argv: Optional[List[str]] = None) -> str:
+    """Build the subprocess command served by textual-serve."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    forwarded_args = []
+    i = 0
+    while i < len(raw_args):
+        arg = raw_args[i]
+        if arg == "--web-ui-session":
+            i += 1
+            continue
+        if arg == "--web-ui":
+            # argparse optional-value form: "--web-ui" [value]
+            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
+                i += 2
+            else:
+                i += 1
+            continue
+        if arg.startswith("--web-ui="):
+            i += 1
+            continue
+        forwarded_args.append(arg)
+        i += 1
+    if "--web-ui-session" not in forwarded_args:
+        forwarded_args.append("--web-ui-session")
+    cmd = [
+        "env",
+        "PYTHONWARNINGS=ignore",
+        sys.executable,
+        "-m",
+        "ucagent.cli",
+        *forwarded_args,
+    ]
+    return shlex.join(cmd)
+
+
+def _serve_web_ui(argv: Optional[List[str]] = None) -> None:
+    """Serve the UCAgent TUI in a browser via a PTY-based web terminal."""
+    from ucagent.server.api_terminal import WebTerminalServer
+
+    command = _build_web_ui_command(argv)
+    web_ui_spec = _extract_web_ui_spec(argv)
+    host, port, password = _resolve_web_ui_bind(web_ui_spec)
+    server = WebTerminalServer(
+        command,
+        host=host,
+        port=port,
+        password=password,
+        title="UCAgent Terminal",
+    )
+    server.start_blocking()
+
+
+def _extract_web_ui_spec(argv: Optional[List[str]] = None) -> str:
+    """Extract web-ui optional value from argv."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    for i, arg in enumerate(raw_args):
+        if arg == "--web-ui":
+            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
+                return raw_args[i + 1]
+            return ""
+        if arg.startswith("--web-ui="):
+            return arg.split("=", 1)[1]
+    return ""
+
+
+def _parse_web_ui_spec(spec: str) -> tuple[str, int, str]:
+    """Parse '--web-ui host:port[:password]' value."""
+    if not spec:
+        return "localhost", 8000, ""
+    parts = spec.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Expected format: base_url:port[:password]"
+        )
+    host = parts[0].strip()
+    if not host:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. base_url cannot be empty."
+        )
+    port_str = parts[1].strip()
+    try:
+        port = int(port_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Port must be an integer."
+        ) from e
+    if port < 1 or port > 65535:
+        raise ValueError(
+            f"Invalid --web-ui value '{spec}'. Port must be in range 1..65535."
+        )
+    password = parts[2] if len(parts) == 3 else ""
+    return host, port, password
+
+
+def _resolve_web_ui_bind(spec: str) -> tuple[str, int, str]:
+    """Resolve final web-ui bind host/port/password with conflict policy."""
+    from ucagent.util.functions import find_available_port, is_port_free
+
+    host, port, password = _parse_web_ui_spec(spec)
+    if is_port_free(host, port):
+        return host, port, password
+    # Bare '--web-ui' uses defaults. If default 8000 is busy, auto-increase.
+    if spec.strip() == "":
+        return host, find_available_port(start_port=port, end_port=65535), password
+    raise ValueError(
+        f"Port {port} on host '{host}' is unavailable for --web-ui."
+    )
+
+
+def _is_valid_basic_auth(auth_header: str, password: str) -> bool:
+    """Validate HTTP Basic Auth header against expected password."""
+    if not password:
+        return True
+    if not auth_header or not auth_header.startswith("Basic "):
+        return False
+
+    encoded = auth_header[6:].strip()
+    if not encoded:
+        return False
+    try:
+        decoded = base64.b64decode(encoded).decode("utf-8")
+    except Exception:
+        return False
+
+    _, sep, pwd = decoded.partition(":")
+    if not sep:
+        return False
+    return hmac.compare_digest(pwd.encode("utf-8"), password.encode("utf-8"))
+
+
+def _suppress_web_ui_session_logs() -> None:
+    """Silence non-error logs until the browser TUI finishes its handshake."""
+    import ucagent.util.log as log
+    log.set_silent(True)
 
 
 class WebUISession:

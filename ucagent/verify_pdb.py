@@ -48,6 +48,8 @@ class VerifyPDB(Pdb):
         self._mcp_server = None
         # CMD API server instance (created on demand)
         self._cmd_api_server = None
+        # Web Terminal server instance (created on demand)
+        self._terminal_server = None
         # Master API server instance (created on demand)
         self._master_api_server = None
         # Master clients keyed by master_url (supports multiple simultaneous connections)
@@ -684,10 +686,16 @@ class VerifyPDB(Pdb):
         else:
             mcp = None
 
+        # ── Web UI ───────────────────────────────────────────────────────
+        web_ui = None
+        if hasattr(self.agent, "web_ui_session_info"):
+            web_ui = self.agent.web_ui_session_info
+
         return {
             "cmd_api":    cmd_api,
             "master_api": master_api,
             "mcp":        mcp,
+            "web_ui":     web_ui,
         }
 
     def api_changed_files(self, count=10):
@@ -799,12 +807,17 @@ class VerifyPDB(Pdb):
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
         from ucagent.tui import enter_tui
+        # Disable PTY echo while TUI is active to prevent mouse-tracking
+        # escape sequences from being echoed as visible garbage.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(False)
         import sys as _sys
         _saved_sys_stdout = _sys.stdout
         _saved_sys_stderr = _sys.stderr
         _saved_pdb_stdout = self.stdout
         _saved_pdb_stderr = getattr(self, "stderr", None)
         self._in_tui = True
+
         try:
             enter_tui(self)
         except Exception as e:
@@ -835,32 +848,20 @@ class VerifyPDB(Pdb):
                     _sys.stdout = cc
                 if self.stdout is not cc:
                     self.stdout = cc
+        # Re-enable PTY echo so PDB input is visible again.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(True)
         self._in_tui = False
         if self.init_cmd:
             self.cmdqueue.extend(self.init_cmd)
             self.init_cmd = None
         message("Exited TUI mode. Returning to PDB.")
 
-    def do_web_ui_start(self, arg):
-        """
-        Start browser-based Web UI in the foreground.
-        Usage: web_ui_start
-        """
-        if arg.strip():
-            echo_y("web_ui_start does not accept arguments.")
-            echo_y("Usage: web_ui_start")
-            return
-        prev_sigint = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGINT, signal.default_int_handler)
-        try:
-            from ucagent.cli import _serve_web_ui
-            _serve_web_ui()
-        except KeyboardInterrupt:
-            echo_y("Web UI server interrupted by user.")
-        except Exception as e:
-            echo_r(str(e))
-        finally:
-            signal.signal(signal.SIGINT, prev_sigint)
+    def do_show_web_session(self, arg):
+        if hasattr(self.agent, "web_ui_session_info"):
+            message(yam_str(self.agent.web_ui_session_info))
+        else:
+            echo_y("Agent does not launched in Web UI.")
 
     def do_export_agent(self, arg):
         """
@@ -1191,6 +1192,167 @@ class VerifyPDB(Pdb):
                 echo_g(f"  Sock docs: curl --unix-socket {s.sock} http://localhost/docs")
         else:
             echo_y("CMD API server is stopped.")
+
+    # ------------------------------------------------------------------
+    # Terminal API server commands  (web-based terminal via WebSocket)
+    # ------------------------------------------------------------------
+
+    def do_terminal_api_start(self, arg):
+        """
+        Start the Web Terminal server (aiohttp + xterm.js).
+
+        Maps the current UCAgent console I/O (PDB command line or TUI) to a
+        browser-based terminal.  Only one browser tab can connect at a time;
+        refreshing the page re-attaches to the same session.
+
+        Usage: terminal_api_start [options] [host [port]]
+
+        Options:
+          --passwd <pwd>  HTTP Basic password (default: none)
+          host            Bind address  (default: 127.0.0.1)
+          port            Bind port     (default: 8818)
+
+        Examples:
+          terminal_api_start                        # defaults
+          terminal_api_start 0.0.0.0 9090           # custom address
+          terminal_api_start --passwd secret123      # password protected
+
+        Once running, open the URL in a browser to get an interactive terminal.
+        REST endpoints:
+          GET  /api/status   – server status (uptime, client count, mode)
+          GET  /api/clients  – connected client details
+        """
+        if getattr(self, '_terminal_server', None) is not None and self._terminal_server.is_running:
+            echo_y(f"Terminal server is already running at {self._terminal_server.url()}")
+            echo_y("Use 'terminal_api_stop' first before starting a new instance.")
+            return
+
+        from ucagent.server.api_terminal import WebTerminalServer
+
+        host = "127.0.0.1"
+        port = 8818
+        port_specified = False
+        passwd = ""
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if len(positional) >= 1:
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+                port_specified = True
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
+                return
+
+        if not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use.")
+                return
+            from ucagent.util.functions import find_available_port
+            port = find_available_port(port + 1)
+            echo_y(f"Default port was busy; using port {port} instead.")
+
+        try:
+            server = WebTerminalServer(
+                command=None,
+                host=host,
+                port=port,
+                password=passwd,
+                title="UCAgent Terminal",
+            )
+            # Always use PTY mode so both PDB command line and TUI
+            # are captured and displayed in the web terminal.
+            server.enter_pty_mode()
+            ok, msg = server.start()
+        except Exception as e:
+            echo_r(f"Failed to start Terminal server: {e}")
+            return
+
+        if ok:
+            self._terminal_server = server
+            echo_g(msg)
+            echo_g(f"  Open in browser: {server.url()}")
+            if passwd:
+                echo_g(f"  Password: set (HTTP Basic Auth)")
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_stop(self, arg):
+        """
+        Stop the Web Terminal server.
+        Usage: terminal_api_stop
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        srv.exit_pty_mode()
+        ok, msg = srv.stop()
+        if ok:
+            echo_g(msg)
+            self._terminal_server = None
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_status(self, arg):
+        """
+        Show the current status of the Web Terminal server.
+        Usage: terminal_api_status
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None:
+            echo_y("Terminal server has not been started.")
+            return
+        if srv.is_running:
+            status = srv.get_status()
+            echo_g(f"Terminal server is running at {srv.url()}")
+            echo_g(f"  Mode     : {status['mode']}")
+            echo_g(f"  Clients  : {status['clients']}")
+            if status.get('uptime_s'):
+                echo_g(f"  Uptime   : {status['uptime_s']}s")
+            if status['password_protected']:
+                echo_g(f"  Password : set (HTTP Basic Auth)")
+        else:
+            echo_y("Terminal server is stopped.")
+
+    def do_terminal_api_list(self, arg):
+        """
+        List connected Web Terminal clients with details.
+        Usage: terminal_api_list
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        clients = srv.get_clients()
+        if not clients:
+            echo_y("No clients connected.")
+            return
+        echo_g(f"{len(clients)} client(s) connected:")
+        for i, c in enumerate(clients, 1):
+            echo(f"  [{i}] session={c['session_id']}  remote={c['remote']}  "
+                 f"duration={c['duration_s']}s")
+            echo(f"      user_agent={c['user_agent']}")
 
     # ------------------------------------------------------------------
     # Master API server commands

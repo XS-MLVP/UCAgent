@@ -10,6 +10,7 @@ __all__ = [
     "PdbMasterApiServer",
     "PdbMasterClient",
     "PdbMcpServer",
+    "WebTerminalServer",
     "WebUISession",
     "run_web_ui_session",
 ]
@@ -19,6 +20,7 @@ _EXPORTS = {
     "PdbMasterApiServer": ".api_master",
     "PdbMasterClient": ".api_master",
     "PdbMcpServer": ".api_mcp",
+    "WebTerminalServer": ".api_terminal",
     "WebUISession": ".web_ui_session",
     "run_web_ui_session": ".web_ui_session",
 }
