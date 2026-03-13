@@ -688,8 +688,8 @@ class VerifyPDB(Pdb):
 
         # ── Web UI ───────────────────────────────────────────────────────
         web_ui = None
-        if hasattr(self.agent, "web_ui_session_info"):
-            web_ui = self.agent.web_ui_session_info
+        if hasattr(self.agent, "web_console_session_info"):
+            web_ui = self.agent.web_console_session_info
 
         return {
             "cmd_api":    cmd_api,
@@ -858,8 +858,8 @@ class VerifyPDB(Pdb):
         message("Exited TUI mode. Returning to PDB.")
 
     def do_show_web_session(self, arg):
-        if hasattr(self.agent, "web_ui_session_info"):
-            message(yam_str(self.agent.web_ui_session_info))
+        if hasattr(self.agent, "web_console_session_info"):
+            message(yam_str(self.agent.web_console_session_info))
         else:
             echo_y("Agent does not launched in Web UI.")
 
@@ -960,8 +960,8 @@ class VerifyPDB(Pdb):
             host = positional[0]
         if len(positional) >= 2:
             try:
-                port = int(positional[1])
-                port_specified = True
+                port_specified = (positional[1] not in ("", "None"))
+                port = int(positional[1]) if port_specified else port
             except ValueError:
                 echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
                 return
@@ -1226,7 +1226,12 @@ class VerifyPDB(Pdb):
             echo_y(f"Terminal server is already running at {self._terminal_server.url()}")
             echo_y("Use 'terminal_api_stop' first before starting a new instance.")
             return
-
+        if hasattr(self.agent, "web_console_session_info"):
+            echo_y("Terminal server cannot not be launched in web console mode.")
+            return
+        if self._in_tui:
+            echo_y("Terminal server cannot be launched while in TUI mode.")
+            return
         from ucagent.server.api_terminal import WebTerminalServer
 
         host = "127.0.0.1"

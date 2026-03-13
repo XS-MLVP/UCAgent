@@ -224,16 +224,16 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
-        "--web-ui",
+        "--web-console",
         type=str,
         nargs="?",
         const="",
         default=None,
         metavar="[base_url:port[:password]]",
         help=(
-            "Start browser-based Web UI via textual-serve. "
-            "Bare '--web-ui' uses defaults (localhost:8000, no auth). "
-            "Use '--web-ui base_url:port[:password]' to customize host/port "
+            "Start browser-based terminal."
+            "Bare '--web-console' uses defaults (localhost:8000, no auth). "
+            "Use '--web-console base_url:port[:password]' to customize host/port "
             "and optionally enable HTTP Basic Auth."
         )
     )
@@ -472,22 +472,16 @@ def get_args() -> argparse.Namespace:
               " Format: [config_file.yaml::]continue_prompt_key[|stop_prompt_key]"
               )
     )
-    parser.add_argument(
-        "--web-ui-session",
-        action="store_true",
-        default=False,
-        help=argparse.SUPPRESS,
-    )
 
     parser.add_argument(
-        "--web-ui-session-host",
+        "--web-console-session-host",
         type=str,
         default=None,
         help=argparse.SUPPRESS,
     )
 
     parser.add_argument(
-        "--web-ui-session-port",
+        "--web-console-session-port",
         type=int,
         default=None,
         help=argparse.SUPPRESS,
@@ -600,17 +594,15 @@ def run() -> None:
         upgrade(args.upgrade)
         sys.exit(0)
 
-    if args.web_ui is not None:
-        from ucagent.server.web_ui_session import _serve_web_ui
+    if args.web_console is not None and \
+       args.web_console_session_host is None and \
+       args.web_console_session_port is None:
+        from ucagent.server.api_terminal import _serve_web_console
         try:
-            return _serve_web_ui()
+            return _serve_web_console()
         except Exception as e:
             print(f"Failed to start Web UI: {e}")
             sys.exit(1)
-
-    if args.web_ui_session:
-        from ucagent.server.web_ui_session import _suppress_web_ui_session_logs
-        _suppress_web_ui_session_logs()
 
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
@@ -645,7 +637,7 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    if args.tui and not args.web_ui_session:
+    if args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
@@ -771,10 +763,11 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
     )
-    if args.web_ui_session:
-        agent.web_ui_session_info = {
-            "host": args.web_ui_session_host,
-            "port": args.web_ui_session_port,
+    if args.web_console_session_host is not None or \
+       args.web_console_session_port is not None:
+        agent.web_console_session_info = {
+            "host": args.web_console_session_host,
+            "port": args.web_console_session_port,
         }
 
     # Set break mode if human interaction or TUI is requested
