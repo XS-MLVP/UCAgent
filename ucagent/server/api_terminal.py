@@ -37,6 +37,8 @@ import struct
 import sys
 import threading
 import time
+import shlex
+
 from typing import (
     Any,
     Callable,
@@ -56,6 +58,92 @@ log = logging.getLogger("ucagent.terminal")
 _SERVER_DIR = pathlib.Path(__file__).resolve().parent
 _TEMPLATE_DIR = _SERVER_DIR / "templates"
 _STATIC_DIR = _SERVER_DIR / "static"
+
+def _build_web_console_command(argv: Optional[List[str]] = None) -> str:
+    """Build the subprocess command served by textual-serve."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    cmd = [
+        "env",
+        "PYTHONWARNINGS=ignore",
+        sys.executable,
+        "-m",
+        "ucagent.cli",
+        *raw_args,
+    ]
+    return shlex.join(cmd)
+
+
+def _extract_web_console_spec(argv: Optional[List[str]] = None) -> str:
+    """Extract web-console optional value from argv."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    for i, arg in enumerate(raw_args):
+        if arg == "--web-console":
+            if i + 1 < len(raw_args) and not raw_args[i + 1].startswith("-"):
+                return raw_args[i + 1]
+            return ""
+        if arg.startswith("--web-console="):
+            return arg.split("=", 1)[1]
+    return ""
+
+
+def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
+    """Parse '--web-console host:port[:password]' value."""
+    if not spec:
+        return "localhost", 8000, ""
+    parts = spec.split(":", 2)
+    if len(parts) < 2:
+        raise ValueError(
+            f"Invalid --web-console value '{spec}'. Expected format: base_url:port[:password]"
+        )
+    host = parts[0].strip()
+    if not host:
+        raise ValueError(
+            f"Invalid --web-console value '{spec}'. base_url cannot be empty."
+        )
+    port_str = parts[1].strip()
+    try:
+        port = int(port_str)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid --web-console value '{spec}'. Port must be an integer."
+        ) from e
+    if port < 1 or port > 65535:
+        raise ValueError(
+            f"Invalid --web-console value '{spec}'. Port must be in range 1..65535."
+        )
+    password = parts[2] if len(parts) == 3 else ""
+    return host, port, password
+
+
+def _resolve_web_console_bind(spec: str) -> tuple[str, int, str]:
+    """Resolve final web-console bind host/port/password with conflict policy."""
+    from ucagent.util.functions import find_available_port, is_port_free
+    host, port, password = _parse_web_console_spec(spec)
+    if is_port_free(host, port):
+        return host, port, password
+    # Bare '--web-console' uses defaults. If default 8000 is busy, auto-increase.
+    if spec.strip() == "":
+        return host, find_available_port(start_port=port, end_port=65535), password
+    raise ValueError(
+        f"Port {port} on host '{host}' is unavailable for --web-console."
+    )
+
+
+def _serve_web_console(argv: Optional[List[str]] = None) -> None:
+    """Serve the UCAgent TUI in a browser via a PTY-based web terminal."""
+    command = _build_web_console_command(argv)
+    web_console_spec = _extract_web_console_spec(argv)
+    host, port, password = _resolve_web_console_bind(web_console_spec)
+    server = WebTerminalServer(
+        command + f" --web-console-session-host={host} --web-console-session-port={port}",
+        host=host,
+        port=port,
+        password=password,
+        title="UCAgent Terminal",
+    )
+    server.start_blocking()
 
 # ---------------------------------------------------------------------------
 # Shared ring-buffer for recent output (so reconnecting clients can scroll
