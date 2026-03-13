@@ -40,7 +40,7 @@ from .abackend import get_backend
 from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 from uuid import uuid4
-from typing import Any, Dict, List, Optional, OrderedDict, Union
+from typing import Any, Dict, List, Optional, OrderedDict
 import traceback
 
 

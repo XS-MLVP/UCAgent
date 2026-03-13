@@ -509,7 +509,7 @@ class VerifyStage(object):
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
-        if self.cfg.use_skill:
+        if self.cfg.skill.use_skill:
             data["skill_list"] = {k: ["Listed" if u else "Not Listed", "Read" if v else "Not Read", "Used" if w else "Not Used"] for k, [u,v,w] in self.skill_list.items()}
         if with_parent:
             if self.parent:
