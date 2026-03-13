@@ -101,6 +101,7 @@ langfuse:
   base_url: $(LANGFUSE_URL, http://localhost:3000)
 
 skill:
+  use_skill: false # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
   max_skill_list_count: 15  # max number of skills to list
 
 # This is the setting for conversation summary

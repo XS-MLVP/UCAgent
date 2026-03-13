@@ -74,7 +74,6 @@ class VerifyAgent:
         stage_skip_list: Optional[List[int]] = None,
         stage_unskip_list: Optional[List[int]] = None,
         use_todo_tools: bool = False,
-        use_skill: Optional[Union[bool, str]] = None,
         reference_files: dict = None,
         no_history: bool = False,
         enable_context_manage_tools: bool = False,
@@ -131,7 +130,6 @@ class VerifyAgent:
         self.cfg.un_freeze()
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
-        self.cfg.use_skill = use_skill
         self.cfg.freeze()
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
@@ -170,7 +168,8 @@ class VerifyAgent:
         
         # Copy skills to workspace(incrementally and skip existing files)
         self.tool_skill=[]
-        if self.cfg.use_skill:
+        warning(f"use_skill:  {self.cfg.skill.use_skill}")
+        if self.cfg.skill.use_skill:
             # Load default skills
             skills_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
@@ -204,8 +203,8 @@ class VerifyAgent:
                 info(f"Skills not found at {skills_path}, skipping")
             
             # Load additional skills from custom path if provided
-            if isinstance(self.cfg.use_skill, str):
-                extra_skills_path = os.path.abspath(self.cfg.use_skill)
+            if isinstance(self.cfg.skill.use_skill, str):
+                extra_skills_path = os.path.abspath(self.cfg.skill.use_skill)
                 if os.path.exists(extra_skills_path) and os.path.isdir(extra_skills_path):
                     info(f"Copying additional skills from {extra_skills_path}")
                     try:
@@ -679,7 +678,7 @@ class VerifyAgent:
     def get_default_system_prompt(self):
         """Get the default system prompt for the agent."""
         system = self.cfg.mission.prompt.get_value("system", "").strip()
-        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.use_skill else "")
+        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.skill.use_skill else "")
         return system
 
     def set_continue_msg(self, msg: str):

@@ -211,7 +211,7 @@ def get_args() -> argparse.Namespace:
         "--use-skill",
         nargs='?',
         const=True,
-        default=None,
+        default=False,
         help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
     )
      # Miscellaneous arguments
@@ -545,6 +545,10 @@ def run() -> None:
         args.override = args.override or {}
         args.override["backend.key_name"] = args.backend
 
+    if args.use_skill:
+        args.override = args.override or {}
+        args.override["skill.use_skill"] = args.use_skill
+
     template_cfg_overrides = {}
     if args.template_cfg_override:
         for cfg_file in args.template_cfg_override:
@@ -593,7 +597,6 @@ def run() -> None:
         stage_skip_list=args.skip,
         stage_unskip_list=args.unskip,
         use_todo_tools=args.use_todo_tools,
-        use_skill=args.use_skill,
         reference_files=parse_reference_files(args.ref),
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
