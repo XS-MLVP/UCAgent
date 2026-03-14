@@ -108,6 +108,10 @@ langfuse:
   secret_key: $(LANGFUSE_SECRET_KEY, <YOUR_LANGFUSE_SECRET_KEY>)
   base_url: $(LANGFUSE_URL, http://localhost:3000)
 
+skill:
+  use_skill: false # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
+  max_skill_list_count: 15  # max number of skills to list
+
 # This is the setting for conversation summary
 # Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode

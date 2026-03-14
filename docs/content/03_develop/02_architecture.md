@@ -215,6 +215,7 @@ graph TD
             ├──> Stage 1
             │     ├─> task ──> Agent 执行任务
             │     ├─> reference_files ──> Agent 读取模板
+            │     ├─> skill_list ──> 阶段必用技能
             │     ├─> output_files ──> 预期输出
             │     └─> checker ──> 验证输出质量
             │
