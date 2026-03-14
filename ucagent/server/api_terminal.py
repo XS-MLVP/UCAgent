@@ -195,42 +195,49 @@ class _ManagedProcess:
         return self._alive
 
     @property
+    def pid(self) -> Optional[int]:
+        return self._pid
+
+    @property
     def master_fd(self) -> int:
         assert self._master_fd is not None
         return self._master_fd
 
-    def start(self) -> None:
+    def start(self, cols: int = 120, rows: int = 40) -> None:
         """Fork/exec via pty."""
+        import fcntl
         import pty
+        import termios
 
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
-        env["COLUMNS"] = "120"
-        env["LINES"] = "40"
+        env["COLUMNS"] = str(cols)
+        env["LINES"] = str(rows)
         if self._env:
             env.update(self._env)
 
-        pid, fd = pty.openpty()
+        master_fd, slave_fd = pty.openpty()
+
+        winsize = struct.pack("HHHH", rows, cols, 0, 0)
+        fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
+
         child_pid = os.fork()
         if child_pid == 0:
             # ── child ──
-            os.close(pid)  # close master in child
+            os.close(master_fd)
             os.setsid()
 
-            import fcntl
-            import termios
-
-            fcntl.ioctl(fd, termios.TIOCSCTTY, 0)
-            os.dup2(fd, 0)
-            os.dup2(fd, 1)
-            os.dup2(fd, 2)
-            if fd > 2:
-                os.close(fd)
+            fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+            os.dup2(slave_fd, 0)
+            os.dup2(slave_fd, 1)
+            os.dup2(slave_fd, 2)
+            if slave_fd > 2:
+                os.close(slave_fd)
             os.execvpe("/bin/sh", ["/bin/sh", "-c", self.command], env)
 
         # ── parent ──
-        os.close(fd)  # close slave in parent
-        self._master_fd = pid
+        os.close(slave_fd)
+        self._master_fd = master_fd
         self._pid = child_pid
         self._alive = True
 
@@ -912,8 +919,9 @@ class WebTerminalServer:
             return
 
         # Process mode: start the managed subprocess
-        if self.is_process_mode:
-            await self._ensure_process()
+        # Delayed until first WebSocket connection to get correct terminal size
+        # if self.is_process_mode:
+        #     await self._ensure_process()
 
         ready.set()
 
@@ -953,8 +961,15 @@ class WebTerminalServer:
             return
         assert self.command is not None
         self._output_ring.clear()
+        cols, rows = self._terminal_cols, self._terminal_rows
+        if cols <= 0 or rows <= 0:
+            try:
+                sz = os.get_terminal_size()
+                cols, rows = sz.columns, sz.lines
+            except OSError:
+                cols, rows = 120, 40
         proc = _ManagedProcess(self.command, env=self._env)
-        proc.start()
+        proc.start(cols, rows)
         self._process = proc
         self._reader_task = asyncio.ensure_future(self._read_process_output())
 
@@ -978,6 +993,9 @@ class WebTerminalServer:
         exit_code = self._process.poll()
         msg = json.dumps({"type": "exit", "code": exit_code or 0})
         await self._broadcast_text(msg)
+
+        # Stop the event loop so start_blocking() exits
+        loop.stop()
 
     @staticmethod
     def _blocking_read(fd: int) -> bytes:
@@ -1104,8 +1122,16 @@ class WebTerminalServer:
                             # initial PTY size.
                             self._terminal_cols = cols
                             self._terminal_rows = rows
-                            if self._process is not None:
+                            # Process mode: start process on first resize (with correct size)
+                            if self.is_process_mode and (self._process is None or not self._process.alive):
+                                await self._ensure_process()
+                            elif self._process is not None:
                                 self._process.resize(cols, rows)
+                                if self._process.pid is not None:
+                                    try:
+                                        os.kill(self._process.pid, signal.SIGWINCH)
+                                    except (ProcessLookupError, OSError):
+                                        pass
                             if (self._pty_active
                                     and self._pty_slave_fd is not None):
                                 import fcntl
