@@ -6,7 +6,7 @@ import time
 import traceback
 import random
 from collections import OrderedDict
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -131,6 +131,35 @@ class ToolSetCurrentStageJournal(ManagerTool):
         if not journal:
             return "Journal content cannot be empty."
         return self.function(journal)
+
+class ArgCheckSkillUsage(BaseModel):
+    skill_usage: Dict[str, Any] = Field(
+        description="The skill usage content to set for the current stage. Cannot be empty."
+    )
+
+
+class ToolCheckSkillUsage(ManagerTool):
+    """Check the skill usage of the current stage."""
+    name: str = "CheckSkillUsage"
+    description: str = (
+        "Check the usage of the skills and set journal of the current stage. \n"
+        "分析对话历史，检查 skill_list 中指定技能的使用情况(如果还使用了除指定之外的技能,也同样分析).\n"
+        "对于每个技能，从以下方面进行分析：\n"
+        "1. **是否被列举**: 该技能是否被 SkillList 工具所列举\n"
+        "2. **是否被读取**: 该技能的 SKILL.md 文件是否被读取\n"
+        "3. **是否被执行**: 当前阶段任务的完成是否依据了 SKILL.md 中提到的方法步骤或者执行过其中的指定代码\n"
+        "**返回字典格式示例**:\n"
+        "{\n"
+        "  '技能名称1': {'list': True, 'read': True, 'use': False},\n"
+        "  '技能名称2': {'list': True, 'read': False, 'use': False}\n"
+        "}\n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgCheckSkillUsage
+
+    def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not skill_usage:
+            return "Skill usage content cannot be empty."
+        return self.function(skill_usage)
 
 
 class ArgStageDiff(BaseModel):
@@ -599,6 +628,8 @@ class StageManager(object):
             ToolAllStageJournal().set_function(self.tool_get_all_journal),
             ToolSetCurrentStageJournal().set_function(self.tool_set_journal),
         ]
+        if self.agent.cfg.skill.use_skill:
+            tools.append(ToolCheckSkillUsage().set_function(self.tool_set_skill_usage))
         return tools
 
     def get_current_tips(self):
@@ -618,6 +649,17 @@ class StageManager(object):
             ref_files.append(k)
         if ref_files:
             tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
+        
+        # list the skills needed to use in current stage
+        skills_to_use = []
+        for k in cstage.skill_list:
+            skills_to_use.append(k)
+        if skills_to_use:
+            if self.agent.cfg.skill.use_skill:
+                tips["notes"] = tips.get("notes", "") + f"If you have known the detail about skill {skills_to_use}, use them. Otherwise use tool `SkillList` to list and use the required skills firstly."
+            else:
+                raise ValueError("开启 --use-skill 参数使得 UCAgent 可以使用技能, 否则移除阶段中指定的 skill_list。")
+
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
         if mession_tips is not None:
@@ -697,6 +739,29 @@ class StageManager(object):
         for stage in self.stages:
             journals[stage.title()] = stage.meta_get_journal()
         return journals
+
+    def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
+        """update the state of skill_list based on skill_usage"""
+        current_stage = self.get_current_stage()
+        if current_stage.skill_list:
+            for skill_name in current_stage.skill_list:
+                if skill_name not in skill_usage:
+                    return f"You need use skill '{skill_name}' in current stage. You need to first check if the skill exists. If it exists, use tool `SkillList` to list and use it. Otherwise, add the skill."
+                else:
+                    skill_info = skill_usage[skill_name]
+                    current_stage.set_usage_skill_list(skill_name, listed=skill_info.get("list", False), read=skill_info.get("read", False), used=skill_info.get("use", False))
+                    [u,v,w] = current_stage.skill_list[skill_name]
+                    if u and v and w:
+                        continue
+                    if not u:
+                        return f"You need use tool `SkillList` to list and learn the skill {skill_name} and re-complete the stage, or check if skill {skill_name} in the workspace."
+                    if not v:
+                        return f"You need use tool `ReadTextFile` to read the SKILL.md of skill {skill_name}, and re-complete the stage"
+                    if not w:
+                        return f"You need to re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md, or executing the specified code in the SKILL.md if any."
+            current_stage.meta_set_skill_usage_journal(skill_usage)
+            return "All skill in skill_list have been used."     
+        return "No skill need be used in current stage."
 
     def get_stage(self, index):
         if 0 <= index < len(self.stages):
@@ -926,6 +991,11 @@ class StageManager(object):
     def tool_get_current_journal(self):
         ret = make_llm_tool_ret(self.get_current_stage_journal())
         info("ToolGetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+    
+    def tool_set_skill_usage(self, skill_usage: Dict[str, Any]):
+        ret = make_llm_tool_ret(self.set_current_stage_skill_usage(skill_usage))
+        info("ToolCheckSkillUsage:\n" + ret)
         return self.attach_todo_summary(ret)
 
     def tool_detail(self):

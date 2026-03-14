@@ -57,6 +57,8 @@ stage:
       - ...
     reference_files:
       - "Guide_Doc/project_analysis_guide.md" #以MyWorkflow目录为基准
+    skill_list:
+      - "fail-analyze" # 开启了 --use-skill 参数后,在当前阶段必须使用的技能,并将强制检查执行情况
     output_files:
       - "{OUT}/{PROJECT}_analysis.md"
     checker:
@@ -157,6 +159,10 @@ stage:
     task:
       - "参考 Guide_Doc/project_analysis_guide.md 的指导，提取关键信息"
 ```
+
+## 技能(SKILL)
+
+在`yaml`中通过`skill_list`可以指定当前阶段必须要使用的技能,并将在推荐阶段之前检查执行结果(请务必确保所指定的技能存在)。
 
 ## 检查器
 
