@@ -597,6 +597,7 @@ class WebTerminalServer:
                 raise RuntimeError(error_holder[0])
             self._running = True
             self.started_at = time.time()
+            self._print_banner()
             print(f"Serving terminal on {self.url()}", file=sys.stderr)
             print("Press Ctrl+C to quit", file=sys.stderr)
             loop.run_forever()
@@ -607,6 +608,23 @@ class WebTerminalServer:
             loop.close()
             self._running = False
             self.started_at = None
+
+    def _print_banner(self) -> None:
+        """Print UCAgent ASCII art banner."""
+        try:
+            from ucagent.version import __version__
+        except ImportError:
+            __version__ = "unknown"
+
+        banner = f"""
+\u001b[34m   __  __   ______    ___                           __ \u001b[0m
+\u001b[34m  / / / /  / ____/   /   |   ____ _  ___    ____   / /_\u001b[0m
+\u001b[34m / / / /  / /       / /| |  / __ `/ / _ \\  / __ \\ / __/\u001b[0m
+\u001b[34m/ /_/ /  / /___    / ___ | / /_/ / /  __/ / / / // /_ \u001b[0m
+\u001b[34m\\____/   \\____/   /_/  |_| \\__, /  \\___/ /_/ /_/ \\__/\u001b[0m
+\u001b[34m                          /____/                       \u001b[0m \u001b[36mv{__version__}\u001b[0m
+"""
+        print(banner, file=sys.stderr)
 
     def get_status(self) -> Dict[str, Any]:
         """Return a status dict for the /api/status endpoint."""
