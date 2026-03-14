@@ -231,10 +231,29 @@ def get_args() -> argparse.Namespace:
         default=None,
         metavar="[base_url:port[:password]]",
         help=(
-            "Start browser-based terminal."
+            "Start browser-based terminal. "
             "Bare '--web-console' uses defaults (localhost:8000, no auth). "
             "Use '--web-console base_url:port[:password]' to customize host/port "
-            "and optionally enable HTTP Basic Auth."
+            "and optionally enable HTTP Basic Auth. "
+            "NOTE: --web-console runs in standalone mode and does NOT provide "
+            "local command-line interaction."
+        )
+    )
+    parser.add_argument(
+        "--web-terminal",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]][ passwd]",
+        help=(
+            "Start Web Terminal server (terminal_api_start) at agent startup. "
+            "Bare '--web-terminal' uses defaults (127.0.0.1:8818, no auth). "
+            "Use '--web-terminal host[:port]' to customize address. "
+            "Append a password after a space to enable HTTP Basic Auth, "
+            "e.g. --web-terminal '0.0.0.0:8818 mysecret'. "
+            "Unlike --web-console, --web-terminal provides BOTH web-based terminal "
+            "AND local command-line interaction simultaneously."
         )
     )
     parser.add_argument(
@@ -637,6 +656,23 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
+    if getattr(args, 'web_terminal', None) is not None:
+        extra_web_term_opts = ""
+        addr_part = args.web_terminal.strip()
+        passwd_part = ""
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_web_term_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"terminal_api_start{extra_web_term_opts}".strip()]
+        elif ":" in addr_part:
+            t_host, t_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"terminal_api_start {t_host} {t_port}{extra_web_term_opts}"]
+        else:
+            init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
+
     if args.tui:
         init_cmds += ["tui"]
     
