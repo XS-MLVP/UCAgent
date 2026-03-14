@@ -3,6 +3,14 @@
 CWD ?= output/workspace_$*
 CFG ?= config.yaml
 BBV ?= false
+SRC ?= examples
+
+UCAGENT_PY := $(wildcard ucagent.py)
+ifdef UCAGENT_PY
+CMD ?= python3 ucagent.py
+else
+CMD ?= ucagent
+endif
 
 all: clean test
 
@@ -17,11 +25,11 @@ reset_%:
 
 init_%:
 	mkdir -p $(CWD)/$*_RTL
-	cp examples/$*/*.v $(CWD)/$*_RTL/ || true
-	cp examples/$*/*.sv $(CWD)/$*_RTL/ || true
-	cp examples/$*/*.vh $(CWD)/$*_RTL/ || true
-	cp examples/$*/*.scala $(CWD)/$*_RTL/ || true
-	cp examples/$*/filelist.txt $(CWD)/$*_RTL/ || true
+	cp $(SRC)/$*/*.v $(CWD)/$*_RTL/ || true
+	cp $(SRC)/$*/*.sv $(CWD)/$*_RTL/ || true
+	cp $(SRC)/$*/*.vh $(CWD)/$*_RTL/ || true
+	cp $(SRC)/$*/*.scala $(CWD)/$*_RTL/ || true
+	cp $(SRC)/$*/filelist.txt $(CWD)/$*_RTL/ || true
 	@if [ ! -d $(CWD)/$* ]; then \
 		option_fs=""; \
 		if [ -f $(CWD)/$*_RTL/filelist.txt ]; then \
@@ -33,8 +41,8 @@ init_%:
 			picker export $(CWD)/$*_RTL/$*.sv --rw 1 --sname $* --tdir $(CWD)/ -c -w $(CWD)/$*/$*.fst $$option_fs; \
 		fi; \
 	fi
-	cp examples/$*/*.md $(CWD)/$*/  || true
-	cp examples/$*/*.py $(CWD)/$*/  || true
+	cp $(SRC)/$*/*.md $(CWD)/$*/  || true
+	cp $(SRC)/$*/*.py $(CWD)/$*/  || true
 	@if [ $(BBV) = "true" ]; then \
 		echo "Enable BBV mode: clear RTL files"; \
 		for f in $(CWD)/$*/$*.v $(CWD)/$*/$*.sv $(CWD)/$*/$*.vh; do \
@@ -49,19 +57,19 @@ init_%:
 	fi
 
 test_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
 
 test_with_master_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui -l --master 127.0.0.1 --export-cmd-api  ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l --master 127.0.0.1 --export-cmd-api  ${ARGS}
 
 mcp_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS}
 
 mcp_with_master_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --master 127.0.0.1 --export-cmd-api ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --master 127.0.0.1 --export-cmd-api ${ARGS}
 
 mcp_all_tools_%: init_%
-	python3 ucagent.py $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server ${ARGS}
 
 clean_%:
 	rm -rf $(CWD)
@@ -81,10 +89,10 @@ clean_test_%:
 	rm -rf $(CWD)/unity_test
 
 continue_%:
-	python3 ucagent.py $(CWD)/ ${DUT} --config config.yaml ${ARGS}
+	$(CMD) $(CWD)/ ${DUT} --config config.yaml ${ARGS}
 
 as_master:
-	python3 ucagent.py --as-master ${ARGS}
+	$(CMD) --as-master ${ARGS}
 
 # Include docs Makefile
 -include docs/Makefile
