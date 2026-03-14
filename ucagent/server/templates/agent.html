@@ -45,6 +45,10 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .dot.err{background:var(--red)}
 #refresh-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
 #refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+.web-terminal-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:not-allowed;font-size:12px;transition:all .15s}
+.web-terminal-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.web-terminal-btn:disabled{opacity:.5}
+.web-terminal-btn.active{border-color:var(--green);color:var(--green);cursor:pointer}
 
 /* ── layout ── */
 #layout{display:flex;flex:1;overflow:hidden}
@@ -229,6 +233,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div class="logo">UC<span>Agent</span></div>
   <div id="status-bar"><span class="dot"></span>Loading...</div>
   <div class="sep"></div>
+  <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
   <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
 </div>
 
@@ -493,6 +498,77 @@ async function fetchStatus(){
   }catch(e){
     qs("#status-text").textContent="(unavailable)";
     qs("#status-bar").innerHTML='<span class="dot err"></span>Agent unreachable';
+  }
+}
+
+let _terminalApiUrl = null;
+
+function _isLocalHost(host){
+  if(!host)return true;
+  const h=host.toLowerCase();
+  return h==="localhost"||h==="127.0.0.1"||h==="0.0.0.0"||h==="::1"||h==="[::1]";
+}
+
+function _buildWebUrl(host,port){
+  let actualHost=host;
+  if(_isLocalHost(host)){
+    actualHost=window.location.hostname;
+  }
+  return window.location.protocol+"//"+actualHost+":"+port;
+}
+
+async function fetchServerInfo(){
+  try{
+    const j=await apiFetch("/api/server_info");
+    const data=j.data||{};
+    const terminalApi=data.terminal_api;
+    const webConsole=data.web_console;
+    const btn=qs("#web-terminal-btn");
+    
+    let url=null;
+    let source=null;
+    
+    if(terminalApi&&terminalApi.port){
+      if(terminalApi.url){
+        const parsedUrl=new URL(terminalApi.url);
+        if(_isLocalHost(parsedUrl.hostname)){
+          parsedUrl.hostname=window.location.hostname;
+          url=parsedUrl.toString();
+        }else{
+          url=terminalApi.url;
+        }
+      }else{
+        url=_buildWebUrl(terminalApi.host,terminalApi.port);
+      }
+      source="terminal_api";
+    }else if(webConsole&&webConsole.port){
+      url=_buildWebUrl(webConsole.host,webConsole.port);
+      source="web_console";
+    }
+    
+    if(url){
+      _terminalApiUrl=url;
+      btn.disabled=false;
+      btn.classList.add("active");
+      if(source==="terminal_api"){
+        btn.title="Open Web Terminal";
+      }else{
+        btn.title="Open Web Console";
+      }
+      btn.onclick=function(){window.open(_terminalApiUrl,"_blank");};
+    }else{
+      _terminalApiUrl=null;
+      btn.disabled=true;
+      btn.classList.remove("active");
+      btn.title="Web Terminal not running. Use 'terminal_api_start' command to start.";
+      btn.onclick=null;
+    }
+  }catch(e){
+    const btn=qs("#web-terminal-btn");
+    btn.disabled=true;
+    btn.classList.remove("active");
+    btn.title="Failed to fetch server info";
+    btn.onclick=null;
   }
 }
 
@@ -1344,14 +1420,15 @@ function _applyStoredModalResize(modalId){
 })();
 
 /* ── refresh all ── */
-function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();}
+function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchServerInfo();}
 
 /* ── init ── */
-fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();
+fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
 setInterval(fetchPdbStatus,2000);
+setInterval(fetchServerInfo,5000);
 </script>
 </body>
 </html>

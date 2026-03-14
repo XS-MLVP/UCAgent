@@ -691,11 +691,26 @@ class VerifyPDB(Pdb):
         if hasattr(self.agent, "web_console_session_info"):
             web_console = self.agent.web_console_session_info
 
+        # ── Terminal API ─────────────────────────────────────────────────
+        s = getattr(self, '_terminal_server', None)
+        if s is not None and s.is_running:
+            terminal_api = {
+                "host":         s.host,
+                "port":         s.port,
+                "password_set": bool(s.password),
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            terminal_api = None
+
         return {
             "cmd_api":     cmd_api,
             "master_api":  master_api,
             "mcp_server":  mcp_server,
             "web_console": web_console,
+            "terminal_api": terminal_api,
         }
 
     def api_changed_files(self, count=10):
