@@ -11,6 +11,7 @@ import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
 import random
+from collections import OrderedDict
 
 
 class VerifyPDB(Pdb):
@@ -519,7 +520,7 @@ class VerifyPDB(Pdb):
         stage = self.agent.stage_manager.stages[index]
         return stage.get_stage_file_content(file_path)
 
-    def api_get_stage_cfile_diff(self, index, file_path):
+    def api_get_stage_file_current(self, index, file_path):
         """
         Get the diff of a file in a specific stage.
         Args:
@@ -562,13 +563,18 @@ class VerifyPDB(Pdb):
                 ret[i][j] = ""
         return [f"{a}{b}{c}" for a, b, c in ret]
 
-    def api_mission_info(self):
+    def api_mission_info(self, return_dict=False):
         """
         Get mission information with colored output.
         """
         task_data = self.api_task_list()
         current_index = task_data['task_index']
         ret = [f"\n{task_data['mission_name']}\n"]
+        ret_dict = OrderedDict({
+            "misson_name": task_data['mission_name'],
+            "current_index": current_index,
+            "stages": []
+        })
         stage_list = task_data['task_list']["stage_list"]
         ck_tags = self.api_get_check_tag_list(stage_list)
         for i, stage in enumerate(stage_list):
@@ -593,6 +599,18 @@ class VerifyPDB(Pdb):
             check_tag = ck_tags[i]
             text = f"{color}{i:2d}{cend} {check_tag}{color}{task_title}{fail_count_msg}{cend}"
             ret.append(text)
+            vstage_data = {
+                "index": i,
+                "text": text,
+                "out_come": None,
+            }
+            if current_index >= i:
+                vstage = self.agent.stage_manager.get_stage(i)
+                if vstage:
+                    vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
+            ret_dict["stages"].append(vstage_data)
+        if return_dict:
+            return ret_dict
         return ret
 
     def api_all_cmds(self, prefix=""):
@@ -2664,8 +2682,14 @@ class VerifyPDB(Pdb):
     def do_mission_info(self, arg):
         """
         Show mission information with colored output.
+        args:
+            [dict, default False]
         """
-        info = self.api_mission_info()
+        ret_dict = arg.strip() == "dict"
+        info = self.api_mission_info(ret_dict)
+        if ret_dict:
+            echo_g(yam_str(info))
+            return
         for i, line in enumerate(info):
             if i == 0:
                 echo_g(line)

@@ -665,7 +665,6 @@ class StageManager(object):
                 "needs_human_check": stage.is_hmcheck_needed(),
                 "need_fail_llm_suggestion": self.stage_need_llm_fail_suggestion(stage),
                 "need_pass_llm_suggestion": self.stage_need_llm_pass_suggestion(stage),
-                "out_come": stage.get_stage_outcome(),
             })
         ret["process"] = f"{self.stage_index}/{len(self.stages)}"
         cstage = self.stages[self.stage_index] if self.stage_index < len(self.stages) else None

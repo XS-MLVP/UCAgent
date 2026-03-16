@@ -134,6 +134,8 @@ stage:
             args:
               files:
                 - "{DUT}/__init__.py"
+    output_files:
+      - "{OUT}/{DUT}_verification_needs_and_plan.md"
 
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
@@ -154,6 +156,8 @@ stage:
             args:
               markdown_file_list: "{OUT}/{DUT}_basic_info.md"
               no_line_break: true
+    output_files:
+      - "{OUT}/{DUT}_basic_info.md"
 
   - name: functional_specification_analysis
     desc: "功能规格分析与测试点定义"
@@ -456,6 +460,8 @@ stage:
             reference_files:
               - "Guide_Doc/dut_function_coverage_def.md"
               - "{OUT}/{DUT}_functions_and_checks.md"
+    output_files:
+      - "{OUT}/tests/{DUT}_function_coverage_def.py"
 
   - name: test_environment_implementation
     desc: "基础测试环境实现"

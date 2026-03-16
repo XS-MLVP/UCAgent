@@ -700,7 +700,7 @@ def find_files_by_glob(workspace, pattern):
     return list(ret)
 
 
-def find_files_by_pattern(workspace, pattern):
+def find_files_by_pattern(workspace, pattern, ignore_warn=False):
     """Find files in a workspace that match a given pattern, which can be either a glob or regex."""
 
     def is_regex_pattern(s: str) -> bool:
@@ -713,7 +713,7 @@ def find_files_by_pattern(workspace, pattern):
         pattern = [pattern]
     ret = []
     for p in pattern:
-        if os.path.isfile(os.path.join(workspace, p)):
+        if os.path.isfile(workspace + os.path.sep + p):
             ret.append(p)
             continue
         # first try glob
@@ -721,7 +721,7 @@ def find_files_by_pattern(workspace, pattern):
         # if no files found, try regex
         if not new_p and is_regex_pattern(p):
             new_p += find_files_by_regex(workspace, p)
-        if len(new_p) < 1:
+        if len(new_p) < 1 and not ignore_warn:
             warning(f"No files found in workspace {workspace} matching pattern: {p}")
             continue
         ret += new_p

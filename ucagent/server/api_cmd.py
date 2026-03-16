@@ -397,10 +397,11 @@ class PdbCmdApiServer:
         @app.get("/api/mission", summary="Mission overview")
         def get_mission(strip_ansi: bool = Query(default=False, description="Strip ANSI escape codes from output")):
             try:
-                lines = pdb.api_mission_info()
+                mission_data = pdb.api_mission_info(return_dict=True)
                 if strip_ansi:
-                    lines = [_strip_ansi(line) for line in lines]
-                return {"status": "ok", "data": lines}
+                    for stage in mission_data["stages"]:
+                        stage["text"] = _strip_ansi(stage["text"])
+                return {"status": "ok", "data": mission_data}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -471,6 +472,30 @@ class PdbCmdApiServer:
                 _output_dir = os.path.abspath(pdb.agent.output_dir)
                 output_dir_rel = os.path.relpath(_output_dir, _workspace)
                 return {"status": "ok", "data": data, "output_dir": output_dir_rel}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/stage/{index}/file ────────────────────────────────
+        @app.get("/api/stage/{index}/file", summary="Get file content from a stage")
+        def get_stage_file(
+            index: int,
+            file_path: str = Query(..., description="Path to the file in the stage")
+        ):
+            try:
+                data = pdb.api_get_stage_file(index, file_path)
+                return {"status": "ok", "data": data}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/stage/{index}/file_current ────────────────────────────
+        @app.get("/api/stage/{index}/file_current", summary="Get file content from a stage")
+        def get_stage_file_current(
+            index: int,
+            file_path: str = Query(..., description="Path to the file in the stage")
+        ):
+            try:
+                data = pdb.api_get_stage_file_current(index, file_path)
+                return {"status": "ok", "data": data}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 

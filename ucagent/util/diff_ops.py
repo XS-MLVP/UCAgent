@@ -322,8 +322,7 @@ def get_current_file_content_and_diff_from_commit(path: str, commit_hash: str, f
     Returns:
         dict: A dictionary with keys:
             - 'is_text': bool indicating if the file is a text file
-            - 'current_content': str current content of the file (only if is_text is True)
-            - 'commit_content': str content of the file at the specified commit (only if is_text is True and file existed in commit)
+            - 'content': str current content of the file (only if is_text is True)
             - 'diff': str diff (current content as new, commit content as old)
             - 'error': str error message (only if is_text is False or error occurred)
     Raises:
@@ -351,7 +350,7 @@ def get_current_file_content_and_diff_from_commit(path: str, commit_hash: str, f
             diff = ""
         return {
             'is_text': True,
-            'current_content': current_content,
+            'content': current_content,
             'diff': diff,
             'error': None
         }

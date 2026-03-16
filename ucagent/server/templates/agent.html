@@ -61,6 +61,38 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .sb-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
 #status-text{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
 #mission-list{overflow-y:auto;flex:1;font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
+.mission-name{text-align:center;font-weight:600;font-size:13px;color:var(--accent);margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)}
+.stage-item{margin-bottom:4px}
+.stage-text-wrap{display:flex;align-items:flex-start;gap:4px}
+.stage-collapse-btn{cursor:pointer;color:var(--text-dim);font-size:10px;width:12px;flex-shrink:0;user-select:none}
+.stage-collapse-btn:hover{color:var(--accent)}
+.stage-text{padding:2px 0;flex:1}
+.stage-outcome{margin-left:16px;margin-top:2px;font-size:11px}
+.outcome-section{margin:4px 0}
+.outcome-label{color:var(--text-dim);margin-right:6px;font-size:10px}
+.outcome-files-grid{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:2px}
+.outcome-file-wrap{display:inline-flex;align-items:center;flex-wrap:nowrap;gap:0;font-size:10px}
+.outcome-path-part{cursor:pointer;flex-shrink:0}
+.outcome-path-part:hover{text-decoration:underline}
+.outcome-path-part.output-color{color:var(--green)}
+.outcome-path-part.changed-color{color:var(--orange)}
+.outcome-sep{margin:0 1px;flex-shrink:0}
+.outcome-sep.output-color{color:var(--green)}
+.outcome-sep.changed-color{color:var(--orange)}
+.outcome-name{border-radius:3px;cursor:pointer;padding:1px 4px;flex-shrink:0}
+.outcome-name:hover{text-decoration:underline}
+.outcome-name.file-output{background:#1e3a2f;color:var(--green)}
+.outcome-name.file-changed{background:#3a2a1e;color:var(--orange)}
+.outcome-more-btn{color:var(--accent);cursor:pointer;font-size:10px;padding:1px 4px}
+.outcome-more-btn:hover{text-decoration:underline}
+.stage-toggle-bar{display:flex;gap:4px;margin-bottom:8px}
+.stage-toggle-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px}
+.stage-toggle-btn:hover{border-color:var(--accent);color:var(--accent)}
+.stage-toggle-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.stage-file-container{display:flex;flex-direction:column;height:100%}
+.stage-diff-section{margin-bottom:8px}
+.stage-diff-content{background:var(--bg3);padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;white-space:pre}
+.stage-content-section{margin-bottom:8px;display:flex;flex-direction:column}
 .task-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:12px;cursor:default}
 .task-row:hover{background:var(--bg3)}
 .task-row .idx{color:var(--text-dim);width:18px;text-align:right;flex-shrink:0;font-family:var(--mono);font-size:11px}
@@ -84,6 +116,9 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #mission-section{flex:1;display:flex;flex-direction:column;overflow:hidden}
 #tools-section{flex-shrink:0;padding:12px 14px;border-top:1px solid var(--border)}
 #tools-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+.show-current-label{font-size:10px;font-weight:normal;text-transform:none;color:var(--text-dim);cursor:pointer;display:inline-flex;align-items:center;gap:3px;margin-left:auto}
+.show-current-label input{cursor:pointer}
+.show-current-label:hover{color:var(--text)}
 
 /* ── file manager ── */
 #fm{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -187,7 +222,8 @@ td.col-name .fn.dir{color:var(--accent)}
 .cf-chip{font-family:var(--mono);font-size:11px;white-space:nowrap;cursor:pointer;padding:1px 0;color:var(--text)}
 .cf-chip.recent{color:var(--green)}
 .cf-chip:hover{text-decoration:underline}
-.cf-count-ctrl{display:flex;align-items:center;border:1px solid var(--border);border-radius:4px;overflow:hidden;height:18px;margin-left:6px;flex-shrink:0}
+.cf-count-label{font-size:10px;color:var(--text-dim);flex-shrink:0}
+.cf-count-ctrl{display:flex;align-items:center;border:1px solid var(--border);border-radius:4px;overflow:hidden;height:18px;flex-shrink:0}
 .cf-count-ctrl input{width:26px;background:var(--bg3);border:none;color:var(--text);font-size:11px;text-align:center;padding:0 2px;height:100%;outline:none;-moz-appearance:textfield}
 .cf-count-ctrl input::-webkit-inner-spin-button,.cf-count-ctrl input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .cf-count-ctrl button{background:var(--bg3);border:none;color:var(--text-dim);cursor:pointer;padding:0 5px;font-size:9px;height:100%;line-height:1;border-left:1px solid var(--border)}
@@ -248,7 +284,24 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <pre id="status-text">Loading…</pre>
       </div>
       <div class="sb-section" id="mission-section">
-        <h3>Mission / Tasks</h3>
+        <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">Mission / Tasks
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+            <label class="show-current-label" title="Show current file content instead of committed version">
+              <input type="checkbox" id="show-current-content">
+              <span>Current Content</span>
+            </label>
+            <label class="show-current-label" title="Show files for each stage">
+              <input type="checkbox" id="show-files">
+              <span>Show Files</span>
+            </label>
+            <span class="cf-count-label">Max files:</span>
+            <div class="cf-count-ctrl" title="Max files to show per section">
+              <button onclick="outcomeCountStep(-1)" title="Show fewer">&#9660;</button>
+              <input id="outcome-count-input" type="number" value="10" min="1" max="99" onchange="refreshOutcomeFiles()" title="Max files">
+              <button onclick="outcomeCountStep(1)" title="Show more">&#9650;</button>
+            </div>
+          </div>
+        </h3>
         <div id="mission-list">Loading…</div>
       </div>
     </div>
@@ -572,14 +625,285 @@ async function fetchServerInfo(){
   }
 }
 
+/* ── mission settings storage ── */
+const _STORAGE_KEYS={
+  showCurrent:"ucagent-show-current",
+  showFiles:"ucagent-show-files",
+  outcomeCount:"ucagent-outcome-count",
+  collapsedStages:"ucagent-collapsed-stages"
+};
+
+function _loadMissionSettings(){
+  const showCurrent=localStorage.getItem(_STORAGE_KEYS.showCurrent)==="true";
+  const showFiles=localStorage.getItem(_STORAGE_KEYS.showFiles)!=="false";
+  const outcomeCount=parseInt(localStorage.getItem(_STORAGE_KEYS.outcomeCount))||10;
+  const el1=qs("#show-current-content");
+  const el2=qs("#show-files");
+  const el3=qs("#outcome-count-input");
+  if(el1)el1.checked=showCurrent;
+  if(el2)el2.checked=showFiles;
+  if(el3)el3.value=outcomeCount;
+}
+
+function _saveMissionSetting(key,value){
+  localStorage.setItem(key,String(value));
+}
+
+function _getCollapsedStages(){
+  const saved=localStorage.getItem(_STORAGE_KEYS.collapsedStages);
+  if(saved)return new Set(JSON.parse(saved));
+  return null;
+}
+
+function _saveCollapsedStages(set){
+  localStorage.setItem(_STORAGE_KEYS.collapsedStages,JSON.stringify([...set]));
+}
+
+function _isStageCollapsed(stageIndex,hasFiles){
+  if(!hasFiles)return true;
+  const collapsed=_getCollapsedStages();
+  if(collapsed===null)return true;
+  return collapsed.has(stageIndex);
+}
+
+function _toggleStageCollapse(stageIndex){
+  let collapsed=_getCollapsedStages();
+  if(collapsed===null){
+    collapsed=new Set();
+  }
+  const isCurrentlyCollapsed=collapsed.has(stageIndex);
+  if(isCurrentlyCollapsed){
+    collapsed.delete(stageIndex);
+  }else{
+    collapsed.add(stageIndex);
+  }
+  _saveCollapsedStages(collapsed);
+  const content=qs(`#stage-content-${stageIndex}`);
+  const btn=qs(`#stage-collapse-btn-${stageIndex}`);
+  if(content){
+    content.style.display=isCurrentlyCollapsed?"block":"none";
+  }
+  if(btn){
+    btn.textContent=isCurrentlyCollapsed?"▼":"▶";
+  }
+}
+
+function _initMissionSettings(){
+  _loadMissionSettings();
+  const el1=qs("#show-current-content");
+  const el2=qs("#show-files");
+  if(el1)el1.addEventListener("change",()=>{
+    _saveMissionSetting(_STORAGE_KEYS.showCurrent,el1.checked);
+  });
+  if(el2)el2.addEventListener("change",()=>{
+    _saveMissionSetting(_STORAGE_KEYS.showFiles,el2.checked);
+    fetchMission();
+  });
+}
+
 /* ── mission ── */
 async function fetchMission(){
   try{
     const j=await apiFetch("/api/mission");
-    const lines=j.data||[];
-    const html=lines.map(l=>_ansiToHtml(l)).join("\n");
+    const data=j.data||{};
+    const missionName=data.misson_name||"Mission";
+    const stages=data.stages||[];
+    window._missionOutcomeData={};
+    const showFiles=qs("#show-files")?.checked!==false;
+    let html=`<div class="mission-name">${esc(missionName)}</div>`;
+    for(const stage of stages){
+      const outcome=stage.out_come;
+      const outputFiles=outcome?.output_files||{};
+      const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+      const changedFiles=(outcome?.changed_files||[]).slice();
+      const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
+      const hasFiles=allFiles.length>0;
+      const isCollapsed=_isStageCollapsed(stage.index,hasFiles);
+      html+=`<div class="stage-item">`;
+      html+=`<div class="stage-text-wrap">`;
+      if(hasFiles){
+        html+=`<span class="stage-collapse-btn" id="stage-collapse-btn-${stage.index}" onclick="_toggleStageCollapse(${stage.index})">${isCollapsed?"▶":"▼"}</span>`;
+      }
+      html+=`<span class="stage-text">${_ansiToHtml(stage.text||"")}</span>`;
+      html+=`</div>`;
+      if(showFiles&&outcome&&hasFiles){
+        window._missionOutcomeData[stage.index]=outcome;
+        html+=`<div class="stage-outcome" id="stage-content-${stage.index}" style="display:${isCollapsed?"none":"block"}">`;
+        html+=`<div class="outcome-section">`;
+        html+=`<span class="outcome-label">Files:</span>`;
+        html+=`<div class="outcome-files-grid" id="files-${stage.index}">`;
+        html+=_renderOutcomeFiles(allFiles,stage.index,outputSet,false);
+        html+=`</div></div>`;
+        html+=`</div>`;
+      }
+      html+=`</div>`;
+    }
     qs("#mission-list").innerHTML=html||"(no tasks)";
   }catch(e){qs("#mission-list").textContent="(unavailable)";}
+}
+
+function getOutcomeShowCount(){
+  const el=qs("#outcome-count-input");
+  return el?Math.max(1,parseInt(el.value)||10):10;
+}
+
+function outcomeCountStep(d){
+  const el=qs("#outcome-count-input");
+  if(!el)return;
+  const v=Math.max(1,Math.min(99,(parseInt(el.value)||10)+d));
+  el.value=v;
+  _saveMissionSetting(_STORAGE_KEYS.outcomeCount,v);
+  refreshOutcomeFiles();
+}
+
+function refreshOutcomeFiles(){
+  if(!window._missionOutcomeData)return;
+  for(const stageIndex in window._missionOutcomeData){
+    const outcome=window._missionOutcomeData[stageIndex];
+    const outputFiles=outcome.output_files||{};
+    const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+    const changedFiles=(outcome.changed_files||[]).slice();
+    const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
+    const grid=qs(`#files-${stageIndex}`);
+    if(grid&&allFiles.length){
+      grid.innerHTML=_renderOutcomeFiles(allFiles,parseInt(stageIndex),outputSet,false);
+    }
+  }
+}
+
+function _renderOutcomeFiles(files,stageIndex,outputSet,expanded){
+  const maxCount=getOutcomeShowCount();
+  const showCount=expanded?files.length:maxCount;
+  let html="";
+  for(let i=0;i<Math.min(showCount,files.length);i++){
+    html+=_renderOutcomeFile(files[i],stageIndex,outputSet);
+  }
+  if(files.length>maxCount){
+    if(!expanded){
+      html+=`<span class="outcome-more-btn" onclick="_toggleOutcomeFiles(${stageIndex},true)">…${files.length-maxCount} more</span>`;
+    }else{
+      html+=`<span class="outcome-more-btn" onclick="_toggleOutcomeFiles(${stageIndex},false)">« less</span>`;
+    }
+  }
+  return html;
+}
+
+function _toggleOutcomeFiles(stageIndex,expanded){
+  const grid=qs(`#files-${stageIndex}`);
+  if(!grid)return;
+  const outcome=window._missionOutcomeData?.[stageIndex];
+  if(!outcome)return;
+  const outputFiles=outcome.output_files||{};
+  const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+  const changedFiles=(outcome.changed_files||[]).slice();
+  const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
+  grid.innerHTML=_renderOutcomeFiles(allFiles,stageIndex,outputSet,expanded);
+}
+
+function _renderOutcomeFile(filePath,stageIndex,outputSet){
+  const isOutput=outputSet.has(filePath);
+  const colorCls=isOutput?"output-color":"changed-color";
+  const cls=isOutput?"file-output":"file-changed";
+  const parts=filePath.split("/");
+  const name=parts.pop();
+  const ext=name.includes(".")?name.split(".").pop():"";
+  const isText=_TEXT_EXTS.has(ext)||_MD_EXTS.has(ext);
+  const isImg=_IMG_EXTS.has(ext);
+  const isHtml=_HTML_EXTS.has(ext);
+  const canView=isText||isImg||isHtml;
+  let pathHtml="";
+  let builtPath="";
+  for(let i=0;i<parts.length;i++){
+    const part=parts[i];
+    builtPath=builtPath?builtPath+"/"+part:part;
+    const p=builtPath;
+    pathHtml+=`<span class="outcome-path-part ${colorCls}" onclick="fetchFiles('${esc(p)}')" title="${esc(p)}">${esc(part)}</span>`;
+    pathHtml+=`<span class="outcome-sep ${colorCls}">/</span>`;
+  }
+  if(canView){
+    pathHtml+=`<span class="outcome-name ${cls}" onclick="openStageFile(${stageIndex},'${esc(filePath)}','${esc(name)}','${esc(ext)}')" title="${esc(filePath)}">${esc(name)}</span>`;
+  }else{
+    pathHtml+=`<span class="outcome-name ${cls}" onclick="fetchFiles('${esc(builtPath)}')" title="${esc(filePath)}">${esc(name)}</span>`;
+  }
+  return`<span class="outcome-file-wrap">${pathHtml}</span>`;
+}
+
+let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDiff="",_viewStageIndex=0,_viewFilePath="",_viewFileName="";
+
+async function openStageFile(stageIndex,filePath,name,ext){
+  try{
+    const showCurrent=qs("#show-current-content")?.checked||false;
+    const apiPath=showCurrent?`/api/stage/${stageIndex}/file_current`:`/api/stage/${stageIndex}/file`;
+    const j=await apiFetch(`${apiPath}?file_path=${encodeURIComponent(filePath)}`);
+    const data=j.data||{};
+    if(data.error){
+      showErr(data.error);
+      return;
+    }
+    _viewCurrentPath=filePath;
+    _viewCurrentExt=ext;
+    let content=data.content||"";
+    if(typeof content!=="string")content=String(content);
+    _viewCurrentContent=content;
+    let diff=data.diff||"";
+    if(typeof diff!=="string")diff=String(diff);
+    _viewCurrentDiff=diff;
+    _viewStageIndex=stageIndex;
+    _viewFilePath=filePath;
+    _viewFileName=name;
+    qs("#view-title").textContent=name;
+    qs("#view-raw-btn").style.display="none";
+    const body=qs("#view-body");
+    body.style.padding="0";
+    body.style.overflow="hidden";
+    _renderStageFileContent(body,ext,false);
+    openModal("view-modal");
+    _applyStoredModalResize('view-modal');
+  }catch(e){showErr(e.message);}
+}
+
+function _renderStageFileContent(body,ext,showDiff){
+  const content=_viewCurrentContent||"";
+  const diff=_viewCurrentDiff||"";
+  const hasDiff=diff.trim().length>0;
+  let html="";
+  html+=`<div class="stage-file-container">`;
+  if(showDiff&&hasDiff){
+    html+=`<div class="stage-diff-section" style="margin:0;flex:1;overflow:auto">`;
+    html+=`<pre class="stage-diff-content">${esc(diff)}</pre>`;
+    html+=`</div>`;
+  }else{
+    if(_MD_EXTS.has(ext)){
+      html+=`<div class="stage-content-section" style="margin:0;flex:1;overflow:auto">`;
+      html+=`<div id="view-md"></div>`;
+      html+=`</div>`;
+    }else{
+      html+=`<div class="stage-content-section" style="margin:0;flex:1;overflow:auto">`;
+      html+=`<div class="view-wrap"><div id="view-gutter" class="view-gutter"></div><pre id="view-pre"></pre></div>`;
+      html+=`</div>`;
+    }
+  }
+  if(hasDiff){
+    html+=`<div class="stage-toggle-bar" style="margin-top:8px;margin-bottom:0">`;
+    html+=`<button class="stage-toggle-btn${!showDiff?" active":""}" onclick="_toggleStageView(false)">Content</button>`;
+    html+=`<button class="stage-toggle-btn${showDiff?" active":""}" onclick="_toggleStageView(true)">Diff</button>`;
+    html+=`</div>`;
+  }
+  html+=`</div>`;
+  body.innerHTML=html;
+  if(!showDiff||!hasDiff){
+    if(_MD_EXTS.has(ext)){
+      _renderViewMarkdown(content);
+    }else{
+      _renderViewCode(content,ext);
+    }
+  }
+}
+
+function _toggleStageView(showDiff){
+  const body=qs("#view-body");
+  if(!body)return;
+  _renderStageFileContent(body,_viewCurrentExt,showDiff);
 }
 
 /* ── tools ── */
@@ -847,7 +1171,7 @@ const _EXT_LANG={py:"python",js:"javascript",ts:"typescript",css:"css",
   java:"java",rs:"rust",go:"go",rb:"ruby",scala:"scala",lua:"lua",
   toml:"toml",xml:"xml",html:"xml",htm:"xml"};
 const _MD_EXTS=new Set(["md","markdown"]);
-let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewIsRaw=false;
+let _viewIsRaw=false;
 
 function _renderViewCode(content,ext){
   const gutter=qs("#view-gutter"),pre=qs("#view-pre");
@@ -1423,7 +1747,7 @@ function _applyStoredModalResize(modalId){
 function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchServerInfo();}
 
 /* ── init ── */
-fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+_initMissionSettings();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
