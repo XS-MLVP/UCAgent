@@ -137,7 +137,11 @@ class VerifyStage(object):
     def hist_commit(self, msg="Auto commit"):
         self.hist_sync()
         info(f"[{self.__class__.__name__}] History commit: {msg}")
-        diff_ops.git_add_and_commit(self.hist_sav_dir, self.title_short() + ":\n\n" + msg)
+        stage_commit_str = self.title_short() + ":\n\n" + msg
+        self.meta_data['commit'] = {
+           "hash": diff_ops.git_add_and_commit(self.hist_sav_dir, stage_commit_str),
+           "message": stage_commit_str
+        }
 
     def hist_diff(self, target_file=".", show_diff=False,
                   start_line=1, line_count=-1, max_line_limit=500):
@@ -154,6 +158,36 @@ class VerifyStage(object):
             if f not in self.reference_files:
                 self.reference_files[f] = False
                 info(f"[{self.__class__.__name__}] Reference file {f} added.")
+
+    def get_stage_outcome(self):
+        output_files = {p:find_files_by_pattern(self.workspace, p) for p in self.output_files}
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        changed_files = []
+        if hash_id is not None:
+            changed_files = diff_ops.get_commit_changed_files(self.hist_sav_dir, hash_id)
+        return {"output_files": output_files,
+                "changed_files": changed_files,
+                "commit_hash": hash_id,
+                "commit_message": self.meta_data.get('commit', {}).get('message', None)
+                }
+
+    def get_stage_file_content(self, file_path):
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        if hash_id is None:
+            return {"error": f"stage not commited, cannot get file ({file_path}) content."}
+        try:
+            return diff_ops.get_commit_file_content_and_diff(self.hist_sav_dir, file_path, hash_id)
+        except Exception as e:
+            return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
+
+    def get_current_file_content_with_diff(self, file_path):
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        if hash_id is None:
+            return {"error": f"stage not commited, cannot get file ({file_path}) content."}
+        try:
+            return diff_ops.get_commit_file_content_and_diff(self.hist_sav_dir, file_path, hash_id)
+        except Exception as e:
+            return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
 
     def on_init(self):
         for c in self.checker:

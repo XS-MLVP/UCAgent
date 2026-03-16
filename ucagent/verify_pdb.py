@@ -505,6 +505,34 @@ class VerifyPDB(Pdb):
             "task_list": task_list
         }
 
+    def api_get_stage_file(self, index, file_path):
+        """
+        Get the content of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Content of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_stage_file_content(file_path)
+
+    def api_get_stage_cfile_diff(self, index, file_path):
+        """
+        Get the diff of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Diff of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_current_file_content_with_diff(file_path)
+
     def api_get_check_tag_list(self, stage_list):
         """
         Get colored llm and human check tag for the stage.
@@ -2669,6 +2697,80 @@ class VerifyPDB(Pdb):
         Auto-complete the protect_files_off command.
         """
         return self.api_complite_workspace_file(text)
+
+    def do_stage_outcome(self, arg):
+        """
+        Show the outcome of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        index = arg.strip()
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        if index:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage outcome: \n{yam_str(stage.get_stage_outcome())}")
+
+    def complete_stage_outcome(self, text, line, begidx, endidx):
+        """
+        Auto-complete the stage_outcome command.
+        """
+        stage_index = [str(i) for i in range(len(self.agent.stage_manager.stages))]
+        return [i for f in stage_index if f.startswith(text.strip())]
+
+    def do_stage_file_content(self, arg):
+        """
+        Show the content of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage file content: \n{yam_str(stage.get_stage_file_content(file_path))}")
+
+    def do_stage_cfile_content(self, arg):
+        """
+        Show the content of the current stage file.
+        args:
+            <file_path> [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(int(index))
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage current file content with diff: \n{yam_str(stage.get_current_file_content_with_diff(file_path))}")
 
     def do_stage_diff(self, arg):
         """
