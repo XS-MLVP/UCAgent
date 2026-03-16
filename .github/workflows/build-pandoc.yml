@@ -21,6 +21,10 @@ jobs:
     # 使用最新镜像，避免latex版本问题
       image: docker.io/pandoc/latex:latest-ubuntu
     steps:
+      - name: Debug container info
+        run: |
+          echo "Image: $(cat /etc/os-release || true)"
+          tlmgr --version || true
       - name: Install git, LaTeX extras, fonts
         run: |
           set -eux
