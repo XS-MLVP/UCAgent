@@ -136,7 +136,7 @@ def _serve_web_console(argv: Optional[List[str]] = None) -> None:
     command = _build_web_console_command(argv)
     web_console_spec = _extract_web_console_spec(argv)
     host, port, password = _resolve_web_console_bind(web_console_spec)
-    server = WebTerminalServer(
+    server = PdbWebTermServer(
         command + f" --web-console-session-host={host} --web-console-session-port={port}",
         host=host,
         port=port,
@@ -424,7 +424,7 @@ def _load_template(name: str) -> str:
 # The server
 # ---------------------------------------------------------------------------
 
-class WebTerminalServer:
+class PdbWebTermServer:
     """Lightweight aiohttp server that serves a web terminal via WebSocket.
 
     **Process mode** (default):  ``command`` is spawned once in a pty.

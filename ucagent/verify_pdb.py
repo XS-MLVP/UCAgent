@@ -1293,7 +1293,7 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Terminal server cannot be launched while in TUI mode.")
             return
-        from ucagent.server.api_terminal import WebTerminalServer
+        from ucagent.server.api_terminal import PdbWebTermServer
 
         host = "127.0.0.1"
         port = 8818
@@ -1339,7 +1339,7 @@ class VerifyPDB(Pdb):
             echo_y(f"Default port was busy; using port {port} instead.")
 
         try:
-            server = WebTerminalServer(
+            server = PdbWebTermServer(
                 command=None,
                 host=host,
                 port=port,
