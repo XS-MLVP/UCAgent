@@ -121,6 +121,8 @@ class PdbCmdApiServer:
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
+    GET  /api/stage/{index}/file       - Get file content from a stage  (?file_path=...)
+    GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
     DELETE /api/console                - Clear captured stdout buffer
     POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
@@ -134,9 +136,10 @@ class PdbCmdApiServer:
     DELETE /api/file                   - Delete file or empty directory  (?path=...)
     GET  /api/file/download            - Download file as attachment  (?path=...)
     POST /api/file/upload              - Upload file (multipart)  (?path=target_dir)
-    GET  /workspace/{path}             - Serve workspace files as static assets
-    GET  /docs                         - Swagger UI (auto-generated)
-    GET  /redoc                        - ReDoc (auto-generated)
+    GET  /workspace/{path}             - Serve workspace files as static assets (redirects to dashboard for root)
+    GET  /static/{path}                - Serve bundled static assets
+    GET  /surfer/ and /surfer/{path}   - Surfer waveform viewer (static)
+    GET  /docs, /redoc                 - OpenAPI docs (Swagger UI, ReDoc)
     """
 
     def __init__(
