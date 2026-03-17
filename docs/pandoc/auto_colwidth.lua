@@ -134,19 +134,26 @@ local function split_with_breaks(s)
 end
 
 local function escape_tex(s)
-  return s:gsub('[\\{}%$#&_%%^]', function(c)
+  local escaped = s:gsub('[\\{}%$#&_%%^]', function(c)
     if c == '_' then return '\\_' end
     if c == '%' then return '\\%' end
     return '\\' .. c
   end)
+  return escaped
 end
 
 local function code_inline(el)
   if needs_breaking(el.text) then
-    -- Use seqsplit to allow breaks anywhere plus explicit allowbreak after separators
-    local broken = el.text:gsub('([/:%-%.])', '%1\\allowbreak{}')
-    broken = escape_tex(broken)
-    return pandoc.RawInline('latex', '\\texttt{\\seqsplit{' .. broken .. '}}')
+    -- Build escaped code and inject allowbreak as real TeX commands after separators.
+    local chunks = {}
+    for i = 1, #el.text do
+      local c = el.text:sub(i, i)
+      table.insert(chunks, escape_tex(c))
+      if c:match(seps_pattern) then
+        table.insert(chunks, '\\allowbreak{}')
+      end
+    end
+    return pandoc.RawInline('latex', '\\texttt{' .. table.concat(chunks) .. '}')
   end
   return nil
 end

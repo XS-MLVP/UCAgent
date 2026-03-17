@@ -11,6 +11,7 @@ from collections import OrderedDict
 import copy
 import time
 import os
+from typing import Dict, Any
 
 
 def update_dict(d, u):
@@ -41,6 +42,7 @@ class VerifyStage(object):
                  task,
                  checker,
                  reference_files,
+                 skill_list,
                  output_files,
                  prefix = "",
                  skip=False,
@@ -85,6 +87,7 @@ class VerifyStage(object):
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
+        self.skill_list = {k:[False,False,False] for k in skill_list}
         self.output_files = output_files
         self.tool_read_text = tool_read_text
         if self.tool_read_text is not None:
@@ -103,6 +106,7 @@ class VerifyStage(object):
         self.force_unactive = False
         self.vmanager = None
         self.meta_data = {}
+        self._cached_stage_outcome = None
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
@@ -114,6 +118,14 @@ class VerifyStage(object):
 
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
+
+    def meta_set_skill_usage_journal(self, skill_usage: Dict[str, Any]):
+        self.meta_data['skill_usage'] = skill_usage
+
+    def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
+        if skill_name in self.skill_list:
+            [u,v,w] = self.skill_list[skill_name]
+            self.skill_list[skill_name] = [listed or u, read or v, used or w]
 
     def hist_init(self):
         if not os.path.exists(self.hist_sav_dir):
@@ -137,7 +149,11 @@ class VerifyStage(object):
     def hist_commit(self, msg="Auto commit"):
         self.hist_sync()
         info(f"[{self.__class__.__name__}] History commit: {msg}")
-        diff_ops.git_add_and_commit(self.hist_sav_dir, self.title_short() + ":\n\n" + msg)
+        stage_commit_str = self.title_short() + ":\n\n" + msg
+        self.meta_data['commit'] = {
+           "hash": diff_ops.git_add_and_commit(self.hist_sav_dir, stage_commit_str),
+           "message": stage_commit_str
+        }
 
     def hist_diff(self, target_file=".", show_diff=False,
                   start_line=1, line_count=-1, max_line_limit=500):
@@ -154,6 +170,41 @@ class VerifyStage(object):
             if f not in self.reference_files:
                 self.reference_files[f] = False
                 info(f"[{self.__class__.__name__}] Reference file {f} added.")
+
+    def get_stage_outcome(self, use_cache=True):
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        if self._cached_stage_outcome is not None and use_cache:
+            if hash_id == self._cached_stage_outcome.get("commit_hash", None):
+                return self._cached_stage_outcome
+        output_files = {p:find_files_by_pattern(self.workspace, p, ignore_warn=True) for p in self.output_files}
+        changed_files = []
+        if hash_id is not None:
+            changed_files = diff_ops.get_commit_changed_files(self.hist_sav_dir, hash_id)
+        self._cached_stage_outcome = {
+            "output_files": output_files,
+            "changed_files": changed_files,
+            "commit_hash": hash_id,
+            "commit_message": self.meta_data.get('commit', {}).get('message', None)
+        }
+        return self._cached_stage_outcome
+
+    def get_stage_file_content(self, file_path):
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        if hash_id is None:
+            return {"error": f"stage not commited, cannot get file ({file_path}) content."}
+        try:
+            return diff_ops.get_commit_file_content_and_diff(self.hist_sav_dir, hash_id, file_path)
+        except Exception as e:
+            return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
+
+    def get_current_file_content_with_diff(self, file_path):
+        hash_id = self.meta_data.get('commit', {}).get('hash', None)
+        if hash_id is None:
+            return {"error": f"stage not commited, cannot get file ({file_path}) content."}
+        try:
+            return diff_ops.get_current_file_content_and_diff_from_commit(self.hist_sav_dir, hash_id, file_path)
+        except Exception as e:
+            return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
 
     def on_init(self):
         for c in self.checker:
@@ -257,6 +308,10 @@ class VerifyStage(object):
         if file_path in self.reference_files:
             self.reference_files[file_path] = True
             info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
+        skill_name = file_path.split("/")[1]
+        if skill_name in self.skill_list:
+            self.set_usage_skill_list(skill_name, read=True)
+            info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description()}, "+\
@@ -352,6 +407,12 @@ class VerifyStage(object):
         return self._hum_check_passed, self._hum_check_msg
 
     def do_check(self, *a, **kwargs):
+        if self.cfg.skill.use_skill and self.skill_list:
+            for k,[u,v,w] in self.skill_list.items():
+                if u and v and w:
+                    continue
+                else:
+                    return False, "Please use tool 'CheckSkillUsage' to check the skill usage of this stage before completing it."
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
             emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})
@@ -455,6 +516,7 @@ class VerifyStage(object):
                 "section_index": self.prefix,
                 "checker": [str(c) for c in self.checker],
                 "reached": self.is_reached(),
+                "is_completed": self.is_completed(),
                 "check_pass": self.check_pass,
                 "fail_count": self.fail_count,
                 "is_skipped": self.is_skipped(),
@@ -488,6 +550,8 @@ class VerifyStage(object):
             "reference_files":  {k: ("Readed" if v else "Not Read") for k, v in self.reference_files.items()},
             "output_files":     self.output_files,
         })
+        if self.cfg.skill.use_skill:
+            data["skill_list"] = {k: ["Listed" if u else "Not Listed", "Read" if v else "Not Read", "Used" if w else "Not Used"] for k, [u,v,w] in self.skill_list.items()}
         if with_parent:
             if self.parent:
                 data["upper_task"] = self.parent.task_info(with_parent=False)
@@ -512,6 +576,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         checker = stage.get_value('checker', [])
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
+        skill_list = stage.get_value('skill_list', [])
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
@@ -540,6 +605,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             task=stage.task,
             checker=checker,
             reference_files=reference_files,
+            skill_list=skill_list,
             output_files=output_files,
             tool_read_text=tool_read_text,
             substages=substages,
@@ -560,6 +626,7 @@ def get_root_stage(cfg, workspace, tool_read_text):
         task=[],
         checker=[],
         reference_files=[],
+        skill_list=[],
         output_files=[],
     )
     root.substages = parse_vstage(cfg, cfg.stage, workspace, tool_read_text)

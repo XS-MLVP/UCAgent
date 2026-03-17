@@ -210,6 +210,15 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="Enable ToDo related tools"
     )
+
+    # SKILL argument
+    parser.add_argument(
+        "--use-skill",
+        nargs='?',
+        const=True,
+        default=False,
+        help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
+    )
      # Miscellaneous arguments
     parser.add_argument(
         "--seed", 
@@ -222,6 +231,39 @@ def get_args() -> argparse.Namespace:
         action="store_true", 
         default=False, 
         help="Enable TUI mode (Textual UI by default)"
+    )
+    parser.add_argument(
+        "--web-console",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[base_url:port[:password]]",
+        help=(
+            "Start browser-based terminal. "
+            "Bare '--web-console' uses defaults (localhost:8000, no auth). "
+            "Use '--web-console base_url:port[:password]' to customize host/port "
+            "and optionally enable HTTP Basic Auth. "
+            "NOTE: --web-console runs in standalone mode and does NOT provide "
+            "local command-line interaction."
+        )
+    )
+    parser.add_argument(
+        "--web-terminal",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]][ passwd]",
+        help=(
+            "Start Web Terminal server (terminal_api_start) at agent startup. "
+            "Bare '--web-terminal' uses defaults (127.0.0.1:8818, no auth). "
+            "Use '--web-terminal host[:port]' to customize address. "
+            "Append a password after a space to enable HTTP Basic Auth, "
+            "e.g. --web-terminal '0.0.0.0:8818 mysecret'. "
+            "Unlike --web-console, --web-terminal provides BOTH web-based terminal "
+            "AND local command-line interaction simultaneously."
+        )
     )
     parser.add_argument(
         "--sys-tips", 
@@ -459,6 +501,20 @@ def get_args() -> argparse.Namespace:
               )
     )
 
+    parser.add_argument(
+        "--web-console-session-host",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
+    parser.add_argument(
+        "--web-console-session-port",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
     args = parser.parse_args()
     return args
 
@@ -566,6 +622,16 @@ def run() -> None:
         upgrade(args.upgrade)
         sys.exit(0)
 
+    if args.web_console is not None and \
+       args.web_console_session_host is None and \
+       args.web_console_session_port is None:
+        from ucagent.server.api_terminal import _serve_web_console
+        try:
+            return _serve_web_console()
+        except Exception as e:
+            print(f"Failed to start Web UI: {e}")
+            sys.exit(1)
+
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
         import pathlib
@@ -599,10 +665,28 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
+    if getattr(args, 'web_terminal', None) is not None:
+        extra_web_term_opts = ""
+        addr_part = args.web_terminal.strip()
+        passwd_part = ""
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_web_term_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"terminal_api_start{extra_web_term_opts}".strip()]
+        elif ":" in addr_part:
+            t_host, t_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"terminal_api_start {t_host} {t_port}{extra_web_term_opts}"]
+        else:
+            init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
+
     if args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
+    args.override = args.override or {}
     if args.mcp_server_port == -1:
         args.mcp_server_port = find_available_port()
     mcp_cmd = None
@@ -611,19 +695,20 @@ def run() -> None:
     if args.mcp_server_no_file_tools:
         mcp_cmd = "start_mcp_server_no_file_ops"
     if mcp_cmd is not None:
-        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
-
+        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
     if args.mcp_server_port is not None:
         args.override = args.override or {}
         args.override["mcp_server.port"] = args.mcp_server_port
-
     if args.mcp_server_host is not None:
         args.override = args.override or {}
         args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
-        args.override = args.override or {}
         args.override["backend.key_name"] = args.backend
+
+    if args.use_skill:
+        args.override = args.override or {}
+        args.override["skill.use_skill"] = args.use_skill
 
     template_cfg_overrides = {}
     if args.template_cfg_override:
@@ -727,7 +812,13 @@ def run() -> None:
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
     )
-    
+    if args.web_console_session_host is not None or \
+       args.web_console_session_port is not None:
+        agent.web_console_session_info = {
+            "host": args.web_console_session_host,
+            "port": args.web_console_session_port,
+        }
+
     # Set break mode if human interaction or TUI is requested
     if args.human or args.tui:
         agent.set_break(True)

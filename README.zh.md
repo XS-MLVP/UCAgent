@@ -85,10 +85,14 @@ make mcp_Adder ARGS="--loop --backend=qwen"
 **（1）启动 MCP-Server**
 
 ```bash
-make mcp_Adder  # workspace 设置为当前目录下的 output
+make mcp_Adder  # workspace 设置为当前目录下的 output/workspace_Adder
 # 调用了如下命令：
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
-#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
+#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+# 浏览器 Web UI 模式：
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
+# 自定义 Web UI 地址/端口/密码（HTTP Basic Auth）：
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 MCP Server的默认地址为：http://127.0.0.1:5000/mcp

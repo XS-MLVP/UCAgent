@@ -9,12 +9,10 @@ from .util.functions import (
     get_template_path,
     render_template_dir,
     import_and_instance_tools,
+    copy_skill_files,
 )
 from .util.functions import yam_str
 from .util.functions import (
-    start_verify_mcps,
-    create_verify_mcps,
-    stop_verify_mcps,
     rm_workspace_prefix,
 )
 from .util.test_tools import ucagent_lib_path
@@ -32,6 +30,8 @@ import random
 import signal
 import copy
 import threading
+import shutil
+import os
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -160,6 +160,15 @@ class VerifyAgent:
             shutil.copytree(doc_guide_path, guide_doc_path)
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
+
+        # Copy skills to workspace, and add skill tools if enabled
+        self.tool_skill = []
+        if self.cfg.skill.use_skill:
+            # Copy Skills Files to Workspace(incrementally and skip existing files)
+            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))
+            # Add skill tool   
+            self.tool_skill += [SkillList(self.workspace).bind(self)]
+
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
         )
@@ -279,7 +288,7 @@ class VerifyAgent:
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(
             self.cfg.get_value("ex_tools", []), ucagent.tools
-        ) + import_and_instance_tools(ex_tools, ucagent.tools)
+        ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
 
         # Initialize planning tools
         self.planning_tools = []
@@ -328,7 +337,8 @@ class VerifyAgent:
         self._need_human = False
         self._force_trace = False
         self._continue_msg = None
-        self._mcps = None
+        self._mcps = None               # set by PdbMcpServer for api_master heartbeat
+        self._mcp_server_thread = None   # set by PdbMcpServer for api_master heartbeat
         self._mcps_logger = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
@@ -477,44 +487,6 @@ class VerifyAgent:
                     )
                     raise e
 
-    def start_mcps(self, no_file_ops=False, host=None, port=None):
-        if self._mcps is not None:
-            warning(
-                f"MCPs server is already running ({self._mcps.config.host}:{self._mcps.config.port})."
-            )
-            return
-        if host is None:
-            host = self.cfg.mcp_server.host
-        if port is None:
-            port = self.cfg.mcp_server.port
-        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
-        if not no_file_ops:
-            tools += self.tool_list_file
-        self.cfg.update_template(
-            {
-                "TOOLS": ", ".join([t.name for t in tools]),
-            }
-        )
-        self._mcps, glogger = create_verify_mcps(
-            tools, host=host, port=port, logger=self._mcps_logger
-        )
-        info("Init Prompt:\n" + self.cfg.mcp_server.init_prompt)
-
-        def run_cmd():
-            start_verify_mcps(self._mcps, glogger)
-
-        self._mcp_server_thread = threading.Thread(target=run_cmd)
-        self._mcp_server_thread.daemon = True
-        self._mcp_server_thread.start()
-
-    def stop_mcps(self):
-        """Stop the MCPs server if it is running."""
-        if self._mcps is not None:
-            stop_verify_mcps(self._mcps)
-            self._mcps = None
-        else:
-            warning("MCPs server is not running.")
-
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""
         if not callable(handler):
@@ -607,7 +579,9 @@ class VerifyAgent:
 
     def get_default_system_prompt(self):
         """Get the default system prompt for the agent."""
-        return self.cfg.mission.prompt.get_value("system", "").strip()
+        system = self.cfg.mission.prompt.get_value("system", "").strip()
+        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.skill.use_skill else "")
+        return system
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""

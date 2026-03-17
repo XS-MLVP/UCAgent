@@ -16,15 +16,19 @@ Tag hierarchy parsed by ``parse_nested_keys``::
 
     <FG-*>
       <FC-*>
-        <CK-*>  <BG-STATIC-*>
-          <LINK-BUG-[BG-TBD]>                    ← pending
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-NA]>                      ← false positive
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-NAME-xx]>                 ← single confirmed
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-N1-xx][BG-N2-xx]>         ← multiple confirmed
-            <FILE-filepath:line1-line2>           ← source location (required)
+        <CK-*>                              ← one CK can have multiple BG-STATIC children
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-TBD]>             ← pending
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-NA]>              ← false positive
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-NAME-xx]>         ← single confirmed
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-N1-xx][BG-N2-xx]> ← multiple confirmed
+              <FILE-filepath:line1-line2>   ← source location (required)
 """
 
 import re
@@ -170,7 +174,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
     Checks:
 
     1. The document is parseable without hierarchy violations (each
-       ``<BG-STATIC-*>`` is preceded by a ``<CK-*>`` parent, etc.).
+       ``<BG-STATIC-*>`` is under a ``<CK-*>`` parent, etc.; one CK can have
+       multiple BG-STATIC children).
     2. No duplicate tags at any level.
     3. Every ``<BG-STATIC-*>`` has exactly one ``<LINK-BUG-*>`` child tag.
     4. All ``<LINK-BUG-*>`` values are ``[BG-TBD]`` during the
@@ -203,8 +208,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
             return False, {
                 "error": f"Tag hierarchy parse error: {e}",
                 "check_list": [
-                    "Each <BG-STATIC-*> must be preceded by a <CK-*> tag on a previous line",
-                    "Each <LINK-BUG-*> must be preceded by a <BG-STATIC-*> tag",
+                    "Each <BG-STATIC-*> must be under a <CK-*> tag (one CK can have multiple BG-STATIC children)",
+                    "Each <LINK-BUG-*> must be under a <BG-STATIC-*> tag",
                     "Each prefix (<FG-*, <BG-STATIC-*, etc.) must appear at most once per line",
                     "See Guide_Doc/dut_bug_analysis.md for the full format specification",
                 ],
@@ -337,6 +342,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 "check_list": [
                     "Each <BG-STATIC-*> must have exactly one <LINK-BUG-[BG-TBD]> child tag",
                     "Each <LINK-BUG-*> must have at least one <FILE-filepath:line1-line2> child tag",
+                    "Multiple <BG-STATIC-*> tags can be placed under the same <CK-*> tag "
+                    "(one per discovered bug)",
                     "FILE format: <FILE-path/to/file.v:50-56> or <FILE-path/to/file.v:50-56,100-120>",
                     "LINK-BUG format: <LINK-BUG-[BG-TBD]> (pending), placed on its own line",
                     "<BG-STATIC-000-NULL> declares no bugs found and must not coexist with "
@@ -405,7 +412,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
             return False, {
                 "error": f"Tag hierarchy parse error: {e}",
                 "check_list": [
-                    "Each <LINK-BUG-*> must be preceded by a <BG-STATIC-*> tag",
+                    "Each <BG-STATIC-*> must be under a <CK-*> tag (one CK can have multiple BG-STATIC children)",
+                    "Each <LINK-BUG-*> must be under a <BG-STATIC-*> tag",
                     "Each prefix must appear at most once per line",
                     "See Guide_Doc/dut_bug_analysis.md for the full format specification",
                 ],
@@ -542,6 +550,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
                     "Replace all <LINK-BUG-[BG-TBD]> with <LINK-BUG-[BG-NA]> (false positive) "
                     "or <LINK-BUG-[BG-NAME-xx]> (confirmed)",
                     "Multiple confirmed bugs: use <LINK-BUG-[BG-N1-xx][BG-N2-xx]> format",
+                    "Multiple <BG-STATIC-*> tags can be placed under the same <CK-*> tag "
+                    "(one per discovered bug)",
                     "Each <LINK-BUG-*> must have at least one <FILE-filepath:line1-line2> child tag",
                     f"Each confirmed tag must have a full <BG-*>+<TC-*> record in "
                     f"'{self.bug_analysis_doc}'",
@@ -740,17 +750,7 @@ class UnityChipBatchCheckerStaticBug(Checker):
         }
 
     def do_check(self, is_complete: bool = False, **kw) -> Tuple[bool, object]:
-        """Drive batch static bug analysis; validate on completion.
-
-        Uses ``sync_source_task`` / ``sync_gen_task`` to reconcile the
-        file lists with the current filesystem and document state, then
-        delegates batch lifecycle management to ``do_complete()``.
-
-        When ``do_complete`` returns ``True`` (all files analyzed) the
-        checker runs :class:`UnityChipCheckerStaticBugFormat` for final
-        validation.  Otherwise the result dict is enriched with detailed
-        ``task`` instructions for the LLM.
-        """
+        """Drive batch static bug analysis."""
         all_files = self._get_all_source_files()
         if not all_files:
             return self._handle_no_source_files()
@@ -802,22 +802,76 @@ class UnityChipBatchCheckerStaticBug(Checker):
                 "  1. Read the source file(s) and understand the module structure and data flow.",
                 "  2. Cross-reference each <CK-*> check-point in functions_and_checks.md against the RTL implementation.",
                 "  3. Systematically check: FSM completeness, arithmetic overflow, reset/clock logic, interface protocols, control paths.",
-                "  4. Record each potential bug with a <BG-STATIC-NNN-NAME> tag, add <LINK-BUG-[BG-TBD]> and <FILE-path:lines> child tags.",
+                "  4. Record findings in the static bug analysis document using the STRICT tag hierarchy below.",
                 "  5. If no bugs are found for a check-point, add <BG-STATIC-000-NULL> under the corresponding <CK-*>.",
                 "  6. For high/medium confidence bugs, add new <CK-*> check-points to functions_and_checks.md.",
                 "",
-                f"After finishing this batch, update the '## Batch Analysis Progress' section at the end of {self.static_doc}.",
-                "If this section does not exist yet, create it at the very end of the document with the table header:",
+                f"=== SOURCE OF <FG-*>/<FC-*>/<CK-*> TAGS (important) ===",
+                f"  All <FG-*>, <FC-*>, and <CK-*> tags used in {self.static_doc}",
+                f"  MUST come from {self.functions_and_checks_doc} — do NOT invent new ones.",
+                "  Workflow:",
+                f"    a) Check {self.functions_and_checks_doc} first to see if the target <FG-*>/<FC-*>/<CK-*> exists.",
+                f"    b) If it exists: use it as-is in {self.static_doc} (case-sensitive, exact match).",
+                "    c) If it does NOT exist (e.g. you found a defect not covered by any check-point):",
+                f"       First add the new <FG-*>/<FC-*>/<CK-*> entry to {self.functions_and_checks_doc},",
+                f"       then record the bug under that tag in {self.static_doc}.",
+                "",
+                "=== TAG HIERARCHY (mandatory — must not deviate) ===",
+                "  <FG-*>          functional group  (e.g. <FG-ARITHMETIC>)   ← from functions_and_checks.md",
+                "  └─ <FC-*>       sub-feature        (e.g. <FC-ADD>)          ← from functions_and_checks.md",
+                "     └─ <CK-*>    check-point        (e.g. <CK-OVERFLOW>)     ← from functions_and_checks.md (add if missing)",
+                "        └─ <BG-STATIC-NNN-NAME>   bug entry  (e.g. <BG-STATIC-001-ADD-OVERFLOW>)",
+                "           └─ <LINK-BUG-[BG-TBD]>            exactly one, marks bug as pending",
+                "              └─ <FILE-path:L1-L2>            one or more, source location",
+                "",
+                "=== EXAMPLE — bug found ===",
+                "  <FG-ALU>",
+                "  #### Addition <FC-ADD>",
+                "  - <CK-OVERFLOW> Overflow flag not asserted on carry-out <BG-STATIC-001-ADD-OVERFLOW>",
+                "    - <LINK-BUG-[BG-TBD]>",
+                "      - <FILE-rtl/alu.v:25-30>",
+                "        ```verilog",
+                "        // rtl/alu.v lines 25-30",
+                "        25: assign overflow = carry;   // BUG: missing cin contribution",
+                "        ```",
+                "      - <FILE-rtl/alu.v:42-44>",
+                "        ```verilog",
+                "        // rtl/alu.v lines 42-44",
+                "        42: assign sum = a + b;        // BUG: cin ignored",
+                "        ```",
+                "",
+                "=== EXAMPLE — no bug found ===",
+                "  <FG-ALU>",
+                "  #### Subtraction <FC-SUB>",
+                "  - <CK-BORROW> Borrow signal correct <BG-STATIC-000-NULL>",
+                "  (NOTE: <BG-STATIC-000-NULL> must have NO <LINK-BUG-*> or <FILE-*> child tags)",
+                "",
+                "=== CRITICAL RULES ===",
+                f"  - [SOURCE] All <FG-*>/<FC-*>/<CK-*> MUST originate from {self.functions_and_checks_doc}.",
+                f"    If a required tag is absent, add it to {self.functions_and_checks_doc} first, then use it here.",
+                "  - Every <BG-STATIC-*> (except NULL) needs EXACTLY ONE <LINK-BUG-[BG-TBD]> child.",
+                "  - Every <LINK-BUG-[BG-TBD]> needs AT LEAST ONE <FILE-path:L1-L2> child.",
+                "  - FILE format: <FILE-relative/path/to/file.v:L1-L2>  (workspace-relative, e.g. rtl/dut.v:50-56)",
+                "    Multiple ranges: <FILE-rtl/dut.v:50-56,100-105>",
+                "  - All <FG-*>/<FC-*>/<CK-*> tags MUST exactly match those in functions_and_checks.md (case-sensitive).",
+                "  - <BG-STATIC-000-NULL> is the ONLY tag that may appear without child tags.",
+                "",
+                f"=== BATCH PROGRESS TRACKING (required at end of {self.static_doc}) ===",
+                "After finishing this batch, append each analyzed file to the '## Batch Analysis Progress'",
+                f"table at the END of {self.static_doc}. Create the section if it does not exist yet:",
                 "",
                 "  ## Batch Analysis Progress",
                 "",
                 "  | Source file | Potential bugs | Status |",
                 "  |-------------|---------------|--------|",
+                "  | <file>rtl/dut.v</file> | 2 | ✅ Done |",
                 "",
-                "Then append one table row per analyzed file in this batch:",
-                "  | <file>path/to/file.v</file> | N | ✅ Done |",
+                "  IMPORTANT: The path inside <file>…</file> MUST be the workspace-relative source file path",
+                "  (e.g. <file>rtl/dut.v</file>). The batch checker uses these tags to detect completed files.",
                 "",
-                "Note: the path inside <file> tags must match the workspace-relative source path exactly.",
+                "  DO NOT confuse the two marker types:",
+                "    <file>path</file>  — lowercase, plain text — progress table only, no attributes",
+                "    <FILE-path:L1-L2> — uppercase with colon+lines — bug source location inside LINK-BUG",
             ]
             result["current_batch"] = current_batch
             result["progress"] = f"{analyzed_count}/{total}"
