@@ -61,13 +61,16 @@ def append_ignore_file(path: str, patterns: list[str]) -> None:
             gitignore_file.write(f"{pattern}\n")
 
 
-def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]) -> None:
+def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]) -> str:
     """Add all changes and commit in the Git repository at the given path.
 
     Args:
         path (str): The file system path of the Git repository.
         message (str): The commit message.
         target_suffix_list (list): List of file suffixes to include in the commit.
+
+    Returns:
+        str: The commit hash (new commit if changes were made, current HEAD otherwise).
     """
     try:
         repo = git.Repo(path)
@@ -94,7 +97,9 @@ def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]
             for suffix in target_suffix_list:
                 repo.git.add(f'*.{suffix}')
         if repo.is_dirty(untracked_files=True) or repo.untracked_files:
-            repo.index.commit(message)
+            commit = repo.index.commit(message)
+            return commit.hexsha
+        return repo.head.commit.hexsha
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
@@ -195,6 +200,160 @@ def get_latest_commit_hash(path: str) -> str:
     try:
         repo = git.Repo(path)
         return repo.head.commit.hexsha
+    except git.exc.InvalidGitRepositoryError:
+        raise ValueError(f"The path '{path}' is not a valid Git repository.")
+
+
+def get_commit_changed_files(path: str, commit_hash: str) -> list[str]:
+    """Get the list of files changed in a specific commit.
+
+    Args:
+        path (str): The file system path of the Git repository.
+        commit_hash (str): The commit hash to check.
+
+    Returns:
+        list[str]: A list of file paths changed in the commit.
+
+    Raises:
+        ValueError: If the path is not a valid Git repository or commit not found.
+    """
+    try:
+        repo = git.Repo(path)
+        commit = repo.commit(commit_hash)
+        changed_files = []
+        if commit.parents:
+            for item in commit.diff(commit.parents[0]):
+                changed_files.append(item.a_path)
+        else:
+            for item in commit.diff(git.NULL_TREE, r=True):
+                changed_files.append(item.a_path)
+        return changed_files
+    except git.exc.InvalidGitRepositoryError:
+        raise ValueError(f"The path '{path}' is not a valid Git repository.")
+    except (git.exc.BadName, IndexError) as e:
+        raise ValueError(f"Commit '{commit_hash}' not found in repository: {str(e)}")
+
+
+def _is_text_file(content: bytes) -> bool:
+    """Check if the given content is a text file.
+
+    Args:
+        content (bytes): The file content to check.
+
+    Returns:
+        bool: True if the content is likely a text file, False otherwise.
+    """
+    try:
+        content.decode('utf-8')
+        return True
+    except UnicodeDecodeError:
+        pass
+    try:
+        content.decode('latin-1')
+        text_char_ratio = sum(1 for byte in content if 32 <= byte <= 126 or byte in (9, 10, 13)) / len(content)
+        return text_char_ratio > 0.85
+    except:
+        return False
+
+
+def get_commit_file_content_and_diff(path: str, commit_hash: str, file_path: str) -> dict:
+    """Get the content and diff of a file at a specific commit.
+
+    Args:
+        path (str): The file system path of the Git repository.
+        commit_hash (str): The commit hash.
+        file_path (str): The path of the file in the repository.
+
+    Returns:
+        dict: A dictionary with keys:
+            - 'is_text': bool indicating if the file is a text file
+            - 'content': str content of the file (only if is_text is True)
+            - 'diff': str diff between this commit and parent (only if is_text is True)
+            - 'error': str error message (only if is_text is False or file not found)
+
+    Raises:
+        ValueError: If the path is not a valid Git repository or commit not found.
+    """
+    try:
+        repo = git.Repo(path)
+        commit = repo.commit(commit_hash)
+        try:
+            blob = commit.tree / file_path
+        except KeyError:
+            return {
+                'is_text': False,
+                'error': f"File '{file_path}' not found in commit '{commit_hash}'"
+            }
+        content = blob.data_stream.read()
+        if not _is_text_file(content):
+            return {
+                'is_text': False,
+                'error': f"File '{file_path}' is not a text file"
+            }
+        text_content = content.decode('utf-8', errors='replace')
+        diff_content = ""
+        if commit.parents:
+            parent = commit.parents[0]
+            try:
+                diff = repo.git.diff(parent.hexsha, commit.hexsha, '--', file_path)
+                diff_content = diff
+            except git.exc.GitCommandError:
+                diff_content = ""
+        return {
+            'is_text': True,
+            'content': text_content,
+            'diff': diff_content,
+            'error': None
+        }
+    except git.exc.InvalidGitRepositoryError:
+        raise ValueError(f"The path '{path}' is not a valid Git repository.")
+    except (git.exc.BadName, IndexError) as e:
+        raise ValueError(f"Commit '{commit_hash}' not found in repository: {str(e)}")
+
+
+def get_current_file_content_and_diff_from_commit(path: str, commit_hash: str, file_path: str) -> dict:
+    """Get the current file content and diff compared to a specific commit.
+
+    Args:
+        path (str): The file system path of the Git repository.
+        commit_hash (str): The commit hash to compare against (old content).
+        file_path (str): The path of the file in the repository (relative to repo root).
+
+    Returns:
+        dict: A dictionary with keys:
+            - 'is_text': bool indicating if the file is a text file
+            - 'content': str current content of the file (only if is_text is True)
+            - 'diff': str diff (current content as new, commit content as old)
+            - 'error': str error message (only if is_text is False or error occurred)
+    Raises:
+        ValueError: If the path is not a valid Git repository or commit not found.
+    """
+    try:
+        repo = git.Repo(path)
+        full_file_path = os.path.join(path, file_path)
+        if not os.path.exists(full_file_path):
+            return {
+                'is_text': False,
+                'error': f"File '{file_path}' does not exist in working directory"
+            }
+        with open(full_file_path, 'rb') as f:
+            current_content_bytes = f.read()
+        if not _is_text_file(current_content_bytes):
+            return {
+                'is_text': False,
+                'error': f"File '{file_path}' is not a text file"
+            }
+        current_content = current_content_bytes.decode('utf-8', errors='replace')
+        try:
+            diff = repo.git.diff(commit_hash, '--', file_path)
+        except git.exc.GitCommandError:
+            diff = ""
+        return {
+            'is_text': True,
+            'content': current_content,
+            'diff': diff,
+            'error': None
+        }
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 

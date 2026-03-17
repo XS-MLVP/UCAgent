@@ -117,6 +117,15 @@ class PdbMasterApiServer:
                 "Install with:  pip install fastapi uvicorn"
             ) from exc
 
+        # Resolve sock:
+        #   None  → auto-generate a default path that embeds the port
+        #   ""    → explicitly disabled
+        #   other → use as-is (user-supplied path)
+        if sock is None:
+            sock = f"/tmp/ucagent_master_{port}.sock"
+        elif sock == "":
+            sock = None
+
         if not tcp and not sock:
             raise ValueError("At least one of 'tcp' or 'sock' must be enabled.")
 
@@ -142,6 +151,7 @@ class PdbMasterApiServer:
         self._removed: set = set()
 
         self._running = False
+        self.started_at: Optional[float] = None
         self._tcp_server = None
         self._tcp_thread: Optional[threading.Thread] = None
         self._sock_server = None
@@ -378,7 +388,23 @@ class PdbMasterApiServer:
         # ── GET /api/agents ─────────────────────────────────────────────
         @app.get("/api/agents", summary="List all agents",
                  dependencies=[Depends(_check_password)])
-        def list_agents(include_offline: bool = True, strip_ansi: bool = True):
+        def list_agents(
+            include_offline: bool = True,
+            strip_ansi: bool = True,
+            page: int = 1,
+            page_size: int = 20,
+            sort_by: str = "last_seen",
+            sort_desc: bool = True
+        ):
+            # Validate pagination parameters
+            if page < 1:
+                page = 1
+            if page_size < 1 or page_size > 1000:
+                page_size = 20
+            # Validate sort parameters
+            valid_sort_fields = {'id', 'host', 'status', 'last_seen', 'first_seen', 'current_stage_index'}
+            if sort_by not in valid_sort_fields:
+                sort_by = 'last_seen'
             with agents_lock:
                 data = []
                 for a in agents.values():
@@ -417,7 +443,36 @@ class PdbMasterApiServer:
                         # full task_list payload for detail views
                         "task_list": a.get("task_list"),
                     })
-            return {"status": "ok", "count": len(data), "agents": data}
+                # Apply sorting
+                reverse = sort_desc
+                if sort_by == 'status':
+                    # For status: online=0, offline=1 (so online comes first when desc=True)
+                    data.sort(key=lambda a: (a['status'] != 'online'), reverse=reverse)
+                elif sort_by in ['id', 'host']:
+                    data.sort(key=lambda a: a[sort_by], reverse=reverse)
+                elif sort_by in ['last_seen', 'first_seen', 'current_stage_index']:
+                    data.sort(key=lambda a: a[sort_by], reverse=reverse)
+                # Apply pagination
+                total_count = len(data)
+                total_pages = (total_count + page_size - 1) // page_size  # ceiling division
+                # Clamp page to valid range
+                if page > total_pages and total_count > 0:
+                    page = total_pages
+                if page < 1:
+                    page = 1
+                start_idx = (page - 1) * page_size
+                end_idx = min(start_idx + page_size, total_count)
+                page_data = data[start_idx:end_idx]
+            return {
+                "status": "ok",
+                "count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "sort_by": sort_by,
+                "sort_desc": sort_desc,
+                "agents": page_data
+            }
 
         # ── GET /api/agent/{agent_id} ───────────────────────────────────
         @app.get("/api/agent/{agent_id}", summary="Agent detail",
@@ -556,6 +611,19 @@ class PdbMasterApiServer:
             return False, "Master API server failed to start:\n  " + "\n  ".join(errors)
 
         self._running = True
+        self.started_at = __import__('time').time()
+        # Register atexit cleanup so the sock file is removed even if stop()
+        # is never called (e.g. process exits via sys.exit or reaches end).
+        if self.sock:
+            import atexit as _atexit, os as _os
+            _sock = self.sock
+            def _cleanup_sock():
+                try:
+                    if _os.path.exists(_sock):
+                        _os.unlink(_sock)
+                except OSError:
+                    pass
+            _atexit.register(_cleanup_sock)
         self._monitor_stop.clear()
         self._monitor_thread = threading.Thread(
             target=self._monitor_loop, daemon=True, name="master-monitor")
@@ -577,6 +645,7 @@ class PdbMasterApiServer:
             self._sock_server = None
         self._sock_thread = None
         self._running = False
+        self.started_at = None
         self._monitor_stop.set()
         self._monitor_thread = None
         self._online_cache.clear()

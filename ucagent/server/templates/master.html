@@ -37,7 +37,6 @@
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;min-height:100vh}
   a{color:var(--accent);text-decoration:none} a:hover{color:var(--accent-hover);text-decoration:underline}
-
   /* ── Header ─────────────────────────────────────────────────────────── */
   header{background:var(--surface);border-bottom:1px solid var(--border);
     padding:14px 28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
@@ -46,7 +45,6 @@
   .header-actions{margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .refresh-info{color:var(--text-dim);font-size:12px}
   #countdown{font-weight:600;color:var(--accent)}
-
   /* ── Buttons ─────────────────────────────────────────────────────────── */
   .btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;
     border-radius:var(--radius);border:none;cursor:pointer;font-size:13px;
@@ -62,11 +60,8 @@
   .btn-sm{padding:4px 10px;font-size:12px}
   .btn-icon{padding:5px 8px}
   .btn:disabled{opacity:.4;cursor:not-allowed}
-  #batch-delete-btn{display:none}
-
   /* ── Main ────────────────────────────────────────────────────────────── */
   main{padding:24px 28px;max-width:1600px;width:100%;overflow-x:hidden}
-
   /* ── Stats ───────────────────────────────────────────────────────────── */
   .stats{display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap}
   .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -74,7 +69,6 @@
   .stat-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px}
   .stat-value{font-size:28px;font-weight:700}
   .stat-online{color:var(--online)} .stat-offline{color:var(--offline)} .stat-total{color:var(--accent)}
-
   /* ── Toolbar ─────────────────────────────────────────────────────────── */
   .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
   .search-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
@@ -83,7 +77,6 @@
   .filter-select{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     color:var(--text);padding:7px 10px;font-size:13px;font-family:var(--font);cursor:pointer}
   .filter-select:focus{outline:none;border-color:var(--accent)}
-
   /* ── Table ───────────────────────────────────────────────────────────── */
   .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;overflow-y:hidden}
   table{width:100%;min-width:900px;border-collapse:collapse}
@@ -98,7 +91,6 @@
   tbody td:first-child{text-align:center}
   .empty-row td{text-align:center;padding:48px;color:var(--text-dim);font-style:italic}
   .loading-row td{text-align:center;padding:32px;color:var(--text-dim)}
-
   /* ── Badges ──────────────────────────────────────────────────────────── */
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
   .badge-online{background:#14532d;color:var(--online)}
@@ -116,7 +108,6 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .stage-cell{display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
   input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
-
   /* ── Modal ───────────────────────────────────────────────────────────── */
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
     z-index:100;align-items:center;justify-content:center;padding:20px}
@@ -144,7 +135,6 @@
   details.json-collapse>summary::before{content:'▶';font-size:9px}
   details.json-collapse[open]>summary::before{content:'▼'}
   details.json-collapse>summary:hover{color:var(--text)}
-
   /* ── Confirm overlay ─────────────────────────────────────────────────── */
   .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
     z-index:200;align-items:center;justify-content:center;padding:20px}
@@ -154,7 +144,6 @@
   .confirm-box h3{margin-bottom:10px;font-size:16px}
   .confirm-box p{color:var(--text-dim);margin-bottom:22px;line-height:1.5}
   .confirm-actions{display:flex;gap:12px;justify-content:center}
-
   /* ── Toast ───────────────────────────────────────────────────────────── */
   #toast-container{position:fixed;bottom:24px;right:24px;z-index:300;display:flex;flex-direction:column;gap:8px}
   .toast{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
@@ -163,7 +152,6 @@
   .toast-ok{border-left:3px solid var(--online)}
   .toast-err{border-left:3px solid var(--red)}
   @keyframes slide-in{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
-
   /* ── Responsive ─────────────────────────────────────────────────────── */
   @media(max-width:768px){
     header{padding:10px 14px}
@@ -174,7 +162,6 @@
     .stage-cell{max-width:90px}
     .id-cell{max-width:120px}
   }
-
   /* ── Sticky horizontal scrollbar ───────────────────────────────── */
   /* Hide native scrollbar on the table so only the sticky one is visible */
   .table-wrap{scrollbar-width:none}           /* Firefox */
@@ -194,37 +181,59 @@
 </style>
 </head>
 <body>
-
 <header>
   <div class="logo">UC<span>Agent</span> Master</div>
   <div class="refresh-info">Auto-refresh in <span id="countdown">5</span>s</div>
   <div class="header-actions">
-    <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer">
+    <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Display offline agents (not removed from database)">
       <input type="checkbox" id="show-offline" checked style="accent-color:var(--accent)"> Show offline
     </label>
+    <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Automatically delete agents that have been offline for the configured duration">
+      <input type="checkbox" id="auto-delete-offline" style="accent-color:var(--accent)"> Auto-delete offline
+    </label>
+    <button class="btn btn-ghost btn-sm" onclick="openSettings()" title="Configure auto-delete settings">⚙ Settings</button>
     <button class="btn btn-ghost btn-sm" onclick="refreshNow()">⟳ Refresh</button>
     <a href="/docs" target="_blank" class="btn btn-primary btn-sm">📖 API Docs</a>
   </div>
 </header>
-
 <main>
   <div class="stats">
     <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value stat-total" id="stat-total">—</div></div>
     <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value stat-online" id="stat-online">—</div></div>
     <div class="stat-card"><div class="stat-label">Offline</div><div class="stat-value stat-offline" id="stat-offline">—</div></div>
   </div>
-
   <div class="toolbar">
-    <input type="search" class="search-box" id="search-box" placeholder="Filter by ID / host / mission…" oninput="renderTable()"/>
+    <input type="search" class="search-box" id="search-box" placeholder="Filter by ID / host / mission…" oninput="onSearchChange()"/>
     <select class="filter-select" id="filter-status" onchange="renderTable()">
       <option value="all">All status</option>
       <option value="online">Online only</option>
       <option value="offline">Offline only</option>
     </select>
+    <select class="filter-select" id="sort-by" onchange="onSortChange()" title="Sort agent list">
+      <option value="id">Sort by: ID</option>
+      <option value="host">Sort by: Host</option>
+      <option value="status">Sort by: Status</option>
+      <option value="last_seen">Sort by: Last seen</option>
+      <option value="first_seen">Sort by: First seen</option>
+      <option value="current_stage_index">Sort by: Progress</option>
+    </select>
+    <button class="btn btn-ghost btn-sm" id="sort-order-btn" onclick="toggleSortOrder()" title="Toggle ascending/descending">↓ Desc</button>
     <button class="btn btn-ghost btn-sm" id="select-all-btn" onclick="toggleSelectAll()">☐ Select all</button>
-    <button class="btn btn-danger btn-sm" id="batch-delete-btn" onclick="confirmBatchDelete()">🗑 Delete selected (<span id="selected-count">0</span>)</button>
+    <button class="btn btn-danger btn-sm" id="batch-delete-btn" onclick="confirmBatchDelete()" disabled>🗑 Delete (<span id="selected-count">0</span>)</button>
   </div>
-
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;font-size:12px">
+    <span style="color:var(--text-dim)">Per page:</span>
+    <select id="page-size-select" onchange="onPageSizeChange()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);padding:4px 8px;font-size:12px;cursor:pointer">
+      <option value="10">10</option>
+      <option value="20" selected>20</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+    </select>
+    <span id="pagination-info" style="color:var(--text-dim);margin-left:auto">—</span>
+    <button class="btn btn-ghost btn-sm" id="page-prev" onclick="prevPage()" disabled>← Prev</button>
+    <span id="page-num" style="color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
+    <button class="btn btn-ghost btn-sm" id="page-next" onclick="nextPage()" disabled>Next →</button>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -250,7 +259,6 @@
     </table>
   </div>
 </main>
-
 <!-- ── Detail Modal ──────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="detail-modal">
   <div class="modal">
@@ -266,7 +274,52 @@
     </div>
   </div>
 </div>
-
+<!-- ── Settings Modal ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Settings</span>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-field" style="margin-bottom:16px">
+        <div class="detail-field-label">Check interval (seconds)</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <input type="number" id="auto-delete-check-interval-input" min="1" max="3600" value="30" 
+                 style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);
+                        padding:6px 10px;font-size:13px;width:80px;font-family:var(--font)">
+          <span style="color:var(--text-dim);font-size:12px">seconds</span>
+          <button class="btn btn-secondary btn-sm" onclick="saveCheckInterval()">Save</button>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">
+          How often to check for offline agents to delete.
+        </div>
+      </div>
+      <div class="detail-field" style="margin-bottom:16px">
+        <div class="detail-field-label">Offline threshold (minutes)</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <input type="number" id="auto-delete-threshold-input" min="1" max="1440" value="60" 
+                 style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);
+                        padding:6px 10px;font-size:13px;width:80px;font-family:var(--font)">
+          <span style="color:var(--text-dim);font-size:12px">minutes</span>
+          <button class="btn btn-secondary btn-sm" onclick="saveThreshold()">Save</button>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-dim)">
+          Agents offline for longer than this duration will be automatically deleted if auto-delete is enabled.
+        </div>
+      </div>
+      <div class="detail-field">
+        <div class="detail-field-label">Auto-delete Status</div>
+        <div style="margin-top:8px;font-size:13px;color:var(--text-dim)" id="auto-delete-status">
+          <span id="auto-delete-status-text">Disabled</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" onclick="closeSettings()">Close</button>
+    </div>
+  </div>
+</div>
 <!-- ── Confirm Dialog ────────────────────────────────────────────────── -->
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
@@ -278,7 +331,6 @@
     </div>
   </div>
 </div>
-
 <!-- ── Toast container ───────────────────────────────────────────────── -->
 <div id="toast-container"></div>
 <!-- Sticky horizontal scrollbar (must be before <script>) -->
@@ -291,7 +343,17 @@ let _currentDetailId = null;  // agent shown in detail modal
 let _countdownVal = 5;
 let _countdownTimer = null;
 let _refreshTimer = null;
-
+let _autoDeleteOfflineThreshold = 60 * 60; // 1 hour: agent offline before deletion (seconds)
+let _autoDeleteCheckInterval = 30;          // 30 seconds: check interval frequency
+let _lastAutoDeleteCheck = 0;               // timestamp of last auto-delete check
+// Pagination and sorting state
+let _currentPage = 1;         // current page number (1-indexed)
+let _pageSize = 20;           // items per page
+let _totalPages = 1;          // total pages (from server)
+let _totalCount = 0;          // total count (from server)
+let _sortBy = 'last_seen';    // current sort field: id, host, status, last_seen, first_seen, current_stage_index
+let _sortDesc = true;         // sort descending by default
+let _isSearching = false;     // whether user is searching (if true, use client-side filtering)
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, ok = true) {
   const c = document.getElementById('toast-container');
@@ -301,63 +363,165 @@ function toast(msg, ok = true) {
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }
-
 // ── Fetch agents ───────────────────────────────────────────────────────────
 async function fetchAgents() {
   try {
-    const r = await fetch('/api/agents?include_offline=true&strip_ansi=false');
+    const params = new URLSearchParams({
+      'include_offline': 'true',
+      'strip_ansi': 'false',
+      'page': _currentPage,
+      'page_size': _pageSize,
+      'sort_by': _sortBy,
+      'sort_desc': _sortDesc ? 'true' : 'false'
+    });
+    const url = `/api/agents?${params}`;
+    console.log(`[API] Fetching: ${url}`);
+    const r = await fetch(url);
     if (!r.ok) throw new Error(r.statusText);
     const d = await r.json();
     _allAgents = d.agents || [];
+    // Update pagination info from server response
+    _currentPage = d.page || 1;
+    _totalPages = d.total_pages || 1;
+    _totalCount = d.count || 0;
   } catch (e) {
     console.error('Fetch error:', e);
   }
   updateStats();
+  checkAutoDeleteOffline();
   renderTable();
 }
-
 function updateStats() {
   const online  = _allAgents.filter(a => a.status === 'online').length;
   const offline = _allAgents.filter(a => a.status === 'offline').length;
-  document.getElementById('stat-total').textContent   = _allAgents.length;
+  document.getElementById('stat-total').textContent   = _totalCount;
   document.getElementById('stat-online').textContent  = online;
   document.getElementById('stat-offline').textContent = offline;
 }
-
-// ── Filtering ──────────────────────────────────────────────────────────────
+// ── Auto-delete offline agents ─────────────────────────────────────────────
+function checkAutoDeleteOffline() {
+  const autoDeleteSwitch = document.getElementById('auto-delete-offline');
+  if (!autoDeleteSwitch || !autoDeleteSwitch.checked) return;
+  const now = Math.floor(Date.now() / 1000);
+  // Only check at specified interval to avoid too frequent API calls
+  if (now - _lastAutoDeleteCheck < _autoDeleteCheckInterval) return;
+  _lastAutoDeleteCheck = now;
+  // Find offline agents that have been offline for more than threshold
+  const toDelete = _allAgents.filter(a => {
+    if (a.status !== 'offline') return false;
+    const lastSeen = a.last_seen || 0;
+    const offlineTime = now - lastSeen;
+    return offlineTime > _autoDeleteOfflineThreshold;
+  });
+  if (toDelete.length === 0) return;
+  // Auto-delete them silently (no confirmation, just log)
+  const ids = toDelete.map(a => a.id);
+  console.log(`[Auto-delete] Removing ${ids.length} offline agent(s):`, ids);
+  batchDeleteSilent(ids);
+}
+async function batchDeleteSilent(ids) {
+  let ok = 0, fail = 0;
+  for (const id of ids) {
+    try {
+      const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (r.ok) { ok++; _allAgents = _allAgents.filter(a => a.id !== id); _selectedIds.delete(id); }
+      else fail++;
+    } catch { fail++; }
+  }
+  if (ok > 0) {
+    console.log(`[Auto-delete] Deleted ${ok} agent(s)${fail ? `, ${fail} failed` : ''}`);
+    updateStats(); 
+    renderTable();
+  }
+}
+// ── Filtering & sorting ───────────────────────────────────────────────────
 function getVisible() {
   const q      = document.getElementById('search-box').value.trim().toLowerCase();
   const filter = document.getElementById('filter-status').value;
   const showOff = document.getElementById('show-offline').checked;
-  return _allAgents.filter(a => {
-    if (!showOff && a.status === 'offline') return false;
-    if (filter === 'online'  && a.status !== 'online')  return false;
-    if (filter === 'offline' && a.status !== 'offline') return false;
-    if (q) {
+  // If user is searching, we need to filter the current data
+  // Note: when searching, _allAgents contains the full result set from a full fetch
+  if (q) {
+    _isSearching = true;
+    let result = _allAgents.filter(a => {
+      if (!showOff && a.status === 'offline') return false;
+      if (filter === 'online'  && a.status !== 'online')  return false;
+      if (filter === 'offline' && a.status !== 'offline') return false;
       const hay = `${a.id} ${a.host} ${a.mission || ''} ${a.current_stage_name || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
+      return true;
+    });
+    // Apply sorting (server already sorted, but search results need re-sorting)
+    result.sort((a, b) => {
+      let aVal, bVal;
+      switch (_sortBy) {
+        case 'id':
+        case 'host':
+          aVal = a[_sortBy];
+          bVal = b[_sortBy];
+          break;
+        case 'status':
+          aVal = a.status === 'online' ? 0 : 1;
+          bVal = b.status === 'online' ? 0 : 1;
+          break;
+        case 'last_seen':
+        case 'first_seen':
+        case 'current_stage_index':
+          aVal = a[_sortBy];
+          bVal = b[_sortBy];
+          break;
+        default:
+          return 0;
+      }
+      if (aVal < bVal) return _sortDesc ? 1 : -1;
+      if (aVal > bVal) return _sortDesc ? -1 : 1;
+      return 0;
+    });
+    return result;
+  } else {
+    _isSearching = false;
+    // No search: return server-paginated results (already sorted by backend)
+    // But still apply status filter since backend returns all statuses
+    return _allAgents.filter(a => {
+      if (!showOff && a.status === 'offline') return false;
+      if (filter === 'online'  && a.status !== 'online')  return false;
+      if (filter === 'offline' && a.status !== 'offline') return false;
+      return true;
+    });
+  }
 }
-
 // ── Render table ───────────────────────────────────────────────────────────
 function renderTable() {
   const tbody   = document.getElementById('agents-tbody');
   const visible = getVisible();
-
+  // Determine if we need to do pagination (only when searching)
+  let pageItems = visible;
+  let totalPages = 1;
+  let totalFilteredCount = visible.length;
+  if (_isSearching) {
+    // When searching: do client-side pagination on filtered results
+    totalPages = Math.max(1, Math.ceil(visible.length / _pageSize));
+    if (_currentPage > totalPages) _currentPage = totalPages;
+    if (_currentPage < 1) _currentPage = 1;
+    const startIdx = (_currentPage - 1) * _pageSize;
+    const endIdx = Math.min(startIdx + _pageSize, visible.length);
+    pageItems = visible.slice(startIdx, endIdx);
+  } else {
+    // When not searching: use server pagination info
+    totalPages = _totalPages;
+    totalFilteredCount = _totalCount;
+  }
   // clean up selected ids that are no longer visible
   const visibleIds = new Set(visible.map(a => a.id));
   for (const id of [..._selectedIds]) { if (!visibleIds.has(id)) _selectedIds.delete(id); }
   updateBatchBtn();
-
-  if (visible.length === 0) {
+  if (pageItems.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No agents found.</td></tr>';
     syncHeaderCheckbox();
+    updatePaginationControls(_currentPage, totalPages, totalFilteredCount);
     return;
   }
-
-  tbody.innerHTML = visible.map(a => {
+  tbody.innerHTML = pageItems.map(a => {
     const st     = a.status === 'online';
     const cur    = a.current_stage_index >= 0 ? a.current_stage_index : -1;
     const tot    = a.total_stage_count    || 0;
@@ -366,7 +530,6 @@ function renderTable() {
     const done   = a.is_mission_complete;
     const checked = _selectedIds.has(a.id) ? 'checked' : '';
     const rowClass = st ? '' : 'style="opacity:.6"';
-
     return `<tr ${rowClass}>
       <td><input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/></td>
       <td><span class="id-cell" title="${esc(a.id)}">${esc(a.id)}</span></td>
@@ -392,11 +555,117 @@ function renderTable() {
       </td>
     </tr>`;
   }).join('');
-
   syncHeaderCheckbox();
+  updatePaginationControls(_currentPage, totalPages, totalFilteredCount);
   if (window._updateStickyScroll) window._updateStickyScroll();
 }
-
+function updatePaginationControls(currentPage, totalPages, totalCount) {
+  const prevBtn = document.getElementById('page-prev');
+  const nextBtn = document.getElementById('page-next');
+  const pageNumSpan = document.getElementById('page-num');
+  const paginationInfo = document.getElementById('pagination-info');
+  prevBtn.disabled = currentPage <= 1;
+  nextBtn.disabled = currentPage >= totalPages;
+  pageNumSpan.textContent = `${currentPage}/${totalPages}`;
+  const currentPageSize = _isSearching && getVisible().length > 0 
+    ? Math.min(_pageSize, getVisible().length - (currentPage - 1) * _pageSize)
+    : _pageSize;
+  const startIdx = (currentPage - 1) * _pageSize + 1;
+  const endIdx = Math.min(currentPage * _pageSize, totalCount);
+  paginationInfo.textContent = totalCount > 0 ? `${startIdx}-${endIdx} of ${totalCount}` : '—';
+}
+function prevPage() {
+  if (_currentPage > 1) {
+    _currentPage--;
+    localStorage.setItem('master-current-page', String(_currentPage));
+    renderTable();
+  }
+}
+function nextPage() {
+  const visible = getVisible();
+  const pages = _isSearching ? Math.ceil(visible.length / _pageSize) : _totalPages;
+  if (_currentPage < pages) {
+    _currentPage++;
+    localStorage.setItem('master-current-page', String(_currentPage));
+    renderTable();
+  }
+}
+function onPageSizeChange() {
+  const select = document.getElementById('page-size-select');
+  _pageSize = parseInt(select.value);
+  _currentPage = 1;
+  localStorage.setItem('master-page-size', String(_pageSize));
+  localStorage.setItem('master-current-page', '1');
+  renderTable();
+}
+function onSortChange() {
+  const select = document.getElementById('sort-by');
+  _sortBy = select.value;
+  _currentPage = 1; // reset to first page when sorting changes
+  localStorage.setItem('master-sort-by', _sortBy);
+  localStorage.setItem('master-current-page', '1');
+  // If searching, renderTable will re-sort the filtered results
+  // If not searching, need to refetch from server with new sort
+  if (!_isSearching) {
+    fetchAgents(); // This will use the new _sortBy
+  } else {
+    renderTable();
+  }
+}
+function toggleSortOrder() {
+  _sortDesc = !_sortDesc;
+  _currentPage = 1;
+  localStorage.setItem('master-sort-desc', _sortDesc ? '1' : '0');
+  localStorage.setItem('master-current-page', '1');
+  updateSortOrderButton();
+  console.log(`[Sort] Changed sort direction to: ${_sortDesc ? 'DESC' : 'ASC'}, isSearching=${_isSearching}`);
+  // If searching, renderTable will re-sort the filtered results
+  // If not searching, need to refetch from server with new sort order
+  if (!_isSearching) {
+    console.log(`[Sort] Fetching agents with sort_desc=${_sortDesc}`);
+    fetchAgents(); // This will use the new _sortDesc
+  } else {
+    console.log(`[Sort] Re-rendering table with new sort order`);
+    renderTable();
+  }
+}
+function updateSortOrderButton() {
+  const btn = document.getElementById('sort-order-btn');
+  btn.textContent = _sortDesc ? '↓ Desc' : '↑ Asc';
+}
+function onSearchChange() {
+  const searchBox = document.getElementById('search-box');
+  const q = searchBox.value.trim().toLowerCase();
+  _currentPage = 1;
+  localStorage.setItem('master-current-page', '1');
+  // If user is now searching and wasn't before, need to fetch all data for client-side filtering
+  if (q && !_isSearching) {
+    _isSearching = true;
+    // Fetch all data (large page_size) for client-side search filtering
+    const params = new URLSearchParams({
+      'include_offline': 'true',
+      'strip_ansi': 'false',
+      'page': 1,
+      'page_size': 10000,  // Get many results for searching
+      'sort_by': _sortBy,
+      'sort_desc': _sortDesc ? 'true' : 'false'
+    });
+    fetch(`/api/agents?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        _allAgents = d.agents || [];
+        renderTable();
+      })
+      .catch(e => console.error('Search fetch error:', e));
+  } else if (!q && _isSearching) {
+    _isSearching = false;
+    // User cleared search: go back to normal pagination from server
+    fetchAgents();
+  } else {
+    // Searching continues or no search: just re-render
+    renderTable();
+  }
+}
 // ── Select / batch ─────────────────────────────────────────────────────────
 function onRowCheckbox(cb) {
   const id = cb.dataset.id;
@@ -405,34 +674,29 @@ function onRowCheckbox(cb) {
   updateBatchBtn();
   syncHeaderCheckbox();
 }
-
 function onHeaderCheckboxChange() {
   const hc = document.getElementById('header-checkbox');
   getVisible().forEach(a => { if (hc.checked) _selectedIds.add(a.id); else _selectedIds.delete(a.id); });
   renderTable();
 }
-
 function toggleSelectAll() {
   const vis = getVisible();
   const allSel = vis.every(a => _selectedIds.has(a.id));
   vis.forEach(a => { if (allSel) _selectedIds.delete(a.id); else _selectedIds.add(a.id); });
   renderTable();
 }
-
 function syncHeaderCheckbox() {
   const vis = getVisible();
   const hc  = document.getElementById('header-checkbox');
   hc.checked       = vis.length > 0 && vis.every(a => _selectedIds.has(a.id));
   hc.indeterminate = !hc.checked && vis.some(a => _selectedIds.has(a.id));
 }
-
 function updateBatchBtn() {
   const n   = _selectedIds.size;
   const btn = document.getElementById('batch-delete-btn');
-  btn.style.display = n > 0 ? '' : 'none';
+  btn.disabled = n === 0;
   document.getElementById('selected-count').textContent = n;
 }
-
 // ── ANSI → HTML ───────────────────────────────────────────────────────────
 const _ANSI_COLORS = {
   '30':'#6b7280','31':'#ef4444','32':'#22c55e','33':'#eab308',
@@ -466,14 +730,12 @@ function ansiToHtml(text) {
   if (spanOpen) html += '</span>';
   return html;
 }
-
 // ── Detail modal ───────────────────────────────────────────────────────────
 function openDetail(id) {
   const a = _allAgents.find(x => x.id === id);
   if (!a) return;
   _currentDetailId = id;
   document.getElementById('detail-modal-title').textContent = `Agent: ${id}`;
-
   const fields = [
     ['ID',           a.id],
     ['Host',         a.host],
@@ -491,18 +753,14 @@ function openDetail(id) {
     ['First Seen',   a.first_seen  ? new Date(a.first_seen  * 1000).toLocaleString() : '—'],
     ['Last Seen',    a.last_seen   ? new Date(a.last_seen   * 1000).toLocaleString() : '—'],
   ];
-
   const cmdApiHtml = a.cmd_api_tcp
     ? `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value"><a href="${esc(a.cmd_api_tcp)}" target="_blank" style="color:var(--accent)">📡 ${esc(a.cmd_api_tcp)}</a></div></div>`
     : `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value" style="color:var(--text-dim)">📡 —</div></div>`;
-
   const grid = fields.map(([k, v]) =>
     `<div class="detail-field"><div class="detail-field-label">${esc(k)}</div><div class="detail-field-value">${esc(String(v))}</div></div>`
   ).join('') + cmdApiHtml;
-
   // ── Stage timeline (ANSI-rendered mission info) ────────────────────────
   const stageHtml = buildMissionInfo(a);
-
   document.getElementById('detail-modal-body').innerHTML =
     `<div class="detail-grid">${grid}</div>
      ${stageHtml}
@@ -510,17 +768,14 @@ function openDetail(id) {
        <summary>Raw JSON</summary>
        <pre class="detail-json">${esc(JSON.stringify(a, null, 2))}</pre>
      </details>`;
-
   document.getElementById('detail-modal').classList.add('open');
 }
-
 function buildMissionInfo(a) {
   const mi = a.mission_info_ansi || '';
   const cur  = a.current_stage_index >= 0 ? a.current_stage_index : -1;
   const tot  = a.total_stage_count  || 0;
   const pct  = tot > 0 ? Math.min(Math.round(((cur + 1) / tot) * 100), 100) : 0;
   const done = a.is_mission_complete;
-
   const bar = tot > 0 ? `
     <div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;
@@ -536,9 +791,7 @@ function buildMissionInfo(a) {
           done ? 'var(--online)' : 'var(--accent)'}"></div>
       </div>
     </div>` : '';
-
   if (!mi) return bar ? `<div class="section-label">Task Progress</div>${bar}` : '';
-
   const rendered = ansiToHtml(mi);
   return `<div class="section-label">Task Progress</div>
     ${bar}
@@ -547,7 +800,6 @@ function buildMissionInfo(a) {
                 white-space:pre-wrap;word-break:break-word;max-height:360px;overflow-y:auto;
                 line-height:1.6;margin:0">${rendered}</pre>`;
 }
-
 async function refreshDetail() {
   if (!_currentDetailId) return;
   const btn = document.getElementById('detail-refresh-btn');
@@ -574,45 +826,93 @@ async function refreshDetail() {
     if (b) { b.disabled = false; b.textContent = '↻ Refresh'; }
   }
 }
-
 function closeDetailModal() {
   document.getElementById('detail-modal').classList.remove('open');
   _currentDetailId = null;
 }
-
 function confirmDeleteFromDetail() {
   if (_currentDetailId) { closeDetailModal(); confirmDelete(_currentDetailId); }
 }
-
+// ── Settings modal ─────────────────────────────────────────────────────────
+function openSettings() {
+  const intervalInput = document.getElementById('auto-delete-check-interval-input');
+  const thresholdInput = document.getElementById('auto-delete-threshold-input');
+  const savedInterval = localStorage.getItem('master-auto-delete-check-interval');
+  if (savedInterval) {
+    intervalInput.value = parseInt(savedInterval);
+  } else {
+    intervalInput.value = 30; // default 30 seconds
+  }
+  const savedThreshold = localStorage.getItem('master-auto-delete-threshold');
+  if (savedThreshold) {
+    thresholdInput.value = Math.floor(parseInt(savedThreshold) / 60);
+  } else {
+    thresholdInput.value = 60; // default 1 hour
+  }
+  updateAutoDeleteStatus();
+  document.getElementById('settings-modal').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+function saveCheckInterval() {
+  const input = document.getElementById('auto-delete-check-interval-input');
+  const seconds = parseInt(input.value);
+  if (isNaN(seconds) || seconds < 1 || seconds > 3600) {
+    toast('Invalid value. Please enter a number between 1 and 3600.', false);
+    return;
+  }
+  _autoDeleteCheckInterval = seconds;
+  localStorage.setItem('master-auto-delete-check-interval', String(seconds));
+  toast(`Check interval set to ${seconds} second(s).`, true);
+  updateAutoDeleteStatus();
+}
+function saveThreshold() {
+  const input = document.getElementById('auto-delete-threshold-input');
+  const minutes = parseInt(input.value);
+  if (isNaN(minutes) || minutes < 1 || minutes > 1440) {
+    toast('Invalid value. Please enter a number between 1 and 1440.', false);
+    return;
+  }
+  _autoDeleteOfflineThreshold = minutes * 60; // convert to seconds
+  localStorage.setItem('master-auto-delete-threshold', String(_autoDeleteOfflineThreshold));
+  toast(`Offline threshold set to ${minutes} minute(s).`, true);
+  updateAutoDeleteStatus();
+}
+function updateAutoDeleteStatus() {
+  const autoDeleteSwitch = document.getElementById('auto-delete-offline');
+  const statusText = document.getElementById('auto-delete-status-text');
+  const intervalSec = _autoDeleteCheckInterval;
+  const thresholdMin = Math.floor(_autoDeleteOfflineThreshold / 60);
+  if (autoDeleteSwitch.checked) {
+    statusText.textContent = `Enabled – Check every ${intervalSec}s, delete agents offline for ${thresholdMin}min`;
+  } else {
+    statusText.textContent = `Disabled – Check every ${intervalSec}s, threshold ${thresholdMin}min`;
+  }
+}
 // ── Confirm dialog ─────────────────────────────────────────────────────────
 let _confirmCallback = null;
-
 function showConfirm(title, msg, onYes) {
   document.getElementById('confirm-title').textContent = title;
   document.getElementById('confirm-msg').textContent   = msg;
   _confirmCallback = onYes;
   document.getElementById('confirm-overlay').classList.add('open');
 }
-
 function closeConfirm() {
   document.getElementById('confirm-overlay').classList.remove('open');
   _confirmCallback = null;
 }
-
 document.getElementById('confirm-yes-btn').addEventListener('click', () => {
   if (_confirmCallback) { const cb = _confirmCallback; closeConfirm(); cb(); }
 });
-
 function confirmDelete(id) {
   showConfirm('Delete agent', `Remove agent "${id}" from the master?`, () => deleteAgent(id));
 }
-
 function confirmBatchDelete() {
   const ids = [..._selectedIds];
   if (ids.length === 0) return;
   showConfirm('Batch delete', `Delete ${ids.length} selected agent(s)?`, () => batchDelete(ids));
 }
-
 // ── Delete API ─────────────────────────────────────────────────────────────
 async function deleteAgent(id) {
   try {
@@ -628,7 +928,6 @@ async function deleteAgent(id) {
     }
   } catch (e) { toast(`Error: ${e}`, false); }
 }
-
 async function batchDelete(ids) {
   let ok = 0, fail = 0;
   for (const id of ids) {
@@ -641,7 +940,6 @@ async function batchDelete(ids) {
   toast(`Deleted ${ok} agent(s)${fail ? `, ${fail} failed` : ''}.`, fail === 0);
   updateStats(); renderTable();
 }
-
 // ── Countdown + auto-refresh ───────────────────────────────────────────────
 function startCountdown() {
   clearInterval(_countdownTimer);
@@ -654,19 +952,29 @@ function startCountdown() {
     if (_countdownVal <= 0) { clearInterval(_countdownTimer); fetchAgents().then(startCountdown); }
   }, 1000);
 }
-
 function refreshNow() { clearInterval(_countdownTimer); fetchAgents().then(startCountdown); }
-
 // ── Show-offline toggle ────────────────────────────────────────────────────
 document.getElementById('show-offline').addEventListener('change', renderTable);
-
+// ── Auto-delete toggle ─────────────────────────────────────────────────
+document.getElementById('auto-delete-offline').addEventListener('change', e => {
+  const checked = e.target.checked;
+  localStorage.setItem('master-auto-delete-offline', checked ? '1' : '0');
+  if (checked) {
+    const intervalSec = _autoDeleteCheckInterval;
+    const thresholdMin = Math.floor(_autoDeleteOfflineThreshold / 60);
+    toast(`Auto-delete enabled. Check every ${intervalSec}s, delete after ${thresholdMin}min offline.`, true);
+    _lastAutoDeleteCheck = 0; // reset timer to check immediately
+    checkAutoDeleteOffline();
+  } else {
+    toast('Auto-delete disabled.', true);
+  }
+});
 // ── Helper ────────────────────────────────────────────────────────────────
 function esc(str) {
   return String(str || '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-
 // ── Close modals on overlay click ─────────────────────────────────────────
 document.getElementById('detail-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeDetailModal();
@@ -674,10 +982,12 @@ document.getElementById('detail-modal').addEventListener('click', e => {
 document.getElementById('confirm-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) closeConfirm();
 });
-
+document.getElementById('settings-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeSettings();
+});
 // keyboard ESC
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeDetailModal(); closeConfirm(); }
+  if (e.key === 'Escape') { closeDetailModal(); closeConfirm(); closeSettings(); }
 });
 // ── Sticky horizontal scrollbar ───────────────────────────────────────────────
 (function () {
@@ -686,7 +996,6 @@ document.addEventListener('keydown', e => {
   if (!bar || !inner) return;  // safety guard
   const wrap  = () => document.querySelector('.table-wrap');
   let syncing = false;
-
   function updateBar() {
     const w = wrap();
     if (!w) return;
@@ -700,19 +1009,16 @@ document.addEventListener('keydown', e => {
       bar.scrollLeft    = w.scrollLeft;
     }
   }
-
   bar.addEventListener('scroll', () => {
     if (syncing) return; syncing = true;
     const w = wrap(); if (w) w.scrollLeft = bar.scrollLeft;
     syncing = false;
   });
-
   // Re-sync table → sticky bar
   document.addEventListener('scroll', () => {
     const w = wrap(); if (!w || syncing) return;
     syncing = true; bar.scrollLeft = w.scrollLeft; syncing = false;
   }, true);
-
   const ro = new ResizeObserver(updateBar);
   document.addEventListener('DOMContentLoaded', () => {
     const w = wrap(); if (w) ro.observe(w);
@@ -724,6 +1030,41 @@ document.addEventListener('keydown', e => {
   window._updateStickyScroll = updateBar;
 })();
 // ── Boot ───────────────────────────────────────────────────────────────────
+// Restore pagination and sorting settings from localStorage
+const savedPageSize = localStorage.getItem('master-page-size');
+if (savedPageSize) {
+  _pageSize = parseInt(savedPageSize);
+  document.getElementById('page-size-select').value = _pageSize;
+}
+const savedSortBy = localStorage.getItem('master-sort-by');
+if (savedSortBy) {
+  _sortBy = savedSortBy;
+  document.getElementById('sort-by').value = _sortBy;
+}
+const savedSortDesc = localStorage.getItem('master-sort-desc');
+if (savedSortDesc) {
+  _sortDesc = savedSortDesc === '1';
+}
+updateSortOrderButton();
+const savedPage = localStorage.getItem('master-current-page');
+if (savedPage) {
+  _currentPage = parseInt(savedPage);
+}
+// Restore auto-delete check interval from localStorage
+const savedInterval = localStorage.getItem('master-auto-delete-check-interval');
+if (savedInterval) {
+  _autoDeleteCheckInterval = parseInt(savedInterval);
+}
+// Restore auto-delete offline threshold from localStorage
+const savedThreshold = localStorage.getItem('master-auto-delete-threshold');
+if (savedThreshold) {
+  _autoDeleteOfflineThreshold = parseInt(savedThreshold);
+}
+// Restore auto-delete setting from localStorage
+const savedAutoDelete = localStorage.getItem('master-auto-delete-offline');
+if (savedAutoDelete === '1') {
+  document.getElementById('auto-delete-offline').checked = true;
+}
 fetchAgents().then(startCountdown);
 </script>
 </body>

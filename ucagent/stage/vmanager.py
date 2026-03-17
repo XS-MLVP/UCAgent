@@ -6,7 +6,7 @@ import time
 import traceback
 import random
 from collections import OrderedDict
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -131,6 +131,35 @@ class ToolSetCurrentStageJournal(ManagerTool):
         if not journal:
             return "Journal content cannot be empty."
         return self.function(journal)
+
+class ArgCheckSkillUsage(BaseModel):
+    skill_usage: Dict[str, Any] = Field(
+        description="The skill usage content to set for the current stage. Cannot be empty."
+    )
+
+
+class ToolCheckSkillUsage(ManagerTool):
+    """Check the skill usage of the current stage."""
+    name: str = "CheckSkillUsage"
+    description: str = (
+        "Check the usage of the skills and set journal of the current stage. \n"
+        "分析对话历史，检查 skill_list 中指定技能的使用情况(如果还使用了除指定之外的技能,也同样分析).\n"
+        "对于每个技能，从以下方面进行分析：\n"
+        "1. **是否被列举**: 该技能是否被 SkillList 工具所列举\n"
+        "2. **是否被读取**: 该技能的 SKILL.md 文件是否被读取\n"
+        "3. **是否被执行**: 当前阶段任务的完成是否依据了 SKILL.md 中提到的方法步骤或者执行过其中的指定代码\n"
+        "**返回字典格式示例**:\n"
+        "{\n"
+        "  '技能名称1': {'list': True, 'read': True, 'use': False},\n"
+        "  '技能名称2': {'list': True, 'read': False, 'use': False}\n"
+        "}\n"
+    )
+    args_schema: Optional[ArgsSchema] = ArgCheckSkillUsage
+
+    def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+        if not skill_usage:
+            return "Skill usage content cannot be empty."
+        return self.function(skill_usage)
 
 
 class ArgStageDiff(BaseModel):
@@ -388,8 +417,8 @@ class StageManager(object):
         self.mission = self.cfg.mission
         info(f"Initialized StageManager with {len(self.stages)} stages.")
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
-        self.stage_index = min(max(0, self.force_stage_index), len(self.stages) - 1)
-        for i in range(self.stage_index + 1):
+        self.stage_index = min(max(0, self.force_stage_index), len(self.stages))
+        for i in range(min(self.stage_index + 1, len(self.stages))):
             self.stages[i].set_reached(True)
         stages_info = self.ucagent_info.get("stages_info", {})
 
@@ -400,15 +429,19 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
+            stage.set_reached(stage_info.get("reached", stage.is_reached()))
+            stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
+            stage.is_complete = stage_info.get("is_completed", stage.is_completed())
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
-        self.stages[self.stage_index].on_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.all_completed = False
+        self.all_completed = bool(self.ucagent_info.get("all_completed", False))
         if self.stage_skip_list:
             for si in self.stage_skip_list:
                 self.skip_stage(si)
@@ -417,9 +450,10 @@ class StageManager(object):
             for sui in self.stage_unskip_list:
                 self.unskip_stage(sui)
                 info(f"Stage {sui} is set to be unskipped.")
+        self._refresh_all_completed()
         info("Current stage index is " + str(self.stage_index) + ".")
-        self.time_begin = time.time()
-        self.time_end = None
+        self.time_begin = self.ucagent_info.get("time_begin", time.time())
+        self.time_end = self.ucagent_info.get("time_end", None)
         self.llm_fail_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_fail_refinement,
             self,
@@ -432,7 +466,8 @@ class StageManager(object):
                                       ToolStageDiff().set_function(self.tool_stage_diff),
                                       ToolStageCommit().set_function(self.tool_stage_commit)]
         )
-        self.stages[self.stage_index].hist_init()
+        if self.stage_index < len(self.stages):
+            self.stages[self.stage_index].hist_init()
 
     def is_break(self):
         return self.agent.is_break()
@@ -549,6 +584,17 @@ class StageManager(object):
             return time.time() - self.time_begin
         return self.time_end - self.time_begin
 
+    def _compute_all_completed(self):
+        if not self.stages:
+            return True
+        if self.stage_index >= len(self.stages):
+            return True
+        return all(stage.is_skipped() or stage.is_completed() for stage in self.stages)
+
+    def _refresh_all_completed(self):
+        self.all_completed = self._compute_all_completed()
+        return self.all_completed
+
     def attach_todo_summary(self, data):
         assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
         if not self.force_todo:
@@ -582,6 +628,8 @@ class StageManager(object):
             ToolAllStageJournal().set_function(self.tool_get_all_journal),
             ToolSetCurrentStageJournal().set_function(self.tool_set_journal),
         ]
+        if self.agent.cfg.skill.use_skill:
+            tools.append(ToolCheckSkillUsage().set_function(self.tool_set_skill_usage))
         return tools
 
     def get_current_tips(self):
@@ -601,6 +649,17 @@ class StageManager(object):
             ref_files.append(k)
         if ref_files:
             tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
+        
+        # list the skills needed to use in current stage
+        skills_to_use = []
+        for k in cstage.skill_list:
+            skills_to_use.append(k)
+        if skills_to_use:
+            if self.agent.cfg.skill.use_skill:
+                tips["notes"] = tips.get("notes", "") + f"If you have known the detail about skill {skills_to_use}, use them. Otherwise use tool `SkillList` to list and use the required skills firstly."
+            else:
+                raise ValueError("开启 --use-skill 参数使得 UCAgent 可以使用技能, 否则移除阶段中指定的 skill_list。")
+
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
         if mession_tips is not None:
@@ -632,6 +691,7 @@ class StageManager(object):
     def status(self):
         ret = OrderedDict()
         ret["mission"] = self.mission.name
+        ret["all_completed"] = self._compute_all_completed()
         ret["stage_list"] = []
         for i, stage in enumerate(self.stages):
             ret["stage_list"].append({
@@ -679,6 +739,29 @@ class StageManager(object):
         for stage in self.stages:
             journals[stage.title()] = stage.meta_get_journal()
         return journals
+
+    def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
+        """update the state of skill_list based on skill_usage"""
+        current_stage = self.get_current_stage()
+        if current_stage.skill_list:
+            for skill_name in current_stage.skill_list:
+                if skill_name not in skill_usage:
+                    return f"You need use skill '{skill_name}' in current stage. You need to first check if the skill exists. If it exists, use tool `SkillList` to list and use it. Otherwise, add the skill."
+                else:
+                    skill_info = skill_usage[skill_name]
+                    current_stage.set_usage_skill_list(skill_name, listed=skill_info.get("list", False), read=skill_info.get("read", False), used=skill_info.get("use", False))
+                    [u,v,w] = current_stage.skill_list[skill_name]
+                    if u and v and w:
+                        continue
+                    if not u:
+                        return f"You need use tool `SkillList` to list and learn the skill {skill_name} and re-complete the stage, or check if skill {skill_name} in the workspace."
+                    if not v:
+                        return f"You need use tool `ReadTextFile` to read the SKILL.md of skill {skill_name}, and re-complete the stage"
+                    if not w:
+                        return f"You need to re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md, or executing the specified code in the SKILL.md if any."
+            current_stage.meta_set_skill_usage_journal(skill_usage)
+            return "All skill in skill_list have been used."     
+        return "No skill need be used in current stage."
 
     def get_stage(self, index):
         if 0 <= index < len(self.stages):
@@ -737,19 +820,17 @@ class StageManager(object):
         return ret_data
 
     def save_stage_info(self):
+        all_completed = self._refresh_all_completed()
         info = self.agent.get_stat_info()
         info.update({
             "stage_index": self.stage_index,
-            "all_completed": self.all_completed,
+            "all_completed": all_completed,
             "time_begin": self.time_begin,
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
         })
         info["stages_info"] = {}
-        for idx in range(self.stage_index + 1):
-            if idx >= len(self.stages):
-                break
-            stage = self.stages[idx]
+        for idx, stage in enumerate(self.stages):
             stage_info = stage.detail()
             stage_info["time_cost"] = stage.get_time_cost()
             stage_info["meta_data"] = stage.meta_data
@@ -764,6 +845,7 @@ class StageManager(object):
     def next_stage(self):
         self.stage_index += 1
         self._go_skip_stage()
+        self._refresh_all_completed()
         self.save_stage_info()
 
     def _go_skip_stage(self):
@@ -849,12 +931,11 @@ class StageManager(object):
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
             self.next_stage()
-            if self.stage_index >= len(self.stages):
+            if self.all_completed:
                 message = ("All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "
                            "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
-                self.all_completed = True
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
                 self.stages[self.stage_index].set_reached(True)
@@ -875,7 +956,7 @@ class StageManager(object):
         """
         Exit the agent and end the mission after all stages are completed.
         """
-        if self.all_completed:
+        if self._refresh_all_completed():
             self.time_end = time.time()
             self.agent.exit()  # Exit the agent if all stages are completed
             self.save_stage_info()
@@ -910,6 +991,11 @@ class StageManager(object):
     def tool_get_current_journal(self):
         ret = make_llm_tool_ret(self.get_current_stage_journal())
         info("ToolGetCurrentStageJournal:\n" + ret)
+        return self.attach_todo_summary(ret)
+    
+    def tool_set_skill_usage(self, skill_usage: Dict[str, Any]):
+        ret = make_llm_tool_ret(self.set_current_stage_skill_usage(skill_usage))
+        info("ToolCheckSkillUsage:\n" + ret)
         return self.attach_todo_summary(ret)
 
     def tool_detail(self):

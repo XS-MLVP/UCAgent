@@ -29,11 +29,23 @@ class UCAgentCmdLineBackend(AgentBackendBase):
     def _echo_message(self, txt):
         self.vagent.message_echo(txt)
 
+    def _get_mcp_port(self):
+        """Return the actual port from the running MCP server instance.
+        Falls back to the config value if the server is not yet started."""
+        try:
+            mcp = self.vagent.pdb._mcp_server
+            if mcp is not None:
+                return mcp.port
+        except AttributeError:
+            pass
+        return self.config.mcp_server.port
+
     def process_bash_cmd(self, cmd):
         """
         Process a bash command and return the output.
         """
         import subprocess
+        info(f'Executing bash command: {cmd}')
         process = subprocess.Popen(cmd, shell=True, cwd=self.CWD,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         output_lines = []
@@ -68,7 +80,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         for cmd in self.pre_bash_cmd:
             formatted_cmd = cmd.format(CWD=self.CWD,
                                        UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
-                                       PORT=self.config.mcp_server.port)
+                                       PORT=self._get_mcp_port())
             self.process_bash_cmd(formatted_cmd)
 
     def model_name(self):
@@ -98,5 +110,5 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
                                              UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
                                              CWD=self.CWD,
-                                             PORT=self.config.mcp_server.port))
+                                             PORT=self._get_mcp_port()))
 

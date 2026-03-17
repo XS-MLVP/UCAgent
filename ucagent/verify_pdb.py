@@ -11,6 +11,7 @@ import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
 import random
+from collections import OrderedDict
 
 
 class VerifyPDB(Pdb):
@@ -44,8 +45,12 @@ class VerifyPDB(Pdb):
         self._in_tui = False
         # Control whether empty line repeats last command
         self._repeat_last_command = True
+        # MCP server instance (created on demand)
+        self._mcp_server = None
         # CMD API server instance (created on demand)
         self._cmd_api_server = None
+        # Web Terminal server instance (created on demand)
+        self._terminal_server = None
         # Master API server instance (created on demand)
         self._master_api_server = None
         # Master clients keyed by master_url (supports multiple simultaneous connections)
@@ -501,6 +506,34 @@ class VerifyPDB(Pdb):
             "task_list": task_list
         }
 
+    def api_get_stage_file(self, index, file_path):
+        """
+        Get the content of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Content of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_stage_file_content(file_path)
+
+    def api_get_stage_file_current(self, index, file_path):
+        """
+        Get the diff of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Diff of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_current_file_content_with_diff(file_path)
+
     def api_get_check_tag_list(self, stage_list):
         """
         Get colored llm and human check tag for the stage.
@@ -530,13 +563,18 @@ class VerifyPDB(Pdb):
                 ret[i][j] = ""
         return [f"{a}{b}{c}" for a, b, c in ret]
 
-    def api_mission_info(self):
+    def api_mission_info(self, return_dict=False):
         """
         Get mission information with colored output.
         """
         task_data = self.api_task_list()
         current_index = task_data['task_index']
         ret = [f"\n{task_data['mission_name']}\n"]
+        ret_dict = OrderedDict({
+            "misson_name": task_data['mission_name'],
+            "current_index": current_index,
+            "stages": []
+        })
         stage_list = task_data['task_list']["stage_list"]
         ck_tags = self.api_get_check_tag_list(stage_list)
         for i, stage in enumerate(stage_list):
@@ -561,6 +599,18 @@ class VerifyPDB(Pdb):
             check_tag = ck_tags[i]
             text = f"{color}{i:2d}{cend} {check_tag}{color}{task_title}{fail_count_msg}{cend}"
             ret.append(text)
+            vstage_data = {
+                "index": i,
+                "text": text,
+                "out_come": None,
+            }
+            if current_index >= i:
+                vstage = self.agent.stage_manager.get_stage(i)
+                if vstage:
+                    vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
+            ret_dict["stages"].append(vstage_data)
+        if return_dict:
+            return ret_dict
         return ret
 
     def api_all_cmds(self, prefix=""):
@@ -602,6 +652,112 @@ class VerifyPDB(Pdb):
         # Return full input-ready lines so the client can replace the field directly
         prefix_base = line[:begidx]
         return [prefix_base + c for c in completions]
+
+    def api_server_info(self):
+        """
+        Return a dict with basic information about the CMD API, Master API, and
+        MCP servers managed by this PDB instance.
+
+        Each key maps to a sub-dict with the following fields when the server is
+        running, or ``None`` when it has not been started / is stopped:
+
+        cmd_api:
+            host, port, sock, tcp, password_set, started_at, url
+        master_api:
+            host, port, sock, tcp, password_set, access_key_set, started_at, url
+        mcp:
+            host, port, no_file_ops, started_at, url
+        """
+        import time as _time
+
+        def _fmt_time(ts):
+            if ts is None:
+                return None
+            import datetime
+            return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+        def _elapsed(ts):
+            if ts is None:
+                return None
+            secs = int(_time.time() - ts)
+            h, r = divmod(secs, 3600)
+            m, s = divmod(r, 60)
+            return f"{h:02d}:{m:02d}:{s:02d}"
+
+        # ── CMD API ──────────────────────────────────────────────────────
+        s = self._cmd_api_server
+        if s is not None and s.is_running:
+            cmd_api = {
+                "host":         s.host,
+                "port":         s.port,
+                "sock":         s.sock,
+                "tcp":          s.tcp,
+                "password_set": bool(s.password),
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            cmd_api = None
+
+        # ── Master API ───────────────────────────────────────────────────
+        s = self._master_api_server
+        if s is not None and s.is_running:
+            master_api = {
+                "host":             s.host,
+                "port":             s.port,
+                "sock":             s.sock,
+                "tcp":              s.tcp,
+                "password_set":     bool(s.password),
+                "access_key_set":   bool(s.access_key),
+                "started_at":       _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":          _elapsed(getattr(s, "started_at", None)),
+                "url":              s.url(),
+            }
+
+        else:
+            master_api = None
+
+        # ── MCP ──────────────────────────────────────────────────────────
+        s = self._mcp_server
+        if s is not None and s.is_running:
+            mcp_server = {
+                "host":         s.host,
+                "port":         s.port,
+                "no_file_ops":  s.no_file_ops,
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            mcp_server = None
+
+        # ── Web UI ───────────────────────────────────────────────────────
+        web_console = None
+        if hasattr(self.agent, "web_console_session_info"):
+            web_console = self.agent.web_console_session_info
+
+        # ── Terminal API ─────────────────────────────────────────────────
+        s = getattr(self, '_terminal_server', None)
+        if s is not None and s.is_running:
+            terminal_api = {
+                "host":         s.host,
+                "port":         s.port,
+                "password_set": bool(s.password),
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            terminal_api = None
+
+        return {
+            "cmd_api":     cmd_api,
+            "master_api":  master_api,
+            "mcp_server":  mcp_server,
+            "web_console": web_console,
+            "terminal_api": terminal_api,
+        }
 
     def api_changed_files(self, count=10):
         """
@@ -712,12 +868,17 @@ class VerifyPDB(Pdb):
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
         from ucagent.tui import enter_tui
+        # Disable PTY echo while TUI is active to prevent mouse-tracking
+        # escape sequences from being echoed as visible garbage.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(False)
         import sys as _sys
         _saved_sys_stdout = _sys.stdout
         _saved_sys_stderr = _sys.stderr
         _saved_pdb_stdout = self.stdout
         _saved_pdb_stderr = getattr(self, "stderr", None)
         self._in_tui = True
+
         try:
             enter_tui(self)
         except Exception as e:
@@ -748,11 +909,20 @@ class VerifyPDB(Pdb):
                     _sys.stdout = cc
                 if self.stdout is not cc:
                     self.stdout = cc
+        # Re-enable PTY echo so PDB input is visible again.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(True)
         self._in_tui = False
         if self.init_cmd:
             self.cmdqueue.extend(self.init_cmd)
             self.init_cmd = None
         message("Exited TUI mode. Returning to PDB.")
+
+    def do_show_web_session(self, arg):
+        if hasattr(self.agent, "web_console_session_info"):
+            message(yam_str(self.agent.web_console_session_info))
+        else:
+            echo_y("Agent does not launched in Web UI.")
 
     def do_export_agent(self, arg):
         """
@@ -809,42 +979,123 @@ class VerifyPDB(Pdb):
         for m in self.agent.message_get_str(start, size):
             message(m)
 
-    def do_start_mcp_server(self, arg, kwargs={"no_file_ops": False}):
+    def do_start_mcp_server(self, arg):
         """
-        Start the MCP server:
-        usage: start_mcp_server [host] [port]
+        Start the MCP server (FastMCP/uvicorn).
+
+        Usage: start_mcp_server [options] [host [port]]
+
+        Options:
+          --no-file-ops   Exclude file-operation tools from the MCP server
+          host            TCP bind address  (default: from config, typically 127.0.0.1)
+          port            TCP bind port     (default: from config, typically 5000)
+
+        Examples:
+          start_mcp_server
+          start_mcp_server 0.0.0.0 5000
+          start_mcp_server --no-file-ops
+          start_mcp_server --no-file-ops 127.0.0.1 5001
         """
-        args = arg.strip().split()
-        if len(args) > 0:
-            if args[0] != "None":
-                kwargs["host"] = args[0]
-        if len(args) > 1:
+        if self._mcp_server is not None and self._mcp_server.is_running:
+            echo_y(f"MCP server is already running at {self._mcp_server.url()}.")
+            echo_y("Use 'stop_mcp_server' first before starting a new instance.")
+            return
+        from ucagent.server import PdbMcpServer
+        host = self.agent.cfg.mcp_server.host
+        port = self.agent.cfg.mcp_server.port
+        port_specified = False
+        no_file_ops = False
+        # Parse flags and positional args
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--no-file-ops":
+                no_file_ops = True
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if len(positional) >= 1 and positional[0] not in ("", "None"):
+            host = positional[0]
+        if len(positional) >= 2:
             try:
-                if args[1] != "None":
-                    kwargs["port"] = int(args[1])
+                port_specified = (positional[1] not in ("", "None"))
+                port = int(positional[1]) if port_specified else port
             except ValueError:
-                echo_r(f"Invalid port number: {args[1]}. Port must be an integer.\n Usage: start_mcp_server [host] [port]")
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
                 return
-        self.agent.start_mcps(**kwargs)
+        # -1 means auto-select an available port
+        if port == -1:
+            from ucagent.util.functions import find_available_port
+            port = find_available_port()
+            echo_y(f"Auto-selected available port: {port}")
+            port_specified = False
+        # Port availability check
+        if not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
+        try:
+            self._mcp_server = PdbMcpServer(
+                self, host=host, port=port, no_file_ops=no_file_ops
+            )
+            ok, msg = self._mcp_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start MCP server: {e}")
+            return
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
 
     def do_stop_mcp_server(self, arg):
         """
         Stop the MCP server.
+        Usage: stop_mcp_server
         """
-        self.agent.stop_mcps()
+        if self._mcp_server is None or not self._mcp_server.is_running:
+            echo_y("MCP server is not running.")
+            return
+        ok, msg = self._mcp_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_mcp_server_status(self, arg):
+        """
+        Show the current status of the MCP server.
+        Usage: mcp_server_status
+        """
+        if self._mcp_server is None:
+            echo_y("MCP server has not been started.")
+            return
+        if self._mcp_server.is_running:
+            echo_g(f"MCP server is running at {self._mcp_server.url()}")
+            if self._mcp_server.no_file_ops:
+                echo_g("  File ops   : disabled")
+        else:
+            echo_y("MCP server is stopped.")
 
     def do_start_mcp_server_no_file_ops(self, arg):
         """
         Start the MCP server without file operations.
         """
-        return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
+        return self.do_start_mcp_server("--no-file-ops " + arg if arg.strip() else "--no-file-ops")
 
     # ------------------------------------------------------------------
     # CMD API server commands
     # ------------------------------------------------------------------
 
     # Default Unix socket path used when no --sock argument is provided
-    _CMD_API_DEFAULT_SOCK = "/tmp/ucagent_cmd.sock"
+    # sock=None passed to PdbCmdApiServer means "auto-generate /tmp/ucagent_cmd_{port}.sock"
+    # sock=""  means "disable unix socket"
 
     def do_cmd_api_start(self, arg):
         """
@@ -854,7 +1105,7 @@ class VerifyPDB(Pdb):
         Usage: cmd_api_start [options] [host [port]]
 
         Options:
-          --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd.sock)
+          --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd_{port}.sock)
           --sock none     Disable Unix socket listener
           --no-tcp        Disable TCP listener
           --passwd <pwd>  HTTP Basic password to protect API endpoints (default: none)
@@ -888,10 +1139,10 @@ class VerifyPDB(Pdb):
             echo_y("Use 'cmd_api_stop' first before starting a new instance.")
             return
         from ucagent.server import PdbCmdApiServer
-        host = "127.0.0.1"
-        port = 8765
+        host = self.agent.cfg.get_value("cmd_api.host", "127.0.0.1")
+        port = self.agent.cfg.get_value("cmd_api.port", 8765)
         port_specified = False
-        sock = self._CMD_API_DEFAULT_SOCK  # Unix socket enabled by default
+        sock = None   # None → server auto-generates /tmp/ucagent_cmd_{port}.sock
         tcp = True                          # TCP enabled by default
         passwd = ""                         # password disabled by default
         # Parse flags and positional args
@@ -903,14 +1154,14 @@ class VerifyPDB(Pdb):
             if token in ("--sock", "-s"):
                 if i + 1 < len(parts):
                     val = parts[i + 1]
-                    sock = None if val.lower() == "none" else val
+                    sock = "" if val.lower() == "none" else val
                     i += 2
                 else:
                     echo_r("--sock requires a path or 'none'.")
                     return
             elif token.startswith("--sock="):
                 val = token[7:]
-                sock = None if val.lower() == "none" else val
+                sock = "" if val.lower() == "none" else val
                 i += 1
             elif token == "--no-tcp":
                 tcp = False
@@ -931,7 +1182,7 @@ class VerifyPDB(Pdb):
             else:
                 positional.append(token)
                 i += 1
-        if not tcp and not sock:
+        if not tcp and sock == "":
             echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
             return
         # Positional args set TCP address
@@ -1004,10 +1255,177 @@ class VerifyPDB(Pdb):
             echo_y("CMD API server is stopped.")
 
     # ------------------------------------------------------------------
+    # Terminal API server commands  (web-based terminal via WebSocket)
+    # ------------------------------------------------------------------
+
+    def do_terminal_api_start(self, arg):
+        """
+        Start the Web Terminal server (aiohttp + xterm.js).
+
+        Maps the current UCAgent console I/O (PDB command line or TUI) to a
+        browser-based terminal.  Only one browser tab can connect at a time;
+        refreshing the page re-attaches to the same session.
+
+        Usage: terminal_api_start [options] [host [port]]
+
+        Options:
+          --passwd <pwd>  HTTP Basic password (default: none)
+          host            Bind address  (default: 127.0.0.1)
+          port            Bind port     (default: 8818)
+
+        Examples:
+          terminal_api_start                        # defaults
+          terminal_api_start 0.0.0.0 9090           # custom address
+          terminal_api_start --passwd secret123      # password protected
+
+        Once running, open the URL in a browser to get an interactive terminal.
+        REST endpoints:
+          GET  /api/status   – server status (uptime, client count, mode)
+          GET  /api/clients  – connected client details
+        """
+        if getattr(self, '_terminal_server', None) is not None and self._terminal_server.is_running:
+            echo_y(f"Terminal server is already running at {self._terminal_server.url()}")
+            echo_y("Use 'terminal_api_stop' first before starting a new instance.")
+            return
+        if hasattr(self.agent, "web_console_session_info"):
+            echo_y("Terminal server cannot not be launched in web console mode.")
+            return
+        if self._in_tui:
+            echo_y("Terminal server cannot be launched while in TUI mode.")
+            return
+        from ucagent.server.api_terminal import PdbWebTermServer
+
+        host = "127.0.0.1"
+        port = 8818
+        port_specified = False
+        passwd = ""
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if len(positional) >= 1:
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+                port_specified = True
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
+                return
+
+        if not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use.")
+                return
+            from ucagent.util.functions import find_available_port
+            port = find_available_port(port + 1)
+            echo_y(f"Default port was busy; using port {port} instead.")
+
+        try:
+            server = PdbWebTermServer(
+                command=None,
+                host=host,
+                port=port,
+                password=passwd,
+                title="UCAgent Terminal",
+            )
+            # Always use PTY mode so both PDB command line and TUI
+            # are captured and displayed in the web terminal.
+            server.enter_pty_mode()
+            ok, msg = server.start()
+        except Exception as e:
+            echo_r(f"Failed to start Terminal server: {e}")
+            return
+
+        if ok:
+            self._terminal_server = server
+            echo_g(msg)
+            echo_g(f"  Open in browser: {server.url()}")
+            if passwd:
+                echo_g(f"  Password: set (HTTP Basic Auth)")
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_stop(self, arg):
+        """
+        Stop the Web Terminal server.
+        Usage: terminal_api_stop
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        srv.exit_pty_mode()
+        ok, msg = srv.stop()
+        if ok:
+            echo_g(msg)
+            self._terminal_server = None
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_status(self, arg):
+        """
+        Show the current status of the Web Terminal server.
+        Usage: terminal_api_status
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None:
+            echo_y("Terminal server has not been started.")
+            return
+        if srv.is_running:
+            status = srv.get_status()
+            echo_g(f"Terminal server is running at {srv.url()}")
+            echo_g(f"  Mode     : {status['mode']}")
+            echo_g(f"  Clients  : {status['clients']}")
+            if status.get('uptime_s'):
+                echo_g(f"  Uptime   : {status['uptime_s']}s")
+            if status['password_protected']:
+                echo_g(f"  Password : set (HTTP Basic Auth)")
+        else:
+            echo_y("Terminal server is stopped.")
+
+    def do_terminal_api_list(self, arg):
+        """
+        List connected Web Terminal clients with details.
+        Usage: terminal_api_list
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        clients = srv.get_clients()
+        if not clients:
+            echo_y("No clients connected.")
+            return
+        echo_g(f"{len(clients)} client(s) connected:")
+        for i, c in enumerate(clients, 1):
+            echo(f"  [{i}] session={c['session_id']}  remote={c['remote']}  "
+                 f"duration={c['duration_s']}s")
+            echo(f"      user_agent={c['user_agent']}")
+
+    # ------------------------------------------------------------------
     # Master API server commands
     # ------------------------------------------------------------------
 
-    _MASTER_API_DEFAULT_SOCK = "/tmp/ucagent_master.sock"
+    # sock=None passed to PdbMasterApiServer means "auto-generate /tmp/ucagent_master_{port}.sock"
+    # sock=""  means "disable unix socket"
 
     def do_master_api_start(self, arg):
         """
@@ -1017,7 +1435,7 @@ class VerifyPDB(Pdb):
         Usage: master_api_start [options] [host [port]]
 
         Options:
-          --sock <path>       Unix socket path  (default: /tmp/ucagent_master.sock)
+          --sock <path>       Unix socket path  (default: /tmp/ucagent_master_{port}.sock)
           --sock none         Disable Unix socket listener
           --no-tcp            Disable TCP listener
           --timeout <secs>    Seconds without heartbeat before marking offline (default: 30)
@@ -1048,10 +1466,10 @@ class VerifyPDB(Pdb):
             echo_y("Use 'master_api_stop' first before starting a new instance.")
             return
         from ucagent.server import PdbMasterApiServer
-        host = "0.0.0.0"
-        port = 8800
+        host = self.agent.cfg.get_value("master_api.host", "0.0.0.0")
+        port = self.agent.cfg.get_value("master_api.port", 8800)
         port_specified = False
-        sock = self._MASTER_API_DEFAULT_SOCK
+        sock = None   # None → server auto-generates /tmp/ucagent_master_{port}.sock
         tcp = True
         offline_timeout = 30.0
         access_key = ""
@@ -1064,14 +1482,14 @@ class VerifyPDB(Pdb):
             if token in ("--sock", "-s"):
                 if i + 1 < len(parts):
                     val = parts[i + 1]
-                    sock = None if val.lower() == "none" else val
+                    sock = "" if val.lower() == "none" else val
                     i += 2
                 else:
                     echo_r("--sock requires a path or 'none'.")
                     return
             elif token.startswith("--sock="):
                 val = token[7:]
-                sock = None if val.lower() == "none" else val
+                sock = "" if val.lower() == "none" else val
                 i += 1
             elif token == "--no-tcp":
                 tcp = False
@@ -1117,7 +1535,7 @@ class VerifyPDB(Pdb):
             else:
                 positional.append(token)
                 i += 1
-        if not tcp and not sock:
+        if not tcp and sock == "":
             echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
             return
         if len(positional) >= 1:
@@ -2264,8 +2682,14 @@ class VerifyPDB(Pdb):
     def do_mission_info(self, arg):
         """
         Show mission information with colored output.
+        args:
+            [dict, default False]
         """
-        info = self.api_mission_info()
+        ret_dict = arg.strip() == "dict"
+        info = self.api_mission_info(ret_dict)
+        if ret_dict:
+            echo_g(yam_str(info))
+            return
         for i, line in enumerate(info):
             if i == 0:
                 echo_g(line)
@@ -2297,6 +2721,80 @@ class VerifyPDB(Pdb):
         Auto-complete the protect_files_off command.
         """
         return self.api_complite_workspace_file(text)
+
+    def do_stage_outcome(self, arg):
+        """
+        Show the outcome of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        index = arg.strip()
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        if index:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage outcome: \n{yam_str(stage.get_stage_outcome())}")
+
+    def complete_stage_outcome(self, text, line, begidx, endidx):
+        """
+        Auto-complete the stage_outcome command.
+        """
+        stage_index = [str(i) for i in range(len(self.agent.stage_manager.stages))]
+        return [i for f in stage_index if f.startswith(text.strip())]
+
+    def do_stage_file_content(self, arg):
+        """
+        Show the content of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage file content: \n{yam_str(stage.get_stage_file_content(file_path))}")
+
+    def do_stage_cfile_content(self, arg):
+        """
+        Show the content of the current stage file.
+        args:
+            <file_path> [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(int(index))
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage current file content with diff: \n{yam_str(stage.get_current_file_content_with_diff(file_path))}")
 
     def do_stage_diff(self, arg):
         """

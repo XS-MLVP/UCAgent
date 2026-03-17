@@ -112,6 +112,7 @@ class PdbCmdApiServer:
     ---------
     GET  /                             - HTML dashboard (agent status + file manager)
     GET  /api/status                   - Agent status string
+    GET  /api/server_info              - Running servers info (cmd_api, master_api, mcp)
     GET  /api/pdb_status               - PDB runtime status (tui, pending cmds, break state)
     GET  /api/tasks                    - Task list
     GET  /api/task/{index}             - Task detail
@@ -120,6 +121,8 @@ class PdbCmdApiServer:
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
+    GET  /api/stage/{index}/file       - Get file content from a stage  (?file_path=...)
+    GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
     DELETE /api/console                - Clear captured stdout buffer
     POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
@@ -133,9 +136,10 @@ class PdbCmdApiServer:
     DELETE /api/file                   - Delete file or empty directory  (?path=...)
     GET  /api/file/download            - Download file as attachment  (?path=...)
     POST /api/file/upload              - Upload file (multipart)  (?path=target_dir)
-    GET  /workspace/{path}             - Serve workspace files as static assets
-    GET  /docs                         - Swagger UI (auto-generated)
-    GET  /redoc                        - ReDoc (auto-generated)
+    GET  /workspace/{path}             - Serve workspace files as static assets (redirects to dashboard for root)
+    GET  /static/{path}                - Serve bundled static assets
+    GET  /surfer/ and /surfer/{path}   - Surfer waveform viewer (static)
+    GET  /docs, /redoc                 - OpenAPI docs (Swagger UI, ReDoc)
     """
 
     def __init__(
@@ -175,6 +179,15 @@ class PdbCmdApiServer:
                 "Install them with:  pip install fastapi uvicorn"
             ) from exc
 
+        # Resolve sock:
+        #   None  → auto-generate a default path that embeds the port
+        #   ""    → explicitly disabled
+        #   other → use as-is (user-supplied path)
+        if sock is None:
+            sock = f"/tmp/ucagent_cmd_{port}.sock"
+        elif sock == "":
+            sock = None
+
         if not tcp and not sock:
             raise ValueError("At least one of 'tcp' or 'sock' must be enabled.")
 
@@ -185,6 +198,7 @@ class PdbCmdApiServer:
         self.tcp = tcp
         self.password = password
         self._running = False
+        self.started_at: Optional[float] = None
         # TCP listener state
         self._tcp_server = None
         self._tcp_thread: Optional[threading.Thread] = None
@@ -329,6 +343,14 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
+        # ── GET /api/server_info ───────────────────────────────────────────
+        @app.get("/api/server_info", summary="Running servers info (cmd_api, master_api, mcp)")
+        def get_server_info():
+            try:
+                return {"status": "ok", "data": pdb.api_server_info()}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
         # ── GET /api/pdb_status ─────────────────────────────────────────────
         @app.get("/api/pdb_status", summary="PDB runtime status")
         def get_pdb_status():
@@ -378,10 +400,11 @@ class PdbCmdApiServer:
         @app.get("/api/mission", summary="Mission overview")
         def get_mission(strip_ansi: bool = Query(default=False, description="Strip ANSI escape codes from output")):
             try:
-                lines = pdb.api_mission_info()
+                mission_data = pdb.api_mission_info(return_dict=True)
                 if strip_ansi:
-                    lines = [_strip_ansi(line) for line in lines]
-                return {"status": "ok", "data": lines}
+                    for stage in mission_data["stages"]:
+                        stage["text"] = _strip_ansi(stage["text"])
+                return {"status": "ok", "data": mission_data}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -452,6 +475,30 @@ class PdbCmdApiServer:
                 _output_dir = os.path.abspath(pdb.agent.output_dir)
                 output_dir_rel = os.path.relpath(_output_dir, _workspace)
                 return {"status": "ok", "data": data, "output_dir": output_dir_rel}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/stage/{index}/file ────────────────────────────────
+        @app.get("/api/stage/{index}/file", summary="Get file content from a stage")
+        def get_stage_file(
+            index: int,
+            file_path: str = Query(..., description="Path to the file in the stage")
+        ):
+            try:
+                data = pdb.api_get_stage_file(index, file_path)
+                return {"status": "ok", "data": data}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/stage/{index}/file_current ────────────────────────────
+        @app.get("/api/stage/{index}/file_current", summary="Get file content from a stage")
+        def get_stage_file_current(
+            index: int,
+            file_path: str = Query(..., description="Path to the file in the stage")
+        ):
+            try:
+                data = pdb.api_get_stage_file_current(index, file_path)
+                return {"status": "ok", "data": data}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -891,6 +938,19 @@ class PdbCmdApiServer:
             return False, "CMD API server failed to start:\n  " + "\n  ".join(errors)
 
         self._running = True
+        self.started_at = __import__('time').time()
+        # Register atexit cleanup so the sock file is removed even if stop()
+        # is never called (e.g. process exits via sys.exit or reaches end).
+        if self.sock:
+            import atexit as _atexit, os as _os
+            _sock = self.sock
+            def _cleanup_sock():
+                try:
+                    if _os.path.exists(_sock):
+                        _os.unlink(_sock)
+                except OSError:
+                    pass
+            _atexit.register(_cleanup_sock)
         msg = "CMD API server started:\n  " + "\n  ".join(started_lines)
         if errors:
             msg += "\n  (warnings) " + "; ".join(errors)
@@ -912,6 +972,7 @@ class PdbCmdApiServer:
         self._sock_thread = None
 
         self._running = False
+        self.started_at = None
 
         # Restore stdout/stderr.  Use the *current* downstream of the capture
         # wrapper (``_original``), NOT the value saved at __init__ time.  If

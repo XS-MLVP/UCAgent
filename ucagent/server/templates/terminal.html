@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>{{TITLE}}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1117'/%3E%3Ctext x='16' y='21' font-family='monospace' font-size='14' font-weight='700' fill='%234f8ef7' text-anchor='middle'%3E%3E_%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/xterm/xterm.min.css">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#0f1117;overflow:hidden}
+  #bar{height:36px;background:#1a1d25;display:flex;align-items:center;padding:0 14px;
+       border-bottom:1px solid #2e3340;font-family:monospace;font-size:13px;color:#6b7280;gap:10px}
+  #bar .title{color:#c8cdd6;font-weight:600}
+  #bar .dot{width:8px;height:8px;border-radius:50%;background:#36d399}
+  #bar .dot.off{background:#f87272}
+  #bar .sep{flex:1}
+  #bar button{background:none;border:1px solid #2e3340;color:#6b7280;padding:2px 10px;
+              border-radius:4px;cursor:pointer;font-size:12px;font-family:monospace}
+  #bar button:hover{border-color:#4f8ef7;color:#4f8ef7}
+  #terminal-container{position:absolute;top:36px;bottom:0;left:0;right:0;overflow:hidden}
+  #terminal-container .xterm{height:100%;width:100%}
+  /* Overlay shown when another tab already holds the session */
+  #blocked-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+    background:rgba(15,17,23,0.95);z-index:9999;justify-content:center;align-items:center;
+    flex-direction:column;font-family:monospace;color:#c8cdd6}
+  #blocked-overlay.visible{display:flex}
+  #blocked-overlay h2{color:#f87272;margin-bottom:12px}
+  #blocked-overlay p{color:#6b7280;max-width:480px;text-align:center;line-height:1.6}
+  #blocked-overlay button{margin-top:18px;background:none;border:1px solid #4f8ef7;
+    color:#4f8ef7;padding:6px 20px;border-radius:4px;cursor:pointer;font-size:13px;font-family:monospace}
+  #blocked-overlay button:hover{background:#4f8ef7;color:#fff}
+</style>
+</head>
+<body>
+<div id="blocked-overlay">
+  <h2>Session Active Elsewhere</h2>
+  <p>This terminal is already open in another browser tab. Only one tab can be connected at a time.</p>
+  <button onclick="forceConnect()">Take Over Session</button>
+</div>
+
+<div id="bar">
+  <span class="dot" id="dot"></span>
+  <span class="title">{{TITLE}}</span>
+  <span id="info"></span>
+  <span class="sep"></span>
+  <button onclick="location.reload()">Reconnect</button>
+</div>
+<div id="terminal-container"></div>
+
+<script src="/static/xterm/xterm.min.js"></script>
+<script src="/static/xterm/addon-fit.min.js"></script>
+<script src="/static/xterm/addon-web-links.min.js"></script>
+<script>
+(function(){
+  /* ── Single-tab enforcement ────────────────────────────────── */
+  var SESSION_KEY = 'ucagent_terminal_session_id';
+  var sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+  var forced = false;
+
+  // BroadcastChannel for same-origin cross-tab communication
+  var bc = (typeof BroadcastChannel !== 'undefined')
+           ? new BroadcastChannel('ucagent_terminal') : null;
+
+  function checkExistingSession() {
+    // Use BroadcastChannel: ask if another tab is alive
+    if (!bc) return Promise.resolve(false);
+    return new Promise(function(resolve) {
+      var got = false;
+      function onMsg(ev) {
+        if (ev.data && ev.data.type === 'pong' && ev.data.id !== sessionId) {
+          got = true;
+        }
+      }
+      bc.addEventListener('message', onMsg);
+      bc.postMessage({type: 'ping', id: sessionId});
+      setTimeout(function() {
+        bc.removeEventListener('message', onMsg);
+        resolve(got);
+      }, 300);
+    });
+  }
+
+  if (bc) {
+    bc.addEventListener('message', function(ev) {
+      if (!ev.data) return;
+      if (ev.data.type === 'ping') {
+        // Another tab is asking if we exist
+        bc.postMessage({type: 'pong', id: sessionId});
+      }
+      if (ev.data.type === 'takeover' && ev.data.id !== sessionId) {
+        // Another tab is taking over — disconnect us
+        showBlocked('Session taken over by another tab.');
+      }
+    });
+  }
+
+  var overlay = document.getElementById('blocked-overlay');
+  function showBlocked(msg) {
+    if (ws) { try { ws.close(); } catch(e){} ws = null; }
+    overlay.querySelector('p').textContent = msg || 'This terminal is already open in another browser tab.';
+    overlay.classList.add('visible');
+  }
+
+  window.forceConnect = function() {
+    forced = true;
+    overlay.classList.remove('visible');
+    if (bc) bc.postMessage({type: 'takeover', id: sessionId});
+    connect();
+  };
+
+  /* ── Terminal setup ────────────────────────────────────────── */
+  var term = new window.Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: "'Cascadia Code','Fira Code','Menlo','Consolas',monospace",
+    theme: {
+      background: '#0f1117',
+      foreground: '#c8cdd6',
+      cursor: '#4f8ef7',
+      selectionBackground: 'rgba(79,142,247,0.3)',
+      black: '#1a1d25', brightBlack: '#6b7280',
+      red: '#f87272', brightRed: '#fb923c',
+      green: '#36d399', brightGreen: '#4ade80',
+      yellow: '#fbbd23', brightYellow: '#fde047',
+      blue: '#4f8ef7', brightBlue: '#93bbfd',
+      magenta: '#d946ef', brightMagenta: '#e879f9',
+      cyan: '#22d3ee', brightCyan: '#67e8f9',
+      white: '#c8cdd6', brightWhite: '#f1f5f9'
+    },
+    scrollback: 10000,
+    convertEol: false,
+    allowProposedApi: true
+  });
+  var fitAddon = new window.FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(new window.WebLinksAddon.WebLinksAddon());
+  term.open(document.getElementById('terminal-container'));
+  fitAddon.fit();
+
+  var dot = document.getElementById('dot');
+  var info = document.getElementById('info');
+  var ws = null;
+  var reconnectTimer = null;
+  var RECONNECT_DELAY = 1500;
+
+  function setStatus(connected) {
+    dot.className = connected ? 'dot' : 'dot off';
+    info.textContent = connected ? '' : 'disconnected';
+  }
+
+  function connect() {
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = proto + '//' + location.host + '/ws?session_id=' + encodeURIComponent(sessionId);
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = function() {
+      setStatus(true);
+      var dims = fitAddon.proposeDimensions();
+      if (dims) {
+        ws.send(JSON.stringify({type:'resize', cols:dims.cols, rows:dims.rows}));
+      }
+    };
+
+    ws.onmessage = function(ev) {
+      if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      } else {
+        try {
+          var msg = JSON.parse(ev.data);
+          if (msg.type === 'exit') {
+            info.textContent = 'process exited (' + (msg.code||0) + ')';
+          } else if (msg.type === 'rejected') {
+            showBlocked(msg.reason || 'Connection rejected: another session is active.');
+          }
+        } catch(e) {
+          term.write(ev.data);
+        }
+      }
+    };
+
+    ws.onclose = function() {
+      setStatus(false);
+      if (!overlay.classList.contains('visible')) {
+        scheduleReconnect();
+      }
+    };
+
+    ws.onerror = function() {
+      setStatus(false);
+    };
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(function() {
+      reconnectTimer = null;
+      connect();
+    }, RECONNECT_DELAY);
+  }
+
+  term.onData(function(data) {
+    if (ws && ws.readyState === 1) {
+      ws.send(data);
+    }
+  });
+
+  function doResize() {
+    fitAddon.fit();
+    if (ws && ws.readyState === 1) {
+      var dims = fitAddon.proposeDimensions();
+      if (dims) {
+        ws.send(JSON.stringify({type:'resize', cols:dims.cols, rows:dims.rows}));
+      }
+    }
+  }
+
+  var resizeTimeout = null;
+  function scheduleResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(doResize, 80);
+  }
+  window.addEventListener('resize', scheduleResize);
+
+  // ResizeObserver is more reliable than window.resize for container changes
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(scheduleResize).observe(document.getElementById('terminal-container'));
+  }
+
+  // On page unload, close cleanly
+  window.addEventListener('beforeunload', function() {
+    if (ws) { try { ws.close(); } catch(e){} }
+  });
+
+  /* ── Init: check for existing session, then connect ────── */
+  checkExistingSession().then(function(exists) {
+    if (exists && !forced) {
+      showBlocked();
+    } else {
+      connect();
+    }
+  });
+})();
+</script>
+</body>
+</html>
