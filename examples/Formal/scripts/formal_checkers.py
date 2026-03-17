@@ -1057,3 +1057,167 @@ class EnvironmentDebuggingChecker(Checker):
         else:
             result["message"] = "✅ 环境调试阶段通过"
         return True, result
+
+
+# =============================================================================
+# Static Bug - Formal Bug Linkage Checker
+# =============================================================================
+
+class StaticFormalBugLinkageChecker(Checker):
+    """
+    静态Bug与形式化验证结果关联检查器，用于 static_bug_validation 阶段。
+
+    工作流程：
+    1. 解析静态Bug分析文档，提取所有 <BG-STATIC-*> 条目及其 <LINK-BUG-[BG-TBD]> 标签
+    2. 解析形式化验证结果（avis.log 和 bug_report.md）
+    3. 检查所有 <LINK-BUG-[BG-TBD]> 是否已被正确替换为：
+       - 具体的Bug标签（如 <LINK-BUG-[BG-SUM-WIDTH-001]>）
+       - 或误报标签（<LINK-BUG-[BG-NA]>）
+    4. 通过条件：文档中无任何 <LINK-BUG-[BG-TBD]> 残留
+
+    标签格式：
+    - 静态Bug条目：<BG-STATIC-001-NAME>
+    - 待关联标签：<LINK-BUG-[BG-TBD]>
+    - 已证实标签：<LINK-BUG-[BG-SUM-WIDTH-001]> 或 <LINK-BUG-[BG-XXX][BG-YYY]>
+    - 误报标签：<LINK-BUG-[BG-NA]>
+    """
+    def __init__(self, static_doc, bug_report_doc, log_file, **kwargs):
+        self.static_doc = static_doc
+        self.bug_report_doc = bug_report_doc
+        self.log_file = log_file
+
+    def _extract_static_bugs(self, static_path: str) -> dict:
+        """
+        从静态Bug分析文档中提取所有静态Bug条目及其关联状态。
+
+        返回：
+        {
+            "pending": [(bg_id, link_tag), ...],  # 待关联的 Bug
+            "confirmed": [(bg_id, link_tag), ...], # 已证实
+            "false_positive": [(bg_id, link_tag), ...],  # 误报
+        }
+        """
+        result = {
+            "pending": [],
+            "confirmed": [],
+            "false_positive": [],
+        }
+
+        if not os.path.exists(static_path):
+            return result
+
+        with open(static_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+
+        # 查找所有 <BG-STATIC-...> 标签
+        bg_pattern = re.compile(r'(<BG-STATIC-[A-Za-z0-9_-]+>)')
+        bg_matches = bg_pattern.findall(content)
+
+        # 查找所有 <LINK-BUG-[...]> 标签
+        link_pattern = re.compile(r'(<LINK-BUG-\[([^\]]+)\]>)')
+
+        for bg_id in bg_matches:
+            # 在 BG 标签后查找对应的 LINK-BUG 标签
+            # 找到 BG 标签的位置
+            bg_pos = content.find(bg_id)
+            if bg_pos == -1:
+                continue
+
+            # 在 BG 标签后的合理范围内（如500字符）查找 LINK-BUG 标签
+            search_range = content[bg_pos:bg_pos + 500]
+            link_matches = link_pattern.findall(search_range)
+
+            if link_matches:
+                for full_tag, link_value in link_matches:
+                    if link_value == "BG-TBD":
+                        result["pending"].append((bg_id, full_tag))
+                    elif link_value == "BG-NA":
+                        result["false_positive"].append((bg_id, full_tag))
+                    else:
+                        result["confirmed"].append((bg_id, full_tag))
+
+        return result
+
+    def _extract_formal_bugs(self, bug_report_path: str, log_path: str) -> set:
+        """
+        从形式化验证结果中提取所有已证实的Bug标签。
+
+        返回：Bug标签集合，如 {"BG-SUM-WIDTH-001", "BG-XXX-002"}
+        """
+        formal_bugs = set()
+
+        # 1. 从 bug_report.md 提取 Bug 标签
+        if os.path.exists(bug_report_path):
+            with open(bug_report_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+            # 匹配 <BG-XXX-NNN> 格式
+            bg_pattern = re.compile(r'<(BG-[A-Za-z0-9_-]+)>')
+            formal_bugs.update(bg_pattern.findall(content))
+
+        # 2. 从 avis.log 提取 FALSE 属性对应的检测点
+        if os.path.exists(log_path):
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                log_content = f.read()
+            # 提取 FALSE 属性
+            false_props = re.findall(r'Info-P016: property [\w.]+ is (?:TRIVIALLY_)?FALSE', log_content)
+
+        return formal_bugs
+
+    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
+        """执行静态Bug与形式化验证结果关联检查"""
+
+        static_path = self.get_path(self.static_doc)
+        bug_report_path = self.get_path(self.bug_report_doc)
+        log_path = self.get_path(self.log_file)
+
+        # Step 1: 解析静态Bug分析文档
+        info("🔍 解析静态Bug分析文档...")
+        static_bugs = self._extract_static_bugs(static_path)
+
+        pending = static_bugs["pending"]
+        confirmed = static_bugs["confirmed"]
+        false_positive = static_bugs["false_positive"]
+
+        info(f"  - 待关联: {len(pending)} 个")
+        info(f"  - 已证实: {len(confirmed)} 个")
+        info(f"  - 误报: {len(false_positive)} 个")
+
+        # Step 2: 检查是否有待关联的 Bug
+        if pending:
+            pending_list = "\n".join(f"  - {bg_id}: {link_tag}" for bg_id, link_tag in pending)
+            return False, {
+                "error": f"❌ 发现 {len(pending)} 个静态Bug尚未与形式化验证结果关联",
+                "pending_bugs": pending,
+                "details": (
+                    f"以下静态Bug条目仍带有 <LINK-BUG-[BG-TBD]> 标签，需要根据形式化验证结果更新：\n{pending_list}\n\n"
+                    "关联规则：\n"
+                    "  - 若形式化验证证实了该Bug → 替换为 <LINK-BUG-[BG-XXX-NNN]>\n"
+                    "  - 若形式化验证未发现该Bug → 替换为 <LINK-BUG-[BG-NA]>\n\n"
+                    "参考文档：\n"
+                    f"  - 形式化验证结果: {log_path}\n"
+                    f"  - Bug报告: {bug_report_path}"
+                ),
+                "static_doc": static_path,
+            }
+
+        # Step 3: 统计关联结果
+        total = len(confirmed) + len(false_positive)
+        confirmed_rate = len(confirmed) / total * 100 if total > 0 else 0
+        false_positive_rate = len(false_positive) / total * 100 if total > 0 else 0
+
+        # Step 4: 构建通过报告
+        result = {
+            "message": "✅ 静态Bug与形式化验证结果关联检查通过",
+            "statistics": {
+                "总静态Bug数": total,
+                "已证实": len(confirmed),
+                "误报": len(false_positive),
+                "证实率": f"{confirmed_rate:.1f}%",
+                "误报率": f"{false_positive_rate:.1f}%",
+            },
+            "confirmed_bugs": confirmed,
+            "false_positive_bugs": false_positive,
+            "static_doc": static_path,
+        }
+
+        return True, result

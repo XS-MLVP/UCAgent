@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 """Formal verification tools for the Formal workflow example."""
 
+import glob
 import math
 import os
 import re
-import glob
 import subprocess
-import textwrap
-from typing import Optional, List, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 
-import pyslang
 import psutil
-from ucagent.tools.uctool import UCTool
-from ucagent.tools.fileops import BaseReadWrite
-from ucagent.util.log import info, str_info, str_error, str_data
-from pydantic import BaseModel, Field
+import pyslang
 from langchain_core.tools.base import ArgsSchema
+from pydantic import BaseModel, Field
+
+from ucagent.tools.fileops import BaseReadWrite
+from ucagent.tools.uctool import UCTool
+from ucagent.util.log import str_error, str_info
 
 __all__ = ["GenerateChecker", "GenerateFormalScript", "RunFormalVerification"]
 
@@ -23,6 +23,7 @@ __all__ = ["GenerateChecker", "GenerateFormalScript", "RunFormalVerification"]
 # =============================================================================
 # Shared Utilities
 # =============================================================================
+
 
 def parse_avis_log(log_path: str) -> Dict[str, list]:
     """Parse avis.log and return property result statistics.
@@ -39,8 +40,11 @@ def parse_avis_log(log_path: str) -> Dict[str, list]:
         cover_fail      – list of cover properties that failed
     """
     result: Dict[str, list] = {
-        "pass": [], "trivially_true": [], "false": [],
-        "cover_pass": [], "cover_fail": [],
+        "pass": [],
+        "trivially_true": [],
+        "false": [],
+        "cover_pass": [],
+        "cover_fail": [],
     }
 
     if not os.path.exists(log_path):
@@ -134,6 +138,7 @@ def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
 # Tool: GenerateChecker
 # =============================================================================
 
+
 class ArgGenerateChecker(BaseModel):
     """Arguments for GenerateChecker tool.
 
@@ -142,6 +147,7 @@ class ArgGenerateChecker(BaseModel):
     2. output_file: 输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {OUT}/tests/{DUT}_checker.sv 和 {OUT}/tests/{DUT}_wrapper.sv
     3. rtl_dir: RTL文件所在目录，默认为 FILE_PATH
     """
+
     dut_name: str = Field(
         description="DUT的顶层模块名称（从RTL文件中提取，例如 'main'、'traffic'）"
     )
@@ -149,9 +155,9 @@ class ArgGenerateChecker(BaseModel):
         description="输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {DUT}_checker.sv 和 {DUT}_wrapper.sv"
     )
     rtl_dir: str = Field(
-        default="{FILE_PATH}",
-        description="RTL源码目录路径（默认使用FILE_PATH）"
+        default="{FILE_PATH}", description="RTL源码目录路径（默认使用FILE_PATH）"
     )
+
 
 class GenerateChecker(UCTool, BaseReadWrite):
     name: str = "GenerateChecker"
@@ -182,7 +188,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
 
         # 查找所有 .v/.sv 文件
         all_files = []
-        for ext in ['*.v', '*.sv']:
+        for ext in ["*.v", "*.sv"]:
             all_files.extend(glob.glob(os.path.join(rtl_dir, ext)))
 
         str_info(f"Found {len(all_files)} RTL files")
@@ -190,9 +196,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
         # 解析每个文件，查找模块名匹配
         for file_path in all_files:
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
-                    module_pattern = rf'\bmodule\s+{re.escape(dut_name)}\b'
+                    module_pattern = rf"\bmodule\s+{re.escape(dut_name)}\b"
                     if re.search(module_pattern, content):
                         str_info(f"Found RTL: {file_path}")
                         return file_path
@@ -210,7 +216,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
             f"Found files: {all_files if all_files else 'none'}"
         )
 
-    def _extract_ports(self, file_path: str) -> Tuple[str, List[Tuple[str, str]], List[Tuple[str, str]]]:
+    def _extract_ports(
+        self, file_path: str
+    ) -> Tuple[str, List[Tuple[str, str]], List[Tuple[str, str]]]:
         """
         Extract ports and parameters from RTL file using pyslang.
 
@@ -234,31 +242,45 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 header = member.header
 
                 # Extract parameters from header.parameters.declarations
-                if hasattr(header, 'parameters') and header.parameters:
-                    if hasattr(header.parameters, 'declarations'):
+                if hasattr(header, "parameters") and header.parameters:
+                    if hasattr(header.parameters, "declarations"):
                         for decl in header.parameters.declarations:
                             if decl.kind == pyslang.SyntaxKind.ParameterDeclaration:
                                 # Iterate over declarators (can be multiple per declaration)
-                                if hasattr(decl, 'declarators'):
+                                if hasattr(decl, "declarators"):
                                     for declarator in decl.declarators:
-                                        if hasattr(declarator, 'name'):
+                                        if hasattr(declarator, "name"):
                                             param_name = declarator.name.value
                                             # Try to get default value if present
                                             default_value = None
-                                            if hasattr(declarator, 'initializer') and declarator.initializer:
-                                                default_value = str(declarator.initializer.expr).strip()
+                                            if (
+                                                hasattr(declarator, "initializer")
+                                                and declarator.initializer
+                                            ):
+                                                default_value = str(
+                                                    declarator.initializer.expr
+                                                ).strip()
 
                                             # Build parameter declaration string
                                             if default_value:
                                                 full_param_def = f"parameter {param_name} = {default_value}"
                                             else:
-                                                full_param_def = f"parameter {param_name}"
+                                                full_param_def = (
+                                                    f"parameter {param_name}"
+                                                )
 
-                                            param_info_list.append((param_name, full_param_def))
-                                            str_info(f"Extracted parameter: {param_name} = {default_value}")
+                                            param_info_list.append(
+                                                (param_name, full_param_def)
+                                            )
+                                            str_info(
+                                                f"Extracted parameter: {param_name} = {default_value}"
+                                            )
 
                 # Extract ports
-                if hasattr(header, 'ports') and header.ports.kind == pyslang.SyntaxKind.AnsiPortList:
+                if (
+                    hasattr(header, "ports")
+                    and header.ports.kind == pyslang.SyntaxKind.AnsiPortList
+                ):
                     for port in header.ports.ports:
                         # Get port name and full declaration from string representation
                         if port.kind == pyslang.SyntaxKind.ImplicitAnsiPort:
@@ -276,7 +298,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
         # Create port declaration string
         port_decl_str = ",\n  ".join([info[1] for info in port_info_list])
 
-        str_info(f"Extracted {len(param_info_list)} parameters and {len(port_info_list)} ports")
+        str_info(
+            f"Extracted {len(param_info_list)} parameters and {len(port_info_list)} ports"
+        )
 
         return port_decl_str, port_info_list, param_info_list
 
@@ -285,7 +309,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
         template_dir = os.path.join(os.path.dirname(__file__), "templates")
         template_path = os.path.join(template_dir, template_name)
         try:
-            with open(template_path, 'r', encoding='utf-8') as f:
+            with open(template_path, "r", encoding="utf-8") as f:
                 return f.read()
         except OSError as e:
             str_error(f"Failed to load template {template_name}: {e}")
@@ -302,17 +326,45 @@ class GenerateChecker(UCTool, BaseReadWrite):
             rst_active_low: True if the reset is active-low, False if active-high
         """
         # Known clock port names (case-insensitive exact match)
-        clk_exact = frozenset({
-            "clk", "clock", "sys_clk", "i_clk", "i_clock",
-            "pclk", "aclk", "hclk", "fclk", "clk_i", "clk_in",
-        })
+        clk_exact = frozenset(
+            {
+                "clk",
+                "clock",
+                "sys_clk",
+                "i_clk",
+                "i_clock",
+                "pclk",
+                "aclk",
+                "hclk",
+                "fclk",
+                "clk_i",
+                "clk_in",
+            }
+        )
         # Known reset port names (case-insensitive exact match)
-        rst_exact = frozenset({
-            "rst_n", "rstn", "rst", "reset", "reset_n", "resetn",
-            "sys_rst", "arst_n", "arst", "nreset", "n_reset",
-            "rst_b", "reset_b", "i_rst", "i_reset", "i_rstn", "i_rst_n",
-            "rst_ni", "rst_i",
-        })
+        rst_exact = frozenset(
+            {
+                "rst_n",
+                "rstn",
+                "rst",
+                "reset",
+                "reset_n",
+                "resetn",
+                "sys_rst",
+                "arst_n",
+                "arst",
+                "nreset",
+                "n_reset",
+                "rst_b",
+                "reset_b",
+                "i_rst",
+                "i_reset",
+                "i_rstn",
+                "i_rst_n",
+                "rst_ni",
+                "rst_i",
+            }
+        )
 
         clk_port: Optional[str] = None
         rst_port: Optional[str] = None
@@ -362,7 +414,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
         """
         symbolic_groups: Dict[str, List[str]] = {}
         for port_name, _ in port_info:
-            match = re.match(r'^(.*)_(\d+)$', port_name)
+            match = re.match(r"^(.*)_(\d+)$", port_name)
             if match:
                 base_name, index = match.groups()
                 symbolic_groups.setdefault(base_name, []).append(index)
@@ -381,7 +433,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
             "  // 符号化索引配置 (Symbolic Indexing Configuration)",
             "  // =============================================================================",
             f"  // 检测到 {len(symbolic_groups)} 个数组结构，需要符号化验证",
-            f"  // 索引位宽: {fv_idx_width} bits (支持索引 0-{(2**fv_idx_width)-1})",
+            f"  // 索引位宽: {fv_idx_width} bits (支持索引 0-{(2**fv_idx_width) - 1})",
             "  //",
             "  // 【重要】请在 checker 中添加以下约束以防止假阳性：",
             "  // 1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));",
@@ -398,12 +450,14 @@ class GenerateChecker(UCTool, BaseReadWrite):
             width_str = ""
             for p_name, p_def in port_info:
                 if p_name == f"{base}_{sorted_indices[0]}":
-                    width_m = re.search(r'\[(\d+:\d+)\]', p_def)
+                    width_m = re.search(r"\[(\d+:\d+)\]", p_def)
                     if width_m:
                         width_str = f"[{width_m.group(1)}] "
                     break
 
-            lines.append(f"  // 数组 '{base}' 包含 {len(indices)} 个元素 (索引 {sorted_indices[0]} 到 {sorted_indices[-1]})")
+            lines.append(
+                f"  // 数组 '{base}' 包含 {len(indices)} 个元素 (索引 {sorted_indices[0]} 到 {sorted_indices[-1]})"
+            )
             lines.append(f"  // wire {width_str}fv_mon_{base};")
             lines.append("  // always_comb begin")
 
@@ -472,7 +526,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
         """Generate the checker.sv file."""
         # Build parameter declaration
         if param_info:
-            param_decl_str = " #(\n  " + ",\n  ".join([info[1] for info in param_info]) + "\n)"
+            param_decl_str = (
+                " #(\n  " + ",\n  ".join([info[1] for info in param_info]) + "\n)"
+            )
         else:
             param_decl_str = ""
 
@@ -483,16 +539,22 @@ class GenerateChecker(UCTool, BaseReadWrite):
         if rst_port is None:
             checker_ports.append("input rst_n")
         for port_name, port_def in port_info:
-            checker_port = re.sub(r'^(input|output|inout)\s+', 'input ', port_def, count=1)
+            checker_port = re.sub(
+                r"^(input|output|inout)\s+", "input ", port_def, count=1
+            )
             if port_name == clk_port and port_name != "clk":
-                checker_port = re.sub(rf'\b{re.escape(port_name)}\s*$', 'clk', checker_port)
+                checker_port = re.sub(
+                    rf"\b{re.escape(port_name)}\s*$", "clk", checker_port
+                )
             elif port_name == rst_port and port_name != "rst_n":
-                checker_port = re.sub(rf'\b{re.escape(port_name)}\s*$', 'rst_n', checker_port)
+                checker_port = re.sub(
+                    rf"\b{re.escape(port_name)}\s*$", "rst_n", checker_port
+                )
             checker_ports.append(checker_port)
 
         # Add fv_idx and monitored signals for symbolic groups
         if symbolic_groups:
-            checker_ports.append(f"input [{fv_idx_width-1}:0] fv_idx")
+            checker_ports.append(f"input [{fv_idx_width - 1}:0] fv_idx")
             for base, indices in symbolic_groups.items():
                 if len(indices) > 1:
                     checker_ports.append(f"input fv_mon_{base}")
@@ -506,7 +568,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
             param_decl=param_decl_str,
             port_decl=checker_port_decl_str,
         )
-        with open(checker_path, 'w', encoding='utf-8') as f:
+        with open(checker_path, "w", encoding="utf-8") as f:
             f.write(checker_code)
         str_info(f"Checker generated at: {checker_path}")
 
@@ -526,9 +588,11 @@ class GenerateChecker(UCTool, BaseReadWrite):
         """Generate the wrapper.sv file."""
         # Parameter strings
         if param_info:
-            param_inst_str = " #(\n    " + ",\n    ".join(
-                [f".{name}({name})" for name, _ in param_info]
-            ) + "\n  )"
+            param_inst_str = (
+                " #(\n    "
+                + ",\n    ".join([f".{name}({name})" for name, _ in param_info])
+                + "\n  )"
+            )
         else:
             param_inst_str = ""
 
@@ -540,15 +604,15 @@ class GenerateChecker(UCTool, BaseReadWrite):
             wrapper_ports.append("input rst_n")
         for port_name, port_def in port_info:
             if port_name == clk_port and port_name != "clk":
-                normalized = re.sub(rf'\b{re.escape(port_name)}\s*$', 'clk', port_def)
+                normalized = re.sub(rf"\b{re.escape(port_name)}\s*$", "clk", port_def)
                 wrapper_ports.append(normalized)
             elif port_name == rst_port and port_name != "rst_n":
-                normalized = re.sub(rf'\b{re.escape(port_name)}\s*$', 'rst_n', port_def)
+                normalized = re.sub(rf"\b{re.escape(port_name)}\s*$", "rst_n", port_def)
                 wrapper_ports.append(normalized)
             else:
                 wrapper_ports.append(port_def)
         if symbolic_groups:
-            wrapper_ports.append(f"input [{fv_idx_width-1}:0] fv_idx")
+            wrapper_ports.append(f"input [{fv_idx_width - 1}:0] fv_idx")
         wrapper_ports_str = ",\n  ".join(wrapper_ports)
 
         # DUT instance connections (original RTL names)
@@ -576,9 +640,9 @@ class GenerateChecker(UCTool, BaseReadWrite):
 
         # Wrapper parameter declaration
         if param_info:
-            wrapper_params_str = " #(\n  " + ",\n  ".join(
-                [info[1] for info in param_info]
-            ) + "\n)"
+            wrapper_params_str = (
+                " #(\n  " + ",\n  ".join([info[1] for info in param_info]) + "\n)"
+            )
         else:
             wrapper_params_str = ""
 
@@ -600,7 +664,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
             symbolic_logic,
         )
 
-        with open(wrapper_path, 'w', encoding='utf-8') as f:
+        with open(wrapper_path, "w", encoding="utf-8") as f:
             f.write(wrapper_code)
         str_info(f"Wrapper generated at: {wrapper_path}")
 
@@ -631,22 +695,40 @@ class GenerateChecker(UCTool, BaseReadWrite):
             clk_port, rst_port, rst_active_low = self._detect_clock_reset(port_info)
 
             # Step 3: Build symbolic indexing logic
-            symbolic_groups, symbolic_logic, fv_idx_width = self._build_symbolic_logic(port_info)
+            symbolic_groups, symbolic_logic, fv_idx_width = self._build_symbolic_logic(
+                port_info
+            )
 
             # Step 4: Build clock/reset remapping
-            clk_rst_remap = self._build_clk_rst_remap(clk_port, rst_port, rst_active_low)
+            clk_rst_remap = self._build_clk_rst_remap(
+                clk_port, rst_port, rst_active_low
+            )
 
             # Step 5: Generate checker
             self._generate_checker_file(
-                dut_name, rtl_file_path, port_info, param_info,
-                clk_port, rst_port, symbolic_groups, fv_idx_width, checker_path,
+                dut_name,
+                rtl_file_path,
+                port_info,
+                param_info,
+                clk_port,
+                rst_port,
+                symbolic_groups,
+                fv_idx_width,
+                checker_path,
             )
 
             # Step 6: Generate wrapper
             self._generate_wrapper_file(
-                dut_name, port_info, param_info, clk_port, rst_port,
-                symbolic_groups, symbolic_logic, fv_idx_width,
-                clk_rst_remap, wrapper_path,
+                dut_name,
+                port_info,
+                param_info,
+                clk_port,
+                rst_port,
+                symbolic_groups,
+                symbolic_logic,
+                fv_idx_width,
+                clk_rst_remap,
+                wrapper_path,
             )
 
             return str_info(
@@ -660,6 +742,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
         except Exception as e:
             str_error(f"Error generating checker/wrapper: {e}")
             import traceback
+
             traceback.print_exc()
             return str_error(f"Error generating checker/wrapper: {e}")
 
@@ -668,12 +751,15 @@ class GenerateChecker(UCTool, BaseReadWrite):
 # Tool: GenerateFormalScript
 # =============================================================================
 
+
 class ArgGenerateFormalScript(BaseModel):
     """Arguments for GenerateFormalScript tool."""
+
     dut_name: str = Field(description="DUT模块名称")
     checker_file: str = Field(description="checker.sv文件路径")
     output_file: str = Field(description="输出的.tcl文件路径")
     rtl_dir: str = Field(description="RTL源码所在目录路径")
+
 
 class GenerateFormalScript(UCTool, BaseReadWrite):
     name: str = "GenerateFormalScript"
@@ -701,7 +787,9 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
 """
     args_schema: Optional[ArgsSchema] = ArgGenerateFormalScript
 
-    def _run(self, dut_name: str, checker_file: str, output_file: str, rtl_dir: str) -> str:
+    def _run(
+        self, dut_name: str, checker_file: str, output_file: str, rtl_dir: str
+    ) -> str:
         workspace = getattr(self, "workspace", os.getcwd())
         if not os.path.isabs(output_file):
             real_output_path = os.path.abspath(os.path.join(workspace, output_file))
@@ -734,7 +822,7 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
         template_dir = os.path.join(os.path.dirname(__file__), "templates")
         template_path = os.path.join(template_dir, "formal_script_template.tcl")
         try:
-            with open(template_path, 'r', encoding='utf-8') as f:
+            with open(template_path, "r", encoding="utf-8") as f:
                 tcl_template = f.read()
         except OSError as e:
             return str_error(f"Failed to load template: {e}")
@@ -746,11 +834,11 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
             wrapper_basename=wrapper_basename,
             top_module=top_module,
             clock_config=clock_config,
-            reset_config=reset_config
+            reset_config=reset_config,
         )
 
         try:
-            with open(real_output_path, 'w', encoding='utf-8') as f:
+            with open(real_output_path, "w", encoding="utf-8") as f:
                 f.write(tcl_script)
             return str_info(f"TCL script created at: {real_output_path}")
         except OSError as e:
@@ -761,15 +849,14 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
 # Tool: RunFormalVerification
 # =============================================================================
 
+
 class ArgRunFormalVerification(BaseModel):
     """Arguments for RunFormalVerification tool."""
-    tcl_script: str = Field(
-        description="TCL脚本路径（相对workspace），例如 'output/unity_tests/tests/Adder_formal.tcl'"
+
+    dut_name: str = Field(
+        description="DUT名称（如 'Adder'）。工具将自动执行 output/unity_tests/tests/{dut_name}_formal.tcl"
     )
-    timeout: int = Field(
-        default=300,
-        description="超时时间（秒），默认300秒"
-    )
+    timeout: int = Field(default=300, description="超时时间（秒），默认300秒")
 
 
 class RunFormalVerification(UCTool, BaseReadWrite):
@@ -782,24 +869,40 @@ class RunFormalVerification(UCTool, BaseReadWrite):
 - 在覆盖率分析阶段补充断言后刷新 fanin.rep
 
 工具会：
-1. 执行指定的 FormalMC TCL 脚本
+1. 根据 dut_name 定位并执行 FormalMC TCL 脚本
 2. 解析 avis.log，返回 pass/fail/trivially_true 属性统计
 3. 列出所有失败属性名称，便于快速定位问题
 
 使用示例：
-  RunFormalVerification(tcl_script="output/unity_tests/tests/Adder_formal.tcl")
+  RunFormalVerification(dut_name="Adder")
 """
     args_schema: Optional[ArgsSchema] = ArgRunFormalVerification
 
-    def _run(self, tcl_script: str, timeout: int = 300) -> str:
+    def _resolve_tcl_path(self, workspace: str, dut_name: str) -> str:
+        """Resolve TCL path from fixed Formal Makefile output layout."""
+        script_name = f"{dut_name}_formal.tcl"
+        candidates = [
+            os.path.abspath(
+                os.path.join(workspace, "output", "unity_tests", "tests", script_name)
+            ),
+            # os.path.abspath(os.path.join(workspace, "unity_tests", "tests", script_name)),
+            # os.path.abspath(os.path.join(workspace, "..", "output", "unity_tests", "tests", script_name)),
+        ]
+
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return candidates[0]
+
+    def _run(self, dut_name: str, timeout: int = 300) -> str:
         workspace = getattr(self, "workspace", os.getcwd())
-        if not os.path.isabs(tcl_script):
-            tcl_path = os.path.abspath(os.path.join(workspace, tcl_script))
-        else:
-            tcl_path = tcl_script
+        tcl_path = self._resolve_tcl_path(workspace, dut_name=dut_name)
 
         if not os.path.exists(tcl_path):
-            return str_error(f"TCL脚本不存在：{tcl_path}")
+            return str_error(
+                f"TCL脚本不存在：{tcl_path}\n"
+                f"请先运行 GenerateFormalScript 生成 {dut_name}_formal.tcl"
+            )
 
         exec_dir = os.path.dirname(tcl_path)
         log_path = os.path.join(exec_dir, "avis.log")
@@ -813,14 +916,16 @@ class RunFormalVerification(UCTool, BaseReadWrite):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=exec_dir
+                cwd=exec_dir,
             )
             try:
                 stdout, stderr = worker.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 _terminate_process_tree(worker)
                 worker.communicate()
-                return str_error(f"❌ 验证超时（>{timeout}s），请检查约束是否过弱或设计状态空间过大")
+                return str_error(
+                    f"❌ 验证超时（>{timeout}s），请检查约束是否过弱或设计状态空间过大"
+                )
 
             if worker.returncode != 0:
                 return str_error(
@@ -835,12 +940,14 @@ class RunFormalVerification(UCTool, BaseReadWrite):
 
         total = sum(len(parsed[k]) for k in parsed)
         if total == 0:
-            return str_error(f"❌ 验证执行完毕但日志中未找到属性结果，请检查 {log_path}")
+            return str_error(
+                f"❌ 验证执行完毕但日志中未找到属性结果，请检查 {log_path}"
+            )
 
         lines = [
             f"✅ FormalMC 执行完毕，日志：{log_path}",
-            f"",
-            f"📊 验证结果摘要：",
+            "",
+            "📊 验证结果摘要：",
             f"  Assert Pass        : {len(parsed['pass'])}",
             f"  Assert TRIVIALLY_TRUE : {len(parsed['trivially_true'])}",
             f"  Assert Fail        : {len(parsed['false'])}",
@@ -854,7 +961,9 @@ class RunFormalVerification(UCTool, BaseReadWrite):
                 lines.append(f"  - {p}")
 
         if parsed["trivially_true"]:
-            lines.append(f"\n⚠️  TRIVIALLY_TRUE 属性（{len(parsed['trivially_true'])} 个，环境过约束）：")
+            lines.append(
+                f"\n⚠️  TRIVIALLY_TRUE 属性（{len(parsed['trivially_true'])} 个，环境过约束）："
+            )
             for p in parsed["trivially_true"]:
                 lines.append(f"  - {p}")
 
@@ -864,3 +973,4 @@ class RunFormalVerification(UCTool, BaseReadWrite):
                 lines.append(f"  - {p}")
 
         return str_info("\n".join(lines))
+

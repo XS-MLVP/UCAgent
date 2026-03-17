@@ -92,7 +92,7 @@ mission:
       - `ReadTextFile`: 读取文件内容
       - `GenerateChecker`: 生成验证环境 (checker.sv + wrapper.sv)
       - `GenerateFormalScript`: 生成 TCL 脚本
-      - `RunFormalVerification`: 立即执行形式化验证并返回结果摘要
+      - `RunFormalVerification`: 立即执行形式化验证并返回结果摘要（支持自动查找 TCL，推荐直接调用 `RunFormalVerification(dut_name="{DUT}")`）
       - `SetCurrentStageJournal`: 阶段日志记录
 
       **工作流组织结构：**
@@ -144,7 +144,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "使用 RunFormalVerification 工具可即时验证修改效果，无需等待 Check 触发"
+        - "使用 RunFormalVerification 工具可即时验证修改效果，无需等待 Check 触发；推荐 `RunFormalVerification(dut_name=\"{DUT}\")`"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -220,7 +220,7 @@ stage:
     task:
       - "目标：将{DUT}的宏观功能规格分解为可形式化的微观规格（Micro-specifications），并定义验证策略，为编写SVA属性和验证脚本奠定基础。"
       - "第1步：基于功能理解阶段的成果，系统性地梳理所有需要验证的功能。参考{OUT}/02_{DUT}_basic_info.md。"
-      - "第2步：将功能点归类到功能组（<FG-功能组名>），例如<FG-FSM>状态机行为, <FG-INTERFACE>接口协议, <FG-DATAPATH>数据通路逻辑。必须包含<FG-ENVIRONMENT>用于定义环境假设。"
+      - "第2步：将功能点归类到功能组（<FG-功能组名>），例如<FG-FSM>状态机行为, <FG-INTERFACE>接口协议, <FG-DATAPATH>数据通路逻辑。必须包含<FG-API>用于定义环境假设。"
       - "第3步：在每个功能组内，定义具体的功能规格（<FC-规格名>），描述一个特定的设计行为或时序关系。"
       - "第4步：为每个功能规格，设计具体的检测点（<CK-检测点名>），并**必须强制标注其属性风格**（如：(Style: Comb), (Style: Seq)），明确其意图是 `assert` (检查), `assume` (环境假设), 还是 `cover` (覆盖)。"
       - "第5步：**形式化验证完备性三支柱 — 检测点必须涵盖以下三类属性**："
@@ -242,7 +242,7 @@ stage:
         desc: "DUT功能分组与层次划分{COUNT_FG}"
         task:
           - "基于{DUT}的设计结构和功能，将待验证的行为划分到不同的逻辑分组中。例如：<FG-FSM_CTRL>, <FG-AXI_PROTOCOL>, <FG-FIFO_LOGIC>。"
-          - "**强制要求**：必须包含<FG-ENVIRONMENT>用于定义环境假设（Assume 约束），以及<FG-COVERAGE>用于可达性覆盖检查。"
+          - "**强制要求**：必须包含<FG-API>用于定义环境假设（Assume 约束），以及<FG-COVERAGE>用于可达性覆盖检查。"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"
@@ -253,7 +253,7 @@ stage:
         desc: "具体功能点识别与定义{COUNT_FC}"
         task:
           - "在每个分组内，精确定义需要验证的设计意图（Design Intent）。每个<FC-功能点>应描述一个无歧义的行为规则。"
-          - "例如：在<FG-AXI_PROTOCOL>组内，可以有<FC-AWREADY_ASSERTION>; 在<FG-ENVIRONMENT>内可以有<FC-INPUT-ASSUME>。"
+          - "例如：在<FG-AXI_PROTOCOL>组内，可以有<FC-AWREADY_ASSERTION>; 在<FG-API>内可以有<FC-INPUT-ASSUME>。"
           - "功能点要具体，不能过于笼统，确保能直接对应到一条或多条 SVA 属性。"
         checker:
           - name: function_point_check
@@ -266,7 +266,7 @@ stage:
         task:
           - "为每个功能点设计具体的属性检查点（<CK-检查点>）。"
           - "**强制要求**：每个标签后必须紧跟属性风格标注，例如：`<CK-ADD-BASIC> (Style: Comb)`。缺少 `(Style: ...)` 标注的检测点**将被 Checker 拒绝**。"
-          - "**强制功能组**：文档必须包含 `<FG-ENVIRONMENT>`（环境假设，Assume 类检测点）和 `<FG-COVERAGE>`（可达性覆盖，Cover 类检测点）。"
+          - "**强制功能组**：文档必须包含 `<FG-API>`（环境假设，Assume 类检测点）和 `<FG-COVERAGE>`（可达性覆盖，Cover 类检测点）。"
           - "**形式化完备性要求**：在设计检测点时，必须包含以下三类高级模式（参考 Guide_Doc/dut_functions_and_checks.md）："
           - "  1. **稳定性检查 (Stability/Frame Conditions)**: 为所有存储/状态条目设计单点修改保证检测点（使用 fv_idx）。Frame Condition 是通过 $stable 断言'不该变的没有变'，是发现隐蔽 Bug 的利器。"
           - "  2. **可达性覆盖 (Reachability)**: 为 Full, Empty, Hit, Error 等关键标志位设计 Cover 检测点，防止环境过约束导致证明无效。"
@@ -286,30 +286,32 @@ stage:
   - name: static_bug_analysis
     desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
     task:
-      - "目标：逐批次分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/04_{DUT}_static_bug_analysis.md"
+      - "目标：逐批次分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md"
       - "当前批次待分析文件": "{CURRENT_FILE_NAMES}"
       - "分析步骤："
       - "  第1步：读取当前批次源文件，理解模块功能与架构（模块层次、关键信号、状态机、数据流）"
-      - "  第2步：读取{OUT}/03_{DUT}_functions_and_checks.md，针对每个<CK-*>逐项审查RTL实现"
+      - "  第2步：结合{OUT}/{DUT}_functions_and_checks.md中的功能点与检测点，针对每个<CK-*>逐项审查RTL实现"
       - "  第3步：系统排查常见设计缺陷："
       - "    - 状态机逻辑：状态枚举是否完整，转移条件是否正确，是否有孤立/死锁状态，default分支是否缺失"
       - "    - 边界与溢出：算术运算溢出/下溢、位宽截断、有符号/无符号类型不匹配"
       - "    - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态"
       - "    - 接口协议：valid/ready握手时序、数据有效窗口、读写使能逻辑"
       - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
-      - "  第4步：按 Guide_Doc/dut_bug_analysis.md 模板格式，将发现的潜在Bug记录到{OUT}/04_{DUT}_static_bug_analysis.md"
-      - "    ⚠️ 写入文档时必须严格遵守以下5条格式规则，违反任意一条将被Checker拒绝："
-      - "    【规则1】标签必须独立成行，绝对禁止将标签嵌入Markdown标题（如### <CK-xxx>）、行内文本或表格单元格中"
-      - "    【规则2】层级顺序固定为：<FG-*> → <FC-*> → <CK-*> → <BG-STATIC-NNN-NAME> → <LINK-BUG-[BG-TBD]> → <FILE-路径:行号>"
-      - "    【规则3】每个<BG-STATIC-*>后必须**立即**跟<LINK-BUG-[BG-TBD]>，再**立即**跟<FILE-路径:行号>，中间禁止插入任何内容"
-      - "    【规则4】<BG-STATIC-000-NULL>（无Bug占位符）与真实Bug记录不可共存于同一<CK-*>下。有Bug→只写真实Bug；无Bug→只写NULL"
-      - "    【规则5】统计汇总等表格中只能使用纯文本（如 BG-STATIC-001），禁止在表格单元格内使用<>标签"
-      - "    - 若某<CK-*>下未发现Bug，使用<BG-STATIC-000-NULL>（无需<LINK-BUG-*>子标签）"
-      - "  第6步：若发现高/中置信度Bug，在{OUT}/03_{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
-      - "  第7步：在文档末尾维护'批次分析进度'表格，记录本批次每个文件的分析结果，格式：| <file>文件路径</file> | N | ✅ 完成 |"
+      - "  第4步：按格式将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md（格式规范参考Guide_Doc/dut_bug_analysis.md）"
+      - "    - 每条Bug记录包含：<BG-STATIC-NNN-NAME>、<LINK-BUG-[BG-TBD]>、<FILE-path:lines>，及Bug描述、触发条件、修复建议"
+      - "    - 若未发现Bug，在对应<CK-*>下添加<BG-STATIC-000-NULL>"
+      - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
+      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾维护 '## 批次分析进度' 表格，记录本批次每个文件的分析结果："
+      - "    - 若文档末尾尚无该章节，先创建章节和表格标题行，再追加文件行"
+      - "    - 若章节已存在，直接在已有表格中追加新行"
+      - "    - 表格格式："
+      - "        ## 批次分析进度"
+      - "        | 源文件 | 发现疑似Bug数 | 状态 |"
+      - "        |--------|-------------|------|"
+      - "        | <file>文件路径</file> | N | ✅ 完成 |"
       - "注意："
       - "  - 静态分析阶段不运行任何测试，仅通过源码审查发现问题"
-      - "  - <FILE-路径:行号>中的路径须与源文件路径一致（相对workspace根目录，例如：{DUT}/dut.v:10）"
+      - "  - <file>标签路径须与源文件路径一致（相对workspace根目录，例如：{DUT}/dut.v）"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
       - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/04_{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
     reference_files:
@@ -451,7 +453,7 @@ stage:
       - "    A_CK_COUNT_MAX_REACHED: assert property(...);"
       - "    ```"
       - "第4步：若设计使用 fv_idx，检查并补全三个必要约束（M_CK_FV_IDX_STABLE / M_CK_FV_IDX_VALID / M_CK_FV_IDX_KNOWN），参考 `Guide_Doc/dut_property_template.md`。"
-      - "第5步：修改完成后，调用 `RunFormalVerification` 工具立即重新执行验证，根据返回的最新结果继续分析。确认所有 Fail 已分类后，再调用 Check 工具进行阶段验收。"
+      - "第5步：修改完成后，调用 `RunFormalVerification(dut_name=\"{DUT}\")` 立即重新执行验证（无需手动传 tcl_script，工具会自动查找），根据返回的最新结果继续分析。确认所有 Fail 已分类后，再调用 Check 工具进行阶段验收。"
     reference_files:
       - "{OUT}/tests/avis.log"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -485,7 +487,7 @@ stage:
       - "第2步：若 Check 失败，根据未覆盖信号列表，在 `{OUT}/tests/{DUT}_checker.sv` 中补充断言："
       - "  - 未覆盖 Dffs（寄存器）→ 补充验证状态转移的 (Style: Seq) 断言"
       - "  - 未覆盖 Nets（组合路径）→ 补充 (Style: Comb) 断言"
-      - "第3步：修改 checker.sv 后，调用 `RunFormalVerification` 工具立即重新执行验证（无需等待 Check 工具触发），根据返回的最新失败/TRIVIALLY_TRUE 列表继续分析。循环直到达标，或确认剩余未覆盖信号不可达。"
+      - "第3步：修改 checker.sv 后，调用 `RunFormalVerification(dut_name=\"{DUT}\")` 立即重新执行验证（无需等待 Check 工具触发，也无需手动传 tcl_script），根据返回的最新失败/TRIVIALLY_TRUE 列表继续分析。循环直到达标，或确认剩余未覆盖信号不可达。"
       - "第4步：对于确认不可达的未覆盖信号，在 checker.sv 中添加注释说明原因，例如："
       - "  `// [UNREACHABLE] signal_x: 该信号仅在 debug 模式下激活，正常功能路径不涉及`"
     reference_files:
@@ -539,59 +541,51 @@ stage:
           log_file: "{OUT}/tests/avis.log"
 
   - name: static_bug_validation
-    desc: "静态分析Bug验证与动态关联"
+    desc: "静态分析Bug与形式化验证结果关联"
     task:
-      - "目标：消除{OUT}/04_{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
-      - "第1步：扫描{OUT}/04_{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
-      - "第2步：**优先交叉关联已有验证结果**——逐条检查<BG-STATIC-*>条目，按以下优先级判断是否已有验证证据："
-      - "  优先级1 - Formal 反例已证实：读取{OUT}/tests/{DUT}_checker.sv中标记`// [RTL_BUG]`的属性，以及{OUT}/04_{DUT}_bug_report.md中的<BG-*>标签，判断该静态Bug是否已被Formal验证发现并记录"
-      - "  优先级2 - 已有Fail测试用例已覆盖：检查{OUT}/04_{DUT}_bug_report.md中是否有对应的<BG-*>+<TC-*>记录可证实该静态Bug"
-      - "  优先级3 - 以上均无：进入第3步编写动态验证用例"
-      - "第3步：针对每个仍为<LINK-BUG-[BG-TBD]>且无法通过已有验证结果关联的静态Bug，编写动态验证测试用例"
-      - "  - 测试文件写入{OUT}/tests/test_{DUT}_static_verify_*.py"
-      - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
-      - "  - 通过`from {DUT}_api import *`导入env fixture和API"
-      - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
-      - "第4步：根据验证结果更新{OUT}/04_{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
-      - "  情况A - 测试Fail（Bug已证实）："
-      - "    1. 在{OUT}/04_{DUT}_bug_report.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
-      - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
-      - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
-      - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
-      - "    3. 同步更新汇总表格中的'动态Bug关联'列"
-      - "  情况B - 测试Pass（误报）："
-      - "    1. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为 '<LINK-BUG-[BG-NA]>'"
-      - "    2. 在 '<LINK-BUG-[BG-NA]>' 下方可选添加一行误判说明（如 '- 误判说明：...'）"
-      - "    3. 同步更新汇总表格中的'动态Bug关联'列为 LINK-BUG-[BG-NA]"
-      - "  情况C - Formal 反例已证实（第2步优先级1命中）："
-      - "    1. 直接使用{OUT}/04_{DUT}_bug_report.md中已有的<BG-*>标签，无需编写额外测试用例"
-      - "    2. 将 '<LINK-BUG-[BG-TBD]>' 替换为已有动态Bug标签，如 <LINK-BUG-[BG-SUM-WIDTH-001]>"
-      - "    3. 同步更新汇总表格"
-      - "第5步：重复第2-4步直到所有<LINK-BUG-[BG-TBD]>均被替换"
-      - "第6步：评估本次静态分析的整体效果：发现的潜在Bug数量、证实比例、误报比例及对整体验证的贡献"
-      - "注意："
-      - "  - 静态分析的误报是正常现象，无需为误报感到遗憾"
-      - "  - 阶段完成时{OUT}/04_{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
-      - "  - <LINK-BUG-*>标签仅在{OUT}/04_{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/04_{DUT}_bug_report.md中"
-      - "  - 已证实的Bug必须有对应的验证证据（Formal反例或Fail测试用例），不能无依据地标记为Pass"
+      - "目标：将静态Bug分析阶段发现的潜在Bug与形式化验证结果进行关联，建立标签追踪链接，消除所有<LINK-BUG-[BG-TBD]>占位标签"
+      - "第1步：扫描{OUT}/04_{DUT}_static_bug_analysis.md，列出所有<BG-STATIC-*>条目及其<LINK-BUG-[BG-TBD]>标签，确认每个待关联的静态Bug"
+      - "第2步：读取{OUT}/tests/avis.log和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
+      - "  - 从avis.log提取所有FALSE状态的属性"
+      - "  - 从bug_report.md提取所有<BG-*>标签及其详细信息"
+      - "第3步：建立静态Bug与形式化Bug的关联映射"
+      - "  对于每个<BG-STATIC-*>静态Bug，执行以下判断："
+      - "  情况A - 已被形式化验证证实："
+      - "    1. 检查该静态Bug对应的检测点（<CK-*>）是否有FALSE属性"
+      - "    2. 检查bug_report.md中是否有相同根因的Bug记录"
+      - "    3. 将'<LINK-BUG-[BG-TBD]>'替换为对应的形式化Bug标签，例如：<LINK-BUG-[BG-SUM-WIDTH-001]>"
+      - "    4. 若对应多个形式化Bug：<LINK-BUG-[BG-XXX-001][BG-XXX-002]>"
+      - "  情况B - 未被形式化验证发现（误报）："
+      - "    1. 将'<LINK-BUG-[BG-TBD]>'替换为'<LINK-BUG-[BG-NA]>'"
+      - "    2. 在标签下方可选添加误判说明（如'- 误判说明：形式化验证未发现此问题，可能为防御性代码或设计意图'）"
+      - "  情况C - 静态Bug标记为无Bug（如<BG-STATIC-002-NO-BUG>）："
+      - "    1. 确保<LINK-BUG-[BG-NA]>已正确设置"
+      - "第4步：更新{OUT}/04_{DUT}_static_bug_analysis.md文档末尾的汇总表格"
+      - "  - 更新'动态Bug关联'列（实际为'形式化Bug关联'）"
+      - "  - 统计：证实数、误报数、无Bug数"
+      - "第5步：评估静态分析效果"
+      - "  - 证实比例 = 证实的静态Bug数 / 发现的潜在Bug总数"
+      - "  - 误报比例 = 误报数 / 发现的潜在Bug总数"
+      - "  - 在文档末尾添加评估结论"
+      - "**重要说明**："
+      - "  - 形式化验证通过SVA断言严格证明设计正确性，FALSE属性即为真实的RTL缺陷"
+      - "  - 静态分析基于代码审查，可能存在误报，这是正常现象"
+      - "  - 阶段完成时{OUT}/04_{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留"
+      - "  - <LINK-BUG-*>标签仅在静态分析文档中使用，不出现在bug_report.md中"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
     reference_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
       - "{OUT}/04_{DUT}_bug_report.md"
-      - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/tests/avis.log"
+    output_files:
+      - "{OUT}/04_{DUT}_static_bug_analysis.md"
     checker:
-      - name: no_conftest_file
-        clss: FilesMustNotExist
-        args:
-          target_files:
-            - ["{OUT}/**/conftest.py",
-               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
-      - name: no_pending_static_bugs
-        clss: "UnityChipCheckerStaticBugValidation"
+      - name: static_formal_bug_linkage_check
+        clss: "examples.Formal.scripts.formal_checkers.StaticFormalBugLinkageChecker"
         args:
           static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
-          bug_analysis_doc: "{OUT}/04_{DUT}_bug_report.md"
-          functions_and_checks_doc: "{OUT}/03_{DUT}_functions_and_checks.md"
+          bug_report_doc: "{OUT}/04_{DUT}_bug_report.md"
+          log_file: "{OUT}/tests/avis.log"
           
   # ========== 阶段 10: 验证总结与审查 ==========
   - name: verification_review_and_summary
