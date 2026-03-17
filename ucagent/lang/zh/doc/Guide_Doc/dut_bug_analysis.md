@@ -383,15 +383,21 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 ### 标签层级结构
 
-静态分析文档与动态测试文档使用**完全相同的** `FG → FC → CK` 层级组织结构。`<BG-STATIC-*>` 挂靠在 `<CK-*>` 之下，其下一级是**动态Bug关联标签 `<LINK-BUG-*>`**，用于在 `static_bug_validation` 阶段建立静态Bug与动态Bug之间的可追踪链接。每个 `<LINK-BUG-*>` 下还必须包含**源文件位置标签 `<FILE-*>`**，标记该Bug在源代码中的具体位置：
+静态分析文档与动态测试文档使用**完全相同的** `FG → FC → CK` 层级组织结构。`<BG-STATIC-*>` 挂靠在 `<CK-*>` 之下，其下一级是**动态Bug关联标签 `<LINK-BUG-*>`**，用于在 `static_bug_validation` 阶段建立静态Bug与动态Bug之间的可追踪链接。每个 `<LINK-BUG-*>` 下还必须包含**源文件位置标签 `<FILE-*>`**，标记该Bug在源代码中的具体位置。
+
+**重要**：一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug。
 
 ```
 <FG-功能组>                                 ← 与 _functions_and_checks.md 共用或新增 <FG-STATIC>
   <FC-功能点>                               ← 与 _functions_and_checks.md 共用或新增 <FC-STATIC-*>
-    <CK-检测点> ... <BG-STATIC-序号-名称>   ← 静态Bug（发现Bug时），挂靠在 CK 之下
-      <LINK-BUG-[BG-TBD]>                  ← 静态分析时默认填写，validation阶段必须替换
-        <FILE-filepath:line1-line2>         ← 源文件位置（必填），紧排在 LINK-BUG 行下
-    <CK-检测点> <BG-STATIC-000-NULL>        ← 无Bug声明（未发现Bug时），不需要 <LINK-BUG-*> 子标签
+    <CK-检测点>                             ← 一个CK检测点（可挂靠多个BG-STATIC）
+      <BG-STATIC-序号-名称1>                ← 第一个静态Bug
+        <LINK-BUG-[BG-TBD]>                 ← 静态分析时默认填写，validation阶段必须替换
+          <FILE-filepath:line1-line2>       ← 源文件位置（必填），紧排在 LINK-BUG 行下
+      <BG-STATIC-序号-名称2>                ← 第二个静态Bug（同一CK下）
+        <LINK-BUG-[BG-TBD]>
+          <FILE-filepath:line1-line2>
+      <BG-STATIC-000-NULL>                  ← 无Bug声明（未发现Bug时），不需要 <LINK-BUG-*> 子标签
 ```
 
 `<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签状态转换：
@@ -613,25 +619,39 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 | 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
 |------|---------|---------|---------|--------|---------|------------|
 | 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
-| 002 | BG-STATIC-002-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-TBD] |
+| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
+| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-TBD] |
 
 ## 四、详细分析
 
 <FG-CONTROL>
 
 #### 状态机功能 <FC-FSM>
-- <CK-FSM-BUSY-CONFLICT> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高 <BG-STATIC-001-FSM-DEAD>
-  - <LINK-BUG-[BG-TBD]>
-    - <FILE-UartTx.v:50-56>
-      ```verilog
-      50: always @(posedge clk) begin
-      51:   case (state)
-      52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
-      53:     SEND: if (bit_cnt == 8) state <= IDLE;
-      54:     // default 分支缺失
-      55:   endcase
-      56: end
-      ```
+- <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:50-56>
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // default 分支缺失
+        55:   endcase
+        56: end
+        ```
+  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:50-56>
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // BUG: default 分支缺失，可能导致锁死
+        55:   endcase
+        56: end
+        ```
 
 <FG-TIMING>
 
@@ -650,31 +670,45 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 | 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
 |------|---------|---------|---------|--------|---------|------------|
-| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85] |
-| 002 | BG-STATIC-002-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-NA] |
+| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEAD-92] |
+| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEFAULT-85] |
+| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-NA] |
 
 ## 四、详细分析
 
 <FG-CONTROL>
 
 #### 状态机功能 <FC-FSM>
-- <CK-FSM-BUSY-CONFLICT> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高 <BG-STATIC-001-FSM-DEAD>
-  - <LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>    ← 已替换，该静态Bug证实对应两个动态Bug
-    - <FILE-UartTx.v:50-56>    ← 源文件位置不变
-      ```verilog
-      50: always @(posedge clk) begin
-      51:   case (state)
-      52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
-      53:     SEND: if (bit_cnt == 8) state <= IDLE;
-      54:     // default 分支缺失
-      55:   endcase
-      56: end
-      ```
+- <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
+    - <LINK-BUG-[BG-FSM-DEAD-92]>    ← 已替换，该静态Bug证实对应一个动态Bug
+      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // default 分支缺失
+        55:   endcase
+        56: end
+        ```
+  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
+    - <LINK-BUG-[BG-FSM-DEFAULT-85]>    ← 已替换，该静态Bug证实对应一个动态Bug
+      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // BUG: default 分支缺失，可能导致锁死
+        55:   endcase
+        56: end
+        ```
 
 <FG-TIMING>
 
 #### 波特率计数功能 <FC-BAUD>
-- <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 <BG-STATIC-002-WIDTH-MISMATCH>
+- <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 <BG-STATIC-003-WIDTH-MISMATCH>
   - <LINK-BUG-[BG-NA]>             ← 已替换，误报
     - <FILE-UartTx.v:20>    ← 源文件位置不变
       ```verilog
@@ -691,11 +725,11 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 #### 状态机功能 <FC-FSM>
 - <CK-FSM-BUSY-CONFLICT> 测试 start 在 tx_busy=1 期间重新置位时 FSM 行为 <BG-FSM-DEAD-92>
   - <TC-FSM-REENTRANT-FAIL> start_during_send：验证FSM重入保护
-    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD（第1个关联动态Bug）
+    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD
 
 - <CK-FSM-BUSY-CONFLICT> 测试缺少 default 分支时 FSM 进入非法状态的行为 <BG-FSM-DEFAULT-85>
   - <TC-FSM-ILLEGAL-STATE> illegal_state_enter：验证default分支缺失
-    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD（第2个关联动态Bug）
+    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-002-FSM-DEFAULT
 ```
 
 ### 标签书写要点
@@ -705,7 +739,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 | 功能组 FG | `<FG-CONTROL>` | 与 `_functions_and_checks.md` 共用，或新增 `<FG-STATIC>` |
 | 功能点 FC | `<FC-FSM>` | 与 `_functions_and_checks.md` 共用，或新增 `<FC-STATIC-*>` |
 | 检测点 CK | `<CK-FSM-BUSY-CONFLICT>` | 需同步写入 `_functions_and_checks.md`（高/中置信度必须） |
-| 静态Bug | `<BG-STATIC-001-FSM-DEAD>` | 挂靠在 `<CK-*>` 之后，序号+名称格式 |
+| 静态Bug | `<BG-STATIC-001-FSM-DEAD>` | 挂靠在 `<CK-*>` 之后，序号+名称格式；**一个 `<CK-*>` 下可以有多个 `<BG-STATIC-*>` 标签** |
 | 静态Bug（无Bug声明） | `<BG-STATIC-000-NULL>` | 挂靠在 `<CK-*>` 之后；序号固定 `000`，名称固定 `NULL`；不需要 `<LINK-BUG-*>` 子标签；不可与其他 `<BG-STATIC-*>` 共存 |
 | 动态Bug关联（待验证） | `<LINK-BUG-[BG-TBD]>` | 每个 `<BG-STATIC-*>` 的**必填**子标签，`static_bug_analysis` 阶段写入 |
 | 动态Bug关联（已证实，单个） | `<LINK-BUG-[BG-FSM-DEAD-92]>` | `static_bug_validation` 后替换，需在 `_bug_analysis.md` 中有对应完整记录 |
@@ -717,6 +751,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 **注意**：
 - `<BG-STATIC-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
+- **一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug**
 - `<BG-STATIC-000-NULL>` 是必须显式书写的无Bug声明，不可省略——若 `_static_bug_analysis.md` 中既无任何 `<BG-STATIC-*>` 又无 `<BG-STATIC-000-NULL>`，Checker 将报错
 - `<LINK-BUG-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
 - `<FILE-*>` 标签是 `<LINK-BUG-*>` 的必填子标签，Checker 强制验证其存在和格式；`<FILE-*>` 行下方必须附带对应 RTL 源代码片段

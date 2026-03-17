@@ -16,15 +16,19 @@ Tag hierarchy parsed by ``parse_nested_keys``::
 
     <FG-*>
       <FC-*>
-        <CK-*>  <BG-STATIC-*>
-          <LINK-BUG-[BG-TBD]>                    ← pending
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-NA]>                      ← false positive
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-NAME-xx]>                 ← single confirmed
-            <FILE-filepath:line1-line2>           ← source location (required)
-          <LINK-BUG-[BG-N1-xx][BG-N2-xx]>         ← multiple confirmed
-            <FILE-filepath:line1-line2>           ← source location (required)
+        <CK-*>                              ← one CK can have multiple BG-STATIC children
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-TBD]>             ← pending
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-NA]>              ← false positive
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-NAME-xx]>         ← single confirmed
+              <FILE-filepath:line1-line2>   ← source location (required)
+          <BG-STATIC-*>
+            <LINK-BUG-[BG-N1-xx][BG-N2-xx]> ← multiple confirmed
+              <FILE-filepath:line1-line2>   ← source location (required)
 """
 
 import re
@@ -170,7 +174,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
     Checks:
 
     1. The document is parseable without hierarchy violations (each
-       ``<BG-STATIC-*>`` is preceded by a ``<CK-*>`` parent, etc.).
+       ``<BG-STATIC-*>`` is under a ``<CK-*>`` parent, etc.; one CK can have
+       multiple BG-STATIC children).
     2. No duplicate tags at any level.
     3. Every ``<BG-STATIC-*>`` has exactly one ``<LINK-BUG-*>`` child tag.
     4. All ``<LINK-BUG-*>`` values are ``[BG-TBD]`` during the
@@ -203,8 +208,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
             return False, {
                 "error": f"Tag hierarchy parse error: {e}",
                 "check_list": [
-                    "Each <BG-STATIC-*> must be preceded by a <CK-*> tag on a previous line",
-                    "Each <LINK-BUG-*> must be preceded by a <BG-STATIC-*> tag",
+                    "Each <BG-STATIC-*> must be under a <CK-*> tag (one CK can have multiple BG-STATIC children)",
+                    "Each <LINK-BUG-*> must be under a <BG-STATIC-*> tag",
                     "Each prefix (<FG-*, <BG-STATIC-*, etc.) must appear at most once per line",
                     "See Guide_Doc/dut_bug_analysis.md for the full format specification",
                 ],
@@ -337,6 +342,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 "check_list": [
                     "Each <BG-STATIC-*> must have exactly one <LINK-BUG-[BG-TBD]> child tag",
                     "Each <LINK-BUG-*> must have at least one <FILE-filepath:line1-line2> child tag",
+                    "Multiple <BG-STATIC-*> tags can be placed under the same <CK-*> tag "
+                    "(one per discovered bug)",
                     "FILE format: <FILE-path/to/file.v:50-56> or <FILE-path/to/file.v:50-56,100-120>",
                     "LINK-BUG format: <LINK-BUG-[BG-TBD]> (pending), placed on its own line",
                     "<BG-STATIC-000-NULL> declares no bugs found and must not coexist with "
@@ -405,7 +412,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
             return False, {
                 "error": f"Tag hierarchy parse error: {e}",
                 "check_list": [
-                    "Each <LINK-BUG-*> must be preceded by a <BG-STATIC-*> tag",
+                    "Each <BG-STATIC-*> must be under a <CK-*> tag (one CK can have multiple BG-STATIC children)",
+                    "Each <LINK-BUG-*> must be under a <BG-STATIC-*> tag",
                     "Each prefix must appear at most once per line",
                     "See Guide_Doc/dut_bug_analysis.md for the full format specification",
                 ],
@@ -542,6 +550,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
                     "Replace all <LINK-BUG-[BG-TBD]> with <LINK-BUG-[BG-NA]> (false positive) "
                     "or <LINK-BUG-[BG-NAME-xx]> (confirmed)",
                     "Multiple confirmed bugs: use <LINK-BUG-[BG-N1-xx][BG-N2-xx]> format",
+                    "Multiple <BG-STATIC-*> tags can be placed under the same <CK-*> tag "
+                    "(one per discovered bug)",
                     "Each <LINK-BUG-*> must have at least one <FILE-filepath:line1-line2> child tag",
                     f"Each confirmed tag must have a full <BG-*>+<TC-*> record in "
                     f"'{self.bug_analysis_doc}'",
