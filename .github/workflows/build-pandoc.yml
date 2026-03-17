@@ -18,7 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     # 使用公共 pandoc+LaTeX 基础镜像；后续步骤中补充中文与 crossref 依赖
     container:
-      image: docker.io/pandoc/extra:3.6.4-ubuntu
+    # 使用最新镜像，避免latex版本问题
+      image: docker.io/pandoc/extra:3.9-ubuntu
     steps:
       - name: Install git, LaTeX extras, fonts
         run: |
@@ -30,7 +31,9 @@ jobs:
 
           # 优先使用 tlmgr 安装 ctex（保证 ctexart.cls 可用，与镜像自带 TeX Live 一致）
           if command -v tlmgr >/dev/null 2>&1; then
-            tlmgr option repository http://mirror.ctan.org/systems/texlive/tlnet
+            # tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet
+            # 改为2025版本texlive
+            tlmgr option repository https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2025/tlnet-final/
             tlmgr update --self
             tlmgr install ctex
             # Pandoc 常用代码环境依赖，缺少会触发 fvextra.sty 等错误

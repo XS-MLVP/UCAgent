@@ -60,6 +60,7 @@ ucagent <workspace> <dut_name> {参数与选项}
 | --override           |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以“点号路径=值”覆盖配置；字符串需引号，其它按 Python 字面量解析 |
 | --gen-instruct-file  | -gif | file                       | 无         | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path      |      | path                       | 无         | 使用自定义 Guide_Doc 目录（默认使用内置拷贝）                   |
+| --use-skill | | path | 否 | 是否使用技能 SKILL,不添加该参数为禁用技能,--use-skill为使用默认路径下的技能,--use-skill=new_path为额外使用new_path路径下的技能 |
 
 ### 计划与 ToDo
 

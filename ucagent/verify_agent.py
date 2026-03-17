@@ -9,6 +9,7 @@ from .util.functions import (
     get_template_path,
     render_template_dir,
     import_and_instance_tools,
+    copy_skill_files,
 )
 from .util.functions import yam_str
 from .util.functions import (
@@ -29,6 +30,8 @@ import random
 import signal
 import copy
 import threading
+import shutil
+import os
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -157,6 +160,15 @@ class VerifyAgent:
             shutil.copytree(doc_guide_path, guide_doc_path)
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
+
+        # Copy skills to workspace, and add skill tools if enabled
+        self.tool_skill = []
+        if self.cfg.skill.use_skill:
+            # Copy Skills Files to Workspace(incrementally and skip existing files)
+            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))
+            # Add skill tool   
+            self.tool_skill += [SkillList(self.workspace).bind(self)]
+
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
         )
@@ -276,7 +288,7 @@ class VerifyAgent:
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(
             self.cfg.get_value("ex_tools", []), ucagent.tools
-        ) + import_and_instance_tools(ex_tools, ucagent.tools)
+        ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
 
         # Initialize planning tools
         self.planning_tools = []
@@ -567,7 +579,9 @@ class VerifyAgent:
 
     def get_default_system_prompt(self):
         """Get the default system prompt for the agent."""
-        return self.cfg.mission.prompt.get_value("system", "").strip()
+        system = self.cfg.mission.prompt.get_value("system", "").strip()
+        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.skill.use_skill else "")
+        return system
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""

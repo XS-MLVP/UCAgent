@@ -93,6 +93,7 @@ mission:
       -   通过CurrentTips工具获取当前阶段的具体任务指导
       -   通过Status工具获取当前阶段状态，确认你处于哪个阶段
       -   通过AllStageJournal工具获取之前阶段的日志，了解之前阶段的工作内容和结果
+      {skill_system}
 
       现在调用`CurrentTips`，开始你的验证工作！
     tips:
@@ -105,7 +106,15 @@ mission:
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
         - "可通过工具RunTestCases运行指定测试用例来寻找问题"
         - "Fail的测试用例可能意味着发现了bug，这是验证的目标，不要误报为Pass"
-        - "全面验证阶段需优先复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
+        - "全面验证阶段需优先复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"    
+    skill_system: |
+      - 你可以使用工具`SkillList`来获取所有可用技能的描述以及路径
+      - 在使用工具`CurrentTips`获得当前阶段的任务知道后,优先使用工具`SkillList`列举并学习可用技能
+      - 在计划通过`Complete`工具推进到下一个阶段前,需要通过工具`CheckSkillUsage`检查技能使用情况,本工具使用要早于`SetCurrentStageJournal`,因为技能使用情况可能会影响阶段任务的完成情况
+    # ignore_skills: 
+      # - "ieee754"
+    general_skills: 
+      - "fail_analyze"
 
 mcp_server:
   init_prompt: >
@@ -123,6 +132,8 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
+    # skill_list:
+    #   - "markdown-write"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"

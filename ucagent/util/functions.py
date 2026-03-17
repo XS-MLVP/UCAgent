@@ -736,6 +736,58 @@ def dump_as_json(data):
         return data
     return json.dumps(data, indent=4, ensure_ascii=False) #.replace("\\n", "\n").replace("\\", "")
 
+def copytree_incremental(src_dir, dst_dir, skip_existing=True, ignore_dirs=None):
+    """
+    Incremental copying of directories, supports skipping existing files with the same name and ignoring specified directories.
+    
+    :param src_dir: source directory
+    :param dst_dir: destination directory
+    :param skip_existing: whether to skip existing files (True=skip, False=overwrite)
+    :param ignore_dirs: list of directory names to ignore (only matches direct subdirectories of source directory)
+    :return: (copied_files, skipped_files, ignored_dirs) tuple
+    """
+    if not os.path.exists(src_dir):
+        raise ValueError(f"Source directory {src_dir} does not exist")
+
+    if not os.path.exists(dst_dir):
+        os.makedirs(dst_dir)
+
+    ignore_dirs = ignore_dirs or []
+    ignore_dirs = [d.strip() for d in ignore_dirs if d.strip()]
+
+    copied_files = []
+    skipped_files = []
+    ignored_dirs_list = []
+
+    for root, dirs, files in os.walk(src_dir):
+        rel_dir = os.path.relpath(root, src_dir)
+        dst_root = os.path.join(dst_dir, rel_dir) if rel_dir != '.' else dst_dir
+
+        if rel_dir == '.':
+            dirs_to_remove = []
+            for dirname in dirs:
+                if dirname in ignore_dirs:
+                    dirs_to_remove.append(dirname)
+                    ignored_dirs_list.append(dirname)
+            for dirname in dirs_to_remove:
+                dirs.remove(dirname)
+
+        for dirname in dirs:
+            dst_subdir = os.path.join(dst_root, dirname)
+            if not os.path.exists(dst_subdir):
+                os.makedirs(dst_subdir)
+
+        for filename in files:
+            src_file = os.path.join(root, filename)
+            dst_file = os.path.join(dst_root, filename)
+
+            if os.path.exists(dst_file) and skip_existing:
+                skipped_files.append(os.path.relpath(dst_file, dst_dir))
+            else:
+                shutil.copy2(src_file, dst_file)
+                copied_files.append(os.path.relpath(dst_file, dst_dir))
+
+    return copied_files, skipped_files, ignored_dirs_list
 
 def render_template_dir(workspace, template_dir, kwargs):
     """
@@ -2238,3 +2290,47 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 os.remove(d)
                 info(f"Removed file from target: {item}")
     return target_dir
+
+def copy_skill_files(cfg, workspace,root_dir):
+    """Copy skill files to workspace,include default skills and additional skills
+    Args:
+        cfg: Configuration object
+        workspace: workspace directory path
+        root_dir: Root directory path
+
+    """
+    skills_dst_path = os.path.join(workspace, "skills")
+    ignore_skills = cfg.get_value("mission.ignore_skills", [])
+    skill_path=[]
+    # Load default skills path
+    default_skill_path = os.path.join(
+        root_dir,
+        "lang",
+        cfg.lang,
+        "skills",
+    )
+    skill_path.append(default_skill_path)
+    # Load additional skills path
+    if isinstance(cfg.skill.use_skill, str):
+        extra_skills_path = os.path.abspath(cfg.skill.use_skill)
+        skill_path.append(extra_skills_path)
+    # Copy skills to workspace
+    for path in skill_path:
+        if os.path.exists(path):
+            try:
+                copied, skipped, ignored = copytree_incremental(
+                    path, 
+                    skills_dst_path, 
+                    skip_existing=True,
+                    ignore_dirs=ignore_skills
+                )
+                if copied:
+                    info(f"Copy {len(copied)} new skill file(s)")
+                if skipped:
+                    info(f"Skip {len(skipped)} existing skill file(s)")
+                if ignored:
+                    info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
+            except Exception as e:
+                warning(f"Failed to copy skills: {e}")
+        else:
+            info(f"Skills not found at {path}, skipping")

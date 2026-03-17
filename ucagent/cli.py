@@ -210,6 +210,15 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="Enable ToDo related tools"
     )
+
+    # SKILL argument
+    parser.add_argument(
+        "--use-skill",
+        nargs='?',
+        const=True,
+        default=False,
+        help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
+    )
      # Miscellaneous arguments
     parser.add_argument(
         "--seed", 
@@ -696,6 +705,10 @@ def run() -> None:
 
     if args.backend:
         args.override["backend.key_name"] = args.backend
+
+    if args.use_skill:
+        args.override = args.override or {}
+        args.override["skill.use_skill"] = args.use_skill
 
     template_cfg_overrides = {}
     if args.template_cfg_override:
