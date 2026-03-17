@@ -2290,3 +2290,47 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 os.remove(d)
                 info(f"Removed file from target: {item}")
     return target_dir
+
+def copy_skill_files(cfg, workspace,root_dir):
+    """Copy skill files to workspace,include default skills and additional skills
+    Args:
+        cfg: Configuration object
+        workspace: workspace directory path
+        root_dir: Root directory path
+
+    """
+    skills_dst_path = os.path.join(workspace, "skills")
+    ignore_skills = cfg.get_value("mission.ignore_skills", [])
+    skill_path=[]
+    # Load default skills path
+    default_skill_path = os.path.join(
+        root_dir,
+        "lang",
+        cfg.lang,
+        "skills",
+    )
+    skill_path.append(default_skill_path)
+    # Load additional skills path
+    if isinstance(cfg.skill.use_skill, str):
+        extra_skills_path = os.path.abspath(cfg.skill.use_skill)
+        skill_path.append(extra_skills_path)
+    # Copy skills to workspace
+    for path in skill_path:
+        if os.path.exists(path):
+            try:
+                copied, skipped, ignored = copytree_incremental(
+                    path, 
+                    skills_dst_path, 
+                    skip_existing=True,
+                    ignore_dirs=ignore_skills
+                )
+                if copied:
+                    info(f"Copy {len(copied)} new skill file(s)")
+                if skipped:
+                    info(f"Skip {len(skipped)} existing skill file(s)")
+                if ignored:
+                    info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
+            except Exception as e:
+                warning(f"Failed to copy skills: {e}")
+        else:
+            info(f"Skills not found at {path}, skipping")

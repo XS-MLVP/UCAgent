@@ -9,7 +9,7 @@ from .util.functions import (
     get_template_path,
     render_template_dir,
     import_and_instance_tools,
-    copytree_incremental,
+    copy_skill_files,
 )
 from .util.functions import yam_str
 from .util.functions import (
@@ -161,44 +161,11 @@ class VerifyAgent:
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
 
-        # Copy skills to workspace(incrementally and skip existing files)
-        self.tool_skill=[]
+        # Copy skills to workspace, and add skill tools if enabled
+        self.tool_skill = []
         if self.cfg.skill.use_skill:
-            skills_dst_path = os.path.join(self.workspace, "skills")
-            ignore_skills = self.cfg.get_value("mission.ignore_skills", [])
-            skill_path=[]
-            # Load default skills path
-            default_skill_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "lang",
-                self.cfg.lang,
-                "skills",
-            )
-            skill_path.append(default_skill_path)
-            # Load additional skills path
-            if isinstance(self.cfg.skill.use_skill, str):
-                extra_skills_path = os.path.abspath(self.cfg.skill.use_skill)
-                skill_path.append(extra_skills_path)
-            # Copy skills to workspace
-            for path in skill_path:
-                if os.path.exists(path):
-                    try:
-                        copied, skipped, ignored = copytree_incremental(
-                            path, 
-                            skills_dst_path, 
-                            skip_existing=True,
-                            ignore_dirs=ignore_skills
-                        )
-                        if copied:
-                            info(f"Copy {len(copied)} new skill file(s)")
-                        if skipped:
-                            info(f"Skip {len(skipped)} existing skill file(s)")
-                        if ignored:
-                            info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
-                    except Exception as e:
-                        warning(f"Failed to copy skills: {e}")
-                else:
-                    info(f"Skills not found at {path}, skipping")
+            # Copy Skills Files to Workspace(incrementally and skip existing files)
+            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))
             # Add skill tool   
             self.tool_skill += [SkillList(self.workspace).bind(self)]
 
@@ -321,7 +288,7 @@ class VerifyAgent:
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(
             self.cfg.get_value("ex_tools", []), ucagent.tools
-        ) + import_and_instance_tools(ex_tools, ucagent.tools)
+        ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
 
         # Initialize planning tools
         self.planning_tools = []
@@ -417,8 +384,7 @@ class VerifyAgent:
             + self.tool_list_task
             + self.tool_list_ext
             + self.planning_tools
-            + self.context_tools
-            + self.tool_skill,
+            + self.context_tools,
             self.cfg.tools.as_dict(),
         )
         self.pdb = VerifyPDB(

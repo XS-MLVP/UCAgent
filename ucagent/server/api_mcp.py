@@ -87,7 +87,7 @@ class PdbMcpServer:
         agent = self.pdb.agent
 
         # Collect tools from the agent
-        tools = agent.tool_list_base + agent.tool_list_task + agent.tool_list_ext + agent.tool_skill
+        tools = agent.tool_list_base + agent.tool_list_task + agent.tool_list_ext
         if not self.no_file_ops:
             tools += agent.tool_list_file
 
