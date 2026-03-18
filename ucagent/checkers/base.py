@@ -767,7 +767,6 @@ class OrginFileMustExistChecker(Checker):
             self.stage_manager.agent.exit()
             error(f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}.")
             sys.exit(1)
-            assert False, f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}."
         return self
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:

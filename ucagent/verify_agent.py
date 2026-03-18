@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from curses import echo
 from .tools.context import ArbitContextSummary
 from .util.config import get_config
-from .util.log import info, message, warning, error, msg_msg
+from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
 from .util.functions import (
     fmt_time_deta,
     fmt_time_stamp,
@@ -11,7 +12,7 @@ from .util.functions import (
     import_and_instance_tools,
     copy_skill_files,
 )
-from .util.functions import yam_str
+from .util.functions import yam_str, make_llm_tool_ret
 from .util.functions import (
     rm_workspace_prefix,
 )
@@ -952,3 +953,36 @@ class VerifyAgent:
             else:
                 timeouts[tool.name] = None
         return timeouts
+
+    def emulate_config(self):
+        """Emulate the configuration process.
+        Process:
+        1. Echo the system prompt.
+        2. Echo mission details.
+        3. Echo current_tips
+        4. Walk through all the stages.
+            a. Echo the stage prompt.
+            b. Call the 'Complete' tool.
+        """
+        echo_g("\nStart emulate config:")
+        echo_g("="*80)
+        echo_g("                First Tips (System Prompt)")
+        echo_g(make_llm_tool_ret(self.get_current_tips()))
+        echo_g("="*80)
+        echo_g(f"               Mission Details (Total stages: {len(self.stage_manager.stages)})")
+        # Force reset the stage index to 0
+        self.stage_manager.stage_index = 0
+        #echo_g(make_llm_tool_ret(self.stage_manager.detail()))
+        echo_g("="*80)
+        echo_g("                Config walkthrough")
+        current_stage = self.stage_manager.get_current_stage()
+        while current_stage is not None:
+            echo_g(f"   Check Stage: {current_stage.title()}")
+            echo_g("    - check stage task desc")
+            self.get_current_tips()
+            echo_g("    - check stage complete")
+            self.stage_manager.complete(self.cfg.get_value("call_time_out", 300))
+            current_stage = self.stage_manager.next_stage()
+        echo_g("\n" + "="*80)
+        echo_g("                Config walkthrough completed successfully!")
+        echo_g("="*80)

@@ -847,6 +847,7 @@ class StageManager(object):
         self._go_skip_stage()
         self._refresh_all_completed()
         self.save_stage_info()
+        return self.get_current_stage()
 
     def _go_skip_stage(self):
         if self.stage_index >= len(self.stages):

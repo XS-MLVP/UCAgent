@@ -12,7 +12,7 @@ import sys
 import argparse
 import bdb
 from typing import Dict, List, Any, Optional
-from .version import __version__
+import tempfile
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +20,8 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), ".ucagent/__pycache__")
+
+from ucagent.version import __version__
 
 class CheckAction(argparse.Action):
     """Custom action for --check flag that exits after checking."""
@@ -209,6 +211,12 @@ def get_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Enable ToDo related tools"
+    )
+    parser.add_argument(
+        "--emulate-config",
+        action="store_true",
+        default=False,
+        help="Emulate configuration process only, without really run the stages"
     )
 
     # SKILL argument
@@ -634,13 +642,25 @@ def run() -> None:
 
     # --as-master with no positional args → spin up a fake DUT under /tmp
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
-        import pathlib
-        _fake_cwd_dir = pathlib.Path("/tmp/ucagent_master")
-        _fake_cwd_dir.mkdir(parents=True, exist_ok=True)
-        args.workspace = _fake_cwd_dir.as_posix()
+        temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
+        args.workspace = temp_dir.name
         args.dut = "empty"
         args.human = True
         args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
+        args._temp_dir = temp_dir
+
+    if args.emulate_config:
+        if args.config is None:
+            print("Error: --emulate-config requires --config argument")
+            sys.exit(1)
+        temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_emulate_")
+        args.workspace = temp_dir.name
+        args.dut = "DUT_TEST"
+        dut_path = os.path.join(temp_dir.name, args.dut)
+        os.makedirs(dut_path, exist_ok=True)
+        open(os.path.join(dut_path, "__init__.py"), "w+").close()
+        args._temp_dir = temp_dir
+        print(f"Check config file: {args.config}")
 
     # Validate required positional args for normal (non-as-master) usage
     if args.workspace is None or args.dut is None:
@@ -648,9 +668,9 @@ def run() -> None:
         _p = _argparse.ArgumentParser(prog="ucagent")
         _p.error("the following arguments are required: workspace, dut")
 
-    from .verify_agent import VerifyAgent
-    from .util.log import init_log_logger, init_msg_logger
-    from .util.functions import append_python_path, find_available_port
+    from ucagent.verify_agent import VerifyAgent
+    from ucagent.util.log import init_log_logger, init_msg_logger
+    from ucagent.util.functions import append_python_path, find_available_port
 
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
@@ -825,7 +845,10 @@ def run() -> None:
     
     # Run the agent
     try:
-        agent.run()
+        if args.emulate_config:
+            agent.emulate_config()
+        else:
+            agent.run()
     except AssertionError as e:
         print(f"Fail: {e}")
         sys.exit(1)

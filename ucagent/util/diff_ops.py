@@ -99,7 +99,11 @@ def git_add_and_commit(path: str, message: str, target_suffix_list: list = ["*"]
         if repo.is_dirty(untracked_files=True) or repo.untracked_files:
             commit = repo.index.commit(message)
             return commit.hexsha
-        return repo.head.commit.hexsha
+        try:
+            return repo.head.commit.hexsha
+        except ValueError:
+            repo.index.commit("Initial commit")
+            return repo.head.commit.hexsha
     except git.exc.InvalidGitRepositoryError:
         raise ValueError(f"The path '{path}' is not a valid Git repository.")
 
