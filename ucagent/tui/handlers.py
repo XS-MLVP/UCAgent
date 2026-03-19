@@ -22,17 +22,25 @@ class KeyHandler:
         self._active_workers: list[Worker] = []
         self._worker_commands: dict[Worker, str] = {}
         self._worker_threads: dict[Worker, int] = {}
+        self._daemon_workers: dict[float, Worker] = {}
 
     def is_exit_cmd(self, cmd: str) -> bool:
         return cmd.lower() in ("q", "exit", "quit")
 
     def cancel_all_workers(self) -> bool:
         cancelled_any = False
-        for worker in self._active_workers:
+        for worker in list(self._active_workers):
             if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
-                worker.cancel()
+                self._cancel_worker(worker)
+                cancelled_any = True
+        for key, worker in list(self._daemon_workers.items()):
+            if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
+                self._cancel_worker(worker)
+                self._daemon_workers.pop(key, None)
                 cancelled_any = True
         self._active_workers.clear()
+        self._worker_commands.clear()
+        self.app.daemon_cmds.clear()
         self._update_busy_state()
         return cancelled_any
 
@@ -50,7 +58,7 @@ class KeyHandler:
 
         # Check if still active
         if worker.state in (WorkerState.PENDING, WorkerState.RUNNING):
-            worker.cancel()
+            self._cancel_worker(worker)
             self._active_workers.remove(worker)
             self._worker_commands.pop(worker, None)
             self._update_busy_state()
@@ -73,6 +81,12 @@ class KeyHandler:
 
     def _register_worker_thread(self, worker: Worker, thread_id: int) -> None:
         self._worker_threads[worker] = thread_id
+
+    def _cancel_worker(self, worker: Worker) -> None:
+        thread_id = self._worker_threads.get(worker)
+        if thread_id is not None:
+            self.app.vpdb.agent.set_break_thread(thread_id)
+        worker.cancel()
 
     def get_last_worker_thread_id(self) -> int | None:
         if not self._active_workers:
@@ -157,6 +171,8 @@ class KeyHandler:
         thread_id = self._worker_threads.pop(worker, None)
         if thread_id is not None:
             self.app.vpdb.agent.clear_break_thread(thread_id)
+        if self.app.is_shutting_down:
+            return
         self.app.flush_console_output()
         self._update_busy_state()
         console_input = self.app.query_one(ConsoleInput)
@@ -172,8 +188,15 @@ class KeyHandler:
     def _execute_daemon_command(self, cmd: str) -> None:
         key = time.time()
         self.app.daemon_cmds[key] = cmd
+        worker_holder: list[Worker] = []
+        worker_ready = threading.Event()
 
         def run_daemon() -> None:
+            worker_ready.wait()
+            thread_id = threading.current_thread().ident
+            self.app.call_from_thread(
+                self._register_worker_thread, worker_holder[0], thread_id
+            )
             console = self.app.query_one("#console", ConsoleWidget)
             try:
                 self.app.vpdb.onecmd(cmd)
@@ -183,13 +206,29 @@ class KeyHandler:
                 )
                 console.queue_output(error_msg)
             finally:
-                self.app.call_from_thread(self.app.flush_console_output)
-                if key in self.app.daemon_cmds:
-                    del self.app.daemon_cmds[key]
-                complete_msg = f"\033[33mDaemon command completed: {cmd}\033[0m\n"
-                console.queue_output(complete_msg)
+                if worker_holder:
+                    self.app.call_from_thread(
+                        self._on_daemon_complete, key, worker_holder[0], cmd
+                    )
 
-        self.app.run_worker(run_daemon, thread=True, group="cmd-daemon")
+        worker = self.app.run_worker(run_daemon, thread=True, group="cmd-daemon")
+        worker_holder.append(worker)
+        worker_ready.set()
+        self._daemon_workers[key] = worker
+
+    def _on_daemon_complete(self, key: float, worker: Worker, cmd: str) -> None:
+        self._daemon_workers.pop(key, None)
+        self.app.daemon_cmds.pop(key, None)
+        thread_id = self._worker_threads.pop(worker, None)
+        if thread_id is not None:
+            self.app.vpdb.agent.clear_break_thread(thread_id)
+        if self.app.is_shutting_down:
+            return
+        self.app.flush_console_output()
+        if worker.state != WorkerState.CANCELLED:
+            console = self.app.query_one("#console", ConsoleWidget)
+            complete_msg = f"\033[33mDaemon command completed: {cmd}\033[0m\n"
+            console.queue_output(complete_msg)
 
     def _add_to_history(self, cmd: str) -> None:
         """Add command to history."""

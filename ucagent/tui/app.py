@@ -78,10 +78,16 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Session output history for dumping to terminal after exit
         self._session_output: str = ""
+        self._is_shutting_down: bool = False
+        self._cleanup_done: bool = False
 
     @property
     def session_output(self) -> str:
         return self._session_output
+
+    @property
+    def is_shutting_down(self) -> bool:
+        return self._is_shutting_down
 
     def get_css_variables(self) -> dict[str, str]:
         """Provide extra theme variables for custom styles."""
@@ -191,6 +197,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def action_quit(self) -> None:
         """Handle quit action."""
+        self.stop_running_tasks()
         self.cleanup()
         self.exit()
 
@@ -266,16 +273,23 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         if not self.key_handler.has_active_worker():
             return False
 
-        thread_id = self.key_handler.get_last_worker_thread_id()
-        if thread_id is not None:
-            self.vpdb.agent.set_break_thread(thread_id)
-
         cancelled = self.key_handler.cancel_last_worker()
         if cancelled:
             self.flush_console_output()
             console_input = self.query_one(ConsoleInput)
             console_input.update_running_commands()
         return cancelled
+
+    def stop_running_tasks(self) -> bool:
+        cancelled = self.key_handler.cancel_all_workers()
+        if not cancelled:
+            return False
+        self.flush_console_output()
+        console_input = self.query_one(ConsoleInput)
+        console_input.update_running_commands()
+        task_panel = self.query_one("#task-panel", TaskPanel)
+        task_panel.update_content()
+        return True
 
     def _restore_messages_history(self) -> None:
         messages_panel = self.query_one("#messages-panel", MessagesPanel)
@@ -291,17 +305,11 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.key_handler.last_cmd = self.cmd_history[-1] if self.cmd_history else None
 
     def _save_messages_history(self) -> None:
-        try:
-            messages_panel = self.query_one("#messages-panel", MessagesPanel)
-        except NoMatches:
-            return
+        messages_panel = self.query_one("#messages-panel", MessagesPanel)
         self.vpdb.tui_messages_state = messages_panel.export_state()
 
     def _save_console_history(self) -> None:
-        try:
-            console = self.query_one("#console", ConsoleWidget)
-        except NoMatches:
-            return
+        console = self.query_one("#console", ConsoleWidget)
         self.vpdb.tui_console_state = console.export_state()
 
     def _save_command_history(self) -> None:
@@ -309,6 +317,12 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def cleanup(self) -> None:
         """Cleanup resources on exit."""
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
+        self._is_shutting_down = True
+        self.stop_running_tasks()
+
         # Collect console history (best-effort, only on first call)
         if self._console_capture is not None and not self._session_output:
             self._session_output = self._console_capture.get_history()
