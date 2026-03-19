@@ -69,7 +69,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # Handler for key events
         self.key_handler = KeyHandler(self)
 
-        # Daemon commands tracking
+        # Daemon commands tracking (current TUI session only)
         self.daemon_cmds: dict[float, str] = {}
 
         # Track previous logger for cleanup
@@ -137,6 +137,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         # sessions so stdout/log output appears in the Console panel.
         self.install_console_capture()
         self.install_sigint_handler()
+        self.set_interval(0.5, self.refresh_runtime_state)
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:
@@ -197,7 +198,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
     def action_quit(self) -> None:
         """Handle quit action."""
-        self.stop_running_tasks()
+        self.stop_running_tasks(include_detached=False)
         self.cleanup()
         self.exit()
 
@@ -280,8 +281,10 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             console_input.update_running_commands()
         return cancelled
 
-    def stop_running_tasks(self) -> bool:
-        cancelled = self.key_handler.cancel_all_workers()
+    def stop_running_tasks_with_policy(self, *, include_detached: bool) -> bool:
+        cancelled = self.key_handler.cancel_all_workers(
+            include_detached=include_detached
+        )
         if not cancelled:
             return False
         self.flush_console_output()
@@ -290,6 +293,18 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         task_panel = self.query_one("#task-panel", TaskPanel)
         task_panel.update_content()
         return True
+
+    def stop_running_tasks(self, include_detached: bool = True) -> bool:
+        return self.stop_running_tasks_with_policy(
+            include_detached=include_detached
+        )
+
+    def refresh_runtime_state(self) -> None:
+        if self._cleanup_done:
+            return
+        self.key_handler.get_running_commands()
+        console_input = self.query_one(ConsoleInput)
+        console_input.update_running_commands()
 
     def _restore_messages_history(self) -> None:
         messages_panel = self.query_one("#messages-panel", MessagesPanel)
@@ -321,7 +336,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             return
         self._cleanup_done = True
         self._is_shutting_down = True
-        self.stop_running_tasks()
+        self.stop_running_tasks(include_detached=False)
 
         # Collect console history (best-effort, only on first call)
         if self._console_capture is not None and not self._session_output:
