@@ -11,6 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 import pytest
 from rich.text import Text
 from textual.app import App
+from textual.worker import WorkerState
 from textual.widgets import Input
 
 from ucagent.tui.app import VerifyApp
@@ -427,12 +428,20 @@ class _FakeAgent:
         self.cfg = _FakeCfg()
         self._handler = None
         self._mcps_logger = None
+        self.break_threads = []
+        self.cleared_break_threads = []
 
     def set_message_echo_handler(self, handler) -> None:
         self._handler = handler
 
     def unset_message_echo_handler(self) -> None:
         self._handler = None
+
+    def set_break_thread(self, thread_id: int) -> None:
+        self.break_threads.append(thread_id)
+
+    def clear_break_thread(self, thread_id: int) -> None:
+        self.cleared_break_threads.append(thread_id)
 
     def status_info(self):
         return {
@@ -479,6 +488,16 @@ class _FakeVPDB:
 
     def api_status(self):
         return "idle"
+
+
+class _FakeWorker:
+    def __init__(self) -> None:
+        self.state = WorkerState.RUNNING
+        self.cancel_calls = 0
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+        self.state = WorkerState.CANCELLED
 
 
 class TestVerifyAppPersistence:
@@ -558,6 +577,30 @@ class TestVerifyAppPersistence:
             assert restored_app.cmd_history == ["status", "next"]
             assert restored_app.key_handler.last_cmd == "next"
             assert input_widget.value == "next"
+
+
+class TestVerifyAppShutdown:
+    @pytest.mark.asyncio
+    async def test_action_quit_stops_running_workers(self):
+        vpdb = _FakeVPDB()
+        app = VerifyApp(vpdb)
+        worker = _FakeWorker()
+        daemon_worker = _FakeWorker()
+
+        async with app.run_test():
+            app.key_handler._active_workers.append(worker)
+            app.key_handler._worker_commands[worker] = "status"
+            app.key_handler._register_worker_thread(worker, 101)
+            app.key_handler._daemon_workers[1.0] = daemon_worker
+            app.key_handler._register_worker_thread(daemon_worker, 202)
+            app.daemon_cmds[1.0] = "watch"
+
+            app.action_quit()
+
+        assert worker.cancel_calls == 1
+        assert daemon_worker.cancel_calls == 1
+        assert vpdb.agent.break_threads == [101, 202]
+        assert app.daemon_cmds == {}
 
 
 if __name__ == "__main__":
