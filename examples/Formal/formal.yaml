@@ -1,36 +1,31 @@
-# ============================================================================
-# Formal 验证工作流配置文件 (Optimized v2.0)
-# 框架: UCAgent  |  验证引擎: FormalMC (华大九天)
-# ============================================================================
 
-# ---------- 自定义工具 ----------
 ex_tools:
   - "examples.Formal.scripts.formal_tools.GenerateChecker"
   - "examples.Formal.scripts.formal_tools.GenerateFormalScript"
   - "examples.Formal.scripts.formal_tools.RunFormalVerification"
 
-# ---------- 模板变量 ----------
+# ---------- Template Variables ----------
 template_overwrite:
   DOC_GEN_LANG: "中文"
   RTL_PATH: "{DUT}"
   FILE_PATH: "output/{DUT}"
   OUT_PATH: "output/{OUT}"
 
-# ---------- 只读保护目录 ----------
+# ---------- Read-only Protected Directories ----------
 un_write_dirs:
   - "{DUT}/"
   - "Guide_Doc/"
 
-# ---------- 不使用预定义模板 ----------
+# ---------- No predefined template ----------
 template: ""
 
-# ---------- TUI 界面配置 ----------
+# ---------- TUI Interface Configuration ----------
 tui:
   task_width: 50
   console_height: 19
   status_height: 10
 
-# ---------- Hook 配置 ----------
+# ---------- Hook Configuration ----------
 hooks:
   continue: >
     你还没有完成所有任务，请继续。请通过Check和Complete工具来判断你是否完成了当前阶段的任务。
@@ -43,7 +38,7 @@ hooks:
     请通过工具RoleInfo获取你的角色信息和基本指导，然后完成任务。请使用工具ReadTextFile读取文件。
 
 # ============================================================================
-# Mission 定义
+# Mission Definition
 # ============================================================================
 mission:
   name: "{DUT} 形式化验证任务"
@@ -149,16 +144,16 @@ mission:
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
 
-# ---------- MCP Server 配置 ----------
+# ---------- MCP Server Configuration ----------
 mcp_server:
   init_prompt: >
     请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。
 
 # ============================================================================
-# Stage 定义 — 8 个阶段渐进式形式化验证
+# Stage Definition — 8-stage progressive formal verification
 # ============================================================================
 stage:
-  # ========== 阶段 1: 需求分析与验证规划 ==========
+  # ========== Stage 1: Requirement Analysis and Verification Planning ==========
   - name: requirement_analysis_and_planning
     desc: "需求分析与验证规划"
     task:
@@ -187,7 +182,7 @@ stage:
               markdown_file_list: "{OUT}/01_{DUT}_verification_needs_and_plan.md"
               no_line_break: true
 
-  # ========== 阶段 2: DUT 功能理解 ==========
+  # ========== Stage 2: DUT Function Understanding ==========
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
     task:
@@ -214,7 +209,7 @@ stage:
               markdown_file_list: "{OUT}/02_{DUT}_basic_info.md"
               no_line_break: true
 
-  # ========== 阶段 3: 功能规格分析与形式化策略定义 ==========
+  # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义"
     task:
@@ -281,7 +276,7 @@ stage:
               doc_file: "{OUT}/03_{DUT}_functions_and_checks.md"
               leaf_node: "FC"
               data_key: "COVER_GROUP_DOC_CK_LIST"
-        need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+        need_human_check: $(HUMAN_CHECK_CK: false) # Manual check is recommended when verifying complex DUTs
 
   - name: static_bug_analysis
     desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
@@ -333,9 +328,9 @@ stage:
             - "{RTL_PATH}/**/*.sv"
             - "{RTL_PATH}/**/*.scala"
           batch_size: 1
-    need_human_check: false
+    ignore: $(IGNORE_STATIC_CHECK: true)
     
-  # ========== 阶段 4: 验证环境生成 (Checker & Bind) ==========
+  # ========== Stage 4: Verification Environment Generation (Checker & Bind) ==========
   - name: environment_generation
     desc: "验证环境生成 (Checker & Bind)"
     task:
@@ -370,7 +365,7 @@ stage:
           wrapper_file: "{OUT}/tests/{DUT}_wrapper.sv"
           rtl_path: "{RTL_PATH}/{DUT}.v"
 
-  # ========== 阶段 5: SVA 属性生成 ==========
+  # ========== Stage 5: SVA Property Generation ==========
   - name: property_generation
     desc: "SVA 属性生成"
     task:
@@ -405,12 +400,12 @@ stage:
           property_file: "{OUT}/tests/{DUT}_checker.sv"
           spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
 
-  # ========== 阶段 6: 验证脚本生成 ==========
+  # ========== Stage 6: Verification Script Generation ==========
   - name: script_generation
     desc: "验证脚本生成"
     task:
       - "第1步：调用 `GenerateFormalScript` 工具生成 TCL 脚本（**禁止**手动编写）："
-      - "  GenerateFormalScript(dut_name=\"{DUT}\", checker_file=\"{OUT_PATH}/tests/{DUT}_checker.sv\", output_file=\"{OUT_PATH}/tests/{DUT}_formal.tcl\", rtl_dir=\"{FILE_PATH}\")"
+      - "  GenerateFormalScript(dut_name=\"{DUT}\", checker_file=\"{OUT_PATH}/tests/{DUT}_checker.sv\", rtl_dir=\"{FILE_PATH}\")"
       - "第2步：**引擎选择策略说明**："
       - "  - `pdrx`: 默认证明引擎，用于属性全量证明"
       - "  - `bmc -depth 50`: 快速 Debug 引擎，用于快速寻找反例"
@@ -432,7 +427,7 @@ stage:
           script_file: "{OUT}/tests/{DUT}_formal.tcl"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
 
-  # ========== 阶段 7: 验证环境调试与迭代修复 ==========
+  # ========== Stage 7: Verification Environment Debugging and Iterative Fixing ==========
   - name: environment_debugging_iteration
     desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
     task:
@@ -474,7 +469,7 @@ stage:
           checker_file: "{OUT}/tests/{DUT}_checker.sv"
           tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
 
-  # ========== 阶段 8: 覆盖率分析与断言优化 ==========
+  # ========== Stage 8: Coverage Analysis and Assertion Optimization ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
     task:
@@ -505,10 +500,7 @@ stage:
           checker_file: "{OUT}/tests/{DUT}_checker.sv"
           coi_threshold: 95.0
 
-  # ========== 阶段 9: RTL 缺陷分析与报告 ==========
-
-
-
+  # ========== Stage 9: RTL Defect Analysis and Reporting ==========
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
     task:
@@ -586,8 +578,9 @@ stage:
           static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
           bug_report_doc: "{OUT}/04_{DUT}_bug_report.md"
           log_file: "{OUT}/tests/avis.log"
+    ignore: $(IGNORE_STATIC_CHECK: true)
           
-  # ========== 阶段 10: 验证总结与审查 ==========
+  # ========== Stage 10: Verification Summary and Review ==========
   - name: verification_review_and_summary
     desc: "验证总结与审查"
     task:
@@ -615,12 +608,11 @@ stage:
       - name: human_check_formal_summary
         clss: "HumanChecker"
 
-# ============================================================================
-# VManager — LLM 建议系统
-# ============================================================================
+################## Check Fail LLM & Complete Pass LLM 配置 ##################
+
 vmanager:
   llm_suggestion:
-    check_fail_refinement: # Check Fail 时调用的 LLM 专家（连续 Fail 次数 > 3 后触发）
+    check_fail_refinement:
       system_prompt: >
         你是一名资深的形式化验证专家，负责协助另一位 LLM 专家（当前 DUT 为 `{DUT}`）完成形式化验证工作。
         验证过程分为多个阶段，每个阶段结束后需要通过 'Check' 工具进行检查。

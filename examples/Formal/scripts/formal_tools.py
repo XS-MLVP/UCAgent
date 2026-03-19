@@ -142,58 +142,58 @@ def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
 class ArgGenerateChecker(BaseModel):
     """Arguments for GenerateChecker tool.
 
-    使用说明：
-    1. dut_name: RTL文件中定义的顶层模块名称（通过 'module xxx' 提取）
-    2. output_file: 输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {OUT}/tests/{DUT}_checker.sv 和 {OUT}/tests/{DUT}_wrapper.sv
-    3. rtl_dir: RTL文件所在目录，默认为 FILE_PATH
+    Usage Instructions:
+    1. dut_name: Top-level module name defined in the RTL file (extracted via 'module xxx').
+    2. output_file: Output path prefix (e.g., '{OUT}/tests/{DUT}'); generates {OUT}/tests/{DUT}_checker.sv and {OUT}/tests/{DUT}_wrapper.sv.
+    3. rtl_dir: Directory containing RTL files, defaults to FILE_PATH.
     """
 
     dut_name: str = Field(
-        description="DUT的顶层模块名称（从RTL文件中提取，例如 'main'、'traffic'）"
+        description="Top-level module name of the DUT (extracted from RTL file, e.g., 'main', 'traffic')."
     )
     output_file: str = Field(
-        description="输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {DUT}_checker.sv 和 {DUT}_wrapper.sv"
+        description="Output path prefix (e.g., '{OUT}/tests/{DUT}'); generates {DUT}_checker.sv and {DUT}_wrapper.sv."
     )
     rtl_dir: str = Field(
-        default="{FILE_PATH}", description="RTL源码目录路径（默认使用FILE_PATH）"
+        default="{FILE_PATH}", description="RTL source directory path (defaults to FILE_PATH)."
     )
 
 
 class GenerateChecker(UCTool, BaseReadWrite):
     name: str = "GenerateChecker"
-    description: str = """生成形式化验证环境的 checker.sv 和 wrapper.sv 文件。
+    description: str = """Generates checker.sv and wrapper.sv files for the formal verification environment.
 
-使用方法：
-1. 提供 dut_name: RTL文件中定义的顶层模块名
-2. 提供 output_file: 输出路径前缀（例如 '{OUT}/tests/{DUT}'），会生成 {DUT}_checker.sv 和 {DUT}_wrapper.sv
-3. rtl_dir: 可选，默认为 FILE_PATH
+Usage:
+1. Provide dut_name: Top-level module name defined in the RTL file.
+2. Provide output_file: Output path prefix (e.g., '{OUT}/tests/{DUT}'); generates {DUT}_checker.sv and {DUT}_wrapper.sv.
+3. rtl_dir: Optional, defaults to FILE_PATH.
 
-工具会：
-- 在 rtl_dir 目录下查找包含 dut_name 模块的 .v/.sv 文件
-- 解析RTL提取所有端口和参数
-- 生成 {output_file}_checker.sv 和 {output_file}_wrapper.sv
+The tool will:
+- Search for .v/.sv files containing the dut_name module in the rtl_dir directory.
+- Parse RTL to extract all ports and parameters.
+- Generate {output_file}_checker.sv and {output_file}_wrapper.sv.
 
-使用示例：
+Example Usage:
 - GenerateChecker(dut_name="main", output_file="{OUT}/tests/main")
 - GenerateChecker(dut_name="traffic", output_file="{OUT}/tests/traffic", rtl_dir="traffic")
 """
     args_schema: Optional[ArgsSchema] = ArgGenerateChecker
 
     def _find_rtl_file(self, rtl_dir: str, dut_name: str) -> str:
-        """在指定目录查找包含dut_name模块的RTL文件"""
+        """Finds the RTL file containing the dut_name module in the specified directory."""
         str_info(f"Searching for RTL file for module '{dut_name}' in: {rtl_dir}")
 
         if not os.path.isdir(rtl_dir):
             raise FileNotFoundError(f"RTL directory does not exist: {rtl_dir}")
 
-        # 查找所有 .v/.sv 文件
+        # Find all .v/.sv files
         all_files = []
         for ext in ["*.v", "*.sv"]:
             all_files.extend(glob.glob(os.path.join(rtl_dir, ext)))
 
         str_info(f"Found {len(all_files)} RTL files")
 
-        # 解析每个文件，查找模块名匹配
+        # Parse each file to find a module name match
         for file_path in all_files:
             try:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -206,7 +206,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
                 str_error(f"Error reading {file_path}: {e}")
                 continue
 
-        # 如果只有一个文件，直接使用
+        # If there's only one file, use it directly
         if len(all_files) == 1:
             str_info(f"Using only RTL file: {all_files[0]}")
             return all_files[0]
@@ -430,12 +430,12 @@ class GenerateChecker(UCTool, BaseReadWrite):
 
         lines = [
             "  // =============================================================================",
-            "  // 符号化索引配置 (Symbolic Indexing Configuration)",
+            "  // Symbolic Indexing Configuration",
             "  // =============================================================================",
-            f"  // 检测到 {len(symbolic_groups)} 个数组结构，需要符号化验证",
-            f"  // 索引位宽: {fv_idx_width} bits (支持索引 0-{(2**fv_idx_width) - 1})",
+            f"  // Detected {len(symbolic_groups)} array structures, symbolic verification required",
+            f"  // Index width: {fv_idx_width} bits (supports indices 0 to {(2**fv_idx_width) - 1})",
             "  //",
-            "  // 【重要】请在 checker 中添加以下约束以防止假阳性：",
+            "  // [IMPORTANT] Please add the following constraints to the checker to prevent false positives:",
             "  // 1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));",
             "  // 2. M_CK_FV_IDX_VALID:  assume property(@(posedge clk) fv_idx < NUM_PORTS);",
             "  // 3. M_CK_FV_IDX_KNOWN:  assume property(@(posedge clk) !$isunknown(fv_idx));",
@@ -456,7 +456,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
                     break
 
             lines.append(
-                f"  // 数组 '{base}' 包含 {len(indices)} 个元素 (索引 {sorted_indices[0]} 到 {sorted_indices[-1]})"
+                f"  // Array '{base}' contains {len(indices)} elements (indices {sorted_indices[0]} to {sorted_indices[-1]})"
             )
             lines.append(f"  // wire {width_str}fv_mon_{base};")
             lines.append("  // always_comb begin")
@@ -669,7 +669,7 @@ class GenerateChecker(UCTool, BaseReadWrite):
         str_info(f"Wrapper generated at: {wrapper_path}")
 
     def _run(self, dut_name: str, output_file: str, rtl_dir: str) -> str:
-        """执行 checker 和 wrapper 生成"""
+        """Executes checker and wrapper generation."""
         # Resolve paths
         workspace = getattr(self, "workspace", os.getcwd())
         if not os.path.isabs(rtl_dir):
@@ -755,52 +755,53 @@ class GenerateChecker(UCTool, BaseReadWrite):
 class ArgGenerateFormalScript(BaseModel):
     """Arguments for GenerateFormalScript tool."""
 
-    dut_name: str = Field(description="DUT模块名称")
-    checker_file: str = Field(description="checker.sv文件路径")
-    output_file: str = Field(description="输出的.tcl文件路径")
-    rtl_dir: str = Field(description="RTL源码所在目录路径")
+    dut_name: str = Field(description="DUT module name")
+    checker_file: str = Field(description="Path to checker.sv file")
+    rtl_dir: str = Field(description="Directory containing RTL source")
 
 
 class GenerateFormalScript(UCTool, BaseReadWrite):
     name: str = "GenerateFormalScript"
-    description: str = """生成形式化验证的 TCL 脚本文件。
+    description: str = """Generates a TCL script file for formal verification.
 
-使用方法：
-1. 提供 dut_name: DUT模块名称
-2. 提供 checker_file: checker.sv 文件路径
-3. 提供 output_file: 输出的 .tcl 文件路径
-4. 提供 rtl_dir: RTL 源码所在目录
+Usage:
+1. Provide dut_name: DUT module name.
+2. Provide checker_file: Path to checker.sv file.
+3. Provide rtl_dir: Directory containing RTL source.
 
-工具会：
-- 生成 FormalMC 格式的 TCL 验证脚本
-- 使用 Wrapper 作为顶层模块（{dut_name}_wrapper）
-- 自动配置 RTL 文件路径、时钟和复位
-- 包含 prove、show_prop -summary 和 fanin 覆盖率分析命令
+The tool will:
+- Generate a TCL verification script in FormalMC format.
+- Use the Wrapper as the top-level module ({dut_name}_wrapper).
+- Automatically configure RTL file paths, clock, and reset.
+- Write script to output/unity_tests/tests/{dut_name}_formal.tcl under workspace.
+- Include prove, show_prop -summary, and fanin coverage analysis commands.
 
-使用示例：
+Example Usage:
   GenerateFormalScript(
       dut_name="main",
       checker_file="{OUT}/tests/main_checker.sv",
-      output_file="{OUT}/tests/main_formal.tcl",
       rtl_dir="{FILE_PATH}"
   )
 """
     args_schema: Optional[ArgsSchema] = ArgGenerateFormalScript
 
-    def _run(
-        self, dut_name: str, checker_file: str, output_file: str, rtl_dir: str
-    ) -> str:
+    def _run(self, dut_name: str, checker_file: str, rtl_dir: str) -> str:
         workspace = getattr(self, "workspace", os.getcwd())
-        if not os.path.isabs(output_file):
-            real_output_path = os.path.abspath(os.path.join(workspace, output_file))
-        else:
-            real_output_path = output_file
+        real_output_path = os.path.abspath(
+            os.path.join(
+                workspace,
+                "output",
+                "unity_tests",
+                "tests",
+                f"{dut_name}_formal.tcl",
+            )
+        )
         if not os.path.isabs(rtl_dir):
             rtl_dir = os.path.abspath(os.path.join(workspace, rtl_dir))
 
         os.makedirs(os.path.dirname(real_output_path), exist_ok=True)
 
-        # 计算相对路径：从TCL脚本所在目录到RTL目录
+        # Calculate relative path: from TCL script directory to RTL directory
         script_dir_from_ws = os.path.dirname(real_output_path)
         rel_rtl_dir = os.path.relpath(rtl_dir, script_dir_from_ws)
 
@@ -814,7 +815,7 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
         # Use wrapper as top
         top_module = f"{dut_name}_wrapper"
 
-        # 使用默认的时钟和复位配置
+        # Use default clock and reset configuration
         clock_config = "def_clk clk"
         reset_config = "def_rst rst_n -value 0"
 
@@ -835,14 +836,18 @@ class GenerateFormalScript(UCTool, BaseReadWrite):
             top_module=top_module,
             clock_config=clock_config,
             reset_config=reset_config,
+            basedir_pattern="basedir pattern",
         )
+
+        # Fix the basedir pattern definition (add braces around it)
+        tcl_script = tcl_script.replace("basedir pattern", "{basedir pattern}")
 
         try:
             with open(real_output_path, "w", encoding="utf-8") as f:
                 f.write(tcl_script)
             return str_info(f"TCL script created at: {real_output_path}")
         except OSError as e:
-            return str_error(f"Error writing to {output_file}: {e}")
+            return str_error(f"Error writing to {real_output_path}: {e}")
 
 
 # =============================================================================
@@ -854,26 +859,26 @@ class ArgRunFormalVerification(BaseModel):
     """Arguments for RunFormalVerification tool."""
 
     dut_name: str = Field(
-        description="DUT名称（如 'Adder'）。工具将自动执行 output/unity_tests/tests/{dut_name}_formal.tcl"
+        description="DUT name (e.g., 'Adder'). The tool will automatically execute output/unity_tests/tests/{dut_name}_formal.tcl"
     )
-    timeout: int = Field(default=300, description="超时时间（秒），默认300秒")
+    timeout: int = Field(default=300, description="Timeout (seconds), default 300s")
 
 
 class RunFormalVerification(UCTool, BaseReadWrite):
     name: str = "RunFormalVerification"
-    description: str = """立即执行形式化验证并返回结果摘要。
+    description: str = """Immediately executes formal verification and returns a results summary.
 
-适用场景：
-- 修改 checker.sv 或 wrapper.sv 后，想立即重新运行验证查看结果
-- 不想等待 Check/Complete 工具触发自动重跑
-- 在覆盖率分析阶段补充断言后刷新 fanin.rep
+Applicable Scenarios:
+- Wanting to immediately re-run verification to see results after modifying checker.sv or wrapper.sv.
+- Not wanting to wait for the Check/Complete tools to trigger an automatic re-run.
+- Refreshing fanin.rep after adding assertions during the coverage analysis phase.
 
-工具会：
-1. 根据 dut_name 定位并执行 FormalMC TCL 脚本
-2. 解析 avis.log，返回 pass/fail/trivially_true 属性统计
-3. 列出所有失败属性名称，便于快速定位问题
+The tool will:
+1. Locate and execute the FormalMC TCL script based on dut_name.
+2. Parse avis.log and return statistics for pass/fail/trivially_true properties.
+3. List all failed property names for quick troubleshooting.
 
-使用示例：
+Example Usage:
   RunFormalVerification(dut_name="Adder")
 """
     args_schema: Optional[ArgsSchema] = ArgRunFormalVerification
@@ -900,15 +905,15 @@ class RunFormalVerification(UCTool, BaseReadWrite):
 
         if not os.path.exists(tcl_path):
             return str_error(
-                f"TCL脚本不存在：{tcl_path}\n"
-                f"请先运行 GenerateFormalScript 生成 {dut_name}_formal.tcl"
+                f"TCL script does not exist: {tcl_path}\n"
+                f"Please run GenerateFormalScript first to generate {dut_name}_formal.tcl"
             )
 
         exec_dir = os.path.dirname(tcl_path)
         log_path = os.path.join(exec_dir, "avis.log")
 
         cmd = ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
-        str_info(f"执行命令：{' '.join(cmd)}")
+        str_info(f"Executing command: {' '.join(cmd)}")
 
         try:
             worker = subprocess.Popen(
@@ -924,30 +929,30 @@ class RunFormalVerification(UCTool, BaseReadWrite):
                 _terminate_process_tree(worker)
                 worker.communicate()
                 return str_error(
-                    f"❌ 验证超时（>{timeout}s），请检查约束是否过弱或设计状态空间过大"
+                    f"❌ Verification timed out (>{timeout}s), please check if constraints are too weak or design state space is too large"
                 )
 
             if worker.returncode != 0:
                 return str_error(
-                    f"❌ FormalMC 返回非零退出码 {worker.returncode}\n"
+                    f"❌ FormalMC returned non-zero exit code {worker.returncode}\n"
                     f"stderr: {stderr[:500] if stderr else '(empty)'}"
                 )
         except FileNotFoundError:
-            return str_error("❌ 未找到 FormalMC 命令，请确认工具已安装并在 PATH 中")
+            return str_error("❌ FormalMC command not found, please ensure the tool is installed and in your PATH")
 
-        # 使用共享的日志解析函数
+        # Use the shared log parsing function
         parsed = parse_avis_log(log_path)
 
         total = sum(len(parsed[k]) for k in parsed)
         if total == 0:
             return str_error(
-                f"❌ 验证执行完毕但日志中未找到属性结果，请检查 {log_path}"
+                f"❌ Verification completed but no property results found in log, please check {log_path}"
             )
 
         lines = [
-            f"✅ FormalMC 执行完毕，日志：{log_path}",
+            f"✅ FormalMC execution completed, log: {log_path}",
             "",
-            "📊 验证结果摘要：",
+            "📊 Verification Results Summary:",
             f"  Assert Pass        : {len(parsed['pass'])}",
             f"  Assert TRIVIALLY_TRUE : {len(parsed['trivially_true'])}",
             f"  Assert Fail        : {len(parsed['false'])}",
@@ -956,21 +961,20 @@ class RunFormalVerification(UCTool, BaseReadWrite):
         ]
 
         if parsed["false"]:
-            lines.append(f"\n❌ 失败的 Assert 属性（{len(parsed['false'])} 个）：")
+            lines.append(f"\n❌ Failed Assert Properties ({len(parsed['false'])}):")
             for p in parsed["false"]:
                 lines.append(f"  - {p}")
 
         if parsed["trivially_true"]:
             lines.append(
-                f"\n⚠️  TRIVIALLY_TRUE 属性（{len(parsed['trivially_true'])} 个，环境过约束）："
+                f"\n⚠️  TRIVIALLY_TRUE Properties ({len(parsed['trivially_true'])} - environment over-constrained):"
             )
             for p in parsed["trivially_true"]:
                 lines.append(f"  - {p}")
 
         if parsed["cover_fail"]:
-            lines.append(f"\n⚠️  失败的 Cover 属性（{len(parsed['cover_fail'])} 个）：")
+            lines.append(f"\n⚠️  Failed Cover Properties ({len(parsed['cover_fail'])}):")
             for p in parsed["cover_fail"]:
                 lines.append(f"  - {p}")
 
         return str_info("\n".join(lines))
-

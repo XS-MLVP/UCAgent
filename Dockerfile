@@ -43,9 +43,8 @@ USER user
 WORKDIR /workspace/ucagent
 
 # Install UCAgent and dependencies as user with --user flag
-RUN pip3 install --user --no-cache-dir -r requirements.txt && \
+RUN pip3 install --user --no-cache-dir . && \
     pip3 install --user --no-cache-dir -r requirements-formal.txt && \
-    pip3 install --user --no-cache-dir . && \
     node --version && npm --version && python3 --version
 
 # Default command: interactive shell
