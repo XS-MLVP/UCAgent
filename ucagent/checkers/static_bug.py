@@ -122,6 +122,7 @@ def _check_ck_paths_against_fc_doc(
         )
         return errors
 
+    un_find_path_list = []
     for ck_path in ck_klist:
         if ck_path not in fc_ck_paths:
             parts = ck_path.split("/")
@@ -134,6 +135,9 @@ def _check_ck_paths_against_fc_doc(
                 f"Add this tag hierarchy to '{fc_doc_name}' first, or fix the tag name "
                 f"in the static bug doc to match an existing entry."
             )
+            un_find_path_list.append(ck_path)
+    if len(un_find_path_list) > 0:
+        errors.append({f"Available CK tags in {fc_doc_name}": ck_klist})
     return errors
 
 
@@ -191,7 +195,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
         self.static_doc               = static_doc
         self.functions_and_checks_doc = functions_and_checks_doc
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+    def do_check(self, timeout=0, empty_is_ok=False, **kw) -> Tuple[bool, object]:
         """Validate static bug tag format and mandatory LINK-BUG/FILE child tags."""
         real_path = self.get_path(self.static_doc)
         if not os.path.exists(real_path):
@@ -225,6 +229,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
 
         # ── no BG-STATIC tags at all ──────────────────────────────────────────
         if not klist and not blist:
+            if empty_is_ok:
+                return True, {"message": "No static bugs recorded."}
             return False, {
                 "error": (
                     f"No <BG-STATIC-*> tags found in '{self.static_doc}'. "
@@ -612,7 +618,8 @@ class UnityChipBatchCheckerStaticBug(Checker):
         self.functions_and_checks_doc = functions_and_checks_doc
         self.file_list = file_list if isinstance(file_list, list) else [file_list]
         self.batch_size = batch_size
-        self.batch_task = UnityChipBatchTask("source_files", self)
+        self.batch_task = UnityChipBatchTask("RTL_file_to_analyze", self)
+        self.fmt_checker = UnityChipCheckerStaticBugFormat(self.static_doc, self.functions_and_checks_doc)
 
     # ── internal helpers ─────────────────────────────────────────────────────
 
@@ -734,6 +741,7 @@ class UnityChipBatchCheckerStaticBug(Checker):
     def on_init(self):
         """Populate batch state from the static doc so that get_template_data()
         returns correct values when called by the framework before do_check()."""
+        self.fmt_checker.set_workspace(self.workspace)
         self._init_batch_state()
         return super().on_init()
 
@@ -765,116 +773,14 @@ class UnityChipBatchCheckerStaticBug(Checker):
         self.batch_task.sync_gen_task(
             gen, note_msg, "Analyzed files updated from document."
         )
-
-        total = len(self.batch_task.source_task_list)
-        analyzed_count = len(self.batch_task.gen_task_list)
-
         passed, result = self.batch_task.do_complete(
             note_msg, is_complete,
             f"in source file patterns {self.file_list}",
             f"in {self.static_doc} <file> progress tags",
-            " Refer to the 'task' field for detailed analysis steps.",
+            " Please use tool `CurrentFileTips` to get detailed task description.",
         )
-
-        # ── All files analyzed — run format validation ────────────────────────
-        if passed:
-            fmt_checker = UnityChipCheckerStaticBugFormat(
-                self.static_doc, self.functions_and_checks_doc
-            )
-            fmt_checker.set_workspace(self.workspace)
-            fmt_passed, fmt_result = fmt_checker.do_check(**kw)
-            if fmt_passed and isinstance(fmt_result, dict):
-                fmt_result["analysis_progress"] = f"{analyzed_count}/{total}"
-                fmt_result["analyzed_files"] = self.batch_task.gen_task_list
+        kw["empty_is_ok"] = not passed
+        fmt_passed, fmt_result = self.fmt_checker.do_check(**kw)
+        if not fmt_passed:
             return fmt_passed, fmt_result
-
-        # ── Files remaining — enrich result with analysis task details ────────
-        current_batch = self.batch_task.tbd_task_list
-        remaining = total - analyzed_count
-
-        if isinstance(result, dict) and current_batch:
-            result["task"] = [
-                f"Perform static bug analysis on the following {len(current_batch)} source file(s) "
-                f"and record any findings in {self.static_doc}:",
-                *[f"  - {f}" for f in current_batch],
-                "",
-                "Analysis steps:",
-                "  1. Read the source file(s) and understand the module structure and data flow.",
-                "  2. Cross-reference each <CK-*> check-point in functions_and_checks.md against the RTL implementation.",
-                "  3. Systematically check: FSM completeness, arithmetic overflow, reset/clock logic, interface protocols, control paths.",
-                "  4. Record findings in the static bug analysis document using the STRICT tag hierarchy below.",
-                "  5. If no bugs are found for a check-point, add <BG-STATIC-000-NULL> under the corresponding <CK-*>.",
-                "  6. For high/medium confidence bugs, add new <CK-*> check-points to functions_and_checks.md.",
-                "",
-                f"=== SOURCE OF <FG-*>/<FC-*>/<CK-*> TAGS (important) ===",
-                f"  All <FG-*>, <FC-*>, and <CK-*> tags used in {self.static_doc}",
-                f"  MUST come from {self.functions_and_checks_doc} — do NOT invent new ones.",
-                "  Workflow:",
-                f"    a) Check {self.functions_and_checks_doc} first to see if the target <FG-*>/<FC-*>/<CK-*> exists.",
-                f"    b) If it exists: use it as-is in {self.static_doc} (case-sensitive, exact match).",
-                "    c) If it does NOT exist (e.g. you found a defect not covered by any check-point):",
-                f"       First add the new <FG-*>/<FC-*>/<CK-*> entry to {self.functions_and_checks_doc},",
-                f"       then record the bug under that tag in {self.static_doc}.",
-                "",
-                "=== TAG HIERARCHY (mandatory — must not deviate) ===",
-                "  <FG-*>          functional group  (e.g. <FG-ARITHMETIC>)   ← from functions_and_checks.md",
-                "  └─ <FC-*>       sub-feature        (e.g. <FC-ADD>)          ← from functions_and_checks.md",
-                "     └─ <CK-*>    check-point        (e.g. <CK-OVERFLOW>)     ← from functions_and_checks.md (add if missing)",
-                "        └─ <BG-STATIC-NNN-NAME>   bug entry  (e.g. <BG-STATIC-001-ADD-OVERFLOW>)",
-                "           └─ <LINK-BUG-[BG-TBD]>            exactly one, marks bug as pending",
-                "              └─ <FILE-path:L1-L2>            one or more, source location",
-                "",
-                "=== EXAMPLE — bug found ===",
-                "  <FG-ALU>",
-                "  #### Addition <FC-ADD>",
-                "  - <CK-OVERFLOW> Overflow flag not asserted on carry-out <BG-STATIC-001-ADD-OVERFLOW>",
-                "    - <LINK-BUG-[BG-TBD]>",
-                "      - <FILE-rtl/alu.v:25-30>",
-                "        ```verilog",
-                "        // rtl/alu.v lines 25-30",
-                "        25: assign overflow = carry;   // BUG: missing cin contribution",
-                "        ```",
-                "      - <FILE-rtl/alu.v:42-44>",
-                "        ```verilog",
-                "        // rtl/alu.v lines 42-44",
-                "        42: assign sum = a + b;        // BUG: cin ignored",
-                "        ```",
-                "",
-                "=== EXAMPLE — no bug found ===",
-                "  <FG-ALU>",
-                "  #### Subtraction <FC-SUB>",
-                "  - <CK-BORROW> Borrow signal correct <BG-STATIC-000-NULL>",
-                "  (NOTE: <BG-STATIC-000-NULL> must have NO <LINK-BUG-*> or <FILE-*> child tags)",
-                "",
-                "=== CRITICAL RULES ===",
-                f"  - [SOURCE] All <FG-*>/<FC-*>/<CK-*> MUST originate from {self.functions_and_checks_doc}.",
-                f"    If a required tag is absent, add it to {self.functions_and_checks_doc} first, then use it here.",
-                "  - Every <BG-STATIC-*> (except NULL) needs EXACTLY ONE <LINK-BUG-[BG-TBD]> child.",
-                "  - Every <LINK-BUG-[BG-TBD]> needs AT LEAST ONE <FILE-path:L1-L2> child.",
-                "  - FILE format: <FILE-relative/path/to/file.v:L1-L2>  (workspace-relative, e.g. rtl/dut.v:50-56)",
-                "    Multiple ranges: <FILE-rtl/dut.v:50-56,100-105>",
-                "  - All <FG-*>/<FC-*>/<CK-*> tags MUST exactly match those in functions_and_checks.md (case-sensitive).",
-                "  - <BG-STATIC-000-NULL> is the ONLY tag that may appear without child tags.",
-                "",
-                f"=== BATCH PROGRESS TRACKING (required at end of {self.static_doc}) ===",
-                "After finishing this batch, append each analyzed file to the '## Batch Analysis Progress'",
-                f"table at the END of {self.static_doc}. Create the section if it does not exist yet:",
-                "",
-                "  ## Batch Analysis Progress",
-                "",
-                "  | Source file | Potential bugs | Status |",
-                "  |-------------|---------------|--------|",
-                "  | <file>rtl/dut.v</file> | 2 | ✅ Done |",
-                "",
-                "  IMPORTANT: The path inside <file>…</file> MUST be the workspace-relative source file path",
-                "  (e.g. <file>rtl/dut.v</file>). The batch checker uses these tags to detect completed files.",
-                "",
-                "  DO NOT confuse the two marker types:",
-                "    <file>path</file>  — lowercase, plain text — progress table only, no attributes",
-                "    <FILE-path:L1-L2> — uppercase with colon+lines — bug source location inside LINK-BUG",
-            ]
-            result["current_batch"] = current_batch
-            result["progress"] = f"{analyzed_count}/{total}"
-            result["remaining_files"] = remaining
-
         return passed, result

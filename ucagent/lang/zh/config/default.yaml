@@ -338,7 +338,6 @@ stage:
       - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
     reference_files:
       - "Guide_Doc/dut_bug_analysis.md"
-      - "{DUT}/__init__.py"
       - "{OUT}/{DUT}_functions_and_checks.md"
       - "{OUT}/{DUT}_basic_info.md"
     output_files:
