@@ -12,6 +12,11 @@ from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
 import random
 from collections import OrderedDict
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ucagent.tui.widgets.console import ConsoleWidgetState
+    from ucagent.tui.widgets.messages_panel import MessagesPanelState
 
 
 class VerifyPDB(Pdb):
@@ -64,6 +69,24 @@ class VerifyPDB(Pdb):
         self._api_wakeup_done = False  # set after API wakeup to suppress message
         self._tui_app = None  # set by enter_tui() while TUI is running
         self._current_cmd: str | None = None  # the command currently being executed
+        self._tui_console_state: ConsoleWidgetState | None = None
+        self._tui_messages_state: MessagesPanelState | None = None
+
+    @property
+    def tui_console_state(self) -> "ConsoleWidgetState | None":
+        return self._tui_console_state
+
+    @tui_console_state.setter
+    def tui_console_state(self, state: "ConsoleWidgetState | None") -> None:
+        self._tui_console_state = state
+
+    @property
+    def tui_messages_state(self) -> "MessagesPanelState | None":
+        return self._tui_messages_state
+
+    @tui_messages_state.setter
+    def tui_messages_state(self, state: "MessagesPanelState | None") -> None:
+        self._tui_messages_state = state
 
     def precmd(self, line: str) -> str:
         self._current_cmd = line or None
@@ -72,6 +95,34 @@ class VerifyPDB(Pdb):
     def postcmd(self, stop: bool, line: str) -> bool:
         self._current_cmd = None
         return stop
+
+    def get_cmd_history(self) -> list[str]:
+        """Return the current readline-backed command history."""
+        history_length = readline.get_current_history_length()
+        return [
+            item
+            for i in range(1, history_length + 1)
+            if (item := readline.get_history_item(i)) is not None
+        ]
+
+    def record_cmd_history(self, cmd: str) -> None:
+        """Append a command into the shared PDB/readline history."""
+        cmd = cmd.strip()
+        if not cmd:
+            return
+
+        history_length = readline.get_current_history_length()
+        if history_length > 0 and readline.get_history_item(history_length) == cmd:
+            return
+        readline.add_history(cmd)
+
+    def save_cmd_history(self) -> None:
+        """Persist the shared readline history to disk."""
+        try:
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            readline.write_history_file(self.history_file)
+        except Exception:
+            pass
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
@@ -2842,10 +2893,7 @@ class VerifyPDB(Pdb):
         Quit the debugger.
         """
         self.agent.stage_manager.save_stage_info()
-        try:
-            readline.write_history_file(self.history_file)
-        except Exception:
-            pass
+        self.save_cmd_history()
         echo_g("Stage information saved. Exiting debugger.")
         self.agent.exit()
         return super().do_quit(arg)

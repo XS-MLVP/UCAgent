@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, ClassVar
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.events import Key
 from textual.reactive import reactive
 from textual.widgets import HelpPanel
@@ -122,6 +123,9 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._mcps_logger_prev = getattr(self.vpdb.agent, "_mcps_logger", None)
         self.vpdb.agent._mcps_logger = create_ui_logger(self, level="INFO")
         self._ui_handlers_installed = True
+        self._restore_command_history()
+        self._restore_console_history()
+        self._restore_messages_history()
 
         # Install console capture and signal handler for TUI
         # sessions so stdout/log output appears in the Console panel.
@@ -273,11 +277,44 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
             console_input.update_running_commands()
         return cancelled
 
+    def _restore_messages_history(self) -> None:
+        messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        messages_panel.restore_state(self.vpdb.tui_messages_state)
+
+    def _restore_console_history(self) -> None:
+        console = self.query_one("#console", ConsoleWidget)
+        console.restore_state(self.vpdb.tui_console_state)
+
+    def _restore_command_history(self) -> None:
+        self.cmd_history = self.vpdb.get_cmd_history()
+        self.cmd_history_index = len(self.cmd_history)
+        self.key_handler.last_cmd = self.cmd_history[-1] if self.cmd_history else None
+
+    def _save_messages_history(self) -> None:
+        try:
+            messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        except NoMatches:
+            return
+        self.vpdb.tui_messages_state = messages_panel.export_state()
+
+    def _save_console_history(self) -> None:
+        try:
+            console = self.query_one("#console", ConsoleWidget)
+        except NoMatches:
+            return
+        self.vpdb.tui_console_state = console.export_state()
+
+    def _save_command_history(self) -> None:
+        self.vpdb.save_cmd_history()
+
     def cleanup(self) -> None:
         """Cleanup resources on exit."""
         # Collect console history (best-effort, only on first call)
         if self._console_capture is not None and not self._session_output:
             self._session_output = self._console_capture.get_history()
+        self._save_command_history()
+        self._save_console_history()
+        self._save_messages_history()
 
         if self._ui_handlers_installed:
             self.vpdb.agent.unset_message_echo_handler()

@@ -195,6 +195,7 @@ class KeyHandler:
         """Add command to history."""
         if cmd not in self.app.cmd_history or self.app.cmd_history[-1] != cmd:
             self.app.cmd_history.append(cmd)
+            self.app.vpdb.record_cmd_history(cmd)
         self.app.cmd_history_index = len(self.app.cmd_history)
 
     def complete_command(self, text: str) -> list[str]:

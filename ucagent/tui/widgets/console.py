@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from rich.box import SQUARE
@@ -15,6 +16,17 @@ from textual.widgets import RichLog
 
 from .console_input import ConsoleInput
 from ..mixins import AutoScrollMixin
+
+
+@dataclass
+class ConsoleEntry:
+    kind: str
+    payload: str
+
+
+@dataclass
+class ConsoleWidgetState:
+    entries: list[ConsoleEntry]
 
 
 class ConsoleWidget(AutoScrollMixin, Vertical):
@@ -33,6 +45,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self._prompt = prompt
         self._extra_height: int = 0
         self._batch_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
+        self._entries: list[ConsoleEntry] = []
 
     def compose(self) -> ComposeResult:
         yield RichLog(
@@ -81,6 +94,23 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             return
         self._batch_queue.put_nowait(text)
 
+    def export_state(self) -> ConsoleWidgetState:
+        self._flush_batch()
+        return ConsoleWidgetState(
+            entries=[ConsoleEntry(entry.kind, entry.payload) for entry in self._entries]
+        )
+
+    def restore_state(self, state: ConsoleWidgetState | None) -> None:
+        self.clear_output()
+        if state is None:
+            return
+
+        for entry in state.entries:
+            if entry.kind == "command":
+                self._write_command(entry.payload, record=True)
+            elif entry.kind == "output":
+                self._write_output(entry.payload, record=True)
+
     def _flush_batch(self) -> None:
         texts: list[str] = []
         while True:
@@ -96,8 +126,13 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
         self.append_output(combined)
 
     def append_output(self, text: str) -> None:
+        self._write_output(text, record=True)
+
+    def _write_output(self, text: str, *, record: bool) -> None:
         if not text:
             return
+        if record:
+            self._entries.append(ConsoleEntry("output", text))
 
         processed = text.replace("\t", "    ")
         processed = processed.replace("\r\n", "\n").replace("\r", "\n")
@@ -111,6 +146,11 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
             output_log.write(Text.from_ansi(line))
 
     def echo_command(self, cmd: str) -> None:
+        self._write_command(cmd, record=True)
+
+    def _write_command(self, cmd: str, *, record: bool) -> None:
+        if record:
+            self._entries.append(ConsoleEntry("command", cmd))
         output_log = self.query_one("#console-output", RichLog)
         t = Text(f"> {cmd}", style="bold")
         output_log.write(
@@ -126,6 +166,7 @@ class ConsoleWidget(AutoScrollMixin, Vertical):
     def clear_output(self) -> None:
         output_log = self.query_one("#console-output", RichLog)
         output_log.clear()
+        self._entries.clear()
         self._exit_manual_scroll()
 
     def action_clear_console(self) -> None:
