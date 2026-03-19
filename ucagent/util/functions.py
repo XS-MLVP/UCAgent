@@ -1748,11 +1748,17 @@ def get_coverage_data_path(request, new_path:bool):
 """
 
 
-def make_llm_tool_ret(ret):
+def make_llm_tool_ret(ret, check_pass=True):
     """Convert the return value to a LLM tool return format."""
     if isinstance(ret, str):
         return ret
-    return yam_str(ret)
+    ret_str =  yam_str(ret)
+    if isinstance(ret, dict) and check_pass:
+        for k in ["check_pass", "complete"]:
+            if not ret.get(k, True):
+                ret_str += "\n[Important]\nYou MUST check the error messages above, and fix it."
+                break
+    return ret_str
 
 
 def list_str_abbr(data: list, max_items=50):
