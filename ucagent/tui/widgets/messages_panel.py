@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 from collections import deque
+from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from rich.cells import cell_len, chop_cells
@@ -17,6 +18,14 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from ..mixins import AutoScrollMixin
+
+
+@dataclass
+class MessagesPanelState:
+    """Serializable-in-memory state for rebuilding the messages panel."""
+
+    render_history: list[Text]
+    current_line_buffer: str = ""
 
 
 class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
@@ -153,6 +162,33 @@ class MessagesPanel(AutoScrollMixin, ScrollView, can_focus=True):
         if not msg:
             return
         self._batch_queue.put_nowait(msg)
+
+    def export_state(self) -> MessagesPanelState:
+        """Capture enough state to rebuild the panel in a new TUI instance."""
+        self._flush_batch()
+        return MessagesPanelState(
+            render_history=[text.copy() for text in self._render_history],
+            current_line_buffer=self._current_line_buffer,
+        )
+
+    def restore_state(self, state: MessagesPanelState | None) -> None:
+        """Restore panel state captured from a previous TUI instance."""
+        self.clear()
+        if state is None:
+            return
+
+        self._render_history.extend(text.copy() for text in state.render_history)
+        self._current_line_buffer = state.current_line_buffer
+        self._reflow_history()
+        self._update_pending_line()
+
+        total_lines = len(self._lines) + len(self._pending_strips)
+        self.virtual_size = Size(self._widest_line_width, total_lines)
+
+        if self.auto_scroll:
+            self.scroll_end(animate=False)
+
+        self.refresh()
 
     def _flush_batch(self) -> None:
         """Drain batch queue and process messages."""

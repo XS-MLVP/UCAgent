@@ -11,7 +11,11 @@ sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 import pytest
 from rich.text import Text
 from textual.app import App
+from textual.widgets import Input
 
+from ucagent.tui.app import VerifyApp
+from ucagent.tui.widgets.console import ConsoleWidget
+from ucagent.tui.widgets.console_input import ConsoleInput
 from ucagent.tui.widgets.messages_panel import MessagesPanel
 
 
@@ -367,6 +371,193 @@ class TestIntegration:
             # Pending strips should be cleared, line finalized
             assert len(panel._pending_strips) == 0
             assert len(panel._lines) > 0
+
+
+class TestStatePersistence:
+    """Tests for exporting and restoring message history state."""
+
+    @pytest.mark.asyncio
+    async def test_export_restore_preserves_render_history_and_pending_line(self):
+        class TestApp(App):
+            def compose(self):
+                yield MessagesPanel(id="messages-panel")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            panel = app.query_one("#messages-panel", MessagesPanel)
+            panel._process_payload("line1\n\033[31mline2\033[0m\npartial")
+
+            state = panel.export_state()
+
+            restored = MessagesPanel(id="restored-panel")
+            await app.mount(restored)
+            restored.restore_state(state)
+
+            assert [text.plain for text in restored._render_history] == ["line1", "line2"]
+            assert restored._current_line_buffer == "partial"
+            assert len(restored._pending_strips) > 0
+            assert restored._render_history[1].spans == panel._render_history[1].spans
+
+    @pytest.mark.asyncio
+    async def test_restore_then_append_continues_existing_pending_line(self):
+        class TestApp(App):
+            def compose(self):
+                yield MessagesPanel(id="messages-panel")
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            panel = app.query_one("#messages-panel", MessagesPanel)
+            panel._process_payload("partial")
+            state = panel.export_state()
+
+            panel.restore_state(state)
+            panel._process_payload(" line\n")
+
+            assert [text.plain for text in panel._render_history] == ["partial line"]
+            assert panel._current_line_buffer == ""
+
+
+class _FakeCfg:
+    def get_value(self, key, default=None):
+        return default
+
+
+class _FakeAgent:
+    def __init__(self) -> None:
+        self.cfg = _FakeCfg()
+        self._handler = None
+        self._mcps_logger = None
+
+    def set_message_echo_handler(self, handler) -> None:
+        self._handler = handler
+
+    def unset_message_echo_handler(self) -> None:
+        self._handler = None
+
+    def status_info(self):
+        return {
+            "Run Time": "0s",
+            "LLM": "test-model",
+            "Stream": False,
+            "Interaction Mode": "test",
+        }
+
+
+class _FakeVPDB:
+    def __init__(self) -> None:
+        self.agent = _FakeAgent()
+        self.prompt = "(test) "
+        self.init_cmd = []
+        self.stdout = None
+        self.stderr = None
+        self._cmd_history = []
+        self.save_cmd_history_calls = 0
+        self.tui_console_state = None
+        self.tui_messages_state = None
+
+    def get_cmd_history(self):
+        return list(self._cmd_history)
+
+    def record_cmd_history(self, cmd):
+        if not self._cmd_history or self._cmd_history[-1] != cmd:
+            self._cmd_history.append(cmd)
+
+    def save_cmd_history(self):
+        self.save_cmd_history_calls += 1
+
+    def api_task_list(self):
+        return {"mission_name": "Test Mission", "task_list": {}}
+
+    def api_mission_info(self):
+        return ["Mission", "step1"]
+
+    def api_changed_files(self):
+        return []
+
+    def api_tool_status(self):
+        return []
+
+    def api_status(self):
+        return "idle"
+
+
+class TestVerifyAppPersistence:
+    @pytest.mark.asyncio
+    async def test_cleanup_saves_and_next_app_restores_messages(self):
+        vpdb = _FakeVPDB()
+
+        app = VerifyApp(vpdb)
+        async with app.run_test() as pilot:
+            app.message_echo("hello")
+            app.message_echo(" world", end="")
+            app.message_echo("!", end="\n")
+            await pilot.pause(0.2)
+            app.cleanup()
+
+        assert vpdb.tui_messages_state is not None
+        assert [text.plain for text in vpdb.tui_messages_state.render_history] == [
+            "hello",
+            " world!",
+        ]
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            panel = restored_app.query_one("#messages-panel", MessagesPanel)
+            await pilot.pause(0.1)
+
+            assert [text.plain for text in panel._render_history] == ["hello", " world!"]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_saves_and_next_app_restores_console(self):
+        vpdb = _FakeVPDB()
+
+        app = VerifyApp(vpdb)
+        async with app.run_test() as pilot:
+            console = app.query_one("#console", ConsoleWidget)
+            console.echo_command("status")
+            console.append_output("line1\nline2\n")
+            app.cleanup()
+
+        assert vpdb.tui_console_state is not None
+        assert [(entry.kind, entry.payload) for entry in vpdb.tui_console_state.entries] == [
+            ("command", "status"),
+            ("output", "line1\nline2\n"),
+        ]
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            console = restored_app.query_one("#console", ConsoleWidget)
+            await pilot.pause(0.1)
+
+            assert [(entry.kind, entry.payload) for entry in console._entries] == [
+                ("command", "status"),
+                ("output", "line1\nline2\n"),
+            ]
+            assert console.output_line_count() > 0
+
+    @pytest.mark.asyncio
+    async def test_cleanup_saves_and_next_app_restores_command_history(self):
+        vpdb = _FakeVPDB()
+
+        app = VerifyApp(vpdb)
+        async with app.run_test() as pilot:
+            app.key_handler._add_to_history("status")
+            app.key_handler._add_to_history("next")
+            app.cleanup()
+
+        assert vpdb.get_cmd_history() == ["status", "next"]
+        assert vpdb.save_cmd_history_calls >= 1
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            console_input = restored_app.query_one(ConsoleInput)
+            console_input._handle_history_up()
+            await pilot.pause(0.1)
+
+            input_widget = restored_app.query_one("#console-input", Input)
+            assert restored_app.cmd_history == ["status", "next"]
+            assert restored_app.key_handler.last_cmd == "next"
+            assert input_widget.value == "next"
 
 
 if __name__ == "__main__":
