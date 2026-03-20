@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ucagent.util.log import warning
 import signal
 from typing import Any
 
@@ -52,6 +53,7 @@ class SigintHandlerMixin:
 
     def _handle_ctrl_c(self) -> None:
         """Handle Ctrl+C: cancel running command or quit."""
+        warning("Ctrl+C pressed, canceling running command or quitting, please wait...")
         if self._sigint_inflight:
             return
         self._sigint_inflight = True

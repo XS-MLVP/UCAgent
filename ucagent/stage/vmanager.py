@@ -670,6 +670,7 @@ class StageManager(object):
                 rindex = random.randint(0, len(random_tips) - 1)
                 current_tips.append(random_tips[rindex])
             if current_tips:
+                random.shuffle(current_tips)
                 tips["tips"] = current_tips
         tips = make_llm_tool_ret(tips)
         return self.attach_todo_summary(tips)

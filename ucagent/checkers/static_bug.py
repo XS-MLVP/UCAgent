@@ -122,7 +122,8 @@ def _check_ck_paths_against_fc_doc(
         )
         return errors
 
-    un_find_path_list = []
+    diff_count = 0
+    related_fc_ck_paths = {k:0 for k in fc_ck_paths}
     for ck_path in ck_klist:
         if ck_path not in fc_ck_paths:
             parts = ck_path.split("/")
@@ -135,9 +136,17 @@ def _check_ck_paths_against_fc_doc(
                 f"Add this tag hierarchy to '{fc_doc_name}' first, or fix the tag name "
                 f"in the static bug doc to match an existing entry."
             )
-            un_find_path_list.append(ck_path)
-    if len(un_find_path_list) > 0:
-        errors.append({f"Available CK tags in {fc_doc_name}": ck_klist})
+            related_fc_ck_paths[fc.find_most_similar_strings(ck_path, fc_ck_paths)] += 1
+            diff_count += 1
+    if diff_count > 0:
+        # sort related_fc_ck_paths by value
+        all_ck_count = len(related_fc_ck_paths)
+        max_ck_list = 10
+        sorted_fc_ck_paths = sorted(related_fc_ck_paths.items(), key=lambda x: x[1], reverse=True)[:max_ck_list]
+        sorted_fc_ck_paths = [k for k, _ in sorted_fc_ck_paths]
+        if all_ck_count > max_ck_list:
+            sorted_fc_ck_paths.append(f"... {all_ck_count - max_ck_list} more")
+        errors.append({f"There are {all_ck_count} available CK tags in {fc_doc_name}:": sorted_fc_ck_paths})
     return errors
 
 
