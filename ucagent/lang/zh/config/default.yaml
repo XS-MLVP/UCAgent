@@ -353,7 +353,7 @@ stage:
             - "{RTL_PATH}/**/*.v"
             - "{RTL_PATH}/**/*.sv"
             - "{RTL_PATH}/**/*.scala"
-          batch_size: 1
+          batch_size: $(STATIC_ANALYSIS_BATCH_SIZE: 1) # 根据DUT复杂度调整批次大小，建议初始值为1（即每次分析一个文件），复杂DUT可适当增加以提升效率，但过大可能导致分析质量下降
     need_human_check: false
 
   - name: dut_wrapper_implementation

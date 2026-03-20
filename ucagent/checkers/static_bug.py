@@ -114,7 +114,7 @@ def _check_ck_paths_against_fc_doc(
         return errors  # no CK tags in static doc — nothing to cross-check
 
     try:
-        fc_ck_paths: set = set(fc.get_unity_chip_doc_marks(fc_path, "CK"))
+        fc_ck_paths = fc.get_unity_chip_doc_marks(fc_path, "CK")
     except (AssertionError, ValueError) as e:
         errors.append(
             f"Failed to parse '{fc_doc_name}' for CK tag cross-reference: {e}. "
@@ -122,31 +122,31 @@ def _check_ck_paths_against_fc_doc(
         )
         return errors
 
-    diff_count = 0
+    diff_ck_path = []
     related_fc_ck_paths = {k:0 for k in fc_ck_paths}
     for ck_path in ck_klist:
         if ck_path not in fc_ck_paths:
-            parts = ck_path.split("/")
-            fg_tag = f"<FG-{parts[0]}>" if len(parts) > 0 else "?"
-            fc_tag = f"<FC-{parts[1]}>" if len(parts) > 1 else "?"
-            ck_tag = f"<CK-{parts[2]}>" if len(parts) > 2 else "?"
-            errors.append(
-                f"Tag '{ck_tag}' (path: {fg_tag}/{fc_tag}/{ck_tag}) used in the static "
-                f"bug doc is not found in '{fc_doc_name}'. "
-                f"Add this tag hierarchy to '{fc_doc_name}' first, or fix the tag name "
-                f"in the static bug doc to match an existing entry."
-            )
             related_fc_ck_paths[fc.find_most_similar_strings(ck_path, fc_ck_paths)] += 1
-            diff_count += 1
-    if diff_count > 0:
+            diff_ck_path.append(ck_path)
+    if len(diff_ck_path) > 0:
+        parts = diff_ck_path[-1].split("/")
+        fg_tag = f"<{parts[0]}>" if len(parts) > 0 else "?"
+        fc_tag = f"<{parts[1]}>" if len(parts) > 1 else "?"
+        ck_tag = f"<{parts[2]}>" if len(parts) > 2 else "?"
+        # CK tags are defined in the static bug doc, but not found in the FC doc
+        errors.append({f"The following CK tags defined in the static bug doc are not found in {fc_doc_name}": diff_ck_path})
+        errors.append(
+            f"The CK tag hierarchy in doc is like: {fg_tag} ... {fc_tag} ... {ck_tag}. "
+            f"You need first to fix the tag name to match the existing entry, or add the new tag hierarchy to `{fc_doc_name}`."
+        )
         # sort related_fc_ck_paths by value
         all_ck_count = len(related_fc_ck_paths)
-        max_ck_list = 10
+        max_ck_list = max(10, len(diff_ck_path))
         sorted_fc_ck_paths = sorted(related_fc_ck_paths.items(), key=lambda x: x[1], reverse=True)[:max_ck_list]
         sorted_fc_ck_paths = [k for k, _ in sorted_fc_ck_paths]
         if all_ck_count > max_ck_list:
             sorted_fc_ck_paths.append(f"... {all_ck_count - max_ck_list} more")
-        errors.append({f"There are {all_ck_count} available CK tags in {fc_doc_name}:": sorted_fc_ck_paths})
+        errors.append({f"There are {all_ck_count} existing CK tags in {fc_doc_name}": sorted_fc_ck_paths})
     return errors
 
 

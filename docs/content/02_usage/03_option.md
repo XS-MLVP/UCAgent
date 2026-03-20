@@ -326,6 +326,89 @@ python3 ucagent.py ./output Adder \
 - 版本与检查
   - --check 与 --version 会直接退出，未与运行组合使用
   - --upgrade：升级 UCAgent
+
+## 环境变量说明
+
+UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于配置文件设置。
+
+### 模型配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `OPENAI_MODEL` | OpenAI 对话模型名称 | 无（需配置） |
+| `OPENAI_API_KEY` | OpenAI API 密钥 | 无（需配置） |
+| `OPENAI_API_BASE` | OpenAI API 基础 URL | 无（需配置） |
+| `OPENAI_TEMPERATURE` | OpenAI 模型 temperature 参数 | 未设置 |
+| `OPENAI_TOP_P` | OpenAI 模型 top_p 参数 | 未设置 |
+| `ANTHROPIC_MODEL` | Anthropic Claude 模型名称 | `claude-3-7-sonnet-20250219` |
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥 | 无（需配置） |
+| `GOOGLE_GENAI_MODEL` | Google Gemini 模型名称 | `gemini-2.5-pro` |
+| `GOOGLE_GENAI_API_KEY` | Google 生成式 AI API 密钥 | 无（需配置） |
+
+### 嵌入模型配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `EMBED_MODEL` | 向量嵌入模型名称 | 无（需配置） |
+| `EMBED_OPENAI_API_KEY` | 嵌入模型 OpenAI API 密钥 | 无（需配置） |
+| `EMBED_OPENAI_API_BASE` | 嵌入模型 OpenAI API 基础 URL | 无（需配置） |
+
+### Langfuse 监控配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `ENABLE_LANGFUSE` | 是否启用 Langfuse 追踪监控 | `false` |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse 公钥 | 无（需配置） |
+| `LANGFUSE_SECRET_KEY` | Langfuse 密钥 | 无（需配置） |
+| `LANGFUSE_URL` | Langfuse 服务地址 | `http://localhost:3000` |
+
+### 对话摘要配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `SUMMARY_MAX_CTX_TOKEN` | 会话上下文最大 token 数 | `51200` |
+| `SUMMARY_MAX_SUM_TOKEN` | 生成摘要的最大 token 数 | `1024` |
+| `SUMMARY_MAX_KEEP_MSG` | 内存中保留的最大消息数 | `100` |
+| `SUMMARY_TAIL_KEEP_MSG` | 传递给 LLM 的最近消息保留数 | `10` |
+
+### LLM 限流配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `ENABLE_LLM_RATE_LIMIT` | 是否启用 LLM 请求限流 | `false` |
+| `LLM_MAX_RPS` | LLM 最大每秒请求数 | `10` |
+
+### LLM 辅助建议配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `ENABLE_LLM_FAIL_SUGGESTION` | 是否启用阶段失败智能建议 | `false` |
+| `FAIL_SUGGESTION_MODEL` | 失败建议使用的模型名称 | 无（需配置） |
+| `FAIL_SUGGESTION_API_KEY` | 失败建议 API 密钥 | 无（需配置） |
+| `FAIL_SUGGESTION_API_BASE` | 失败建议 API 基础 URL | 无（需配置） |
+| `FAIL_SUGGESTION_MFCOUNT` | 触发失败建议的最小失败次数 | `3` |
+| `FAIL_SUGGESTION_TEMPERATURE` | 失败建议模型 temperature 参数 | 未设置 |
+| `FAIL_SUGGESTION_TOP_P` | 失败建议模型 top_p 参数 | 未设置 |
+| `ENABLE_LLM_PASS_SUGGESTION` | 是否启用阶段通过智能评审 | `false` |
+| `PASS_SUGGESTION_MODEL` | 通过评审使用的模型名称 | 无（需配置） |
+| `PASS_SUGGESTION_API_KEY` | 通过评审 API 密钥 | 无（需配置） |
+| `PASS_SUGGESTION_API_BASE` | 通过评审 API 基础 URL | 无（需配置） |
+| `PASS_SUGGESTION_TEMPERATURE` | 通过评审模型 temperature 参数 | 未设置 |
+| `PASS_SUGGESTION_TOP_P` | 通过评审模型 top_p 参数 | 未设置 |
+
+### 流程控制配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `HUMAN_CHECK_CK` | 验证复杂 DUT 时是否开启检测点人工检查 | `false` |
+| `UC_ENV_CMD_BACKEND_EX_ARGS` | 命令行后端执行时的额外参数 | 无 |
+
+### 测试工具配置
+
+| 环境变量名 | 说明 | 默认值 |
+| :-------- | :--- | :----- |
+| `UC_TEST_RCOUNT` | 测试用例重复执行次数 | `3` |
+| `UC_IS_IMP_TEMPLATE` | 是否为实现层测试模板 | `false` |
   - --hook-message：Hook 消息处理
 - 说明
   - --mcp-server 与 --mcp-server-no-file-tools 二选一；此处选了后者带路径参数（如 --template-dir/--guid-doc-path/--nw 的路径）需实际存在，否则会报错
