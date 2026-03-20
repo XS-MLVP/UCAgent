@@ -7,10 +7,16 @@ module {dut_name}_checker{param_decl} (
 );
 
   // ---------------------------------------------------------------------------
+  // 0. Default Clocking & Disable (simplifies SVA — no need to repeat @(posedge clk))
+  // ---------------------------------------------------------------------------
+  default clocking cb @(posedge clk); endclocking
+  default disable iff (!rst_n);
+
+  // ---------------------------------------------------------------------------
   // 1. Auxiliary Logic & Internal Reset
   // ---------------------------------------------------------------------------
-  // Identify reset polarity (assuming 'reset' is high-active, adjust if 'rst_n')
-  // wire rst_n = ~reset; 
+  // [LLM-TODO-1]: Define auxiliary wires/regs for complex property construction.
+  // Example: wire is_bypass = empty & write_valid & read_ready;
 
   // ---------------------------------------------------------------------------
   // 2. FG-ENVIRONMENT: Assumptions & Protocol Constraints
@@ -21,14 +27,14 @@ module {dut_name}_checker{param_decl} (
   // 【重要】如果设计使用符号化索引 (fv_idx)，必须添加以下约束以防止假阳性：
   // 请参考 Guide_Doc/dut_property_template.md 中的"模式 3：符号化索引与单点修改保证"
   //
-  // <CK_FV_IDX_STABLE> (Style: Assume) 符号化索引稳定性约束
+  // <CK-FV-IDX-STABLE> (Style: Assume) 符号化索引稳定性约束
   // property CK_FV_IDX_STABLE;
   //   @(posedge clk) disable iff (!rst_n)
   //   $stable(fv_idx);
   // endproperty
   // M_CK_FV_IDX_STABLE: assume property (CK_FV_IDX_STABLE);
   //
-  // <CK_FV_IDX_VALID> (Style: Assume) 符号化索引范围约束
+  // <CK-FV-IDX-VALID> (Style: Assume) 符号化索引范围约束
   // 注意：不要使用 disable iff，确保复位期间也有效
   // property CK_FV_IDX_VALID;
   //   @(posedge clk)
@@ -36,7 +42,7 @@ module {dut_name}_checker{param_decl} (
   // endproperty
   // M_CK_FV_IDX_VALID: assume property (CK_FV_IDX_VALID);
   //
-  // <CK_FV_IDX_KNOWN> (Style: Assume) 符号化索引非X态约束
+  // <CK-FV-IDX-KNOWN> (Style: Assume) 符号化索引非X态约束
   // property CK_FV_IDX_KNOWN;
   //   @(posedge clk)
   //   !$isunknown(fv_idx);

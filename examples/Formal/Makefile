@@ -17,4 +17,4 @@ init_%:
 	cp -r rtls/$* output/
 
 mcp_%:  init_%
-	$(CMD) output/ $* --config ./formal.yaml -s -hm --tui --mcp-server-no-file-tools --guid-doc-path ./FormalDoc/ --output unity_tests --mcp-server-port 5000 ${ARGS}
+	$(CMD) output/ $* --config ./formal.yaml -s -hm --tui --mcp-server-no-file-tools --guid-doc-path ./FormalDoc/ --output unity_tests --mcp-server-port 5000 --master 127.0.0.1 --export-cmd-api ${ARGS}

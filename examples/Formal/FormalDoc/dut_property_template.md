@@ -1,7 +1,7 @@
 # {DUT} 形式化属性 (SVA) 生成模板 (v3.1)
 
-本模板是 SVA 代码生成的**执行手册**。请根据规划文档 (`03_...md`) 中每个检测点 `<CK_...>` 后面的 `(Style: ...)` 标签，严格选择对应的代码模板。
-注意: 对于规划文档中的每一个检测点 `<CK_...>` 在实现时都要有一个属性与他对应`property CK_...;`
+本模板是 SVA 代码生成的**执行手册**。请根据规划文档 (`03_...md`) 中每个检测点 `<CK-...>` 后面的 `(Style: ...)` 标签，严格选择对应的代码模板。
+注意: 对于规划文档中的每一个检测点 `<CK-...>` 在实现时都要有一个属性与他对应`property CK_...;`
 
 ---
 
@@ -9,7 +9,7 @@
 
 ### 原则 1：杜绝无效的“占位符”断言
 - **强制规则**: **严禁**生成如 `... |-> 1'b1;` 的占位符断言。如果你无法为检查点编写有意义的逻辑，必须生成 `TODO` 注释。
-- **正确示例**: `// TODO: <CK_COMPLEX_ALGO> requires a complex reference model and is not auto-generated.`
+- **正确示例**: `// TODO: <CK-COMPLEX-ALGO> requires a complex reference model and is not auto-generated.`
 
 ### 原则 2：精确断言标志位 (Flags)
 - **强制规则**: 必须基于精确的场景断言标志位。
@@ -37,6 +37,32 @@
 
 ---
 
+## 1.5 SVA 属性命名规范
+
+### 名称前缀映射（文档 → 代码）
+
+文档中的 `<CK-...>` 检测点在 SVA 代码中需按以下规则命名：
+
+| 文档标签 | property 定义 | 实例化标签 | 说明 |
+|----------|-------------|-----------|------|
+| `<CK-NAME>` | `property CK_NAME;` | `A_CK_NAME: assert property(CK_NAME);` | Comb/Seq 风格 |
+| `<CK-NAME>` | `property CK_NAME;` | `M_CK_NAME: assume property(CK_NAME);` | Assume 风格 |
+| `<CK-NAME>` | `property CK_NAME;` | `C_CK_NAME: cover property(CK_NAME);` | Cover 风格 |
+
+> **规则**：property 定义统一使用 `CK_NAME`（无前缀），实例化语句根据意图添加 `A_`/`M_`/`C_` 前缀。文档标签中的 `-` 在代码中替换为 `_`。
+
+### Comb 风格禁止项
+
+以下时序操作符在 `(Style: Comb)` 属性中**严禁**使用（Checker 会自动检测）：
+
+- ❌ `##` — 时序延迟操作符
+- ❌ `$past()` — 历史值函数
+- ❌ `$rose()`, `$fell()`, `$stable()` — 边沿检测
+- ❌ `s_eventually` — 活性操作符
+- ❌ `|=>` — 非重叠蕴含（Comb 属性应使用 `|->` 或直接等式）
+
+---
+
 ## 2. 标准代码模板 (Standard Templates)
 
 根据规划文档中的 `(Style: ...)` 标签选择模板。
@@ -46,7 +72,7 @@
 **禁止**: 严禁使用 `@(posedge clk)`, `##`, `$rose`, `$past`。
 
 ```systemverilog
-// <CK_NAME>
+// <CK-NAME>
 // 描述: {从规划文档中提取描述}
 property CK_NAME;
   // 逻辑: 前提条件 |-> 预期结果 (无时钟，无时序操作符)
@@ -60,7 +86,7 @@ A_CK_NAME: assert property (CK_NAME);
 **必须**: 包含时钟定义和复位逻辑。
 
 ```systemverilog
-// <CK_NAME>
+// <CK-NAME>
 // 描述: {从规划文档中提取描述}
 property CK_NAME;
   @(posedge clk) disable iff (!rst_n)
@@ -74,7 +100,7 @@ A_CK_NAME: assert property (CK_NAME);
 **适用**: 验证场景是否可达，或者特定序列是否发生。
 
 ```systemverilog
-// <CK_NAME>
+// <CK-NAME>
 property CK_NAME;
   @(posedge clk) disable iff (!rst_n)
   {SCENARIO_EXPRESSION};
@@ -86,7 +112,7 @@ C_CK_NAME: cover property (CK_NAME);
 **适用**: 约束输入激励，排除非法输入组合。
 
 ```systemverilog
-// <CK_NAME>
+// <CK-NAME>
 property CK_NAME;
   @(posedge clk)
   // 逻辑: 限制输入信号的行为
@@ -103,7 +129,7 @@ M_CK_NAME: assume property (CK_NAME);
 **适用**: 当使用符号化索引 `fv_idx` 验证数组/RAM 时，**必须**添加以下约束以防止索引漂移和越界。
 
 ```systemverilog
-// <CK_FV_IDX_CONSTRAINTS> (Style: Assume)
+// <CK-FV-IDX-CONSTRAINTS> (Style: Assume)
 // 1. 稳定性: 防止 fv_idx 在验证过程中漂移，确保 $past() 采样正确
 property CK_FV_IDX_STABLE;
   @(posedge clk) disable iff (!rst_n)
@@ -154,7 +180,7 @@ M_CK_VALID_STABILITY: assume property (CK_VALID_STABILITY);
 **适用**: 证明关键状态（Full, Empty, Error）可达，防止环境过约束。
 
 ```systemverilog
-// <CK_REACHABLE_STATE>
+// <CK-REACHABLE-STATE>
 property CK_REACHABLE_STATE;
   @(posedge clk) disable iff (!rst_n)
   {SIGNAL} == {VALUE};
@@ -196,4 +222,4 @@ C_CK_REACHABLE_STATE: cover property (CK_REACHABLE_STATE);
 1.  **Style: Comb 检查**: 确认没有使用 `@(posedge ...)`, `##`, `$past` 等时序语法。
 2.  **Style: Seq 检查**: 确认包含了时钟和复位逻辑。
 3.  **占位符检查**: 确认没有 `|-> 1'b1`。
-4.  **命名一致性**: SVA 属性名必须与 `<CK_...>` 标签完全一致。
+4.  **命名一致性**: SVA 属性名必须与 `<CK-...>` 标签完全一致。

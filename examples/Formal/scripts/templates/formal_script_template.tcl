@@ -30,7 +30,13 @@ read_design -top {top_module} -sysv -mfcu $RTL_FILES
 # Set timeout (default 100000s)
 set_opt -time 100000
 
-# Start proof
+# Engine Configuration (uncomment as needed):
+# prove -engine pdrx          ;# Full proof engine — recommended for complete verification
+# prove -engine bmc -depth 50 ;# Bounded Model Checking — fast debug, finds shallow bugs
+# set_opt -par -t 4           ;# Parallel execution — uses multi-core for faster convergence
+# For liveness properties (s_eventually), specialized liveness engine may be needed.
+
+# Start proof (default engine)
 prove
 
 # Report summary
@@ -39,3 +45,86 @@ show_prop -summary
 # COI (Cone-of-Influence) coverage analysis
 # Generates avis/fanin.rep with line-level and net-level coverage statistics
 fanin -cover -list -dump
+
+# ==============================================================================
+# Pure Tcl VCD Patcher for 'surfer' compatibility
+# ==============================================================================
+
+proc find_files_recursively {basedir_pattern} {{
+    set filelist {{}}
+    # Use a simple, non-recursive glob to get all items in the current directory
+    set items [glob -nocomplain [file join $basedir *]]
+
+    foreach item $items {{
+        if {{[file isdirectory $item]}} {{
+            # If it's a directory, recurse into it and add the results
+            set subfiles [find_files_recursively $item $pattern]
+            foreach subfile $subfiles {{
+                lappend filelist $subfile
+            }}
+        }} elseif {{[string match $pattern [file tail $item]]}} {{
+            # If it's a file that matches the pattern, add its path to the list
+            lappend filelist $item
+        }}
+    }}
+    return $filelist
+}}
+
+proc patch_vcd_timezero {{}} {{
+    set search_dir "."
+    puts "INFO: Starting pure Tcl VCD patch process in '$search_dir'..."
+
+    # Use the self-contained recursive find procedure
+    if {{[catch {{find_files_recursively $search_dir "*.vcd"}} vcd_files]}} {{
+         puts "ERROR: The pure Tcl file search procedure failed."
+         return
+    }}
+
+    if {{[llength $vcd_files] == 0}} {{
+        puts "INFO: No .vcd files found to patch."
+        return
+    }}
+
+    puts "INFO: Found [llength $vcd_files] file(s). Checking for '\$timezero'..."
+
+    foreach vcd_path $vcd_files {{
+        if {{![file exists $vcd_path] || ![file isfile $vcd_path]}} {{
+            continue
+        }}
+
+        # Read file line by line
+        set fid_in [open $vcd_path r]
+        set lines [split [read $fid_in] "\n"]
+        close $fid_in
+
+        set new_lines {{}}
+        set in_timezero_block 0
+        set patched 0
+
+        foreach line $lines {{
+            set trimmed_line [string trim $line]
+            if {{[string match "\$timezero*" $trimmed_line]}} {{
+                set in_timezero_block 1
+                set patched 1
+                continue
+            }}
+            if {{$in_timezero_block && [string match "\$end*" $trimmed_line]}} {{
+                set in_timezero_block 0
+                continue
+            }}
+            if {{!$in_timezero_block}} {{
+                lappend new_lines $line
+            }}
+        }}
+
+        if {{$patched}} {{
+            puts "INFO: Patching '$vcd_path' (removed '\$timezero' block)."
+            set fid_out [open $vcd_path w]
+            puts $fid_out [join $new_lines "\n"]
+            close $fid_out
+        }}
+    }}
+    puts "INFO: VCD patch process finished."
+}}
+
+patch_vcd_timezero

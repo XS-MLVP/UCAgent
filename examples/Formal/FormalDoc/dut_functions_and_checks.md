@@ -6,7 +6,7 @@
 
 ### 核心原则与设计指南
 
-**1. 对应性原则**：本文档中定义的每一个 `<CK_...>` 检测点都必须在最终的 SVA 代码中得到实现。它是 SVA 编写的**唯一直接依据**。
+**1. 对应性原则**：本文档中定义的每一个 `<CK-...>` 检测点都必须在最终的 SVA 代码中得到实现。它是 SVA 编写的**唯一直接依据**。
 
 **2. 独立性原则**：检测点之间应尽可能独立，避免逻辑交叉覆盖，确保 Bug 定位的精准性。
 
@@ -51,14 +51,49 @@ DUT整体功能
 
 ## 强制性要求：定义属性风格 (Style)
 
-在定义每个 `<CK_...>` 时，必须紧随其后用括号注明其**属性风格**。这直接指导大模型如何生成代码。
+在定义每个 `<CK-...>` 时，必须紧随其后用括号注明其**属性风格**。这直接指导大模型如何生成代码。
 
 **可用风格标签：**
-- **`(Style: Comb)`**: **组合逻辑断言**。描述永恒成立的逻辑等式（Invariant）。代码中**严禁**包含时钟边沿触发或时序操作符（如 `|->`）。
+- **`(Style: Comb)`**: **组合逻辑断言**。描述永恒成立的逻辑等式（Invariant）。代码中**严禁**包含时钟边沿触发或时序操作符（如 `|->`, `##`, `$past`）。
 - **`(Style: Seq)`**: **时序逻辑断言**。描述跨周期的行为、状态转移或时序协议。代码中**必须**包含时钟 (`@(posedge clk)`) 和时序操作符。
 - **`(Style: Cover)`**: **可达性证明**。用于证明关键状态（如 Error、Full）是可达的，以及环境约束（Assume）没有导致验证环境过约束（Over-constrained）。
 - **`(Style: Assume)`**: **环境约束**。定义 DUT 输入端口的合法行为。这是 Formal 验证的基石，错误的 Assume 会导致验证结果无效。
 - **`(Style: Symbolic)`**: **符号化验证扩展**。专门针对多条目存储（如 FIFO、RAM、Register File）。标记该断言**必须**通过 `fv_idx`（符号化索引）和 `fv_mon_...` 信号来验证阵列的任意单元。通常与其他风格结合，如 `(Style: Seq, Symbolic)`。
+
+### Style 类型与 SVA 意图映射
+
+| Style | SVA 意图 | 属性名前缀 | 说明 |
+|-------|----------|-----------|------|
+| Comb | assert | `A_CK_` | 组合逻辑等式，禁止时序操作符 |
+| Seq | assert | `A_CK_` | 时序逻辑断言，必须含时钟和时序操作符 |
+| Cover | cover | `C_CK_` | 可达性证明，验证状态可达 |
+| Assume | assume | `M_CK_` | 环境约束，约束输入信号行为 |
+| Symbolic | (配合上述) | (同上) | 符号化索引扩展，需使用 fv_idx |
+
+### 格式要求（正确 vs 错误示例）
+
+✅ **正确格式**：
+```markdown
+<CK-ADD-BASIC-WIDTH-CHECK> (Style: Comb) 验证结果位宽正确性：{cout, sum} == a + b + cin
+<CK-ENV-INPUT-KNOWN> (Style: Assume) 假设输入信号无 X 态
+<CK-COVER-FULL-STATE> (Style: Cover) 证明 Full 状态可达
+```
+
+❌ **错误格式（将被 Checker 拒绝）**：
+```markdown
+<CK-ADD-BASIC-WIDTH-CHECK>  <!-- 缺少 (Style: ...) 标注 -->
+<CK-ADD-BASIC-WIDTH-CHECK> Style: Comb  <!-- 缺少括号 -->
+<CK_ADD_BASIC> (Style: Comb)  <!-- 文档侧应使用横杠 CK- 而非下划线 CK_ -->
+```
+
+### 强制功能组声明
+
+每份功能点与检测点文档**必须**包含以下两个功能组：
+
+1. **`<FG-API>`** — 环境假设与约束，包含所有 `(Style: Assume)` 的检测点。
+   至少包含复位假设和关键输入信号约束。
+2. **`<FG-COVERAGE>`** — 可达性覆盖检查，包含所有 `(Style: Cover)` 的检测点。
+   至少包含关键状态标志位（如 Full、Empty、Error）的可达性证明。
 
 ## 标准文档格式
 
@@ -102,8 +137,8 @@ DUT整体功能
 [详细描述功能A1的具体实现、输入输出关系、预期行为等]
 
 **检测点：**
-- <CK_CHECK_A1_1> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
-- <CK_CHECK_A1_2> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
+- <CK-CHECK-A1-1> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
+- <CK-CHECK-A1-2> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
 - ...
 
 #### 具体功能A2
@@ -113,7 +148,7 @@ DUT整体功能
 [功能A2的描述...]
 
 **检测点：**
-- <CK_CHECK_A2_1> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
+- <CK-CHECK-A2-1> **(Style: Comb/Seq/Cover/Assume)** [具体的检测条件和判断标准]
 - ...
 
 ### 功能分组B
@@ -173,11 +208,11 @@ DUT整体功能
 
 #### 检测点命名
 ```markdown
-<CK_NORM_*>        # 正常行为
-<CK_ERR_*>         # 错误/异常处理
-<CK_STABLE_*>      # 稳定性检查 (Frame Condition)
-<CK_LEGAL_*>       # 合法性检查 (Sanity Check)
-<CK_LIVE_*>        # 活性检查 (Liveness)
+<CK-NORM-*>        # 正常行为
+<CK-ERR-*>         # 错误/异常处理
+<CK-STABLE-*>      # 稳定性检查 (Frame Condition)
+<CK-LEGAL-*>       # 合法性检查 (Sanity Check)
+<CK-LIVE-*>        # 活性检查 (Liveness)
 ```
 
 ## 高级形式化检测点模式 (Formal Verification Patterns)
@@ -187,42 +222,42 @@ DUT整体功能
 ### 模式 1：数据稳定性与单点修改保证 (Stability & Frame Conditions)
 - **目的**: 证明“只有该改的地方改了，其他地方都没动”。这是发现地址译码错误、数组越写、意外覆盖等 Bug 的关键。
 - **模式**: 结合条件蕴含与 `$stable`。
-- **示例**: `<CK_DATA_STABILITY> (Style: Seq, Symbolic) 验证非目标地址稳定性：当写入地址不等于 fv_idx 时，$stable(fv_mon_data)。`
+- **示例**: `<CK-DATA-STABILITY> (Style: Seq, Symbolic) 验证非目标地址稳定性：当写入地址不等于 fv_idx 时，$stable(fv_mon_data)。`
 
 ### 模式 2：强制可达性与过约束检查 (Reachability & Sanity)
 - **目的**: 杜绝 `TRIVIALLY_TRUE`（无效证明）。如果环境约束写得太死（例如 `assume (reset == 1)`），所有属性都会伪通过。
 - **强制规则**: 必须为每一个关键状态（Full, Empty, Hit, Error, State_X）定义 Cover 检测点。
-- **示例**: `<CK_FULL_REACHABLE> (Style: Cover) 证明 FIFO 能够达到 Full 状态。`
+- **示例**: `<CK-FULL-REACHABLE> (Style: Cover) 证明 FIFO 能够达到 Full 状态。`
 
 ### 模式 3：活性与不饥饿 (Liveness & No Starvation)
 - **目的**: 验证设计不会死锁或饥饿（Something Good Eventually Happens）。Formal 工具会寻找无限循环的反例。
-- **示例**: `<CK_REQ_EVENTUALLY_GRANT> (Style: Seq) 验证活性：如果 Request 置起且未撤销，Grant 最终必须置起 (s_eventually)。`
+- **示例**: `<CK-REQ-EVENTUALLY-GRANT> (Style: Seq) 验证活性：如果 Request 置起且未撤销，Grant 最终必须置起 (s_eventually)。`
 
 ### 模式 4：构造正确性 (Construction Correctness)
 - **目的**: 验证复杂数据结构（如链表、树、Ring Buffer）的内部指针逻辑一致性。
-- **示例**: `<CK_PTR_MATH> (Style: Comb) 验证 FIFO 计数器：cnt == (wr_ptr - rd_ptr) & MASK。`
+- **示例**: `<CK-PTR-MATH> (Style: Comb) 验证 FIFO 计数器：cnt == (wr_ptr - rd_ptr) & MASK。`
 
 ## 常用结构的典型检测点设计 (Best Practice Patterns)
 
 ### 1. 状态机 (FSM)
-- `<CK_FSM_ONE_HOT>` (Style: Comb): 验证状态寄存器必须是独热码（针对 One-hot 编码的状态机）。
-- `<CK_FSM_VALID_STATE>` (Style: Comb): 验证状态寄存器不会进入未定义的无效编码（针对二进制编码）。
-- `<CK_FSM_TRANS_RESET>` (Style: Seq): 验证复位释放后，状态机必须处于 IDLE/RESET 状态。
-- `<CK_FSM_DEADLOCK>` (Style: Seq): 验证状态机最终会回到 IDLE 状态（防止死锁）。
+- `<CK-FSM-ONE-HOT>` (Style: Comb): 验证状态寄存器必须是独热码（针对 One-hot 编码的状态机）。
+- `<CK-FSM-VALID-STATE>` (Style: Comb): 验证状态寄存器不会进入未定义的无效编码（针对二进制编码）。
+- `<CK-FSM-TRANS-RESET>` (Style: Seq): 验证复位释放后，状态机必须处于 IDLE/RESET 状态。
+- `<CK-FSM-DEADLOCK>` (Style: Seq): 验证状态机最终会回到 IDLE 状态（防止死锁）。
 
 ### 2. 握手协议 (Valid/Ready)
-- `<CK_VALID_STABILITY>` (Style: Seq): 验证 Valid 建立后，在 Ready 之前 Data 和 Control 必须保持稳定（不允许撤回请求）。
-- `<CK_HANDSHAKE_X_CHECK>` (Style: Comb): 验证 Valid 和 Ready 信号绝不为 X 态。
-- `<CK_DATA_TRANSFER>` (Style: Seq): 证明当 `valid && ready` 发生时，数据被正确采样或传输。
+- `<CK-VALID-STABILITY>` (Style: Seq): 验证 Valid 建立后，在 Ready 之前 Data 和 Control 必须保持稳定（不允许撤回请求）。
+- `<CK-HANDSHAKE-X-CHECK>` (Style: Comb): 验证 Valid 和 Ready 信号绝不为 X 态。
+- `<CK-DATA-TRANSFER>` (Style: Seq): 证明当 `valid && ready` 发生时，数据被正确采样或传输。
 
 ### 3. 仲裁器 (Arbiter)
-- `<CK_ARB_MUTEX>` (Style: Comb): 互斥性检查，同一时刻最多只有一个 Grant 有效（One-hot）。
-- `<CK_ARB_FAIRNESS>` (Style: Seq): 公平性检查，高优先级请求不能永远饿死低优先级请求。
+- `<CK-ARB-MUTEX>` (Style: Comb): 互斥性检查，同一时刻最多只有一个 Grant 有效（One-hot）。
+- `<CK-ARB-FAIRNESS>` (Style: Seq): 公平性检查，高优先级请求不能永远饿死低优先级请求。
 
 ### 4. 存储/队列 (FIFO/Buffer)
-- `<CK_FIFO_OVERFLOW>` (Style: Seq): 安全性检查，当 Full 时写请求必须被阻塞或忽略，且写指针不动。
-- `<CK_FIFO_UNDERFLOW>` (Style: Seq): 安全性检查，当 Empty 时读请求无效，读指针不动。
-- `<CK_FIFO_ORDERING>` (Style: Seq, Symbolic): 数据完整性检查，写入的数据必须按顺序读出，值不变。
+- `<CK-FIFO-OVERFLOW>` (Style: Seq): 安全性检查，当 Full 时写请求必须被阻塞或忽略，且写指针不动。
+- `<CK-FIFO-UNDERFLOW>` (Style: Seq): 安全性检查，当 Empty 时读请求无效，读指针不动。
+- `<CK-FIFO-ORDERING>` (Style: Seq, Symbolic): 数据完整性检查，写入的数据必须按顺序读出，值不变。
 
 #### 必要分组
 
@@ -261,8 +296,8 @@ DUT整体功能
 <FC-INPUT-ASSUME>
 
 **检测点：**
-- <CK_API_RST_LEGAL> **(Style: Assume)** 假设复位信号有效（初始复位）：`initial assert(!rst_n)`。
-- <CK_API_INPUT_KNOWN> **(Style: Assume)** 假设关键控制信号无 X 态：`!$isunknown({push, pop, flush})`。
+- <CK-API-RST-LEGAL> **(Style: Assume)** 假设复位信号有效（初始复位）：`initial assert(!rst_n)`。
+- <CK-API-INPUT-KNOWN> **(Style: Assume)** 假设关键控制信号无 X 态：`!$isunknown({push, pop, flush})`。
 
 ### 2. 核心控制逻辑
 
@@ -273,18 +308,18 @@ DUT整体功能
 <FC-FLAGS>
 
 **检测点：**
-- <CK_FULL_LOGIC> **(Style: Comb)** 验证 Full 生成逻辑：`full == (cnt == DEPTH)`。
-- <CK_EMPTY_LOGIC> **(Style: Comb)** 验证 Empty 生成逻辑：`empty == (cnt == 0)`。
+- <CK-FULL-LOGIC> **(Style: Comb)** 验证 Full 生成逻辑：`full == (cnt == DEPTH)`。
+- <CK-EMPTY-LOGIC> **(Style: Comb)** 验证 Empty 生成逻辑：`empty == (cnt == 0)`。
 
 #### 指针与计数器更新
 
 <FC-POINTERS>
 
 **检测点：**
-- <CK_CNT_INC> **(Style: Seq)** 验证计数器加：`(!full && push && !pop) |=> cnt == $past(cnt) + 1`。
-- <CK_CNT_DEC> **(Style: Seq)** 验证计数器减：`(!empty && pop && !push) |=> cnt == $past(cnt) - 1`。
-- <CK_CNT_STABLE> **(Style: Seq)** 验证计数器保持：`(!push && !pop) || (push && pop) |=> cnt == $past(cnt)` (注意：需处理 full/empty 边界)。
-- <CK_FLUSH_RESET> **(Style: Seq)** 验证清空：`flush |=> (cnt == 0 && wr_ptr == 0 && rd_ptr == 0)`。
+- <CK-CNT-INC> **(Style: Seq)** 验证计数器加：`(!full && push && !pop) |=> cnt == $past(cnt) + 1`。
+- <CK-CNT-DEC> **(Style: Seq)** 验证计数器减：`(!empty && pop && !push) |=> cnt == $past(cnt) - 1`。
+- <CK-CNT-STABLE> **(Style: Seq)** 验证计数器保持：`(!push && !pop) || (push && pop) |=> cnt == $past(cnt)` (注意：需处理 full/empty 边界)。
+- <CK-FLUSH-RESET> **(Style: Seq)** 验证清空：`flush |=> (cnt == 0 && wr_ptr == 0 && rd_ptr == 0)`。
 
 ### 3. 数据完整性 (Symbolic)
 
@@ -295,10 +330,10 @@ DUT整体功能
 <FC-DATA-PATH>
 
 **检测点：**
-- <CK_FIFO_ORDERING> **(Style: Seq, Symbolic)** 验证数据先入先出：
+- <CK-FIFO-ORDERING> **(Style: Seq, Symbolic)** 验证数据先入先出：
   `push && wdata == fv_data && !full |-> ##[1:$] (pop && rdata == fv_data)` 
   *(注：这是高级 Liveness 属性，更推荐用 Scoreboard 逻辑或符号化索引)*。
-- <CK_MEM_STABILITY> **(Style: Seq, Symbolic)** 验证非写入地址数据保持：
+- <CK-MEM-STABILITY> **(Style: Seq, Symbolic)** 验证非写入地址数据保持：
   `(push && wr_ptr != fv_idx) |=> $stable(mem[fv_idx])`。
 
 ### 4. 安全性与异常
@@ -310,8 +345,8 @@ DUT整体功能
 <FC-OVERFLOW-PROTECT>
 
 **检测点：**
-- <CK_NO_OVERFLOW> **(Style: Seq)** 验证写保护：`full && push |=> $stable(wr_ptr) && $stable(mem)`。
-- <CK_NO_UNDERFLOW> **(Style: Seq)** 验证读保护：`empty && pop |=> $stable(rd_ptr)`。
+- <CK-NO-OVERFLOW> **(Style: Seq)** 验证写保护：`full && push |=> $stable(wr_ptr) && $stable(mem)`。
+- <CK-NO-UNDERFLOW> **(Style: Seq)** 验证读保护：`empty && pop |=> $stable(rd_ptr)`。
 
 ### 5. 可达性证明
 
@@ -322,9 +357,9 @@ DUT整体功能
 <FC-STATE-COVER>
 
 **检测点：**
-- <CK_COVER_FULL> **(Style: Cover)** 证明 Full 状态可达。
-- <CK_COVER_FLUSH_WHEN_FULL> **(Style: Cover)** 证明在满状态下可以 Flush。
-- <CK_COVER_WRAP_AROUND> **(Style: Cover)** 证明指针可以回绕（Wrap around）。
+- <CK-COVER-FULL> **(Style: Cover)** 证明 Full 状态可达。
+- <CK-COVER-FLUSH-WHEN-FULL> **(Style: Cover)** 证明在满状态下可以 Flush。
+- <CK-COVER-WRAP-AROUND> **(Style: Cover)** 证明指针可以回绕（Wrap around）。
 
 ## 质量检查清单
 
