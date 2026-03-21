@@ -360,12 +360,7 @@ class PdbCmdApiServer:
                 cmdqueue = list(pdb.cmdqueue) if pdb.cmdqueue else []
                 pending = init_cmd if in_tui else cmdqueue
                 is_break = pdb.agent.is_break()
-                # running commands
-                if in_tui and getattr(pdb, "_tui_app", None) is not None:
-                    running_cmds = pdb._tui_app.key_handler.get_running_commands()
-                else:
-                    current = getattr(pdb, "_current_cmd", None)
-                    running_cmds = [current] if current else []
+                running_cmds = pdb.get_running_commands()
                 return {
                     "status": "ok",
                     "data": {
