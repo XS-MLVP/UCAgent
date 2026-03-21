@@ -8,6 +8,7 @@ import time
 import traceback
 from typing import TYPE_CHECKING
 
+from textual.css.query import NoMatches
 from textual.worker import Worker, WorkerState
 
 from .widgets import ConsoleWidget, ConsoleInput, TaskPanel
@@ -98,19 +99,9 @@ class KeyHandler:
         return cancelled
 
     def get_running_commands(self) -> list[str]:
-        """Get list of currently running foreground command texts in execution order."""
+        """Get list of currently running command texts from persistent PDB state."""
         self._cleanup_finished_state()
-        commands: list[str] = []
-        for handle in self._foreground_handles:
-            if handle.kind == "worker":
-                worker = handle.token
-                if isinstance(worker, Worker) and worker in self._worker_commands:
-                    commands.append(self._worker_commands[worker])
-                continue
-
-            command = self._get_detached_command(handle.token)
-            if command is not None:
-                commands.append(command)
+        commands = self.app.vpdb.get_running_commands()
         self._update_busy_state()
         return commands
 
@@ -162,7 +153,9 @@ class KeyHandler:
                 self._register_worker_thread, worker_holder[0], thread_id
             )
             try:
-                self.app.vpdb.onecmd(cmd)
+                self.app.vpdb.execute_command(cmd, foreground=True)
+            except KeyboardInterrupt:
+                pass
             except Exception as e:
                 error_msg = (
                     f"\033[33mCommand Error: {e}\n{traceback.format_exc()}\033[0m\n"
@@ -201,10 +194,12 @@ class KeyHandler:
                 should_break = current.cancel_requested
 
             if should_break and thread_id is not None:
-                self.app.vpdb.agent.set_break_thread(thread_id)
+                self.app.vpdb.request_thread_interrupt(thread_id)
 
             try:
-                self.app.vpdb.onecmd(cmd)
+                self.app.vpdb.execute_command(cmd, foreground=not is_daemon)
+            except KeyboardInterrupt:
+                pass
             except Exception as e:
                 prefix = "Daemon Error" if is_daemon else "Command Error"
                 print(
@@ -269,7 +264,7 @@ class KeyHandler:
     def _cancel_worker(self, worker: Worker) -> None:
         thread_id = self._worker_threads.get(worker)
         if thread_id is not None:
-            self.app.vpdb.agent.set_break_thread(thread_id)
+            self.app.vpdb.request_thread_interrupt(thread_id)
         worker.cancel()
 
     def _cancel_detached_command(self, key: float) -> bool:
@@ -281,7 +276,7 @@ class KeyHandler:
             thread_id = task.thread_id
 
         if thread_id is not None:
-            self.app.vpdb.agent.set_break_thread(thread_id)
+            self.app.vpdb.request_thread_interrupt(thread_id)
         return True
 
     def _list_detached_keys(self) -> list[float]:
@@ -333,8 +328,11 @@ class KeyHandler:
         self._cleanup_foreground_handles()
 
     def _update_busy_state(self) -> None:
-        console = self.app.query_one("#console", ConsoleWidget)
-        console.set_busy(self.has_active_worker())
+        try:
+            console = self.app.query_one("#console", ConsoleWidget)
+        except NoMatches:
+            return
+        console.set_busy(self.app.vpdb.has_running_commands())
 
     def _add_to_history(self, cmd: str) -> None:
         """Add command to history."""

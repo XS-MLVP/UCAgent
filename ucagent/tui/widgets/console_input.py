@@ -231,9 +231,10 @@ class ConsoleInput(Vertical):
     def has_suggestions(self) -> bool:
         return self._suggestions_visible
 
-    def update_running_commands(self) -> None:
+    def update_running_commands(self, commands: list[str] | None = None) -> None:
         """Update the running commands display."""
-        commands = self.app.key_handler.get_running_commands()
+        if commands is None:
+            commands = self.app.vpdb.get_running_commands()
 
         if not commands:
             self._hide_running_commands()

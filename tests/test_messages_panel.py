@@ -460,6 +460,7 @@ class _FakeVPDB:
         self.stdout = None
         self.stderr = None
         self._cmd_history = []
+        self._running_commands = []
         self.save_cmd_history_calls = 0
         self.tui_console_state = None
         self.tui_messages_state = None
@@ -473,6 +474,21 @@ class _FakeVPDB:
 
     def save_cmd_history(self):
         self.save_cmd_history_calls += 1
+
+    def get_running_commands(self):
+        return list(self._running_commands)
+
+    def has_running_commands(self):
+        return bool(self._running_commands)
+
+    def cancel_last_running_command(self):
+        if not self._running_commands:
+            return False
+        self._running_commands.pop()
+        return True
+
+    def request_thread_interrupt(self, _thread_id):
+        return True
 
     def api_task_list(self):
         return {"mission_name": "Test Mission", "task_list": {}}
@@ -577,6 +593,41 @@ class TestVerifyAppPersistence:
             assert restored_app.cmd_history == ["status", "next"]
             assert restored_app.key_handler.last_cmd == "next"
             assert input_widget.value == "next"
+
+    @pytest.mark.asyncio
+    async def test_restored_app_renders_persistent_running_commands(self):
+        vpdb = _FakeVPDB()
+        vpdb._running_commands = ["loop status", "loop next"]
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            await pilot.pause(0.1)
+
+            console_input = restored_app.query_one(ConsoleInput)
+            loading = restored_app.query_one("#console-loading")
+            running = restored_app.query_one("#running-commands")
+
+            assert console_input.is_busy is True
+            assert console_input._has_running_commands is True
+            assert loading.styles.display == "block"
+            assert running.styles.display == "block"
+            assert str(running.render()) == "[1] loop status [2] loop next"
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_command_logs_sigint_message(self):
+        vpdb = _FakeVPDB()
+        vpdb._running_commands = ["loop status"]
+
+        app = VerifyApp(vpdb)
+        async with app.run_test() as pilot:
+            assert app.cancel_running_command() is True
+            await pilot.pause(0.2)
+
+            console = app.query_one("#console", ConsoleWidget)
+            outputs = [
+                entry.payload for entry in console._entries if entry.kind == "output"
+            ]
+            assert any("SIGINT received. Stopping execution ..." in text for text in outputs)
 
 
 class TestVerifyAppShutdown:
