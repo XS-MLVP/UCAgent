@@ -98,7 +98,11 @@ mission:
       现在调用`CurrentTips`，开始你的验证工作！
     tips:
       allways:
-        - "你需要通过Complete工具来判断你是否完成了当前阶段的任务"
+        - "阶段任务执行步骤":
+          - "(1) 阅读reference_files列出的参考文档"
+          - "(2) 完成目标任务"
+          - "(3) 通过SetCurrentStageJournal记录日志"
+          - "(4) 通过Complete工具确认完成当前阶段的任务"
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
       random:
@@ -310,6 +314,7 @@ stage:
       - "  （注意：<BG-STATIC-000-NULL> 下面不允许有任何 <LINK-BUG-*> 或 <FILE-*> 子标签）"
       - ""
       - "=== 关键规则 ==="
+      - "  - 标签仅仅在标记的时候需要用尖括号包裹(<tag_name>，即文档中只能用尖括号包裹一次)，后续引用时无需尖括号，否则将报错"
       - "  - 【来源】所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到该文件再使用"
       - "  - 【多Bug】一个 <CK-*> 下可以有多个 <BG-STATIC-*> 标签，每个代表一个独立Bug"
       - "  - 每个 <BG-STATIC-*>（NULL除外）必须有且仅有一个 <LINK-BUG-[BG-TBD]> 子标签"
@@ -317,7 +322,7 @@ stage:
       - "  - FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）"
       - "    多段范围示例：<FILE-rtl/dut.v:50-56,100-105>"
       - "  - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）"
-      - "  - <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目"
+      - "  - <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目，且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）"
       - ""
       - "=== 批次进度追踪（必须写在 {OUT}/{DUT}_static_bug_analysis.md 末尾）==="
       - "  本批次分析完毕后，将每个已分析文件追加到 '## 批次分析进度' 表格中。若该章节不存在则先创建："

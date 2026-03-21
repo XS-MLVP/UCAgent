@@ -220,6 +220,8 @@ class VerifyStage(object):
         self.time_end = time.time()
         self.is_complete = True
         self.hist_commit(msg="Stage completed.")
+        if self.vmanager:
+            self.vmanager.agent.backend.on_stage_complete(self)
 
     def is_completed(self):
         return self.is_complete

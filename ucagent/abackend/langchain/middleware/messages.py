@@ -27,7 +27,6 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langmem.short_term import SummarizationNode
-from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any, Dict, Union
 from pydantic import BaseModel
 import time
@@ -247,18 +246,42 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         self.summary_data = []
         self.model = model
         self.arbit_summary_data = None
+        self._is_reset_summary = False
+        self.system_message = None
+
+    def reset_summary(self):
+        self._is_reset_summary = True
+        return self
+
+    def set_system_message(self, system_message: SystemMessage):
+        self.system_message = system_message
+        return self
 
     @override
     def before_model(self, state: AgentState[Any]) -> dict[str, Any] | None:
         fix_tool_call_args(state)
         messages = state["messages"]
         role_info = messages[:1]
+        if self.system_message and role_info and role_info[0].type != "system":
+            warning("System message is missing, adding it back to the context.")
+            role_info = [self.system_message]
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
-        current_token_size = count_tokens_approximately(messages)
-        is_exceed = current_token_size > self.max_tokens
-        if self.arbit_summary_data is None:
+        if self._is_reset_summary:
+            self.summary_data = []
+            # Remove all previous messages except system message and the most recent Human/Tool message
+            humam_msg_index = len(llm_input_msgs) - 2
+            while humam_msg_index >= 0 and llm_input_msgs[humam_msg_index].type == "tool":
+                humam_msg_index -= 1
+            humam_msg_index = max(0, humam_msg_index)
+            tail_msgs = llm_input_msgs[humam_msg_index:]
+            ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + tail_msgs
+            self._is_reset_summary = False
+            warning(f"Summary reset, all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
+        elif self.arbit_summary_data is None:
+            current_token_size = count_tokens_approximately(messages)
+            is_exceed = current_token_size > self.max_tokens
             if len(llm_input_msgs) > self.max_keep_msgs or is_exceed:
                 if (is_exceed):
                     warning(f"Messages token size {current_token_size} exceed max tokens {self.max_tokens}.")
