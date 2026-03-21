@@ -55,6 +55,7 @@ init_%:
 			echo "" > $$f; \
 		done; \
 	fi
+	@python3 $(CWD)/$*/example.py || { echo "Error: picker try to generate DUT, but failed.\n"; exit 1; }
 
 test_%: init_%
 	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
