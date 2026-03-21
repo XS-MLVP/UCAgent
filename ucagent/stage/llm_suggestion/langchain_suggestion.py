@@ -57,12 +57,15 @@ async def _do_work_values_async(self, instructions, config):
 def do_work_values(self, instructions, config):
     try:
         asyncio.get_running_loop()
-        # Already inside a running event loop — run in a separate thread with its own loop
+        in_running_loop = True
+    except RuntimeError:
+        in_running_loop = False
+
+    if in_running_loop:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, _do_work_values_async(self, instructions, config))
             return future.result()
-    except RuntimeError:
-        # No running event loop — safe to call asyncio.run directly
+    else:
         return asyncio.run(_do_work_values_async(self, instructions, config))
 
 

@@ -10,7 +10,7 @@ Directory layout:
   fc_doc.md                          — valid functions_and_checks doc with FG/FC/CK tags
   empty_doc.md                       — completely empty document
   bug_analysis.md                    — valid dynamic bug analysis doc
-  static_null.md                     — single <BG-STATIC-000-NULL> sentinel (no bugs)
+  static_null.md                     — single <BG-STATIC-NULL> sentinel (no bugs)
   static_ok_one.md                   — one bug, single FILE tag, valid
   static_ok_multi.md                 — three bugs across two FG/FC groups, valid
   static_ok_multifile.md             — one bug with two FILE tags on different lines
@@ -113,7 +113,7 @@ def assert_fail(result, *expected_fragments, checker_name=""):
 class TestFormatCheckerPassScenarios:
 
     def test_null_sentinel_only(self):
-        """Single <BG-STATIC-000-NULL> under a CK: no bugs, should pass."""
+        """Single <BG-STATIC-NULL> with FG-NULL/FC-NULL/CK-NULL: no bugs, should pass."""
         assert_pass(fmt_checker("static_null.md").do_check(), "null_sentinel")
 
     def test_null_sentinel_returns_zero_count(self):
@@ -220,7 +220,7 @@ class TestFormatCheckerDuplicateTags:
 class TestFormatCheckerNullSentinelMixed:
 
     def test_null_mixed_with_real_bug(self):
-        """<BG-STATIC-000-NULL> coexisting with a real bug entry — must fail."""
+        """<BG-STATIC-NULL> coexisting with a real bug entry — must fail."""
         assert_fail(
             fmt_checker("static_null_mixed.md").do_check(),
             "must not coexist",

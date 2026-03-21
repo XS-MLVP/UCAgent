@@ -1,4 +1,1 @@
-<FG-CTRL>
-
-#### 控制功能 <FC-FSM>
-- <CK-FSM-GUARD> 无Bug声明 <BG-STATIC-000-NULL>
+<FG-NULL><FC-NULL><CK-NULL>所有文件都没发现Bug<BG-STATIC-NULL>
