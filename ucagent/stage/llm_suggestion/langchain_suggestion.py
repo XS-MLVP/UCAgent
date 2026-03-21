@@ -1,7 +1,8 @@
 #coding=utf-8
 
 import asyncio
-import concurrent.futures
+import threading
+from typing import Any, Optional
 from ucagent.stage.llm_suggestion.base_suggestion import BaseLLMSuggestion
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
@@ -11,7 +12,6 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.messages import RemoveMessage
 from langgraph.runtime import Runtime
 from langchain.agents.middleware.types import AgentState
-from typing import Any
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.checkpoint.memory import MemorySaver
 from ucagent.util.log import warning
@@ -35,7 +35,49 @@ class RemoveAllSummarizationMiddleware(SummarizationMiddleware):
         self._tail_message_count = tail_message_count
 
 
+class _EventLoopManager:
+    _instance: Optional['_EventLoopManager'] = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._loop = None
+                    cls._instance._thread = None
+        return cls._instance
+
+    def get_loop(self) -> asyncio.AbstractEventLoop:
+        if self._loop is None or not self._loop.is_running():
+            with self._lock:
+                if self._loop is None or not self._loop.is_running():
+                    self._loop = asyncio.new_event_loop()
+                    self._thread = threading.Thread(
+                        target=self._run_loop,
+                        daemon=True,
+                        name="LLMSuggestionEventLoop"
+                    )
+                    self._thread.start()
+                    while not self._loop.is_running():
+                        pass
+        return self._loop
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def run_coroutine(self, coro):
+        loop = self.get_loop()
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
+
+
+_loop_manager = _EventLoopManager()
+
+
 async def _do_work_values_async(self, instructions, config):
+    self._ensure_agent_initialized()
     self.unset_interrupted()
     last_msg_index = None
     msg = "LLM Suggestion in progress..."
@@ -55,18 +97,7 @@ async def _do_work_values_async(self, instructions, config):
 
 
 def do_work_values(self, instructions, config):
-    try:
-        asyncio.get_running_loop()
-        in_running_loop = True
-    except RuntimeError:
-        in_running_loop = False
-
-    if in_running_loop:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, _do_work_values_async(self, instructions, config))
-            return future.result()
-    else:
-        return asyncio.run(_do_work_values_async(self, instructions, config))
+    return _loop_manager.run_coroutine(_do_work_values_async(self, instructions, config))
 
 
 class OpenAILLMFailSuggestion(BaseLLMSuggestion):
@@ -91,36 +122,46 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
                               openai_api_base=self.openai_api_base,
                               **kwargs)
         self.agent = None
-        self.mem_saver = MemorySaver()
+        self.mem_saver = None
         self.current_vstage = None
         self.system_prompt = None
         self.summary_middleware = None
         self.suggestion_prompt = "Extract key details from the test information above (such as critical errors or important prompts) and present them to the tester."
+        self._tools = None
+        self._bound = False
 
     def bind_tools(self, tools: list,
                    system_prompt: str,
                    suggestion_prompt: str):  # return self
         self.system_prompt = system_prompt
         self.suggestion_prompt = suggestion_prompt
-        self.summary_middleware = RemoveAllSummarizationMiddleware(
-                                          model=self.llm,
-                                          trigger=("tokens", self.summary_trigger_tokens),
-                                          keep=('messages', self.summary_keep_messages)
-                                        )
-        self.agent = create_agent(self.llm,
-                                  tools=tools,
-                                  middleware=[self.summary_middleware],
-                                  system_prompt=system_prompt,
-                                  checkpointer=self.mem_saver,
-                                )
+        self._tools = tools
+        self._bound = True
         return self
+
+    def _ensure_agent_initialized(self):
+        if self.agent is None:
+            self.mem_saver = MemorySaver()
+            self.summary_middleware = RemoveAllSummarizationMiddleware(
+                                              model=self.llm,
+                                              trigger=("tokens", self.summary_trigger_tokens),
+                                              keep=('messages', self.summary_keep_messages)
+                                            )
+            self.agent = create_agent(self.llm,
+                                      tools=self._tools,
+                                      middleware=[self.summary_middleware],
+                                      system_prompt=self.system_prompt,
+                                      checkpointer=self.mem_saver,
+                                    )
 
     def on_stage_complete(self, stage):
         if self.summary_middleware:
             self.summary_middleware.remove_all_messages(f"Fail check message history is cleaned due to stage[{stage.name}] complete.")
 
     def get_work_cfg(self):
-        return {"configurable": {"thread_id": self.get_thread_id()}}
+        return {"configurable": {"thread_id": self.get_thread_id()},
+                "recursion_limit": self.get_cfg().get("recursion_limit", 100000)
+                }
 
     def get_thread_id(self):
         return f"suggestion_agent_{id(self)}"
@@ -128,7 +169,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
     def suggest(self, prompts: list, vstage: VerifyStage) -> str:
         if vstage.continue_fail_count < self.min_fail_count:
             return prompts[1]  # return test_info directly
-        if self.current_vstage != vstage and self.current_vstage is not None:
+        if self.current_vstage != vstage and self.current_vstage is not None and self.mem_saver is not None:
             self.mem_saver.delete_thread(self.get_thread_id())
         self.current_vstage = vstage
         # current_task + test_info
@@ -199,9 +240,10 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
         self.system_prompt = None
         self.suggestion_prompt = None
         self.agent = None
-        self.mem_saver = MemorySaver()
+        self.mem_saver = None
         self.current_vstage = None
         self.summary_middleware = None
+        self._tools = None
 
     def bind_tools(self, tools: list,
                    system_prompt: str,
@@ -210,32 +252,39 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
         self.system_prompt = system_prompt
         self.suggestion_prompt = suggestion_prompt
         assert suggestion_prompt is not None, "suggestion_prompt should not be None"
-        self.summary_middleware = RemoveAllSummarizationMiddleware(
-                                          model=self.llm,
-                                          trigger=("tokens", self.summary_trigger_tokens),
-                                          keep=('messages', self.summary_keep_messages)
-                                        )
-        self.agent = create_agent(self.llm,
-                                  tools=tools,
-                                  middleware=[self.summary_middleware],
-                                  system_prompt=system_prompt,
-                                  checkpointer=self.mem_saver,
-                                )
+        self._tools = tools
         return self
+
+    def _ensure_agent_initialized(self):
+        if self.agent is None:
+            self.mem_saver = MemorySaver()
+            self.summary_middleware = RemoveAllSummarizationMiddleware(
+                                              model=self.llm,
+                                              trigger=("tokens", self.summary_trigger_tokens),
+                                              keep=('messages', self.summary_keep_messages)
+                                            )
+            self.agent = create_agent(self.llm,
+                                      tools=self._tools,
+                                      middleware=[self.summary_middleware],
+                                      system_prompt=self.system_prompt,
+                                      checkpointer=self.mem_saver,
+                                    )
 
     def on_stage_complete(self, stage):
         if self.summary_middleware:
             self.summary_middleware.remove_all_messages(f"Pass check message history is cleaned due to stage[{stage.name}] complete.")
 
     def get_work_cfg(self):
-        return {"configurable": {"thread_id": self.get_thread_id()}}
+        return {"configurable": {"thread_id": self.get_thread_id()},
+                "recursion_limit": self.get_cfg().get("recursion_limit", 100000)
+                }
 
     def get_thread_id(self):
         return f"suggestion_agent_{id(self)}"
 
     def suggest(self, prompts: list, vstage: VerifyStage) -> str:
         # clean memory if vstage changed
-        if self.current_vstage != vstage and self.current_vstage is not None:
+        if self.current_vstage != vstage and self.current_vstage is not None and self.mem_saver is not None:
             self.mem_saver.delete_thread(self.get_thread_id())
         # current_task + test_info
         task_info, test_info = make_llm_tool_ret(prompts[0]), make_llm_tool_ret(prompts[1])

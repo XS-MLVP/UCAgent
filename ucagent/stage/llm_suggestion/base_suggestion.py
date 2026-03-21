@@ -50,6 +50,8 @@ class BaseLLMSuggestion:
         return self
 
     def get_cfg(self):
+        if not hasattr(self, '_cfg'):
+            return {}
         return self._cfg
 
     def on_stage_complete(self, stage: VerifyStage):
