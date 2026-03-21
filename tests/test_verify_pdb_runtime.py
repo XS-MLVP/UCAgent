@@ -13,6 +13,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.verify_pdb import VerifyPDB
+from ucagent.util.log import info
 
 
 class _FakeAgent:
@@ -55,15 +56,23 @@ class _ProbePDB(VerifyPDB):
         self.running_snapshots.append(self.get_running_commands())
         return False
 
+    def do_probeout(self, _arg):
+        print("probe output")
+        return False
+
 
 @pytest.fixture
 def probe_pdb():
     previous = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
     pdb = _ProbePDB(_FakeAgent())
     try:
         yield pdb
     finally:
         signal.signal(signal.SIGINT, previous)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
 
 
 def test_execute_command_tracks_foreground_command(probe_pdb):
@@ -110,3 +119,18 @@ def test_cancel_running_sleep_returns_quickly(probe_pdb):
     assert not errors
     assert probe_pdb.get_running_commands() == []
     assert time.monotonic() - started < 1.5
+
+
+def test_execute_command_records_shared_console_transcript(probe_pdb):
+    probe_pdb.execute_command("probeout demo")
+
+    assert probe_pdb.get_console_entry_count() == 2
+    assert probe_pdb.render_console_entries_since(0) == "> probeout demo\nprobe output\n"
+
+
+def test_info_output_outside_command_is_recorded(probe_pdb):
+    info("shared info output")
+
+    rendered = probe_pdb.render_console_entries_since(0)
+    assert "INFO" in rendered
+    assert "shared info output" in rendered
