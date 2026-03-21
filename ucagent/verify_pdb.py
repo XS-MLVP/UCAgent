@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """Specialized PDB debugger for UCAgent verification."""
 
+import ctypes
+from dataclasses import dataclass
 from pdb import Pdb
 import os
 from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
 from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
+import threading
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
@@ -17,6 +20,34 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
     from ucagent.tui.widgets.messages_panel import MessagesPanelState
+
+
+@dataclass
+class RunningCommandState:
+    token: int
+    command: str
+    started_at: float
+    thread_id: int | None = None
+    foreground: bool = True
+
+
+def _raise_keyboard_interrupt_in_thread(thread_id: int) -> bool:
+    if thread_id == threading.current_thread().ident:
+        return True
+    try:
+        result = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(thread_id),
+            ctypes.py_object(KeyboardInterrupt),
+        )
+    except Exception:
+        return False
+
+    if result == 0:
+        return False
+    if result > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread_id), None)
+        return False
+    return True
 
 
 class VerifyPDB(Pdb):
@@ -71,6 +102,10 @@ class VerifyPDB(Pdb):
         self._current_cmd: str | None = None  # the command currently being executed
         self._tui_console_state: ConsoleWidgetState | None = None
         self._tui_messages_state: MessagesPanelState | None = None
+        self._running_commands: OrderedDict[int, RunningCommandState] = OrderedDict()
+        self._running_commands_lock = threading.RLock()
+        self._running_commands_local = threading.local()
+        self._running_command_seq = 0
 
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
@@ -88,13 +123,137 @@ class VerifyPDB(Pdb):
     def tui_messages_state(self, state: "MessagesPanelState | None") -> None:
         self._tui_messages_state = state
 
-    def precmd(self, line: str) -> str:
-        self._current_cmd = line or None
+    def precmd(self, line: str, foreground: bool = True) -> str:
+        token = self._register_running_command(line, foreground=foreground)
+        if token is not None:
+            self._push_running_command_token(token)
         return line
 
     def postcmd(self, stop: bool, line: str) -> bool:
-        self._current_cmd = None
+        self._finish_running_command(self._pop_running_command_token())
         return stop
+
+    def execute_command(self, line: str, *, foreground: bool = True) -> bool:
+        """Execute a single command with the same tracking hooks as cmdloop()."""
+        line = self.precmd(line, foreground=foreground)
+        stop = False
+        try:
+            stop = self.onecmd(line)
+        except BaseException:
+            self.postcmd(stop, line)
+            raise
+        return self.postcmd(stop, line)
+
+    def get_running_commands(self) -> list[str]:
+        with self._running_commands_lock:
+            return [
+                state.command
+                for state in self._running_commands.values()
+                if state.foreground
+            ]
+
+    def has_running_commands(self) -> bool:
+        with self._running_commands_lock:
+            return any(state.foreground for state in self._running_commands.values())
+
+    def cancel_last_running_command(self) -> bool:
+        with self._running_commands_lock:
+            thread_id = None
+            for last_key in reversed(self._running_commands):
+                state = self._running_commands[last_key]
+                if state.foreground:
+                    thread_id = state.thread_id
+                    break
+
+        if thread_id is None:
+            return False
+        self.request_thread_interrupt(thread_id)
+        return True
+
+    def request_thread_interrupt(self, thread_id: int | None) -> bool:
+        if thread_id is None:
+            return False
+        self.agent.set_break_thread(thread_id)
+        _raise_keyboard_interrupt_in_thread(thread_id)
+        return True
+
+    def _register_running_command(
+            self, line: str, *, foreground: bool = True
+    ) -> int | None:
+        command = line.strip()
+        if not command:
+            return None
+        if not self._should_track_running_command(command):
+            return None
+
+        with self._running_commands_lock:
+            self._running_command_seq += 1
+            token = self._running_command_seq
+            self._running_commands[token] = RunningCommandState(
+                token=token,
+                command=command,
+                started_at=time.time(),
+                thread_id=threading.current_thread().ident,
+                foreground=foreground,
+            )
+            self._current_cmd = command
+            return token
+
+    def _finish_running_command(self, token: int | None) -> None:
+        if token is None:
+            return
+
+        with self._running_commands_lock:
+            self._running_commands.pop(token, None)
+            if self._running_commands:
+                last_key = next(reversed(self._running_commands))
+                self._current_cmd = self._running_commands[last_key].command
+            else:
+                self._current_cmd = None
+
+    def _should_track_running_command(self, command: str) -> bool:
+        cmd, _, _ = self.parseline(command)
+        return (cmd or "").lower() != "tui"
+
+    def _push_running_command_token(self, token: int) -> None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if stack is None:
+            stack = []
+        stack.append(token)
+        self._running_commands_local.tokens = stack
+
+    def _pop_running_command_token(self) -> int | None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if not stack:
+            return None
+
+        token = stack.pop()
+        if stack:
+            self._running_commands_local.tokens = stack
+        else:
+            delattr(self._running_commands_local, "tokens")
+        return token
+
+    def _has_running_command_in_current_thread(self) -> bool:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        return bool(stack)
+
+    def _abort_running_commands_for_current_thread(self) -> None:
+        while True:
+            token = self._pop_running_command_token()
+            if token is None:
+                break
+            self._finish_running_command(token)
+
+    def _interruptible_sleep(self, duration: float, interval: float = 0.05) -> bool:
+        remaining = max(0.0, duration)
+        while remaining > 0:
+            if self.agent.is_break():
+                return False
+            step = min(interval, remaining)
+            time.sleep(step)
+            remaining -= step
+        return True
 
     def get_cmd_history(self) -> list[str]:
         """Return the current readline-backed command history."""
@@ -129,7 +288,7 @@ class VerifyPDB(Pdb):
             self.setup(frame, traceback)
             while self.init_cmd:
                 cmd = self.init_cmd.pop(0)
-                self.onecmd(cmd)
+                self.execute_command(cmd)
         return super().interaction(frame, traceback)
 
     def _cmdloop(self):
@@ -142,7 +301,9 @@ class VerifyPDB(Pdb):
                 self.allow_kbdint = False
                 break
             except KeyboardInterrupt:
-                if not self._api_wakeup_done:
+                had_running_command = self._has_running_command_in_current_thread()
+                self._abort_running_commands_for_current_thread()
+                if not self._api_wakeup_done and not had_running_command:
                     self.message('--KeyboardInterrupt--')
                 self._api_wakeup_done = False
 
@@ -183,8 +344,11 @@ class VerifyPDB(Pdb):
             self._api_wakeup = False
             self._api_wakeup_done = True
             raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
+        had_running_command = self._has_running_command_in_current_thread()
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
+        if had_running_command:
+            raise KeyboardInterrupt
         if self.agent.is_break():
             echo_y("PDB interrupted. Use 'continue' to resume execution.")
         else:
@@ -341,7 +505,8 @@ class VerifyPDB(Pdb):
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
                     echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
-                    time.sleep(1)
+                    if not self._interruptible_sleep(1):
+                        break
                     delay_time -= 1
                     if self.agent.is_break():
                         break
@@ -2915,7 +3080,7 @@ class VerifyPDB(Pdb):
         """
         try:
             t = float(arg.strip())
-            time.sleep(t)
+            self._interruptible_sleep(t)
         except Exception as e:
             echo_y(e)
             echo_r("usage: sleep <seconds>")
