@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -23,7 +24,15 @@ def enter_tui(vpdb: "VerifyPDB") -> None:
         vpdb._tui_app = None
         app.cleanup()
         if app.session_output:
-            print(app.session_output)
+            stream = sys.stdout
+            visited: set[int] = set()
+            while hasattr(stream, "_original") and id(stream) not in visited:
+                visited.add(id(stream))
+                stream = stream._original
+            stream.write(app.session_output)
+            flush = getattr(stream, "flush", None)
+            if callable(flush):
+                flush()
 
 
 __all__ = ["enter_tui"]

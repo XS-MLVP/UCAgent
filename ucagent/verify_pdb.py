@@ -5,7 +5,8 @@ import ctypes
 from dataclasses import dataclass
 from pdb import Pdb
 import os
-from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
+import sys
+from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message, set_console_sync_handler
 from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
@@ -16,6 +17,8 @@ import readline
 import random
 from collections import OrderedDict
 from typing import TYPE_CHECKING
+
+from ucagent.tui.utils import PersistentConsoleMirror
 
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
@@ -100,20 +103,25 @@ class VerifyPDB(Pdb):
         self._api_wakeup_done = False  # set after API wakeup to suppress message
         self._tui_app = None  # set by enter_tui() while TUI is running
         self._current_cmd: str | None = None  # the command currently being executed
+        self._console_state_lock = threading.RLock()
         self._tui_console_state: ConsoleWidgetState | None = None
         self._tui_messages_state: MessagesPanelState | None = None
         self._running_commands: OrderedDict[int, RunningCommandState] = OrderedDict()
         self._running_commands_lock = threading.RLock()
         self._running_commands_local = threading.local()
         self._running_command_seq = 0
+        set_console_sync_handler(self.record_console_output)
+        self._install_persistent_console_mirror()
 
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
-        return self._tui_console_state
+        with self._console_state_lock:
+            return self._tui_console_state
 
     @tui_console_state.setter
     def tui_console_state(self, state: "ConsoleWidgetState | None") -> None:
-        self._tui_console_state = state
+        with self._console_state_lock:
+            self._tui_console_state = state
 
     @property
     def tui_messages_state(self) -> "MessagesPanelState | None":
@@ -124,6 +132,15 @@ class VerifyPDB(Pdb):
         self._tui_messages_state = state
 
     def precmd(self, line: str, foreground: bool = True) -> str:
+        if not self._in_tui:
+            self._install_persistent_console_mirror()
+        command = line.strip()
+        if (
+                not self._in_tui
+                and command
+                and self._should_track_running_command(command)
+        ):
+            self.record_console_command(command)
         token = self._register_running_command(line, foreground=foreground)
         if token is not None:
             self._push_running_command_token(token)
@@ -177,6 +194,64 @@ class VerifyPDB(Pdb):
         _raise_keyboard_interrupt_in_thread(thread_id)
         return True
 
+    def should_record_console_output(self) -> bool:
+        """Shared console transcript should include every visible PDB/TUI write."""
+        return True
+
+    def record_console_output(self, text: str) -> None:
+        if not text:
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            if state.entries and state.entries[-1].kind == "output":
+                state.entries[-1].payload += text
+                return
+            state.entries.append(self._new_console_entry("output", text))
+
+    def record_console_command(self, cmd: str) -> None:
+        cmd = cmd.strip()
+        if not cmd or not self._should_track_running_command(cmd):
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.append(self._new_console_entry("command", cmd))
+
+    def clear_console_state(self) -> None:
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.clear()
+
+    def get_console_entry_count(self) -> int:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            return len(state.entries) if state is not None else 0
+
+    def render_console_entries_since(self, start_index: int = 0) -> str:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            if state is None or not state.entries:
+                return ""
+            entries = list(state.entries)
+
+        if start_index < 0:
+            start_index = 0
+        if start_index > len(entries):
+            visible_entries = entries
+        else:
+            visible_entries = entries[start_index:]
+
+        parts: list[str] = []
+        for entry in visible_entries:
+            if entry.kind == "command":
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                parts.append(f"> {entry.payload}\n")
+            elif entry.kind == "output":
+                parts.append(entry.payload)
+        return "".join(parts)
+
     def _register_running_command(
             self, line: str, *, foreground: bool = True
     ) -> int | None:
@@ -214,6 +289,31 @@ class VerifyPDB(Pdb):
     def _should_track_running_command(self, command: str) -> bool:
         cmd, _, _ = self.parseline(command)
         return (cmd or "").lower() != "tui"
+
+    def _install_persistent_console_mirror(self) -> None:
+        stdout = self._wrap_console_stream(sys.stdout)
+        stderr = self._wrap_console_stream(sys.stderr)
+        sys.stdout = stdout  # type: ignore[assignment]
+        sys.stderr = stderr  # type: ignore[assignment]
+        self.stdout = stdout
+        self.stderr = stderr
+
+    def _wrap_console_stream(self, stream):
+        if isinstance(stream, PersistentConsoleMirror) and stream._vpdb is self:
+            return stream
+        return PersistentConsoleMirror(self, stream)
+
+    def _ensure_console_state(self) -> "ConsoleWidgetState":
+        if self._tui_console_state is None:
+            from ucagent.tui.widgets.console import ConsoleWidgetState
+
+            self._tui_console_state = ConsoleWidgetState(entries=[])
+        return self._tui_console_state
+
+    def _new_console_entry(self, kind: str, payload: str):
+        from ucagent.tui.widgets.console import ConsoleEntry
+
+        return ConsoleEntry(kind, payload)
 
     def _push_running_command_token(self, token: int) -> None:
         stack = getattr(self._running_commands_local, "tokens", None)

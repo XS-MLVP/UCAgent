@@ -78,6 +78,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Session output history for dumping to terminal after exit
         self._session_output: str = ""
+        self._console_replay_start: int = 0
         self._is_shutting_down: bool = False
         self._cleanup_done: bool = False
 
@@ -132,6 +133,8 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._restore_command_history()
         self._restore_console_history()
         self._restore_messages_history()
+        if hasattr(self.vpdb, "get_console_entry_count"):
+            self._console_replay_start = self.vpdb.get_console_entry_count()
 
         # Install console capture and signal handler for TUI
         # sessions so stdout/log output appears in the Console panel.
@@ -362,9 +365,19 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._is_shutting_down = True
         self.stop_running_tasks(include_detached=False)
 
+        try:
+            self.flush_console_output()
+        except NoMatches:
+            pass
+
         # Collect console history (best-effort, only on first call)
-        if self._console_capture is not None and not self._session_output:
-            self._session_output = self._console_capture.get_history()
+        if not self._session_output:
+            if hasattr(self.vpdb, "render_console_entries_since"):
+                self._session_output = self.vpdb.render_console_entries_since(
+                    self._console_replay_start
+                )
+            elif self._console_capture is not None:
+                self._session_output = self._console_capture.get_history()
         self._save_command_history()
         self._save_console_history()
         self._save_messages_history()
