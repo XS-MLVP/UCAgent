@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCAgent Tasks</title>
+<style>
+  :root{
+    --bg:#0f1117;--surface:#1a1d26;--surface2:#22263a;--border:#2e3248;
+    --text:#e2e8f0;--text-dim:#8892a4;--accent:#6366f1;--accent-hover:#818cf8;
+    --ok:#22c55e;--err:#ef4444;--warn:#f59e0b;--radius:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+  header .title{font-size:18px;font-weight:700}
+  header .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer}
+  .btn:hover{border-color:var(--accent);color:#fff}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-danger{border-color:#7f1d1d;color:#fca5a5;background:#3a1818}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  main{max-width:1500px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1.15fr .85fr;gap:20px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .card h2{margin:0 0 14px;font-size:16px}
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px}
+  input,select,textarea{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)}
+  textarea{min-height:160px;resize:vertical}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,.05);text-align:left;vertical-align:top}
+  th{font-size:12px;color:var(--text-dim);background:var(--surface2);position:sticky;top:0}
+  .table-wrap{max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:8px}
+  .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid transparent}
+  .ok{background:rgba(34,197,94,.14);color:#86efac;border-color:rgba(34,197,94,.25)}
+  .err{background:rgba(239,68,68,.14);color:#fca5a5;border-color:rgba(239,68,68,.25)}
+  .warn{background:rgba(245,158,11,.14);color:#fcd34d;border-color:rgba(245,158,11,.25)}
+  .muted{color:var(--text-dim)}
+  pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  @media (max-width: 1080px){main{grid-template-columns:1fr}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">Managed Tasks</div>
+  <div class="spacer"></div>
+  <a class="btn btn-primary" href="/launch/">Launch</a>
+  <a class="btn" href="/">Master</a>
+</header>
+<main>
+  <section class="card stack">
+    <div>
+      <h2>Filters</h2>
+      <div class="grid">
+        <div>
+          <label>Status</label>
+          <select id="filter-status">
+            <option value="">All</option>
+            <option value="pending">pending</option>
+            <option value="starting">starting</option>
+            <option value="running">running</option>
+            <option value="stopping">stopping</option>
+            <option value="stopped">stopped</option>
+            <option value="failed">failed</option>
+          </select>
+        </div>
+        <div>
+          <label>DUT / Module</label>
+          <input id="filter-dut" placeholder="Adder / top module">
+        </div>
+        <div>
+          <label>Keyword</label>
+          <input id="filter-q" placeholder="task_id / pid / workspace">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-primary" onclick="loadTasks()">Refresh</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Task List</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Status</th>
+              <th>DUT</th>
+              <th>PID</th>
+              <th>Registered</th>
+              <th>CMD</th>
+              <th>Terminal</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="task-rows">
+            <tr><td colspan="8" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card stack">
+    <div>
+      <h2>Task Detail</h2>
+      <div id="task-detail" class="muted">Select a task from the list.</div>
+    </div>
+    <div>
+      <h2>Logs</h2>
+      <textarea id="task-logs" readonly></textarea>
+    </div>
+  </section>
+</main>
+<script>
+let currentTaskId = '';
+
+function esc(s){return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+async function api(url, options={}) {
+  const resp = await fetch(url, options);
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!resp.ok) throw new Error(data.detail || data.message || resp.statusText || 'Request failed');
+  return data;
+}
+
+function badge(status) {
+  const cls = status === 'running' ? 'ok' : (status === 'failed' ? 'err' : 'warn');
+  return `<span class="badge ${cls}">${esc(status)}</span>`;
+}
+
+function serviceBadge(status) {
+  if (status === 'running') return '<span class="badge ok">running</span>';
+  if (status === 'stopped') return '<span class="badge muted">stopped</span>';
+  return `<span class="badge warn">${esc(status || 'starting')}</span>`;
+}
+
+async function loadTasks() {
+  const status = document.getElementById('filter-status').value.trim();
+  const dut = document.getElementById('filter-dut').value.trim();
+  const q = document.getElementById('filter-q').value.trim();
+  const url = `/api/tasks?status=${encodeURIComponent(status)}&dut=${encodeURIComponent(dut)}&q=${encodeURIComponent(q)}`;
+  try {
+    const data = await api(url);
+    const rows = data.tasks || [];
+    const tbody = document.getElementById('task-rows');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="muted">No managed tasks.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(task => `
+      <tr>
+        <td><button class="btn" onclick="showTask('${esc(task.task_id)}')">${esc(task.task_id)}</button></td>
+        <td>${badge(task.process_status)}</td>
+        <td><div>${esc(task.dut_name || '—')}</div><div class="muted">${esc(task.selected_module || '')}</div></td>
+        <td>${task.pid || '—'}</td>
+        <td>${task.registered_to_master ? `<span class="badge ok">${esc(task.registered_agent_id || 'yes')}</span>` : '<span class="badge warn">no</span>'}</td>
+        <td>${serviceBadge(task.cmd_api?.status)}</td>
+        <td>${serviceBadge(task.terminal_api?.status)}</td>
+        <td>
+          <div class="actions">
+            <a class="btn" href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">CMD</a>
+            <a class="btn" href="/task/${encodeURIComponent(task.task_id)}/terminal/" target="_blank">Terminal</a>
+            <button class="btn btn-danger" ${['starting','running','stopping'].includes(task.process_status) ? '' : 'disabled'} onclick="stopTask('${esc(task.task_id)}')">Stop</button>
+            <button class="btn" ${['stopped','failed'].includes(task.process_status) ? '' : 'disabled'} onclick="deleteTask('${esc(task.task_id)}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    document.getElementById('task-rows').innerHTML = `<tr><td colspan="8" class="err">${esc(err.message)}</td></tr>`;
+  }
+}
+
+async function showTask(taskId) {
+  currentTaskId = taskId;
+  try {
+    const data = await api(`/api/task/${encodeURIComponent(taskId)}`);
+    const task = data.task;
+    const detail = document.getElementById('task-detail');
+    detail.innerHTML = `
+      <div class="stack">
+        <div><strong>Task ID:</strong> <code>${esc(task.task_id)}</code></div>
+        <div><strong>Status:</strong> ${badge(task.process_status)}</div>
+        <div><strong>Workspace:</strong> <code>${esc(task.workspace_dir)}</code></div>
+        <div><strong>PID:</strong> ${task.pid || '—'}</div>
+        <div><strong>Registered Agent:</strong> ${esc(task.registered_agent_id || '—')}</div>
+        <div><strong>Picker:</strong> ${badge(task.picker_status || 'not_started')}</div>
+        <div><strong>Command:</strong><pre>${esc((task.resolved_command || []).join(' '))}</pre></div>
+        <div><strong>CMD Proxy:</strong> <a href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">/task/${esc(task.task_id)}/cmd/</a></div>
+        <div><strong>Terminal Proxy:</strong> <a href="/task/${encodeURIComponent(task.task_id)}/terminal/" target="_blank">/task/${esc(task.task_id)}/terminal/</a></div>
+      </div>`;
+    const logs = await api(`/api/task/${encodeURIComponent(taskId)}/logs`);
+    document.getElementById('task-logs').value =
+      `[picker stdout]\n${logs.picker_stdout || ''}\n\n[picker stderr]\n${logs.picker_stderr || ''}\n\n[stdout]\n${logs.stdout || ''}\n\n[stderr]\n${logs.stderr || ''}`;
+  } catch (err) {
+    document.getElementById('task-detail').innerHTML = `<div class="err">${esc(err.message)}</div>`;
+    document.getElementById('task-logs').value = '';
+  }
+}
+
+async function stopTask(taskId) {
+  try {
+    await api(`/api/task/${encodeURIComponent(taskId)}/stop`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({force: false})
+    });
+    await loadTasks();
+    if (currentTaskId === taskId) await showTask(taskId);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteTask(taskId) {
+  if (!confirm(`Delete task record ${taskId}?`)) return;
+  try {
+    await api(`/api/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+    if (currentTaskId === taskId) {
+      currentTaskId = '';
+      document.getElementById('task-detail').textContent = 'Select a task from the list.';
+      document.getElementById('task-logs').value = '';
+    }
+    await loadTasks();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+setInterval(() => {
+  loadTasks();
+  if (currentTaskId) showTask(currentTaskId);
+}, 5000);
+
+loadTasks();
+</script>
+</body>
+</html>

@@ -63,12 +63,13 @@ def _build_web_console_command(argv: Optional[List[str]] = None) -> str:
     """Build the subprocess command served by textual-serve."""
     source_argv = list(sys.argv if argv is None else argv)
     raw_args = source_argv[1:]
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    cli_path = os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
     cmd = [
         "env",
         "PYTHONWARNINGS=ignore",
         sys.executable,
-        "-m",
-        "ucagent.cli",
+        cli_path,
         *raw_args,
     ]
     return shlex.join(cmd)

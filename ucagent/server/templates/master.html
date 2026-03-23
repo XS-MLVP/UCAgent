@@ -185,6 +185,8 @@
   <div class="logo">UC<span>Agent</span> Master</div>
   <div class="refresh-info">Auto-refresh in <span id="countdown">5</span>s</div>
   <div class="header-actions">
+    <a href="/launch/" class="btn btn-secondary btn-sm">Launch</a>
+    <a href="/task/" class="btn btn-secondary btn-sm">Task</a>
     <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Display offline agents (not removed from database)">
       <input type="checkbox" id="show-offline" checked style="accent-color:var(--accent)"> Show offline
     </label>
@@ -516,7 +518,7 @@ function renderTable() {
   for (const id of [..._selectedIds]) { if (!visibleIds.has(id)) _selectedIds.delete(id); }
   updateBatchBtn();
   if (pageItems.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="13">No agents found.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="13"><div style="display:flex;flex-direction:column;align-items:center;gap:12px"><div>No agents found.</div><a href="/launch/" class="btn btn-primary" style="text-decoration:none;font-size:24px;padding:6px 18px" title="Launch a new managed task">＋</a></div></td></tr>';
     syncHeaderCheckbox();
     updatePaginationControls(_currentPage, totalPages, totalFilteredCount);
     return;
