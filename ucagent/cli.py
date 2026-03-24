@@ -431,6 +431,12 @@ def get_args() -> argparse.Namespace:
             "E.g. --master 192.168.1.10:8800 --master 192.168.1.20:8800 secretkey"
         )
     )
+    parser.add_argument(
+        "--client-id",
+        type=str,
+        default=None,
+        help="Client identifier used when connecting to a master. Passed to connect_master_to --id."
+    )
 
     parser.add_argument(
         "--as-master-key",
@@ -781,6 +787,8 @@ def run() -> None:
         master_addr = master_tokens[0]
         access_key = master_tokens[1] if len(master_tokens) > 1 else ""
         extra_client_opts = f" --key {access_key}" if access_key else ""
+        if args.client_id:
+            extra_client_opts += f" --id {args.client_id}"
         if ":" in master_addr:
             m_host, m_port = master_addr.rsplit(":", 1)
             master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"

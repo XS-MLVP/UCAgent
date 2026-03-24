@@ -570,6 +570,24 @@ function _buildWebUrl(host,port){
   return window.location.protocol+"//"+actualHost+":"+port;
 }
 
+function _taskProxyBase(){
+  const match=window.location.pathname.match(/^\/task\/([^/]+)\/cmd(?:\/.*)?$/);
+  if(!match)return null;
+  return "/task/"+encodeURIComponent(match[1]);
+}
+
+function _proxyTerminalUrl(source){
+  const base=_taskProxyBase();
+  if(!base)return null;
+  if(source==="terminal_api"){
+    return base+"/terminal/";
+  }
+  if(source==="web_console"){
+    return base+"/web-console/";
+  }
+  return null;
+}
+
 async function fetchServerInfo(){
   try{
     const j=await apiFetch("/api/server_info");
@@ -582,7 +600,11 @@ async function fetchServerInfo(){
     let source=null;
     
     if(terminalApi&&terminalApi.port){
-      if(terminalApi.url){
+      source="terminal_api";
+      const proxyUrl=_proxyTerminalUrl(source);
+      if(proxyUrl){
+        url=proxyUrl;
+      }else if(terminalApi.url){
         const parsedUrl=new URL(terminalApi.url);
         if(_isLocalHost(parsedUrl.hostname)){
           parsedUrl.hostname=window.location.hostname;
@@ -593,10 +615,14 @@ async function fetchServerInfo(){
       }else{
         url=_buildWebUrl(terminalApi.host,terminalApi.port);
       }
-      source="terminal_api";
     }else if(webConsole&&webConsole.port){
-      url=_buildWebUrl(webConsole.host,webConsole.port);
       source="web_console";
+      const proxyUrl=_proxyTerminalUrl(source);
+      if(proxyUrl){
+        url=proxyUrl;
+      }else{
+        url=_buildWebUrl(webConsole.host,webConsole.port);
+      }
     }
     
     if(url){

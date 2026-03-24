@@ -91,7 +91,7 @@ def _extract_web_console_spec(argv: Optional[List[str]] = None) -> str:
 
 def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
     """Parse '--web-console host:port[:password]' value."""
-    if not spec:
+    if not spec or str(spec).strip() == "-1":
         return "localhost", 8000, ""
     parts = spec.split(":", 2)
     if len(parts) < 2:
@@ -110,7 +110,9 @@ def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
         raise ValueError(
             f"Invalid --web-console value '{spec}'. Port must be an integer."
         ) from e
-    if port < 1 or port > 65535:
+    if port == -1:
+        port = 8000
+    elif port < 1 or port > 65535:
         raise ValueError(
             f"Invalid --web-console value '{spec}'. Port must be in range 1..65535."
         )
@@ -122,6 +124,8 @@ def _resolve_web_console_bind(spec: str) -> tuple[str, int, str]:
     """Resolve final web-console bind host/port/password with conflict policy."""
     from ucagent.util.functions import find_available_port, is_port_free
     host, port, password = _parse_web_console_spec(spec)
+    if ":-1" in str(spec):
+        return host, find_available_port(start_port=port, end_port=65535), password
     if is_port_free(host, port):
         return host, port, password
     # Bare '--web-console' uses defaults. If default 8000 is busy, auto-increase.
@@ -937,10 +941,10 @@ class PdbWebTermServer:
             ready.set()
             return
 
-        # Process mode: start the managed subprocess
-        # Delayed until first WebSocket connection to get correct terminal size
-        # if self.is_process_mode:
-        #     await self._ensure_process()
+        # Process mode: start the managed subprocess immediately so the
+        # command begins running even if no browser has connected yet.
+        if self.is_process_mode:
+            await self._ensure_process()
 
         ready.set()
 
@@ -1148,9 +1152,12 @@ class PdbWebTermServer:
                                 self._process.resize(cols, rows)
                                 if self._process.pid is not None:
                                     try:
-                                        os.kill(self._process.pid, signal.SIGWINCH)
+                                        os.killpg(self._process.pid, signal.SIGWINCH)
                                     except (ProcessLookupError, OSError):
-                                        pass
+                                        try:
+                                            os.kill(self._process.pid, signal.SIGWINCH)
+                                        except (ProcessLookupError, OSError):
+                                            pass
                             if (self._pty_active
                                     and self._pty_slave_fd is not None):
                                 import fcntl

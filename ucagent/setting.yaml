@@ -77,17 +77,18 @@ master_api:
   port: 8800
 
 launch:
-  file_browser_roots: []  # empty means fallback to <cli.py parent>/examples
-  workspace_root: /tmp/   # base directory for creating launch workspaces
+  file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
+  workspace_root: /tmp/               # base directory for creating launch workspaces
   default_args:
-    output: "unity_test"  # output directory name
-    stream_output: true   # -s flag
-    human: true           # -hm flag
-    tui: true             # --tui flag
+    output: "unity_test"              # output directory name
+    stream_output: true               # -s flag
+    human: true                       # -hm flag
+    tui: true                         # --tui flag
     mcp_server_no_file_tools: false
-    loop: true            # -l flag
-    extra_args: []        # additional CLI arguments
-    configs:              # predefined config options for dropdown
+    web_console: "0.0.0.0:-1"         # --web-console flag
+    loop: true                        # -l flag
+    extra_args: []                    # additional CLI arguments
+    configs:                          # predefined config options for dropdown
       UT: "default.yaml"
   default_env:
     - "OPENAI_MODEL"

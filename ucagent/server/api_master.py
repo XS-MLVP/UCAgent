@@ -29,6 +29,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 import warnings
 from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -43,7 +44,7 @@ except ImportError:  # pragma: no cover - optional dependency checked at runtime
     _Header = HTMLResponse = JSONResponse = HTTPBasic = HTTPBasicCredentials = BaseModel = Field = None
 
 from ucagent.util.config import get_config
-from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent
+from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent, is_port_free
 from ucagent.util.log import echo_g, warning
 
 if TYPE_CHECKING:
@@ -178,6 +179,81 @@ def _parse_service_spec(spec: str, default_host: str, default_port: int) -> Tupl
     return addr, default_port, password
 
 
+def _merge_launch_default_args(req: Dict[str, Any], default_args: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(default_args or {})
+    merged.pop("configs", None)
+    for key, value in (req or {}).items():
+        merged[key] = value
+    for key, value in (default_args or {}).items():
+        if key == "configs":
+            continue
+        if key not in merged:
+            merged[key] = value
+            continue
+        current = merged.get(key)
+        if current is None:
+            merged[key] = value
+        elif isinstance(current, str) and not current.strip():
+            merged[key] = value
+        elif isinstance(current, (list, tuple)) and not current:
+            merged[key] = value
+    return merged
+
+
+def _parse_web_terminal_spec(spec: str) -> Tuple[str, int, str]:
+    return _parse_service_spec(spec, "127.0.0.1", 8818)
+
+
+def _resolve_web_console_spec(spec: Any) -> Tuple[str, int, str]:
+    raw = "" if spec in (None, True, "__default__", "__bare__", "__enabled__") else str(spec).strip()
+    if not raw or raw == "-1":
+        host = "localhost"
+        port = 8000
+        password = ""
+    else:
+        parts = raw.split(":", 2)
+        if len(parts) < 2:
+            raise ValueError(
+                f"Invalid --web-console value '{raw}'. Expected format: host:port[:password]"
+            )
+        host = parts[0].strip()
+        if not host:
+            raise ValueError(
+                f"Invalid --web-console value '{raw}'. host cannot be empty."
+            )
+        try:
+            port = int(parts[1].strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid --web-console value '{raw}'. Port must be an integer."
+            ) from exc
+        password = parts[2] if len(parts) == 3 else ""
+        if port == -1:
+            port = find_available_port(start_port=8000, end_port=65535)
+        elif port < 1 or port > 65535:
+            raise ValueError(
+                f"Invalid --web-console value '{raw}'. Port must be in range 1..65535."
+            )
+        elif not is_port_free(host, port):
+            raise ValueError(f"Port {port} on host '{host}' is unavailable for --web-console.")
+    if raw in {"", "-1"} and not is_port_free(host, port):
+        port = find_available_port(start_port=port, end_port=65535)
+    return host, port, password
+
+
+def _copy_jsonable(value: Any) -> Any:
+    return json.loads(json.dumps(value))
+
+
+def _merge_runtime_service_info(current: Optional[Dict[str, Any]], reported: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = dict(current or {})
+    for key, value in (reported or {}).items():
+        if value in (None, ""):
+            continue
+        merged[key] = value
+    return merged
+
+
 def _is_text_file(path: str) -> bool:
     ext = pathlib.Path(path).suffix.lower()
     return ext in _TEXT_EXTS
@@ -216,7 +292,7 @@ class PdbMasterApiServer:
     """FastAPI-based master that aggregates agents and manages launched tasks."""
 
     PERIODIC_SAVE_INTERVAL: float = 20.0
-    MONITOR_INTERVAL: float = 5.0
+    MONITOR_INTERVAL: float = 1.0
     CHILD_READY_TIMEOUT: float = 30.0
     _TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
@@ -1209,6 +1285,7 @@ class PdbMasterApiServer:
         task = {
             "task_id": task_id,
             "task_name": data.get("task_name", "") or task_id,
+            "client_id": data.get("client_id", ""),
             "workspace_id": data.get("workspace_id", ""),
             "workspace_dir": data.get("workspace_dir", ""),
             "dut_name": data.get("dut_name", ""),
@@ -1235,6 +1312,7 @@ class PdbMasterApiServer:
             "stderr_log_path": stderr_log,
             "cmd_api": data.get("cmd_api", {}),
             "terminal_api": data.get("terminal_api", {}),
+            "web_console": data.get("web_console", {}),
         }
         pathlib.Path(stdout_log).touch()
         pathlib.Path(stderr_log).touch()
@@ -1295,9 +1373,14 @@ class PdbMasterApiServer:
         add_flag("--tui", req.get("tui"))
         web_console = req.get("web_console")
         if web_console in (True, "__default__", "__bare__", "__enabled__"):
-            argv.extend(["--web-console", "-1"])
+            argv.append("--web-console")
         else:
             add_value("--web-console", web_console)
+        web_terminal = req.get("web_terminal")
+        if web_terminal in (True, "__default__", "__bare__", "__enabled__"):
+            argv.append("--web-terminal")
+        else:
+            add_value("--web-terminal", web_terminal)
         add_value("--sys-tips", req.get("sys_tips"))
         add_list("--ex-tools", req.get("ex_tools", []))
         if req.get("no_embed_tools") is not None:
@@ -1330,6 +1413,7 @@ class PdbMasterApiServer:
         add_flag("--no-history", req.get("no_history"))
         add_flag("--enable-context-manage-tools", req.get("enable_context_manage_tools"))
         add_flag("--exit-on-completion", req.get("exit_on_completion"))
+        add_value("--client-id", req.get("client_id"))
 
         master_spec = (req.get("master") or "").strip()
         if not master_spec:
@@ -1472,6 +1556,9 @@ class PdbMasterApiServer:
         with self._tasks_lock:
             for task in self._tasks.values():
                 pid = task.get("pid")
+                pid_str = str(pid) if pid not in (None, "") else ""
+                task_workspace = os.path.abspath(str(task.get("workspace_dir") or ""))
+                task_client_id = str(task.get("client_id") or "").strip()
                 runtime = self._task_runtime.get(task["task_id"])
                 alive = False
                 exit_code = task.get("exit_code")
@@ -1495,23 +1582,55 @@ class PdbMasterApiServer:
                     else:
                         cmd_ok = self._probe_child_service(task["cmd_api"])
                         term_ok = self._probe_child_service(task["terminal_api"])
+                        term_enabled = bool((task.get("terminal_api") or {}).get("enabled"))
                         new_cmd_status = "running" if cmd_ok else "unavailable"
-                        new_term_status = "running" if term_ok else "unavailable"
+                        if term_enabled:
+                            new_term_status = "running" if term_ok else "unavailable"
+                        else:
+                            new_term_status = "stopped"
                         if task["cmd_api"].get("status") != new_cmd_status:
                             task["cmd_api"]["status"] = new_cmd_status
                             self._mark_dirty()
                         if task["terminal_api"].get("status") != new_term_status:
                             task["terminal_api"]["status"] = new_term_status
                             self._mark_dirty()
-                        if task["process_status"] == "starting" and cmd_ok and term_ok:
+                        if task["process_status"] == "starting" and cmd_ok and (term_ok or not term_enabled):
                             task["process_status"] = "running"
                             self._mark_dirty()
 
                 matched_agent_id = ""
                 for agent in agents:
+                    agent_id = str(agent.get("id") or "").strip()
+                    if task_client_id and agent_id == task_client_id:
+                        matched_agent_id = agent_id
+                        reported_terminal_api = agent.get("terminal_api") or {}
+                        merged_terminal_api = _merge_runtime_service_info(task.get("terminal_api"), reported_terminal_api)
+                        if merged_terminal_api != (task.get("terminal_api") or {}):
+                            task["terminal_api"] = merged_terminal_api
+                            self._mark_dirty()
+                        reported_web_console = agent.get("web_console") or {}
+                        merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
+                        if merged_web_console != (task.get("web_console") or {}):
+                            task["web_console"] = merged_web_console
+                            self._mark_dirty()
+                        break
                     extra = agent.get("extra") or {}
-                    if extra.get("pid") == pid or os.path.abspath(str(extra.get("workspace", ""))) == os.path.abspath(task["workspace_dir"]):
+                    agent_pid = extra.get("pid")
+                    agent_pid_str = str(agent_pid) if agent_pid not in (None, "") else ""
+                    agent_workspace = str(extra.get("workspace") or "").strip()
+                    agent_workspace_abs = os.path.abspath(agent_workspace) if agent_workspace else ""
+                    if (pid_str and agent_pid_str == pid_str) or (task_workspace and agent_workspace_abs == task_workspace):
                         matched_agent_id = agent.get("id", "")
+                        reported_terminal_api = agent.get("terminal_api") or {}
+                        merged_terminal_api = _merge_runtime_service_info(task.get("terminal_api"), reported_terminal_api)
+                        if merged_terminal_api != (task.get("terminal_api") or {}):
+                            task["terminal_api"] = merged_terminal_api
+                            self._mark_dirty()
+                        reported_web_console = agent.get("web_console") or {}
+                        merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
+                        if merged_web_console != (task.get("web_console") or {}):
+                            task["web_console"] = merged_web_console
+                            self._mark_dirty()
                         break
                 registered = bool(matched_agent_id)
                 if task.get("registered_to_master") != registered:
@@ -1523,6 +1642,13 @@ class PdbMasterApiServer:
 
     def _run_task_launch(self, req: Dict[str, Any]) -> Dict[str, Any]:
         req = dict(req)
+        default_args = self.cfg.get_value("launch.default_args", {}) or {}
+        if hasattr(default_args, "as_dict"):
+            default_args = default_args.as_dict()
+        if isinstance(default_args, dict):
+            req = _merge_launch_default_args(req, default_args)
+        if not str(req.get("client_id") or "").strip():
+            req["client_id"] = uuid.uuid4().hex
         workspace_id = req.get("workspace_id", "")
         if not workspace_id:
             raise ValueError("'workspace_id' is required for launch")
@@ -1582,8 +1708,35 @@ class PdbMasterApiServer:
         }
         req["export_cmd_api"] = f"{cmd_api['host']}:{cmd_api['port']} {cmd_api['password']}"
 
+        terminal_api = {"enabled": False, "status": "stopped"}
+        web_terminal_spec = req.get("web_terminal")
+        if web_terminal_spec is not None:
+            term_host, term_port, term_password = _parse_web_terminal_spec(str(web_terminal_spec))
+            terminal_api = {
+                "enabled": True,
+                "host": term_host,
+                "port": term_port,
+                "password": term_password,
+                "base_url_internal": f"http://{term_host}:{term_port}",
+                "status": "starting",
+            }
+        web_console = {"enabled": False, "status": "stopped"}
+        web_console_spec = req.get("web_console")
+        if web_console_spec not in (None, False, ""):
+            wc_host, wc_port, wc_password = _resolve_web_console_spec(web_console_spec)
+            req["web_console"] = f"{wc_host}:{wc_port}" + (f":{wc_password}" if wc_password else "")
+            web_console = {
+                "enabled": True,
+                "host": wc_host,
+                "port": wc_port,
+                "password": wc_password,
+                "base_url_internal": f"http://{wc_host}:{wc_port}",
+                "status": "starting",
+            }
+
         task = self._create_task_record({
             "task_name": req.get("task_name") or selected_module,
+            "client_id": req.get("client_id", ""),
             "workspace_id": workspace_id,
             "workspace_dir": prepared["workspace_dir"],
             "dut_name": prepared["dut_name"],
@@ -1593,6 +1746,8 @@ class PdbMasterApiServer:
             "cli_args_structured": req,
             "cli_args_extra": req.get("extra_args", []),
             "cmd_api": cmd_api,
+            "terminal_api": terminal_api,
+            "web_console": web_console,
         })
 
         task["picker_command"] = list(compile_info.get("picker_command") or [])
@@ -1611,34 +1766,18 @@ class PdbMasterApiServer:
         proc = self._start_task_process(task, env)
         task["pid"] = proc.pid
         task["started_at"] = _now()
-        self._mark_dirty()
-
-        deadline = _now() + self.CHILD_READY_TIMEOUT
-        while _now() < deadline:
-            code = proc.poll()
-            if code is not None:
-                task["exit_code"] = code
-                task["finished_at"] = _now()
-                task["process_status"] = "failed" if code != 0 else "stopped"
-                task["cmd_api"]["status"] = "stopped"
-                self._close_task_runtime(task["task_id"])
-                self._mark_dirty()
-                return task
-            cmd_ok = self._probe_child_service(task["cmd_api"])
-            task["cmd_api"]["status"] = "running" if cmd_ok else "starting"
-            if cmd_ok:
-                task["process_status"] = "running"
-                self._mark_dirty()
-                return task
-            time.sleep(0.5)
-
-        if proc.poll() is None:
-            task["process_status"] = "running"
-            task["cmd_api"]["status"] = "starting"
-        else:
-            task["process_status"] = "failed"
-            task["exit_code"] = proc.poll()
+        code = proc.poll()
+        if code is not None:
+            task["process_status"] = "failed" if code != 0 else "stopped"
+            task["exit_code"] = code
             task["finished_at"] = _now()
+            task["cmd_api"]["status"] = "stopped"
+            task["terminal_api"]["status"] = "stopped"
+            self._close_task_runtime(task["task_id"])
+        else:
+            task["cmd_api"]["status"] = "starting"
+            if not task["terminal_api"].get("enabled"):
+                task["terminal_api"]["status"] = "stopped"
         self._mark_dirty()
         return task
 
@@ -1659,6 +1798,10 @@ class PdbMasterApiServer:
         data = json.loads(json.dumps(task))
         if isinstance(data.get("cmd_api"), dict):
             data["cmd_api"].pop("password", None)
+        if isinstance(data.get("terminal_api"), dict):
+            data["terminal_api"].pop("password", None)
+        if isinstance(data.get("web_console"), dict):
+            data["web_console"].pop("password", None)
         if include_logs:
             data["stdout_tail"] = _tail_file(task.get("stdout_log_path", ""))
             data["stderr_tail"] = _tail_file(task.get("stderr_log_path", ""))
@@ -1672,6 +1815,28 @@ class PdbMasterApiServer:
         for key, value in original_headers.items():
             lk = key.lower()
             if lk in {"host", "content-length", "authorization"}:
+                continue
+            headers[key] = value
+        if password:
+            token = base64.b64encode(f":{password}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {token}"
+        return headers
+
+    def _build_ws_proxy_headers(self, password: str, original_headers: Dict[str, str]) -> Dict[str, str]:
+        headers = {}
+        for key, value in original_headers.items():
+            lk = key.lower()
+            if lk in {
+                "host",
+                "connection",
+                "upgrade",
+                "authorization",
+                "sec-websocket-key",
+                "sec-websocket-version",
+                "sec-websocket-extensions",
+                "sec-websocket-accept",
+                "sec-websocket-protocol",
+            }:
                 continue
             headers[key] = value
         if password:
@@ -1716,6 +1881,20 @@ class PdbMasterApiServer:
             })
         return items
 
+    def _launched_task_for_agent_id(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        agent_id = str(agent_id or "").strip()
+        if not agent_id:
+            return None
+        matched: List[Dict[str, Any]] = []
+        with self._tasks_lock:
+            for task in self._tasks.values():
+                if str(task.get("registered_agent_id") or "").strip() == agent_id or str(task.get("client_id") or "").strip() == agent_id:
+                    matched.append(task)
+        if not matched:
+            return None
+        matched.sort(key=lambda item: item.get("created_at", 0), reverse=True)
+        return matched[0]
+
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         cmd_api = task.get("cmd_api") or {}
         base = cmd_api.get("base_url_internal", "")
@@ -1729,6 +1908,14 @@ class PdbMasterApiServer:
         base = terminal_api.get("base_url_internal", "")
         if not base:
             raise ValueError("Terminal API base URL not available")
+        base = base.rstrip("/")
+        return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
+
+    def _web_console_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
+        web_console = task.get("web_console") or {}
+        base = web_console.get("base_url_internal", "")
+        if not base:
+            raise ValueError("Web console base URL not available")
         base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
@@ -1838,6 +2025,8 @@ class PdbMasterApiServer:
                     "version": str(body.get("version") or "") or existing.get("version", ""),
                     "cmd_api_tcp": tcp_url or existing.get("cmd_api_tcp", ""),
                     "cmd_api_sock": str(body.get("cmd_api_sock") or "") or existing.get("cmd_api_sock", ""),
+                    "web_console": _copy_jsonable(body.get("web_console") or existing.get("web_console", {})),
+                    "terminal_api": _copy_jsonable(body.get("terminal_api") or existing.get("terminal_api", {})),
                     "task_list": body.get("task_list") if body.get("task_list") is not None else existing.get("task_list"),
                     "current_stage_index": current_stage_index if current_stage_index >= 0 else existing.get("current_stage_index", -1),
                     "total_stage_count": total_stage_count if total_stage_count > 0 else existing.get("total_stage_count", 0),
@@ -1880,6 +2069,7 @@ class PdbMasterApiServer:
                         continue
                     tl = agent.get("task_list") or {}
                     raw_mi = agent.get("mission_info_ansi", "")
+                    launch_task = self._launched_task_for_agent_id(agent["id"])
                     data.append({
                         "id": agent["id"],
                         "host": agent["host"],
@@ -1901,6 +2091,9 @@ class PdbMasterApiServer:
                         "run_time": agent.get("run_time", ""),
                         "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                         "task_list": agent.get("task_list"),
+                        "launch": bool(launch_task),
+                        "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
+                        "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else "",
                     })
                 reverse = sort_desc
                 if sort_by == "status":
@@ -1933,6 +2126,7 @@ class PdbMasterApiServer:
             st = self._agent_status(agent)
             tl = agent.get("task_list") or {}
             raw_mi = agent.get("mission_info_ansi", "")
+            launch_task = self._launched_task_for_agent_id(agent["id"])
             data = {
                 "id": agent["id"],
                 "host": agent["host"],
@@ -1954,6 +2148,9 @@ class PdbMasterApiServer:
                 "run_time": agent.get("run_time", ""),
                 "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                 "task_list": agent.get("task_list"),
+                "launch": bool(launch_task),
+                "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
+                "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else "",
             }
             return {"status": "ok", "agent_status": st, "data": data}
 
@@ -2377,9 +2574,10 @@ class PdbMasterApiServer:
             ws = self._get_workspace(workspace_id)
             compile_info = ws.get("compile") or {}
             doc_dir = compile_info.get("doc_dir") or ""
-            predefined_configs = self.cfg.get_value("launch.default_args.configs", {}) or {}
-            if hasattr(predefined_configs, "as_dict"):
-                predefined_configs = predefined_configs.as_dict()
+            default_args = self.cfg.get_value("launch.default_args", {}) or {}
+            if hasattr(default_args, "as_dict"):
+                default_args = default_args.as_dict()
+            predefined_configs = default_args.get("configs", {}) if isinstance(default_args, dict) else {}
             options = []
             if isinstance(predefined_configs, dict):
                 for name, value in predefined_configs.items():
@@ -2455,7 +2653,7 @@ class PdbMasterApiServer:
             }
 
         @app.post("/api/task/{task_id}/stop", summary="Stop managed task", dependencies=[Depends(_check_password)])
-        def stop_task(task_id: str, body: StopTaskBody):
+        def stop_task(task_id: str, body: Dict[str, Any] = Body(default_factory=dict)):
             try:
                 task = self._get_task(task_id)
             except KeyError as exc:
@@ -2463,7 +2661,8 @@ class PdbMasterApiServer:
             if task["process_status"] in {"stopped", "failed"}:
                 return {"status": "ok", "task": self._task_public(task), "message": "Task already stopped"}
             task["process_status"] = "stopping"
-            self._terminate_task(task, force=body.force)
+            force = bool((body or {}).get("force"))
+            self._terminate_task(task, force=force)
             self._mark_dirty()
             return {"status": "ok", "task": self._task_public(task)}
 
@@ -2564,13 +2763,50 @@ class PdbMasterApiServer:
                 except Exception as exc:
                     raise HTTPException(status_code=502, detail=f"Failed to proxy Terminal API: {exc}") from exc
 
+        @app.api_route("/task/{task_id}/web-console", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        @app.api_route("/task/{task_id}/web-console/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        async def proxy_web_console(task_id: str, request: Request, subpath: str = ""):
+            if subpath == "ws":
+                raise HTTPException(status_code=400, detail="Use WebSocket endpoint")
+            try:
+                task = self._get_task(task_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            if not (task.get("web_console") or {}).get("enabled"):
+                raise HTTPException(status_code=503, detail="Web console service is not enabled")
+
+            target_url = self._web_console_proxy_url(task, subpath)
+            if request.url.query:
+                target_url += "?" + request.url.query
+            headers = self._build_proxy_headers((task.get("web_console") or {}).get("password", ""), dict(request.headers))
+            body = await request.body()
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
+                        raw = await resp.read()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "text/html" in content_type:
+                            text = raw.decode("utf-8", errors="replace")
+                            text = _rewrite_html(text, {
+                                '"/ws': f'"/task/{task_id}/web-console/ws',
+                                "'/ws": f"'/task/{task_id}/web-console/ws",
+                                '"/api/': f'"/task/{task_id}/web-console/api/',
+                                "'/api/": f"'/task/{task_id}/web-console/api/",
+                                '"/static/': f'"/task/{task_id}/web-console/static/',
+                                "'/static/": f"'/task/{task_id}/web-console/static/",
+                            })
+                            raw = text.encode("utf-8")
+                        response_headers = {}
+                        for key, value in resp.headers.items():
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                                continue
+                            response_headers[key] = value
+                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=f"Failed to proxy Web console: {exc}") from exc
+
         @app.websocket("/task/{task_id}/terminal/ws")
         async def proxy_terminal_ws(websocket: WebSocket, task_id: str):
-            try:
-                _check_ws_password({k.lower(): v for k, v in websocket.headers.items()})
-            except PermissionError:
-                await websocket.close(code=4401)
-                return
             try:
                 task = self._get_task(task_id)
             except KeyError:
@@ -2580,8 +2816,6 @@ class PdbMasterApiServer:
                 await websocket.close(code=4503)
                 return
 
-            await websocket.accept()
-            scheme = "ws"
             terminal_api = task.get("terminal_api") or {}
             base_url = terminal_api.get("base_url_internal", "")
             if not base_url:
@@ -2591,9 +2825,63 @@ class PdbMasterApiServer:
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
+            upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20) as upstream:
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers) as upstream:
+                        await websocket.accept()
+                        async def client_to_upstream():
+                            while True:
+                                msg = await websocket.receive()
+                                if msg["type"] == "websocket.disconnect":
+                                    await upstream.close()
+                                    return
+                                if msg.get("text") is not None:
+                                    await upstream.send_str(msg["text"])
+                                elif msg.get("bytes") is not None:
+                                    await upstream.send_bytes(msg["bytes"])
+
+                        async def upstream_to_client():
+                            async for msg in upstream:
+                                if msg.type == aiohttp.WSMsgType.TEXT:
+                                    await websocket.send_text(msg.data)
+                                elif msg.type == aiohttp.WSMsgType.BINARY:
+                                    await websocket.send_bytes(msg.data)
+                                elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                                    await websocket.close()
+                                    return
+
+                        await asyncio.gather(client_to_upstream(), upstream_to_client())
+                except WebSocketDisconnect:
+                    return
+                except Exception:
+                    await websocket.close(code=1011)
+
+        @app.websocket("/task/{task_id}/web-console/ws")
+        async def proxy_web_console_ws(websocket: WebSocket, task_id: str):
+            try:
+                task = self._get_task(task_id)
+            except KeyError:
+                await websocket.close(code=4404)
+                return
+            web_console = task.get("web_console") or {}
+            if not web_console.get("enabled"):
+                await websocket.close(code=4503)
+                return
+
+            base_url = web_console.get("base_url_internal", "")
+            if not base_url:
+                await websocket.close(code=4503)
+                return
+            target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
+            if websocket.url.query:
+                target_url += "?" + urlencode(dict(websocket.query_params))
+            auth = aiohttp.BasicAuth("", web_console.get("password", "")) if web_console.get("password") else None
+            upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers) as upstream:
+                        await websocket.accept()
                         async def client_to_upstream():
                             while True:
                                 msg = await websocket.receive()
@@ -2667,7 +2955,7 @@ class PdbMasterApiServer:
         errors: List[str] = []
         if self.tcp:
             try:
-                cfg = uvicorn.Config(self._app, host=self.host, port=self.port, log_level="error", ws="none")
+                cfg = uvicorn.Config(self._app, host=self.host, port=self.port, log_level="error")
                 self._tcp_server = uvicorn.Server(cfg)
                 self._tcp_thread = threading.Thread(target=self._tcp_server.run, daemon=True, name="master-api-tcp")
                 self._tcp_thread.start()
@@ -2684,7 +2972,7 @@ class PdbMasterApiServer:
                     errors.append(f"Cannot remove socket '{self.sock}': {exc}")
             if not any("Cannot remove" in item for item in errors):
                 try:
-                    cfg = uvicorn.Config(self._app, uds=self.sock, log_level="error", ws="none")
+                    cfg = uvicorn.Config(self._app, uds=self.sock, log_level="error")
                     self._sock_server = uvicorn.Server(cfg)
                     self._sock_thread = threading.Thread(target=self._sock_server.run, daemon=True, name="master-api-sock")
                     self._sock_thread.start()
@@ -2866,6 +3154,11 @@ class PdbMasterClient:
         except Exception as exc:
             warning("Failed to get mission_info_ansi: " + str(exc))
             mission_info_ansi = ""
+        try:
+            server_info = pdb.api_server_info() or {}
+        except Exception as exc:
+            warning("Failed to get server_info for master payload: " + str(exc))
+            server_info = {}
 
         return {
             "id": self.agent_id,
@@ -2873,6 +3166,8 @@ class PdbMasterClient:
             "version": __version__,
             "cmd_api_tcp": tcp_url,
             "cmd_api_sock": sock_path,
+            "web_console": server_info.get("web_console") or {},
+            "terminal_api": server_info.get("terminal_api") or {},
             "task_list": task_list,
             "current_stage_index": current_stage_index,
             "total_stage_count": total_stage_count,
