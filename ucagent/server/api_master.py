@@ -1439,6 +1439,10 @@ class PdbMasterApiServer:
 
         env = os.environ.copy()
         env_updates = req.get("env") or {}
+        env_updates = {
+            **self._launch_default_env_updates(env_updates),
+            **{str(k): str(v) for k, v in env_updates.items() if str(v).strip()},
+        }
         sorted_env = self._sort_env_by_dependencies(env_updates)
         env.update({str(k): str(v) for k, v in sorted_env.items()})
         return argv, env
@@ -1844,42 +1848,90 @@ class PdbMasterApiServer:
             headers["Authorization"] = f"Basic {token}"
         return headers
 
-    def _launch_env_preview(self) -> List[Dict[str, str]]:
-        keys = [
-            "OPENAI_BASE_URL",
-            "OPENAI_API_BASE",
-            "OPENAI_API_KEY",
-            "OPENAI_API_HOST",
-            "OPENAI_API_VERSION",
-            "OPENAI_MODEL",
-            "OPENAI_MODEL_NAME",
-            "OPENAI_ORG_ID",
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_API_KEY",
-            "AZURE_OPENAI_API_VERSION",
-            "EMBED_OPENAI_API_BASE",
-            "EMBED_OPENAI_API_KEY",
-            "EMBED_MODEL",
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_MODEL",
-            "GOOGLE_GENAI_API_KEY",
-            "GOOGLE_GENAI_MODEL",
-            "LANGFUSE_PUBLIC_KEY",
-            "LANGFUSE_SECRET_KEY",
-            "LANGFUSE_URL",
-        ]
+    def _launch_env_preview(self) -> List[Dict[str, Any]]:
+        configured = self.cfg.get_value("launch.default_env", []) or []
+        if hasattr(configured, "as_dict"):
+            configured = configured.as_dict()
+        if not isinstance(configured, list):
+            configured = []
         secret_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+        ref_pattern = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
         items = []
-        for key in keys:
-            value = os.environ.get(key, "")
-            masked = any(marker in key for marker in secret_markers)
+        for entry in configured:
+            if hasattr(entry, "as_dict"):
+                entry = entry.as_dict()
+            mode = "required"
+            reference_key = ""
+            raw_value = ""
+            if isinstance(entry, str):
+                key = entry.strip()
+            elif isinstance(entry, dict) and len(entry) == 1:
+                key, raw = next(iter(entry.items()))
+                key = str(key).strip()
+                raw_value = str(raw)
+                match = ref_pattern.match(raw_value.strip())
+                if match:
+                    mode = "reference"
+                    reference_key = match.group(1)
+                else:
+                    mode = "literal"
+            else:
+                continue
+            if not key:
+                continue
+            resolved_value = ""
+            if mode == "required":
+                resolved_value = os.environ.get(key, "")
+            elif mode == "reference":
+                resolved_value = os.environ.get(reference_key, "")
+            else:
+                resolved_value = raw_value
+            masked = any(marker in key for marker in secret_markers) or any(marker in reference_key for marker in secret_markers)
             items.append({
                 "key": key,
-                "present": "yes" if value else "no",
-                "value": _mask_secret(value) if (value and masked) else value,
+                "mode": mode,
+                "reference_key": reference_key,
+                "raw_value": (raw_value if (not masked or mode == "reference") else ""),
+                "present": "yes" if resolved_value else "no",
+                "value": _mask_secret(resolved_value) if (resolved_value and masked) else resolved_value,
                 "masked": masked,
+                "source": "config" if mode in {"literal", "reference"} else "environment",
             })
         return items
+
+    def _launch_default_env_updates(self, env_updates: Dict[str, Any]) -> Dict[str, str]:
+        configured = self.cfg.get_value("launch.default_env", []) or []
+        if hasattr(configured, "as_dict"):
+            configured = configured.as_dict()
+        if not isinstance(configured, list):
+            configured = []
+        ref_pattern = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
+        current = {str(k): str(v) for k, v in (os.environ or {}).items()}
+        current.update({str(k): str(v) for k, v in (env_updates or {}).items() if str(v).strip()})
+        default_updates: Dict[str, str] = {}
+        for entry in configured:
+            if hasattr(entry, "as_dict"):
+                entry = entry.as_dict()
+            if isinstance(entry, str):
+                continue
+            if not isinstance(entry, dict) or len(entry) != 1:
+                continue
+            key, raw = next(iter(entry.items()))
+            key = str(key).strip()
+            if not key or str((env_updates or {}).get(key, "")).strip():
+                continue
+            raw_value = str(raw)
+            match = ref_pattern.match(raw_value.strip())
+            if match:
+                ref_key = match.group(1)
+                if str(current.get(ref_key, "")).strip():
+                    default_updates[key] = raw_value
+                    current[key] = raw_value
+                continue
+            if raw_value.strip():
+                default_updates[key] = raw_value
+                current[key] = raw_value
+        return default_updates
 
     def _launched_task_for_agent_id(self, agent_id: str) -> Optional[Dict[str, Any]]:
         agent_id = str(agent_id or "").strip()
@@ -1998,6 +2050,23 @@ class PdbMasterApiServer:
             path = os.path.join(self._TEMPLATE_DIR, "task.html")
             with open(path, "r", encoding="utf-8") as fh:
                 return HTMLResponse(content=fh.read())
+
+        @app.get("/api/ui-meta", summary="UI metadata", dependencies=[Depends(_check_password)])
+        def ui_meta():
+            from ucagent.version import __version__
+
+            uptime_s = 0.0
+            if self.started_at:
+                uptime_s = max(0.0, _now() - self.started_at)
+            return {
+                "status": "ok",
+                "data": {
+                    "product": "UCAgent",
+                    "version": __version__,
+                    "started_at": self.started_at,
+                    "uptime_s": round(uptime_s, 1),
+                },
+            }
 
         @app.post("/api/register", summary="Register or heartbeat", dependencies=[Depends(_check_access_key)])
         def register(body: Dict[str, Any] = Body(default_factory=dict), request: Request = None):
@@ -2621,6 +2690,20 @@ class PdbMasterApiServer:
                 data.append(task)
             data.sort(key=lambda item: item.get("created_at", 0), reverse=True)
             return {"status": "ok", "tasks": data, "count": len(data)}
+
+        _STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
+
+        @app.get("/static/{path:path}", summary="Serve bundled static assets", include_in_schema=False, dependencies=[Depends(_check_password)])
+        def serve_static(path: str):
+            from fastapi.responses import FileResponse
+
+            abs_path = (_STATIC_DIR / path).resolve()
+            if not str(abs_path).startswith(str(_STATIC_DIR)):
+                raise HTTPException(status_code=403, detail="Forbidden")
+            if not abs_path.is_file():
+                raise HTTPException(status_code=404, detail=f"Static asset '{path}' not found")
+            media_type, _ = mimetypes.guess_type(str(abs_path))
+            return FileResponse(path=str(abs_path), media_type=media_type or "application/octet-stream")
 
         @app.get("/api/task/{task_id}", summary="Managed task detail", dependencies=[Depends(_check_password)])
         def get_task(task_id: str):

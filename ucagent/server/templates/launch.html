@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>UCAgent Launch</title>
+<link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
+<link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <style>
   :root{
     --bg:#0f1117;--surface:#1a1d26;--surface2:#22263a;--surface3:#171a21;
@@ -95,10 +97,12 @@
 </head>
 <body>
 <header>
-  <div class="title">Launch Managed UCAgent Task</div>
+  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>Launch Managed UCAgent Task</span></div>
   <div class="spacer"></div>
-  <a class="btn" href="/">Master</a>
-  <a class="btn" href="/task/">Tasks</a>
+  <div id="uc-shell-header-actions" class="actions" style="align-items:center">
+    <a class="btn" href="/">Master</a>
+    <a class="btn" href="/task/">Tasks</a>
+  </div>
 </header>
 <main>
   <section class="card stack">
@@ -241,7 +245,7 @@
 
     <div class="stage-card">
       <div class="stage-title"><h2>Environment Variables</h2></div>
-      <div class="stage-note">The page starts with <code>OPENAI_MODEL</code>, <code>OPENAI_API_BASE</code>, and <code>OPENAI_API_KEY</code>. The key keeps a masked inherited placeholder until you enter a replacement value.</div>
+      <div class="stage-note">This list is loaded from <code>launch.default_env</code>. Empty rows block launch until you fill them or delete them. Entries configured as <code>$VAR</code> automatically follow the referenced variable.</div>
       <div class="table-wrap">
         <table class="env-table">
           <thead>
@@ -283,6 +287,7 @@
     </div>
   </section>
 </main>
+<footer id="uc-shell-footer" class="uc-shell-footer"></footer>
 
 <script>
 const TAG_OPTIONS = [
@@ -295,8 +300,6 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const DEFAULT_ENV_KEYS = ['OPENAI_MODEL', 'OPENAI_API_BASE', 'OPENAI_API_KEY'];
-const SENSITIVE_ENV_KEYS = new Set(['OPENAI_API_KEY']);
 const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend']);
 
 const state = {
@@ -684,8 +687,47 @@ function autoSelectCategory(filename) {
   return 'misc';
 }
 
+function buildCategoryCounts(files) {
+  const counts = Object.create(null);
+  for (const file of files || []) {
+    const category = String(file && file.category || '');
+    if (!category) continue;
+    counts[category] = (counts[category] || 0) + 1;
+  }
+  return counts;
+}
+
+function autoSelectCategoryWithCounts(filename, counts) {
+  if (isVerilogFile(filename)) {
+    return counts.main_verilog ? 'rtl_extra' : 'main_verilog';
+  }
+  if (isMdFile(filename)) {
+    return counts.requirement ? 'spec' : 'requirement';
+  }
+  if (isConfigFile(filename)) {
+    return counts.config ? 'misc' : 'config';
+  }
+  return 'misc';
+}
+
+function assignAutoCategories(filenames) {
+  const counts = buildCategoryCounts(getFiles());
+  return filenames.map((filename) => {
+    const category = autoSelectCategoryWithCounts(filename, counts);
+    counts[category] = (counts[category] || 0) + 1;
+    return category;
+  });
+}
+
 function getSelectedModule() {
   return document.getElementById('selected-module').value.trim();
+}
+
+function syncModuleDerivedFields(moduleName) {
+  const value = String(moduleName || '').trim();
+  if (!value) return;
+  document.getElementById('dut-name').value = value;
+  document.getElementById('task-name').value = value;
 }
 
 function normalizeDutName(value) {
@@ -794,6 +836,8 @@ function renderCompileState() {
   const compile = getCompileInfo();
   const selectedModule = getSelectedModule();
   const desiredDut = getDesiredDutName();
+  const compileLabel = selectedModule ? `Compile ${selectedModule}` : 'Compile DUT';
+  setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule);
   const summary = document.getElementById('compile-summary');
   if (!selectedModule) {
     setStatus('compile-status', '', 'Select a parsed module before compiling the DUT.');
@@ -849,10 +893,10 @@ function renderEnvRows() {
           ${row.masked ? 'type="password"' : 'type="text"'}
           data-action="env-value"
           data-row-id="${esc(row.id)}"
-          value="${esc(row.value)}"
+          value="${esc(row.mode === 'reference' && !row.userEdited ? (row.rawValue || row.value) : row.value)}"
           placeholder="${esc(row.placeholder || '')}">
       </td>
-      <td class="env-source">${esc(row.sourceLabel)}</td>
+      <td class="env-source" title="${esc(row.detailLabel || '')}">${esc(row.sourceLabel)}</td>
       <td><button type="button" class="btn btn-danger" data-action="remove-env-row" data-row-id="${esc(row.id)}">Remove</button></td>
     </tr>
   `).join('');
@@ -863,6 +907,71 @@ function renderEnvRows() {
   } else {
     toggleBtn.style.display = 'none';
   }
+}
+
+function resolveEnvRow(row, seen = new Set()) {
+  if (!row) return { filled: false, payloadValue: '', displayValue: '' };
+  const manual = String(row.value || '').trim();
+  if (manual) {
+    return { filled: true, payloadValue: manual, displayValue: manual };
+  }
+  if (row.mode === 'reference' && row.referenceKey) {
+    if (seen.has(row.key)) return { filled: false, payloadValue: '', displayValue: '' };
+    const nextSeen = new Set(seen);
+    nextSeen.add(row.key);
+    const refRow = state.envRows.find((item) => item.key.trim() === row.referenceKey);
+    const resolved = resolveEnvRow(refRow, nextSeen);
+    if (resolved.filled) {
+      return {
+        filled: true,
+        payloadValue: row.userEdited ? resolved.displayValue : (row.rawValue || `$${row.referenceKey}`),
+        displayValue: resolved.displayValue,
+      };
+    }
+    if (row.hasDefaultValue) {
+      return {
+        filled: true,
+        payloadValue: row.rawValue || `$${row.referenceKey}`,
+        displayValue: row.masked ? row.placeholder : row.initialValue,
+      };
+    }
+    return { filled: false, payloadValue: '', displayValue: '' };
+  }
+  if (row.hasDefaultValue) {
+    if (row.mode === 'literal') {
+      return {
+        filled: String(row.rawValue || '').trim() !== '',
+        payloadValue: row.rawValue,
+        displayValue: row.masked ? row.placeholder : row.initialValue,
+      };
+    }
+    return {
+      filled: true,
+      payloadValue: '',
+      displayValue: row.masked ? row.placeholder : row.initialValue,
+    };
+  }
+  return { filled: false, payloadValue: '', displayValue: '' };
+}
+
+function syncEnvReferenceRows() {
+  for (const row of state.envRows) {
+    if (row.mode !== 'reference' || row.userEdited) continue;
+    const resolved = resolveEnvRow(row);
+    row.value = row.rawValue || `$${row.referenceKey}`;
+    row.initialValue = row.value;
+    row.placeholder = row.masked ? (resolved.displayValue || '') : row.placeholder;
+    row.hasDefaultValue = resolved.filled;
+  }
+}
+
+function getEmptyEnvRows() {
+  return state.envRows.filter((row) => {
+    const key = row.key.trim();
+    if (!key) return false;
+    const resolved = resolveEnvRow(row);
+    return !resolved.filled || !String(resolved.displayValue || row.placeholder || '').trim();
+  });
 }
 
 function buildCommandPreview() {
@@ -916,10 +1025,12 @@ function buildCommandPreview() {
 }
 
 function updateLaunchState() {
+  syncEnvReferenceRows();
   renderGateState();
   renderCompileState();
   document.getElementById('command-preview').textContent = buildCommandPreview();
-  const ready = isNextStepUnlocked() && Boolean(getSelectedModule()) && isCompileCurrent();
+  const emptyEnvRows = getEmptyEnvRows();
+  const ready = isNextStepUnlocked() && Boolean(getSelectedModule()) && isCompileCurrent() && emptyEnvRows.length === 0;
   const launchBtn = document.getElementById('launch-btn');
   if (launchBtn) {
     launchBtn.disabled = state.launching || !ready;
@@ -932,6 +1043,7 @@ function updateLaunchState() {
     if (!hasRequirementFile()) reasons.push('tag one file as Verification Needs');
     if (!getSelectedModule()) reasons.push('choose a parsed module');
     if (getSelectedModule() && !isCompileCurrent()) reasons.push('compile the current DUT selection');
+    if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
     setStatus('launch-readiness', 'warn', `Launch is blocked. Please ${reasons.join(', ')}.`);
   }
 }
@@ -954,9 +1066,11 @@ async function refreshWorkspace(options = {}) {
 }
 
 async function uploadFiles(files) {
+  const categories = assignAutoCategories(files.map((file) => file.name));
   const uploaded = [];
-  for (const file of files) {
-    const category = autoSelectCategory(file.name);
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const category = categories[index];
     const form = new FormData();
     form.append('category', category);
     form.append('file', file);
@@ -1059,9 +1173,11 @@ function toggleBrowser(visible = !state.browser.visible) {
 async function importServerFiles(paths) {
   const rootId = document.getElementById('browser-root').value || (state.browserRoots[0] && state.browserRoots[0].id) || '';
   const filesByCategory = {};
-  for (const relPath of paths) {
+  const categories = assignAutoCategories(paths.map((relPath) => relPath.split('/').pop() || relPath));
+  for (let index = 0; index < paths.length; index += 1) {
+    const relPath = paths[index];
     const filename = relPath.split('/').pop();
-    const category = autoSelectCategory(filename);
+    const category = categories[index];
     if (!filesByCategory[category]) filesByCategory[category] = [];
     filesByCategory[category].push(relPath);
   }
@@ -1079,19 +1195,37 @@ async function importServerFiles(paths) {
 }
 
 function applyEnvDefaults(items) {
-  const lookup = Object.fromEntries((items || []).map((item) => [item.key, item]));
-  state.envRows = DEFAULT_ENV_KEYS.map((key) => {
-    const item = lookup[key] || {};
+  state.envRows = (items || []).map((item) => {
     const masked = Boolean(item.masked);
+    let sourceLabel = 'required';
+    let detailLabel = 'Required external environment variable';
+    if (item.mode === 'reference') {
+      sourceLabel = 'ref';
+      detailLabel = `Configured as ${item.raw_value || ''}`;
+    } else if (item.mode === 'literal') {
+      sourceLabel = 'config';
+      detailLabel = `Configured value: ${item.raw_value || ''}`;
+    } else if (item.present === 'yes') {
+      sourceLabel = 'inherited';
+      detailLabel = 'Inherited from the master environment';
+    }
     return {
       id: makeId('env'),
-      key,
+      key: String(item.key || ''),
       value: masked ? '' : String(item.value || ''),
+      initialValue: masked ? '' : String(item.value || ''),
       placeholder: masked ? String(item.value || '') : '',
       masked,
-      sourceLabel: item.present === 'yes' ? 'inherited' : 'new',
+      mode: String(item.mode || 'required'),
+      rawValue: String(item.raw_value || ''),
+      referenceKey: String(item.reference_key || ''),
+      hasDefaultValue: item.present === 'yes',
+      userEdited: false,
+      sourceLabel,
+      detailLabel,
     };
   });
+  syncEnvReferenceRows();
   renderEnvRows();
 }
 
@@ -1100,9 +1234,16 @@ function addEnvRow() {
     id: makeId('env'),
     key: '',
     value: '',
+    initialValue: '',
     placeholder: '',
     masked: false,
+    mode: 'custom',
+    rawValue: '',
+    referenceKey: '',
+    hasDefaultValue: false,
+    userEdited: false,
     sourceLabel: 'custom',
+    detailLabel: 'Custom launch-only environment variable',
   });
   renderEnvRows();
 }
@@ -1112,11 +1253,8 @@ function collectEnvOverrides() {
   for (const row of state.envRows) {
     const key = row.key.trim();
     if (!key) continue;
-    if (row.masked) {
-      if (row.value.trim()) env[key] = row.value;
-      continue;
-    }
-    if (row.value.trim()) env[key] = row.value;
+    const resolved = resolveEnvRow(row);
+    if (String(resolved.payloadValue || '').trim()) env[key] = resolved.payloadValue;
   }
   return env;
 }
@@ -1167,12 +1305,7 @@ async function parseModules(auto = false) {
         select.value = previous;
       }
       if (!select.value) select.value = state.modules[0];
-      if (!document.getElementById('task-name').value.trim()) {
-        document.getElementById('task-name').value = select.value;
-      }
-      if (!document.getElementById('dut-name').value.trim()) {
-        document.getElementById('dut-name').value = select.value;
-      }
+      syncModuleDerivedFields(select.value);
       setStatus('module-status', 'ok', `Available modules: ${esc(state.modules.join(', '))}`);
     } else {
       setStatus('module-status', 'warn', 'No modules were found in the current Main RTL file.');
@@ -1236,7 +1369,7 @@ async function compileDut() {
       break;
     }
   } finally {
-    setCompileButton('Re-compile', false);
+    updateLaunchState();
   }
 }
 
@@ -1541,12 +1674,7 @@ document.addEventListener('change', async (event) => {
       return;
     }
     if (target.id === 'selected-module') {
-      if (!document.getElementById('dut-name').value.trim()) {
-        document.getElementById('dut-name').value = target.value;
-      }
-      if (!document.getElementById('task-name').value.trim()) {
-        document.getElementById('task-name').value = target.value;
-      }
+      syncModuleDerivedFields(target.value);
       updateLaunchState();
       return;
     }
@@ -1555,14 +1683,22 @@ document.addEventListener('change', async (event) => {
     }
     if (target.matches('input[data-action="env-key"]')) {
       const row = state.envRows.find((item) => item.id === target.dataset.rowId);
-      if (row) row.key = target.value;
+      if (row) {
+        row.key = target.value;
+        row.userEdited = true;
+      }
       updateLaunchState();
+      renderEnvRows();
       return;
     }
     if (target.matches('input[data-action="env-value"]')) {
       const row = state.envRows.find((item) => item.id === target.dataset.rowId);
-      if (row) row.value = target.value;
+      if (row) {
+        row.value = target.value;
+        row.userEdited = true;
+      }
       updateLaunchState();
+      renderEnvRows();
       return;
     }
     if ([
@@ -1581,6 +1717,24 @@ document.addEventListener('change', async (event) => {
 });
 
 document.addEventListener('input', (event) => {
+  if (event.target.matches('input[data-action="env-key"]')) {
+    const row = state.envRows.find((item) => item.id === event.target.dataset.rowId);
+    if (row) {
+      row.key = event.target.value;
+      row.userEdited = true;
+    }
+    updateLaunchState();
+    return;
+  }
+  if (event.target.matches('input[data-action="env-value"]')) {
+    const row = state.envRows.find((item) => item.id === event.target.dataset.rowId);
+    if (row) {
+      row.value = event.target.value;
+      row.userEdited = true;
+    }
+    updateLaunchState();
+    return;
+  }
   if ([
     'task-name', 'dut-name', 'config-path', 'backend', 'output', 'master-override',
   ].includes(event.target.id)) {
@@ -1600,6 +1754,10 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('DOMContentLoaded', initPage);
+</script>
+<script src="/static/share/ucagent-shell.js"></script>
+<script>
+window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta'});
 </script>
 </body>
 </html>

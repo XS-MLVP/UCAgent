@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>UCAgent Dashboard</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f1117'/%3E%3Crect x='8' y='8' width='16' height='16' rx='2.5' fill='%231a1d25' stroke='%234f8ef7' stroke-width='1.5'/%3E%3Cline x1='8' y1='12.5' x2='3.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='16' x2='3.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='8' y1='19.5' x2='3.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='12.5' x2='28.5' y2='12.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='16' x2='28.5' y2='16' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Cline x1='24' y1='19.5' x2='28.5' y2='19.5' stroke='%234f8ef7' stroke-width='1.3' stroke-linecap='round'/%3E%3Ccircle cx='3.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='3.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='12.5' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='16' r='1' fill='%234f8ef7'/%3E%3Ccircle cx='28.5' cy='19.5' r='1' fill='%234f8ef7'/%3E%3Ctext x='16' y='20.5' font-family='monospace' font-size='8.5' font-weight='700' fill='%234f8ef7' text-anchor='middle'%3EUC%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
+<link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <script>
 (function(){
   var CH='ucagent-dashboard';
@@ -51,7 +52,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .web-terminal-btn.active{border-color:var(--green);color:var(--green);cursor:pointer}
 
 /* ── layout ── */
-#layout{display:flex;flex:1;overflow:hidden}
+#layout{display:flex;flex:1;overflow:hidden;height:calc(100vh - 48px - var(--uc-footer-height, 32px))}
 
 /* ── sidebar ── */
 #sidebar{width:280px;min-width:160px;background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;position:relative}
@@ -266,11 +267,13 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <body>
 <!-- header -->
 <div id="hdr">
-  <div class="logo">UC<span>Agent</span></div>
+  <div class="logo uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>UC<span>Agent</span></span></div>
   <div id="status-bar"><span class="dot"></span>Loading...</div>
   <div class="sep"></div>
-  <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
-  <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+  <div id="uc-shell-header-actions" class="uc-shell-actions">
+    <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
+    <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+  </div>
 </div>
 
 <!-- layout -->
@@ -509,6 +512,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     </div>
   </div>
 </div>
+<footer id="uc-shell-footer" class="uc-shell-footer"></footer>
 
 <script>
 "use strict";
@@ -1779,6 +1783,10 @@ setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
 setInterval(fetchPdbStatus,2000);
 setInterval(fetchServerInfo,5000);
+</script>
+<script src="/static/share/ucagent-shell.js"></script>
+<script>
+window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta',fixedFooter:true});
 </script>
 </body>
 </html>

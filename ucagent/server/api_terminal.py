@@ -633,6 +633,10 @@ class PdbWebTermServer:
 
     def get_status(self) -> Dict[str, Any]:
         """Return a status dict for the /api/status endpoint."""
+        try:
+            from ucagent.version import __version__
+        except ImportError:
+            __version__ = "unknown"
         result: Dict[str, Any] = {
             "running": self._running,
             "mode": ("process" if self.is_process_mode
@@ -643,6 +647,8 @@ class PdbWebTermServer:
             "url": self.url(),
             "clients": len(self._clients),
             "password_protected": bool(self.password),
+            "version": __version__,
+            "started_at": self.started_at,
         }
         if self.started_at:
             result["uptime_s"] = round(time.time() - self.started_at, 1)
@@ -928,6 +934,7 @@ class PdbWebTermServer:
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/api/status", self._handle_api_status)
+        app.router.add_get("/api/ui-meta", self._handle_api_ui_meta)
         app.router.add_get("/api/clients", self._handle_api_clients)
         app.router.add_static("/static", _STATIC_DIR, show_index=False)
 
@@ -1058,6 +1065,18 @@ class PdbWebTermServer:
 
     async def _handle_api_status(self, request: web.Request) -> web.Response:
         return web.json_response(self.get_status())
+
+    async def _handle_api_ui_meta(self, request: web.Request) -> web.Response:
+        status = self.get_status()
+        return web.json_response({
+            "status": "ok",
+            "data": {
+                "product": "UCAgent",
+                "version": status.get("version", "unknown"),
+                "started_at": status.get("started_at"),
+                "uptime_s": status.get("uptime_s", 0.0),
+            },
+        })
 
     async def _handle_api_clients(self, request: web.Request) -> web.Response:
         return web.json_response(self.get_clients())

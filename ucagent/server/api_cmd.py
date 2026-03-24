@@ -335,6 +335,24 @@ class PdbCmdApiServer:
         def index():
             return HTMLResponse(content=_HTML)
 
+        @app.get("/api/ui-meta", summary="UI metadata")
+        def get_ui_meta():
+            from ucagent.version import __version__
+            import time as _time
+
+            uptime_s = 0.0
+            if self.started_at:
+                uptime_s = max(0.0, _time.time() - self.started_at)
+            return {
+                "status": "ok",
+                "data": {
+                    "product": "UCAgent",
+                    "version": __version__,
+                    "started_at": self.started_at,
+                    "uptime_s": round(uptime_s, 1),
+                },
+            }
+
         # ── GET /api/status ────────────────────────────────────────────
         @app.get("/api/status", summary="Agent status")
         def get_status():

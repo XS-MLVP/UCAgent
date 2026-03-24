@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>UCAgent Tasks</title>
+<link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
+<link rel="stylesheet" href="/static/share/ucagent-shell.css">
 <style>
   :root{
     --bg:#0f1117;--surface:#1a1d26;--surface2:#22263a;--border:#2e3248;
@@ -46,6 +48,9 @@
   .toolbar .inline{display:flex;align-items:center;gap:8px}
   .toolbar .inline label{margin:0}
   .compact-select{width:auto;min-width:84px}
+  .summary-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)}
+  .summary-banner strong{font-size:13px}
+  .summary-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:12px}
   .pagination{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .detail-card{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto}
   .detail-meta{display:grid;grid-template-columns:minmax(120px,160px) 1fr;gap:8px 12px;align-items:start}
@@ -65,10 +70,12 @@
 </head>
 <body>
 <header>
-  <div class="title">Managed Tasks</div>
+  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>Managed Tasks</span></div>
   <div class="spacer"></div>
-  <a class="btn btn-primary" href="/launch/">Launch</a>
-  <a class="btn" href="/">Master</a>
+  <div id="uc-shell-header-actions" class="actions" style="align-items:center">
+    <a class="btn btn-primary" href="/launch/">Launch</a>
+    <a class="btn" href="/">Master</a>
+  </div>
 </header>
 <main>
   <section class="card stack">
@@ -112,9 +119,13 @@
 
     <div>
       <h2>Task List</h2>
+      <div id="task-summary-banner" class="summary-banner">
+        <strong id="task-summary">Loading…</strong>
+        <span id="task-filter-summary" class="summary-chip muted">Filters: none</span>
+      </div>
       <div class="toolbar">
         <div class="toolbar-left">
-          <div id="task-summary" class="muted">Loading…</div>
+          <div id="task-summary-detail" class="muted">Loading…</div>
         </div>
         <div class="toolbar-right">
           <div class="pagination">
@@ -158,9 +169,11 @@
     </div>
   </section>
 </main>
+<footer id="uc-shell-footer" class="uc-shell-footer"></footer>
 <script>
 let currentTaskId = '';
 let allTasks = [];
+let totalTaskCount = 0;
 const STORAGE_KEY = 'ucagent-task-page-state';
 
 function esc(s){return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
@@ -428,12 +441,36 @@ function setPage(page) {
   renderTaskRows();
 }
 
+function activeFilterSummary() {
+  const parts = [];
+  const status = document.getElementById('filter-status').value.trim();
+  const dut = document.getElementById('filter-dut').value.trim();
+  const q = document.getElementById('filter-q').value.trim();
+  if (status) parts.push(`status=${status}`);
+  if (dut) parts.push(`dut=${dut}`);
+  if (q) parts.push(`q=${q}`);
+  return parts;
+}
+
+function updateTaskSummary() {
+  const matched = (allTasks || []).length;
+  const filters = activeFilterSummary();
+  const headline = matched === totalTaskCount
+    ? `Showing ${matched} / ${totalTaskCount} task(s)`
+    : `Showing ${matched} / ${totalTaskCount} task(s)`;
+  document.getElementById('task-summary').textContent = headline;
+  document.getElementById('task-summary-detail').textContent = matched
+    ? `${matched} task(s) matched the current view`
+    : 'No tasks matched the current view.';
+  document.getElementById('task-filter-summary').textContent = filters.length
+    ? `Filters: ${filters.join(', ')}`
+    : 'Filters: none';
+}
+
 function renderTaskRows() {
   const tbody = document.getElementById('task-rows');
   const rows = allTasks || [];
-  document.getElementById('task-summary').textContent = rows.length
-    ? `${rows.length} task(s) matched`
-    : 'No managed tasks.';
+  updateTaskSummary();
   if (!rows.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="muted">No managed tasks.</td></tr>';
     document.getElementById('page-info').dataset.page = '1';
@@ -480,11 +517,17 @@ async function loadTasks() {
   const q = document.getElementById('filter-q').value.trim();
   const url = `/api/tasks?status=${encodeURIComponent(status)}&dut=${encodeURIComponent(dut)}&q=${encodeURIComponent(q)}`;
   try {
-    const data = await api(url);
+    const [data, totalData] = await Promise.all([
+      api(url),
+      api('/api/tasks'),
+    ]);
     allTasks = data.tasks || [];
+    totalTaskCount = Number(totalData.count || (totalData.tasks || []).length || 0);
     renderTaskRows();
   } catch (err) {
     document.getElementById('task-summary').textContent = 'Failed to load tasks.';
+    document.getElementById('task-summary-detail').textContent = 'Task summary unavailable.';
+    document.getElementById('task-filter-summary').textContent = 'Filters: unavailable';
     document.getElementById('task-rows').innerHTML = `<tr><td colspan="9" class="err">${esc(err.message)}</td></tr>`;
   }
 }
@@ -595,6 +638,10 @@ document.getElementById('page-info').dataset.page = String(savedState.page || 1)
 if (initialHashTaskId) currentTaskId = initialHashTaskId;
 loadTasks();
 if (initialHashTaskId) showTask(initialHashTaskId);
+</script>
+<script src="/static/share/ucagent-shell.js"></script>
+<script>
+window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta'});
 </script>
 </body>
 </html>
