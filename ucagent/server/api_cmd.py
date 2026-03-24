@@ -32,6 +32,9 @@ class _ConsoleCapture:
     """
 
     def __init__(self, original, maxlines: int = 2000) -> None:
+        from ucagent.tui.utils import PersistentConsoleMirror
+        while isinstance(original, (_ConsoleCapture, PersistentConsoleMirror)):
+            original = original._original
         self._original = original
         self._buf: collections.deque = collections.deque(maxlen=maxlines)
         self._lock = threading.Lock()
