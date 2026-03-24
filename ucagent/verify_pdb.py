@@ -889,15 +889,21 @@ class VerifyPDB(Pdb):
         ret_dict = OrderedDict({
             "misson_name": task_data['mission_name'],
             "current_index": current_index,
+            "enable_llm_fail_suggestion": self.agent.stage_manager.llm_fail_suggestion is not None,
+            "enable_llm_pass_suggestion": self.agent.stage_manager.llm_pass_suggestion is not None,
             "stages": []
         })
         stage_list = task_data['task_list']["stage_list"]
         ck_tags = self.api_get_check_tag_list(stage_list)
+        current_stage = self.agent.stage_manager.get_current_stage()
         for i, stage in enumerate(stage_list):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
+            vstage = self.agent.stage_manager.get_stage(i)
+            is_current_stage = vstage is not None and current_stage is not None and vstage == current_stage
+            is_completed_stage = (i < current_index) or (vstage.is_completed() if vstage is not None else stage.get("is_completed", False))
             if time_cost:
                 time_cost = f", {time_cost}"
             color, cend = "", ""
@@ -919,15 +925,73 @@ class VerifyPDB(Pdb):
                 "index": i,
                 "text": text,
                 "out_come": None,
+                "title": stage["title"],
+                "is_current": is_current_stage,
+                "is_completed": is_completed_stage,
+                "is_skipped": is_skipped,
+                "needs_human_check": stage.get("needs_human_check", False),
+                "need_fail_llm_suggestion": stage.get("need_fail_llm_suggestion", False),
+                "need_pass_llm_suggestion": stage.get("need_pass_llm_suggestion", False),
+                "can_edit_flags": (i > current_index) and (vstage is not None) and (not is_current_stage) and (not is_completed_stage),
             }
             if current_index >= i:
-                vstage = self.agent.stage_manager.get_stage(i)
                 if vstage:
                     vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
             ret_dict["stages"].append(vstage_data)
         if return_dict:
             return ret_dict
         return ret
+
+    def api_update_stage_flags(
+        self,
+        indices,
+        hmcheck_needed=None,
+        skip=None,
+        llm_fail_suggestion=None,
+        llm_pass_suggestion=None,
+    ):
+        """
+        Update stage flags for one or more stages.
+        """
+        if not indices:
+            raise ValueError("Stage indices cannot be empty.")
+        changed = False
+        updated = []
+        stage_manager = self.agent.stage_manager
+        current_stage = stage_manager.get_current_stage()
+        for stage_index in indices:
+            stage = stage_manager.get_stage(stage_index)
+            if stage is None:
+                raise ValueError(f"No stage found at index {stage_index}.")
+            if stage_index <= stage_manager.stage_index or stage.is_completed() or (current_stage is not None and stage == current_stage):
+                raise ValueError(f"Stage {stage_index} cannot be modified after completion or while it is in progress.")
+            if hmcheck_needed is not None:
+                stage.do_set_hmcheck_needed(hmcheck_needed)
+                changed = True
+            if llm_fail_suggestion is not None:
+                stage.set_llm_fail_suggestion(llm_fail_suggestion)
+                changed = True
+            if llm_pass_suggestion is not None:
+                stage.set_llm_pass_suggestion(llm_pass_suggestion)
+                changed = True
+            if skip is True:
+                stage_manager.skip_stage(stage_index)
+                changed = True
+            elif skip is False:
+                stage_manager.unskip_stage(stage_index)
+                changed = True
+            stage = stage_manager.get_stage(stage_index)
+            updated.append({
+                "index": stage_index,
+                "title": stage.title(),
+                "is_skipped": stage.is_skipped(),
+                "needs_human_check": stage.is_hmcheck_needed(),
+                "need_fail_llm_suggestion": stage_manager.stage_need_llm_fail_suggestion(stage),
+                "need_pass_llm_suggestion": stage_manager.stage_need_llm_pass_suggestion(stage),
+            })
+        if changed:
+            stage_manager.save_stage_info()
+        return updated
 
     def api_all_cmds(self, prefix=""):
         """

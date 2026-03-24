@@ -33,7 +33,7 @@
       --accent:#4f8ef7;--accent2:#2d5cb8;--green:#36d399;--red:#f87272;
       --yellow:#fbbd23;--orange:#f97316;--radius:6px;--mono:'Consolas','Menlo',monospace}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden;padding-bottom:var(--uc-footer-height, 32px)}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 
 /* ── header ── */
@@ -46,13 +46,15 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .dot.err{background:var(--red)}
 #refresh-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
 #refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+.ui-reset-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px}
+.ui-reset-btn:hover{border-color:var(--orange);color:var(--orange)}
 .web-terminal-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);cursor:not-allowed;font-size:12px;transition:all .15s}
 .web-terminal-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
 .web-terminal-btn:disabled{opacity:.5}
 .web-terminal-btn.active{border-color:var(--green);color:var(--green);cursor:pointer}
 
 /* ── layout ── */
-#layout{display:flex;flex:1;overflow:hidden;height:calc(100vh - 48px - var(--uc-footer-height, 32px))}
+#layout{display:flex;flex:1;overflow:hidden}
 
 /* ── sidebar ── */
 #sidebar{width:280px;min-width:160px;background:var(--bg2);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;position:relative}
@@ -64,10 +66,25 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #mission-list{overflow-y:auto;flex:1;font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
 .mission-name{text-align:center;font-weight:600;font-size:13px;color:var(--accent);margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)}
 .stage-item{margin-bottom:4px}
+.stage-bulk-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:8px}
+.stage-select-meta{font-size:10px;color:var(--text-dim);margin-right:4px}
+.stage-bulk-btn,.stage-quick-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:10px;line-height:1.4}
+.stage-bulk-btn:hover,.stage-quick-btn:hover{border-color:var(--accent);color:var(--accent)}
+.stage-bulk-btn:disabled{opacity:.45;cursor:not-allowed}
+.stage-select{margin-top:2px;accent-color:var(--accent);cursor:pointer}
+.stage-select-slot{width:13px;flex-shrink:0;display:inline-block}
 .stage-text-wrap{display:flex;align-items:flex-start;gap:4px}
+.stage-main{display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0}
+.stage-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .stage-collapse-btn{cursor:pointer;color:var(--text-dim);font-size:10px;width:12px;flex-shrink:0;user-select:none}
 .stage-collapse-btn:hover{color:var(--accent)}
-.stage-text{padding:2px 0;flex:1}
+.stage-text{padding:2px 0;flex:1;min-width:0;word-break:break-word}
+.stage-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;margin-left:auto}
+.stage-quick-btn.active-hm{border-color:var(--red);color:var(--red)}
+.stage-quick-btn.active-skip{border-color:var(--yellow);color:var(--yellow)}
+.stage-quick-btn.active-lf{border-color:var(--orange);color:var(--orange)}
+.stage-quick-btn.active-lp{border-color:var(--green);color:var(--green)}
+.stage-bulk-btn.hidden,.stage-quick-btn.hidden{display:none}
 .stage-outcome{margin-left:16px;margin-top:2px;font-size:11px}
 .outcome-section{margin:4px 0}
 .outcome-label{color:var(--text-dim);margin-right:6px;font-size:10px}
@@ -122,7 +139,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .show-current-label:hover{color:var(--text)}
 
 /* ── file manager ── */
-#fm{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#fm{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #fm-bar{display:flex;align-items:center;padding:8px 14px;background:var(--bg2);border-bottom:1px solid var(--border);gap:8px;flex-shrink:0;flex-wrap:wrap}
 #breadcrumb{flex:1;font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
 #breadcrumb span{cursor:pointer;color:var(--accent)}#breadcrumb span:hover{text-decoration:underline}
@@ -133,7 +150,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .fm-btn.primary:hover{background:var(--accent)}
 .fm-btn.danger{background:none;border-color:var(--red);color:var(--red)}
 .fm-btn.danger:hover{background:var(--red);color:#fff}
-#fm-table-wrap{flex:1;overflow:auto}
+#fm-table-wrap{flex:1;min-height:0;overflow:auto}
 table{width:100%;border-collapse:collapse}
 th{background:var(--bg3);color:var(--text-dim);font-size:11px;font-weight:600;padding:8px 12px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--border)}
 td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle;white-space:nowrap}
@@ -161,17 +178,17 @@ td.col-name .fn.dir{color:var(--accent)}
 /* ── console panel ── */
 #fm-resizer{height:4px;background:var(--border);cursor:row-resize;flex-shrink:0;transition:background .15s}
 #fm-resizer:hover,#fm-resizer.dragging{background:var(--accent)}
-#console-panel{height:220px;min-height:60px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#console-panel{height:220px;min-height:160px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
 #console-bar{display:flex;align-items:center;padding:4px 12px;background:var(--bg2);border-bottom:1px solid var(--border);border-top:1px solid var(--border);gap:8px;flex-shrink:0}
 #console-bar .label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);font-weight:600}
 #console-bar .csep{flex:1}
-#console-output{flex:1;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:var(--bg);white-space:pre-wrap;word-break:break-all;color:var(--text)}
+#console-output{flex:1;min-height:0;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:var(--bg);white-space:pre-wrap;word-break:break-all;color:var(--text)}
 .con-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
 .con-btn:hover{border-color:var(--accent);color:var(--accent)}
 .con-btn.active{border-color:var(--green);color:var(--green)}
 .con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
 /* ── pdb command input bar ── */
-#pdb-cmd-bar{display:flex;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0}
+#pdb-cmd-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0;min-height:36px;position:relative;z-index:61;margin-top:auto}
 #pdb-cmd-input{flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:4px;outline:none}
 #pdb-cmd-input:focus{border-color:var(--accent)}
 #pdb-cmd-input:disabled{opacity:.45;cursor:not-allowed}
@@ -272,6 +289,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div class="sep"></div>
   <div id="uc-shell-header-actions" class="uc-shell-actions">
     <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
+    <button id="ui-reset-btn" class="ui-reset-btn" onclick="resetUiLayout()" title="Reset saved UI layout and dashboard preferences (Alt+Shift+R)">Reset UI</button>
     <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
   </div>
 </div>
@@ -305,6 +323,19 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
             </div>
           </div>
         </h3>
+        <div class="stage-bulk-bar">
+          <span class="stage-select-meta" id="stage-select-meta">0 selected</span>
+          <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(true)">All</button>
+          <button class="stage-bulk-btn" onclick="toggleStageSelectionAll(false)">Clear</button>
+          <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:true})">HM On</button>
+          <button class="stage-bulk-btn" onclick="applyStageBulkAction({hmcheck_needed:false})">HM Off</button>
+          <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:true})">Skip</button>
+          <button class="stage-bulk-btn" onclick="applyStageBulkAction({skip:false})">Unskip</button>
+          <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:true})">LFail On</button>
+          <button class="stage-bulk-btn stage-bulk-lf" onclick="applyStageBulkAction({llm_fail_suggestion:false})">LFail Off</button>
+          <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:true})">LPass On</button>
+          <button class="stage-bulk-btn stage-bulk-lp" onclick="applyStageBulkAction({llm_pass_suggestion:false})">LPass Off</button>
+        </div>
         <div id="mission-list">Loading…</div>
       </div>
     </div>
@@ -519,6 +550,8 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 let _curPath = "";
 let _editPath = "";
 let _uploadFiles = [];
+let _selectedStages = new Set();
+let _stageActionBusy = false;
 
 /* ── helpers ── */
 function qs(s){return document.querySelector(s)}
@@ -536,6 +569,22 @@ function openModal(id){
   }
 }
 function showErr(msg){alert("Error: "+msg)}
+function resetUiLayout(){
+  const keys=[
+    "ucagent-show-current",
+    "ucagent-show-files",
+    "ucagent-outcome-count",
+    "ucagent-collapsed-stages",
+    "ucagent.console.h",
+    "ucagent.sidebar.w",
+    "ucagent.modal.drag",
+    "ucagent.modal.resize"
+  ];
+  for(const key of keys){
+    try{localStorage.removeItem(key);}catch(e){}
+  }
+  location.reload();
+}
 
 async function apiFetch(path,opts){
   const r=await fetch(path,opts);
@@ -732,16 +781,98 @@ function _initMissionSettings(){
 }
 
 /* ── mission ── */
+function _selectedStageIndexes(){
+  return [..._selectedStages].sort((a,b)=>a-b);
+}
+
+function _updateStageSelectionUi(){
+  const selected=_selectedStageIndexes();
+  const meta=qs("#stage-select-meta");
+  if(meta)meta.textContent=`${selected.length} selected`;
+  document.querySelectorAll(".stage-select").forEach(el=>{
+    const idx=parseInt(el.dataset.stageIndex,10);
+    el.checked=_selectedStages.has(idx);
+  });
+  document.querySelectorAll(".stage-bulk-btn").forEach((btn,idx)=>{
+    btn.disabled=_stageActionBusy||(idx>=2&&selected.length===0);
+  });
+}
+
+function toggleStageSelection(stageIndex,checked){
+  if(checked)_selectedStages.add(stageIndex);
+  else _selectedStages.delete(stageIndex);
+  _updateStageSelectionUi();
+}
+
+function toggleStageSelectionAll(selectAll){
+  if(selectAll){
+    _selectedStages=new Set((window._missionStages||[]).filter(stage=>stage.can_edit_flags).map(stage=>stage.index));
+  }else{
+    _selectedStages.clear();
+  }
+  _updateStageSelectionUi();
+}
+
+function _pruneSelectedStages(stages){
+  const valid=new Set((stages||[]).filter(stage=>stage.can_edit_flags).map(stage=>stage.index));
+  _selectedStages=new Set(_selectedStageIndexes().filter(idx=>valid.has(idx)));
+}
+
+function _setStageFeatureVisibility(enableFail,enablePass){
+  document.querySelectorAll(".stage-bulk-lf").forEach(el=>{
+    el.classList.toggle("hidden",!enableFail);
+  });
+  document.querySelectorAll(".stage-bulk-lp").forEach(el=>{
+    el.classList.toggle("hidden",!enablePass);
+  });
+}
+
+async function _postStageUpdate(payload){
+  if(_stageActionBusy)return;
+  _stageActionBusy=true;
+  _updateStageSelectionUi();
+  try{
+    await apiFetch("/api/stages/update",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload)
+    });
+    await fetchMission();
+    await fetchStatus();
+  }catch(e){
+    showErr(e.message);
+  }finally{
+    _stageActionBusy=false;
+    _updateStageSelectionUi();
+  }
+}
+
+function applyStageBulkAction(action){
+  const indices=_selectedStageIndexes();
+  if(!indices.length)return;
+  _postStageUpdate(Object.assign({indices},action));
+}
+
+function toggleStageQuickAction(stageIndex,key,currentValue){
+  _postStageUpdate({indices:[stageIndex],[key]:!currentValue});
+}
+
 async function fetchMission(){
   try{
     const j=await apiFetch("/api/mission");
     const data=j.data||{};
     const missionName=data.misson_name||"Mission";
     const stages=data.stages||[];
+    const enableLlmFailSuggestion=!!data.enable_llm_fail_suggestion;
+    const enableLlmPassSuggestion=!!data.enable_llm_pass_suggestion;
+    _setStageFeatureVisibility(enableLlmFailSuggestion,enableLlmPassSuggestion);
+    window._missionStages=stages;
+    _pruneSelectedStages(stages);
     window._missionOutcomeData={};
     const showFiles=qs("#show-files")?.checked!==false;
     let html=`<div class="mission-name">${esc(missionName)}</div>`;
     for(const stage of stages){
+      const canEditFlags=!!stage.can_edit_flags;
       const outcome=stage.out_come;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
@@ -751,10 +882,35 @@ async function fetchMission(){
       const isCollapsed=_isStageCollapsed(stage.index,hasFiles);
       html+=`<div class="stage-item">`;
       html+=`<div class="stage-text-wrap">`;
+      if(canEditFlags){
+        html+=`<input class="stage-select" type="checkbox" data-stage-index="${stage.index}" onchange="toggleStageSelection(${stage.index},this.checked)" ${_selectedStages.has(stage.index)?"checked":""} title="Select stage ${stage.index}">`;
+      }else{
+        html+=`<span class="stage-select-slot"></span>`;
+      }
+      html+=`<div class="stage-main">`;
       if(hasFiles){
         html+=`<span class="stage-collapse-btn" id="stage-collapse-btn-${stage.index}" onclick="_toggleStageCollapse(${stage.index})">${isCollapsed?"▶":"▼"}</span>`;
+      }else{
+        html+=`<span class="stage-collapse-btn"></span>`;
       }
-      html+=`<span class="stage-text">${_ansiToHtml(stage.text||"")}</span>`;
+      html+=`<div style="flex:1;min-width:0">`;
+      html+=`<div class="stage-row">`;
+      html+=`<div class="stage-text">${_ansiToHtml(stage.text||"")}</div>`;
+      if(canEditFlags){
+        html+=`<div class="stage-actions">`;
+        html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;
+        html+=`<button class="stage-quick-btn${stage.is_skipped?" active-skip":""}" onclick="toggleStageQuickAction(${stage.index},'skip',${stage.is_skipped?'true':'false'})" title="Toggle skip">Skip</button>`;
+        if(enableLlmFailSuggestion){
+          html+=`<button class="stage-quick-btn${stage.need_fail_llm_suggestion?" active-lf":""}" onclick="toggleStageQuickAction(${stage.index},'llm_fail_suggestion',${stage.need_fail_llm_suggestion?'true':'false'})" title="Toggle LLM fail suggestion">LF</button>`;
+        }
+        if(enableLlmPassSuggestion){
+          html+=`<button class="stage-quick-btn${stage.need_pass_llm_suggestion?" active-lp":""}" onclick="toggleStageQuickAction(${stage.index},'llm_pass_suggestion',${stage.need_pass_llm_suggestion?'true':'false'})" title="Toggle LLM pass suggestion">LP</button>`;
+        }
+        html+=`</div>`;
+      }
+      html+=`</div>`;
+      html+=`</div>`;
+      html+=`</div>`;
       html+=`</div>`;
       if(showFiles&&outcome&&hasFiles){
         window._missionOutcomeData[stage.index]=outcome;
@@ -769,6 +925,7 @@ async function fetchMission(){
       html+=`</div>`;
     }
     qs("#mission-list").innerHTML=html||"(no tasks)";
+    _updateStageSelectionUi();
   }catch(e){qs("#mission-list").textContent="(unavailable)";}
 }
 
@@ -1607,8 +1764,18 @@ async function clearConsole(){
   const resizer=document.getElementById("fm-resizer");
   const panel=document.getElementById("console-panel");
   if(!resizer||!panel)return;
+  const minConsoleHeight=120;
+  function getMaxConsoleHeight(){
+    const parent=panel.parentElement;
+    if(!parent)return 320;
+    return Math.max(minConsoleHeight, Math.floor(parent.clientHeight*0.6));
+  }
+  function clampConsoleHeight(h){
+    return Math.max(minConsoleHeight, Math.min(h, getMaxConsoleHeight()));
+  }
   const savedH=+localStorage.getItem('ucagent.console.h');
-  if(savedH>=60)panel.style.height=savedH+'px';
+  const initialH=Number.isFinite(savedH)&&savedH>0?savedH:220;
+  panel.style.height=clampConsoleHeight(initialH)+'px';
   let startY,startH;
   resizer.addEventListener("pointerdown",e=>{
     startY=e.clientY;startH=panel.offsetHeight;
@@ -1619,8 +1786,7 @@ async function clearConsole(){
     resizer.addEventListener("pointerup",onUp,{once:true});
   });
   function onMove(e){
-    const h=Math.max(startH-(e.clientY-startY),60);
-    panel.style.height=h+"px";
+    panel.style.height=clampConsoleHeight(startH-(e.clientY-startY))+"px";
   }
   function onUp(){
     resizer.classList.remove("dragging");
@@ -1628,6 +1794,9 @@ async function clearConsole(){
     resizer.removeEventListener("pointermove",onMove);
     try{localStorage.setItem('ucagent.console.h',panel.offsetHeight);}catch(e){}
   }
+  window.addEventListener("resize",()=>{
+    panel.style.height=clampConsoleHeight(panel.offsetHeight)+"px";
+  });
 })();
 
 /* ── edit gutter sync ── */
@@ -1775,6 +1944,13 @@ function _applyStoredModalResize(modalId){
 
 /* ── refresh all ── */
 function refreshAll(){fetchStatus();fetchMission();fetchTools();refreshFiles();fetchChangedFiles();fetchConsole();fetchServerInfo();}
+
+document.addEventListener("keydown",function(e){
+  if(e.altKey&&e.shiftKey&&String(e.key).toLowerCase()==="r"){
+    e.preventDefault();
+    resetUiLayout();
+  }
+});
 
 /* ── init ── */
 _initMissionSettings();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();

@@ -283,6 +283,13 @@ class PdbCmdApiServer:
 
         class CmdsBody(BaseModel):
             cmds: List[str]
+
+        class StageFlagsBody(BaseModel):
+            indices: List[int]
+            hmcheck_needed: Optional[bool] = None
+            skip: Optional[bool] = None
+            llm_fail_suggestion: Optional[bool] = None
+            llm_pass_suggestion: Optional[bool] = None
         # ── path helpers ───────────────────────────────────────────────
         def _workspace_root() -> str:
             return os.path.abspath(pdb.agent.workspace)
@@ -567,6 +574,22 @@ class PdbCmdApiServer:
                 return {"status": "ok", "message": f"{len(cmds)} command(s) enqueued", "count": len(cmds), "cmds": cmds}
             except HTTPException:
                 raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        @app.post("/api/stages/update", summary="Update stage flags")
+        def post_stage_update(body: StageFlagsBody):
+            try:
+                updated = pdb.api_update_stage_flags(
+                    indices=body.indices,
+                    hmcheck_needed=body.hmcheck_needed,
+                    skip=body.skip,
+                    llm_fail_suggestion=body.llm_fail_suggestion,
+                    llm_pass_suggestion=body.llm_pass_suggestion,
+                )
+                return {"status": "ok", "data": updated}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
