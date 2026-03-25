@@ -562,7 +562,7 @@ async function showTask(taskId) {
       </div>`;
     const logs = await api(`/api/task/${encodeURIComponent(taskId)}/logs`);
     setTaskLogs(
-      `[picker stdout]\n${logs.picker_stdout || ''}\n\n[picker stderr]\n${logs.picker_stderr || ''}\n\n[stdout]\n${logs.stdout || ''}\n\n[stderr]\n${logs.stderr || ''}`
+      `[stdout]\n${logs.stdout || ''}\n\n[stderr]\n${logs.stderr || ''}`
     );
   } catch (err) {
     document.getElementById('task-detail').innerHTML = `<div class="err">${esc(err.message)}</div>`;
