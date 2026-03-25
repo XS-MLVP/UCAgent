@@ -246,12 +246,13 @@ def get_args() -> argparse.Namespace:
         nargs="?",
         const="",
         default=None,
-        metavar="[base_url:port[:password]]",
+        metavar="[host[:port]] [password]",
         help=(
             "Start browser-based terminal. "
             "Bare '--web-console' uses defaults (localhost:8000, no auth). "
-            "Use '--web-console base_url:port[:password]' to customize host/port "
+            "Use '--web-console [host[:port]] [password]' to customize host/port "
             "and optionally enable HTTP Basic Auth. "
+            "e.g. --web-console '0.0.0.0:8000 mysecret' "
             "NOTE: --web-console runs in standalone mode and does NOT provide "
             "local command-line interaction."
         )
@@ -262,13 +263,13 @@ def get_args() -> argparse.Namespace:
         nargs="?",
         const="",
         default=None,
-        metavar="[host[:port]][ passwd]",
+        metavar="[host[:port]][ password]",
         help=(
             "Start Web Terminal server (terminal_api_start) at agent startup. "
             "Bare '--web-terminal' uses defaults (127.0.0.1:8818, no auth). "
-            "Use '--web-terminal host[:port]' to customize address. "
-            "Append a password after a space to enable HTTP Basic Auth, "
-            "e.g. --web-terminal '0.0.0.0:8818 mysecret'. "
+            "Use '--web-terminal [host[:port]] [password]' to customize address "
+            "and optionally enable HTTP Basic Auth. "
+            "e.g. --web-terminal '0.0.0.0:8818 mysecret' "
             "Unlike --web-console, --web-terminal provides BOTH web-based terminal "
             "AND local command-line interaction simultaneously."
         )
@@ -410,11 +411,11 @@ def get_args() -> argparse.Namespace:
         nargs="?",
         const="",
         default=None,
-        metavar="[ip[:port]]",
+        metavar="[host[:port]]",
         help=(
             "Start this agent as a Master API server. "
             "Bare '--as-master' uses the default host/port. "
-            "'--as-master ip[:port]' binds the server to the given address. "
+            "'--as-master host[:port]' binds the server to the given address. "
             "workspace and dut positional args are optional when this flag is used."
         )
     )
@@ -462,11 +463,11 @@ def get_args() -> argparse.Namespace:
         nargs="?",
         const="",
         default=None,
-        metavar="[ip[:port]][ passwd]",
+        metavar="[host[:port]][ password]",
         help=(
             "Start the CMD API server (PdbCmdApiServer) as part of agent startup. "
             "Bare '--export-cmd-api' uses default host/port (127.0.0.1:8765). "
-            "'--export-cmd-api ip[:port]' binds to the given address. "
+            "'--export-cmd-api host[:port]' binds to the given address. "
             "Append a password after a space to enable HTTP Basic Auth, "
             "e.g. --export-cmd-api '0.0.0.0:8765 mysecret'."
         )
@@ -767,7 +768,7 @@ def run() -> None:
         extra_cmd_api_opts = ""
         addr_part = args.export_cmd_api.strip()
         passwd_part = ""
-        # Allow embedded password after a space: "ip[:port] passwd" or just "passwd"
+        # Allow embedded password after a space: "host[:port] passwd" or just "passwd"
         if " " in addr_part:
             addr_part, passwd_part = addr_part.split(" ", 1)
             passwd_part = passwd_part.strip()

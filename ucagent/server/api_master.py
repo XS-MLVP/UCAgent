@@ -211,10 +211,19 @@ def _resolve_web_console_spec(spec: Any) -> Tuple[str, int, str]:
         port = 8000
         password = ""
     else:
-        parts = raw.split(":", 2)
+        addr_part = raw
+        password = ""
+        # Support format: [ip[:port]] [password] (space separated)
+        if " " in addr_part:
+            addr_part, password = addr_part.split(" ", 1)
+            password = password.strip()
+            addr_part = addr_part.strip()
+        
+        # Parse address part
+        parts = addr_part.split(":", 1)
         if len(parts) < 2:
             raise ValueError(
-                f"Invalid --web-console value '{raw}'. Expected format: host:port[:password]"
+                f"Invalid --web-console value '{raw}'. Expected format: [host[:port]] [password]"
             )
         host = parts[0].strip()
         if not host:
@@ -1306,8 +1315,6 @@ class PdbMasterApiServer:
             "picker_status": "not_started",
             "picker_command": [],
             "picker_exit_code": None,
-            "picker_stdout": "",
-            "picker_stderr": "",
             "stdout_log_path": stdout_log,
             "stderr_log_path": stderr_log,
             "cmd_api": data.get("cmd_api", {}),
@@ -1373,9 +1380,14 @@ class PdbMasterApiServer:
         add_flag("--tui", req.get("tui"))
         web_console = req.get("web_console")
         if web_console in (True, "__default__", "__bare__", "__enabled__"):
+            # Use cmd_api password when web console is enabled without explicit config
             argv.append("--web-console")
-        else:
-            add_value("--web-console", web_console)
+        elif isinstance(web_console, str) and web_console.strip():
+            # Check if password is already provided in the web_console spec (format: [ip[:port]] [password])
+            web_console_spec = web_console.strip()
+            if " " not in web_console_spec:  # no password provided, add cmd_api password
+                web_console_spec = f"{web_console_spec} {cmd_api['password']}"
+            add_value("--web-console", web_console_spec)
         web_terminal = req.get("web_terminal")
         if web_terminal in (True, "__default__", "__bare__", "__enabled__"):
             argv.append("--web-terminal")
@@ -1716,6 +1728,9 @@ class PdbMasterApiServer:
         web_terminal_spec = req.get("web_terminal")
         if web_terminal_spec is not None:
             term_host, term_port, term_password = _parse_web_terminal_spec(str(web_terminal_spec))
+            # Use cmd_api password if web terminal password is not provided
+            if not term_password:
+                term_password = cmd_api["password"]
             terminal_api = {
                 "enabled": True,
                 "host": term_host,
@@ -1728,7 +1743,11 @@ class PdbMasterApiServer:
         web_console_spec = req.get("web_console")
         if web_console_spec not in (None, False, ""):
             wc_host, wc_port, wc_password = _resolve_web_console_spec(web_console_spec)
-            req["web_console"] = f"{wc_host}:{wc_port}" + (f":{wc_password}" if wc_password else "")
+            # Use cmd_api password if web console password is not provided
+            if not wc_password:
+                wc_password = cmd_api["password"]
+            # Build command line argument with space-separated format
+            req["web_console"] = f"{wc_host}:{wc_port} {wc_password}"
             web_console = {
                 "enabled": True,
                 "host": wc_host,
@@ -2816,8 +2835,6 @@ class PdbMasterApiServer:
                 "status": "ok",
                 "stdout": _tail_file(task.get("stdout_log_path", "")),
                 "stderr": _tail_file(task.get("stderr_log_path", "")),
-                "picker_stdout": task.get("picker_stdout", ""),
-                "picker_stderr": task.get("picker_stderr", ""),
             }
 
         @app.post("/api/task/{task_id}/stop", summary="Stop managed task", dependencies=[Depends(_check_password)])
@@ -2882,7 +2899,7 @@ class PdbMasterApiServer:
                             raw = text.encode("utf-8")
                         response_headers = {}
                         for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
@@ -2935,7 +2952,7 @@ class PdbMasterApiServer:
                             raw = text.encode("utf-8")
                         response_headers = {}
                         for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
@@ -2977,7 +2994,7 @@ class PdbMasterApiServer:
                             raw = text.encode("utf-8")
                         response_headers = {}
                         for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
@@ -3030,7 +3047,7 @@ class PdbMasterApiServer:
                             raw = text.encode("utf-8")
                         response_headers = {}
                         for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
@@ -3072,7 +3089,7 @@ class PdbMasterApiServer:
                             raw = text.encode("utf-8")
                         response_headers = {}
                         for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
                                 continue
                             response_headers[key] = value
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
@@ -3151,7 +3168,6 @@ class PdbMasterApiServer:
             target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
-            auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
             # Set correct Origin header for upstream CORS validation
             from urllib.parse import urlparse
@@ -3160,7 +3176,7 @@ class PdbMasterApiServer:
             upstream_headers["Origin"] = upstream_origin
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                    async with session.ws_connect(target_url, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
                         # Pass negotiated subprotocol from upstream to client
                         await websocket.accept(subprotocol=upstream.protocol)
 
@@ -3264,7 +3280,6 @@ class PdbMasterApiServer:
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             
-            auth = aiohttp.BasicAuth("", web_console.get("password", "")) if web_console.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
             # Set correct Origin header for upstream CORS validation
             from urllib.parse import urlparse
@@ -3274,7 +3289,7 @@ class PdbMasterApiServer:
             
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                    async with session.ws_connect(target_url, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
                         # Pass negotiated subprotocol from upstream to client
                         await websocket.accept(subprotocol=upstream.protocol)
 
@@ -3374,7 +3389,6 @@ class PdbMasterApiServer:
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             
-            auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
             # Set correct Origin header for upstream CORS validation
             from urllib.parse import urlparse
@@ -3383,7 +3397,7 @@ class PdbMasterApiServer:
             upstream_headers["Origin"] = upstream_origin
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                    async with session.ws_connect(target_url, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
                         # Pass negotiated subprotocol from upstream to client
                         await websocket.accept(subprotocol=upstream.protocol)
 
@@ -3480,7 +3494,6 @@ class PdbMasterApiServer:
             target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
-            auth = aiohttp.BasicAuth("", web_console.get("password", "")) if web_console.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
             # Set correct Origin header for upstream CORS validation
             from urllib.parse import urlparse
@@ -3490,7 +3503,7 @@ class PdbMasterApiServer:
             
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                    async with session.ws_connect(target_url, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
                         # Pass negotiated subprotocol from upstream to client
                         await websocket.accept(subprotocol=upstream.protocol)
 

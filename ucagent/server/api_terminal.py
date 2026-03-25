@@ -90,13 +90,24 @@ def _extract_web_console_spec(argv: Optional[List[str]] = None) -> str:
 
 
 def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
-    """Parse '--web-console host:port[:password]' value."""
+    """Parse '--web-console [base_url[:port]] [password]' value."""
     if not spec or str(spec).strip() == "-1":
         return "localhost", 8000, ""
-    parts = spec.split(":", 2)
+    
+    addr_part = spec.strip()
+    password = ""
+    
+    # Support format: [ip[:port]] [password] (space separated)
+    if " " in addr_part:
+        addr_part, password = addr_part.split(" ", 1)
+        password = password.strip()
+        addr_part = addr_part.strip()
+    
+    # Now parse the address part
+    parts = addr_part.split(":", 1)
     if len(parts) < 2:
         raise ValueError(
-            f"Invalid --web-console value '{spec}'. Expected format: base_url:port[:password]"
+            f"Invalid --web-console value '{spec}'. Expected format: [base_url[:port]] [password]"
         )
     host = parts[0].strip()
     if not host:
@@ -116,7 +127,7 @@ def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
         raise ValueError(
             f"Invalid --web-console value '{spec}'. Port must be in range 1..65535."
         )
-    password = parts[2] if len(parts) == 3 else ""
+    
     return host, port, password
 
 
