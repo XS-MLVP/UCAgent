@@ -458,6 +458,20 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--as-master-persist",
+        type=str,
+        nargs="?",
+        const="/tmp/ucagent_master_persist",
+        default=None,
+        metavar="path",
+        help=(
+            "Use persistent workspace directory when running as master (instead of temporary directory). "
+            "If path is provided, use it as the workspace directory. "
+            "If no path is provided, default to /tmp/ucagent_master_persist."
+        )
+    )
+
+    parser.add_argument(
         "--export-cmd-api",
         type=str,
         nargs="?",
@@ -647,14 +661,23 @@ def run() -> None:
             print(f"Failed to start Web UI: {e}")
             sys.exit(1)
 
-    # --as-master with no positional args → spin up a fake DUT under /tmp
+    # --as-master with no positional args → spin up a fake DUT under /tmp or persistent directory
     if getattr(args, 'as_master', None) is not None and args.workspace is None:
-        temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
-        args.workspace = temp_dir.name
-        args.dut = "empty"
-        args.human = True
-        args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
-        args._temp_dir = temp_dir
+        if getattr(args, 'as_master_persist', None) is not None:
+            # Use persistent directory
+            args.workspace = args.as_master_persist
+            os.makedirs(args.workspace, exist_ok=True)
+            args.dut = "empty"
+            args.human = True
+            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
+        else:
+            # Use temporary directory
+            temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
+            args.workspace = temp_dir.name
+            args.dut = "empty"
+            args.human = True
+            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
+            args._temp_dir = temp_dir
 
     if args.emulate_config:
         if args.config is None:

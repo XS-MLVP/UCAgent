@@ -95,5 +95,8 @@ continue_%:
 as_master:
 	$(CMD) --as-master ${ARGS}
 
+as_master_persist:
+	$(CMD) --as-master-persist ${PATH_PERSISTENT} --as-master ${ARGS}
+
 # Include docs Makefile
 -include docs/Makefile
