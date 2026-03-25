@@ -67,8 +67,10 @@ window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/a
   var forced = false;
 
   // BroadcastChannel for same-origin cross-tab communication
+  // Generate unique channel name based on current URL to allow multiple terminals on different paths
+  var channelName = 'ucagent_terminal_' + btoa(location.pathname + location.search).replace(/[+/=]/g, '');
   var bc = (typeof BroadcastChannel !== 'undefined')
-           ? new BroadcastChannel('ucagent_terminal') : null;
+           ? new BroadcastChannel(channelName) : null;
 
   function checkExistingSession() {
     // Use BroadcastChannel: ask if another tab is alive
