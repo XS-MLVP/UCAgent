@@ -1835,11 +1835,12 @@ class PdbMasterApiServer:
                 "connection",
                 "upgrade",
                 "authorization",
+                "cookie",
+                "origin",
                 "sec-websocket-key",
                 "sec-websocket-version",
                 "sec-websocket-extensions",
                 "sec-websocket-accept",
-                "sec-websocket-protocol",
             }:
                 continue
             headers[key] = value
@@ -2909,36 +2910,90 @@ class PdbMasterApiServer:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
+            # Set correct Origin header for upstream CORS validation
+            from urllib.parse import urlparse
+            parsed_url = urlparse(target_url)
+            upstream_origin = f"{parsed_url.scheme.replace('ws', 'http')}://{parsed_url.netloc}"
+            upstream_headers["Origin"] = upstream_origin
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers) as upstream:
-                        await websocket.accept()
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                        # Pass negotiated subprotocol from upstream to client
+                        await websocket.accept(subprotocol=upstream.protocol)
+
                         async def client_to_upstream():
-                            while True:
-                                msg = await websocket.receive()
-                                if msg["type"] == "websocket.disconnect":
+                            try:
+                                while True:
+                                    msg = await websocket.receive()
+                                    if msg["type"] == "websocket.disconnect":
+                                        try:
+                                            await upstream.close()
+                                        except Exception:
+                                            pass
+                                        return
+                                    if msg.get("text") is not None:
+                                        await upstream.send_str(msg["text"])
+                                    elif msg.get("bytes") is not None:
+                                        await upstream.send_bytes(msg["bytes"])
+                            except Exception:
+                                try:
                                     await upstream.close()
-                                    return
-                                if msg.get("text") is not None:
-                                    await upstream.send_str(msg["text"])
-                                elif msg.get("bytes") is not None:
-                                    await upstream.send_bytes(msg["bytes"])
+                                except Exception:
+                                    pass
 
                         async def upstream_to_client():
-                            async for msg in upstream:
-                                if msg.type == aiohttp.WSMsgType.TEXT:
-                                    await websocket.send_text(msg.data)
-                                elif msg.type == aiohttp.WSMsgType.BINARY:
-                                    await websocket.send_bytes(msg.data)
-                                elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
-                                    await websocket.close()
-                                    return
+                            try:
+                                async for msg in upstream:
+                                    if msg.type == aiohttp.WSMsgType.TEXT:
+                                        await websocket.send_text(msg.data)
+                                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                                        await websocket.send_bytes(msg.data)
+                                    elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                                        try:
+                                            if websocket.client_state.name != "DISCONNECTED":
+                                                await websocket.close(code=msg.data if msg.type == aiohttp.WSMsgType.CLOSE else 1011)
+                                        except Exception:
+                                            pass
+                                        return
+                            except Exception:
+                                try:
+                                    if websocket.client_state.name != "DISCONNECTED":
+                                        await websocket.close()
+                                except Exception:
+                                    pass
 
-                        await asyncio.gather(client_to_upstream(), upstream_to_client())
+                        task1 = asyncio.create_task(client_to_upstream())
+                        task2 = asyncio.create_task(upstream_to_client())
+                        try:
+                            await asyncio.gather(task1, task2)
+                        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                            pass
+                        finally:
+                            task1.cancel()
+                            task2.cancel()
+                            for t in (task1, task2):
+                                try:
+                                    await t
+                                except asyncio.CancelledError:
+                                    pass
+                            # Ensure all connections are properly closed
+                            try:
+                                await upstream.close()
+                            except Exception:
+                                pass
+                            try:
+                                if websocket.client_state.name != "DISCONNECTED":
+                                    await websocket.close()
+                            except Exception:
+                                pass
                 except WebSocketDisconnect:
                     return
                 except Exception:
-                    await websocket.close(code=1011)
+                    try:
+                        if websocket.client_state.name != "DISCONNECTED":
+                            await websocket.close(code=1011)
+                    except Exception:
+                        pass
 
         @app.websocket("/task/{task_id}/web-console/ws")
         async def proxy_web_console_ws(websocket: WebSocket, task_id: str):
@@ -2961,36 +3016,91 @@ class PdbMasterApiServer:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             auth = aiohttp.BasicAuth("", web_console.get("password", "")) if web_console.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
+            # Set correct Origin header for upstream CORS validation
+            from urllib.parse import urlparse
+            parsed_url = urlparse(target_url)
+            upstream_origin = f"{parsed_url.scheme.replace('ws', 'http')}://{parsed_url.netloc}"
+            upstream_headers["Origin"] = upstream_origin
+            
             async with aiohttp.ClientSession() as session:
                 try:
-                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers) as upstream:
-                        await websocket.accept()
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                        # Pass negotiated subprotocol from upstream to client
+                        await websocket.accept(subprotocol=upstream.protocol)
+
                         async def client_to_upstream():
-                            while True:
-                                msg = await websocket.receive()
-                                if msg["type"] == "websocket.disconnect":
+                            try:
+                                while True:
+                                    msg = await websocket.receive()
+                                    if msg["type"] == "websocket.disconnect":
+                                        try:
+                                            await upstream.close()
+                                        except Exception:
+                                            pass
+                                        return
+                                    if msg.get("text") is not None:
+                                        await upstream.send_str(msg["text"])
+                                    elif msg.get("bytes") is not None:
+                                        await upstream.send_bytes(msg["bytes"])
+                            except Exception:
+                                try:
                                     await upstream.close()
-                                    return
-                                if msg.get("text") is not None:
-                                    await upstream.send_str(msg["text"])
-                                elif msg.get("bytes") is not None:
-                                    await upstream.send_bytes(msg["bytes"])
+                                except Exception:
+                                    pass
 
                         async def upstream_to_client():
-                            async for msg in upstream:
-                                if msg.type == aiohttp.WSMsgType.TEXT:
-                                    await websocket.send_text(msg.data)
-                                elif msg.type == aiohttp.WSMsgType.BINARY:
-                                    await websocket.send_bytes(msg.data)
-                                elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
-                                    await websocket.close()
-                                    return
+                            try:
+                                async for msg in upstream:
+                                    if msg.type == aiohttp.WSMsgType.TEXT:
+                                        await websocket.send_text(msg.data)
+                                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                                        await websocket.send_bytes(msg.data)
+                                    elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                                        try:
+                                            if websocket.client_state.name != "DISCONNECTED":
+                                                await websocket.close(code=msg.data if msg.type == aiohttp.WSMsgType.CLOSE else 1011)
+                                        except Exception:
+                                            pass
+                                        return
+                            except Exception:
+                                try:
+                                    if websocket.client_state.name != "DISCONNECTED":
+                                        await websocket.close()
+                                except Exception:
+                                    pass
 
-                        await asyncio.gather(client_to_upstream(), upstream_to_client())
+                        task1 = asyncio.create_task(client_to_upstream())
+                        task2 = asyncio.create_task(upstream_to_client())
+                        try:
+                            await asyncio.gather(task1, task2)
+                        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                            pass
+                        finally:
+                            task1.cancel()
+                            task2.cancel()
+                            for t in (task1, task2):
+                                try:
+                                    await t
+                                except asyncio.CancelledError:
+                                    pass
+                            # Ensure all connections are properly closed
+                            try:
+                                await upstream.close()
+                            except Exception:
+                                pass
+                            try:
+                                if websocket.client_state.name != "DISCONNECTED":
+                                    await websocket.close()
+                            except Exception:
+                                pass
                 except WebSocketDisconnect:
                     return
                 except Exception:
-                    await websocket.close(code=1011)
+                    try:
+                        if websocket.client_state.name != "DISCONNECTED":
+                            await websocket.close(code=1011)
+                    except Exception:
+                        pass
 
         return app
 
