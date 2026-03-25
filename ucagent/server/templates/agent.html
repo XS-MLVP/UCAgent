@@ -624,9 +624,11 @@ function _buildWebUrl(host,port){
 }
 
 function _taskProxyBase(){
-  const match=window.location.pathname.match(/^\/task\/([^/]+)\/cmd(?:\/.*)?$/);
-  if(!match)return null;
-  return "/task/"+encodeURIComponent(match[1]);
+  const taskMatch=window.location.pathname.match(/^\/task\/([^/]+)\/cmd(?:\/.*)?$/);
+  if(taskMatch)return "/task/"+encodeURIComponent(taskMatch[1]);
+  const agentMatch=window.location.pathname.match(/^\/agent\/([^/]+)\/cmd(?:\/.*)?$/);
+  if(agentMatch)return "/agent/"+encodeURIComponent(agentMatch[1]);
+  return null;
 }
 
 function _proxyTerminalUrl(source){

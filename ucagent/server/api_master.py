@@ -1972,6 +1972,43 @@ class PdbMasterApiServer:
         base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
+    def _agent_cmd_proxy_url(self, agent: Dict[str, Any], subpath: str) -> str:
+        base = agent.get("cmd_api_tcp", "")
+        if not base:
+            raise HTTPException(status_code=503, detail="CMD API service is not available for this agent")
+        if not base.startswith("http"):
+            base = f"http://{base}"
+        base = base.rstrip("/")
+        return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
+
+    def _agent_terminal_proxy_url(self, agent: Dict[str, Any], subpath: str) -> str:
+        terminal_api = agent.get("terminal_api", {})
+        base = terminal_api.get("base_url_internal", "") or terminal_api.get("tcp_url", "")
+        if not base:
+            raise HTTPException(status_code=503, detail="Terminal API service is not available for this agent")
+        if not base.startswith("http"):
+            base = f"http://{base}"
+        base = base.rstrip("/")
+        return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
+
+    def _agent_web_console_proxy_url(self, agent: Dict[str, Any], subpath: str) -> str:
+        web_console = agent.get("web_console", {})
+        if not web_console.get("enabled", False):
+            raise HTTPException(status_code=503, detail="Web console service is not available for this agent")
+        
+        # Get base URL from any possible field
+        base = web_console.get("base_url_internal", "") or web_console.get("tcp_url", "")
+        if not base and web_console.get("host") and web_console.get("port"):
+            base = f"{web_console['host']}:{web_console['port']}"
+            
+        if not base:
+            raise HTTPException(status_code=503, detail="Web console service address not found")
+            
+        if not base.startswith("http"):
+            base = f"http://{base}"
+        base = base.rstrip("/")
+        return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
+
     # ------------------------------------------------------------------
     # FastAPI app
     # ------------------------------------------------------------------
@@ -2089,14 +2126,61 @@ class PdbMasterApiServer:
                 tcp_url = _fix_cmd_api_url(str(body.get("cmd_api_tcp") or ""), client_ip)
                 current_stage_index = int(body.get("current_stage_index", -1) or -1)
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
+                
+                # Normalize web_console field
+                raw_web_console = body.get("web_console")
+                web_console = {}
+                if isinstance(raw_web_console, str) and raw_web_console.strip():
+                    # If web_console is a string (address), convert to object
+                    web_console = {
+                        "enabled": True,
+                        "tcp_url": raw_web_console.strip(),
+                        "host": raw_web_console.strip().split(":")[0] if ":" in raw_web_console else raw_web_console.strip(),
+                        "port": int(raw_web_console.strip().split(":")[1]) if ":" in raw_web_console else 8000
+                    }
+                elif isinstance(raw_web_console, dict):
+                    web_console = _copy_jsonable(raw_web_console)
+                    # Ensure enabled field exists
+                    if "enabled" not in web_console:
+                        web_console["enabled"] = bool(web_console.get("tcp_url") or web_console.get("base_url_internal") or web_console.get("port"))
+                    # Ensure at least one address field exists
+                    if web_console.get("host") and web_console.get("port") and not web_console.get("tcp_url"):
+                        web_console["tcp_url"] = f"{web_console['host']}:{web_console['port']}"
+                else:
+                    # Use existing if no new data
+                    web_console = _copy_jsonable(existing.get("web_console", {}))
+                
+                # Normalize terminal_api field
+                raw_terminal_api = body.get("terminal_api")
+                terminal_api = {}
+                if isinstance(raw_terminal_api, str) and raw_terminal_api.strip():
+                    # If terminal_api is a string (address), convert to object
+                    terminal_api = {
+                        "enabled": True,
+                        "tcp_url": raw_terminal_api.strip(),
+                        "host": raw_terminal_api.strip().split(":")[0] if ":" in raw_terminal_api else raw_terminal_api.strip(),
+                        "port": int(raw_terminal_api.strip().split(":")[1]) if ":" in raw_terminal_api else 8818
+                    }
+                elif isinstance(raw_terminal_api, dict):
+                    terminal_api = _copy_jsonable(raw_terminal_api)
+                    # Ensure enabled field exists
+                    if "enabled" not in terminal_api:
+                        terminal_api["enabled"] = bool(terminal_api.get("tcp_url") or terminal_api.get("base_url_internal") or terminal_api.get("port"))
+                    # Ensure at least one address field exists
+                    if terminal_api.get("host") and terminal_api.get("port") and not terminal_api.get("tcp_url"):
+                        terminal_api["tcp_url"] = f"{terminal_api['host']}:{terminal_api['port']}"
+                else:
+                    # Use existing if no new data
+                    terminal_api = _copy_jsonable(existing.get("terminal_api", {}))
+                
                 self._agents[agent_id] = {
                     "id": agent_id,
                     "host": str(body.get("host") or "") or existing.get("host", ""),
                     "version": str(body.get("version") or "") or existing.get("version", ""),
                     "cmd_api_tcp": tcp_url or existing.get("cmd_api_tcp", ""),
                     "cmd_api_sock": str(body.get("cmd_api_sock") or "") or existing.get("cmd_api_sock", ""),
-                    "web_console": _copy_jsonable(body.get("web_console") or existing.get("web_console", {})),
-                    "terminal_api": _copy_jsonable(body.get("terminal_api") or existing.get("terminal_api", {})),
+                    "web_console": web_console,
+                    "terminal_api": terminal_api,
                     "task_list": body.get("task_list") if body.get("task_list") is not None else existing.get("task_list"),
                     "current_stage_index": current_stage_index if current_stage_index >= 0 else existing.get("current_stage_index", -1),
                     "total_stage_count": total_stage_count if total_stage_count > 0 else existing.get("total_stage_count", 0),
@@ -2163,7 +2247,7 @@ class PdbMasterApiServer:
                         "task_list": agent.get("task_list"),
                         "launch": bool(launch_task),
                         "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
-                        "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else "",
+                        "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else f"/agent/{agent['id']}/cmd/",
                     })
                 reverse = sort_desc
                 if sort_by == "status":
@@ -2805,6 +2889,59 @@ class PdbMasterApiServer:
                 except Exception as exc:
                     raise HTTPException(status_code=502, detail=f"Failed to proxy CMD API: {exc}") from exc
 
+        @app.api_route("/agent/{agent_id}/cmd", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        @app.api_route("/agent/{agent_id}/cmd/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        async def proxy_agent_cmd(agent_id: str, request: Request, subpath: str = ""):
+            try:
+                with self._agents_lock:
+                    agent = self._agents.get(agent_id)
+                    if not agent:
+                        raise KeyError(f"Agent '{agent_id}' not found")
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            
+            status = self._agent_status(agent)
+            if status != "online":
+                raise HTTPException(status_code=503, detail="Agent is offline")
+            
+            if not agent.get("cmd_api_tcp"):
+                raise HTTPException(status_code=503, detail="CMD API service is not available for this agent")
+
+            target_url = self._agent_cmd_proxy_url(agent, subpath)
+            if request.url.query:
+                target_url += "?" + request.url.query
+            
+            # Agent CMD API may not have password, use empty string if none
+            password = agent.get("cmd_api_password", "")
+            headers = self._build_proxy_headers(password, dict(request.headers))
+            body = await request.body()
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
+                        raw = await resp.read()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "text/html" in content_type:
+                            text = raw.decode("utf-8", errors="replace")
+                            text = _rewrite_html(text, {
+                                '"/api/': f'"/agent/{agent_id}/cmd/api/',
+                                "'/api/": f"'/agent/{agent_id}/cmd/api/",
+                                '"/workspace': f'"/agent/{agent_id}/cmd/workspace',
+                                "'/workspace": f"'/agent/{agent_id}/cmd/workspace",
+                                '"/static/': f'"/agent/{agent_id}/cmd/static/',
+                                "'/static/": f"'/agent/{agent_id}/cmd/static/",
+                                '"/surfer': f'"/agent/{agent_id}/cmd/surfer',
+                                "'/surfer": f"'/agent/{agent_id}/cmd/surfer",
+                            })
+                            raw = text.encode("utf-8")
+                        response_headers = {}
+                        for key, value in resp.headers.items():
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                                continue
+                            response_headers[key] = value
+                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=f"Failed to proxy Agent CMD API: {exc}") from exc
+
         @app.api_route("/task/{task_id}/terminal", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
         @app.api_route("/task/{task_id}/terminal/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
         async def proxy_terminal(task_id: str, request: Request, subpath: str = ""):
@@ -2846,6 +2983,59 @@ class PdbMasterApiServer:
                         return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
                 except Exception as exc:
                     raise HTTPException(status_code=502, detail=f"Failed to proxy Terminal API: {exc}") from exc
+
+        @app.api_route("/agent/{agent_id}/terminal", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        @app.api_route("/agent/{agent_id}/terminal/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        async def proxy_agent_terminal(agent_id: str, request: Request, subpath: str = ""):
+            if subpath == "ws":
+                raise HTTPException(status_code=400, detail="Use WebSocket endpoint")
+            try:
+                with self._agents_lock:
+                    agent = self._agents.get(agent_id)
+                    if not agent:
+                        raise KeyError(f"Agent '{agent_id}' not found")
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            
+            status = self._agent_status(agent)
+            if status != "online":
+                raise HTTPException(status_code=503, detail="Agent is offline")
+            
+            terminal_api = agent.get("terminal_api", {})
+            if not terminal_api:
+                raise HTTPException(status_code=503, detail="Terminal API service is not available for this agent")
+
+            target_url = self._agent_terminal_proxy_url(agent, subpath)
+            if request.url.query:
+                target_url += "?" + request.url.query
+            
+            password = terminal_api.get("password", "")
+            headers = self._build_proxy_headers(password, dict(request.headers))
+            body = await request.body()
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
+                        raw = await resp.read()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "text/html" in content_type:
+                            text = raw.decode("utf-8", errors="replace")
+                            text = _rewrite_html(text, {
+                                '"/ws': f'"/agent/{agent_id}/terminal/ws',
+                                "'/ws": f"'/agent/{agent_id}/terminal/ws",
+                                '"/api/': f'"/agent/{agent_id}/terminal/api/',
+                                "'/api/": f"'/agent/{agent_id}/terminal/api/",
+                                '"/static/': f'"/agent/{agent_id}/terminal/static/',
+                                "'/static/": f"'/agent/{agent_id}/terminal/static/",
+                            })
+                            raw = text.encode("utf-8")
+                        response_headers = {}
+                        for key, value in resp.headers.items():
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                                continue
+                            response_headers[key] = value
+                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=f"Failed to proxy Agent Terminal API: {exc}") from exc
 
         @app.api_route("/task/{task_id}/web-console", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
         @app.api_route("/task/{task_id}/web-console/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
@@ -2889,6 +3079,59 @@ class PdbMasterApiServer:
                 except Exception as exc:
                     raise HTTPException(status_code=502, detail=f"Failed to proxy Web console: {exc}") from exc
 
+        @app.api_route("/agent/{agent_id}/web-console", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        @app.api_route("/agent/{agent_id}/web-console/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
+        async def proxy_agent_web_console(agent_id: str, request: Request, subpath: str = ""):
+            if subpath == "ws":
+                raise HTTPException(status_code=400, detail="Use WebSocket endpoint")
+            try:
+                with self._agents_lock:
+                    agent = self._agents.get(agent_id)
+                    if not agent:
+                        raise KeyError(f"Agent '{agent_id}' not found")
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            
+            status = self._agent_status(agent)
+            if status != "online":
+                raise HTTPException(status_code=503, detail="Agent is offline")
+            
+            web_console = agent.get("web_console", {})
+            if not web_console or not web_console.get("enabled", False):
+                raise HTTPException(status_code=503, detail="Web console service is not available for this agent")
+
+            target_url = self._agent_web_console_proxy_url(agent, subpath)
+            if request.url.query:
+                target_url += "?" + request.url.query
+            
+            password = web_console.get("password", "")
+            headers = self._build_proxy_headers(password, dict(request.headers))
+            body = await request.body()
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
+                        raw = await resp.read()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "text/html" in content_type:
+                            text = raw.decode("utf-8", errors="replace")
+                            text = _rewrite_html(text, {
+                                '"/ws': f'"/agent/{agent_id}/web-console/ws',
+                                "'/ws": f"'/agent/{agent_id}/web-console/ws",
+                                '"/api/': f'"/agent/{agent_id}/web-console/api/',
+                                "'/api/": f"'/agent/{agent_id}/web-console/api/",
+                                '"/static/': f'"/agent/{agent_id}/web-console/static/',
+                                "'/static/": f"'/agent/{agent_id}/web-console/static/",
+                            })
+                            raw = text.encode("utf-8")
+                        response_headers = {}
+                        for key, value in resp.headers.items():
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection"}:
+                                continue
+                            response_headers[key] = value
+                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=f"Failed to proxy Agent Web console: {exc}") from exc
+
         @app.websocket("/task/{task_id}/terminal/ws")
         async def proxy_terminal_ws(websocket: WebSocket, task_id: str):
             try:
@@ -2908,6 +3151,229 @@ class PdbMasterApiServer:
             target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
+            auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
+            upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
+            # Set correct Origin header for upstream CORS validation
+            from urllib.parse import urlparse
+            parsed_url = urlparse(target_url)
+            upstream_origin = f"{parsed_url.scheme.replace('ws', 'http')}://{parsed_url.netloc}"
+            upstream_headers["Origin"] = upstream_origin
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                        # Pass negotiated subprotocol from upstream to client
+                        await websocket.accept(subprotocol=upstream.protocol)
+
+                        async def client_to_upstream():
+                            try:
+                                while True:
+                                    msg = await websocket.receive()
+                                    if msg["type"] == "websocket.disconnect":
+                                        try:
+                                            await upstream.close()
+                                        except Exception:
+                                            pass
+                                        return
+                                    if msg.get("text") is not None:
+                                        await upstream.send_str(msg["text"])
+                                    elif msg.get("bytes") is not None:
+                                        await upstream.send_bytes(msg["bytes"])
+                            except Exception:
+                                try:
+                                    await upstream.close()
+                                except Exception:
+                                    pass
+
+                        async def upstream_to_client():
+                            try:
+                                async for msg in upstream:
+                                    if msg.type == aiohttp.WSMsgType.TEXT:
+                                        await websocket.send_text(msg.data)
+                                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                                        await websocket.send_bytes(msg.data)
+                                    elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                                        try:
+                                            if websocket.client_state.name != "DISCONNECTED":
+                                                await websocket.close(code=msg.data if msg.type == aiohttp.WSMsgType.CLOSE else 1011)
+                                        except Exception:
+                                            pass
+                                        return
+                            except Exception:
+                                try:
+                                    if websocket.client_state.name != "DISCONNECTED":
+                                        await websocket.close()
+                                except Exception:
+                                    pass
+
+                        task1 = asyncio.create_task(client_to_upstream())
+                        task2 = asyncio.create_task(upstream_to_client())
+                        try:
+                            await asyncio.gather(task1, task2)
+                        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                            pass
+                        finally:
+                            task1.cancel()
+                            task2.cancel()
+                            for t in (task1, task2):
+                                try:
+                                    await t
+                                except asyncio.CancelledError:
+                                    pass
+                            # Ensure all connections are properly closed
+                            try:
+                                await upstream.close()
+                            except Exception:
+                                pass
+                            try:
+                                if websocket.client_state.name != "DISCONNECTED":
+                                    await websocket.close()
+                            except Exception:
+                                pass
+                except WebSocketDisconnect:
+                    return
+
+        @app.websocket("/agent/{agent_id}/web-console/ws")
+        async def proxy_agent_web_console_ws(websocket: WebSocket, agent_id: str):
+            try:
+                with self._agents_lock:
+                    agent = self._agents.get(agent_id)
+                    if not agent:
+                        raise KeyError(f"Agent '{agent_id}' not found")
+            except KeyError:
+                await websocket.close(code=4404)
+                return
+            
+            status = self._agent_status(agent)
+            if status != "online":
+                await websocket.close(code=4503)
+                return
+
+            web_console = agent.get("web_console") or {}
+            if not web_console.get("enabled"):
+                await websocket.close(code=4503)
+                return
+
+            base_url = web_console.get("base_url_internal", "") or web_console.get("tcp_url", "")
+            if not base_url:
+                await websocket.close(code=4503)
+                return
+            
+            if not base_url.startswith("http"):
+                base_url = f"http://{base_url}"
+            target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
+            if websocket.url.query:
+                target_url += "?" + urlencode(dict(websocket.query_params))
+            
+            auth = aiohttp.BasicAuth("", web_console.get("password", "")) if web_console.get("password") else None
+            upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
+            # Set correct Origin header for upstream CORS validation
+            from urllib.parse import urlparse
+            parsed_url = urlparse(target_url)
+            upstream_origin = f"{parsed_url.scheme.replace('ws', 'http')}://{parsed_url.netloc}"
+            upstream_headers["Origin"] = upstream_origin
+            
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.ws_connect(target_url, auth=auth, heartbeat=20, headers=upstream_headers, max_msg_size=100*1024*1024) as upstream:
+                        # Pass negotiated subprotocol from upstream to client
+                        await websocket.accept(subprotocol=upstream.protocol)
+
+                        async def client_to_upstream():
+                            try:
+                                while True:
+                                    msg = await websocket.receive()
+                                    if msg["type"] == "websocket.disconnect":
+                                        try:
+                                            await upstream.close()
+                                        except Exception:
+                                            pass
+                                        return
+                                    if msg.get("text") is not None:
+                                        await upstream.send_str(msg["text"])
+                                    elif msg.get("bytes") is not None:
+                                        await upstream.send_bytes(msg["bytes"])
+                            except Exception:
+                                try:
+                                    await upstream.close()
+                                except Exception:
+                                    pass
+
+                        async def upstream_to_client():
+                            try:
+                                async for msg in upstream:
+                                    if msg.type == aiohttp.WSMsgType.TEXT:
+                                        await websocket.send_text(msg.data)
+                                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                                        await websocket.send_bytes(msg.data)
+                                    elif msg.type in {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR}:
+                                        try:
+                                            if websocket.client_state.name != "DISCONNECTED":
+                                                await websocket.close(code=msg.data if msg.type == aiohttp.WSMsgType.CLOSE else 1011)
+                                        except Exception:
+                                            pass
+                                        return
+                            except Exception:
+                                try:
+                                    if websocket.client_state.name != "DISCONNECTED":
+                                        await websocket.close()
+                                except Exception:
+                                    pass
+
+                        task1 = asyncio.create_task(client_to_upstream())
+                        task2 = asyncio.create_task(upstream_to_client())
+                        try:
+                            await asyncio.gather(task1, task2)
+                        except (WebSocketDisconnect, RuntimeError, ConnectionError):
+                            pass
+                        finally:
+                            task1.cancel()
+                            task2.cancel()
+                            for t in (task1, task2):
+                                try:
+                                    await t
+                                except asyncio.CancelledError:
+                                    pass
+                            # Ensure all connections are properly closed
+                            try:
+                                await upstream.close()
+                            except Exception:
+                                pass
+                            try:
+                                if websocket.client_state.name != "DISCONNECTED":
+                                    await websocket.close()
+                            except Exception:
+                                pass
+                except WebSocketDisconnect:
+                    return
+
+        @app.websocket("/agent/{agent_id}/terminal/ws")
+        async def proxy_agent_terminal_ws(websocket: WebSocket, agent_id: str):
+            try:
+                with self._agents_lock:
+                    agent = self._agents.get(agent_id)
+                    if not agent:
+                        raise KeyError(f"Agent '{agent_id}' not found")
+            except KeyError:
+                await websocket.close(code=4404)
+                return
+            
+            status = self._agent_status(agent)
+            if status != "online":
+                await websocket.close(code=4503)
+                return
+
+            terminal_api = agent.get("terminal_api") or {}
+            base_url = terminal_api.get("base_url_internal", "") or terminal_api.get("tcp_url", "")
+            if not base_url:
+                await websocket.close(code=4503)
+                return
+            
+            if not base_url.startswith("http"):
+                base_url = f"http://{base_url}"
+            target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
+            if websocket.url.query:
+                target_url += "?" + urlencode(dict(websocket.query_params))
+            
             auth = aiohttp.BasicAuth("", terminal_api.get("password", "")) if terminal_api.get("password") else None
             upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
             # Set correct Origin header for upstream CORS validation
