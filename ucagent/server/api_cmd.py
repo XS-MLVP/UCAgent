@@ -214,6 +214,14 @@ class PdbCmdApiServer:
         sys.stdout = self._console_capture
         # Also redirect pdb.stdout so PDB prompt/output goes into the capture
         pdb_instance.stdout = self._console_capture
+        # Set console sync handler to capture output from log functions
+        from ucagent.util import log
+        self._original_sync_handler = log.get_console_sync_handler()
+        def sync_to_capture(text: str):
+            self._console_capture.write(text)
+            if self._original_sync_handler:
+                self._original_sync_handler(text)
+        log.set_console_sync_handler(sync_to_capture)
         self._app = self._build_app()
 
     # ------------------------------------------------------------------
@@ -1024,6 +1032,10 @@ class PdbCmdApiServer:
             sys.stdout = restore_to
         if self.pdb.stdout is self._console_capture:
             self.pdb.stdout = restore_to
+
+        # Restore original console sync handler
+        from ucagent.util import log
+        log.set_console_sync_handler(self._original_sync_handler)
 
         # Clean up the socket file
         if self.sock:

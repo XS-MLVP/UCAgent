@@ -59,8 +59,7 @@ class PersistentConsoleMirror:
 
     def __init__(self, vpdb: "VerifyPDB", original: Any) -> None:
         self._vpdb = vpdb
-        from ucagent.server.api_cmd import _ConsoleCapture
-        while isinstance(original, (PersistentConsoleMirror, _ConsoleCapture)):
+        while isinstance(original, PersistentConsoleMirror):
             original = original._original
         self._original = original
         self.encoding = getattr(self._original, "encoding", "utf-8")

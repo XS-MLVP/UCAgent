@@ -56,6 +56,11 @@ def set_console_sync_handler(handler: Optional[Callable[[str], None]]) -> None:
     __console_sync_handler__ = handler
 
 
+def get_console_sync_handler() -> Optional[Callable[[str], None]]:
+    """Get the current console sync handler."""
+    return __console_sync_handler__
+
+
 def _stream_chain_records_console(stream) -> bool:
     visited: set[int] = set()
     current = stream
@@ -65,6 +70,7 @@ def _stream_chain_records_console(stream) -> bool:
             return True
         if current.__class__.__name__ == "PersistentConsoleMirror" and hasattr(current, "_vpdb"):
             return True
+        # Do NOT check for _ConsoleCapture, as we want to sync to it
         current = getattr(current, "_original", None)
     return False
 
