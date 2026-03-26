@@ -2,6 +2,7 @@
 """Verification manager for UCAgent stage execution."""
 
 import copy
+import os
 import time
 import traceback
 import random
@@ -21,6 +22,7 @@ from ucagent.tools.uctool import UCTool, EmptyArgs
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
 from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
+from ucagent.tools.skill import _list_skills, list_skills_in_format
 
 
 class ManagerTool(UCTool):
@@ -132,33 +134,32 @@ class ToolSetCurrentStageJournal(ManagerTool):
             return "Journal content cannot be empty."
         return self.function(journal)
 
-class ArgCheckSkillUsage(BaseModel):
+class ArgSkillUsage(BaseModel):
     skill_usage: Dict[str, Any] = Field(
-        description="The skill usage content to set for the current stage. Cannot be empty."
+        description="The skill usage to set for the current stage. Cannot be empty."
     )
 
-
-class ToolCheckSkillUsage(ManagerTool):
-    """Check the skill usage of the current stage."""
-    name: str = "CheckSkillUsage"
+class ToolSetSkillUsage(ManagerTool):
+    """Check and set the skill usage of the current stage."""
+    name: str = "SetSkillUsage"
     description: str = (
         "Check the usage of the skills and set journal of the current stage. \n"
-        "分析对话历史，检查 skill_list 中指定技能的使用情况(如果还使用了除指定之外的技能,也同样分析).\n"
-        "对于每个技能，从以下方面进行分析：\n"
-        "1. **是否被列举**: 该技能是否被 SkillList 工具所列举\n"
-        "2. **是否被读取**: 该技能的 SKILL.md 文件是否被读取\n"
-        "3. **是否被执行**: 当前阶段任务的完成是否依据了 SKILL.md 中提到的方法步骤或者执行过其中的指定代码\n"
-        "**返回字典格式示例**:\n"
+        "Analyze the conversation history and check usage of the skills specified in skill_list (if skills beyond the specified list were also used, analyze them as well).\n"
+        "For each skill, analyze the following aspects:\n"
+        "1. **list**: Whether the name and description of skill was listed in histoty context\n"
+        "2. **read**: Whether the SKILL.md of skill was read by using tool `ReadTextFile`\n"
+        "3. **use**: Whether completion of the current stage task followed the method steps in SKILL.md, or executed any specified code in that file\n"
+        "**Returned dictionary format example**:\n"
         "{\n"
-        "  '技能名称1': {'list': True, 'read': True, 'use': False},\n"
-        "  '技能名称2': {'list': True, 'read': False, 'use': False}\n"
+        "  'skill_name_1': {'list': True, 'read': True, 'use': False},\n"
+        "  'skill_name_2': {'list': True, 'read': False, 'use': False}\n"
         "}\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgCheckSkillUsage
+    args_schema: Optional[ArgsSchema] = ArgSkillUsage
 
     def _run(self, skill_usage: Dict[str, Any] = None, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         if not skill_usage:
-            return "Skill usage content cannot be empty."
+            return "Skill usage content cannot be empty, use tool `ToolSetSkillUsage` to check the skill usage and set the skill usage content."
         return self.function(skill_usage)
 
 
@@ -629,7 +630,7 @@ class StageManager(object):
             ToolSetCurrentStageJournal().set_function(self.tool_set_journal),
         ]
         if self.agent.cfg.skill.use_skill:
-            tools.append(ToolCheckSkillUsage().set_function(self.tool_set_skill_usage))
+            tools.append(ToolSetSkillUsage().set_function(self.tool_set_skill_usage))
         return tools
 
     def get_current_tips(self):
@@ -648,17 +649,16 @@ class StageManager(object):
                 continue
             ref_files.append(k)
         if ref_files:
-            tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files."
+            tips["notes"] = f"You need use tool: {self.tool_read_text.name} to read the reference files.\n"
         
         # list the skills needed to use in current stage
-        skills_to_use = []
-        for k in cstage.skill_list:
-            skills_to_use.append(k)
+        skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             if self.agent.cfg.skill.use_skill:
-                tips["notes"] = tips.get("notes", "") + f"If you have known the detail about skill {skills_to_use}, use them. Otherwise use tool `SkillList` to list and use the required skills firstly."
+                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"),self.workspace,skills_to_use)
+                tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
             else:
-                raise ValueError("开启 --use-skill 参数使得 UCAgent 可以使用技能, 否则移除阶段中指定的 skill_list。")
+                raise ValueError("Enable the arg(--use-skill) to use skills, or remove the skill_list specified in current stage.")
 
         tips["process"] = f"{self.stage_index}/{len(self.stages)}"
         mession_tips = self.mission.get_value("prompt.tips")
@@ -742,12 +742,21 @@ class StageManager(object):
         return journals
 
     def set_current_stage_skill_usage(self, skill_usage: Dict[str, Any]):
-        """update the state of skill_list based on skill_usage"""
+        """set the skill usage of curretn stage or return feedback based on skill_usage"""
         current_stage = self.get_current_stage()
         if current_stage.skill_list:
+            skills_dir = os.path.join(self.workspace, ".ucagent/skills")
+            have_skill_list = []
+            if os.path.isdir(skills_dir):
+                have_skill_list = sorted(
+                    name for name in os.listdir(skills_dir)
+                    if os.path.isdir(os.path.join(skills_dir, name))
+                )
             for skill_name in current_stage.skill_list:
+                if skill_name not in have_skill_list:
+                    raise ValueError(f"Skill '{skill_name}' is not found in workspace path '{skills_dir}'. ")
                 if skill_name not in skill_usage:
-                    return f"You need use skill '{skill_name}' in current stage. You need to first check if the skill exists. If it exists, use tool `SkillList` to list and use it. Otherwise, add the skill."
+                    return f"You must use skill '{skill_name}' in current stage, using tool `ListSkill` to list and use it."
                 else:
                     skill_info = skill_usage[skill_name]
                     current_stage.set_usage_skill_list(skill_name, listed=skill_info.get("list", False), read=skill_info.get("read", False), used=skill_info.get("use", False))
@@ -755,13 +764,13 @@ class StageManager(object):
                     if u and v and w:
                         continue
                     if not u:
-                        return f"You need use tool `SkillList` to list and learn the skill {skill_name} and re-complete the stage, or check if skill {skill_name} in the workspace."
+                        return f"You must re-complete the stage by using tool `ListSkill` to list and use the skill {skill_name}."
                     if not v:
-                        return f"You need use tool `ReadTextFile` to read the SKILL.md of skill {skill_name}, and re-complete the stage"
+                        return f"You must re-complete the stage by using tool `ReadTextFile` to read the SKILL.md of skill {skill_name} and use it"
                     if not w:
-                        return f"You need to re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md, or executing the specified code in the SKILL.md if any."
-            current_stage.meta_set_skill_usage_journal(skill_usage)
-            return "All skill in skill_list have been used."     
+                        return f"You must re-complete the stage by using the skill {skill_name} according to the method steps mentioned in its SKILL.md."
+            current_stage.meta_set_skill_usage(skill_usage)
+            return "All skills in skill_list have been used."     
         return "No skill need be used in current stage."
 
     def get_stage(self, index):
@@ -997,7 +1006,7 @@ class StageManager(object):
     
     def tool_set_skill_usage(self, skill_usage: Dict[str, Any]):
         ret = make_llm_tool_ret(self.set_current_stage_skill_usage(skill_usage))
-        info("ToolCheckSkillUsage:\n" + ret)
+        info("ToolSetSkillUsage:\n" + ret)
         return self.attach_todo_summary(ret)
 
     def tool_detail(self):

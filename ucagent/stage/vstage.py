@@ -119,7 +119,7 @@ class VerifyStage(object):
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
 
-    def meta_set_skill_usage_journal(self, skill_usage: Dict[str, Any]):
+    def meta_set_skill_usage(self, skill_usage: Dict[str, Any]):
         self.meta_data['skill_usage'] = skill_usage
 
     def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
@@ -412,7 +412,7 @@ class VerifyStage(object):
                 if u and v and w:
                     continue
                 else:
-                    return False, "Please use tool 'CheckSkillUsage' to check the skill usage of this stage before completing it."
+                    return False, "Please use tool 'SetSkillUsage' to check and set the skill usage of this stage before completing it."
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
             emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})

@@ -6,42 +6,24 @@ This module provides tools to list and manage available skills in the workspace.
 import re
 import shutil
 from pathlib import Path
-from typing import Optional, TypedDict, Any
+from typing import Optional, TypedDict, Any, List
 import yaml
-from pydantic import Field
+from pydantic import Field, BaseModel
 
-from .uctool import UCTool, EmptyArgs, ArgsSchema
+import subprocess
+from .uctool import UCTool, ArgsSchema, EmptyArgs
 from ucagent.util.log import warning,info
-
 
 # Security: Maximum size for SKILL.md files to prevent DoS attacks (10MB)
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
+
 
 # Agent Skills specification constraints (https://agentskills.io/specification)
 MAX_SKILL_NAME_LENGTH = 64
 MAX_SKILL_DESCRIPTION_LENGTH = 1024
 
-# Skills system prompt template (adapted from skills_doc.py)
-SKILLS_SYSTEM_PROMPT = """
-**技能专家**：
-你是一个拥有丰富专业技能库的专家,擅长使用特定的专业技能完成特定任务。技能库中的**可用技能**的名称及其描述如下(技能名称:技能描述):
-{skills_list}
-**技能使用步骤**：
-- **描述匹配**：每次接受用户请求时,首先检查用户请求的任务是否可以与技能描述匹配,或者与技能描述中的关键词匹配
-- **激活使用**：如果描述匹配,**必须**激活并使用对应技能
-- **阅读完整说明**：激活技能后,通过对应技能的路径找到并阅读对应的 SKILL.md 获取详细指导
-- **遵循工作流**：严格按照 SKILL.md 中的步骤和最佳实践执行
-- **按需访问**： SKILL.md 所在目录下可能包含辅助脚本、参考文档等,按需访问
-**注意**：专业技能在处理特定任务是能取得更好的效果,因此只要任务与描述相匹配,就使用对应技能,不要犹豫或跳过。
-**使用优先级**：技能(skill) > 工具(tool) 
-!!!牢记,你可以使用以上技能,不要忘记他们的存在!!!
-"""
-
-
-
 class SkillMetadata(TypedDict):
-    """Metadata for a skill per Agent Skills specification (https://agentskills.io/specification)."""
-
+    """Metadata for a skill."""
     name: str  # Skill identifier (max 64 chars, lowercase alphanumeric and hyphens)
     description: str  # What the skill does (max 1024 chars)
     path: str  # Path to the SKILL.md file
@@ -77,7 +59,8 @@ def _parse_skill_metadata(
     content: str,
     skill_path: str,
     directory_name: str,
-) -> SkillMetadata | None:
+# ) -> SkillMetadata | None:
+) -> Optional[SkillMetadata]:
     """Parse YAML frontmatter from SKILL.md content.
     Extracts metadata per Agent Skills specification from YAML frontmatter delimited
     by --- markers at the start of the content.
@@ -231,10 +214,29 @@ def _list_skills(source_path: str, workspace: str = None) -> list[SkillMetadata]
 
     return skills
 
-class SkillList(UCTool):
-    name: str = "SkillList"
+def list_skills_in_format(skills: list[SkillMetadata], workspace: str = '.', able_to_list: list = []) -> str:
+    """Format a list of skills into a readable string.
+    Args:
+        skills: List of SkillMetadata to format
+        workspace: Path to the workspace directory
+        able_to_list: List of skill names that are able to be listed
+    Returns:
+        A formatted string listing each skill's name, description, and path
+    """
+    result_lines = []
+    count=1
+    for skill in skills:
+        if (not able_to_list) or skill['name'] in able_to_list:
+            result_lines.append(f"{count}. Skill Name: {skill['name']}")
+            result_lines.append(f"   Description: {skill['description']}")
+            result_lines.append(f"   Path: {Path(skill['path']).relative_to(Path(workspace))}")
+            count+=1
+    return "\n".join(result_lines)
+
+class ListSkill(UCTool):
+    name: str = "ListSkill"
     description: str = (
-        "List all available skills you can use when you want to use a skill."
+        "List the specified skills you can use."
         "Returns the name, description, and path for each skill."
     )
     args_schema: Optional[ArgsSchema] = EmptyArgs
@@ -251,24 +253,22 @@ class SkillList(UCTool):
         super().__init__(workspace=workspace, **kwargs)
 
     def bind(self, agent):
-        """Bind the VerifyAgent instance to access message history."""
-        if not hasattr(agent, 'messages_get_raw'):
-            raise ValueError("The provided agent does not have messages_get_raw() method.")
+        """Bind the VerifyAgent instance."""
         self.agent = agent
         return self
 
     def _run(self, *args, **kwargs) -> str:
-        """List all available skills in the workspace.
+        """List all available skills in the workspace you can use.
         Returns:
             A formatted string containing information about all available skills.
         """
-        skills_path = Path(self.workspace) / "skills"
+        skills_path = Path(self.workspace) / ".ucagent/skills"
         if not skills_path.exists():
-            raise ValueError(f"未找到技能目录: {skills_path}\n,你需要使用 --use-skill 参数启动 UCAgent 自动拷贝技能到工作目录。")
+            raise ValueError(f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace.")
         skills = _list_skills(str(skills_path), workspace=None)
 
         if not skills:
-            raise ValueError(f"技能目录 {skills_path} 中没有找到可用的技能。技能应该是包含 SKILL.md 文件的子目录。")
+            raise ValueError(f"No available skills found in skill directory {skills_path}. Skills should be subdirectories containing a SKILL.md file.")
 
         stage_manager = self.agent.stage_manager
         current_stage = stage_manager.get_current_stage()
@@ -279,41 +279,60 @@ class SkillList(UCTool):
             for skill in skills:
                 if skill['name'] in current_stage.skill_list:
                     skills_to_list.append(skill)
-                    skill_names_added.add(skill['name'])      
-        # 2. add skills in general_skills
-        general_skills = stage_manager.cfg.get_value('mission.general_skills', [])
-        if general_skills:
+                    skill_names_added.add(skill['name'])
+        # 2. add skills in general_skill_list
+        general_skill_list = stage_manager.cfg.get_value('skill.general_skill_list', [])
+        if general_skill_list:
             for skill in skills:
-                if skill['name'] in general_skills and skill['name'] not in skill_names_added:
+                if skill['name'] in general_skill_list and skill['name'] not in skill_names_added:
                     skills_to_list.append(skill)
                     skill_names_added.add(skill['name']) 
-        # 3. finally fill up until max_skill_list_count
-        max_skill_list_count = stage_manager.cfg.get_value('skill.max_skill_list_count', 10)
-        if len(skills_to_list) < max_skill_list_count:
-            for skill in skills:
-                if skill['name'] not in skill_names_added:
-                    skills_to_list.append(skill)
-                    skill_names_added.add(skill['name'])
-                    if len(skills_to_list) >= max_skill_list_count:
-                        break
 
         # List SKILL with their (name, description and path)
-        result_lines = [f"找到{len(skills_to_list)}个可用技能:"]
-        for i, skill in enumerate(skills_to_list, 1):
-            if current_stage and skill['name'] in current_stage.skill_list:
-                current_stage.set_usage_skill_list(skill['name'], listed=True)
-                info(f"[{self.__class__.__name__}.{self.name}] Skill {skill['name']} has been listed by the LLM.")
-            result_lines.append(f"{i}. 技能名称: {skill['name']}")
-            result_lines.append(f"   描述: {skill['description']}")
-            skill_path = Path(skill['path'])
-            try:
-                rel_path = skill_path.relative_to(Path(self.workspace))
-                result_lines.append(f"   路径: {rel_path}")
-            except ValueError:
-                result_lines.append(f"   路径: {skill['path']}")
-        result_lines.append("提示: 当任务描述与技能描述匹配时,使用`ReadTextFile`工具读取对应技能的SKILL.md文档,学习技能并使用")      
+        result_lines = [f"Found {len(skills_to_list)} available skills:"]
+        result_lines += list_skills_in_format(skills_to_list, workspace=self.workspace).split("\n")
+        result_lines.append("Tip: When the task description matches a skill description, use the `ReadTextFile` tool to read the corresponding skill's SKILL.md file, learn the skill, and apply it.")      
         result= "\n".join(result_lines)
 
         return result
+    
+class ArgsCallSkillScript(BaseModel):
+    commands: List[str] = Field(description="A list of commands declared in the SKILL.md of a skill.")
 
-__all__ = ["SkillList"]
+class CallSkillScript(UCTool):
+    name: str = "CallSkillScript"
+    description: str = (
+        "Execute the commands in a list declared in the SKILL.md of a skill"
+    )
+    args_schema: Optional[ArgsSchema] = ArgsCallSkillScript
+    workspace: str = Field(
+        default=".",
+        description="Workspace directory path"
+    )
+
+    def __init__(self, workspace: str = ".", **kwargs):
+        super().__init__(workspace=workspace, **kwargs)
+
+    def _run(self, commands: List[str]) -> str:
+        """Execute a skill script command.
+        Returns:
+            The output of the command execution.
+        """
+        for command in commands:
+            try:
+                process = subprocess.run(
+                    command,
+                    shell=True,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    cwd=self.workspace
+                )
+                return process.stdout
+            except subprocess.CalledProcessError as e:
+                return f"Command failed with exit code {e.returncode}:\n{e.stdout}"
+            except FileNotFoundError:
+                return f"Command not found: {command.split()[0]}"
+
+__all__ = ["ListSkill", "CallSkillScript"]

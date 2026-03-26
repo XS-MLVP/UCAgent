@@ -94,7 +94,6 @@ mission:
       -   通过Status工具获取当前阶段状态，确认你处于哪个阶段
       -   通过AllStageJournal工具获取之前阶段的日志，了解之前阶段的工作内容和结果
       {skill_system}
-
       现在调用`CurrentTips`，开始你的验证工作！
     tips:
       allways:
@@ -108,13 +107,12 @@ mission:
         - "Fail的测试用例可能意味着发现了bug，这是验证的目标，不要误报为Pass"
         - "全面验证阶段需优先复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"    
     skill_system: |
-      - 你可以使用工具`SkillList`来获取所有可用技能的描述以及路径
-      - 在使用工具`CurrentTips`获得当前阶段的任务知道后,优先使用工具`SkillList`列举并学习可用技能
-      - 在计划通过`Complete`工具推进到下一个阶段前,需要通过工具`CheckSkillUsage`检查技能使用情况,本工具使用要早于`SetCurrentStageJournal`,因为技能使用情况可能会影响阶段任务的完成情况
-    # ignore_skills: 
-      # - "ieee754"
-    general_skills: 
-      - "fail_analyze"
+
+      **技能系统:**
+      - 有以下通用技能供全阶段使用,当任务描述与技能description相匹配时,优先阅读并使用技能来完成任务:
+      {skill_list}
+      - 若本阶段使用了任意技能,则在计划通过Complete工具推进到下一个阶段前,使用工具`SetSkillUsage`检查并记录技能的使用情况,`SetSkillUsage`要早于`SetCurrentStageJournal`，因为技能的使用将影响阶段的完成情况。
+
 
 mcp_server:
   init_prompt: >
@@ -132,8 +130,6 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试用例失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
-    # skill_list:
-    #   - "markdown-write"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
@@ -249,89 +245,8 @@ stage:
   - name: static_bug_analysis
     desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
     task:
-      - "目标：逐批次分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md"
+      - "目标：分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md"
       - "当前批次待分析文件": "{CURRENT_FILE_NAMES}"
-      - "分析步骤："
-      - "  第1步：读取当前批次源文件，理解模块功能与架构（模块层次、关键信号、状态机、数据流）"
-      - "  第2步：结合{OUT}/{DUT}_functions_and_checks.md中的功能点与检测点，针对每个<CK-*>逐项审查RTL实现"
-      - "  第3步：系统排查常见设计缺陷："
-      - "    - 状态机逻辑：状态枚举是否完整，转移条件是否正确，是否有孤立/死锁状态，default分支是否缺失"
-      - "    - 边界与溢出：算术运算溢出/下溢、位宽截断、有符号/无符号类型不匹配"
-      - "    - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态"
-      - "    - 接口协议：valid/ready握手时序、数据有效窗口、读写使能逻辑"
-      - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
-      - "  第4步：将发现的潜在Bug按以下严格标签层级记录到{OUT}/{DUT}_static_bug_analysis.md"
-      - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
-      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾维护 '## 批次分析进度' 表格，记录本批次每个文件的分析结果"
-      - ""
-      - "=== 关于 <FG-*>/<FC-*>/<CK-*> 标签的来源（重要）==="
-      - "  {OUT}/{DUT}_static_bug_analysis.md 中使用的所有 <FG-*>/<FC-*>/<CK-*> 标签"
-      - "  必须来自 {OUT}/{DUT}_functions_and_checks.md，不得凭空创造。"
-      - "  操作流程："
-      - "    a) 先查阅 {OUT}/{DUT}_functions_and_checks.md，确认目标 <FG-*>/<FC-*>/<CK-*> 是否存在"
-      - "    b) 若已存在：直接在 static_bug_analysis.md 中使用，标签必须与 functions_and_checks.md 完全一致（区分大小写）"
-      - "    c) 若不存在（如发现了 functions_and_checks.md 未覆盖的缺陷场景）："
-      - "       先在 {OUT}/{DUT}_functions_and_checks.md 中新增对应的 <FG-*>/<FC-*>/<CK-*> 条目"
-      - "       再在 {OUT}/{DUT}_static_bug_analysis.md 中按相同标签记录 Bug"
-      - ""
-      - "=== 标签层级（强制规范，不得偏离）==="
-      - "  <FG-*>                   功能组       示例：<FG-ARITHMETIC>        ← 来自 functions_and_checks.md"
-      - "  └─ <FC-*>                子功能       示例：<FC-ADD>               ← 来自 functions_and_checks.md"
-      - "     └─ <CK-*>             检测点       示例：<CK-OVERFLOW>          ← 来自 functions_and_checks.md（不存在须先补充）"
-      - "        └─ <BG-STATIC-NNN-NAME>  Bug条目  示例：<BG-STATIC-001-ADD-OVERFLOW>"
-      - "           └─ <LINK-BUG-[BG-TBD]>   恰好一个，标记为待验证"
-      - "              └─ <FILE-path:L1-L2>   一个或多个，标注源码位置"
-      - ""
-      - "  【重要】一个 <CK-*> 检测点下可以挂靠多个 <BG-STATIC-*> 标签，每个标签代表在该检测点发现的一个独立Bug"
-      - ""
-      - "=== 示例——发现Bug（一个CK下有多个BG-STATIC）==="
-      - "  <FG-ALU>"
-      - "  #### 加法功能 <FC-ADD>"
-      - "  - <CK-OVERFLOW> 溢出检测点（该检测点下发现两个Bug）"
-      - "    - <BG-STATIC-001-ADD-CARRY> 进位溢出标志未正确拉高"
-      - "      - <LINK-BUG-[BG-TBD]>"
-      - "        - <FILE-rtl/alu.v:25-30>"
-      - "          ```verilog"
-      - "          // rtl/alu.v 第25-30行"
-      - "          25: assign overflow = carry;  // BUG：未计入cin贡献"
-      - "          ```"
-      - "    - <BG-STATIC-002-ADD-SUM> 加法结果位宽截断"
-      - "      - <LINK-BUG-[BG-TBD]>"
-      - "        - <FILE-rtl/alu.v:42-44>"
-      - "          ```verilog"
-      - "          // rtl/alu.v 第42-44行"
-      - "          42: assign sum = a + b;       // BUG：忽略了cin，位宽不足"
-      - "          ```"
-      - ""
-      - "=== 示例——未发现Bug ==="
-      - "  <FG-ALU>"
-      - "  #### 减法功能 <FC-SUB>"
-      - "  - <CK-BORROW> 借位信号正确 <BG-STATIC-000-NULL>"
-      - "  （注意：<BG-STATIC-000-NULL> 下面不允许有任何 <LINK-BUG-*> 或 <FILE-*> 子标签）"
-      - ""
-      - "=== 关键规则 ==="
-      - "  - 【来源】所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到该文件再使用"
-      - "  - 【多Bug】一个 <CK-*> 下可以有多个 <BG-STATIC-*> 标签，每个代表一个独立Bug"
-      - "  - 每个 <BG-STATIC-*>（NULL除外）必须有且仅有一个 <LINK-BUG-[BG-TBD]> 子标签"
-      - "  - 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:L1-L2> 子标签，并附上对应RTL源码片段"
-      - "  - FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）"
-      - "    多段范围示例：<FILE-rtl/dut.v:50-56,100-105>"
-      - "  - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）"
-      - "  - <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目"
-      - ""
-      - "=== 批次进度追踪（必须写在 {OUT}/{DUT}_static_bug_analysis.md 末尾）==="
-      - "  本批次分析完毕后，将每个已分析文件追加到 '## 批次分析进度' 表格中。若该章节不存在则先创建："
-      - "  ## 批次分析进度"
-      - "  | 源文件 | 发现疑似Bug数 | 状态 |"
-      - "  |--------|-------------|------|"
-      - "  | <file>rtl/dut.v</file> | 2 | ✅ 完成 |"
-      - "  重要：<file>…</file> 内的路径必须是相对workspace根目录的源文件路径（示例：<file>rtl/dut.v</file>）"
-      - "  批次Checker通过该标签识别已完成文件，路径错误将导致重复分析"
-      - ""
-      - "  注意区分两种标记："
-      - "    <file>路径</file>      — 小写，纯文本 — 仅用于进度表格，无属性"
-      - "    <FILE-路径:L1-L2>      — 大写带冒号行号 — Bug源码定位标签，位于 <LINK-BUG-*> 下方"
-      - ""
       - "注意："
       - "  - 静态分析阶段不运行任何测试，仅通过源码审查发现问题"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
@@ -342,6 +257,8 @@ stage:
       - "{OUT}/{DUT}_basic_info.md"
     output_files:
       - "{OUT}/{DUT}_static_bug_analysis.md"
+    skill_list:
+      - "static-bug-analysis"
     checker:
       - name: static_bug_batch_analysis_check
         clss: "UnityChipBatchCheckerStaticBug"

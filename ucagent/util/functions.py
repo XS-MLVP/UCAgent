@@ -736,58 +736,72 @@ def dump_as_json(data):
         return data
     return json.dumps(data, indent=4, ensure_ascii=False) #.replace("\\n", "\n").replace("\\", "")
 
-def copytree_incremental(src_dir, dst_dir, skip_existing=True, ignore_dirs=None):
+def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list=[], disable_skill_list=[]):
     """
-    Incremental copying of directories, supports skipping existing files with the same name and ignoring specified directories.
+    Incremental copying of directories with skill-based filtering.
     
     :param src_dir: source directory
     :param dst_dir: destination directory
     :param skip_existing: whether to skip existing files (True=skip, False=overwrite)
-    :param ignore_dirs: list of directory names to ignore (only matches direct subdirectories of source directory)
-    :return: (copied_files, skipped_files, ignored_dirs) tuple
+    :param enable_skill_list: list of skills to include (only copy these)
+    :param disable_skill_list: list of skills to exclude (copy all except these)
+    :return: list of copied skills
     """
     if not os.path.exists(src_dir):
         raise ValueError(f"Source directory {src_dir} does not exist")
-
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
 
-    ignore_dirs = ignore_dirs or []
-    ignore_dirs = [d.strip() for d in ignore_dirs if d.strip()]
+    # if both are not empty, enable_skill_list is first
+    if enable_skill_list and disable_skill_list:
+        disable_skill_list = []
 
-    copied_files = []
-    skipped_files = []
-    ignored_dirs_list = []
-
-    for root, dirs, files in os.walk(src_dir):
-        rel_dir = os.path.relpath(root, src_dir)
-        dst_root = os.path.join(dst_dir, rel_dir) if rel_dir != '.' else dst_dir
-
-        if rel_dir == '.':
-            dirs_to_remove = []
+    copied_skills = []
+    
+    # get all skills in src_dir
+    all_skills = []
+    for item in os.listdir(src_dir):
+        item_path = os.path.join(src_dir, item)
+        if os.path.isdir(item_path):
+            all_skills.append(item)
+    
+    # determine which skills to copy based on enable_skill_list and disable_skill_list
+    skills_to_copy = []
+    if enable_skill_list:
+        skills_to_copy = [skill for skill in enable_skill_list if skill in all_skills]
+    elif disable_skill_list:
+        skills_to_copy = [skill for skill in all_skills if skill not in disable_skill_list]
+    else:
+        skills_to_copy = all_skills
+    
+    # copy skill
+    for skill in skills_to_copy:
+        src_skill_dir = os.path.join(src_dir, skill)
+        dst_skill_dir = os.path.join(dst_dir, skill) 
+        if not os.path.exists(src_skill_dir):
+            continue
+        if not os.path.exists(dst_skill_dir):
+            os.makedirs(dst_skill_dir)
+        for root, dirs, files in os.walk(src_skill_dir):
+            rel_path = os.path.relpath(root, src_skill_dir)
+            dst_path = os.path.join(dst_skill_dir, rel_path) if rel_path != '.' else dst_skill_dir
             for dirname in dirs:
-                if dirname in ignore_dirs:
-                    dirs_to_remove.append(dirname)
-                    ignored_dirs_list.append(dirname)
-            for dirname in dirs_to_remove:
-                dirs.remove(dirname)
-
-        for dirname in dirs:
-            dst_subdir = os.path.join(dst_root, dirname)
-            if not os.path.exists(dst_subdir):
-                os.makedirs(dst_subdir)
-
-        for filename in files:
-            src_file = os.path.join(root, filename)
-            dst_file = os.path.join(dst_root, filename)
-
-            if os.path.exists(dst_file) and skip_existing:
-                skipped_files.append(os.path.relpath(dst_file, dst_dir))
-            else:
-                shutil.copy2(src_file, dst_file)
-                copied_files.append(os.path.relpath(dst_file, dst_dir))
-
-    return copied_files, skipped_files, ignored_dirs_list
+                dst_subdir = os.path.join(dst_path, dirname)
+                if not os.path.exists(dst_subdir):
+                    os.makedirs(dst_subdir)
+            file_copied = False
+            for filename in files:
+                src_file = os.path.join(root, filename)
+                dst_file = os.path.join(dst_path, filename)
+                if os.path.exists(dst_file) and skip_existing:
+                    continue
+                else:
+                    shutil.copy2(src_file, dst_file)
+                    file_copied = True
+            if file_copied and skill not in copied_skills:
+                copied_skills.append(skill)
+    
+    return copied_skills
 
 def render_template_dir(workspace, template_dir, kwargs):
     """
@@ -2297,49 +2311,33 @@ def sync_dir_to(source_dir, target_dir, ignore_pattern_list=[]):
                 info(f"Removed file from target: {item}")
     return target_dir
 
-def copy_skill_files(cfg, workspace,root_dir):
-    """Copy skill files to workspace,include default skills and additional skills
+def copy_skill_files(cfg, workspace, root_dir):
+    """Copy skill files to workspace,include default skills and additional skills.
     Args:
         cfg: Configuration object
-        workspace: workspace directory path
+        workspace: Workspace directory path
         root_dir: Root directory path
-
     """
-    skills_dst_path = os.path.join(workspace, "skills")
-    ignore_skills = cfg.get_value("mission.ignore_skills", [])
-    skill_path=[]
-    # Load default skills path
-    default_skill_path = os.path.join(
-        root_dir,
-        "lang",
-        cfg.lang,
-        "skills",
-    )
-    skill_path.append(default_skill_path)
-    # Load additional skills path
+    dst_path = os.path.join(workspace, ".ucagent/skills")
+    src_paths=[]
+    # default skills path
+    default_skill_path = os.path.join(root_dir,"lang",cfg.lang,"skills")
+    src_paths.append(default_skill_path)
+    # additional skills path
     if isinstance(cfg.skill.use_skill, str):
         extra_skills_path = os.path.abspath(cfg.skill.use_skill)
-        skill_path.append(extra_skills_path)
+        src_paths.append(extra_skills_path)
     # Copy skills to workspace
-    for path in skill_path:
-        if os.path.exists(path):
+    for src_path in src_paths:
+        if os.path.exists(src_path):
             try:
-                copied, skipped, ignored = copytree_incremental(
-                    path, 
-                    skills_dst_path, 
-                    skip_existing=True,
-                    ignore_dirs=ignore_skills
-                )
-                if copied:
-                    info(f"Copy {len(copied)} new skill file(s)")
-                if skipped:
-                    info(f"Skip {len(skipped)} existing skill file(s)")
-                if ignored:
-                    info(f"Ignore {len(ignored)} skill dir(s): {', '.join(ignored)}")
+                copied_skills = copytree_incremental(src_path, dst_path, skip_existing=True,enable_skill_list=cfg.skill.enable_skill_list,disable_skill_list=cfg.skill.disable_skill_list)
+                if copied_skills:
+                    info(f"Copy {len(copied_skills)} new skill file(s)")
             except Exception as e:
                 warning(f"Failed to copy skills: {e}")
         else:
-            info(f"Skills not found at {path}, skipping")
+            info(f"Skills not found at {src_path}, skipping")
 
 
 def find_most_similar_strings(a: Union[str, List[str]], b: List[str]) -> Union[int, List[Tuple[str, int]]]:
