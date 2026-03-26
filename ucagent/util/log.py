@@ -70,7 +70,8 @@ def _stream_chain_records_console(stream) -> bool:
             return True
         if current.__class__.__name__ == "PersistentConsoleMirror" and hasattr(current, "_vpdb"):
             return True
-        # Do NOT check for _ConsoleCapture, as we want to sync to it
+        if current.__class__.__name__ == "_ConsoleCapture":
+            return True
         current = getattr(current, "_original", None)
     return False
 
