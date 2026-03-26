@@ -101,7 +101,7 @@ The default MCP Server address is: http://127.0.0.1:5000/mcp
 **（2）Start qwen to execute task**
 
 ```bash
-cd output
+cd output/workspace_Adder
 qwen
 ```
 
@@ -110,7 +110,7 @@ After starting qwen as above, input the task prompt:
 > Please use the tool `RoleInfo` to get your role information and basic guidance, then complete the task. Use the tool `ReadTextFile` to read files. You need to perform file operations in the current working directory and should not go beyond this directory.
 
 **Note:**
-- Start the Code Agent in the working directory (e.g., output in the example above), otherwise file path mismatch issues may occur.
+- Start the Code Agent in the working directory (e.g., output/workspace_Adder in the example above), otherwise file path mismatch issues may occur.
 - If the DUT is complex and has peripheral component dependencies, you need to open the default skipped stages via ucagent interaction commands.
 
 **Tips:**

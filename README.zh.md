@@ -100,7 +100,7 @@ MCP Server的默认地址为：http://127.0.0.1:5000/mcp
 **（2）启动 qwen 执行任务**
 
 ```bash
-cd output
+cd output/workspace_Adder
 qwen
 ```
 
@@ -109,7 +109,7 @@ qwen
 > 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
 **注意：**
-- 需要在工作目录（如上述例子中的 output）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
+- 需要在工作目录（如上述例子中的 output/workspace_Adder）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
 - 如果DUT比较复杂，有外围组件依赖，需要通过ucagent交互命令打开默认skip的阶段。
 
 **提示：**
