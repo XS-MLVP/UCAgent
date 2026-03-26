@@ -52,6 +52,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .web-terminal-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
 .web-terminal-btn:disabled{opacity:.5}
 .web-terminal-btn.active{border-color:var(--green);color:var(--green);cursor:pointer}
+.master-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:4px 10px;border-radius:var(--radius);font-size:12px;text-decoration:none;transition:all .15s}
+.master-btn:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
 
 /* ── layout ── */
 #layout{display:flex;flex:1;overflow:hidden}
@@ -288,6 +290,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div id="status-bar"><span class="dot"></span>Loading...</div>
   <div class="sep"></div>
   <div id="uc-shell-header-actions" class="uc-shell-actions">
+    <a id="master-btn" class="master-btn" href="/" style="display:none" title="Go to Master Dashboard">Master</a>
     <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
     <button id="ui-reset-btn" class="ui-reset-btn" onclick="resetUiLayout()" title="Reset saved UI layout and dashboard preferences (Alt+Shift+R)">Reset UI</button>
     <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
@@ -629,6 +632,15 @@ function _taskProxyBase(){
   const agentMatch=window.location.pathname.match(/^\/agent\/([^/]+)\/cmd(?:\/.*)?$/);
   if(agentMatch)return "/agent/"+encodeURIComponent(agentMatch[1]);
   return null;
+}
+
+function _initMasterBtn(){
+  const base=_taskProxyBase();
+  const btn=qs("#master-btn");
+  if(base&&btn){
+    btn.style.display="";
+    btn.href="/";
+  }
 }
 
 function _proxyTerminalUrl(source){
@@ -1955,7 +1967,7 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-_initMissionSettings();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+_initMissionSettings();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
