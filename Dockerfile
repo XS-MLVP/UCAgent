@@ -38,10 +38,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/workspace/ucagent \
     PATH=/home/user/.local/bin:$PATH
 
-# Switch to user for installation
-USER user
-WORKDIR /workspace/ucagent
-
 # Install UCAgent and dependencies as user with --user flag
 RUN pip3 install --user --no-cache-dir . && \
     pip3 install --user --no-cache-dir -r requirements-formal.txt && \
