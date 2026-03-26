@@ -1022,8 +1022,8 @@ let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDi
 async function openStageFile(stageIndex,filePath,name,ext){
   try{
     const showCurrent=qs("#show-current-content")?.checked||false;
-    const apiPath=showCurrent?`/api/stage/${stageIndex}/file_current`:`/api/stage/${stageIndex}/file`;
-    const j=await apiFetch(`${apiPath}?file_path=${encodeURIComponent(filePath)}`);
+    const apiPath=showCurrent?"/api/stage/"+stageIndex+"/file_current":"/api/stage/"+stageIndex+"/file";
+    const j=await apiFetch(apiPath+"?file_path="+encodeURIComponent(filePath));
     const data=j.data||{};
     if(data.error){
       showErr(data.error);
@@ -1307,7 +1307,7 @@ async function fetchChangedFiles(){
   try{
     const countEl=qs("#cf-count-input");
     const count=Math.max(1,Math.min(99,parseInt(countEl?countEl.value:5)||5));
-    const j=await apiFetch(`/api/changed_files?count=${count}`);
+    const j=await apiFetch("/api/changed_files?count="+count);
     const data=j.data||[];
     const titleEl=qs("#cf-title");
     const chipsEl=qs("#cf-chips");
@@ -1602,7 +1602,7 @@ async function _acComplete() {
   const val = input.value.replace(/^\s+/, "");
   const isArgMode = val.includes(" ");  // space present → argument completion
   try {
-    const j = await apiFetch(`/api/cmds?prefix=${encodeURIComponent(val)}`);
+    const j = await apiFetch("/api/cmds?prefix="+encodeURIComponent(val));
     const items = j.data || [];
     if (items.length === 1) {
       input.value = items[0] + " ";
