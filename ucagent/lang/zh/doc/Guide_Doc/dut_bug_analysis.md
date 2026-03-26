@@ -397,7 +397,6 @@ val operand_b = MuxCase(rf.read_data2, Seq(
       <BG-STATIC-序号-名称2>                ← 第二个静态Bug（同一CK下）
         <LINK-BUG-[BG-TBD]>
           <FILE-filepath:line1-line2>
-      <BG-STATIC-000-NULL>                  ← 无Bug声明（未发现Bug时），不需要 <LINK-BUG-*> 子标签
 ```
 
 `<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签状态转换：
@@ -452,7 +451,12 @@ val operand_b = MuxCase(rf.read_data2, Seq(
     - <FILE-pkg/uart_pkg.sv:22-24>
 ```
 
-`<BG-STATIC-000-NULL>` 无需 `<LINK-BUG-*>` 子标签，因此也无需 `<FILE-*>` 子标签。
+#### 未发现Bug（在所有文件中都未发现任何bug）
+
+在所有文件中都未发现潜在Bug时，用标签`<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>` 表示。该标签无需 `<LINK-BUG-*>` 子标签，因此也无需 `<LINK-BUG-*>`和`<FILE-*>` 子标签。
+
+`<BG-STATIC-NULL>`仅在所有文件中都未发现任何Bug时使用，不能和`<BG-STATIC-*>`同时使用。
+
 
 **Checker 强制验证**：每个非 NULL 的 `<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签必须至少包含一个格式合法的 `<FILE-*>` 子标签，否则报错。同时 Checker 会通过 `self.get_path(filepath)` 验证 `filepath` 指向的源文件在工作区中实际存在；若文件不存在则报错，提示将路径更正为相对于工作区根目录的正确相对路径（例如 `rtl/dut.v:50-56`，而非绝对路径）。
 
@@ -519,7 +523,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 - `<BG-STATIC-001>` — 纯序号形式
 - `<BG-STATIC-001-FSM-DEAD>` — 推荐格式，附加简洁名称提高可读性
-- `<BG-STATIC-000-NULL>` — **无Bug声明**：静态审查完成后**未发现任何潜在缺陷**时使用；序号固定为 `000`，名称固定为 `NULL`；**不需要** `<LINK-BUG-*>` 子标签；**不允许**与其他 `<BG-STATIC-*>` 标签共存。Checker 强制验证：若文档中既无任何 `<BG-STATIC-*>` 标签、又无 `<BG-STATIC-000-NULL>`，则报错。
+- `<BG-STATIC-NULL>` — **无Bug声明**：静态审查完成后**所有文件都未发现任何潜在缺陷**时使用；**不需要** `<LINK-BUG-*>` 子标签；**不允许**与其他 `<BG-STATIC-*>` 标签共存。Checker 强制验证：若文档中既无任何 `<BG-STATIC-*>` 标签、又无 `<BG-STATIC-NULL>`，则报错。
 
 **`<FG-*>`/`<FC-*>`/`<CK-*>` 的来源规则：**
 
@@ -740,7 +744,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 | 功能点 FC | `<FC-FSM>` | 与 `_functions_and_checks.md` 共用，或新增 `<FC-STATIC-*>` |
 | 检测点 CK | `<CK-FSM-BUSY-CONFLICT>` | 需同步写入 `_functions_and_checks.md`（高/中置信度必须） |
 | 静态Bug | `<BG-STATIC-001-FSM-DEAD>` | 挂靠在 `<CK-*>` 之后，序号+名称格式；**一个 `<CK-*>` 下可以有多个 `<BG-STATIC-*>` 标签** |
-| 静态Bug（无Bug声明） | `<BG-STATIC-000-NULL>` | 挂靠在 `<CK-*>` 之后；序号固定 `000`，名称固定 `NULL`；不需要 `<LINK-BUG-*>` 子标签；不可与其他 `<BG-STATIC-*>` 共存 |
+| 静态Bug（无Bug声明） | `<BG-STATIC-NULL>` | 挂靠在 `<FG-NULL>`、`<FC-NULL>`、`<CK-NULL>` 之后；不需要 `<LINK-BUG-*>` 子标签；不可与其他 `<BG-STATIC-*>` 共存 |
 | 动态Bug关联（待验证） | `<LINK-BUG-[BG-TBD]>` | 每个 `<BG-STATIC-*>` 的**必填**子标签，`static_bug_analysis` 阶段写入 |
 | 动态Bug关联（已证实，单个） | `<LINK-BUG-[BG-FSM-DEAD-92]>` | `static_bug_validation` 后替换，需在 `_bug_analysis.md` 中有对应完整记录 |
 | 动态Bug关联（已证实，多个） | `<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>` | 一个静态Bug证实存在多个动态Bug时，用多个 `[BG-*]` 方括号组依次拼写；每个标签均须在 `_bug_analysis.md` 中有完整记录 |
@@ -752,7 +756,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 **注意**：
 - `<BG-STATIC-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
 - **一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug**
-- `<BG-STATIC-000-NULL>` 是必须显式书写的无Bug声明，不可省略——若 `_static_bug_analysis.md` 中既无任何 `<BG-STATIC-*>` 又无 `<BG-STATIC-000-NULL>`，Checker 将报错
+- `<BG-STATIC-NULL>` 是必须显式书写的无Bug声明，不可省略——若 `_static_bug_analysis.md` 中既无任何 `<BG-STATIC-*>` 又无 `<BG-STATIC-NULL>`，Checker 将报错
 - `<LINK-BUG-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
 - `<FILE-*>` 标签是 `<LINK-BUG-*>` 的必填子标签，Checker 强制验证其存在和格式；`<FILE-*>` 行下方必须附带对应 RTL 源代码片段
 - `static_bug_validation` 阶段结束后，`{DUT}_static_bug_analysis.md` 中**不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留**，Checker 通过 `parse_nested_keys` 强制验证

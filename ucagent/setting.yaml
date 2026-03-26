@@ -76,6 +76,33 @@ master_api:
   host: 0.0.0.0
   port: 8800
 
+launch:
+  file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
+  workspace_root: /tmp/               # base directory for creating launch workspaces
+  default_args:
+    output: "unity_test"              # output directory name
+    stream_output: true               # -s flag
+    human: true                       # -hm flag
+    tui: true                         # --tui flag
+    mcp_server_no_file_tools: false
+    web_console: "0.0.0.0:-1"         # --web-console flag
+    loop: true                        # -l flag
+    extra_args: []                    # additional CLI arguments
+    configs:                          # predefined config options for dropdown
+      UT: "default.yaml"
+  default_env:
+    - "OPENAI_MODEL"
+    - "OPENAI_API_KEY"
+    - "OPENAI_API_BASE"
+    - "ENABLE_LLM_FAIL_SUGGESTION": true
+    - "FAIL_SUGGESTION_MODEL": "$OPENAI_MODEL"
+    - "FAIL_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
+    - "FAIL_SUGGESTION_API_KEY": "$OPENAI_API_KEY"
+    - "ENABLE_LLM_PASS_SUGGESTION": true
+    - "PASS_SUGGESTION_MODEL": "$OPENAI_MODEL"
+    - "PASS_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
+    - "PASS_SUGGESTION_API_KEY": "$OPENAI_API_KEY"
+
 # Model support: openai, anthropic, google_genai
 model_type: openai
 

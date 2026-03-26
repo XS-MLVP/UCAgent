@@ -32,6 +32,9 @@ class _ConsoleCapture:
     """
 
     def __init__(self, original, maxlines: int = 2000) -> None:
+        from ucagent.tui.utils import PersistentConsoleMirror
+        while isinstance(original, (_ConsoleCapture, PersistentConsoleMirror)):
+            original = original._original
         self._original = original
         self._buf: collections.deque = collections.deque(maxlen=maxlines)
         self._lock = threading.Lock()
@@ -211,6 +214,14 @@ class PdbCmdApiServer:
         sys.stdout = self._console_capture
         # Also redirect pdb.stdout so PDB prompt/output goes into the capture
         pdb_instance.stdout = self._console_capture
+        # Set console sync handler to capture output from log functions
+        from ucagent.util import log
+        self._original_sync_handler = log.get_console_sync_handler()
+        def sync_to_capture(text: str):
+            self._console_capture.write(text)
+            if self._original_sync_handler:
+                self._original_sync_handler(text)
+        log.set_console_sync_handler(sync_to_capture)
         self._app = self._build_app()
 
     # ------------------------------------------------------------------
@@ -283,6 +294,13 @@ class PdbCmdApiServer:
 
         class CmdsBody(BaseModel):
             cmds: List[str]
+
+        class StageFlagsBody(BaseModel):
+            indices: List[int]
+            hmcheck_needed: Optional[bool] = None
+            skip: Optional[bool] = None
+            llm_fail_suggestion: Optional[bool] = None
+            llm_pass_suggestion: Optional[bool] = None
         # ── path helpers ───────────────────────────────────────────────
         def _workspace_root() -> str:
             return os.path.abspath(pdb.agent.workspace)
@@ -335,6 +353,24 @@ class PdbCmdApiServer:
         def index():
             return HTMLResponse(content=_HTML)
 
+        @app.get("/api/ui-meta", summary="UI metadata")
+        def get_ui_meta():
+            from ucagent.version import __version__
+            import time as _time
+
+            uptime_s = 0.0
+            if self.started_at:
+                uptime_s = max(0.0, _time.time() - self.started_at)
+            return {
+                "status": "ok",
+                "data": {
+                    "product": "UCAgent",
+                    "version": __version__,
+                    "started_at": self.started_at,
+                    "uptime_s": round(uptime_s, 1),
+                },
+            }
+
         # ── GET /api/status ────────────────────────────────────────────
         @app.get("/api/status", summary="Agent status")
         def get_status():
@@ -360,12 +396,7 @@ class PdbCmdApiServer:
                 cmdqueue = list(pdb.cmdqueue) if pdb.cmdqueue else []
                 pending = init_cmd if in_tui else cmdqueue
                 is_break = pdb.agent.is_break()
-                # running commands
-                if in_tui and getattr(pdb, "_tui_app", None) is not None:
-                    running_cmds = pdb._tui_app.key_handler.get_running_commands()
-                else:
-                    current = getattr(pdb, "_current_cmd", None)
-                    running_cmds = [current] if current else []
+                running_cmds = pdb.get_running_commands()
                 return {
                     "status": "ok",
                     "data": {
@@ -554,6 +585,22 @@ class PdbCmdApiServer:
                 return {"status": "ok", "message": f"{len(cmds)} command(s) enqueued", "count": len(cmds), "cmds": cmds}
             except HTTPException:
                 raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        @app.post("/api/stages/update", summary="Update stage flags")
+        def post_stage_update(body: StageFlagsBody):
+            try:
+                updated = pdb.api_update_stage_flags(
+                    indices=body.indices,
+                    hmcheck_needed=body.hmcheck_needed,
+                    skip=body.skip,
+                    llm_fail_suggestion=body.llm_fail_suggestion,
+                    llm_pass_suggestion=body.llm_pass_suggestion,
+                )
+                return {"status": "ok", "data": updated}
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -985,6 +1032,10 @@ class PdbCmdApiServer:
             sys.stdout = restore_to
         if self.pdb.stdout is self._console_capture:
             self.pdb.stdout = restore_to
+
+        # Restore original console sync handler
+        from ucagent.util import log
+        log.set_console_sync_handler(self._original_sync_handler)
 
         # Clean up the socket file
         if self.sock:

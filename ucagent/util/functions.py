@@ -1770,7 +1770,7 @@ def make_llm_tool_ret(ret, check_pass=True):
     if isinstance(ret, dict) and check_pass:
         for k in ["check_pass", "complete"]:
             if not ret.get(k, True):
-                ret_str += "\n[Important]\nYou MUST check the error messages above, and fix it."
+                ret_str += "\n[Important]\nYou MUST check the error messages (or suggestions) above, and fix it."
                 break
     return ret_str
 

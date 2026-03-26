@@ -1,0 +1,1763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCAgent Launch</title>
+<link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
+<link rel="stylesheet" href="/static/share/ucagent-shell.css">
+<style>
+  :root{
+    --bg:#0f1117;--surface:#1a1d26;--surface2:#22263a;--surface3:#171a21;
+    --border:#2e3248;--text:#e2e8f0;--text-dim:#8892a4;--accent:#6366f1;
+    --accent-hover:#818cf8;--ok:#22c55e;--err:#ef4444;--warn:#f59e0b;--radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+  header .title{font-size:18px;font-weight:700}
+  header .spacer{flex:1}
+  main{max-width:1600px;margin:0 auto;padding:24px;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(340px,.8fr);gap:20px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px}
+  .stack{display:flex;flex-direction:column;gap:16px}
+  .stage-card{padding:16px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.01)}
+  .stage-title{display:flex;align-items:center;gap:10px;margin:0 0 14px}
+  .stage-title h2{margin:0;font-size:16px}
+  .stage-no{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;background:var(--accent);color:#fff;font-size:13px;font-weight:700}
+  .stage-note{font-size:12px;color:var(--text-dim)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer}
+  .btn:hover{border-color:var(--accent);color:#fff}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-danger{background:#3a1818;border-color:#7f1d1d;color:#fecaca}
+  .btn.active{border-color:var(--accent);background:rgba(99,102,241,.15);color:#fff}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .actions,.chips{display:flex;gap:10px;flex-wrap:wrap}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  .full-span{grid-column:1 / -1}
+  label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px}
+  input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text)}
+  input[type="checkbox"]{width:auto}
+  textarea{min-height:88px;resize:vertical}
+  .status{padding:10px 12px;border-radius:10px;background:var(--surface2);border:1px solid var(--border)}
+  .status.ok{color:#86efac}
+  .status.ok{border-color:rgba(34,197,94,.45)}
+  .status.err{border-color:rgba(239,68,68,.45)}
+  .status.warn{border-color:rgba(245,158,11,.45)}
+  .muted{color:var(--text-dim)}
+  .mono,code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .summary-box{border:1px dashed rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)}
+  .table-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px;border-bottom:1px solid rgba(255,255,255,.05);text-align:left;vertical-align:top}
+  th{position:sticky;top:0;background:var(--surface2);font-size:12px;color:var(--text-dim)}
+  pre{margin:0;white-space:pre-wrap;word-break:break-word}
+  .tag-select{min-width:140px}
+  .pill{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);font-size:12px}
+  .switch{display:flex;align-items:center;gap:8px}
+  .browser-shell{display:none;gap:14px;grid-template-columns:280px 1fr}
+  .browser-shell.active{display:grid}
+  .browser-panel{display:flex;flex-direction:column;gap:10px}
+  .list-box{border:1px solid var(--border);border-radius:10px;background:var(--surface2);overflow:hidden}
+  .list-title{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05);font-size:12px;color:var(--text-dim)}
+  .list-body{max-height:250px;overflow:auto}
+  .item-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.05)}
+  .item-row:last-child{border-bottom:none}
+  .item-row:hover{background:rgba(255,255,255,.03)}
+  .item-main{min-width:0;flex:1}
+  .item-main strong,.item-main span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .link-btn{padding:0;border:none;background:none;color:var(--accent);cursor:pointer;text-align:left}
+  .link-btn:hover{text-decoration:underline}
+  .env-table td{padding:8px 10px}
+  .env-source{min-width:90px}
+  .env-max-control{display:inline-flex;align-items:center;gap:6px;margin-right:12px}
+  .env-max-control label{font-size:12px;color:var(--muted)}
+  .env-max-control .btn-sm{padding:2px 8px;font-size:12px;min-width:24px}
+  .env-max-control #env-max-value{min-width:20px;text-align:center;font-weight:600}
+  .disabled-note{opacity:.7}
+  .dialog-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.58);display:none;align-items:center;justify-content:center;padding:24px;z-index:30}
+  .dialog-backdrop.active{display:flex}
+  .dialog{width:min(420px,100%);background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px}
+  .ansi-seg{white-space:pre-wrap}
+  .console-box{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:#0b0d12;padding:10px 12px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+  .response-panel summary{cursor:pointer;color:var(--text-dim);user-select:none}
+  .response-panel summary:hover{color:var(--text)}
+  #launch-response-panel[open] summary{margin-bottom:8px}
+  @media (max-width: 1220px){
+    main{grid-template-columns:1fr}
+    .browser-shell.active{grid-template-columns:1fr}
+  }
+  @media (max-width: 860px){
+    .grid,.grid3{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>Launch Managed UCAgent Task</span></div>
+  <div class="spacer"></div>
+  <div id="uc-shell-header-actions" class="actions" style="align-items:center">
+    <a class="btn" href="/">Master</a>
+    <a class="btn" href="/task/">Tasks</a>
+  </div>
+</header>
+<main>
+  <section class="card stack">
+    <div class="stage-card">
+      <div class="stage-title"><h2>Workspace</h2></div>
+      <div id="workspace-status" class="status warn">Creating a temporary workspace on the master host...</div>
+      <div class="stage-note">The master creates the workspace automatically. If no browse root is configured, the server picker falls back to the <code>examples</code> directory above <code>cli.py</code>.</div>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-title"><span class="stage-no">1</span><h2>Manage Launch Files</h2></div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" data-action="choose-upload">Upload Files</button>
+        <button type="button" class="btn" id="toggle-browser-btn" data-action="toggle-browser">Select On Server</button>
+      </div>
+      <input id="upload-files-input" type="file" multiple style="display:none">
+      <div id="file-gate-status" class="status warn">Tag at least one file as <code>Main RTL</code> and one file as <code>Verification Needs</code> to unlock the next step.</div>
+      <div class="stage-note">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>.</div>
+
+      <div id="browser-shell" class="browser-shell">
+        <div class="browser-panel">
+          <div>
+            <label>Browse Root</label>
+            <select id="browser-root"></select>
+          </div>
+          <div>
+            <label>Search</label>
+            <input id="browser-search" placeholder="File name or relative path">
+          </div>
+          <div class="actions">
+            <button type="button" class="btn" data-action="browser-search">Search</button>
+            <button type="button" class="btn" data-action="browser-refresh">Refresh</button>
+            <button type="button" class="btn" data-action="browser-up">Up</button>
+          </div>
+          <div id="browser-path" class="muted mono"></div>
+          <div id="browser-status" class="muted"></div>
+        </div>
+        <div class="browser-panel">
+          <div class="list-box">
+            <div class="list-title">Directories</div>
+            <div id="browser-dirs" class="list-body"></div>
+          </div>
+          <div class="list-box">
+            <div class="list-title">Files</div>
+            <div id="browser-files" class="list-body"></div>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn" data-action="browser-select-all">Select All</button>
+            <button type="button" class="btn" data-action="browser-clear-selection">Clear</button>
+            <button type="button" class="btn btn-primary" data-action="browser-import">Import Selected Files</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>File Name</th>
+              <th>Type</th>
+              <th>Tag</th>
+              <th>Source</th>
+              <th>Size</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="file-table-body"><tr><td colspan="6" class="muted">Waiting for workspace creation...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-title"><span class="stage-no">2</span><h2>Select Main RTL Module</h2></div>
+      <div id="module-gate-note" class="summary-box muted">The module selector unlocks only after the file list contains both <code>Main RTL</code> and <code>Verification Needs</code>.</div>
+      <div class="grid3">
+        <div>
+          <label>Main RTL File</label>
+          <div id="main-file-display" class="status">No file is currently tagged as Main RTL.</div>
+        </div>
+        <div>
+          <label>Available Modules</label>
+          <select id="selected-module" disabled></select>
+        </div>
+        <div>
+          <label>Module Actions</label>
+          <div class="actions">
+            <button type="button" class="btn" id="parse-modules-btn" data-action="parse-modules" disabled>Refresh Modules</button>
+          </div>
+        </div>
+      </div>
+      <div id="module-status" class="status">The module list has not been parsed yet.</div>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-title"><span class="stage-no">3</span><h2>Compile DUT</h2></div>
+      <div class="stage-note">Compile prepares <code>{DUT}_RTL</code>, <code>{DUT}_Doc</code>, runs <code>picker export</code>, and copies the verification-needs file into the generated DUT package as <code>README.md</code>.</div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="compile-dut-btn" data-action="compile-dut" disabled>Compile DUT</button>
+      </div>
+      <div id="compile-status" class="status">The DUT has not been compiled yet.</div>
+      <div id="compile-summary" class="summary-box muted">Compile after selecting the target module.</div>
+      <div>
+        <label>Compile Console</label>
+        <div id="compile-console" class="console-box muted">Compile logs will stream here.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card stack">
+    <div class="stage-card">
+      <div class="stage-title"><h2>Launch Settings</h2></div>
+      <div class="grid">
+        <div>
+          <label>Task Name</label>
+          <input id="task-name" placeholder="Auto-generated if empty">
+        </div>
+        <div>
+          <label>DUT Name (from compiled module)</label>
+          <input id="dut-name" readonly placeholder="Auto-filled from selected module">
+        </div>
+        <div>
+          <label>Config Path</label>
+          <select id="config-path"></select>
+        </div>
+        <div>
+          <label>Backend</label>
+          <select id="backend"></select>
+        </div>
+        <div>
+          <label>Output Directory</label>
+          <input id="output" value="unity_test">
+        </div>
+        <div>
+          <label>Master Override</label>
+          <input id="master-override" placeholder="host:port [access_key]">
+        </div>
+      </div>
+      <div id="dynamic-launch-settings" class="stack"></div>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-title"><h2>Environment Variables</h2></div>
+      <div class="stage-note">This list is loaded from <code>launch.default_env</code>. Empty rows block launch until you fill them or delete them. Entries configured as <code>$VAR</code> automatically follow the referenced variable.</div>
+      <div class="table-wrap">
+        <table class="env-table">
+          <thead>
+            <tr><th>Key</th><th>Value</th><th>Source</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="env-table-body"><tr><td colspan="4" class="muted">Loading environment defaults...</td></tr></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <span class="env-max-control">
+          <label>Max visible:</label>
+          <button type="button" class="btn btn-sm" data-action="env-max-dec">-</button>
+          <span id="env-max-value">3</span>
+          <button type="button" class="btn btn-sm" data-action="env-max-inc">+</button>
+        </span>
+        <button type="button" class="btn" id="toggle-env-rows" data-action="toggle-env-rows" style="display:none;">Show All</button>
+        <button type="button" class="btn" data-action="add-env-row">Add Variable</button>
+      </div>
+    </div>
+
+    <div class="stage-card">
+      <div class="stage-title"><h2>Launch Preview</h2></div>
+      <div id="launch-readiness" class="status warn">The launch action remains disabled until the required file tags are present and one module is selected.</div>
+      <div>
+        <label>Resolved Command Preview</label>
+        <pre id="command-preview" class="status mono">Waiting for required inputs...</pre>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="launch-btn" data-action="launch-task" disabled>Launch Task</button>
+      </div>
+      <div id="launch-status" class="status">The task has not been launched yet.</div>
+      <div class="response-panel">
+        <label>Latest Response</label>
+        <details id="launch-response-panel">
+          <summary id="launch-response-summary">Show response</summary>
+          <pre id="launch-response" class="status mono"></pre>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+<footer id="uc-shell-footer" class="uc-shell-footer"></footer>
+
+<script>
+const TAG_OPTIONS = [
+  { value: 'misc', label: 'Unassigned' },
+  { value: 'main_verilog', label: 'Main RTL' },
+  { value: 'rtl_extra', label: 'Extra RTL' },
+  { value: 'spec', label: 'Spec' },
+  { value: 'requirement', label: 'Verification Needs' },
+  { value: 'config', label: 'Config' },
+  { value: 'source_extra', label: 'Other Source' },
+];
+
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend']);
+
+const state = {
+  workspace: null,
+  workspaceId: '',
+  browserRoots: [],
+  browser: {
+    visible: false,
+    path: '',
+    parentPath: '',
+    selected: new Set(),
+  },
+  modules: [],
+  envRows: [],
+  manualConfigPath: false,
+  launchConfig: null,
+  configOptions: [],
+  backendOptions: [],
+  backendKeyName: '',
+  envExpanded: false,
+  envMaxVisible: 3,
+  launching: false,
+};
+
+function makeId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function enc(value) {
+  return encodeURIComponent(String(value ?? ''));
+}
+
+function dec(value) {
+  return decodeURIComponent(String(value ?? ''));
+}
+
+function formatBytes(value) {
+  const size = Number(value || 0);
+  if (!size) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let current = size;
+  let index = 0;
+  while (current >= 1024 && index < units.length - 1) {
+    current /= 1024;
+    index += 1;
+  }
+  return `${current >= 10 || index === 0 ? current.toFixed(0) : current.toFixed(1)} ${units[index]}`;
+}
+
+function launchSettingLabel(key) {
+  return String(key || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function renderDynamicLaunchSettings(config) {
+  const container = document.getElementById('dynamic-launch-settings');
+  if (!container) return;
+  const entries = Object.entries(config || {}).filter(([key]) => !FIXED_LAUNCH_KEYS.has(key));
+  if (!entries.length) {
+    container.innerHTML = '';
+    return;
+  }
+  const booleanEntries = entries.filter(([, value]) => typeof value === 'boolean');
+  const otherEntries = entries.filter(([, value]) => typeof value !== 'boolean');
+  const extraArgsEntry = otherEntries.find(([key]) => key === 'extra_args');
+  const normalEntries = otherEntries.filter(([key]) => key !== 'extra_args');
+  const parts = [];
+  if (booleanEntries.length) {
+    parts.push(`
+      <div>
+        <label>CLI Flags</label>
+        <div class="chips">
+          ${booleanEntries.map(([key, value]) => `
+            <label class="pill switch"><input type="checkbox" data-launch-key="${esc(key)}" data-launch-type="boolean" ${value ? 'checked' : ''}> ${esc(key)}</label>
+          `).join('')}
+        </div>
+      </div>
+    `);
+  }
+  if (normalEntries.length) {
+    parts.push(`
+      <div class="grid">
+        ${normalEntries.map(([key, value]) => {
+          if (Array.isArray(value)) {
+            return `
+              <div>
+                <label>${esc(launchSettingLabel(key))}</label>
+                <textarea data-launch-key="${esc(key)}" data-launch-type="array">${esc(value.join('\n'))}</textarea>
+              </div>
+            `;
+          }
+          if (value && typeof value === 'object') {
+            return `
+              <div>
+                <label>${esc(launchSettingLabel(key))}</label>
+                <textarea data-launch-key="${esc(key)}" data-launch-type="json">${esc(JSON.stringify(value, null, 2))}</textarea>
+              </div>
+            `;
+          }
+          const type = typeof value === 'number' ? 'number' : 'string';
+          return `
+            <div>
+              <label>${esc(launchSettingLabel(key))}</label>
+              <input data-launch-key="${esc(key)}" data-launch-type="${esc(type)}" value="${esc(value ?? '')}">
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `);
+  }
+  if (extraArgsEntry) {
+    const [, value] = extraArgsEntry;
+    const lines = Array.isArray(value) ? value.join('\n') : String(value ?? '');
+    parts.push(`
+      <div class="grid">
+        <div class="full-span">
+          <label>${esc(launchSettingLabel(extraArgsEntry[0]))}</label>
+          <textarea rows="2" data-launch-key="${esc(extraArgsEntry[0])}" data-launch-type="array">${esc(lines)}</textarea>
+        </div>
+      </div>
+    `);
+  }
+  container.innerHTML = parts.join('');
+}
+
+function collectDynamicLaunchOptions() {
+  const fields = [...document.querySelectorAll('[data-launch-key]')];
+  const options = {};
+  for (const field of fields) {
+    const key = field.dataset.launchKey;
+    const type = field.dataset.launchType || 'string';
+    if (!key) continue;
+    if (type === 'boolean') {
+      options[key] = !!field.checked;
+      continue;
+    }
+    if (type === 'array') {
+      options[key] = field.value.split('\n').map((item) => item.trim()).filter(Boolean);
+      continue;
+    }
+    if (type === 'number') {
+      const raw = field.value.trim();
+      options[key] = raw === '' ? '' : Number(raw);
+      continue;
+    }
+    if (type === 'json') {
+      const raw = field.value.trim();
+      if (!raw) {
+        options[key] = {};
+      } else {
+        try {
+          options[key] = JSON.parse(raw);
+        } catch {
+          options[key] = raw;
+        }
+      }
+      continue;
+    }
+    options[key] = field.value;
+  }
+  return options;
+}
+
+function formatTimestamp(value) {
+  const ts = Number(value || 0);
+  if (!ts) return '-';
+  try {
+    return new Date(ts * 1000).toLocaleString();
+  } catch {
+    return '-';
+  }
+}
+
+function formatApiError(data, fallback = 'Request failed') {
+  if (!data) return fallback;
+  if (typeof data.detail === 'string' && data.detail.trim()) return data.detail;
+  if (Array.isArray(data.detail) && data.detail.length) {
+    return data.detail.map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const location = Array.isArray(item.loc) ? item.loc.join('.') : '';
+        const message = item.msg || JSON.stringify(item);
+        return location ? `${location}: ${message}` : message;
+      }
+      return String(item);
+    }).join('; ');
+  }
+  if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  if (typeof data.raw === 'string' && data.raw.trim()) return data.raw;
+  try {
+    return JSON.stringify(data);
+  } catch {
+    return fallback;
+  }
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    throw new Error(formatApiError(data, response.statusText));
+  }
+  return data;
+}
+
+function setStatus(id, kind, message) {
+  const element = document.getElementById(id);
+  element.className = `status${kind ? ` ${kind}` : ''}`;
+  element.innerHTML = message;
+}
+
+const ANSI_FG = {
+  30: '#4a4a4a', 31: '#f87171', 32: '#4ade80', 33: '#fbbf24',
+  34: '#60a5fa', 35: '#c084fc', 36: '#22d3ee', 37: '#e5e7eb',
+  90: '#6b7280', 91: '#fca5a5', 92: '#86efac', 93: '#fde68a',
+  94: '#93c5fd', 95: '#d8b4fe', 96: '#67e8f9', 97: '#f8fafc',
+};
+
+function ansiToHtml(input) {
+  const text = String(input ?? '');
+  const pattern = /(?:\x1b\[|\[)(\d+(?:;\d+)*)m/g;
+  let html = '';
+  let lastIndex = 0;
+  let bold = false;
+  let color = '';
+  let match;
+  while ((match = pattern.exec(text))) {
+    const chunk = text.slice(lastIndex, match.index);
+    if (chunk) {
+      let style = '';
+      if (bold) style += 'font-weight:700;';
+      if (color) style += `color:${color};`;
+      const content = esc(chunk).replace(/\n/g, '<br>');
+      html += style ? `<span class="ansi-seg" style="${style}">${content}</span>` : content;
+    }
+    for (const codeRaw of match[1].split(';')) {
+      const code = Number(codeRaw);
+      if (code === 0) {
+        bold = false;
+        color = '';
+      } else if (code === 1) {
+        bold = true;
+      } else if (ANSI_FG[code]) {
+        color = ANSI_FG[code];
+      }
+    }
+    lastIndex = pattern.lastIndex;
+  }
+  const tail = text.slice(lastIndex);
+  if (tail) {
+    let style = '';
+    if (bold) style += 'font-weight:700;';
+    if (color) style += `color:${color};`;
+    const content = esc(tail).replace(/\n/g, '<br>');
+    html += style ? `<span class="ansi-seg" style="${style}">${content}</span>` : content;
+  }
+  return html || esc(text);
+}
+
+function setAnsiStatus(id, kind, message) {
+  const element = document.getElementById(id);
+  element.className = `status${kind ? ` ${kind}` : ''}`;
+  element.innerHTML = ansiToHtml(message);
+}
+
+function resetCompileConsole(message = 'Compile logs will stream here.') {
+  const element = document.getElementById('compile-console');
+  element.className = 'console-box muted';
+  element.innerHTML = esc(message);
+}
+
+function appendCompileConsole(message, stream = '') {
+  const element = document.getElementById('compile-console');
+  if (element.classList.contains('muted')) {
+    element.classList.remove('muted');
+    element.innerHTML = '';
+  }
+  const prefix = stream ? `<span style="color:var(--text-dim)">[${esc(stream)}] </span>` : '';
+  element.innerHTML += `${prefix}${ansiToHtml(message)}`;
+  element.scrollTop = element.scrollHeight;
+}
+
+function setCompileButton(label, disabled) {
+  const btn = document.getElementById('compile-dut-btn');
+  if (!btn) return;
+  btn.textContent = label;
+  btn.disabled = disabled;
+}
+
+function setLaunchButton(label, disabled) {
+  const btn = document.getElementById('launch-btn');
+  if (!btn) return;
+  btn.textContent = label;
+  btn.disabled = disabled;
+}
+
+function setLaunchResponse(data, options = {}) {
+  const panel = document.getElementById('launch-response-panel');
+  const summary = document.getElementById('launch-response-summary');
+  const body = document.getElementById('launch-response');
+  if (!panel || !summary || !body) return;
+  body.textContent = data ? JSON.stringify(data, null, 2) : '';
+  summary.textContent = options.summary || 'Show response';
+  panel.open = !!options.open;
+}
+
+async function createWorkspace() {
+  const workspaceRoot = (state.launchConfig && state.launchConfig.workspace_root) || '/tmp';
+  const attempts = [
+    () => api('/api/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_root: workspaceRoot }),
+    }),
+    () => api(`/api/workspace?workspace_root=${encodeURIComponent(workspaceRoot)}`, { method: 'POST' }),
+    () => api('/api/workspace', { method: 'POST' }),
+  ];
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('Failed to create workspace.');
+}
+
+function getFiles() {
+  return state.workspace?.files || [];
+}
+
+function getMainFile() {
+  return getFiles().find((item) => item.category === 'main_verilog') || null;
+}
+
+function hasRequirementFile() {
+  return getFiles().some((item) => item.category === 'requirement');
+}
+
+function isNextStepUnlocked() {
+  return Boolean(getMainFile()) && hasRequirementFile();
+}
+
+function isVerilogFile(filename) {
+  const ext = filename.toLowerCase().split('.').pop();
+  return ['v', 'sv', 'vh', 'svh'].includes(ext);
+}
+
+function isMdFile(filename) {
+  const ext = filename.toLowerCase().split('.').pop();
+  return ext === 'md';
+}
+
+function isConfigFile(filename) {
+  const lower = filename.toLowerCase();
+  return lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.json');
+}
+
+function autoSelectCategory(filename) {
+  const files = getFiles();
+  if (isVerilogFile(filename)) {
+    const hasMainRtl = files.some((item) => item.category === 'main_verilog');
+    return hasMainRtl ? 'rtl_extra' : 'main_verilog';
+  }
+  if (isMdFile(filename)) {
+    const hasRequirement = files.some((item) => item.category === 'requirement');
+    return hasRequirement ? 'spec' : 'requirement';
+  }
+  if (isConfigFile(filename)) {
+    const hasConfig = files.some((item) => item.category === 'config');
+    return hasConfig ? 'misc' : 'config';
+  }
+  return 'misc';
+}
+
+function buildCategoryCounts(files) {
+  const counts = Object.create(null);
+  for (const file of files || []) {
+    const category = String(file && file.category || '');
+    if (!category) continue;
+    counts[category] = (counts[category] || 0) + 1;
+  }
+  return counts;
+}
+
+function autoSelectCategoryWithCounts(filename, counts) {
+  if (isVerilogFile(filename)) {
+    return counts.main_verilog ? 'rtl_extra' : 'main_verilog';
+  }
+  if (isMdFile(filename)) {
+    return counts.requirement ? 'spec' : 'requirement';
+  }
+  if (isConfigFile(filename)) {
+    return counts.config ? 'misc' : 'config';
+  }
+  return 'misc';
+}
+
+function assignAutoCategories(filenames) {
+  const counts = buildCategoryCounts(getFiles());
+  return filenames.map((filename) => {
+    const category = autoSelectCategoryWithCounts(filename, counts);
+    counts[category] = (counts[category] || 0) + 1;
+    return category;
+  });
+}
+
+function getSelectedModule() {
+  return document.getElementById('selected-module').value.trim();
+}
+
+function syncModuleDerivedFields(moduleName) {
+  const value = String(moduleName || '').trim();
+  if (!value) return;
+  document.getElementById('dut-name').value = value;
+  document.getElementById('task-name').value = value;
+}
+
+function normalizeDutName(value) {
+  const cleaned = String(value || '').trim().replace(/[^A-Za-z0-9._-]+/g, '_');
+  return cleaned || 'DUT';
+}
+
+function getDesiredDutName() {
+  return document.getElementById('dut-name').value.trim() || getSelectedModule();
+}
+
+function getCompileInfo() {
+  return state.workspace?.compile || {};
+}
+
+function isCompileCurrent() {
+  const compile = getCompileInfo();
+  const mainFile = getMainFile();
+  const selectedModule = getSelectedModule();
+  if (!compile || compile.status !== 'success' || !mainFile || !selectedModule) return false;
+  return (
+    compile.selected_module === selectedModule &&
+    compile.main_verilog_path === mainFile.stored_path &&
+    compile.dut_name === normalizeDutName(getDesiredDutName())
+  );
+}
+
+function getConfigFile() {
+  return getFiles().find((item) => item.category === 'config') || null;
+}
+
+function syncConfigPathDefault() {
+  const input = document.getElementById('config-path');
+  if (!input || state.manualConfigPath) return;
+  const compile = getCompileInfo();
+  const optionValues = [...input.options].map((option) => option.value);
+  const desiredValue = (compile && compile.config_path)
+    ? compile.config_path
+    : ((getConfigFile() && getConfigFile().name) || 'config.yaml');
+  if (optionValues.length > 0) {
+    input.value = optionValues.includes(desiredValue) ? desiredValue : optionValues[0];
+    return;
+  }
+  const configFile = getConfigFile();
+  input.value = configFile ? configFile.name : 'config.yaml';
+}
+
+function renderFileTable() {
+  const tbody = document.getElementById('file-table-body');
+  const files = getFiles();
+  if (!files.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="muted">No files have been imported yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = files.map((file) => `
+    <tr>
+      <td><strong>${esc(file.name)}</strong></td>
+      <td>${esc((file.file_type || 'file').replace(/^\./, '').toUpperCase() || 'FILE')}</td>
+      <td>
+        <select class="tag-select" data-action="change-tag" data-item-id="${esc(file.item_id)}">
+          ${TAG_OPTIONS.map((option) => `<option value="${esc(option.value)}" ${option.value === file.category ? 'selected' : ''}>${esc(option.label)}</option>`).join('')}
+        </select>
+      </td>
+      <td>${esc(file.source || '-')}</td>
+      <td>${esc(formatBytes(file.size))}</td>
+      <td>
+        <div class="actions">
+          <a class="btn" href="/api/workspace/${encodeURIComponent(state.workspaceId)}/file/download?path=${encodeURIComponent(file.stored_relpath)}" target="_blank">Download</a>
+          <button type="button" class="btn btn-danger" data-action="delete-file" data-path="${enc(file.stored_relpath)}">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderGateState() {
+  const mainFile = getMainFile();
+  const hasRequirement = hasRequirementFile();
+  const unlocked = Boolean(mainFile) && hasRequirement;
+  if (unlocked) {
+    setStatus('file-gate-status', 'ok', 'Required tags are present. You can continue to module selection and DUT compilation.');
+  } else {
+    const missing = [];
+    if (!mainFile) missing.push('<code>Main RTL</code>');
+    if (!hasRequirement) missing.push('<code>Verification Needs</code>');
+    setStatus('file-gate-status', 'warn', `The next step is locked. Missing required tag(s): ${missing.join(', ')}.`);
+  }
+  const mainDisplay = document.getElementById('main-file-display');
+  if (mainFile) {
+    mainDisplay.className = 'status ok';
+    mainDisplay.innerHTML = `<code>${esc(mainFile.name)}</code>`;
+  } else {
+    mainDisplay.className = 'status';
+    mainDisplay.textContent = 'No file is currently tagged as Main RTL.';
+  }
+  document.getElementById('selected-module').disabled = !unlocked;
+  document.getElementById('parse-modules-btn').disabled = !unlocked || !mainFile;
+  document.getElementById('compile-dut-btn').disabled = !unlocked || !getSelectedModule();
+  document.getElementById('module-gate-note').className = `summary-box${unlocked ? '' : ' muted'}`;
+  document.getElementById('module-gate-note').innerHTML = unlocked
+    ? 'The required file tags are present. Refresh modules whenever the <code>Main RTL</code> row changes.'
+    : 'The module selector unlocks only after the file list contains both <code>Main RTL</code> and <code>Verification Needs</code>.';
+}
+
+function renderCompileState() {
+  const compile = getCompileInfo();
+  const selectedModule = getSelectedModule();
+  const desiredDut = getDesiredDutName();
+  const compileLabel = selectedModule ? `Compile ${selectedModule}` : 'Compile DUT';
+  setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule);
+  const summary = document.getElementById('compile-summary');
+  if (!selectedModule) {
+    setStatus('compile-status', '', 'Select a parsed module before compiling the DUT.');
+    summary.className = 'summary-box muted';
+    summary.innerHTML = 'Compile after selecting the target module.';
+    return;
+  }
+  if (!compile || !compile.status) {
+    setStatus('compile-status', 'warn', 'The current DUT selection has not been compiled yet.');
+    summary.className = 'summary-box muted';
+    summary.innerHTML = `Target package: <code>${esc(normalizeDutName(desiredDut))}</code>`;
+    return;
+  }
+  const matches = isCompileCurrent();
+  if (compile.status === 'success' && matches) {
+    setStatus('compile-status', 'ok', `Compiled package <code>${esc(compile.dut_name)}</code> at ${esc(formatTimestamp(compile.compiled_at))}.`);
+    summary.className = 'summary-box';
+    summary.innerHTML = [
+      `RTL Dir: <code>${esc(compile.rtl_dir || '-')}</code>`,
+      `Doc Dir: <code>${esc(compile.doc_dir || '-')}</code>`,
+      `Package Dir: <code>${esc(compile.dut_dir || '-')}</code>`,
+      `Filelist: <code>${esc(compile.filelist_path || '(none)')}</code>${compile.generated_filelist ? ' (generated)' : ''}`,
+      `README: <code>${esc(compile.readme_path || '(not copied)')}</code>`,
+    ].join('<br>');
+    return;
+  }
+  if (compile.status === 'failed') {
+    setStatus('compile-status', 'err', `Last compile failed for <code>${esc(compile.dut_name || '(unknown)')}</code>.`);
+  } else {
+    setStatus('compile-status', 'warn', `Compile output exists for <code>${esc(compile.dut_name || '(unknown)')}</code>, but it does not match the current selection.`);
+  }
+  summary.className = 'summary-box muted';
+  summary.innerHTML = [
+    `Current target: <code>${esc(normalizeDutName(desiredDut))}</code> / <code>${esc(selectedModule)}</code>`,
+    `Last compile: <code>${esc(compile.dut_name || '-')}</code> / <code>${esc(compile.selected_module || '-')}</code>`,
+  ].join('<br>');
+}
+
+function renderEnvRows() {
+  const tbody = document.getElementById('env-table-body');
+  if (!state.envRows.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">No environment variables configured.</td></tr>';
+    document.getElementById('toggle-env-rows').style.display = 'none';
+    return;
+  }
+  const visibleRows = state.envExpanded ? state.envRows : state.envRows.slice(0, state.envMaxVisible);
+  const hasMore = state.envRows.length > state.envMaxVisible;
+  tbody.innerHTML = visibleRows.map((row) => `
+    <tr>
+      <td><input data-action="env-key" data-row-id="${esc(row.id)}" value="${esc(row.key)}" placeholder="KEY"></td>
+      <td>
+        <input
+          ${row.masked ? 'type="password"' : 'type="text"'}
+          data-action="env-value"
+          data-row-id="${esc(row.id)}"
+          value="${esc(row.mode === 'reference' && !row.userEdited ? (row.rawValue || row.value) : row.value)}"
+          placeholder="${esc(row.placeholder || '')}">
+      </td>
+      <td class="env-source" title="${esc(row.detailLabel || '')}">${esc(row.sourceLabel)}</td>
+      <td><button type="button" class="btn btn-danger" data-action="remove-env-row" data-row-id="${esc(row.id)}">Remove</button></td>
+    </tr>
+  `).join('');
+  const toggleBtn = document.getElementById('toggle-env-rows');
+  if (hasMore) {
+    toggleBtn.style.display = '';
+    toggleBtn.textContent = state.envExpanded ? 'Show Less' : `Show All (${state.envRows.length})`;
+  } else {
+    toggleBtn.style.display = 'none';
+  }
+}
+
+function resolveEnvRow(row, seen = new Set()) {
+  if (!row) return { filled: false, payloadValue: '', displayValue: '' };
+  const manual = String(row.value || '').trim();
+  if (manual) {
+    return { filled: true, payloadValue: manual, displayValue: manual };
+  }
+  if (row.mode === 'reference' && row.referenceKey) {
+    if (seen.has(row.key)) return { filled: false, payloadValue: '', displayValue: '' };
+    const nextSeen = new Set(seen);
+    nextSeen.add(row.key);
+    const refRow = state.envRows.find((item) => item.key.trim() === row.referenceKey);
+    const resolved = resolveEnvRow(refRow, nextSeen);
+    if (resolved.filled) {
+      return {
+        filled: true,
+        payloadValue: row.userEdited ? resolved.displayValue : (row.rawValue || `$${row.referenceKey}`),
+        displayValue: resolved.displayValue,
+      };
+    }
+    if (row.hasDefaultValue) {
+      return {
+        filled: true,
+        payloadValue: row.rawValue || `$${row.referenceKey}`,
+        displayValue: row.masked ? row.placeholder : row.initialValue,
+      };
+    }
+    return { filled: false, payloadValue: '', displayValue: '' };
+  }
+  if (row.hasDefaultValue) {
+    if (row.mode === 'literal') {
+      return {
+        filled: String(row.rawValue || '').trim() !== '',
+        payloadValue: row.rawValue,
+        displayValue: row.masked ? row.placeholder : row.initialValue,
+      };
+    }
+    return {
+      filled: true,
+      payloadValue: '',
+      displayValue: row.masked ? row.placeholder : row.initialValue,
+    };
+  }
+  return { filled: false, payloadValue: '', displayValue: '' };
+}
+
+function syncEnvReferenceRows() {
+  for (const row of state.envRows) {
+    if (row.mode !== 'reference' || row.userEdited) continue;
+    const resolved = resolveEnvRow(row);
+    row.value = row.rawValue || `$${row.referenceKey}`;
+    row.initialValue = row.value;
+    row.placeholder = row.masked ? (resolved.displayValue || '') : row.placeholder;
+    row.hasDefaultValue = resolved.filled;
+  }
+}
+
+function getEmptyEnvRows() {
+  return state.envRows.filter((row) => {
+    const key = row.key.trim();
+    if (!key) return false;
+    const resolved = resolveEnvRow(row);
+    return !resolved.filled || !String(resolved.displayValue || row.placeholder || '').trim();
+  });
+}
+
+function buildCommandPreview() {
+  if (!state.workspace) return 'Waiting for workspace creation...';
+  const selectedModule = getSelectedModule();
+  const dutName = getDesiredDutName() || '<dut>';
+  const compile = getCompileInfo();
+  const compileCurrent = isCompileCurrent();
+  const dynamicOptions = collectDynamicLaunchOptions();
+  const workspacePath = state.workspace.workspace_dir + '/workspace';
+  const args = [
+    'ucagent',
+    workspacePath,
+    compileCurrent ? compile.dut_name : normalizeDutName(dutName),
+    '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
+    '--output', document.getElementById('output').value.trim() || 'unity_test',
+  ];
+  if (dynamicOptions.stream_output) args.push('-s');
+  if (dynamicOptions.human) args.push('-hm');
+  if (dynamicOptions.tui) args.push('--tui');
+  if (dynamicOptions.loop) args.push('-l');
+  if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
+  const backend = document.getElementById('backend').value.trim();
+  if (backend) args.push('--backend', backend);
+  const masterOverride = document.getElementById('master-override').value.trim();
+  args.push('--master', masterOverride || '<current master>');
+  args.push('--export-cmd-api', '<auto>');
+  if (compileCurrent && compile?.doc_dir) args.push('--guid-doc-path', compile.doc_dir);
+  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools']);
+  for (const [key, value] of Object.entries(dynamicOptions)) {
+    if (consumedKeys.has(key)) continue;
+    if (key === 'extra_args' && Array.isArray(value) && value.length) {
+      args.push(...value);
+      continue;
+    }
+    if (typeof value === 'boolean') {
+      if (value) args.push(`--${key.replace(/_/g, '-')}`);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        args.push(`--${key.replace(/_/g, '-')}`, String(item));
+      }
+      continue;
+    }
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      args.push(`--${key.replace(/_/g, '-')}`, String(value));
+    }
+  }
+  return args.join(' ');
+}
+
+function updateLaunchState() {
+  syncEnvReferenceRows();
+  renderGateState();
+  renderCompileState();
+  document.getElementById('command-preview').textContent = buildCommandPreview();
+  const emptyEnvRows = getEmptyEnvRows();
+  const ready = isNextStepUnlocked() && Boolean(getSelectedModule()) && isCompileCurrent() && emptyEnvRows.length === 0;
+  const launchBtn = document.getElementById('launch-btn');
+  if (launchBtn) {
+    launchBtn.disabled = state.launching || !ready;
+  }
+  if (ready) {
+    setStatus('launch-readiness', 'ok', 'The launch request is ready. Review the command preview and launch when appropriate.');
+  } else {
+    const reasons = [];
+    if (!getMainFile()) reasons.push('tag one file as Main RTL');
+    if (!hasRequirementFile()) reasons.push('tag one file as Verification Needs');
+    if (!getSelectedModule()) reasons.push('choose a parsed module');
+    if (getSelectedModule() && !isCompileCurrent()) reasons.push('compile the current DUT selection');
+    if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
+    setStatus('launch-readiness', 'warn', `Launch is blocked. Please ${reasons.join(', ')}.`);
+  }
+}
+
+function syncWorkspace(workspace) {
+  state.workspace = workspace;
+  state.workspaceId = workspace.workspace_id;
+  renderFileTable();
+  syncConfigPathDefault();
+  renderGateState();
+  updateLaunchState();
+}
+
+async function refreshWorkspace(options = {}) {
+  const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}`);
+  syncWorkspace(data.workspace);
+  if (options.autoParseModules && isNextStepUnlocked() && getMainFile()) {
+    await parseModules(true);
+  }
+}
+
+async function uploadFiles(files) {
+  const categories = assignAutoCategories(files.map((file) => file.name));
+  const uploaded = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const category = categories[index];
+    const form = new FormData();
+    form.append('category', category);
+    form.append('file', file);
+    let data;
+    try {
+      data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file/upload`, {
+        method: 'POST',
+        body: form,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Upload failed for ${file.name}: ${message}`);
+    }
+    uploaded.push(data.file);
+  }
+  await refreshWorkspace({ autoParseModules: true });
+  return uploaded;
+}
+
+function resetBrowserSelection() {
+  state.browser.selected.clear();
+  updateBrowserSelectionStatus();
+}
+
+function updateBrowserSelectionStatus() {
+  const count = state.browser.selected.size;
+  document.getElementById('browser-status').textContent = count
+    ? `${count} file(s) selected.`
+    : 'No server files selected.';
+}
+
+function selectAllBrowserFiles() {
+  const checkboxes = [...document.querySelectorAll('input[data-action="browser-select-file"]')];
+  state.browser.selected.clear();
+  for (const checkbox of checkboxes) {
+    checkbox.checked = true;
+    state.browser.selected.add(dec(checkbox.dataset.path));
+  }
+  updateBrowserSelectionStatus();
+}
+
+function clearBrowserSelection() {
+  const checkboxes = [...document.querySelectorAll('input[data-action="browser-select-file"]')];
+  for (const checkbox of checkboxes) {
+    checkbox.checked = false;
+  }
+  state.browser.selected.clear();
+  updateBrowserSelectionStatus();
+}
+
+async function loadBrowser(path = '') {
+  if (!state.browserRoots.length) {
+    document.getElementById('browser-dirs').innerHTML = '<div class="item-row muted">No browse roots are configured.</div>';
+    document.getElementById('browser-files').innerHTML = '<div class="item-row muted">No browse roots are configured.</div>';
+    return;
+  }
+  state.browser.path = path || '';
+  resetBrowserSelection();
+  const rootId = document.getElementById('browser-root').value || state.browserRoots[0].id;
+  const query = document.getElementById('browser-search').value.trim();
+  try {
+    const data = await api(`/api/launch/files?root_id=${encodeURIComponent(rootId)}&path=${encodeURIComponent(state.browser.path)}&q=${encodeURIComponent(query)}`);
+    state.browser.path = data.path || '';
+    state.browser.parentPath = data.parent_path || '';
+    document.getElementById('browser-path').textContent = `${data.root.path}${data.path ? ` / ${data.path}` : ''}`;
+    document.getElementById('browser-dirs').innerHTML = (data.dirs || []).length
+      ? data.dirs.map((item) => `
+          <div class="item-row">
+            <span class="muted">DIR</span>
+            <button type="button" class="link-btn item-main" data-action="browser-open-dir" data-path="${enc(item.path)}">
+              <strong>${esc(item.name)}</strong>
+              <span class="muted mono">${esc(item.path || '.')}</span>
+            </button>
+          </div>
+        `).join('')
+      : '<div class="item-row muted">No directories found.</div>';
+    document.getElementById('browser-files').innerHTML = (data.files || []).length
+      ? data.files.map((item) => `
+          <label class="item-row">
+            <input type="checkbox" data-action="browser-select-file" data-path="${enc(item.path)}">
+            <div class="item-main">
+              <strong>${esc(item.name)}</strong>
+              <span class="muted mono">${esc(item.path)}</span>
+            </div>
+            <span class="muted mono">${esc(formatBytes(item.size))}</span>
+          </label>
+        `).join('')
+      : '<div class="item-row muted">No files found.</div>';
+  } catch (error) {
+    document.getElementById('browser-status').textContent = error.message;
+  }
+}
+
+function toggleBrowser(visible = !state.browser.visible) {
+  state.browser.visible = visible;
+  document.getElementById('browser-shell').classList.toggle('active', visible);
+  document.getElementById('toggle-browser-btn').classList.toggle('active', visible);
+}
+
+async function importServerFiles(paths) {
+  const rootId = document.getElementById('browser-root').value || (state.browserRoots[0] && state.browserRoots[0].id) || '';
+  const filesByCategory = {};
+  const categories = assignAutoCategories(paths.map((relPath) => relPath.split('/').pop() || relPath));
+  for (let index = 0; index < paths.length; index += 1) {
+    const relPath = paths[index];
+    const filename = relPath.split('/').pop();
+    const category = categories[index];
+    if (!filesByCategory[category]) filesByCategory[category] = [];
+    filesByCategory[category].push(relPath);
+  }
+  for (const [category, categoryPaths] of Object.entries(filesByCategory)) {
+    await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/import-files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        root_id: rootId,
+        category,
+        paths: categoryPaths,
+      }),
+    });
+  }
+}
+
+function applyEnvDefaults(items) {
+  state.envRows = (items || []).map((item) => {
+    const masked = Boolean(item.masked);
+    let sourceLabel = 'required';
+    let detailLabel = 'Required external environment variable';
+    if (item.mode === 'reference') {
+      sourceLabel = 'ref';
+      detailLabel = `Configured as ${item.raw_value || ''}`;
+    } else if (item.mode === 'literal') {
+      sourceLabel = 'config';
+      detailLabel = `Configured value: ${item.raw_value || ''}`;
+    } else if (item.present === 'yes') {
+      sourceLabel = 'inherited';
+      detailLabel = 'Inherited from the master environment';
+    }
+    return {
+      id: makeId('env'),
+      key: String(item.key || ''),
+      value: masked ? '' : String(item.value || ''),
+      initialValue: masked ? '' : String(item.value || ''),
+      placeholder: masked ? String(item.value || '') : '',
+      masked,
+      mode: String(item.mode || 'required'),
+      rawValue: String(item.raw_value || ''),
+      referenceKey: String(item.reference_key || ''),
+      hasDefaultValue: item.present === 'yes',
+      userEdited: false,
+      sourceLabel,
+      detailLabel,
+    };
+  });
+  syncEnvReferenceRows();
+  renderEnvRows();
+}
+
+function addEnvRow() {
+  state.envRows.push({
+    id: makeId('env'),
+    key: '',
+    value: '',
+    initialValue: '',
+    placeholder: '',
+    masked: false,
+    mode: 'custom',
+    rawValue: '',
+    referenceKey: '',
+    hasDefaultValue: false,
+    userEdited: false,
+    sourceLabel: 'custom',
+    detailLabel: 'Custom launch-only environment variable',
+  });
+  renderEnvRows();
+}
+
+function collectEnvOverrides() {
+  const env = {};
+  for (const row of state.envRows) {
+    const key = row.key.trim();
+    if (!key) continue;
+    const resolved = resolveEnvRow(row);
+    if (String(resolved.payloadValue || '').trim()) env[key] = resolved.payloadValue;
+  }
+  return env;
+}
+
+function parseExtraArgs(text) {
+  const result = [];
+  const lines = text.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const tokens = trimmed.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    for (const token of tokens) {
+      if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+        result.push(token.slice(1, -1));
+      } else {
+        result.push(token);
+      }
+    }
+  }
+  return result;
+}
+
+async function parseModules(auto = false) {
+  const mainFile = getMainFile();
+  if (!mainFile) {
+    state.modules = [];
+    document.getElementById('selected-module').innerHTML = '';
+    if (!auto) setStatus('module-status', 'err', 'Tag exactly one Verilog/SystemVerilog file as Main RTL first.');
+    updateLaunchState();
+    return;
+  }
+  if (!isNextStepUnlocked()) {
+    if (!auto) setStatus('module-status', 'warn', 'Add at least one Verification Needs-tagged file before parsing modules.');
+    return;
+  }
+  try {
+    const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/verilog/modules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: mainFile.stored_path }),
+    });
+    state.modules = data.modules || [];
+    const select = document.getElementById('selected-module');
+    const previous = select.value;
+    select.innerHTML = state.modules.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+    if (state.modules.length) {
+      if (previous && state.modules.includes(previous)) {
+        select.value = previous;
+      }
+      if (!select.value) select.value = state.modules[0];
+      syncModuleDerivedFields(select.value);
+      setStatus('module-status', 'ok', `Available modules: ${esc(state.modules.join(', '))}`);
+    } else {
+      setStatus('module-status', 'warn', 'No modules were found in the current Main RTL file.');
+    }
+  } catch (error) {
+    state.modules = [];
+    document.getElementById('selected-module').innerHTML = '';
+    if (!auto) setStatus('module-status', 'err', error.message);
+  }
+  updateLaunchState();
+}
+
+function clearModuleState(message) {
+  state.modules = [];
+  document.getElementById('selected-module').innerHTML = '';
+  setStatus('module-status', '', message);
+  updateLaunchState();
+}
+
+async function compileDut() {
+  const mainFile = getMainFile();
+  const selectedModule = getSelectedModule();
+  if (!mainFile || !selectedModule || !hasRequirementFile()) {
+    updateLaunchState();
+    return;
+  }
+  setStatus('compile-status', 'warn', 'Preparing workspace layout and running picker export...');
+  resetCompileConsole();
+  await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/compile/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dut_name: document.getElementById('dut-name').value.trim(),
+      selected_module: selectedModule,
+      main_verilog_path: mainFile.stored_path,
+    }),
+  });
+  let cursor = 0;
+  try {
+    setCompileButton('Compiling...', true);
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/compile/status?cursor=${cursor}`);
+      const runtime = data.runtime || {};
+      const chunk = runtime.chunk || '';
+      if (chunk) {
+        appendCompileConsole(chunk);
+        cursor = runtime.cursor || cursor;
+      }
+      if (runtime.status === 'running') {
+        continue;
+      }
+      if (runtime.workspace) {
+        syncWorkspace(runtime.workspace);
+      }
+      if (runtime.status !== 'success') {
+        throw new Error(runtime.result?.stderr || runtime.error || 'picker export failed');
+      }
+      setStatus('compile-status', 'ok', `Compiled package <code>${esc(runtime.compile?.dut_name || 'DUT')}</code> successfully.`);
+      await loadConfigOptions();
+      break;
+    }
+  } finally {
+    updateLaunchState();
+  }
+}
+
+async function launchTask() {
+  const mainFile = getMainFile();
+  const selectedModule = getSelectedModule();
+  if (!mainFile || !selectedModule || !hasRequirementFile() || !isCompileCurrent()) {
+    updateLaunchState();
+    return;
+  }
+  let launchedTaskId = '';
+  const dynamicOptions = collectDynamicLaunchOptions();
+  const payload = {
+    workspace_id: state.workspaceId,
+    task_name: document.getElementById('task-name').value.trim(),
+    dut_name: document.getElementById('dut-name').value.trim(),
+    selected_module: selectedModule,
+    main_verilog_path: mainFile.stored_path,
+    config: document.getElementById('config-path').value.trim() || 'config.yaml',
+    backend: document.getElementById('backend').value.trim(),
+    output: document.getElementById('output').value.trim() || 'unity_test',
+    master: document.getElementById('master-override').value.trim(),
+    env: collectEnvOverrides(),
+    ...dynamicOptions,
+  };
+  state.launching = true;
+  setLaunchButton('Launching...', true);
+  setStatus('launch-status', 'warn', 'Launching the managed task with the compiled DUT workspace...');
+  setLaunchResponse(null, { summary: 'Show response', open: false });
+  try {
+    const data = await api('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    setLaunchResponse(data, {
+      summary: data.status === 'ok' ? 'Show launch response' : 'Show error response',
+      open: false,
+    });
+    if (data.status === 'ok') {
+      launchedTaskId = data.task.task_id;
+      setStatus('launch-status', 'ok', `Task ${esc(data.task.task_id)} launched successfully. Redirecting to /task/ ...`);
+      setTimeout(() => { window.location.href = `/task/#task-${encodeURIComponent(data.task.task_id)}`; }, 1200);
+      return;
+    }
+    setStatus('launch-status', 'err', `Launch failed: ${esc(data.task?.process_status || 'unknown error')}`);
+  } catch (error) {
+    setStatus('launch-status', 'err', error.message);
+    setLaunchResponse({ error: error.message }, { summary: 'Show error response', open: false });
+  } finally {
+    state.launching = false;
+    if (!launchedTaskId) {
+      setLaunchButton('Launch Task', false);
+      updateLaunchState();
+    }
+  }
+}
+
+async function loadConfigOptions() {
+  if (!state.workspaceId) return;
+  try {
+    const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/config-options`);
+    const select = document.getElementById('config-path');
+    if (select && select.value) {
+      select.setAttribute('data-saved-value', select.value);
+    }
+    state.configOptions = data.options || [];
+    renderConfigSelect();
+  } catch (error) {
+    console.error('Failed to load config options:', error);
+  }
+}
+
+function renderConfigSelect() {
+  const select = document.getElementById('config-path');
+  if (!select) return;
+  const savedValue = select.getAttribute('data-saved-value') || select.value;
+  select.innerHTML = state.configOptions.map((opt) => `<option value="${esc(opt.value)}">${esc(opt.name)}</option>`).join('');
+  if (state.configOptions.length > 0) {
+    if (savedValue && state.configOptions.some((opt) => opt.value === savedValue)) {
+      select.value = savedValue;
+    } else {
+      select.value = state.configOptions[0].value;
+    }
+    select.removeAttribute('data-saved-value');
+  }
+}
+
+function renderBackendSelect() {
+  const select = document.getElementById('backend');
+  if (!select) return;
+  select.innerHTML = state.backendOptions.map((opt) => `<option value="${esc(opt.value)}">${esc(opt.name)}</option>`).join('');
+  if (state.backendKeyName && state.backendOptions.some((opt) => opt.value === state.backendKeyName)) {
+    select.value = state.backendKeyName;
+  } else if (state.backendOptions.length > 0) {
+    select.value = state.backendOptions[0].value;
+  }
+}
+
+async function initPage() {
+  try {
+    resetCompileConsole();
+    const configData = await api('/api/launch/config');
+    state.launchConfig = configData.default_args || {};
+    state.backendOptions = configData.backend_options || [];
+    state.backendKeyName = configData.backend_key_name || '';
+    renderBackendSelect();
+    applyLaunchConfig(state.launchConfig);
+
+    const wsData = await createWorkspace();
+    syncWorkspace(wsData.workspace);
+    setStatus(
+      'workspace-status',
+      'ok',
+      `Workspace ID: <code>${esc(state.workspace.workspace_id)}</code><br>` +
+      `Workspace Path: <code>${esc(state.workspace.workspace_dir)}</code><br>` +
+      `Base Root: <code>${esc(state.workspace.base_root)}</code>`
+    );
+
+    const rootData = await api('/api/launch/file-roots');
+    state.browserRoots = rootData.roots || [];
+    document.getElementById('browser-root').innerHTML = state.browserRoots.map((root) => `<option value="${esc(root.id)}">${esc(root.name)} - ${esc(root.path)}</option>`).join('');
+    await loadBrowser('');
+
+    const envData = await api('/api/launch/env-preview');
+    applyEnvDefaults(envData.items || []);
+    clearModuleState('Tag one file as Main RTL and one file as Verification Needs to unlock module parsing.');
+    updateLaunchState();
+  } catch (error) {
+    setStatus('workspace-status', 'err', error.message);
+  }
+}
+
+function applyLaunchConfig(config) {
+  if (!config) return;
+  if (config.configs && typeof config.configs === 'object') {
+    state.configOptions = Object.entries(config.configs)
+      .filter(([name, _]) => !name.startsWith('_'))
+      .map(([name, value]) => ({
+        name,
+        value,
+        source: 'predefined',
+      }));
+  }
+  renderConfigSelect();
+  renderDynamicLaunchSettings(config);
+  const fields = {
+    'task-name': config.task_name,
+    'dut-name': config.dut_name,
+    'output': config.output,
+    'master-override': config.master,
+  };
+  for (const [id, value] of Object.entries(fields)) {
+    const el = document.getElementById(id);
+    if (el && value !== undefined && value !== null && value !== '') {
+      el.value = value;
+    }
+  }
+}
+
+document.addEventListener('click', async (event) => {
+  const target = event.target.closest('[data-action]');
+  if (!target) return;
+  const action = target.dataset.action;
+  try {
+    if (action === 'choose-upload') {
+      document.getElementById('upload-files-input').click();
+      return;
+    }
+    if (action === 'toggle-browser') {
+      toggleBrowser();
+      return;
+    }
+    if (action === 'browser-search') {
+      await loadBrowser(state.browser.path);
+      return;
+    }
+    if (action === 'browser-refresh') {
+      await loadBrowser(state.browser.path);
+      return;
+    }
+    if (action === 'browser-up') {
+      await loadBrowser(state.browser.parentPath || '');
+      return;
+    }
+    if (action === 'browser-open-dir') {
+      await loadBrowser(dec(target.dataset.path));
+      return;
+    }
+    if (action === 'browser-select-all') {
+      selectAllBrowserFiles();
+      return;
+    }
+    if (action === 'browser-clear-selection') {
+      clearBrowserSelection();
+      return;
+    }
+    if (action === 'browser-import') {
+      const paths = [...state.browser.selected];
+      if (!paths.length) throw new Error('Please select file(s) from the server list first.');
+      await importServerFiles(paths);
+      await refreshWorkspace({ autoParseModules: true });
+      await loadBrowser(state.browser.path);
+      toggleBrowser(false);
+      return;
+    }
+    if (action === 'delete-file') {
+      const path = dec(target.dataset.path);
+      if (!confirm(`Delete workspace file: ${path}?`)) return;
+      await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+      await refreshWorkspace();
+      if (!getMainFile()) {
+        clearModuleState('The current Main RTL file is missing. Tag a new Main RTL file and refresh modules.');
+      }
+      return;
+    }
+    if (action === 'remove-env-row') {
+      state.envRows = state.envRows.filter((row) => row.id !== target.dataset.rowId);
+      renderEnvRows();
+      return;
+    }
+    if (action === 'env-max-inc') {
+      state.envMaxVisible = Math.min(state.envRows.length, state.envMaxVisible + 1);
+      document.getElementById('env-max-value').textContent = state.envMaxVisible;
+      renderEnvRows();
+      return;
+    }
+    if (action === 'env-max-dec') {
+      state.envMaxVisible = Math.max(1, state.envMaxVisible - 1);
+      document.getElementById('env-max-value').textContent = state.envMaxVisible;
+      renderEnvRows();
+      return;
+    }
+    if (action === 'toggle-env-rows') {
+      state.envExpanded = !state.envExpanded;
+      renderEnvRows();
+      return;
+    }
+    if (action === 'add-env-row') {
+      addEnvRow();
+      return;
+    }
+    if (action === 'parse-modules') {
+      await parseModules(false);
+      return;
+    }
+    if (action === 'compile-dut') {
+      await compileDut();
+      return;
+    }
+    if (action === 'launch-task') {
+      await launchTask();
+    }
+  } catch (error) {
+    if (action.startsWith('browser')) {
+      document.getElementById('browser-status').textContent = error.message;
+    } else if (action === 'compile-dut') {
+      setAnsiStatus('compile-status', 'err', error.message);
+    } else if (action === 'launch-task') {
+      setAnsiStatus('launch-status', 'err', error.message);
+    } else {
+      setStatus('file-gate-status', 'err', error.message);
+    }
+  }
+});
+
+document.addEventListener('change', async (event) => {
+  const target = event.target;
+  try {
+    if (target.id === 'upload-files-input') {
+      const files = [...(target.files || [])];
+      if (!files.length) return;
+      await uploadFiles(files);
+      target.value = '';
+      return;
+    }
+    if (target.id === 'browser-root') {
+      await loadBrowser('');
+      return;
+    }
+    if (target.matches('input[data-action="browser-select-file"]')) {
+      const path = dec(target.dataset.path);
+      if (target.checked) state.browser.selected.add(path);
+      else state.browser.selected.delete(path);
+      updateBrowserSelectionStatus();
+      return;
+    }
+    if (target.matches('select[data-action="change-tag"]')) {
+      const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: target.dataset.itemId, category: target.value }),
+      });
+      syncWorkspace(data.workspace);
+      if (!getMainFile()) {
+        clearModuleState('Tag one file as Main RTL and one file as Verification Needs to unlock module parsing.');
+      } else if (isNextStepUnlocked() && (target.value === 'main_verilog' || !state.modules.length)) {
+        await parseModules(true);
+      } else {
+        updateLaunchState();
+      }
+      return;
+    }
+    if (target.id === 'selected-module') {
+      syncModuleDerivedFields(target.value);
+      updateLaunchState();
+      return;
+    }
+    if (target.id === 'config-path') {
+      state.manualConfigPath = true;
+    }
+    if (target.matches('input[data-action="env-key"]')) {
+      const row = state.envRows.find((item) => item.id === target.dataset.rowId);
+      if (row) {
+        row.key = target.value;
+        row.userEdited = true;
+      }
+      updateLaunchState();
+      renderEnvRows();
+      return;
+    }
+    if (target.matches('input[data-action="env-value"]')) {
+      const row = state.envRows.find((item) => item.id === target.dataset.rowId);
+      if (row) {
+        row.value = target.value;
+        row.userEdited = true;
+      }
+      updateLaunchState();
+      renderEnvRows();
+      return;
+    }
+    if ([
+      'task-name', 'dut-name', 'config-path', 'backend', 'output', 'master-override',
+    ].includes(target.id)) {
+      updateLaunchState();
+      return;
+    }
+    if (target.matches('[data-launch-key]')) {
+      updateLaunchState();
+    }
+  } catch (error) {
+    setStatus('file-gate-status', 'err', error.message);
+    await refreshWorkspace();
+  }
+});
+
+document.addEventListener('input', (event) => {
+  if (event.target.matches('input[data-action="env-key"]')) {
+    const row = state.envRows.find((item) => item.id === event.target.dataset.rowId);
+    if (row) {
+      row.key = event.target.value;
+      row.userEdited = true;
+    }
+    updateLaunchState();
+    return;
+  }
+  if (event.target.matches('input[data-action="env-value"]')) {
+    const row = state.envRows.find((item) => item.id === event.target.dataset.rowId);
+    if (row) {
+      row.value = event.target.value;
+      row.userEdited = true;
+    }
+    updateLaunchState();
+    return;
+  }
+  if ([
+    'task-name', 'dut-name', 'config-path', 'backend', 'output', 'master-override',
+  ].includes(event.target.id)) {
+    updateLaunchState();
+    return;
+  }
+  if (event.target.matches('[data-launch-key]')) {
+    updateLaunchState();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.target.id !== 'browser-search') return;
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  loadBrowser(state.browser.path);
+});
+
+window.addEventListener('DOMContentLoaded', initPage);
+</script>
+<script src="/static/share/ucagent-shell.js"></script>
+<script>
+window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta'});
+</script>
+</body>
+</html>

@@ -55,6 +55,7 @@ init_%:
 			echo "" > $$f; \
 		done; \
 	fi
+	@python3 $(CWD)/$*/example.py || { echo "Error: picker try to generate DUT, but failed.\n"; exit 1; }
 
 test_%: init_%
 	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
@@ -93,6 +94,9 @@ continue_%:
 
 as_master:
 	$(CMD) --as-master ${ARGS}
+
+as_master_persist:
+	$(CMD) --as-master-persist ${PATH_PERSISTENT} --as-master ${ARGS}
 
 # Include docs Makefile
 -include docs/Makefile

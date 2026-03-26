@@ -78,6 +78,7 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
 
         # Session output history for dumping to terminal after exit
         self._session_output: str = ""
+        self._console_replay_start: int = 0
         self._is_shutting_down: bool = False
         self._cleanup_done: bool = False
 
@@ -132,12 +133,15 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._restore_command_history()
         self._restore_console_history()
         self._restore_messages_history()
+        if hasattr(self.vpdb, "get_console_entry_count"):
+            self._console_replay_start = self.vpdb.get_console_entry_count()
 
         # Install console capture and signal handler for TUI
         # sessions so stdout/log output appears in the Console panel.
         self.install_console_capture()
         self.install_sigint_handler()
         self.set_interval(0.5, self.refresh_runtime_state)
+        self.refresh_runtime_state()
 
         # Process initial batch commands if any
         if self.vpdb.init_cmd:
@@ -271,13 +275,19 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         console_input.update_running_commands()
 
     def cancel_running_command(self) -> bool:
-        if not self.key_handler.has_active_worker():
-            return False
+        cancelled = False
+        if self.key_handler.has_active_worker():
+            cancelled = self.key_handler.cancel_last_worker()
+        else:
+            cancelled = self.vpdb.cancel_last_running_command()
 
-        cancelled = self.key_handler.cancel_last_worker()
         if cancelled:
+            self.console_output("\033[33mSIGINT received. Stopping execution ...\033[0m\n")
             self.flush_console_output()
-            console_input = self.query_one(ConsoleInput)
+            try:
+                console_input = self.query_one(ConsoleInput)
+            except NoMatches:
+                return True
             console_input.update_running_commands()
         return cancelled
 
@@ -288,10 +298,16 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         if not cancelled:
             return False
         self.flush_console_output()
-        console_input = self.query_one(ConsoleInput)
-        console_input.update_running_commands()
-        task_panel = self.query_one("#task-panel", TaskPanel)
-        task_panel.update_content()
+        try:
+            console_input = self.query_one(ConsoleInput)
+            console_input.update_running_commands()
+        except NoMatches:
+            pass
+        try:
+            task_panel = self.query_one("#task-panel", TaskPanel)
+            task_panel.update_content()
+        except NoMatches:
+            pass
         return True
 
     def stop_running_tasks(self, include_detached: bool = True) -> bool:
@@ -302,9 +318,14 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
     def refresh_runtime_state(self) -> None:
         if self._cleanup_done:
             return
-        self.key_handler.get_running_commands()
-        console_input = self.query_one(ConsoleInput)
-        console_input.update_running_commands()
+        running_commands = self.vpdb.get_running_commands()
+        try:
+            console = self.query_one("#console", ConsoleWidget)
+            console.set_busy(bool(running_commands))
+            console_input = self.query_one(ConsoleInput)
+            console_input.update_running_commands(running_commands)
+        except NoMatches:
+            return
 
     def _restore_messages_history(self) -> None:
         messages_panel = self.query_one("#messages-panel", MessagesPanel)
@@ -320,11 +341,17 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self.key_handler.last_cmd = self.cmd_history[-1] if self.cmd_history else None
 
     def _save_messages_history(self) -> None:
-        messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        try:
+            messages_panel = self.query_one("#messages-panel", MessagesPanel)
+        except NoMatches:
+            return
         self.vpdb.tui_messages_state = messages_panel.export_state()
 
     def _save_console_history(self) -> None:
-        console = self.query_one("#console", ConsoleWidget)
+        try:
+            console = self.query_one("#console", ConsoleWidget)
+        except NoMatches:
+            return
         self.vpdb.tui_console_state = console.export_state()
 
     def _save_command_history(self) -> None:
@@ -338,9 +365,19 @@ class VerifyApp(SigintHandlerMixin, ConsoleCaptureMixin, App[None]):
         self._is_shutting_down = True
         self.stop_running_tasks(include_detached=False)
 
+        try:
+            self.flush_console_output()
+        except NoMatches:
+            pass
+
         # Collect console history (best-effort, only on first call)
-        if self._console_capture is not None and not self._session_output:
-            self._session_output = self._console_capture.get_history()
+        if not self._session_output:
+            if hasattr(self.vpdb, "render_console_entries_since"):
+                self._session_output = self.vpdb.render_console_entries_since(
+                    self._console_replay_start
+                )
+            elif self._console_capture is not None:
+                self._session_output = self._console_capture.get_history()
         self._save_command_history()
         self._save_console_history()
         self._save_messages_history()

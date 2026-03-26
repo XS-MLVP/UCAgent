@@ -4,7 +4,8 @@
 import logging
 import logging.handlers
 import os
-from typing import Optional
+import sys
+from typing import Callable, Optional
 from datetime import datetime
 
 RESET = "\033[0m"
@@ -37,6 +38,7 @@ def get_log_logger() -> Optional[logging.Logger]:
 
 
 __msg_logger__: Optional[logging.Logger] = None
+__console_sync_handler__: Optional[Callable[[str], None]] = None
 
 
 def get_msg_logger() -> Optional[logging.Logger]:
@@ -46,6 +48,42 @@ def get_msg_logger() -> Optional[logging.Logger]:
         Message logger instance or None if not initialized.
     """
     return __msg_logger__
+
+
+def set_console_sync_handler(handler: Optional[Callable[[str], None]]) -> None:
+    """Set an optional sink used to mirror console-visible output elsewhere."""
+    global __console_sync_handler__
+    __console_sync_handler__ = handler
+
+
+def get_console_sync_handler() -> Optional[Callable[[str], None]]:
+    """Get the current console sync handler."""
+    return __console_sync_handler__
+
+
+def _stream_chain_records_console(stream) -> bool:
+    visited: set[int] = set()
+    current = stream
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if getattr(current, "_record_to_vpdb", False):
+            return True
+        if current.__class__.__name__ == "PersistentConsoleMirror" and hasattr(current, "_vpdb"):
+            return True
+        # Do NOT check for _ConsoleCapture, as we want to sync to it
+        current = getattr(current, "_original", None)
+    return False
+
+
+def _sync_console_output(text: str) -> None:
+    if not text:
+        return
+    handler = __console_sync_handler__
+    if handler is None:
+        return
+    if _stream_chain_records_console(sys.stdout):
+        return
+    handler(text)
 
 
 def set_silent(silent: bool = True) -> None:
@@ -107,6 +145,7 @@ def message(msg: str, end: str = "\n"):
     if is_silent():
         return
     print(msg, flush=True, end=end)
+    _sync_console_output(f"{msg}{end}")
     msg_msg(msg, end)
 
 
@@ -132,7 +171,9 @@ def debug(msg: str):
     """Prints a debug message."""
     if is_silent():
         return
-    print(f"[{get_log_time_str()} DEBUG] {msg}")
+    rendered = f"[{get_log_time_str()} DEBUG] {msg}"
+    print(rendered)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.DEBUG)
 
 
@@ -141,6 +182,7 @@ def echo(msg: str):
     if is_silent():
         return
     print(msg, flush=True)
+    _sync_console_output(f"{msg}\n")
     log_msg(msg, logging.INFO)
 
 
@@ -148,13 +190,17 @@ def echo_g(msg: str):
     """Prints an info message green."""
     if is_silent():
         return
-    print(f"{GREEN}%s{RESET}" % msg, flush=True)
+    rendered = f"{GREEN}%s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.INFO)
 
 
 def echo_r(msg: str):
     """Prints an error message red."""
-    print(f"{RED}%s{RESET}" % msg, flush=True)
+    rendered = f"{RED}%s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.ERROR)
 
 
@@ -162,7 +208,9 @@ def echo_y(msg: str):
     """Prints a warning message yellow."""
     if is_silent():
         return
-    print(f"{YELLOW}%s{RESET}" % msg, flush=True)
+    rendered = f"{YELLOW}%s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.WARNING)
 
 
@@ -170,7 +218,9 @@ def info(msg: str):
     """Prints an info message."""
     if is_silent():
         return
-    print(f"{GREEN}[{get_log_time_str()} INFO] %s{RESET}" % msg, flush=True)
+    rendered = f"{GREEN}[{get_log_time_str()} INFO] %s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.INFO)
 
 
@@ -178,13 +228,17 @@ def warning(msg: str):
     """Prints a warning message."""
     if is_silent():
         return
-    print(f"{YELLOW}[{get_log_time_str()} WARN] %s{RESET}" % msg, flush=True)
+    rendered = f"{YELLOW}[{get_log_time_str()} WARN] %s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.WARNING)
 
 
 def error(msg: str):
     """Prints an error message."""
-    print(f"{RED}[{get_log_time_str()} ERROR] %s{RESET}" % msg, flush=True)
+    rendered = f"{RED}[{get_log_time_str()} ERROR] %s{RESET}" % msg
+    print(rendered, flush=True)
+    _sync_console_output(f"{rendered}\n")
     log_msg(msg, logging.ERROR)
 
 

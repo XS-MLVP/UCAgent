@@ -97,7 +97,11 @@ mission:
       现在调用`CurrentTips`，开始你的验证工作！
     tips:
       allways:
-        - "你需要通过Complete工具来判断你是否完成了当前阶段的任务"
+        - "阶段任务执行步骤":
+          - "(1) 阅读reference_files列出的参考文档"
+          - "(2) 完成目标任务"
+          - "(3) 通过SetCurrentStageJournal记录日志"
+          - "(4) 通过Complete工具确认完成当前阶段的任务"
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
       random:

@@ -133,6 +133,56 @@ Default stage checking order: Python Checker -> LLM -> Human
 
 ---
 
+## Interact via Web Interface
+
+UCAgent provides Master mode, based on which you can perform centralized Agent management, create tasks, view status, use online terminals, and other operations through the web interface.
+
+### Local Startup
+
+#### 1. Configure Environment Variables
+```bash
+# Edit a custom file to export environment variables required by ucagent, for example:
+# export OPENAI_API_BASE=<your_openai_api_base>
+# export OPENAI_API_KEY=<your_openai_api_key>
+# export OPENAI_MODEL=<your_openai_model>
+vim ~/.ucagent_env
+# Then load the environment variables
+source ~/.ucagent_env
+```
+
+#### 2. Start UCAgent Master
+
+```bash
+make as_master_persist
+# Or, if ucagent is installed, you can directly run ucagent to start master mode
+ucagent --as-master-persist --as-master
+```
+
+Then visit `http://localhost:8800` in your browser.
+
+### Docker Startup
+
+```bash
+docker run -it --rm \
+  -e OPENAI_API_BASE=<your_openai_api_base> \
+  -e OPENAI_API_KEY=<your_openai_api_key> \
+  -e OPENAI_MODEL=<your_openai_model> \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+If ghcr.io is not accessible, you can directly replace it with mirror addresses such as ghcr.nju.edu.cn.
+
+After successful startup, visit `http://localhost:8800` in your browser.
+
+### Basic Operations
+1. In the web interface, click the `+` button (or launch button) to create a new task.
+2. In the Agent list, click the API button to connect to the control page of a specific Agent.
+3. In the Agent control page, click the web terminal button to open the online terminal.
+4. Start ucagent locally and connect to an existing Master service via the --master parameter.
+
+---
+
 ## Basic Operations
 
 ### TUI Shortcuts

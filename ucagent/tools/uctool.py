@@ -4,7 +4,7 @@
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, PrivateAttr
 from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
@@ -90,10 +90,13 @@ class UCTool(BaseTool):
         default=False,
         description="send block message to client"
     )
-    async_lock: asyncio.Lock = Field(
-        default_factory=asyncio.Lock,
-        description="Asynchronous lock for thread safety."
-    )
+    _async_lock: asyncio.Lock = PrivateAttr(default=None)
+
+    @property
+    def async_lock(self) -> asyncio.Lock:
+        if self._async_lock is None:
+            self._async_lock = asyncio.Lock()
+        return self._async_lock
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -212,23 +215,23 @@ class UCTool(BaseTool):
 
     async def ainvoke(self, input, config = None, **kwargs):
         if self.is_disabled:
-            return {"error": f"Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"}
+            return f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
         try:
             await asyncio.wait_for(self.async_lock.acquire(), timeout=self.lock_time_out)
         except asyncio.TimeoutError:
-            error_msg = {"error": f"Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."}
-            fc.warning(str(error_msg))
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."
+            fc.warning(error_msg)
             return error_msg
         except Exception as e:
-            error_msg = {"error": f"Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"}
-            fc.warning(str(error_msg))
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
+            fc.warning(error_msg)
             return error_msg
         try:
             data, alive_thread = await self._ainvoke(input, config, **kwargs)
             return data
         except Exception as e:
-            error_msg = {"error": f"Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"}
-            fc.warning(str(error_msg))
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"
+            fc.warning(error_msg)
             return error_msg
         finally:
             if alive_thread is not None:
@@ -254,12 +257,12 @@ class UCTool(BaseTool):
         fc.info(f"set tool ({self.__class__.__name__}) timeout to {timeout + self.lock_time_out} (timeout:{timeout} + lock_time_out:{self.lock_time_out}) seconds")
         timeout = timeout + self.lock_time_out
         if self.is_in_streaming:
-            error_msg = {"error": f"Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."}
-            fc.info(str(error_msg))
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is already running. Please wait until it finishes."
+            fc.info(error_msg)
             return error_msg, None
         if self.is_alive_loop:
-            error_msg = {"error": f"Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."}
-            fc.info(str(error_msg))
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is in the process of terminating. Please wait until it finishes."
+            fc.info(error_msg)
             return error_msg, None
         self.is_in_streaming = True
         self.last_call_time = time.time()
@@ -272,7 +275,7 @@ class UCTool(BaseTool):
             import traceback
             fc.info(f"error: {e}")
             fc.info(traceback.format_exc())
-            data = {"error": str(e)}
+            data = f"[ERROR] {str(e)}"
         self.is_in_streaming = False
         self.last_call_time = time.time()
         fc.info(f"call {self.__class__.__name__} exit Stream-MPC mode")

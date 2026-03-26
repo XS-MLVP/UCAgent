@@ -63,12 +63,13 @@ def _build_web_console_command(argv: Optional[List[str]] = None) -> str:
     """Build the subprocess command served by textual-serve."""
     source_argv = list(sys.argv if argv is None else argv)
     raw_args = source_argv[1:]
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    cli_path = os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
     cmd = [
         "env",
         "PYTHONWARNINGS=ignore",
         sys.executable,
-        "-m",
-        "ucagent.cli",
+        cli_path,
         *raw_args,
     ]
     return shlex.join(cmd)
@@ -89,13 +90,24 @@ def _extract_web_console_spec(argv: Optional[List[str]] = None) -> str:
 
 
 def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
-    """Parse '--web-console host:port[:password]' value."""
-    if not spec:
+    """Parse '--web-console [base_url[:port]] [password]' value."""
+    if not spec or str(spec).strip() == "-1":
         return "localhost", 8000, ""
-    parts = spec.split(":", 2)
+    
+    addr_part = spec.strip()
+    password = ""
+    
+    # Support format: [ip[:port]] [password] (space separated)
+    if " " in addr_part:
+        addr_part, password = addr_part.split(" ", 1)
+        password = password.strip()
+        addr_part = addr_part.strip()
+    
+    # Now parse the address part
+    parts = addr_part.split(":", 1)
     if len(parts) < 2:
         raise ValueError(
-            f"Invalid --web-console value '{spec}'. Expected format: base_url:port[:password]"
+            f"Invalid --web-console value '{spec}'. Expected format: [base_url[:port]] [password]"
         )
     host = parts[0].strip()
     if not host:
@@ -109,11 +121,13 @@ def _parse_web_console_spec(spec: str) -> tuple[str, int, str]:
         raise ValueError(
             f"Invalid --web-console value '{spec}'. Port must be an integer."
         ) from e
-    if port < 1 or port > 65535:
+    if port == -1:
+        port = 8000
+    elif port < 1 or port > 65535:
         raise ValueError(
             f"Invalid --web-console value '{spec}'. Port must be in range 1..65535."
         )
-    password = parts[2] if len(parts) == 3 else ""
+    
     return host, port, password
 
 
@@ -121,6 +135,8 @@ def _resolve_web_console_bind(spec: str) -> tuple[str, int, str]:
     """Resolve final web-console bind host/port/password with conflict policy."""
     from ucagent.util.functions import find_available_port, is_port_free
     host, port, password = _parse_web_console_spec(spec)
+    if ":-1" in str(spec):
+        return host, find_available_port(start_port=port, end_port=65535), password
     if is_port_free(host, port):
         return host, port, password
     # Bare '--web-console' uses defaults. If default 8000 is busy, auto-increase.
@@ -628,6 +644,10 @@ class PdbWebTermServer:
 
     def get_status(self) -> Dict[str, Any]:
         """Return a status dict for the /api/status endpoint."""
+        try:
+            from ucagent.version import __version__
+        except ImportError:
+            __version__ = "unknown"
         result: Dict[str, Any] = {
             "running": self._running,
             "mode": ("process" if self.is_process_mode
@@ -638,6 +658,8 @@ class PdbWebTermServer:
             "url": self.url(),
             "clients": len(self._clients),
             "password_protected": bool(self.password),
+            "version": __version__,
+            "started_at": self.started_at,
         }
         if self.started_at:
             result["uptime_s"] = round(time.time() - self.started_at, 1)
@@ -923,6 +945,7 @@ class PdbWebTermServer:
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/ws", self._handle_ws)
         app.router.add_get("/api/status", self._handle_api_status)
+        app.router.add_get("/api/ui-meta", self._handle_api_ui_meta)
         app.router.add_get("/api/clients", self._handle_api_clients)
         app.router.add_static("/static", _STATIC_DIR, show_index=False)
 
@@ -936,10 +959,10 @@ class PdbWebTermServer:
             ready.set()
             return
 
-        # Process mode: start the managed subprocess
-        # Delayed until first WebSocket connection to get correct terminal size
-        # if self.is_process_mode:
-        #     await self._ensure_process()
+        # Process mode: start the managed subprocess immediately so the
+        # command begins running even if no browser has connected yet.
+        if self.is_process_mode:
+            await self._ensure_process()
 
         ready.set()
 
@@ -1054,6 +1077,18 @@ class PdbWebTermServer:
     async def _handle_api_status(self, request: web.Request) -> web.Response:
         return web.json_response(self.get_status())
 
+    async def _handle_api_ui_meta(self, request: web.Request) -> web.Response:
+        status = self.get_status()
+        return web.json_response({
+            "status": "ok",
+            "data": {
+                "product": "UCAgent",
+                "version": status.get("version", "unknown"),
+                "started_at": status.get("started_at"),
+                "uptime_s": status.get("uptime_s", 0.0),
+            },
+        })
+
     async def _handle_api_clients(self, request: web.Request) -> web.Response:
         return web.json_response(self.get_clients())
 
@@ -1147,9 +1182,12 @@ class PdbWebTermServer:
                                 self._process.resize(cols, rows)
                                 if self._process.pid is not None:
                                     try:
-                                        os.kill(self._process.pid, signal.SIGWINCH)
+                                        os.killpg(self._process.pid, signal.SIGWINCH)
                                     except (ProcessLookupError, OSError):
-                                        pass
+                                        try:
+                                            os.kill(self._process.pid, signal.SIGWINCH)
+                                        except (ProcessLookupError, OSError):
+                                            pass
                             if (self._pty_active
                                     and self._pty_slave_fd is not None):
                                 import fcntl

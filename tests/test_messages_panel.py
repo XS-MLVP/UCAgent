@@ -15,7 +15,7 @@ from textual.worker import WorkerState
 from textual.widgets import Input
 
 from ucagent.tui.app import VerifyApp
-from ucagent.tui.widgets.console import ConsoleWidget
+from ucagent.tui.widgets.console import ConsoleEntry, ConsoleWidget, ConsoleWidgetState
 from ucagent.tui.widgets.console_input import ConsoleInput
 from ucagent.tui.widgets.messages_panel import MessagesPanel
 
@@ -460,6 +460,7 @@ class _FakeVPDB:
         self.stdout = None
         self.stderr = None
         self._cmd_history = []
+        self._running_commands = []
         self.save_cmd_history_calls = 0
         self.tui_console_state = None
         self.tui_messages_state = None
@@ -473,6 +474,64 @@ class _FakeVPDB:
 
     def save_cmd_history(self):
         self.save_cmd_history_calls += 1
+
+    def get_running_commands(self):
+        return list(self._running_commands)
+
+    def has_running_commands(self):
+        return bool(self._running_commands)
+
+    def cancel_last_running_command(self):
+        if not self._running_commands:
+            return False
+        self._running_commands.pop()
+        return True
+
+    def request_thread_interrupt(self, _thread_id):
+        self.agent.set_break_thread(_thread_id)
+        return True
+
+    def record_console_output(self, text):
+        if not text:
+            return
+        state = self._ensure_console_state()
+        if state.entries and state.entries[-1].kind == "output":
+            state.entries[-1].payload += text
+        else:
+            state.entries.append(ConsoleEntry("output", text))
+
+    def record_console_command(self, cmd):
+        cmd = cmd.strip()
+        if not cmd or cmd == "tui":
+            return
+        state = self._ensure_console_state()
+        state.entries.append(ConsoleEntry("command", cmd))
+
+    def clear_console_state(self):
+        state = self._ensure_console_state()
+        state.entries.clear()
+
+    def get_console_entry_count(self):
+        state = self.tui_console_state
+        return len(state.entries) if state is not None else 0
+
+    def render_console_entries_since(self, start_index=0):
+        state = self.tui_console_state
+        if state is None or not state.entries:
+            return ""
+        entries = state.entries if start_index <= len(state.entries) else state.entries
+        if start_index <= len(state.entries):
+            entries = state.entries[start_index:]
+
+        parts = []
+        for entry in entries:
+            if entry.kind == "command":
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                parts.append(f"> {entry.payload}\n")
+            else:
+                parts.append(entry.payload)
+        return "".join(parts)
 
     def api_task_list(self):
         return {"mission_name": "Test Mission", "task_list": {}}
@@ -488,6 +547,11 @@ class _FakeVPDB:
 
     def api_status(self):
         return "idle"
+
+    def _ensure_console_state(self):
+        if self.tui_console_state is None:
+            self.tui_console_state = ConsoleWidgetState(entries=[])
+        return self.tui_console_state
 
 
 class _FakeWorker:
@@ -555,6 +619,37 @@ class TestVerifyAppPersistence:
             assert console.output_line_count() > 0
 
     @pytest.mark.asyncio
+    async def test_restored_app_shows_shared_pdb_console_history(self):
+        vpdb = _FakeVPDB()
+        vpdb.record_console_command("status")
+        vpdb.record_console_output("line1\nline2\n")
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            console = restored_app.query_one("#console", ConsoleWidget)
+            await pilot.pause(0.1)
+
+            assert [(entry.kind, entry.payload) for entry in console._entries] == [
+                ("command", "status"),
+                ("output", "line1\nline2\n"),
+            ]
+
+    @pytest.mark.asyncio
+    async def test_cleanup_replays_only_new_console_entries(self):
+        vpdb = _FakeVPDB()
+        vpdb.record_console_command("before")
+        vpdb.record_console_output("old output\n")
+
+        app = VerifyApp(vpdb)
+        async with app.run_test():
+            console = app.query_one("#console", ConsoleWidget)
+            console.echo_command("status")
+            console.append_output("line1\nline2\n")
+            app.cleanup()
+
+        assert app.session_output == "> status\nline1\nline2\n"
+
+    @pytest.mark.asyncio
     async def test_cleanup_saves_and_next_app_restores_command_history(self):
         vpdb = _FakeVPDB()
 
@@ -578,29 +673,60 @@ class TestVerifyAppPersistence:
             assert restored_app.key_handler.last_cmd == "next"
             assert input_widget.value == "next"
 
+    @pytest.mark.asyncio
+    async def test_restored_app_renders_persistent_running_commands(self):
+        vpdb = _FakeVPDB()
+        vpdb._running_commands = ["loop status", "loop next"]
+
+        restored_app = VerifyApp(vpdb)
+        async with restored_app.run_test() as pilot:
+            await pilot.pause(0.1)
+
+            console_input = restored_app.query_one(ConsoleInput)
+            loading = restored_app.query_one("#console-loading")
+            running = restored_app.query_one("#running-commands")
+
+            assert console_input.is_busy is True
+            assert console_input._has_running_commands is True
+            assert loading.styles.display == "block"
+            assert running.styles.display == "block"
+            assert str(running.render()) == "[1] loop status [2] loop next"
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_command_logs_sigint_message(self):
+        vpdb = _FakeVPDB()
+        vpdb._running_commands = ["loop status"]
+
+        app = VerifyApp(vpdb)
+        async with app.run_test() as pilot:
+            assert app.cancel_running_command() is True
+            await pilot.pause(0.2)
+
+            console = app.query_one("#console", ConsoleWidget)
+            outputs = [
+                entry.payload for entry in console._entries if entry.kind == "output"
+            ]
+            assert any("SIGINT received. Stopping execution ..." in text for text in outputs)
+
 
 class TestVerifyAppShutdown:
     @pytest.mark.asyncio
-    async def test_action_quit_stops_running_workers(self):
+    async def test_action_quit_preserves_detached_commands(self):
         vpdb = _FakeVPDB()
         app = VerifyApp(vpdb)
         worker = _FakeWorker()
-        daemon_worker = _FakeWorker()
 
         async with app.run_test():
             app.key_handler._active_workers.append(worker)
             app.key_handler._worker_commands[worker] = "status"
             app.key_handler._register_worker_thread(worker, 101)
-            app.key_handler._daemon_workers[1.0] = daemon_worker
-            app.key_handler._register_worker_thread(daemon_worker, 202)
             app.daemon_cmds[1.0] = "watch"
 
             app.action_quit()
 
         assert worker.cancel_calls == 1
-        assert daemon_worker.cancel_calls == 1
-        assert vpdb.agent.break_threads == [101, 202]
-        assert app.daemon_cmds == {}
+        assert vpdb.agent.break_threads == [101]
+        assert app.daemon_cmds == {1.0: "watch"}
 
 
 if __name__ == "__main__":

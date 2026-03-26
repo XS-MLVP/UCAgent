@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """Specialized PDB debugger for UCAgent verification."""
 
+import ctypes
+from dataclasses import dataclass
 from pdb import Pdb
 import os
-from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
+import sys
+from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message, set_console_sync_handler
 from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
+import threading
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
@@ -14,9 +18,39 @@ import random
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+from ucagent.tui.utils import PersistentConsoleMirror
+
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
     from ucagent.tui.widgets.messages_panel import MessagesPanelState
+
+
+@dataclass
+class RunningCommandState:
+    token: int
+    command: str
+    started_at: float
+    thread_id: int | None = None
+    foreground: bool = True
+
+
+def _raise_keyboard_interrupt_in_thread(thread_id: int) -> bool:
+    if thread_id == threading.current_thread().ident:
+        return True
+    try:
+        result = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(thread_id),
+            ctypes.py_object(KeyboardInterrupt),
+        )
+    except Exception:
+        return False
+
+    if result == 0:
+        return False
+    if result > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread_id), None)
+        return False
+    return True
 
 
 class VerifyPDB(Pdb):
@@ -69,16 +103,25 @@ class VerifyPDB(Pdb):
         self._api_wakeup_done = False  # set after API wakeup to suppress message
         self._tui_app = None  # set by enter_tui() while TUI is running
         self._current_cmd: str | None = None  # the command currently being executed
+        self._console_state_lock = threading.RLock()
         self._tui_console_state: ConsoleWidgetState | None = None
         self._tui_messages_state: MessagesPanelState | None = None
+        self._running_commands: OrderedDict[int, RunningCommandState] = OrderedDict()
+        self._running_commands_lock = threading.RLock()
+        self._running_commands_local = threading.local()
+        self._running_command_seq = 0
+        set_console_sync_handler(self.record_console_output)
+        self._install_persistent_console_mirror()
 
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
-        return self._tui_console_state
+        with self._console_state_lock:
+            return self._tui_console_state
 
     @tui_console_state.setter
     def tui_console_state(self, state: "ConsoleWidgetState | None") -> None:
-        self._tui_console_state = state
+        with self._console_state_lock:
+            self._tui_console_state = state
 
     @property
     def tui_messages_state(self) -> "MessagesPanelState | None":
@@ -88,13 +131,229 @@ class VerifyPDB(Pdb):
     def tui_messages_state(self, state: "MessagesPanelState | None") -> None:
         self._tui_messages_state = state
 
-    def precmd(self, line: str) -> str:
-        self._current_cmd = line or None
+    def precmd(self, line: str, foreground: bool = True) -> str:
+        if not self._in_tui:
+            self._install_persistent_console_mirror()
+        command = line.strip()
+        if (
+                not self._in_tui
+                and command
+                and self._should_track_running_command(command)
+        ):
+            self.record_console_command(command)
+        token = self._register_running_command(line, foreground=foreground)
+        if token is not None:
+            self._push_running_command_token(token)
         return line
 
     def postcmd(self, stop: bool, line: str) -> bool:
-        self._current_cmd = None
+        self._finish_running_command(self._pop_running_command_token())
         return stop
+
+    def execute_command(self, line: str, *, foreground: bool = True) -> bool:
+        """Execute a single command with the same tracking hooks as cmdloop()."""
+        line = self.precmd(line, foreground=foreground)
+        stop = False
+        try:
+            stop = self.onecmd(line)
+        except BaseException:
+            self.postcmd(stop, line)
+            raise
+        return self.postcmd(stop, line)
+
+    def get_running_commands(self) -> list[str]:
+        with self._running_commands_lock:
+            return [
+                state.command
+                for state in self._running_commands.values()
+                if state.foreground
+            ]
+
+    def has_running_commands(self) -> bool:
+        with self._running_commands_lock:
+            return any(state.foreground for state in self._running_commands.values())
+
+    def cancel_last_running_command(self) -> bool:
+        with self._running_commands_lock:
+            thread_id = None
+            for last_key in reversed(self._running_commands):
+                state = self._running_commands[last_key]
+                if state.foreground:
+                    thread_id = state.thread_id
+                    break
+
+        if thread_id is None:
+            return False
+        self.request_thread_interrupt(thread_id)
+        return True
+
+    def request_thread_interrupt(self, thread_id: int | None) -> bool:
+        if thread_id is None:
+            return False
+        self.agent.set_break_thread(thread_id)
+        _raise_keyboard_interrupt_in_thread(thread_id)
+        return True
+
+    def should_record_console_output(self) -> bool:
+        """Shared console transcript should include every visible PDB/TUI write."""
+        return True
+
+    def record_console_output(self, text: str) -> None:
+        if not text:
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            if state.entries and state.entries[-1].kind == "output":
+                state.entries[-1].payload += text
+                return
+            state.entries.append(self._new_console_entry("output", text))
+
+    def record_console_command(self, cmd: str) -> None:
+        cmd = cmd.strip()
+        if not cmd or not self._should_track_running_command(cmd):
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.append(self._new_console_entry("command", cmd))
+
+    def clear_console_state(self) -> None:
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.clear()
+
+    def get_console_entry_count(self) -> int:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            return len(state.entries) if state is not None else 0
+
+    def render_console_entries_since(self, start_index: int = 0) -> str:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            if state is None or not state.entries:
+                return ""
+            entries = list(state.entries)
+
+        if start_index < 0:
+            start_index = 0
+        if start_index > len(entries):
+            visible_entries = entries
+        else:
+            visible_entries = entries[start_index:]
+
+        parts: list[str] = []
+        for entry in visible_entries:
+            if entry.kind == "command":
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                parts.append(f"> {entry.payload}\n")
+            elif entry.kind == "output":
+                parts.append(entry.payload)
+        return "".join(parts)
+
+    def _register_running_command(
+            self, line: str, *, foreground: bool = True
+    ) -> int | None:
+        command = line.strip()
+        if not command:
+            return None
+        if not self._should_track_running_command(command):
+            return None
+
+        with self._running_commands_lock:
+            self._running_command_seq += 1
+            token = self._running_command_seq
+            self._running_commands[token] = RunningCommandState(
+                token=token,
+                command=command,
+                started_at=time.time(),
+                thread_id=threading.current_thread().ident,
+                foreground=foreground,
+            )
+            self._current_cmd = command
+            return token
+
+    def _finish_running_command(self, token: int | None) -> None:
+        if token is None:
+            return
+
+        with self._running_commands_lock:
+            self._running_commands.pop(token, None)
+            if self._running_commands:
+                last_key = next(reversed(self._running_commands))
+                self._current_cmd = self._running_commands[last_key].command
+            else:
+                self._current_cmd = None
+
+    def _should_track_running_command(self, command: str) -> bool:
+        cmd, _, _ = self.parseline(command)
+        return (cmd or "").lower() != "tui"
+
+    def _install_persistent_console_mirror(self) -> None:
+        stdout = self._wrap_console_stream(sys.stdout)
+        stderr = self._wrap_console_stream(sys.stderr)
+        sys.stdout = stdout  # type: ignore[assignment]
+        sys.stderr = stderr  # type: ignore[assignment]
+        self.stdout = stdout
+        self.stderr = stderr
+
+    def _wrap_console_stream(self, stream):
+        if isinstance(stream, PersistentConsoleMirror) and stream._vpdb is self:
+            return stream
+        return PersistentConsoleMirror(self, stream)
+
+    def _ensure_console_state(self) -> "ConsoleWidgetState":
+        if self._tui_console_state is None:
+            from ucagent.tui.widgets.console import ConsoleWidgetState
+
+            self._tui_console_state = ConsoleWidgetState(entries=[])
+        return self._tui_console_state
+
+    def _new_console_entry(self, kind: str, payload: str):
+        from ucagent.tui.widgets.console import ConsoleEntry
+
+        return ConsoleEntry(kind, payload)
+
+    def _push_running_command_token(self, token: int) -> None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if stack is None:
+            stack = []
+        stack.append(token)
+        self._running_commands_local.tokens = stack
+
+    def _pop_running_command_token(self) -> int | None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if not stack:
+            return None
+
+        token = stack.pop()
+        if stack:
+            self._running_commands_local.tokens = stack
+        else:
+            delattr(self._running_commands_local, "tokens")
+        return token
+
+    def _has_running_command_in_current_thread(self) -> bool:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        return bool(stack)
+
+    def _abort_running_commands_for_current_thread(self) -> None:
+        while True:
+            token = self._pop_running_command_token()
+            if token is None:
+                break
+            self._finish_running_command(token)
+
+    def _interruptible_sleep(self, duration: float, interval: float = 0.05) -> bool:
+        remaining = max(0.0, duration)
+        while remaining > 0:
+            if self.agent.is_break():
+                return False
+            step = min(interval, remaining)
+            time.sleep(step)
+            remaining -= step
+        return True
 
     def get_cmd_history(self) -> list[str]:
         """Return the current readline-backed command history."""
@@ -129,7 +388,7 @@ class VerifyPDB(Pdb):
             self.setup(frame, traceback)
             while self.init_cmd:
                 cmd = self.init_cmd.pop(0)
-                self.onecmd(cmd)
+                self.execute_command(cmd)
         return super().interaction(frame, traceback)
 
     def _cmdloop(self):
@@ -142,7 +401,9 @@ class VerifyPDB(Pdb):
                 self.allow_kbdint = False
                 break
             except KeyboardInterrupt:
-                if not self._api_wakeup_done:
+                had_running_command = self._has_running_command_in_current_thread()
+                self._abort_running_commands_for_current_thread()
+                if not self._api_wakeup_done and not had_running_command:
                     self.message('--KeyboardInterrupt--')
                 self._api_wakeup_done = False
 
@@ -183,8 +444,11 @@ class VerifyPDB(Pdb):
             self._api_wakeup = False
             self._api_wakeup_done = True
             raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
+        had_running_command = self._has_running_command_in_current_thread()
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
+        if had_running_command:
+            raise KeyboardInterrupt
         if self.agent.is_break():
             echo_y("PDB interrupted. Use 'continue' to resume execution.")
         else:
@@ -341,7 +605,8 @@ class VerifyPDB(Pdb):
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
                     echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
-                    time.sleep(1)
+                    if not self._interruptible_sleep(1):
+                        break
                     delay_time -= 1
                     if self.agent.is_break():
                         break
@@ -624,15 +889,21 @@ class VerifyPDB(Pdb):
         ret_dict = OrderedDict({
             "misson_name": task_data['mission_name'],
             "current_index": current_index,
+            "enable_llm_fail_suggestion": self.agent.stage_manager.llm_fail_suggestion is not None,
+            "enable_llm_pass_suggestion": self.agent.stage_manager.llm_pass_suggestion is not None,
             "stages": []
         })
         stage_list = task_data['task_list']["stage_list"]
         ck_tags = self.api_get_check_tag_list(stage_list)
+        current_stage = self.agent.stage_manager.get_current_stage()
         for i, stage in enumerate(stage_list):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
+            vstage = self.agent.stage_manager.get_stage(i)
+            is_current_stage = vstage is not None and current_stage is not None and vstage == current_stage
+            is_completed_stage = (i < current_index) or (vstage.is_completed() if vstage is not None else stage.get("is_completed", False))
             if time_cost:
                 time_cost = f", {time_cost}"
             color, cend = "", ""
@@ -654,15 +925,73 @@ class VerifyPDB(Pdb):
                 "index": i,
                 "text": text,
                 "out_come": None,
+                "title": stage["title"],
+                "is_current": is_current_stage,
+                "is_completed": is_completed_stage,
+                "is_skipped": is_skipped,
+                "needs_human_check": stage.get("needs_human_check", False),
+                "need_fail_llm_suggestion": stage.get("need_fail_llm_suggestion", False),
+                "need_pass_llm_suggestion": stage.get("need_pass_llm_suggestion", False),
+                "can_edit_flags": (i > current_index) and (vstage is not None) and (not is_current_stage) and (not is_completed_stage),
             }
             if current_index >= i:
-                vstage = self.agent.stage_manager.get_stage(i)
                 if vstage:
                     vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
             ret_dict["stages"].append(vstage_data)
         if return_dict:
             return ret_dict
         return ret
+
+    def api_update_stage_flags(
+        self,
+        indices,
+        hmcheck_needed=None,
+        skip=None,
+        llm_fail_suggestion=None,
+        llm_pass_suggestion=None,
+    ):
+        """
+        Update stage flags for one or more stages.
+        """
+        if not indices:
+            raise ValueError("Stage indices cannot be empty.")
+        changed = False
+        updated = []
+        stage_manager = self.agent.stage_manager
+        current_stage = stage_manager.get_current_stage()
+        for stage_index in indices:
+            stage = stage_manager.get_stage(stage_index)
+            if stage is None:
+                raise ValueError(f"No stage found at index {stage_index}.")
+            if stage_index <= stage_manager.stage_index or stage.is_completed() or (current_stage is not None and stage == current_stage):
+                raise ValueError(f"Stage {stage_index} cannot be modified after completion or while it is in progress.")
+            if hmcheck_needed is not None:
+                stage.do_set_hmcheck_needed(hmcheck_needed)
+                changed = True
+            if llm_fail_suggestion is not None:
+                stage.set_llm_fail_suggestion(llm_fail_suggestion)
+                changed = True
+            if llm_pass_suggestion is not None:
+                stage.set_llm_pass_suggestion(llm_pass_suggestion)
+                changed = True
+            if skip is True:
+                stage_manager.skip_stage(stage_index)
+                changed = True
+            elif skip is False:
+                stage_manager.unskip_stage(stage_index)
+                changed = True
+            stage = stage_manager.get_stage(stage_index)
+            updated.append({
+                "index": stage_index,
+                "title": stage.title(),
+                "is_skipped": stage.is_skipped(),
+                "needs_human_check": stage.is_hmcheck_needed(),
+                "need_fail_llm_suggestion": stage_manager.stage_need_llm_fail_suggestion(stage),
+                "need_pass_llm_suggestion": stage_manager.stage_need_llm_pass_suggestion(stage),
+            })
+        if changed:
+            stage_manager.save_stage_info()
+        return updated
 
     def api_all_cmds(self, prefix=""):
         """
@@ -2915,7 +3244,7 @@ class VerifyPDB(Pdb):
         """
         try:
             t = float(arg.strip())
-            time.sleep(t)
+            self._interruptible_sleep(t)
         except Exception as e:
             echo_y(e)
             echo_r("usage: sleep <seconds>")
