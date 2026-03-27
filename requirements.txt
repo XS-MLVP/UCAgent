@@ -11,5 +11,6 @@ langfuse>=3.9.1
 gitpython>=3.1.43
 textual>=7.3.0
 fastapi>=0.135.0
+uvicorn[standard]>=0.42.0
 pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master
 toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master
