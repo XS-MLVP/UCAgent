@@ -368,6 +368,7 @@ class RunSkillScript(UCTool):
         env= os.environ.copy()
         env["DUT"] = str(self.agent.cfg._temp_cfg["DUT"])
         env["OUT"] = str(self.agent.cfg._temp_cfg["OUT"])
+        run_result=""
         for command in commands:
             try:
                 process = subprocess.run(
@@ -380,10 +381,11 @@ class RunSkillScript(UCTool):
                     cwd=self.workspace,
                     env=env
                 )
-                return process.stdout
+                run_result+=process.stdout
             except subprocess.CalledProcessError as e:
                 return f"Command failed with exit code {e.returncode}:\n{e.stdout}"
             except FileNotFoundError:
                 return f"Command not found: {command.split()[0]}"
+        return run_result
 
 __all__ = ["ListSkill", "RunSkillScript"]

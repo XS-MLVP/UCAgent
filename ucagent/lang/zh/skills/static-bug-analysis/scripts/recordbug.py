@@ -297,7 +297,7 @@ def update_target_md(target_md_path, formatted_output, fg, fc, ck, bg):
     with open(target_md_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
         
-    return f"Successfully appended a bug record to file {target_md_path}, continue analyzing potential bugs until the current source file is fully analyzed."
+    return f"Successfully record bug {bg} to file"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Format a bug report and append it to the target file.")

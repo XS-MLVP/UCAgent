@@ -5,7 +5,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 
 # 静态Bug分析
 
-## 按照以下步骤完成{DUT}的静态Bug分析任务，并将结果记录到{OUT}/{DUT}_static_bug_analysis.md中：
+## 按照以下步骤完成{DUT}的静态Bug分析任务：
 
 ### 步骤1: 文件准备
 
@@ -92,7 +92,7 @@ python3 script -FG FG -FC FC -CK CK -BG BG -FILE FILE -BD BD -CL CL
 - 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:L1-L2> 子标签，并附上对应RTL源码片段
 - FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）
 - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）
-- <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目
+- <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
 
 ## `{DUT}_static_bug_analysis.md` 文档结构(供修改参考)
 
@@ -136,4 +136,9 @@ python3 script -FG FG -FC FC -CK CK -BG BG -FILE FILE -BD BD -CL CL
 ```
 
 本阶段检查发现问题,需要修改时,依照上述模板的格式进行修改,并且务必遵守核心原则和关键规则,保证文档结构完整,内容一致,格式规范.
+
+## 特殊情况说明
+
+- 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤
+- 若在所有文件中都未发现任何Bug，使用<BG-STATIC-000-NULL>条目进行记录
 
