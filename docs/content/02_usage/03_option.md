@@ -79,6 +79,30 @@ ucagent ./output Adder --web-terminal
 ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 ```
 
+### Web 页面能力映射（补充）
+
+参数用于开启入口，页面用于完成操作。推荐映射如下：
+
+1. --as-master / --as-master-persist
+  - 打开 Master Dashboard（总览）
+  - 可进入 Launch 与 Task 页面
+2. --master
+  - 将 Agent 连接到指定 Master
+  - 在 Master 页面统一查看与管理
+3. --export-cmd-api
+  - 为托管任务暴露 CMD API
+  - Task 页面可查看命令与日志，Agent 页面可通过代理访问
+4. --web-console
+  - 提供 Web 控制页面（独立浏览器交互）
+5. --web-terminal
+  - 提供 Web 终端访问，并允许本地终端同时操作
+
+页面级新增能力（非独立 CLI 参数）：
+
+1. Launch：工作区创建、文件管理、模块解析、编译与命令预览
+2. Task：任务筛选、分页、详情、日志、停止/删除
+3. Agent：阶段批量开关（HM/Skip/LFail/LPass）与阶段产物 Diff 复盘
+
 ### 配置与模板
 
 | 选项                    | 简写 | 取值/类型                  | 默认值     | 说明                                                            |
