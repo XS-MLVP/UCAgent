@@ -4,6 +4,7 @@ This module provides tools to list and manage available skills in the workspace.
 """
 
 import re
+import os
 import shutil
 from pathlib import Path
 from typing import Optional, TypedDict, Any, List
@@ -27,6 +28,8 @@ class SkillMetadata(TypedDict):
     name: str  # Skill identifier (max 64 chars, lowercase alphanumeric and hyphens)
     description: str  # What the skill does (max 1024 chars)
     path: str  # Path to the SKILL.md file
+    metadata: dict[str, str] # Additional metadata from SKILL.md frontmatter
+    script: dict # Path to the skill script
 
 
 def _validate_skill_name(name: str, directory_name: str) -> tuple[bool, str]:
@@ -54,6 +57,30 @@ def _validate_skill_name(name: str, directory_name: str) -> tuple[bool, str]:
         return False, f"name '{name}' must match directory name '{directory_name}'"
     return True, ""
 
+def _validate_metadata(
+    raw: object,
+    skill_path: str,
+) -> dict[str, str]:
+    """Validate and normalize the metadata field from YAML frontmatter.
+
+    YAML `safe_load` can return any type for the `metadata` key. This
+    ensures the values in `SkillMetadata` are always a `dict[str, str]` by
+    coercing via `str()` and rejecting non-dict inputs.
+
+    Args:
+        raw: Raw value from `frontmatter_data.get("metadata", {})`.
+        skill_path: Path to the `SKILL.md` file (for warning messages).
+
+    Returns:
+        A validated `dict[str, str]`.
+    """
+    if not isinstance(raw, dict):
+        if raw:
+            warning(
+                f"Ignoring non-dict metadata in {skill_path} (got {type(raw).__name__})",
+            )
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
 
 def _parse_skill_metadata(
     content: str,
@@ -72,7 +99,7 @@ def _parse_skill_metadata(
         SkillMetadata if parsing succeeds, None if parsing fails or validation errors occur
     """
     if len(content) > MAX_SKILL_FILE_SIZE:
-        warning("Skipping %s: content too large (%d bytes)", skill_path, len(content))
+        warning(f"Skipping {skill_path}: content too large ({len(content)} bytes)")
         return None
 
     # Match YAML frontmatter between --- delimiters
@@ -80,7 +107,7 @@ def _parse_skill_metadata(
     match = re.match(frontmatter_pattern, content, re.DOTALL)
 
     if not match:
-        warning("Skipping %s: no valid YAML frontmatter found", skill_path)
+        warning(f"Skipping {skill_path}: no valid YAML frontmatter found")
         return None
 
     frontmatter_str = match.group(1)
@@ -89,11 +116,11 @@ def _parse_skill_metadata(
     try:
         frontmatter_data = yaml.safe_load(frontmatter_str)
     except yaml.YAMLError as e:
-        warning("Invalid YAML in %s: %s", skill_path, e)
+        warning(f"Invalid YAML in {skill_path}: {e}")
         return None
 
     if not isinstance(frontmatter_data, dict):
-        warning("Skipping %s: frontmatter is not a mapping", skill_path)
+        warning(f"Skipping {skill_path}: frontmatter is not a mapping")
         return None
 
     # Validate required fields
@@ -101,26 +128,21 @@ def _parse_skill_metadata(
     description = frontmatter_data.get("description")
 
     if not name or not description:
-        warning("Skipping %s: missing required 'name' or 'description'", skill_path)
+        warning(f"Skipping {skill_path}: missing required 'name' or 'description'")
         return None
 
     # Validate name format per spec (warn but continue loading for backwards compatibility)
     is_valid, error = _validate_skill_name(str(name), directory_name)
     if not is_valid:
         warning(
-            "Skill '%s' in %s does not follow Agent Skills specification: %s. Consider renaming for spec compliance.",
-            name,
-            skill_path,
-            error,
+            f"Skill '{name}' in {skill_path} does not follow Agent Skills specification: {error}. Consider renaming for spec compliance."
         )
 
     # Validate description length per spec (max 1024 chars)
     description_str = str(description).strip()
     if len(description_str) > MAX_SKILL_DESCRIPTION_LENGTH:
         warning(
-            "Description exceeds %d characters in %s, truncating",
-            MAX_SKILL_DESCRIPTION_LENGTH,
-            skill_path,
+            f"Description exceeds {MAX_SKILL_DESCRIPTION_LENGTH} characters in {skill_path}, truncating"
         )
         description_str = description_str[:MAX_SKILL_DESCRIPTION_LENGTH]
 
@@ -128,6 +150,7 @@ def _parse_skill_metadata(
         name=str(name),
         description=description_str,
         path=skill_path,
+        metadata=_validate_metadata(frontmatter_data.get("metadata", {}), skill_path),
     )
 
 
@@ -192,25 +215,31 @@ def _list_skills(source_path: str, workspace: str = None) -> list[SkillMetadata]
                 with open(skill_md_path, 'r', encoding='utf-8') as f:
                     content = f.read()
             except UnicodeDecodeError as e:
-                warning("Error decoding %s: %s", skill_md_path, e)
+                warning(f"Error decoding {skill_md_path}: {e}")
                 continue
             except IOError as e:
-                warning("Error reading %s: %s", skill_md_path, e)
+                warning(f"Error reading {skill_md_path}: {e}")
                 continue
 
             # Parse metadata
             skill_metadata = _parse_skill_metadata(
                 content=content,
                 skill_path=str(skill_md_path),
-                directory_name=skill_dir.name,
+                directory_name=skill_dir.name
             )
             if skill_metadata:
+                skill_metadata['script'] = {}
+                script_dir = skill_dir / "scripts"
+                if script_dir.exists() and script_dir.is_dir():
+                    for f in script_dir.iterdir():
+                        if f.is_file() and f.name != '__init__.py' and f.name != 'hooks.py':
+                            skill_metadata['script'][f.name] = str(f)
                 skills.append(skill_metadata)
 
     except PermissionError as e:
-        warning("Permission denied accessing %s: %s", source_path, e)
+        warning(f"Permission denied accessing {source_path}: {e}")
     except Exception as e:
-        warning("Error scanning skills directory %s: %s", source_path, e)
+        warning(f"Error scanning skills directory {source_path}: {e}")
 
     return skills
 
@@ -228,8 +257,12 @@ def list_skills_in_format(skills: list[SkillMetadata], workspace: str = '.', abl
     for skill in skills:
         if (not able_to_list) or skill['name'] in able_to_list:
             result_lines.append(f"{count}. Skill Name: {skill['name']}")
-            result_lines.append(f"   Description: {skill['description']}")
-            result_lines.append(f"   Path: {Path(skill['path']).relative_to(Path(workspace))}")
+            result_lines.append(f"   Skill Description: {skill['description']}")
+            result_lines.append(f"   Skill Path: {Path(skill['path']).relative_to(Path(workspace))}")
+            if skill.get('script'):
+                result_lines.append("   Script Path:")
+                for fname, fpath in skill['script'].items():
+                    result_lines.append(f"     - {fname}: {Path(fpath).relative_to(Path(workspace))}")
             count+=1
     return "\n".join(result_lines)
 
@@ -296,28 +329,45 @@ class ListSkill(UCTool):
 
         return result
     
-class ArgsCallSkillScript(BaseModel):
-    commands: List[str] = Field(description="A list of commands declared in the SKILL.md of a skill.")
+class ArgsRunSkillScript(BaseModel):
+    commands: List[str] = Field(description="A list of commands declared in the SKILL.md of a skill."\
+                                            "Each command must meet the following format:"\
+                                            "python3 script -ARG1 VALUE1 -ARG2 VALUE2 ... -ARGN VALUEN"\
+                                            "python3 can be change to other execution based on the type of script"
+                                            "script is the path of the script to be executed"
+                                            "followed by a list of arguments, where each argument is prefixed with a hyphen (-) and followed by its corresponding value.")
 
-class CallSkillScript(UCTool):
-    name: str = "CallSkillScript"
+class RunSkillScript(UCTool):
+    name: str = "RunSkillScript"
     description: str = (
-        "Execute the commands in a list declared in the SKILL.md of a skill"
+        "Run the commands in a list declared in the SKILL.md of a skill"
     )
-    args_schema: Optional[ArgsSchema] = ArgsCallSkillScript
+    args_schema: Optional[ArgsSchema] = ArgsRunSkillScript
     workspace: str = Field(
         default=".",
         description="Workspace directory path"
     )
+    agent: Optional[Any] = Field(
+        default=None,
+        description="VerifyAgent instance"
+    )
 
     def __init__(self, workspace: str = ".", **kwargs):
         super().__init__(workspace=workspace, **kwargs)
+
+    def bind(self, agent):
+        """Bind the VerifyAgent instance."""
+        self.agent = agent
+        return self
 
     def _run(self, commands: List[str]) -> str:
         """Execute a skill script command.
         Returns:
             The output of the command execution.
         """
+        env= os.environ.copy()
+        env["DUT"] = str(self.agent.cfg._temp_cfg["DUT"])
+        env["OUT"] = str(self.agent.cfg._temp_cfg["OUT"])
         for command in commands:
             try:
                 process = subprocess.run(
@@ -327,7 +377,8 @@ class CallSkillScript(UCTool):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    cwd=self.workspace
+                    cwd=self.workspace,
+                    env=env
                 )
                 return process.stdout
             except subprocess.CalledProcessError as e:
@@ -335,4 +386,4 @@ class CallSkillScript(UCTool):
             except FileNotFoundError:
                 return f"Command not found: {command.split()[0]}"
 
-__all__ = ["ListSkill", "CallSkillScript"]
+__all__ = ["ListSkill", "RunSkillScript"]

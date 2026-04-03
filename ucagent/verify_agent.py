@@ -167,7 +167,7 @@ class VerifyAgent:
         self.tool_skill = []
         if self.cfg.skill.use_skill:
             copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))  
-            self.tool_skill += [ListSkill(self.workspace).bind(self),CallSkillScript(self.workspace)]
+            self.tool_skill += [ListSkill(self.workspace).bind(self),RunSkillScript(self.workspace).bind(self)]
 
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
@@ -582,7 +582,7 @@ class VerifyAgent:
         system = self.cfg.mission.prompt.get_value("system", "").strip()
         if self.cfg.skill.use_skill:
             formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"),self.workspace,self.cfg.skill.general_skill_list)
-            skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{skill_list}", formatted_skill_list)
+            skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
             system = system.replace("{skill_system}", skill_prompt)
         else:
             system = system.replace("{skill_system}", "")

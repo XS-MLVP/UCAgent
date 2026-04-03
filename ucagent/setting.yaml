@@ -136,7 +136,7 @@ langfuse:
   base_url: $(LANGFUSE_URL, http://localhost:3000)
 
 skill:
-  use_skill: true # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
+  use_skill: false # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
   max_skill_list_count: 15  # max number of skills to list
   enable_skill_list: [] # skills can be used, if empty, all skills are enabled
   disable_skill_list: [] # skills that are not able to use, if empty, all skills are enabled

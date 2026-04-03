@@ -545,7 +545,7 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 ### `{DUT}_static_bug_analysis.md` 文档结构
 
-```
+```markdown
 # {DUT} RTL 源码静态分析报告
 
 ## 一、架构概述
@@ -570,24 +570,24 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 （与动态bug文档相同的层级结构，Bug标签改为 <BG-STATIC-*>；每个 <BG-STATIC-*> 下必须紧跟一行动态Bug关联子标签）
 
-<FG-功能组>
-
-#### 功能点 <FC-功能点>
-- <CK-检测点> 检测点描述：...；置信度：高 <BG-STATIC-001-NAME>
-  - <LINK-BUG-[BG-TBD]>    ← 静态分析阶段默认填写；validation后替换为 <LINK-BUG-[BG-NAME-xx]> 或 <LINK-BUG-[BG-NA]>
-    - <FILE-{DUT}.v:xx-yy>   ← 必填；标记Bug所在源文件和行号范围
+### <FG-功能组> 功能组描述
+#### <FC-功能点> 功能点描述
+##### <CK-检测点> 检测点描述
+  - <BG-STATIC-001-NAME> Bug描述
+    - <LINK-BUG-[BG-TBD]>    ← 静态分析阶段默认填写；validation后替换为 <LINK-BUG-[BG-NAME-xx]> 或 <LINK-BUG-[BG-NA]>
+      - <FILE-{DUT}.v:xx-yy>   ← 必填；标记Bug所在源文件和行号范围
+        ```verilog
+        xx: ...
+        yy: ...
+        ```
+    - **触发条件**：（输入/状态组合）
+    - **预期行为**：（正确应有的输出）
+    - **推断实际行为**：（RTL 推断出的错误输出）
+    - **修复建议**：
       ```verilog
-      xx: ...
-      yy: ...
+      // 修复后
+      xx: ...   // 修复说明
       ```
-  - **触发条件**：（输入/状态组合）
-  - **预期行为**：（正确应有的输出）
-  - **推断实际行为**：（RTL 推断出的错误输出）
-  - **修复建议**：
-    ```verilog
-    // 修复后
-    xx: ...   // 修复说明
-    ```
 ```
 
 > **注意**：`<LINK-BUG-[BG-TBD]>` 是每条静态Bug的**必填子标签**，在 `static_bug_analysis` 阶段写入，紧排在 `<BG-STATIC-*>` 行的下一子条目。`<FILE-filepath:line1-line2>` 是 `<LINK-BUG-*>` 的**必填子标签**，紧排在 `<LINK-BUG-*>` 行的下一子条目，并附带 RTL 源代码片段。`static_bug_validation` 阶段结束后不允许有 `<LINK-BUG-[BG-TBD]>` 残留。
@@ -628,10 +628,9 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 ## 四、详细分析
 
-<FG-CONTROL>
-
-#### 状态机功能 <FC-FSM>
-- <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+### <FG-CONTROL> 控制组
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
   - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
     - <LINK-BUG-[BG-TBD]>
       - <FILE-UartTx.v:50-56>
@@ -657,15 +656,15 @@ val operand_b = MuxCase(rf.read_data2, Seq(
         56: end
         ```
 
-<FG-TIMING>
-
+### <FG-TIMING>
 #### 波特率计数功能 <FC-BAUD>
-- <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 <BG-STATIC-002-WIDTH-MISMATCH>
-  - <LINK-BUG-[BG-TBD]>
-    - <FILE-UartTx.v:20>
-      ```verilog
-      20: reg [7:0] baud_cnt;   // BUG: 8位宽不足以确论覆盖所有分频参数
-      ```
+##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
+  - <BG-STATIC-002-WIDTH-MISMATCH>
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:20>
+        ```verilog
+        20: reg [7:0] baud_cnt;   // BUG: 8位宽不足以确论覆盖所有分频参数
+        ```
 
 **阶段二：`static_bug_validation` 阶段完成时**（`<LINK-BUG-[BG-TBD]>` 全部被替换，无残留）
 
@@ -680,10 +679,9 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 
 ## 四、详细分析
 
-<FG-CONTROL>
-
-#### 状态机功能 <FC-FSM>
-- <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+### <FG-CONTROL>
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
   - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
     - <LINK-BUG-[BG-FSM-DEAD-92]>    ← 已替换，该静态Bug证实对应一个动态Bug
       - <FILE-UartTx.v:50-56>    ← 源文件位置不变
@@ -709,31 +707,32 @@ val operand_b = MuxCase(rf.read_data2, Seq(
         56: end
         ```
 
-<FG-TIMING>
-
-#### 波特率计数功能 <FC-BAUD>
-- <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 <BG-STATIC-003-WIDTH-MISMATCH>
-  - <LINK-BUG-[BG-NA]>             ← 已替换，误报
-    - <FILE-UartTx.v:20>    ← 源文件位置不变
-      ```verilog
-      20: reg [7:0] baud_cnt;   // 实际参数通过 parameter 约束不超过 200，8位宽足够
-      ```
-  - 误判说明：波特率参数通过 `parameter` 约束不超过 200，8 位宽足够
+### <FG-TIMING>
+#### <FC-BAUD> 波特率计数功能
+##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
+  - <BG-STATIC-003-WIDTH-MISMATCH>
+    - <LINK-BUG-[BG-NA]>             ← 已替换，误报
+      - <FILE-UartTx.v:20>    ← 源文件位置不变
+        ```verilog
+        20: reg [7:0] baud_cnt;   // 实际参数通过 parameter 约束不超过 200，8位宽足够
+        ```
+    - 误判说明：波特率参数通过 `parameter` 约束不超过 200，8 位宽足够
 ```
 
 **阶段三：`{DUT}_bug_analysis.md` 中对应的动态Bug记录**（由 `static_bug_validation` 阶段写入）
 
 ```markdown
-<FG-CONTROL>
+### <FG-CONTROL>
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 测试 start 在 tx_busy=1 期间重新置位时 FSM 行为
+  - <BG-FSM-DEAD-92>
+    - <TC-FSM-REENTRANT-FAIL> start_during_send：验证FSM重入保护
+      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD
 
-#### 状态机功能 <FC-FSM>
-- <CK-FSM-BUSY-CONFLICT> 测试 start 在 tx_busy=1 期间重新置位时 FSM 行为 <BG-FSM-DEAD-92>
-  - <TC-FSM-REENTRANT-FAIL> start_during_send：验证FSM重入保护
-    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD
-
-- <CK-FSM-BUSY-CONFLICT> 测试缺少 default 分支时 FSM 进入非法状态的行为 <BG-FSM-DEFAULT-85>
-  - <TC-FSM-ILLEGAL-STATE> illegal_state_enter：验证default分支缺失
-    - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-002-FSM-DEFAULT
+##### <CK-FSM-BUSY-CONFLICT> 测试缺少 default 分支时 FSM 进入非法状态的行为
+  - <BG-FSM-DEFAULT-85>
+    - <TC-FSM-ILLEGAL-STATE> illegal_state_enter：验证default分支缺失
+      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-002-FSM-DEFAULT
 ```
 
 ### 标签书写要点

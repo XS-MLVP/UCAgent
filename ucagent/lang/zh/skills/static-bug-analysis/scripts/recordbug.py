@@ -1,11 +1,11 @@
-
 import argparse
 import re
-import json
 import os
-import sys
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../../'))
+project_root = os.getcwd()
+potential_bug_summary = "潜在Bug汇总"
+detail_analysis = "详细分析"
+batch_analysis = "批次分析"
 
 def parse_md_file(file_path):
     """
@@ -70,29 +70,29 @@ def validate_hierarchy(DUT, f_dict, fg, fc, ck):
     Validates that FG, FC, and CK exist and are properly nested in the feature dictionary.
     """
     if fg.split('-')[0] != 'FG':
-        return [0,f"错误: -FG参数'{fg}'格式无效，应以'FG-'开头,修改标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FG parameter '{fg}' format invalid, should start with 'FG-'. Modify the tag and use `RunSkillScript` tool again."]
     if fc.split('-')[0] != 'FC':
-        return [0,f"错误: -FC参数'{fc}'格式无效，应以'FC-'开头,修改标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FC parameter '{fc}' format invalid, should start with 'FC-'. Modify the tag and use `RunSkillScript` tool again."]
     if ck.split('-')[0] != 'CK':
-        return [0,f"错误: -CK参数'{ck}'格式无效，应以'CK-'开头,修改标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -CK parameter '{ck}' format invalid, should start with 'CK-'. Modify the tag and use `RunSkillScript` tool again."]
     
     if fg not in f_dict:
-        return [0,f"错误: -FG参数'{fg}'未在 {DUT}_functions_and_checks.md 中定义, 使用正确的标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FG parameter '{fg}' is not defined in {DUT}_functions_and_checks.md. Use the correct tag and use `RunSkillScript` tool again."]
     
     fg_data = f_dict[fg]
     
     if len(fg_data) < 2 or not isinstance(fg_data[1], dict):
-        return [0,f"错误: -FG参数'{fg}'结构无效,使用正确的标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FG parameter '{fg}' structure invalid. Use the correct tag and use `RunSkillScript` tool again."]
     
     fg_description = fg_data[0]
     fg_children = fg_data[1]
     if fc not in fg_children:
-        return [0,f"错误: -FC参数'{fc}'未在功能组'{fg}'下找到,使用正确的标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FC parameter '{fc}' not found under function group '{fg}'. Use the correct tag and use `RunSkillScript` tool again."]
     
     fc_data = fg_children[fc]
     # fc_data structure: [description, cks_list]
     if len(fc_data) < 2 or not isinstance(fc_data[1], list):
-        return [0,f"错误: -FC参数'{fc}' 结构无效,使用正确的标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -FC parameter '{fc}' structure invalid. Use the correct tag and use `RunSkillScript` tool again."]
 
     fc_description = fc_data[0]    
     cks_list = fc_data[1]
@@ -105,24 +105,15 @@ def validate_hierarchy(DUT, f_dict, fg, fc, ck):
             break
             
     if not ck_found:
-        return [0,f"错误: -CK参数'{ck}' 未在 '{fc}' (位于 '{fg}') 下找到, 使用正确的标签并重新使用`CallSkillScript`工具。"]
+        return [0,f"Error: -CK parameter '{ck}' not found under '{fc}' (in '{fg}'). Use the correct tag and use `RunSkillScript` tool again."]
         
     return [1,[fg_description, fc_description, ck_description]]
 
-def normalize_file_path(dut, file_path):
-    """Normalize file paths to the workspace root under output/."""
-    if os.path.isabs(file_path):
-        return file_path
-    if file_path.startswith('output' + os.sep):
-        return os.path.join(project_root, file_path)
-    return os.path.join(os.path.join(project_root, f'output/workspace_{dut}'), file_path)
-
-def get_code_snippet(dut, file_path, start_line, end_line, indent_level=0):
+def get_code_snippet(file_path, start_line, end_line, indent_level=0):
     """Reads a snippet of code from a file."""
-    # Paths are resolved under output/workspace_ALU754 by default
-    abs_path = normalize_file_path(dut, file_path)
+    abs_path = os.path.join(project_root, file_path)
     if not os.path.exists(abs_path):
-        return f"错误: 未找到文件 {abs_path}, 请使用正确的路径并重新使用`CallSkillScript`工具。"
+        return [0, f"Error: File {abs_path} not found. Please use the correct path and use `RunSkillScript` tool again."]
     
     try:
         with open(abs_path, 'r', encoding='utf-8') as f:
@@ -132,7 +123,7 @@ def get_code_snippet(dut, file_path, start_line, end_line, indent_level=0):
         end_index = end_line
         
         if start_index < 0 or end_index > len(lines):
-            return f"错误: 行号 {start_line}-{end_line} 超出文件范围, 请使用正确的行号并重新使用`CallSkillScript`工具。"
+            return [0, f"Error: Line numbers {start_line}-{end_line} are out of file range. Please use correct line numbers and use `RunSkillScript` tool again."]
 
         snippet_lines = lines[start_index:end_index]
         
@@ -145,10 +136,10 @@ def get_code_snippet(dut, file_path, start_line, end_line, indent_level=0):
             if i < len(snippet_lines) - 1:
                 formatted_snippet += "\n"
 
-        return formatted_snippet
+        return [1, formatted_snippet]
 
     except Exception as e:
-        return f"读取文件时出错 {abs_path}: {e}"
+        return [0, f"Error reading file {abs_path}: {e}"]
 
 def format_bug_report(dut, fg, fc, ck, bg, file_info, bug_description, confidence, function_dict):
     """
@@ -169,14 +160,20 @@ def format_bug_report(dut, fg, fc, ck, bg, file_info, bug_description, confidenc
             start_line = int(start_str)
             end_line = int(end_str) if end_str else start_line
         else:
-            return f"错误: -FILE 参数格式错误, 应为 '路径:起始行-结束行' 或 '路径:行号', 修改参数并重新使用`CallSkillScript`工具。"
+            return f"Error: -FILE parameter format invalid, should be 'path:start_line-end_line' or 'path:line_number', modify the parameter and use `RunSkillScript` tool again."
     else:
-        return f"错误: -FILE 参数格式错误, 应为 '路径:起始行-结束行' 或 '路径:行号', 修改参数并重新使用`CallSkillScript`工具。"
+        return f"Error: -FILE parameter format invalid, should be 'path:start_line-end_line' or 'path:line_number', modify the parameter and use `RunSkillScript` tool again."
 
     fg_desc_str, fc_desc_str, ck_desc_str = descriptions
-    code_snippet = get_code_snippet(dut, relative_path, start_line, end_line, indent_level=8)
-    
-    lang = "verilog"
+    correct, code_snippet = get_code_snippet(relative_path, start_line, end_line, indent_level=8)
+    if not correct:
+        return code_snippet
+
+    lang = ""
+    if relative_path.split('.')[-1] in ['v', 'sv']:
+        lang = "verilog"
+    elif relative_path.split('.')[-1] in ['scala']:
+        lang = "scala"
     file_tag = f"<FILE-{relative_path}:{start_line}-{end_line}>"
 
     output = [f"| {bg.split('-')[2]} | {bg} | {fg}/{fc}/{ck} | {bug_description} | {confidence} | {relative_path} | LINK-BUG-[BG-TBD] |\n",\
@@ -194,7 +191,7 @@ def format_bug_report(dut, fg, fc, ck, bg, file_info, bug_description, confidenc
 
 def update_target_md(target_md_path, formatted_output, fg, fc, ck, bg):
     if not os.path.exists(target_md_path):
-        return f"错误: 目标文件未找到于 {target_md_path}"
+        return f"Error: Target file not found at {target_md_path}"
 
     with open(target_md_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -207,7 +204,7 @@ def update_target_md(target_md_path, formatted_output, fg, fc, ck, bg):
     
     summary_idx = -1
     for i, line in enumerate(lines):
-        if "潜在Bug汇总" in line:
+        if potential_bug_summary in line:
             summary_idx = i
             break
             
@@ -222,24 +219,24 @@ def update_target_md(target_md_path, formatted_output, fg, fc, ck, bg):
                 break
         lines.insert(table_end_idx + 1, summary_line)
     else:
-        return f"错误: 在目标文件 {target_md_path} 中未找到 '潜在Bug汇总' 部分, 请确保目标文件整体的格式正确并重新使用`CallSkillScript`工具。"
+        return f"Error: '{potential_bug_summary}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
         
     detail_idx = -1
     for i in range(table_end_idx + 1, len(lines)):
         line = lines[i]
-        if "详细分析" in line:
+        if detail_analysis in line:
             detail_idx = i
             break    
     if detail_idx == -1:
-        return f"错误: 在目标文件 {target_md_path} 中未找到 '详细分析' 部分, 请确保目标文件整体的格式正确并重新使用`CallSkillScript`工具。"
+        return f"Error: '{detail_analysis}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
 
     batch_analysis_idx = -1
     for i in range(detail_idx + 1, len(lines)):
-        if "批次分析" in lines[i]:
+        if batch_analysis in lines[i]:
             batch_analysis_idx = i
             break
     if batch_analysis_idx == -1:
-        return f"错误: 在目标文件 {target_md_path} 中未找到 '批次分析' 部分, 请确保目标文件整体的格式正确并重新使用`CallSkillScript`工具。"
+        return f"Error: '{batch_analysis}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
 
     fg_tag = f"<{fg}>"
     fc_tag = f"<{fc}>"
@@ -300,39 +297,37 @@ def update_target_md(target_md_path, formatted_output, fg, fc, ck, bg):
     with open(target_md_path, 'w', encoding='utf-8') as f:
         f.writelines(lines)
         
-    return f"已将一条Bug记录追加到文件 {target_md_path}, 继续分析潜在Bug直到本RTL源文件分析完毕"
+    return f"Successfully appended a bug record to file {target_md_path}, continue analyzing potential bugs until the current source file is fully analyzed."
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Format a bug report and append it to the target file.")
+    parser.add_argument("-FG", required=True, help="Function Group tag, e.g., FG-BASIC-ARITHMETIC")
+    parser.add_argument("-FC", required=True, help="Sub-function tag, e.g., FC-SPECIAL-ADD")
+    parser.add_argument("-CK", required=True, help="Check point tag, e.g., CK-ADD-ZERO-INPUT")
+    parser.add_argument("-BG", required=True, help="Bug tag, e.g., BG-STATIC-001-CARRY-INPUT")
+    parser.add_argument("-FILE", required=True, help="Source file path and start, end line numbers, e.g., ALU754_RTL/ALU754.v:13-14")
+    parser.add_argument("-BD", required=True, help="Bug description.")
+    parser.add_argument("-CL", required=True, help="Bug confidence, e.g., High, Medium, Low(in Chinese)")
+    
+    return parser.parse_args()
+
 
 def main():
-    parser = argparse.ArgumentParser(description="格式化一个Bug报告并追加到目标Markdown文件。")
-    parser.add_argument("-DUT", required=True, help="待测文件的名称")
-    parser.add_argument("-TARGET_MD", required=True, help="目标文件的路径，用于直接追加结果")
-    parser.add_argument("-FG", required=True, help="功能组标签, 例如, FG-BASIC-ARITHMETIC")
-    parser.add_argument("-FC", required=True, help="子功能标签, 例如, FC-SPECIAL-ADD")
-    parser.add_argument("-CK", required=True, help="检测点标签, 例如, CK-ADD-ZERO-INPUT")
-    parser.add_argument("-BG", required=True, help="Bug标签, 例如, BG-STATIC-001-CARRY-INPUT")
-    parser.add_argument("-FILE", required=True, help="源码文件路径以及起始,结束行号, 例如 ALU754_RTL/ALU754.v:13-14")
-    parser.add_argument("-Bug_DESCRIPTION", required=True, help="Bug的描述。")
-    parser.add_argument("-CONFIDENCE", required=True, help="Bug置信度，例如 高、中、低")
-    
-    args = parser.parse_args()
+    args = parse_args()
+    DUT = os.environ.get("DUT")
+    OUT = os.environ.get("OUT")
 
-    # Path to the function dictionary, relative to project root
-    function_dict_file = os.path.join(os.path.join(project_root, f'output/workspace_{args.DUT}'), f'unity_test/{args.DUT}_functions_and_checks.md')
-    if not os.path.exists(function_dict_file):
-        print(f"错误: 未找到 {function_dict_file} 文件, 请使用正确的路径并重新使用`CallSkillScript`工具。")
-        return
-        
-    function_dict = parse_md_file(function_dict_file)
-    
+    function_dict_file = os.path.join(project_root, OUT, f'{DUT}_functions_and_checks.md')
+    function_dict = parse_md_file(function_dict_file) 
     formatted_output = format_bug_report(
-        args.DUT,
+        DUT,
         args.FG,
         args.FC,
         args.CK,
         args.BG,
         args.FILE,
-        args.Bug_DESCRIPTION,
-        args.CONFIDENCE,
+        args.BD,
+        args.CL,
         function_dict
     )
     
@@ -340,7 +335,8 @@ def main():
         print(formatted_output)
         return
 
-    result = update_target_md(args.TARGET_MD, formatted_output, args.FG, args.FC, args.CK, args.BG)
+    target_md=os.path.join(project_root, OUT, f'{DUT}_static_bug_analysis.md')
+    result = update_target_md(target_md, formatted_output, args.FG, args.FC, args.CK, args.BG)
     print(result)
 
 if __name__ == '__main__':

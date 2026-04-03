@@ -655,7 +655,7 @@ class StageManager(object):
         skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             if self.agent.cfg.skill.use_skill:
-                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"),self.workspace,skills_to_use)
+                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"), self.workspace, skills_to_use)
                 tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
             else:
                 raise ValueError("Enable the arg(--use-skill) to use skills, or remove the skill_list specified in current stage.")

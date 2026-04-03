@@ -1,15 +1,38 @@
 ---
 name: static-bug-analysis
-description: RTL源码静态Bug分析阶段专属技能,用于指导{DUT}_static_bug_analysis.md文件的编写以及格式规范
+description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_analysis.md 文件的编写以及格式规范
 ---
 
 # 静态Bug分析
 
 ## 按照以下步骤完成{DUT}的静态Bug分析任务，并将结果记录到{OUT}/{DUT}_static_bug_analysis.md中：
 
-### 步骤1: 文件拷贝
+### 步骤1: 文件准备
 
-创建 {OUT}/{DUT}_static_bug_analysis.md 文件(若已经存在,则清空里面已有内容), 并将 Guide_Doc/dut_static_bug_analysis.md 中的内容复制到 {OUT}/{DUT}_static_bug_analysis.md 中(必须是创建新文件并拷贝文件内容,禁止直接拷贝文件)，此步骤禁止添加额外的文件,以及禁止修改 {OUT}/{DUT}_static_bug_analysis.md 中任何内容。
+创建 {OUT}/{DUT}_static_bug_analysis.md 文件(若已经存在,则清空里面已有内容), 并将以下内容添加到 {OUT}/{DUT}_static_bug_analysis.md 中。此步骤禁止创建额外的文件,以及禁止向 {OUT}/{DUT}_static_bug_analysis.md 中添加额外的内容。
+```markdown
+# DUT RTL 源码静态分析报告
+
+## 一、架构概述
+
+## 二、审查范围
+
+- 审查文件列表：
+- 对应功能测试点文档：
+
+## 三、潜在Bug汇总
+
+| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
+|------|---------|----------|----------|--------|----------|-------------|
+
+## 四、详细分析
+
+## 五、批次分析进度
+
+| 源文件 | 发现疑似Bug数 | 状态 |
+|--------|---------------|------|
+
+```
 
 ### 步骤2: 逐源文件分析
 
@@ -22,7 +45,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导{DUT}_static
 
 #### 步骤2.2: 逐检测点分析
 
-结合{OUT}/{DUT}_functions_and_checks.md中的功能组,功能点和检测点，逐个<CK-*>检查RTL实现,系统排查常见设计缺陷：
+结合{OUT}/{DUT}_functions_and_checks.md中的功能组<FG-*>,功能点<FC-*>和检测点<CK-*>,逐个<CK-*>检查源文件实现,系统排查常见设计缺陷：
 - 状态机逻辑：状态枚举是否完整，转移条件是否正确，是否有孤立/死锁状态，default分支是否缺失
 - 边界与溢出：算术运算溢出/下溢、位宽截断、有符号/无符号类型不匹配
 - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态
@@ -34,23 +57,24 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导{DUT}_static
 - `FC`: <CK-*>所属的<FC-*>, 必须是FC-前缀. 示例: FC-SPECIAL-ADD
 - `CK`: 存在潜在Bug的检测点<CK-*>, 必须是CK-前缀. 示例: CK-ADD-ZERO-INPUT
 - `BG`: Bug标签，格式为BG-STATIC-NNN-NAME，其中NNN为三位数字递增(001开始,保持序号的连续)，NAME为简要描述. 示例: BG-STATIC-001-CARRY-INPUT
-- `Bug_DESCRIPTION`: 潜在Bug的简要描述
+- `BD`: 潜在Bug的简要描述,描述中不允许存在空格
 - `FILE`: 潜在Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与潜在Bug相关的代码)
-- `CONFIDENCE`: Bug置信度,描述对该Bug存在的确信程度. 示例: "高"、"中"、"低"
+- `CL`: Bug置信度,描述对该Bug存在的确信程度. 示例: "高"、"中"、"低"
 
 #### 步骤2.3: Bug记录
 
-每分析完一个RTL源文件,针对记录的潜在Bug的检测点<CK-*>,使用`CallSkillScript`工具,执行下述命令行(若有10个Bug,则列出10条命令,其中参数值替换为每个Bug记录内容,`DUT`为DUT名称,`target_file_path`为{OUT}/{DUT}_static_bug_analysis.md的路径):
+每分析完一个RTL源文件,针对记录的潜在Bug的检测点<CK-*>,使用`RunSkillScript`工具,执行下述命令行(若有10个Bug,则列出10条命令,其中`script`替换为`recordbug.py`脚本的路径,其他参数值替换为每个Bug记录内容,只允许使用定义的7个参数,禁止额外参数,且参数值必须符合上述格式要求):
 ```bash
-python3 .ucagent/skills/static-bug-analysis/format.py -DUT DUT -TARGET_MD target_file_path -FG FG -FC FC -CK CK -BG BG -FILE FILE -Bug_DESCRIPTION Bug_DESCRIPTION -CONFIDENCE CONFIDENCE
-python3 .ucagent/skills/static-bug-analysis/format.py -DUT DUT -TARGET_MD target_file_path -FG FG -FC FC -CK CK -BG BG -FILE FILE -Bug_DESCRIPTION Bug_DESCRIPTION -CONFIDENCE CONFIDENCE
+python3 script -FG FG -FC FC -CK CK -BG BG -FILE FILE -BD BD -CL CL
+python3 script -FG FG -FC FC -CK CK -BG BG -FILE FILE -BD BD -CL CL
 ...
 ```
-使用`CallSkillScript`工具时,若有10个Bug待记录,前5个Bug的命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`CallSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有Bug记录完毕.
+使用`RunSkillScript`工具时,若有10个Bug待记录,前5个Bug的命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有Bug记录完毕.
 
 #### 步骤2.4: 进度更新
 
 每完成一个源文件的分析工作,根据找到的潜在Bug对应的<CK-*>数量,更新{OUT}/{DUT}_static_bug_analysis.md中的`批次分析进度`一栏，记录源文件的分析结果.
+注意,你必须确保`潜在Bug数量`与`潜在Bug汇总`中记录的与该源文件相关的Bug数量一致,如果不一致,请检查是否有遗漏记录的Bug或者多记录了不存在的Bug,并重新使用`RunSkillScript`工具记录Bug,最终确保两者保持一致.
 `批次分析进度`一栏格式如下(源文件路径左右的`<file>`和`</file>`标签必须加上,不能遗漏!):
 ```
 | <file>源文件路径</file> | 潜在Bug数量 | ✅ 完成 |
@@ -87,13 +111,13 @@ python3 .ucagent/skills/static-bug-analysis/format.py -DUT DUT -TARGET_MD target
 ## 三、潜在Bug汇总
 
 | 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
-|------|---------|---------|---------|--------|---------|------------|
+|------|---------|----------|----------|--------|----------|-------------|
 | 001 | BG-STATIC-001-NAME | FG-XXX/FC-YYY/CK-ZZZ | Bug描述 | 高 | ALU754_RTL/ALU754.v | LINK-BUG-[BG-TBD] |
 
 ## 四、详细分析
 
 ### <FG-XXX> 功能组描述
-####  <FC-YYY> 功能点描述
+#### <FC-YYY> 功能点描述
 ##### <CK-ZZZ> 检测点描述
   - <BG-STATIC-001-NAME> Bug描述
     - <LINK-BUG-[BG-TBD]>
@@ -106,7 +130,7 @@ python3 .ucagent/skills/static-bug-analysis/format.py -DUT DUT -TARGET_MD target
 ## 五、批次分析进度
 
 | 源文件 | 发现疑似Bug数 | 状态 |
-|--------|-------------|------|
+|--------|---------------|------|
 | <file>ALU754_RTL/ALU754.v</file> | 4 | ✅ 完成 |
 
 ```
