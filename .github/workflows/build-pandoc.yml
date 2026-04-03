@@ -33,7 +33,8 @@ jobs:
           if command -v tlmgr >/dev/null 2>&1; then
             # tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet
             # 改为2025版本texlive
-            tlmgr option repository https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2025/tlnet-final/
+            # tlmgr option repository https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/2025/tlnet-final/
+            # 使用容器默认的 TeX Live 仓库（与当前 TL 年份一致），避免历史仓库与 2026 冲突
             tlmgr update --self
             tlmgr install ctex
             # Pandoc 常用代码环境依赖，缺少会触发 fvextra.sty 等错误
