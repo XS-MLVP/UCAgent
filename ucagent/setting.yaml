@@ -138,6 +138,9 @@ langfuse:
 skill:
   use_skill: false # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
   max_skill_list_count: 15  # max number of skills to list
+  enable_skill_list: [] # skills can be used, if empty, all skills are enabled
+  disable_skill_list: [] # skills that are not able to use, if empty, all skills are enabled
+  general_skill_list: [] # skills that are general to use for all stage
 
 # This is the setting for conversation summary
 # Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities

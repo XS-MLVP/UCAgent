@@ -13,7 +13,6 @@ import time
 import os
 from typing import Dict, Any
 
-
 def update_dict(d, u):
     d.update(u)
     return d
@@ -119,7 +118,7 @@ class VerifyStage(object):
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
 
-    def meta_set_skill_usage_journal(self, skill_usage: Dict[str, Any]):
+    def meta_set_skill_usage(self, skill_usage: Dict[str, Any]):
         self.meta_data['skill_usage'] = skill_usage
 
     def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
@@ -209,6 +208,36 @@ class VerifyStage(object):
     def on_init(self):
         for c in self.checker:
             c.on_init()
+
+        # setup function of vstage by skill in skill_list
+        if hasattr(self, 'skill_list') and self.skill_list:
+            import importlib.util
+            import sys
+            def add_hook(method_name: str, hook_func):
+                if not hasattr(self, method_name):
+                    warning(f"[{self.__class__.__name__}] Cannot hook method '{method_name}', not found.")
+                    return
+                original_method = getattr(self, method_name)
+                def hooked_method(*args, **kwargs):
+                    return hook_func(original_method, *args, **kwargs)
+                setattr(self, method_name, hooked_method)
+            self.add_hook = add_hook
+            skills_dir = os.path.join(self.workspace, ".ucagent", "skills")
+            for skill_name in self.skill_list.keys():
+                script_dir = os.path.join(skills_dir, skill_name, "scripts")
+                init_file = os.path.join(script_dir, "__init__.py")
+                if os.path.isdir(script_dir) and os.path.isfile(init_file) and os.path.getsize(init_file) > 0:
+                    try:
+                        safe_module_name = f"ucskill_{skill_name.replace('-', '_')}"
+                        spec = importlib.util.spec_from_file_location(safe_module_name, init_file)
+                        skill_mod = importlib.util.module_from_spec(spec)
+                        sys.modules[safe_module_name] = skill_mod
+                        spec.loader.exec_module(skill_mod)
+                        if hasattr(skill_mod, "setup_vstage"):
+                            skill_mod.setup_vstage(self)                
+                    except Exception as e:
+                        warning(f"Skill '{skill_name}' setup_vstage failed during init: {e}")
+
         if self.time_start is None:
             self.time_start = time.time()
         else:
@@ -414,7 +443,7 @@ class VerifyStage(object):
                 if u and v and w:
                     continue
                 else:
-                    return False, "Please use tool 'CheckSkillUsage' to check the skill usage of this stage before completing it."
+                    return False, "Please use tool 'SetSkillUsage' to check and set the skill usage of this stage before completing it."
         self._is_reached = True
         if not all(c[1] for c in self.reference_files.items()):
             emsg = OrderedDict({"error": "You need use tool `ReadTextFile` to read and understand the reference files", "files_need_read": []})

@@ -20,6 +20,7 @@ from .util.test_tools import ucagent_lib_path
 
 import ucagent.tools
 from .tools import *
+from .tools.skill import ListSkill, _list_skills, list_skills_in_format
 from .tools.planning import *
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
@@ -162,13 +163,11 @@ class VerifyAgent:
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
 
-        # Copy skills to workspace, and add skill tools if enabled
+        # if use_skill is enabled, copy skills to workspace, and add skill tools
         self.tool_skill = []
         if self.cfg.skill.use_skill:
-            # Copy Skills Files to Workspace(incrementally and skip existing files)
-            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))
-            # Add skill tool   
-            self.tool_skill += [SkillList(self.workspace).bind(self)]
+            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))  
+            self.tool_skill += [ListSkill(self.workspace).bind(self),RunSkillScript(self.workspace).bind(self)]
 
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
@@ -579,9 +578,15 @@ class VerifyAgent:
         return self._system_message
 
     def get_default_system_prompt(self):
-        """Get the default system prompt for the agent."""
+        """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
         system = self.cfg.mission.prompt.get_value("system", "").strip()
-        system = system.replace("{skill_system}", self.cfg.mission.prompt.get_value("skill_system", "").strip() if self.cfg.skill.use_skill else "")
+        if self.cfg.skill.use_skill:
+            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"),self.workspace,self.cfg.skill.general_skill_list)
+            skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
+            system = system.replace("{skill_system}", skill_prompt)
+        else:
+            system = system.replace("{skill_system}", "")
+        warning(f"System prompt: {system}")
         return system
 
     def set_continue_msg(self, msg: str):
