@@ -205,6 +205,14 @@ class VerifyStage(object):
         except Exception as e:
             return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
 
+    def get_skill_root(self):
+        return fc.get_abs_path_cwd_ucagent(self.workspace, "skills")
+
+    def is_skill_path(self, file_path):
+        skill_root = self.get_skill_root()
+        abs_file_path = os.path.abspath(self.workspace + os.path.sep + file_path)
+        return abs_file_path.startswith(skill_root)
+
     def on_init(self):
         for c in self.checker:
             c.on_init()
@@ -222,7 +230,7 @@ class VerifyStage(object):
                     return hook_func(original_method, *args, **kwargs)
                 setattr(self, method_name, hooked_method)
             self.add_hook = add_hook
-            skills_dir = os.path.join(self.workspace, ".ucagent", "skills")
+            skills_dir = self.get_skill_root()
             for skill_name in self.skill_list.keys():
                 script_dir = os.path.join(skills_dir, skill_name, "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")
@@ -339,10 +347,14 @@ class VerifyStage(object):
         if file_path in self.reference_files:
             self.reference_files[file_path] = True
             info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
-        skill_name = file_path.split("/")[1]
-        if skill_name in self.skill_list:
-            self.set_usage_skill_list(skill_name, read=True)
-            info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
+
+        if self.is_skill_path(file_path):
+            abs_path = os.path.abspath(self.workspace + os.path.sep + file_path)
+            abs_skill_root = self.get_skill_root()
+            skill_name = os.path.relpath(abs_path, abs_skill_root).split(os.path.sep)[0]
+            if skill_name in self.skill_list:
+                self.set_usage_skill_list(skill_name, read=True)
+                info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description()}, "+\
