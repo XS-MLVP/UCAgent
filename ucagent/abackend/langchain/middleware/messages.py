@@ -270,12 +270,15 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         ret = {}
         if self._is_reset_summary:
             self.summary_data = []
-            # Remove all previous messages except system message and the most recent Human/Tool message
-            humam_msg_index = len(llm_input_msgs) - 2
-            while humam_msg_index >= 0 and llm_input_msgs[humam_msg_index].type == "tool":
+            # Keep only the single most recent human message and discard everything else
+            # (including all subsequent AI/tool exchanges). This ensures the context is
+            # actually reduced. We must also start with a human message — not an AI/tool
+            # message — to satisfy LLM API requirements.
+            humam_msg_index = len(llm_input_msgs) - 1
+            while humam_msg_index > 0 and llm_input_msgs[humam_msg_index].type != "human":
                 humam_msg_index -= 1
-            humam_msg_index = max(0, humam_msg_index)
-            tail_msgs = llm_input_msgs[humam_msg_index:]
+            # Keep only the human message itself; drop all subsequent AI/tool exchanges.
+            tail_msgs = [llm_input_msgs[humam_msg_index]]
             ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + tail_msgs
             self._is_reset_summary = False
             warning(f"Summary reset, all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
