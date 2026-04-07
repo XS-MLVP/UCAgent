@@ -2318,7 +2318,8 @@ def copy_skill_files(cfg, workspace, root_dir):
         workspace: Workspace directory path
         root_dir: Root directory path
     """
-    dst_path = os.path.join(workspace, ".ucagent/skills")
+    get_abs_path_cwd_ucagent
+    dst_path = get_abs_path_cwd_ucagent(workspace, "skills")
     src_paths=[]
     # default skills path
     default_skill_path = os.path.join(root_dir,"lang",cfg.lang,"skills")

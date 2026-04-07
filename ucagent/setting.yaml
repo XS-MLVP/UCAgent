@@ -147,8 +147,8 @@ skill:
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
-  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 51200)    # default 50k tokens for 128k context model
-  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 1024)  # suggested 10% of the model's context length
+  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 184800)    # default 50k tokens for 128k context model
+  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 5000)  # suggested 10% of the model's context length
   max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # max messages to keep in memory, older messages will be removed (not the messages to LLM)
   tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 10)   # keep the last N messages to the LLM no matter what
 

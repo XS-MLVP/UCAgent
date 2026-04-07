@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Verification stage management for UCAgent."""
 
-from ucagent.util.functions import import_class_from_str, find_files_by_pattern
+from ucagent.util.functions import import_class_from_str, find_files_by_pattern, get_abs_path_cwd_ucagent
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
 from ucagent.util.log import info, warning
@@ -222,7 +222,7 @@ class VerifyStage(object):
                     return hook_func(original_method, *args, **kwargs)
                 setattr(self, method_name, hooked_method)
             self.add_hook = add_hook
-            skills_dir = os.path.join(self.workspace, ".ucagent", "skills")
+            skills_dir = get_abs_path_cwd_ucagent(self.workspace, "skills")
             for skill_name in self.skill_list.keys():
                 script_dir = os.path.join(skills_dir, skill_name, "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")

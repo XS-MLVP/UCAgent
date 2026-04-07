@@ -23,6 +23,7 @@ from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
 from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.tools.skill import _list_skills, list_skills_in_format
+from ucagent.util.functions import get_abs_path_cwd_ucagent
 
 
 class ManagerTool(UCTool):
@@ -655,7 +656,7 @@ class StageManager(object):
         skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             if self.agent.cfg.skill.use_skill:
-                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"), self.workspace, skills_to_use)
+                formatted_skill_list = list_skills_in_format(_list_skills(get_abs_path_cwd_ucagent(self.workspace, "skills")), self.workspace, skills_to_use)
                 tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
             else:
                 raise ValueError("Enable the arg(--use-skill) to use skills, or remove the skill_list specified in current stage.")
@@ -745,7 +746,7 @@ class StageManager(object):
         """set the skill usage of curretn stage or return feedback based on skill_usage"""
         current_stage = self.get_current_stage()
         if current_stage.skill_list:
-            skills_dir = os.path.join(self.workspace, ".ucagent/skills")
+            skills_dir = get_abs_path_cwd_ucagent(self.workspace, "skills")
             have_skill_list = []
             if os.path.isdir(skills_dir):
                 have_skill_list = sorted(

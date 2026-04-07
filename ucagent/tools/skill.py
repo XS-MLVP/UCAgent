@@ -14,6 +14,7 @@ from pydantic import Field, BaseModel
 import subprocess
 from .uctool import UCTool, ArgsSchema, EmptyArgs
 from ucagent.util.log import warning,info
+from ucagent.util.functions import get_abs_path_cwd_ucagent
 
 # Security: Maximum size for SKILL.md files to prevent DoS attacks (10MB)
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
@@ -295,7 +296,7 @@ class ListSkill(UCTool):
         Returns:
             A formatted string containing information about all available skills.
         """
-        skills_path = Path(self.workspace) / ".ucagent/skills"
+        skills_path = get_abs_path_cwd_ucagent(self.workspace, "skills")
         if not skills_path.exists():
             raise ValueError(f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace.")
         skills = _list_skills(str(skills_path), workspace=None)

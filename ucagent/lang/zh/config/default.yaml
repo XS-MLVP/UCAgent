@@ -341,8 +341,8 @@ stage:
       - "{OUT}/{DUT}_basic_info.md"
     output_files:
       - "{OUT}/{DUT}_static_bug_analysis.md"
-    # skill_list:
-    #   - "static-bug-analysis"
+    skill_list:
+      - "static-bug-analysis"
     checker:
       - name: static_bug_batch_analysis_check
         clss: "UnityChipBatchCheckerStaticBug"
@@ -793,7 +793,7 @@ stage:
     desc: "创建测试用例模板[{COVERED_CKS}/{TOTAL_CKS}|{CASE_TESTS_COUNT}]"
     need_pass_llm_suggestion: false
     task:
-      - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
+      - "目标：创建测试用例模板，为实际测试做准备"
       - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
@@ -818,6 +818,8 @@ stage:
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
+    skill_list:
+      - "create-test-case-templates"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -832,7 +834,7 @@ stage:
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
-          batch_size: $(BATCH_SIZE_TMP: 20)
+          batch_size: $(BATCH_SIZE_TMP: 100)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:

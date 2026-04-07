@@ -58,13 +58,13 @@ init_%:
 	@python3 $(CWD)/$*/example.py || { echo "Error: picker try to generate DUT, but failed.\n"; exit 1; }
 
 test_%: init_%
-	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l ${ARGS} --log --use-skill
 
 test_with_master_%: init_%
 	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui -l --master 127.0.0.1 --export-cmd-api  ${ARGS}
 
 mcp_%: init_%
-	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS}
+	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools ${ARGS} --log
 
 mcp_with_master_%: init_%
 	$(CMD) $(CWD)/ $* --config $(CFG) -s -hm --tui --mcp-server-no-file-tools --master 127.0.0.1 --export-cmd-api ${ARGS}
