@@ -81,22 +81,6 @@ module {DUT}_checker (
 
 endmodule
 
-// ==========================================
-// Bind 语句 (将 Checker 绑定到 DUT)
-// ==========================================
-// AI 将自动生成此 bind 模块
-// <UCAgent-Inject-Bind>
-/*
-bind {DUT} {DUT}_checker u_{DUT}_checker (
-    .clk(clk),
-    .rst_n(rst_n),
-    .data_in(data_in),
-    .valid_in(valid_in),
-    .ready_out(ready_out)
-    // ...
-);
-*/
-// </UCAgent-Inject-Bind>
 
 ```
 

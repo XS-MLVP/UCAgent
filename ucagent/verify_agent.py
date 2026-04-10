@@ -290,6 +290,9 @@ class VerifyAgent:
             self.cfg.get_value("ex_tools", []), ucagent.tools
         ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
 
+        # Export workspace path via environment variable for ext tools
+        os.environ["UCAGENT_WORKSPACE"] = self.workspace
+
         # Initialize planning tools
         self.planning_tools = []
         self.force_todo = force_todo

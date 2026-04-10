@@ -55,7 +55,7 @@
 - **属性定义**: `{OUT}/03_{DUT}_functions_and_checks.md`
 - **验证环境**: `{OUT}/{DUT}_checker.sv`
 - **执行脚本**: `{OUT}/{DUT}_formal.tcl`
-- **最终报告**: `{OUT}/{DUT}_formal_report.md`
+- **最终报告**: `{OUT}/05_{DUT}_formal_summary.md`
 
 ## 5. 特定注意事项
 - **SystemVerilog 语法兼容性**: 
