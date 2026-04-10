@@ -20,7 +20,6 @@ from ucagent.util.log import str_error, str_info
 
 __all__ = [
     "parse_avis_log",
-    "extract_rtl_bug_properties",
     "extract_rtl_bug_from_analysis_doc",
     "GenerateFormalEnv",
     "RunFormalVerification",
@@ -111,35 +110,6 @@ def parse_avis_log(log_path: str) -> Dict[str, list]:
     return result
 
 
-def extract_rtl_bug_properties(checker_path: str) -> List[str]:
-    """Extract property names marked with [RTL_BUG] from checker.sv.
-
-    This is the single source of truth for RTL bug extraction, shared by
-    ``BugReportConsistencyChecker`` and ``CounterexampleTestgenChecker``.
-
-    Scans for ``// [RTL_BUG]`` comment markers and extracts the property name
-    from the subsequent ``NAME: assert property(...)`` line (within 5 lines).
-
-    Returns a list of property names, e.g. ``['A_CK_SUM_WIDTH', ...]``.
-    """
-    if not os.path.exists(checker_path):
-        return []
-
-    with open(checker_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-
-    rtl_bugs: List[str] = []
-    for i, line in enumerate(lines):
-        if "[RTL_BUG]" in line:
-            # Search for property definition in subsequent lines (up to 5 lines)
-            for j in range(i, min(i + 6, len(lines))):
-                match = re.search(
-                    r"([A-Z_][A-Z0-9_]*)\s*:\s*assert\s+property", lines[j]
-                )
-                if match:
-                    rtl_bugs.append(match.group(1))
-                    break
-    return rtl_bugs
 
 
 def extract_rtl_bug_from_analysis_doc(analysis_path: str) -> List[Tuple[str, str]]:
@@ -184,8 +154,8 @@ def extract_rtl_bug_from_analysis_doc(analysis_path: str) -> List[Tuple[str, str
         entry_end = next_entry.start() if next_entry else len(content)
         entry_block = content[entry_start:entry_end]
 
-        # Check for RTL_BUG judgment
-        if re.search(r"(?:判定结果|Judgment)[\*\s]*[：:]\s*.*RTL_BUG", entry_block):
+        # Check for RTL_BUG judgment or resolution
+        if re.search(r"(?:解决状态|判定结果|Resolution|Judgment)[\*\s]*[：:]\s*.*RTL_BUG", entry_block):
             rtl_bugs.append((fa_id, prop_name))
 
     return rtl_bugs
@@ -882,12 +852,12 @@ Example Usage:
                             if clock_in_prop:
                                 scaffold += f"property {prop_name};\n"
                                 scaffold += f"  @(posedge clk) disable iff (!rst_n)\n"
-                                scaffold += f"  /* TODO */;\n"
+                                scaffold += f"  1; // TODO\n"
                                 scaffold += f"endproperty\n"
                                 scaffold += f"{inst_label}: {inst_kind} property ({prop_name});\n"
                             else:
                                 scaffold += f"property {prop_name};\n"
-                                scaffold += f"  /* TODO */;\n"
+                                scaffold += f"  1; // TODO\n"
                                 scaffold += f"endproperty\n"
                                 scaffold += f"{inst_label}: {inst_kind} property (@(posedge clk) disable iff (!rst_n) {prop_name});\n"
                             scaffolds.append(scaffold)
@@ -1097,12 +1067,45 @@ Existing output files will be backed up as .bak.
 """
     args_schema: Optional[ArgsSchema] = ArgInitEnvAnalysis
 
-    def _generate_tt_entry(self, idx: int, prop_name: str) -> str:
+    def _extract_prop_code(self, prop_name: str, checker_content: str) -> str:
+        """Extract the SVA property definition from checker code."""
+        if not checker_content:
+            return f"  // [LLM-TODO]: 无法读取 checker.sv，请手动提取 {prop_name} 的代码"
+        
+        # Try to find property definition block
+        pattern = re.compile(rf"(property\s+(?:(?:A|M|C)_)?{re.escape(prop_name)}[\s;].*?endproperty)", re.DOTALL)
+        match = pattern.search(checker_content)
+        if match:
+            # Indent the matching code logic nicely
+            return "\n".join("  " + line for line in match.group(1).split("\n"))
+            
+        # Try finding inline assert/assume/cover if not a property block
+        pattern_inline = re.compile(rf"(?:assert|assume|cover)\s+property\s*\([^;]*{re.escape(prop_name)}[^;]*\)\s*;")
+        match = pattern_inline.search(checker_content)
+        if match:
+            return f"  {match.group(0)}"
+
+        # If we can't find it directly, try looking for just the property name definition
+        short_name = prop_name
+        for prefix in ["A_CK_", "M_CK_", "C_CK_", "CK_"]:
+            if short_name.startswith(prefix):
+                short_name = short_name[len(prefix):]
+                break
+        
+        pattern_short = re.compile(rf"(property\s+.*?{re.escape(short_name)}.*?;.*?endproperty)", re.DOTALL)
+        match = pattern_short.search(checker_content)
+        if match:
+            return "\n".join("  " + line for line in match.group(1).split("\n"))
+
+        return f"  // [LLM-TODO]: 无法自动提取 {prop_name} 的代码，请从 checker.sv 手动提取"
+
+    def _generate_tt_entry(self, idx: int, prop_name: str, checker_content: str) -> str:
+        sva_code = self._extract_prop_code(prop_name, checker_content)
         return f"""### <TT-{idx:03d}> {prop_name}
 - **属性名**: {prop_name}
 - **SVA 代码**:
   ```systemverilog
-  // [LLM-TODO]: 从 checker.sv 中提取对应属性的完整代码
+{sva_code}
   ```
 - **根因分类**: [LLM-TODO: ASSUME_TOO_STRONG | SIGNAL_CONSTANT | WRAPPER_ERROR | DESIGN_EXPECTED]
 - **关联 Assume**: [LLM-TODO: M_CK_YYY 或 N/A]
@@ -1111,18 +1114,18 @@ Existing output files will be backed up as .bak.
 - **修复说明**: [LLM-TODO: 描述修改内容或接受理由]
 """
 
-    def _generate_fa_entry(self, idx: int, prop_name: str, prop_type: str) -> str:
+    def _generate_fa_entry(self, idx: int, prop_name: str, prop_type: str, checker_content: str) -> str:
+        sva_code = self._extract_prop_code(prop_name, checker_content)
         return f"""### <FA-{idx:03d}> {prop_name}
 - **属性名**: {prop_name}
 - **属性类型**: {prop_type}
 - **SVA 代码**:
   ```systemverilog
-  // [LLM-TODO]: 从 checker.sv 中提取对应属性的完整代码
+{sva_code}
   ```
-- **判定结果**: [LLM-TODO: RTL_BUG | ENV_ISSUE | COVER_EXPECTED_FAIL]
+- **解决状态**: [LLM-TODO: RTL_BUG | ENV_FIXED | ENV_PENDING | COVER_EXPECTED_FAIL]
 - **反例/分析**: [LLM-TODO: 描述反例中的信号值和时序关系]
-- **修复动作**: [LLM-TODO: MARKED_RTL_BUG | ASSUME_ADDED | ASSUME_MODIFIED | COVER_EXPECTED_FAIL]
-- **修复说明**: [LLM-TODO: 具体描述修复内容或标记原因]
+- **修复说明**: [LLM-TODO: 具体描述修复内容或缺陷现象]
 """
 
     def _run(self, dut_name: str, log_path: Optional[str] = None, output_path: Optional[str] = None, output_dir: str = "formal_test") -> str:
@@ -1131,6 +1134,7 @@ Existing output files will be backed up as .bak.
         # Default paths
         res_log_path = log_path or os.path.join(workspace, output_dir, "tests", "avis.log")
         res_output_path = output_path or os.path.join(workspace, output_dir, f"07_{dut_name}_env_analysis.md")
+        checker_path = os.path.join(workspace, output_dir, "tests", f"{dut_name}_checker.sv")
         
         if not os.path.isabs(res_log_path):
             res_log_path = os.path.abspath(os.path.join(workspace, res_log_path))
@@ -1143,6 +1147,12 @@ Existing output files will be backed up as .bak.
         log_result = parse_avis_log(res_log_path)
         _backup_if_exists(res_output_path)
         os.makedirs(os.path.dirname(res_output_path), exist_ok=True)
+        
+        # Read checker.sv for code extraction
+        checker_content = ""
+        if os.path.exists(checker_path):
+            with open(checker_path, "r", encoding="utf-8", errors="ignore") as f:
+                checker_content = f.read()
         
         n_pass = len(log_result["pass"])
         n_tt = len(log_result["trivially_true"])
@@ -1174,7 +1184,7 @@ Existing output files will be backed up as .bak.
         else:
             lines.append(f"> 共 {n_tt} 个 TRIVIALLY_TRUE 属性需要分析。\n")
             for i, prop in enumerate(log_result["trivially_true"], start=1):
-                lines.append(self._generate_tt_entry(i, prop))
+                lines.append(self._generate_tt_entry(i, prop, checker_content))
         lines.append("---\n")
 
         lines.append("## 3. FALSE 属性分析\n")
@@ -1186,24 +1196,7 @@ Existing output files will be backed up as .bak.
         else:
             lines.append(f"> 共 {n_fa} 个 FALSE 属性需要分析。\n")
             for i, (prop, ptype) in enumerate(false_props, start=1):
-                lines.append(self._generate_fa_entry(i, prop, ptype))
-        lines.append("---\n")
-
-        lines.append("## 4. 环境健康度总结\n")
-        lines.append("| 指标 | 值 |")
-        lines.append("|------|------|")
-        lines.append(f"| TRIVIALLY_TRUE 已分析 | [LLM-TODO]/{n_tt} |")
-        lines.append("| TRIVIALLY_TRUE 已修复 (FIXED) | [LLM-TODO] |")
-        lines.append("| TRIVIALLY_TRUE 已接受 (ACCEPTED) | [LLM-TODO] |")
-        lines.append("| ACCEPTED 比例 | [LLM-TODO]% |")
-        lines.append(f"| FALSE 已分析 | [LLM-TODO]/{n_fa} |")
-        lines.append("| FALSE 判定为 RTL_BUG | [LLM-TODO] |")
-        lines.append("| FALSE 判定为 ENV_ISSUE | [LLM-TODO] |")
-        lines.append("| FALSE 判定为 COVER_EXPECTED_FAIL | [LLM-TODO] |")
-        lines.append("| 未修复的 ENV_ISSUE | [LLM-TODO] |")
-        lines.append("")
-        lines.append("**环境声明**: [LLM-TODO: ✅ 所有异常属性已分析完成 | ❌ 仍有 N 个属性未分析]")
-        lines.append("")
+                lines.append(self._generate_fa_entry(i, prop, ptype, checker_content))
         
         with open(res_output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
@@ -1214,6 +1207,110 @@ Existing output files will be backed up as .bak.
             f"   - FALSE entries: {n_fa}\n"
             f"   - Total [LLM-TODO] remaining: {n_tt + n_fa}"
         )
+
+
+# =============================================================================
+# Tool: UpdateEnvAnalysis
+# =============================================================================
+
+class ArgUpdateEnvAnalysis(BaseModel):
+    """Arguments for UpdateEnvAnalysis tool."""
+
+    dut_name: str = Field(description="DUT module name")
+    output_dir: str = Field(default="formal_test", description="The output directory name within the workspace. Typically 'formal_test'.")
+
+
+class UpdateEnvAnalysis(UCTool, BaseReadWrite):
+    name: str = "UpdateEnvAnalysis"
+    description: str = """Incrementally updates the environment analysis document (07_{DUT}_env_analysis.md) with newly failed properties.
+    
+Usage:
+1. Provide dut_name: DUT module name.
+2. (Optional) Provide output_dir: The output directory name, defaulting to "formal_test".
+
+Use this tool during the environment debugging iteration (Stage 7). After fixing some assumes and re-running formal,
+there might be new properties failing. This tool will parse the NEW avis.log, find properties that are NOT in the existing doc,
+and append them to the existing analysis document. It preserves all your previous analysis and judgments.
+"""
+    args_schema: Optional[ArgsSchema] = ArgUpdateEnvAnalysis
+
+    def _run(self, dut_name: str, output_dir: str = "formal_test") -> str:
+        workspace = os.environ.get("UCAGENT_WORKSPACE", os.getcwd())
+        
+        log_path = os.path.abspath(os.path.join(workspace, output_dir, "tests", "avis.log"))
+        doc_path = os.path.abspath(os.path.join(workspace, output_dir, f"07_{dut_name}_env_analysis.md"))
+        checker_path = os.path.abspath(os.path.join(workspace, output_dir, "tests", f"{dut_name}_checker.sv"))
+        
+        if not os.path.exists(log_path):
+            return str_error(f"Error: log file not found at {log_path}")
+        if not os.path.exists(doc_path):
+            return str_error(f"Error: document not found at {doc_path}. Use InitEnvAnalysis first.")
+            
+        # Parse current log
+        log_result = parse_avis_log(log_path)
+        current_tt = set(log_result["trivially_true"])
+        current_fa = set(log_result["false"]).union(set(log_result["cover_fail"]))
+        
+        # Read existing doc
+        with open(doc_path, "r", encoding="utf-8", errors="ignore") as f:
+            doc_content = f.read()
+            
+        # Find existing entries using regex
+        existing_tt = set(re.findall(r"###\s*<TT-\d+>\s+(\S+)", doc_content))
+        existing_fa = set(re.findall(r"###\s*<FA-\d+>\s+(\S+)", doc_content))
+        
+        # Determine new properties
+        new_tt = current_tt - existing_tt
+        new_fa = current_fa - existing_fa
+        
+        if not new_tt and not new_fa:
+            return str_info(f"ℹ️ No new abnormal properties found in log. Doc is up-to-date.\n"
+                            f"   - Log TT count: {len(current_tt)}, FA count: {len(current_fa)}\n"
+                            f"   - Doc TT count: {len(existing_tt)}, FA count: {len(existing_fa)}")
+                            
+        # Read checker content for code extraction
+        checker_content = ""
+        if os.path.exists(checker_path):
+            with open(checker_path, "r", encoding="utf-8", errors="ignore") as f:
+                checker_content = f.read()
+                
+        # To reuse the generation methods, we'll instantiate InitEnvAnalysis
+        init_tool = InitEnvAnalysis()
+        
+        # Calculate next max IDs
+        def get_max_id(prefix):
+            ids = [int(x) for x in re.findall(rf"###\s*<{prefix}-(\d+)>", doc_content)]
+            return max(ids) if ids else 0
+            
+        next_tt_id = get_max_id("TT") + 1
+        next_fa_id = get_max_id("FA") + 1
+        
+        # Prepare additions
+        tt_additions = []
+        for prop in sorted(new_tt):
+            tt_additions.append(init_tool._generate_tt_entry(next_tt_id, prop, checker_content))
+            next_tt_id += 1
+            
+        fa_additions = []
+        for prop in sorted(new_fa):
+            ptype = "cover" if prop in log_result["cover_fail"] else "assert"
+            fa_additions.append(init_tool._generate_fa_entry(next_fa_id, prop, ptype, checker_content))
+            next_fa_id += 1
+            
+        # Append to document (naively to the end)
+        _backup_if_exists(doc_path)
+        with open(doc_path, "a", encoding="utf-8") as f:
+            f.write("\n\n")
+            if tt_additions:
+                f.write(f"<!-- {len(tt_additions)} NEW TT ENTRIES ADDED BY UpdateEnvAnalysis -->\n")
+                f.write("\n".join(tt_additions))
+            if fa_additions:
+                f.write(f"<!-- {len(fa_additions)} NEW FA ENTRIES ADDED BY UpdateEnvAnalysis -->\n")
+                f.write("\n".join(fa_additions))
+                
+        return str_info(f"✅ Document incrementally updated at: {doc_path}\n"
+                        f"   - New TT entries appended: {len(new_tt)}\n"
+                        f"   - New FA entries appended: {len(new_fa)}")
 
 
 # =============================================================================

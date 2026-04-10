@@ -3,41 +3,39 @@ name: env-generation
 description: Formal 验证环境（Checker & Bind Wrapper）的配置与构建指南
 ---
 
-# 形式化验证环境构建指南 (Environment Generation)
+# 形式化验证环境构建工作流 (Environment Generation)
 
-本小节指导如何在使用 `GenerateFormalEnv` 工具后，进一步根据物理设计架构去完善自动生成的 checker 和 wrapper 文件。
+本技能指导如何在使用 `GenerateFormalEnv` 工具生成基础代码后，进一步完善自动生成的 checker 和 wrapper 文件。
 
-在生成了基础代码后，作为 Agent，你需要重点解决以下深层次的环境适配问题：
+> **Checker 模块结构与编码细节参见 `Guide_Doc/checker_module.md`**
+> **SVA 编码规范参见 `Guide_Doc/sva_property.md`（§3.6 Assume 禁忌）**
 
-## 1. 完善符号化索引 (Symbolic Indexing)
+## 步骤
 
-形式化验证如果试图穷举大型数组的状态往往会导致状态机爆炸。为了防范此情况并覆盖每一处逻辑，设计若存在数组应当采用符号化切片（Symbolic Indexing）。
+### 1. 完善符号化索引
 
-### 判断标准：合适启用符号索引？
-如果 RTL 包含以下特征之一，则**必须**使用符号化索引：
-1. 声明了数组型寄存器（例如 `reg [31:0] mem [0:15];`）
-2. 包含多个同构的外露实例（例如 `entries_0, entries_1, ...`）
-3. 使用了 `genvar / generate` 循环生成大范围重复结构。
+如果 RTL 包含数组型寄存器、同构实例或 `generate` 循环，取消 wrapper 中 `fv_idx` 和 `fv_mon_...` 占位符的注释，并根据 RTL 信号路径完成 Mux 逻辑。
 
-### 操作步骤：
-打开自动生成的 `{OUT}/tests/{DUT}_wrapper.sv`，寻找相关的占位符。`GenerateFormalEnv` 已生成 `fv_idx` 和 `fv_mon_...` 的占位符（处于被注释状态）：
-1. 请取消相关占位逻辑的注释。
-2. 严格根据 RTL 的内部信号路径完成这些多路选择器 (Mux) 逻辑。
-3. 确保将 `fv_mon_x` 之类的被观测信号正确的引到 checker 的被测接口上。
+判断标准和操作细节参见 `Guide_Doc/checker_module.md`。
 
-## 2. 导出白盒信号 (White-box Verification)
+### 2. 导出白盒信号
 
-形式化验证需要透视设计内部。所有的指针 (pointers)、状态转换标识 (flags)、状态机主状态 (fsm states) 等不能仅在模块内起作用。
-- 在 `wrapper.sv` 文件内，将这些必须监控的关键内部信号提取出来（例如 `wire [3:0] dut_state = dut.fsm_state;`）。
-- 将提取出的信号接入实例化的 `checker` 模块端口里。
+在 `wrapper.sv` 中将 DUT 内部的关键信号（指针、状态机状态、标志位等）提取出来，接入 checker 模块端口。
 
-## 3. 时序极性与校正确认
+### 3. 时序极性确认
 
-即使有了基于文档生成的骨架，也常常会被一些微小的环境定义毁掉证明过程。
-- 查看生成的 `wrapper.sv` 顶部 `Clock/Reset Remapping` 区域。
-- 确认工具所映射的极性是否符合预期？（尤其是，如果这是一个高电平有效的复位信号，其应当被映射为 `wire rst_n = ~rst;`）。对于误判情况需要立即重写映射。
+检查 wrapper 顶部 `Clock/Reset Remapping` 区域，确认复位极性映射正确。
 
-## 4. 保留 SVA 代码骨架
+### 4. 保留 SVA 骨架
 
-`GenerateFormalEnv` 工具在运行期间会悄无声息地从 `03_{DUT}_functions_and_checks.md` 文档提取标签，追加到 `checker.sv` 末端，这些骨架具有形式为 `[LLM-TODO]` 的特殊代码。
-**请不要在此阶段填写它们！** 你的首要工作仅仅是配置和补齐环境，实际的断言编写任务属于接下来的 Stage 5 环节。
+`GenerateFormalEnv` 已从 `03_{DUT}_functions_and_checks.md` 提取标签追加到 checker.sv 末端（`[LLM-TODO]` 标记）。**此阶段不要填写它们**，SVA 编写属于 Stage 5。
+
+### 5. 禁止添加 Assume
+
+本阶段禁止自行添加 `assume property`。所有 assume 必须在 Stage 5 中统一从 spec 文档 `(Style: Assume)` 检测点实现。
+
+## 核心规则
+
+1. 本阶段仅做环境配置，不写断言逻辑
+2. 禁止隐式约束（如用 `assign` 强制拉死输入信号）
+3. wrapper 中导出的信号名必须与 checker 端口声明一致

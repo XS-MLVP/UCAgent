@@ -5,6 +5,10 @@
 > - **目的**: 本模板用于在环境调试阶段（environment_debugging_iteration）对所有异常属性（TRIVIALLY_TRUE、FALSE）进行系统性分析和归档。
 > - **来源**: UCAgent（AI）解析 `avis.log` 得到异常属性列表，结合 `checker.sv` 中的 SVA 代码和 RTL 源码，逐一分析并填写本文档。
 > - **Checker 校验**: `EnvironmentAnalysisChecker` 会对 **日志（avis.log）-SVA 代码（checker.sv）-本文档** 进行三角校验，确保所有异常属性都被充分分析和跟踪。
+>
+> ⚠️ **文档分区说明**：
+> - §1–§2–§3 的**条目模板**由 `InitEnvAnalysis` 工具自动生成，此处仅供人工参考格式。
+> - §2 的**根因分类**和 §3 的**判定决策树**是核心领域知识，LLM 必须理解后再填写分析内容。
 
 ---
 
@@ -63,17 +67,34 @@
 
 > 对每个 FALSE 属性（包括 assert fail 和 cover fail），必须创建独立的 `<FA-NNN>` 分析条目。
 
-<!--
-判定结果说明：
-  - RTL_BUG: 确认为 RTL 设计缺陷，反例展示了真实的功能错误
-  - ENV_ISSUE: 验证环境问题（assume 不足/错误），反例为不真实的输入组合
+### FALSE 属性判定决策树
 
-修复动作说明：
-  - MARKED_RTL_BUG: 在 checker.sv 中添加 // [RTL_BUG] 标记
-  - ASSUME_ADDED: 添加了新的 assume 约束
-  - ASSUME_MODIFIED: 修改了现有 assume 约束
-  - COVER_EXPECTED_FAIL: cover 属性 fail 是预期行为（如互斥状态的 cover）
--->
+```
+FALSE 属性
+  │
+  ├─ 属性类型是 cover 且 fail？
+  │   └─ 检查是否因过约束导致状态不可达
+  │       ├─ 是 → 修复 assume 后改为 ENV_FIXED
+  │       └─ 否（该状态确实在设计中不可达）→ COVER_EXPECTED_FAIL
+  │
+  └─ 属性类型是 assert 且 fail？
+      └─ 检查反例中的输入激励是否是合法的输入组合
+          ├─ 输入不合法（现实中不可能出现的输入组合）
+          │   └─ 说明 assume 约束不足 → ENV_PENDING
+          │       → 在 checker.sv 中添加 assume → 重跑 → ENV_FIXED
+          │
+          └─ 输入合法（现实场景可能出现）
+              └─ 检查 RTL 输出是否符合规格
+                  ├─ RTL 输出错误 → RTL_BUG
+                  └─ RTL 输出正确（断言本身写错了）→ 修改断言 → 重跑
+```
+
+**判断"输入是否合法"的方法**：
+- 查看反例中的输入信号值，问自己：在真实硬件运行中，这组输入能同时出现吗？
+- 如果涉及协议（如 AXI），检查是否违反了协议时序约束。
+- 如果不确定，先加一个 cover property 检验该输入组合是否可达。
+
+
 
 ### <FA-001> {属性名}
 - **属性名**: {A_CK_XXX 或 C_CK_XXX}
@@ -85,29 +106,9 @@
     ...
   endproperty
   ```
-- **判定结果**: {RTL_BUG | ENV_ISSUE | COVER_EXPECTED_FAIL}
+- **解决状态**: {RTL_BUG | ENV_FIXED | ENV_PENDING | COVER_EXPECTED_FAIL}
 - **反例/分析**: {对于 assert fail: 描述反例中的信号值和时序；对于 cover fail: 分析为何该场景不可达}
-- **修复动作**: {MARKED_RTL_BUG | ASSUME_ADDED | ASSUME_MODIFIED | COVER_EXPECTED_FAIL}
-- **修复说明**: {具体描述修复内容或标记原因}
+- **修复说明**: {具体描述做了什么修改(如 added assume)，或是标记为 RTL BUG 的简要原因}
 
 <!-- 复制上方模板块，为每个 FALSE 属性创建条目 -->
 
----
-
-## 4. 环境健康度总结
-
-> AI 在所有条目填写完毕后更新此节
-
-| 指标 | 值 |
-|------|------|
-| TRIVIALLY_TRUE 已分析 | {N_analyzed}/{N_total} |
-| TRIVIALLY_TRUE 已修复 (FIXED) | {N_fixed} |
-| TRIVIALLY_TRUE 已接受 (ACCEPTED) | {N_accepted} |
-| ACCEPTED 比例 | {N_accepted/N_total * 100}% |
-| FALSE 已分析 | {M_analyzed}/{M_total} |
-| FALSE 判定为 RTL_BUG | {M_rtl_bug} |
-| FALSE 判定为 ENV_ISSUE | {M_env_issue} |
-| FALSE 判定为 COVER_EXPECTED_FAIL | {M_cover_expected} |
-| 未修复的 ENV_ISSUE | {M_unresolved} |
-
-**环境声明**: {✅ 所有异常属性已分析完成 | ❌ 仍有 N 个属性未分析}

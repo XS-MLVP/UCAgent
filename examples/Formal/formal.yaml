@@ -73,7 +73,7 @@ mission:
         - M_CK_FV_IDX_STABLE: $stable(fv_idx)
         - M_CK_FV_IDX_VALID:  fv_idx < NUM_PORTS  (无 disable iff)
         - M_CK_FV_IDX_KNOWN:  !$isunknown(fv_idx)
-      缺失→索引漂移→假阳性。详见 Guide_Doc/dut_property_template.md。
+      缺失→索引漂移→假阳性。详见 Guide_Doc/sva_property.md。
 
       **活性证明**: s_eventually / No-Starvation，确保无死锁。
       **覆盖率驱动**: 关键状态（Full/Empty/Hit）必须有 Cover 属性证明可达性。
@@ -88,6 +88,7 @@ mission:
       | Complete | 阶段检查 + 推进（优先使用）|
       | Check | 仅检查不推进 |
       | ReadTextFile | 读取文件 |
+      | EditTextFile | 编辑文件（写入、追加、替换） |
       | GenerateChecker | 生成 checker.sv + wrapper.sv |
       | GenerateFormalScript | 生成 TCL 脚本 |
       | RunFormalVerification | 执行验证并返回摘要（推荐: `RunFormalVerification(dut_name="{DUT}")` 自动查找 TCL）|
@@ -105,13 +106,14 @@ mission:
       - 中途接入时: CurrentTips → Status → AllStageJournal 获取上下文。
       {skill_system}
 
-      **指导文档速查：**
-      - dut_functions_and_checks.md — 功能点与检测点
-      - dut_property_template.md  — SVA 模板与 fv_idx 规范
-      - dut_env_template.md       — Checker 模块模板
-      - dut_env_analysis_template.md — 环境分析文档模板
-      - dut_bug_report_template.md — Bug 报告模板
-      - dut_formal_template.md    — 验证总结模板
+      **指导文档领域知识速查：**
+      - functions_and_checks.md — 功能组规划与高级检测点模式
+      - sva_property.md         — SVA 编码规范、活性与环境约束反模式
+      - checker_module.md       — Checker 模块结构、时钟与端口规范
+      - env_analysis.md         — TRIVIALLY_TRUE 与 FALSE 属性根因分析决策树
+      - bug_report.md           — 故障归因聚类与报告结构
+      - coi_coverage.md         — COI 概念、映射表与 Cover/Assert 差异
+      - formal_summary.md       — 验证总结报告格式
       (均位于 Guide_Doc/ 目录)
 
       现在调用`CurrentTips`，开启你的验证工作！
@@ -203,7 +205,7 @@ stage:
       - name: dut_function_grouping
         desc: "DUT功能分组与层次划分{COUNT_FG}"
         task:
-          - "按照 Skill 指导划分系统状态与业务逻辑分组：<FG-xxx>。"
+          - "按照规范指导划分系统状态与业务逻辑分组：<FG-xxx>。"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"
@@ -222,17 +224,10 @@ stage:
               leaf_node: "FC"
       - name: check_point_design
         desc: "检测点设计与定义{COUNT_CK}"
+        skill_list: ["functional-spec"]
         task:
-          - "为每个功能点设计具体的属性检查点（<CK-检查点>）。"
-          - "**强制要求**：每个标签后必须紧跟属性风格标注，例如：`<CK-ADD-BASIC> (Style: Comb)`。缺少 `(Style: ...)` 标注的检测点**将被 Checker 拒绝**。"
-          - "**强制功能组**：文档必须包含 `<FG-API>`（环境假设，Assume 类检测点）和 `<FG-COVERAGE>`（可达性覆盖，Cover 类检测点）。"
-          - "**形式化完备性要求**：在设计检测点时，必须包含以下三类高级模式（参考 Guide_Doc/dut_functions_and_checks.md）："
-          - "  1. **稳定性检查 (Stability/Frame Conditions)**: 为所有存储/状态条目设计单点修改保证检测点（使用 fv_idx）。Frame Condition 是通过 $stable 断言'不该变的没有变'，是发现隐蔽 Bug 的利器。"
-          - "  2. **可达性覆盖 (Reachability)**: 为 Full, Empty, Hit, Error 等关键标志位设计 Cover 检测点，防止环境过约束导致证明无效。"
-          - "  3. **活性验证 (Liveness)**: 为所有请求-响应通路设计 No-Starvation 检测点（使用 s_eventually）。"
-          - "明确该检查点是安全性属性（Safety）、活性属性（Liveness）还是覆盖属性（Cover），并简要描述其逻辑。"
-          - "标签独立成行，与标题用空行分隔。"
-          - "列出的检查点必须具有可测试性，即能通过端口的输入输出或 wrapper 引出的白盒信号进行验证。"
+          - "目标：为每个具体业务逻辑设计 `<CK-xxx>` 属性检查点。"
+          - "**首要行动**：遵循 `functional-spec` 技能步骤，依据 `Guide_Doc/functions_and_checks.md` 中的规范进行设计。"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -256,7 +251,7 @@ stage:
       - "    - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态"
       - "    - 接口协议：valid/ready握手时序、数据有效窗口、读写使能逻辑"
       - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
-      - "  第4步：按格式将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md（格式规范参考Guide_Doc/dut_bug_report_template.md）"
+      - "  第4步：按格式将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md（格式规范参考Guide_Doc/bug_report.md）"
       - "    - 每条Bug记录包含：<BG-STATIC-NNN-NAME>、<LINK-BUG-[BG-TBD]>、<FILE-path:lines>，及Bug描述、触发条件、修复建议"
       - "    - 若所有文件都未发现Bug，添加<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>"
       - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
@@ -274,7 +269,7 @@ stage:
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
       - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/04_{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
     reference_files:
-      - "Guide_Doc/dut_bug_report_template.md"
+      - "Guide_Doc/bug_report.md"
       - "{DUT}/__init__.py"
       - "{OUT}/03_{DUT}_functions_and_checks.md"
       - "{OUT}/02_{DUT}_basic_info.md"
@@ -299,12 +294,12 @@ stage:
     desc: "验证环境生成 (Checker & Bind)"
     skill_list: ["env-generation"]
     task:
-      - "第1步：调用 `GenerateFormalEnv(dut_name=\"{DUT}\")` 即可全自动生成基础验证环境（自动产出 checker.sv 和 wrapper.sv），且它会自动抽取文档在 checker.sv 末尾追加 SVA 的 [LLM-TODO] 代码骨架。"
-      - "第2步：严格参照 `env-generation` 技能指南，完成后续复杂的环境手工配置工作（含处理符号化索引占位符、引出内部信号白盒化及对齐复位映射）。"
+      - "目标：生成并配置 Formal 验证的基础环境结构。"
+      - "**首要行动：加载 `env-generation` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/02_{DUT}_basic_info.md"
       - "{OUT}/03_{DUT}_functions_and_checks.md"
-      - "Guide_Doc/dut_env_template.md"
+      - "Guide_Doc/checker_module.md"
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
@@ -312,35 +307,30 @@ stage:
       - name: env_syntax_check
         clss: "examples.Formal.scripts.formal_checkers.EnvSyntaxChecker"
         args:
-          env_file: "{OUT}/tests/{DUT}_checker.sv"
+          dut_name: "{DUT}"
       - name: wrapper_timing_check
         clss: "examples.Formal.scripts.formal_checkers.WrapperTimingChecker"
         args:
-          wrapper_file: "{OUT}/tests/{DUT}_wrapper.sv"
-          rtl_path: "{RTL_PATH}/{DUT}.v"
+          dut_name: "{DUT}"
 
   # ========== Stage 5: SVA Property Generation ==========
   - name: property_generation
     desc: "SVA 属性生成"
     skill_list: ["sva-property-generation"]
     task:
-      - "第1步：在上一个阶段的 `GenerateFormalEnv` 运行期间，系统已自动在 checker 文件的末尾为你生成了所有 `<CK-XXX>` 相关的 SVA 代码骨架及 `[LLM-TODO]`。"
-      - "第2步：请严格参照 `sva-property-generation` 的技能说明，填充这每一个 `[LLM-TODO]` 占位符。"
-      - "第3步：注意如果使用了数组，处理符号化索引的占位符防假阳。"
-      - "第4步：写好之后自检，由于骨架已经处理了时钟信号禁用复位逻辑等，请保持其原貌，且不要给 Comb 加入 |=> 或者 $past。"
+      - "目标：将 checker.sv 中的 [LLM-TODO] 骨架翻译为完整的 SVA 断言代码。"
+      - "**首要行动：加载 `sva-property-generation` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/03_{DUT}_functions_and_checks.md"
       - "{OUT}/tests/{DUT}_checker.sv"
-      - "Guide_Doc/dut_property_template.md"
-      - "Guide_Doc/dut_env_template.md"
+      - "Guide_Doc/sva_property.md"
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
     checker:
       - name: property_structure_check
         clss: "examples.Formal.scripts.formal_checkers.PropertyStructureChecker"
         args:
-          property_file: "{OUT}/tests/{DUT}_checker.sv"
-          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
+          dut_name: "{DUT}"
 
   # ========== Stage 6: Verification Script Generation ==========
   - name: script_generation
@@ -351,7 +341,6 @@ stage:
       - "第3步：调用 Check 工具来测试它是否能正常跑起来。"
     reference_files:
       - "{OUT}/tests/{DUT}_checker.sv"
-      - "Guide_Doc/dut_formal_template.md"
     output_files:
       - "{OUT}/tests/{DUT}_formal.tcl"
     checker:
@@ -359,10 +348,6 @@ stage:
         clss: "examples.Formal.scripts.formal_checkers.ScriptGenerationChecker"
         args:
           dut_name: "{DUT}"
-          property_file: "{OUT}/tests/{DUT}_checker.sv"
-          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-          script_file: "{OUT}/tests/{DUT}_formal.tcl"
-          tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
 
   # ========== Stage 7: Verification Environment Debugging and Iterative Fixing ==========
   - name: environment_debugging_iteration
@@ -373,35 +358,22 @@ stage:
       - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束，并生成结构化的环境分析文档。"
       - "本阶段的具体执行规范、文档生成方式及迭代修复步骤已全部内聚于 `env-analysis` 技能中。"
       - "**首要行动：利用 `SkillList` 工具加载并阅读 `env-analysis` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成文件并执行任务。**"
+      - "迭代中若有新的异常属性，调用 `UpdateEnvAnalysis` 进行增量文档追加。"
+      - "注：如有需要，请自行使用 ReadTextFile 查阅 {RTL_PATH}/{DUT}.v 或 Guide_Doc/sva_property.md。"
     reference_files:
       - "{OUT}/tests/avis.log"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "{RTL_PATH}/{DUT}.v"
-      - "Guide_Doc/dut_property_template.md"
-      - "Guide_Doc/dut_env_analysis_template.md"
+      - "Guide_Doc/env_analysis.md"
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
       - "{OUT}/07_{DUT}_env_analysis.md"
     checker:
-      - name: environment_debugging_check
-        clss: "examples.Formal.scripts.formal_checkers.EnvironmentDebuggingChecker"
-        args:
-          dut_name: "{DUT}"
-          property_file: "{OUT}/tests/{DUT}_checker.sv"
-          spec_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-          log_file: "{OUT}/tests/avis.log"
-          checker_file: "{OUT}/tests/{DUT}_checker.sv"
-          tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
       - name: environment_analysis_check
         clss: "examples.Formal.scripts.formal_checkers.EnvironmentAnalysisChecker"
         args:
           dut_name: "{DUT}"
-          log_file: "{OUT}/tests/avis.log"
-          checker_file: "{OUT}/tests/{DUT}_checker.sv"
-          analysis_doc: "{OUT}/07_{DUT}_env_analysis.md"
-          tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
           accepted_ratio_threshold: 100.0
 
   # ========== Stage 8: Coverage Analysis and Assertion Optimization ==========
@@ -409,23 +381,24 @@ stage:
     desc: "覆盖率分析与断言优化"
     skill_list: ["coverage-optimization"]
     task:
-      - "第1步：调用 Check 工具，它会执行 TCL 脚本并吐出 `fanin.rep`。请阅读其中报告的 Net COI / Dff COI。"
-      - "第2步：阅读 `coverage-optimization` 技能了解如何分析和针对性补断言。"
-      - "第3步：根据报告的 un-covered 信息，补充业务断言或在清单中标记 `[UNREACHABLE]`。"
-      - "第4步：在修改了断言后，可以显式使用 `RunFormalVerification` 工具立马跑一遍看效果，加快迭代。"
+      - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
+      - "**首要行动：加载 `coverage-optimization` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/tests/avis/fanin.rep"
       - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/03_{DUT}_functions_and_checks.md"
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/03_{DUT}_functions_and_checks.md"
     checker:
+      - name: property_structure_check
+        clss: "examples.Formal.scripts.formal_checkers.PropertyStructureChecker"
+        args:
+          dut_name: "{DUT}"
       - name: coverage_analysis_check
         clss: "examples.Formal.scripts.formal_checkers.CoverageAnalysisChecker"
         args:
           dut_name: "{DUT}"
-          fanin_rep: "{OUT}/tests/avis/fanin.rep"
-          tcl_script: "{OUT}/tests/{DUT}_formal.tcl"
-          checker_file: "{OUT}/tests/{DUT}_checker.sv"
           coi_threshold: 90.0
 
   # ========== Stage 9: Counterexample Python Test Generation ==========
@@ -437,14 +410,13 @@ stage:
       - "目标：为环境分析文档中判定为 RTL_BUG 的 FALSE 属性，编写引脚级 Python 测试用例复现 Bug。"
       - "本阶段的具体执行规范、代码框架生成方式及核心校验规则已全部内聚于 `counterexample-testgen` 技能中。"
       - "**首要行动：利用 `SkillList` 工具加载并阅读 `counterexample-testgen` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成框架并执行任务。**"
+      - "注：如需深究 RTL 实现细节，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
     reference_files:
-      - "Guide_Doc/dut_counterexample_testcase.md"
+      - "Guide_Doc/counterexample.md"
       - "{OUT}/07_{DUT}_env_analysis.md"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
       - "{OUT}/tests/avis.log"
-      - "{RTL_PATH}/*.v"
-      - "{RTL_PATH}/*.sv"
     output_files:
       - "{OUT}/tests/test_{DUT}_counterexample.py"
     checker:
@@ -452,9 +424,6 @@ stage:
         clss: "examples.Formal.scripts.formal_checkers.CounterexampleTestgenChecker"
         args:
           dut_name: "{DUT}"
-          analysis_doc: "{OUT}/07_{DUT}_env_analysis.md"
-          test_file: "{OUT}/tests/test_{DUT}_counterexample.py"
-          log_file: "{OUT}/tests/avis.log"
     ignore: $(CEX_CHECK: true)
   # ========== Stage 10: RTL Defect Analysis and Reporting ==========
   # (Renumbered from Stage 9 after insertion of counterexample_python_testgen)
@@ -467,13 +436,12 @@ stage:
       - "**强制且首要行动：必须首先调用 `InitBugReport(dut_name='{DUT}')` 工具以初​​始化生成 `{OUT}/04_{DUT}_bug_report.md`。绝对不要手动编写或覆盖！**"
       - "第1步：调用 `InitBugReport` 工具生成报告代码骨架之后，打开该文档。其内部包含了需要你填写的 `[LLM-TODO]` 空缺。"
       - "第2步：严格遵循 `bug-report` 技能（位于 `SKILL.md`）的分析指南，逐条完成该文档中的每个 BUG 分析与修复建议填空。"
+      - "注：如需提取源码上下文，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
     reference_files:
-      - "Guide_Doc/dut_bug_report_template.md"
+      - "Guide_Doc/bug_report.md"
       - "{OUT}/07_{DUT}_env_analysis.md"
       - "{OUT}/tests/avis.log"
       - "{OUT}/tests/{DUT}_checker.sv"
-      - "{RTL_PATH}/*.v"
-      - "{RTL_PATH}/*.sv"
     output_files:
       - "{OUT}/04_{DUT}_bug_report.md"
     checker:
@@ -481,9 +449,6 @@ stage:
         clss: "examples.Formal.scripts.formal_checkers.BugReportConsistencyChecker"
         args:
           dut_name: "{DUT}"
-          analysis_doc: "{OUT}/07_{DUT}_env_analysis.md"
-          bug_report_file: "{OUT}/04_{DUT}_bug_report.md"
-          log_file: "{OUT}/tests/avis.log"
 
   - name: static_bug_validation
     desc: "静态分析Bug与形式化验证结果关联"
@@ -528,26 +493,16 @@ stage:
       - name: static_formal_bug_linkage_check
         clss: "examples.Formal.scripts.formal_checkers.StaticFormalBugLinkageChecker"
         args:
-          static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
-          bug_report_doc: "{OUT}/04_{DUT}_bug_report.md"
-          log_file: "{OUT}/tests/avis.log"
+          dut_name: "{DUT}"
     ignore: $(IGNORE_STATIC_CHECK: true)
           
   # ========== Stage 11: Verification Summary and Review ==========
   - name: verification_review_and_summary
     desc: "验证总结与审查"
     task:
-      - "第1步：读取 `{OUT}/tests/avis.log`，统计最终属性状态（PASS / FALSE / TRIVIALLY_TRUE / Cover）；对照 `{OUT}/01_{DUT}_verification_needs_and_plan.md` 确认验证目标达成情况。"
-      - "第2步：参考 `Guide_Doc/dut_formal_template.md` 格式，编写验证总结报告 `{OUT}/05_{DUT}_formal_summary.md`，涵盖："
-      - "  - **验证范围与策略**：哪些功能经过形式化验证，采用何种引擎和策略"
-      - "  - **属性统计**：PASS / FALSE / TRIVIALLY_TRUE / Cover 的数量及占比"
-      - "  - **发现的 RTL 缺陷摘要**：引用 BUG 报告中的关键发现"
-      - "  - **COI 覆盖率结果**：Dff COI 和 Net COI 的最终百分比"
-      - "  - **验证完备性评估**："
-      - "    - 安全性属性覆盖是否充分？"
-      - "    - 活性属性是否验证了所有请求-响应通路？"
-      - "    - Cover 属性是否验证了所有关键状态的可达性？"
-      - "  - **改进建议**：后续可增强的验证方向"
+      - "目标：生成形式化验证的最终总结与审查报告。"
+      - "第1步：读取 `{OUT}/tests/avis.log` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
+      - "第2步：参考 `Guide_Doc/formal_summary.md` 格式，编写 `{OUT}/05_{DUT}_formal_summary.md`。"
       - "第3步：完成后调用 Check 工具，等待人工审核。"
     reference_files:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
@@ -555,7 +510,7 @@ stage:
       - "{OUT}/tests/avis/fanin.rep"
       - "{OUT}/04_{DUT}_bug_report.md"
       - "{OUT}/tests/test_{DUT}_counterexample.py"
-      - "Guide_Doc/dut_formal_template.md"
+      - "Guide_Doc/formal_summary.md"
     output_files:
       - "{OUT}/05_{DUT}_formal_summary.md"
     checker:

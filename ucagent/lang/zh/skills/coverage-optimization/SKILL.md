@@ -3,31 +3,40 @@ name: coverage-optimization
 description: 指导解释覆盖率报告并优化未覆盖死角的技能
 ---
 
-# 形式化覆盖率优化与收敛指导 (Coverage Optimization)
+# 形式化覆盖率优化工作流 (Coverage Optimization)
 
-本技能指导如何分析 FormalMC 引擎生成的 `fanin.rep` 结构覆盖率报告，并根据其中的未覆盖节点列表（Uncovered line/net/dff）对现有的断言进行增补，实现 100% 覆盖闭环。
+本技能指导如何根据覆盖率检查结果对断言集合进行增补，实现 COI 覆盖闭环。
 
-## 概念理解与适用规则
+> **COI 概念、fanin.rep 格式、信号映射表参见 `Guide_Doc/coi_coverage.md`**
+> **SVA 编码规范参见 `Guide_Doc/sva_property.md`**
 
-在使用本技能时，你的输入是上一阶段 `RunFormalVerification` 完成后带回的 `fanin.rep` 解析结果。
-如果报告返回的是 `100%`，你不需要做任何更改直接判定当前阶段完成。
-如果未覆盖逻辑存在：你需要审视这些信号，并进行以下行为推导：
+## 步骤
 
-### 行为一：补充业务逻辑断言（补漏）
-如果未覆盖网络（Net）或者触发器（Dff）是一个典型的业务分支、或者是某个配置信号驱动的数据通路。
-你需要：
-1. 分析 RTL 代码定位该 net
-2. 在 `{OUT}/03_{DUT}_functions_and_checks.md` 中补充对应的业务检测点 `<CK-XXX>`。
-3. 如果未覆盖的是寄存器节点（dff），几乎总是需要新增 `(Style: Seq)` 类型的属性，并在 Checker 中写出它的传输关系。
-4. 如果未覆盖的是连续赋值或子模块的输出脚，需要新增对应的断言。
+### 1. 读取 Checker 反馈
 
-### 行为二：标记设计中注定不可达的死逻辑（打标签）
-有时候逻辑完全无法被目前的输入场景触及或在目前参数配比下被综合掉了。形式化覆盖率分析揭露了这一事实。
-你需要：
-1. 请先仔细确认，它是否是一段不合理的僵尸代码。如果你认为：这段代码在当前设定下“绝对不可能被执行”（例如通过死参数化 `if (1==0)` 分支，或者被强制下拉的输入管脚传播的结果）。
-2. 在 `{OUT}/03_{DUT}_functions_and_checks.md` 对应的未覆盖列表表格里将这些项添加标记：使用 `[UNREACHABLE]` 的注释标记。以表明这部分你人为放流了。
+调用 Check → 读取 Checker 返回的 COI 覆盖率数据和未覆盖信号列表。
 
-## 如何新增涵盖未覆盖断言
+### 2. 分析每个未覆盖信号
 
-所有的断言增加规则，一律遵守 `sva-property-generation` 规范的要求，先在 Markdown 里增加 `<CK-XXX>` 检测点标签，然后再将其在 Checker 里补充代码。
-特别提醒：许多未覆盖通常发生在内部子状态或者控制路径的组合边界。可以适当地放宽断言抽象程度（引入内部 net 探测或采用白盒辅助断言）。
+对照 `Guide_Doc/coi_coverage.md` 中的信号→断言映射表，判断每个未覆盖信号：
+- 是有效业务逻辑 → 需要补断言
+- 是不可达死逻辑 → 标记 UNREACHABLE
+
+### 3. 补充断言（先 spec 后 SVA）
+
+1. 先在 `{OUT}/03_{DUT}_functions_and_checks.md` 中补充 `<CK-XXX>` 检测点
+2. 然后在 `checker.sv` 中实现 SVA 断言（参考 `Guide_Doc/sva_property.md`）
+
+⚠️ **必须用 assert 验证行为正确性，不能仅靠 cover 刷 COI**
+
+### 4. 重跑验证
+
+调用 `RunFormalVerification` → 查看新的 COI → 重复直到达标
+
+### 5. 完成后调用 Complete
+
+## 核心规则
+
+1. 每个未覆盖信号至少需要一个 assert，仅 cover 引用不够
+2. 补断言时必须先更新 spec 文档再改 checker.sv
+3. UNREACHABLE 必须满足严格条件才能标记（参见 `Guide_Doc/coi_coverage.md`）

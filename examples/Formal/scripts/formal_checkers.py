@@ -4,6 +4,20 @@
 Each Checker class implements a ``do_check(timeout, **kwargs)`` method that
 returns ``(success: bool, result: object)``.
 
+Checker → Stage mapping
+-----------------------
+FormalStageContext          — shared mtime-cached data (log / doc / checker.sv)
+PropertyStructureChecker    — Stage 5  : SVA properties match spec CK-* entries
+EnvSyntaxChecker            — Stage 4  : pyslang syntax validation of checker.sv
+WrapperTimingChecker        — Stage 4  : wrapper.sv has clk / rst_n
+ScriptGenerationChecker     — Stage 6  : TCL keyword check + FormalMC execution
+BugReportConsistencyChecker — Stage 10 : bug_report.md covers all RTL_BUG entries
+CoverageAnalysisChecker     — Stage 8  : COI coverage from fanin.rep
+EnvironmentAnalysisChecker  — Stage 7  : validates 07_env_analysis.md completeness
+                                         (also emits TT/FALSE diagnostic report)
+CounterexampleTestgenChecker— Stage 9  : counterexample Python test file validation
+StaticFormalBugLinkageChecker— Stage 11: links static-analysis bugs to formal results
+
 Design principles:
 - RTL bug classification is document-driven: the environment analysis
   document (``07_{DUT}_env_analysis.md``) is the single source of truth.
@@ -12,20 +26,84 @@ Design principles:
   and cached via ``FormalStageContext`` across checkers in the same stage.
 - ``EnvSyntaxChecker`` uses ``pyslang`` for real SV syntax validation.
 - ``PropertyStructureChecker`` validates that *Comb*-style properties contain
-  no temporal operators.
+  no temporal operators and detects unfilled scaffold bodies (``1; // TODO``).
 """
 
+import json
 import os
 import re
-import glob
 import subprocess
+import time
+
 import pyslang
 from ucagent.checkers.base import Checker
 from ucagent.util.log import info, warning
-import psutil
 
 # Shared utilities – single source of truth
-from examples.Formal.scripts.formal_tools import parse_avis_log, extract_rtl_bug_from_analysis_doc
+from examples.Formal.scripts.formal_tools import parse_avis_log
+
+def _resolve_paths(dut_name: str, **kwargs) -> dict:
+    """Resolve standard absolute paths for Formal Checkers.
+
+    Uses ``UCAGENT_WORKSPACE`` env var (set by the framework) to construct
+    absolute paths.  Individual paths can be overridden via *kwargs*.
+    """
+    workspace = os.environ.get("UCAGENT_WORKSPACE", os.getcwd())
+    formal_test_dir = os.path.join(workspace, "formal_test")
+    tests_dir = os.path.join(formal_test_dir, "tests")
+
+    return {
+        "checker_file":   kwargs.get("checker_file")   or os.path.join(tests_dir, f"{dut_name}_checker.sv"),
+        "wrapper_file":   kwargs.get("wrapper_file")   or os.path.join(tests_dir, f"{dut_name}_wrapper.sv"),
+        "spec_file":      kwargs.get("spec_file")      or os.path.join(formal_test_dir, f"03_{dut_name}_functions_and_checks.md"),
+        "tcl_script":     kwargs.get("tcl_script")     or os.path.join(tests_dir, f"{dut_name}_formal.tcl"),
+        "log_file":       kwargs.get("log_file")       or os.path.join(tests_dir, "avis.log"),
+        "fanin_rep":      kwargs.get("fanin_rep")      or os.path.join(tests_dir, "avis", "fanin.rep"),
+        "analysis_doc":   kwargs.get("analysis_doc")   or os.path.join(formal_test_dir, f"07_{dut_name}_env_analysis.md"),
+        "bug_report_doc": kwargs.get("bug_report_doc") or os.path.join(formal_test_dir, f"04_{dut_name}_bug_report.md"),
+        "static_doc":     kwargs.get("static_doc")     or os.path.join(formal_test_dir, f"04_{dut_name}_static_bug_analysis.md"),
+        "test_file":      kwargs.get("test_file")      or os.path.join(tests_dir, f"test_{dut_name}_counterexample.py"),
+        "rtl_path":       kwargs.get("rtl_path")       or os.path.join(workspace, dut_name, f"{dut_name}.v"),
+    }
+
+def _ensure_tcl_executed(checker_instance, target_log_path: str, dep_paths: list, tcl_script_path: str, dut_name: str, timeout: int = 300) -> tuple[bool, dict, bool]:
+    """
+    Ensures that the TCL script is executed if any dependency file is newer than the target log file.
+    Returns: (is_success, error_result_or_none, was_executed)
+    """
+    need_rerun = False
+    rerun_reason = ""
+
+    if not os.path.exists(target_log_path):
+        need_rerun = True
+        rerun_reason = f"{os.path.basename(target_log_path)} does not exist, TCL execution required"
+    else:
+        log_mtime = os.path.getmtime(target_log_path)
+        for dep in dep_paths:
+            if os.path.exists(dep) and os.path.getmtime(dep) > log_mtime:
+                need_rerun = True
+                rerun_reason = f"{os.path.basename(dep)} has been updated (newer than {os.path.basename(target_log_path)}), verification needs to be re-executed"
+                break
+
+    if need_rerun:
+        info(f"🚀 {rerun_reason}, executing TCL script...")
+        # Since TclExecutionChecker requires dut_name for path resolution, we pass it.
+        # We need to import it here to avoid circular dependencies if it's placed earlier, but it is defined below.
+        # Actually it's defined in the same file, so Python will find it as long as _ensure_tcl_executed is called later.
+        exec_checker = TclExecutionChecker(dut_name=dut_name, tcl_script=tcl_script_path)
+        exec_success, exec_result = exec_checker.do_check(timeout)
+
+        if not exec_success:
+            return False, {
+                "error": "❌ TCL script execution failed",
+                "details": exec_result,
+                "suggestion": "Please check the TCL script, checker.sv, and wrapper.sv for syntax errors"
+            }, True
+            
+        info("✅ TCL execution successful, logs updated")
+        
+    return True, {}, need_rerun
+
 
 
 # =============================================================================
@@ -55,6 +133,69 @@ class FormalStageContext:
     def __init__(self):
         self._log_cache = {}        # path -> {"mtime": float, "data": dict}
         self._checker_cache = {}    # path -> {"mtime": float, "content": str}
+        self._doc_cache = {}        # path -> {"mtime": float, "data": dict}
+
+    _TT_PATTERN = re.compile(
+        r'###\s*<TT-\d+>\s*(\S+)\s*\n(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',
+        re.DOTALL | re.MULTILINE
+    )
+    _FA_PATTERN = re.compile(
+        r'###\s*<FA-\d+>\s*(\S+)\s*\n(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',
+        re.DOTALL | re.MULTILINE
+    )
+
+    def get_analysis_doc_parsed(self, doc_path: str) -> dict:
+        """Parse analysis document with mtime-based cache invalidation."""
+        if self._is_stale(self._doc_cache, doc_path):
+            result = {"tt_entries": {}, "fa_entries": {}, "raw_content": ""}
+            if os.path.exists(doc_path):
+                with open(doc_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                result["raw_content"] = content
+
+                for match in self._TT_PATTERN.finditer(content):
+                    prop_name = match.group(1).strip()
+                    entry = self._parse_entry_body(match.group(2), is_tt=True)
+                    entry["prop_name"] = prop_name
+                    result["tt_entries"][prop_name] = entry
+
+                for match in self._FA_PATTERN.finditer(content):
+                    prop_name = match.group(1).strip()
+                    entry = self._parse_entry_body(match.group(2), is_tt=False)
+                    entry["prop_name"] = prop_name
+                    result["fa_entries"][prop_name] = entry
+
+            self._doc_cache[doc_path] = {
+                "mtime": os.path.getmtime(doc_path) if os.path.exists(doc_path) else 0,
+                "data": result,
+            }
+        return self._doc_cache[doc_path]["data"]
+
+    def _parse_entry_body(self, body: str, is_tt: bool) -> dict:
+        """Extract structured fields from a TT or FA entry body."""
+        entry = {}
+        def _extract(field_name, text):
+            pattern = re.compile(
+                rf'[-*]*\s*\*\*{re.escape(field_name)}\*\*\s*:\s*(.*?)(?=\n\s*[-*]*\s*\*\*|\n```|\Z)',
+                re.DOTALL
+            )
+            m = pattern.search(text)
+            return m.group(1).strip() if m else None
+
+        entry["prop_name_field"] = _extract("属性名", body) or _extract("Property", body)
+        if is_tt:
+            entry["root_cause"] = _extract("根因分类", body) or _extract("Root Cause", body) or ""
+            entry["related_assume"] = _extract("关联 Assume", body) or _extract("Related Assume", body) or ""
+            entry["action"] = _extract("修复动作", body) or _extract("Fix Action", body) or ""
+            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
+        else:
+            # support both new '解决状态' and old '判定结果' for backward compatibility
+            entry["resolution"] = _extract("解决状态", body) or _extract("Resolution", body) or _extract("判定结果", body) or _extract("Judgment", body) or ""
+            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
+            entry["prop_type"] = _extract("属性类型", body) or _extract("Property Type", body) or ""
+
+        entry["analysis"] = _extract("分析", body) or _extract("Analysis", body) or _extract("反例/分析", body) or ""
+        return entry
 
     @classmethod
     def get_or_create(cls, checker_instance, *_args):
@@ -113,9 +254,25 @@ class FormalStageContext:
         if path is None:
             self._log_cache.clear()
             self._checker_cache.clear()
+            self._doc_cache.clear()
         else:
             self._log_cache.pop(path, None)
             self._checker_cache.pop(path, None)
+            self._doc_cache.pop(path, None)
+
+    def get_rtl_bug_properties(self, analysis_path: str) -> list:
+        """Extract property names judged as RTL_BUG from the analysis document.
+        
+        Uses the cached parsed document. Returns empty list on failure.
+        """
+        try:
+            doc = self.get_analysis_doc_parsed(analysis_path)
+            return [
+                prop for prop, entry in doc.get("fa_entries", {}).items()
+                if entry.get("resolution", "").strip().upper() == "RTL_BUG"
+            ]
+        except Exception:
+            return []
 
 
 
@@ -126,9 +283,11 @@ class PropertyStructureChecker(Checker):
     Enhancements (compared to previous version):
     - For Comb-style properties, checks if temporal operators are misused.
     """
-    def __init__(self, property_file, spec_file=None, **kwargs):
-        self.property_file = property_file
-        self.spec_file = spec_file
+    def __init__(self, dut_name, **kwargs):
+        self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.property_file = paths["checker_file"]
+        self.spec_file = paths["spec_file"]
 
     # Temporal operators that must NOT appear in Comb-style properties
     _TEMPORAL_OPS = (
@@ -157,9 +316,7 @@ class PropertyStructureChecker(Checker):
             for inst_label, p_type, prop_name in stmt_matches:
                 if prop_name in details:
                     details[prop_name]['type'] = p_type
-                else:
-                    # Direct definition in assert/assume/cover without separate property block
-                    details[prop_name] = {'body': '', 'type': p_type}
+
 
             return details
         except Exception as e:
@@ -168,7 +325,7 @@ class PropertyStructureChecker(Checker):
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Performs structured validation of SVA properties against spec requirements."""
-        prop_path = self.get_path(self.property_file)
+        prop_path = self.property_file
         if not os.path.exists(prop_path):
             return False, {"error": f"Property file {self.property_file} not found."}
 
@@ -180,7 +337,7 @@ class PropertyStructureChecker(Checker):
         if not self.spec_file:
             return True, f"Found {len(implemented_map)} properties. No spec file provided for consistency check."
 
-        spec_path = self.get_path(self.spec_file)
+        spec_path = self.spec_file
         if not os.path.exists(spec_path):
             return False, {"error": f"Spec file {self.spec_file} not found."}
 
@@ -237,8 +394,15 @@ class PropertyStructureChecker(Checker):
                 if not re.search(r'fv_(idx|mon_)', impl['body']):
                     errors.append(f"'{ck_name}' is marked as 'Symbolic', but its implementation does not use 'fv_idx' or 'fv_mon_' signals.")
 
-            # 4. Placeholder Detection (Quality Check)
-            if re.search(r'\|->\s*(1\'b1|1|true)\s*;', impl['body']):
+            # 4. Unfilled scaffold / placeholder detection (hard error for Stage 5)
+            # Matches: `1; // TODO` or bare `true;` that formal_tools.py emits as skeleton
+            if re.search(r'^\s*(1|1\'b1|true)\s*;\s*(?://.*)?$', impl['body'], re.MULTILINE) or "[LLM-TODO]" in impl['body']:
+                errors.append(
+                    f"'{ck_name}' contains an unfilled scaffold body ('1; // TODO' or [LLM-TODO]). "
+                    f"Please implement the actual property expression before running verification."
+                )
+            # 5. Vacuous implication (warning)
+            elif re.search(r'\|->\s*(1\'b1|1|true)\s*;', impl['body']):
                 warnings_list.append(f"'{ck_name}' implementation appears to be a vacuous placeholder (... |-> 1'b1).")
 
         if errors:
@@ -262,21 +426,19 @@ class EnvSyntaxChecker(Checker):
     - Uses pyslang for true SV syntax parsing validation.
     - Checks if the module name follows the {dut}_checker format.
     """
-    def __init__(self, env_file, **kwargs):
-        self.env_file = env_file
+    def __init__(self, dut_name, **kwargs):
+        self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.env_file = paths["checker_file"]
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Checks the environment file for valid SystemVerilog module syntax."""
-        path = self.get_path(self.env_file)
+        path = self.env_file
         if not os.path.exists(path):
             return False, {"error": f"Environment file {self.env_file} not found."}
 
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        # Basic structure check
-        if "module" not in content or "endmodule" not in content:
-            return False, {"error": "Environment file does not look like a valid SystemVerilog module."}
 
         # Verify module name follows convention (optional but recommended)
         module_match = re.search(r'\bmodule\s+(\w+)', content)
@@ -309,13 +471,15 @@ class EnvSyntaxChecker(Checker):
 
 
 class WrapperTimingChecker(Checker):
-    def __init__(self, wrapper_file, rtl_path, **kwargs):
-        self.wrapper_file = wrapper_file
-        self.rtl_path = rtl_path
+    def __init__(self, dut_name, **kwargs):
+        self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.wrapper_file = paths["wrapper_file"]
+        self.rtl_path = paths["rtl_path"]
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Checks if wrapper includes clk and rst_n for formal verification."""
-        wrapper_path = self.get_path(self.wrapper_file)
+        wrapper_path = self.wrapper_file
         if not os.path.exists(wrapper_path):
             return False, {"error": f"Wrapper file {self.wrapper_file} not found."}
 
@@ -340,42 +504,82 @@ class WrapperTimingChecker(Checker):
 
 
 # =============================================================================
-# Script / Execution Checkers
+# Script Generation Checker  (Stage 6)
 # =============================================================================
 
-class FormalScriptChecker(Checker):
-    def __init__(self, script_file, **kwargs):
-        self.script_file = script_file
+class ScriptGenerationChecker(Checker):
+    """
+    Integrated checker for the script_generation stage.
 
-    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Checks the formal script for required commands."""
-        path = self.get_path(self.script_file)
-        if not os.path.exists(path):
-            return False, {"error": f"Formal script file {self.script_file} not found."}
+    Runs two checks in order:
+      1. TCL script keyword validation (read_design / prove / def_clk / def_rst must exist).
+      2. FormalMC execution — runs the TCL script and validates that at least one
+         property result (TRUE/FALSE) appears in the output log.
 
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
-        missing = [k for k in required_cmds if k not in content]
-
-        if missing:
-            return False, {"error": f"Formal script missing commands: {missing}"}
-
-        return True, "Formal script check passed."
-
-
-class TclExecutionChecker(Checker):
-    def __init__(self, tcl_script, dut_name, **kwargs):
-        self.tcl_script = tcl_script
+    Note: PropertyStructureChecker already ran in Stage 5; it is NOT repeated here.
+    """
+    def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.tcl_script = paths["tcl_script"]
 
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """
-        Runs the TCL script using FormalMC and checks the output log for failures.
-        The command is executed in the same directory as the tcl script.
-        """
-        tcl_path = self.get_path(self.tcl_script)
+        """Validates TCL syntax then runs formal verification."""
+
+        # --- Step 1: TCL keyword check ---
+        info("📝 Step 1/2: Checking TCL script keywords...")
+        tcl_path = self.tcl_script
+        if not os.path.exists(tcl_path):
+            return False, {"error": f"TCL script not found: {tcl_path}"}
+
+        with open(tcl_path, 'r', encoding='utf-8') as f:
+            tcl_content = f.read()
+
+        required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
+        missing = [k for k in required_cmds if k not in tcl_content]
+        if missing:
+            return False, {
+                "error": f"❌ Step 1/2 Failed: TCL script missing required commands: {missing}",
+                "details": f"Please add the missing commands to {tcl_path}"
+            }
+        info("✅ Step 1/2 Passed: TCL script keywords OK")
+
+        # --- Step 2: FormalMC execution ---
+        info("🚀 Step 2/2: Executing TCL script and validating...")
+        exec_checker = TclExecutionChecker(dut_name=self.dut_name)
+        success, result = exec_checker.do_check(timeout)
+
+        if not success:
+            return False, {
+                "error": "❌ Step 2/2 Failed: FormalMC execution did not produce results",
+                "details": result
+            }
+
+        return True, {
+            "message": "✅ Script generation checks passed",
+            "details": result
+        }
+
+
+# =============================================================================
+# TCL Execution Engine  (internal — used by ScriptGenerationChecker and _ensure_tcl_executed)
+# =============================================================================
+
+class TclExecutionChecker(Checker):
+    """Runs FormalMC with the TCL script and validates the resulting log.
+
+    Used internally by ScriptGenerationChecker (Stage 6) and _ensure_tcl_executed.
+    The check passes if at least one property result (TRUE/FALSE) appears in avis.log.
+    """
+
+    def __init__(self, dut_name, **kwargs):
+        self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.tcl_script = paths["tcl_script"]
+
+    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
+        """Runs FormalMC and validates the log contains property results."""
+        tcl_path = self.tcl_script
         if not os.path.exists(tcl_path):
             return False, {"error": f"TCL script not found at '{self.tcl_script}'. Cannot run verification."}
 
@@ -429,7 +633,7 @@ class TclExecutionChecker(Checker):
 
         # --- Analyze the log to see if verification ran and produced results ---
         if not os.path.exists(log_path):
-            return False, {"error": f"Log file '{log_file_name}' was not generated in '{os.path.dirname(self.tcl_script)}' by the verification run."}
+            return False, {"error": f"Log file '{log_file_name}' was not generated in '{exec_dir}' by the verification run."}
 
         with open(log_path, 'r', encoding='utf-8') as f:
             log_content = f.read()
@@ -468,7 +672,7 @@ class TclExecutionChecker(Checker):
 
 
 # =============================================================================
-# Composite Checkers
+# Bug Report Checker  (Stage 10)
 # =============================================================================
 
 class BugReportConsistencyChecker(Checker):
@@ -479,11 +683,11 @@ class BugReportConsistencyChecker(Checker):
     document (07_{DUT}_env_analysis.md), and validates that a corresponding
     section has been created for each RTL defect in bug_report.md.
     """
-    def __init__(self, dut_name, analysis_doc, bug_report_file, log_file=None, **kwargs):
+    def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
-        self.analysis_doc = analysis_doc
-        self.bug_report_file = bug_report_file
-        self.log_file = log_file if log_file else f"avis/{self.dut_name}.log"
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.analysis_doc = paths["analysis_doc"]
+        self.bug_report_file = paths["bug_report_doc"]
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """
@@ -491,12 +695,12 @@ class BugReportConsistencyChecker(Checker):
         Extracts RTL_BUG properties from the analysis document,
         and verifies that bug_report.md has a section for each defect.
         """
-        analysis_path = self.get_path(self.analysis_doc)
+        analysis_path = self.analysis_doc
 
         # Step 1: Extract RTL defects from analysis document
-        rtl_defect_tuples = extract_rtl_bug_from_analysis_doc(analysis_path)
-        # Extract just property names for comparison
-        rtl_defects = [prop_name for _fa_id, prop_name in rtl_defect_tuples]
+        ctx = FormalStageContext.get_or_create(self)
+        rtl_defects = ctx.get_rtl_bug_properties(analysis_path)
+            
         info(f"Extracted {len(rtl_defects)} RTL_BUG properties from analysis document")
 
         if not rtl_defects:
@@ -506,7 +710,7 @@ class BugReportConsistencyChecker(Checker):
             }
 
         # Step 2: Check if bug report exists
-        bug_report_path = self.get_path(self.bug_report_file)
+        bug_report_path = self.bug_report_file
         if not os.path.exists(bug_report_path):
             return False, {
                 "error": "❌ Bug report file does not exist",
@@ -561,74 +765,9 @@ class BugReportConsistencyChecker(Checker):
         }
 
 
-class ScriptGenerationChecker(Checker):
-    """
-    Integrated script generation checker for the script_generation stage.
-    Executes in order:
-    1. FormalScriptChecker - TCL script syntax check
-    2. PropertyStructureChecker - Property structure check
-    3. TclExecutionChecker - TCL script execution validation
-    """
-    def __init__(self, dut_name, property_file, spec_file, script_file, tcl_script, **kwargs):
-        self.dut_name = dut_name
-        self.property_file = property_file
-        self.spec_file = spec_file
-        self.script_file = script_file
-        self.tcl_script = tcl_script
-
-    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """Performs a three-stage integrated check"""
-
-        # Stage 1: Formal Script Check
-        info("📝 Stage 1/3: Checking TCL script syntax...")
-        script_checker = FormalScriptChecker(self.script_file)
-        script_checker.get_path = self.get_path
-        success, result = script_checker.do_check(timeout)
-
-        if not success:
-            return False, {
-                "error": "❌ Stage 1/3 Failed: TCL script check did not pass",
-                "details": result
-            }
-
-        info(f"✅ Stage 1/3 Passed: {result}")
-
-        # Stage 2: Property Structure Check
-        info("🔍 Stage 2/3: Checking property structure consistency...")
-        prop_checker = PropertyStructureChecker(self.property_file, self.spec_file)
-        prop_checker.get_path = self.get_path
-        success, result = prop_checker.do_check(timeout)
-
-        if not success:
-            return False, {
-                "error": "❌ Stage 2/3 Failed: Property structure check did not pass",
-                "details": result
-            }
-
-        info(f"✅ Stage 2/3 Passed: {result}")
-
-        # Stage 3: TCL Execution Check
-        info("🚀 Stage 3/3: Executing TCL script and validating...")
-        exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
-        exec_checker.get_path = self.get_path
-        success, result = exec_checker.do_check(timeout)
-
-        if not success:
-            return False, {
-                "error": "❌ Stage 3/3 Failed: TCL execution validation did not pass",
-                "details": result
-            }
-
-        info(f"✅ Stage 3/3 Passed")
-
-        return True, {
-            "message": "✅ All checks in the script generation stage passed",
-            "details": result
-        }
-
 
 # =============================================================================
-# Coverage Analysis
+# Coverage Analysis  (Stage 8)
 # =============================================================================
 
 class CoverageAnalysisChecker(Checker):
@@ -650,20 +789,24 @@ class CoverageAnalysisChecker(Checker):
            Dffs :    10 / 10     100%
            Nets :    30 / 30     100%
     """
-    def __init__(self, dut_name, fanin_rep, tcl_script, checker_file, coi_threshold=100.0, **kwargs):
+    def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
-        self.fanin_rep = fanin_rep
-        self.tcl_script = tcl_script
-        self.checker_file = checker_file
-        self.coi_threshold = float(coi_threshold)
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.fanin_rep = paths["fanin_rep"]
+        self.tcl_script = paths["tcl_script"]
+        self.checker_file = paths["checker_file"]
+        self.coi_threshold = float(kwargs.get("coi_threshold", 100.0))
 
-    def _need_rerun(self, fanin_path: str, checker_path: str) -> tuple[bool, str]:
-        """If fanin.rep does not exist or checker.sv is newer, TCL needs to be re-executed."""
-        if not os.path.exists(fanin_path):
-            return True, "fanin.rep does not exist, TCL execution required to generate coverage report"
-        if os.path.exists(checker_path) and os.path.getmtime(checker_path) > os.path.getmtime(fanin_path):
-            return True, "checker.sv has been updated (newer than fanin.rep), verification needs to be re-executed"
-        return False, "Coverage report is up to date, reading fanin.rep directly"
+    _METRIC_RE = re.compile(
+        r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%',
+        re.IGNORECASE
+    )
+    _NAME_MAP = {
+        'input': 'inputs', 'inputs': 'inputs',
+        'output': 'outputs', 'outputs': 'outputs',
+        'dff': 'dffs', 'dffs': 'dffs',
+        'net': 'nets', 'nets': 'nets',
+    }
 
     def _parse_fanin_report(self, fanin_path: str) -> dict:
         """
@@ -690,18 +833,8 @@ class CoverageAnalysisChecker(Checker):
         with open(fanin_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
 
-        metric_re = re.compile(
-            r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%',
-            re.IGNORECASE
-        )
-        name_map = {
-            'input': 'inputs', 'inputs': 'inputs',
-            'output': 'outputs', 'outputs': 'outputs',
-            'dff': 'dffs', 'dffs': 'dffs',
-            'net': 'nets', 'nets': 'nets',
-        }
-        for m in metric_re.finditer(content):
-            key = name_map.get(m.group(1).lower())
+        for m in self._METRIC_RE.finditer(content):
+            key = self._NAME_MAP.get(m.group(1).lower())
             if key:
                 result[key] = {
                     "covered": int(m.group(2)),
@@ -716,25 +849,19 @@ class CoverageAnalysisChecker(Checker):
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
         """Performs COI coverage check"""
 
-        fanin_path   = self.get_path(self.fanin_rep)
-        checker_path = self.get_path(self.checker_file)
+        fanin_path   = self.fanin_rep
+        checker_path = self.checker_file
 
-        # Step 1: Determine if TCL re-execution is needed
-        need_rerun, rerun_reason = self._need_rerun(fanin_path, checker_path)
-        if need_rerun:
-            info(f"🚀 {rerun_reason}, executing TCL script...")
-            exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
-            exec_checker.get_path = self.get_path
-            exec_success, exec_result = exec_checker.do_check(timeout)
-            if not exec_success:
-                return False, {
-                    "error": "❌ TCL script execution failed, unable to generate coverage report",
-                    "details": exec_result,
-                    "suggestion": "Please check checker.sv and wrapper.sv for syntax errors"
-                }
-            info("✅ TCL execution successful, fanin.rep updated")
-        else:
-            info(f"📋 {rerun_reason}")
+        # Step 1: Ensure TCL is executed if needed
+        exec_success, exec_result, was_rerun = _ensure_tcl_executed(
+            self, fanin_path, [checker_path], self.tcl_script, self.dut_name, timeout
+        )
+        if not exec_success:
+            # We add the suggestion context here
+            exec_result["suggestion"] = "Please check checker.sv and wrapper.sv for syntax errors"
+            return False, exec_result
+            
+        # Optional invalidate if was_rerun, but here fanin_rep isn't Context cached, so no need.
 
         # Step 2: Parse fanin.rep
         info(f"🔍 Parsing COI coverage report: {fanin_path}")
@@ -783,177 +910,81 @@ class CoverageAnalysisChecker(Checker):
                     f"Insufficient Net COI: {net_pct:.1f}% < {self.coi_threshold:.0f}%\n"
                     f"  → Some combinational logic paths are not covered; add (Style: Comb) assertions"
                 )
+
+            # List uncovered signals so LLM can write targeted assertions
+            uncovered = coi["uncovered"]
+            if uncovered:
+                signal_list = "\n".join(f"    - {s}" for s in uncovered[:20])
+                issues.append(
+                    f"Uncovered signals ({len(uncovered)} total, showing first 20):\n"
+                    f"{signal_list}\n"
+                    f"  → Write assert/cover properties that reference these signals to increase COI.\n"
+                    f"  → If a signal is genuinely unreachable from the checker module ports, mark it as [UNREACHABLE] in the spec."
+                )
+
+            # Check if RTL_BUG exists — provide context but do NOT auto-bypass
+            try:
+                ctx = FormalStageContext.get_or_create(self)
+                paths = _resolve_paths(self.dut_name)
+                rtl_bugs = ctx.get_rtl_bug_properties(paths["analysis_doc"])
+                if rtl_bugs:
+                    issues.append(
+                        f"ℹ️  Note: {len(rtl_bugs)} RTL_BUG(s) confirmed in env analysis ({', '.join(rtl_bugs[:5])}).\n"
+                        f"  COI is a structural metric and is NOT affected by property pass/fail status.\n"
+                        f"  If coverage is still low, add assertions referencing the uncovered signals listed above."
+                    )
+            except Exception:
+                pass  # Don't let context lookup failure block the checker
+
+            # Add property count context to help LLM understand the current state
+            try:
+                checker_path = self.checker_file
+                if os.path.exists(checker_path):
+                    with open(checker_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        checker_content = f.read()
+                    n_assert = len(re.findall(r'\bassert\s+property\b', checker_content))
+                    n_cover  = len(re.findall(r'\bcover\s+property\b', checker_content))
+                    n_assume = len(re.findall(r'\bassume\s+property\b', checker_content))
+                    report["property_counts"] = {
+                        "assert": n_assert, "cover": n_cover, "assume": n_assume
+                    }
+                    # Check if uncovered signals only appear in cover but not assert
+                    if uncovered:
+                        cover_only_signals = []
+                        for sig in uncovered[:10]:
+                            # Strip bit range for matching (e.g., "timer_count[4:0]" -> "timer_count")
+                            base_name = re.sub(r'\[.*\]', '', sig).strip()
+                            # Remove checker_inst. prefix
+                            base_name = base_name.replace("checker_inst.", "")
+                            if not base_name:
+                                continue
+                            in_assert = bool(re.search(
+                                rf'\bassert\s+property\b.*?{re.escape(base_name)}',
+                                checker_content, re.DOTALL
+                            )) or bool(re.search(
+                                rf'{re.escape(base_name)}.*?\bassert\s+property\b',
+                                checker_content, re.DOTALL
+                            ))
+                            in_cover = bool(re.search(rf'\bcover\s+property\b.*?{re.escape(base_name)}', checker_content, re.DOTALL))
+                            if in_cover and not in_assert:
+                                cover_only_signals.append(base_name)
+                        if cover_only_signals:
+                            unique_sigs = list(dict.fromkeys(cover_only_signals))  # dedupe
+                            issues.append(
+                                f"⚠️  These uncovered signals appear in cover but NOT in any assert:\n"
+                                + "\n".join(f"    - {s}" for s in unique_sigs[:10]) + "\n"
+                                f"  Cover properties provide WEAK COI contribution.\n"
+                                f"  → Write assert properties that verify the behavioral correctness of these signals."
+                            )
+            except Exception:
+                pass
+
             return False, {
                 "error": "\n".join(issues),
                 "report": report,
                 "suggestion": f"View complete list of uncovered signals: {fanin_path}"
             }
 
-
-# =============================================================================
-# Environment Debugging (main iteration checker)
-# =============================================================================
-
-class EnvironmentDebuggingChecker(Checker):
-    """
-    Environment debugging checker for the environment_debugging_iteration stage.
-
-    This checker **always passes** — it provides diagnostic information for
-    the LLM agent to iterate on.  Gate-keeping is handled by
-    ``EnvironmentAnalysisChecker`` via the analysis document.
-
-    Workflow:
-    1. Check if the log exists; if not, execute the TCL script to generate it.
-    2. If checker.sv or wrapper.sv is newer than the log, re-execute TCL.
-    3. Parse the log to extract TRIVIALLY_TRUE and FALSE properties.
-    4. Report all abnormal properties with SVA code snippets.
-    5. Classification of FALSE properties (RTL_BUG vs ENV_ISSUE) is done
-       exclusively in the environment analysis document (07_env_analysis.md),
-       NOT via markers in checker.sv.
-    """
-    def __init__(self, dut_name, property_file, spec_file, log_file, checker_file, tcl_script, **kwargs):
-        self.dut_name = dut_name
-        self.property_file = property_file
-        self.spec_file = spec_file
-        self.log_file = log_file
-        self.checker_file = checker_file
-        self.tcl_script = tcl_script
-
-    def _extract_prop_code(self, prop_name: str, checker_content: str) -> str:
-        """
-        Extracts SVA code snippets of a property from checker.sv (5 lines before and after).
-        """
-        lines = checker_content.split('\n')
-        for i, line in enumerate(lines):
-            if prop_name in line and ('assert' in line or 'property' in line or ':' in line):
-                start = max(0, i - 3)
-                end = min(len(lines), i + 6)
-                return '\n'.join(lines[start:end])
-        # Fallback: only find lines where the property name appears
-        for i, line in enumerate(lines):
-            if prop_name in line:
-                start = max(0, i - 2)
-                end = min(len(lines), i + 4)
-                return '\n'.join(lines[start:end])
-        return "(Property definition not found)"
-
-    def _need_rerun(self, log_path: str, checker_path: str, wrapper_path: str) -> tuple[bool, str]:
-        """
-        Determines if the TCL script needs to be re-executed.
-        If checker.sv or wrapper.sv is newer than avis.log, a rerun is required.
-        """
-        if not os.path.exists(log_path):
-            return True, "Log file does not exist, TCL execution required"
-
-        log_mtime = os.path.getmtime(log_path)
-
-        for fpath, label in [(checker_path, "checker.sv"), (wrapper_path, "wrapper.sv")]:
-            if os.path.exists(fpath) and os.path.getmtime(fpath) > log_mtime:
-                return True, f"{label} has been updated (newer than log), verification needs to be re-executed"
-
-        return False, "Code not updated, reading existing log directly"
-
-    def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """Performs environment debugging check"""
-        log_path = self.get_path(self.log_file)
-        checker_path = self.get_path(self.checker_file)
-
-        # Infer wrapper path (same directory as checker, name is {dut}_wrapper.sv)
-        tests_dir = os.path.dirname(log_path)
-        wrapper_path = os.path.join(tests_dir, f"{self.dut_name}_wrapper.sv")
-
-        # Step 1: Determine if TCL re-execution is needed
-        need_rerun, rerun_reason = self._need_rerun(log_path, checker_path, wrapper_path)
-
-        if need_rerun:
-            info(f"🚀 {rerun_reason}, executing TCL script...")
-            exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
-            exec_checker.get_path = self.get_path
-            exec_success, exec_result = exec_checker.do_check(timeout)
-
-            if not exec_success:
-                return False, {
-                    "error": "❌ TCL script execution failed",
-                    "details": exec_result,
-                    "suggestion": "Please check the TCL script, checker.sv, and wrapper.sv for syntax errors"
-                }
-            info("✅ TCL execution successful, log updated")
-        else:
-            info(f"📋 {rerun_reason}")
-
-        # Step 2: Parse log (via shared stage context for cache reuse)
-        info("🔍 Parsing verification log...")
-        ctx = FormalStageContext.get_or_create(self)
-        if need_rerun:
-            ctx.invalidate(log_path)  # Force re-parse after TCL rerun
-        raw_parsed = ctx.get_parsed_log(log_path)
-
-        # Re-key to match this checker's expected format
-        parsed = {
-            "trivially_true": raw_parsed["trivially_true"],
-            "false_props":    raw_parsed["false"],
-            "pass_props":     raw_parsed["pass"],
-            "cover_pass":     raw_parsed["cover_pass"],
-            "cover_fail":     raw_parsed["cover_fail"],
-            "summary": {
-                "assert_pass":            len(raw_parsed["pass"]),
-                "assert_trivially_true":  len(raw_parsed["trivially_true"]),
-                "assert_false":           len(raw_parsed["false"]),
-                "cover_pass":             len(raw_parsed["cover_pass"]),
-                "cover_fail":             len(raw_parsed["cover_fail"]),
-            },
-        }
-        trivially_true = parsed["trivially_true"]
-        false_props = parsed["false_props"]
-        summary = parsed["summary"]
-
-        # Step 3: Read checker.sv for SVA code display only
-        checker_content = ctx.get_checker_content(checker_path)
-
-        # Step 4: Build report
-        has_tt = len(trivially_true) > 0
-        has_false = len(false_props) > 0 or len(parsed.get("cover_fail", [])) > 0
-
-        report = {"summary": summary, "log_path": log_path}
-
-        if has_tt:
-            tt_list = "\n".join(f"  - {p}" for p in trivially_true)
-            report["warning_trivially_true"] = {
-                "count": len(trivially_true),
-                "props": trivially_true,
-                "analysis": (
-                    f"⚠️  The following {len(trivially_true)} properties are TRIVIALLY_TRUE (environment over-constrained, fix suggested):\n{tt_list}\n"
-                    "Fix Directions:\n"
-                    "  1. Check if the corresponding assume constraints are too strong (excluding legal inputs).\n"
-                    "  2. Check if $isunknown / !$isunknown assertions are correct—if a signal can't be X, it will be constant-folded.\n"
-                    "  3. Check if wrapper.sv signal mapping is incorrect, leading to constant propagation."
-                )
-            }
-
-        if has_false:
-            all_fail = false_props + parsed.get("cover_fail", [])
-            fail_details = []
-            for prop in all_fail:
-                code = self._extract_prop_code(prop, checker_content)
-                fail_details.append({"property": prop, "sva_code": code})
-            report["false_properties"] = {
-                "count": len(all_fail),
-                "props": all_fail,
-                "details": fail_details,
-                "hint": (
-                    "For each FALSE property, analyze whether it is:\n"
-                    "  - Environment issue (missing assume) → fix checker.sv constraints\n"
-                    "  - RTL defect → record in the environment analysis document (07_env_analysis.md)\n"
-                    "Classification is done in the analysis document, NOT in checker.sv."
-                )
-            }
-
-        # This checker always passes — EnvironmentAnalysisChecker handles gate-keeping
-        msg = "✅ Environment debugging check completed"
-        if has_tt or has_false:
-            msg += f" ({len(trivially_true)} TT, {len(false_props)} assert fail, {len(parsed.get('cover_fail', []))} cover fail remaining)"
-        report["message"] = msg
-        return True, report
 
 
 # =============================================================================
@@ -975,104 +1006,38 @@ class EnvironmentAnalysisChecker(Checker):
       - Every TRIVIALLY_TRUE property has a corresponding <TT-NNN> entry in the doc.
       - Every FALSE property (assert + cover) has a <FA-NNN> entry in the doc.
       - ACCEPTED ratio for TRIVIALLY_TRUE does not exceed the configured threshold.
-      - All required fields are filled in each TT/FA entry.
+      - All required fields are filled in each TT/FA entry (no [LLM-TODO] placeholders).
+      - Each FA entry must have a valid resolution status.
+      - Properties marked as ENV_PENDING (environment issue identified but not yet fixed)
+        will block the checker until they are fixed and updated to ENV_FIXED.
       - Iteration convergence: fail count should not increase across consecutive checks.
     """
 
     VALID_TT_ROOT_CAUSES = {"ASSUME_TOO_STRONG", "SIGNAL_CONSTANT", "WRAPPER_ERROR", "DESIGN_EXPECTED"}
-    VALID_FA_JUDGMENTS = {"RTL_BUG", "ENV_ISSUE", "COVER_EXPECTED_FAIL"}
     VALID_TT_ACTIONS = {"FIXED", "ACCEPTED"}
-    VALID_FA_ACTIONS = {"MARKED_RTL_BUG", "ASSUME_ADDED", "ASSUME_MODIFIED", "COVER_EXPECTED_FAIL"}
+    VALID_FA_RESOLUTIONS = {"RTL_BUG", "ENV_FIXED", "ENV_PENDING", "COVER_EXPECTED_FAIL"}
 
-    def __init__(self, dut_name, log_file, checker_file, analysis_doc,
-                 tcl_script, accepted_ratio_threshold=50.0, **kwargs):
+    def __init__(self, dut_name, accepted_ratio_threshold=50.0, **kwargs):
         self.dut_name = dut_name
-        self.log_file = log_file
-        self.checker_file = checker_file  # used only for mtime rerun detection
-        self.analysis_doc = analysis_doc
-        self.tcl_script = tcl_script
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.log_file = paths["log_file"]
+        self.checker_file = paths["checker_file"]  # used only for mtime rerun detection
+        self.wrapper_file = paths["wrapper_file"]
+        self.analysis_doc = paths["analysis_doc"]
+        self.tcl_script = paths["tcl_script"]
         self.accepted_ratio_threshold = accepted_ratio_threshold
 
-    # -------------------------------------------------------------------------
-    # Parsing helpers
-    # -------------------------------------------------------------------------
-    def _parse_analysis_doc(self, doc_path: str) -> dict:
-        """Parse the environment analysis markdown document.
-
-        Returns:
-            {
-                "tt_entries": { "A_CK_XXX": { "root_cause": ..., "action": ..., ... }, ... },
-                "fa_entries": { "A_CK_YYY": { "judgment": ..., "action": ..., ... }, ... },
-                "raw_content": str,
-            }
-        """
-        result = {"tt_entries": {}, "fa_entries": {}, "raw_content": ""}
-
-        if not os.path.exists(doc_path):
-            return result
-
-        with open(doc_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-
-        result["raw_content"] = content
-
-        # Parse <TT-NNN> entries
-        tt_pattern = re.compile(
-            r'###\s*<TT-\d+>\s*(\S+)\s*\n'   # ### <TT-001> A_CK_XXX
-            r'(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',  # until next entry or section
-            re.DOTALL | re.MULTILINE
-        )
-        for match in tt_pattern.finditer(content):
-            prop_name = match.group(1).strip()
-            body = match.group(2)
-            entry = self._parse_entry_body(body, is_tt=True)
-            entry["prop_name"] = prop_name
-            result["tt_entries"][prop_name] = entry
-
-        # Parse <FA-NNN> entries
-        fa_pattern = re.compile(
-            r'###\s*<FA-\d+>\s*(\S+)\s*\n'
-            r'(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',
-            re.DOTALL | re.MULTILINE
-        )
-        for match in fa_pattern.finditer(content):
-            prop_name = match.group(1).strip()
-            body = match.group(2)
-            entry = self._parse_entry_body(body, is_tt=False)
-            entry["prop_name"] = prop_name
-            result["fa_entries"][prop_name] = entry
-
-        return result
-
-    def _parse_entry_body(self, body: str, is_tt: bool) -> dict:
-        """Extract structured fields from a TT or FA entry body."""
-        entry = {}
-
-        def _extract(field_name, text):
-            # Match "- **FieldName**: value" pattern
-            pattern = re.compile(
-                rf'[-*]*\s*\*\*{re.escape(field_name)}\*\*\s*:\s*(.*?)(?=\n\s*[-*]*\s*\*\*|\n```|\Z)',
-                re.DOTALL
-            )
-            m = pattern.search(text)
-            return m.group(1).strip() if m else None
-
-        entry["prop_name_field"] = _extract("属性名", body) or _extract("Property", body)
-
-        if is_tt:
-            entry["root_cause"] = _extract("根因分类", body) or _extract("Root Cause", body) or ""
-            entry["related_assume"] = _extract("关联 Assume", body) or _extract("Related Assume", body) or ""
-            entry["action"] = _extract("修复动作", body) or _extract("Fix Action", body) or ""
-            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
-        else:
-            entry["judgment"] = _extract("判定结果", body) or _extract("Judgment", body) or ""
-            entry["action"] = _extract("修复动作", body) or _extract("Fix Action", body) or ""
-            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
-            entry["prop_type"] = _extract("属性类型", body) or _extract("Property Type", body) or ""
-
-        entry["analysis"] = _extract("分析", body) or _extract("Analysis", body) or _extract("反例/分析", body) or ""
-
-        return entry
+    @staticmethod
+    def _extract_prop_code(prop_name: str, checker_content: str) -> str:
+        """Extract SVA code snippet for a property from checker.sv (contextual window)."""
+        lines = checker_content.split('\n')
+        for i, line in enumerate(lines):
+            if prop_name in line and ('assert' in line or 'property' in line or ':' in line):
+                return '\n'.join(lines[max(0, i - 3):min(len(lines), i + 6)])
+        for i, line in enumerate(lines):
+            if prop_name in line:
+                return '\n'.join(lines[max(0, i - 2):min(len(lines), i + 4)])
+        return "(Property definition not found)"
 
 
     # -------------------------------------------------------------------------
@@ -1080,13 +1045,11 @@ class EnvironmentAnalysisChecker(Checker):
     # -------------------------------------------------------------------------
     def _get_iteration_log_path(self) -> str:
         """Return path for the iteration history JSON file."""
-        tests_dir = os.path.dirname(self.get_path(self.log_file))
+        tests_dir = os.path.dirname(self.log_file)
         return os.path.join(tests_dir, f".{self.dut_name}_iteration_history.json")
 
     def _record_iteration(self, stats: dict) -> list:
         """Append current stats to iteration history and return full history."""
-        import json
-        import time
 
         log_path = self._get_iteration_log_path()
         history = []
@@ -1163,7 +1126,8 @@ class EnvironmentAnalysisChecker(Checker):
                 f"The last modification may have introduced new failures."
             )
 
-        is_ok = curr_pass >= prev_pass  # Only fail on pass regression
+        # Only fail if there is a REGRESSION
+        is_ok = not any("REGRESSION" in m for m in messages)
         return is_ok, "\n".join(messages)
 
     # -------------------------------------------------------------------------
@@ -1171,42 +1135,22 @@ class EnvironmentAnalysisChecker(Checker):
     # -------------------------------------------------------------------------
     def do_check(self, timeout=300, **kwargs) -> tuple:
         """Perform tri-source environment analysis validation."""
-        log_path = self.get_path(self.log_file)
-        checker_path = self.get_path(self.checker_file)
-        analysis_path = self.get_path(self.analysis_doc)
+        log_path = self.log_file
+        checker_path = self.checker_file
+        analysis_path = self.analysis_doc
+        wrapper_path = self.wrapper_file
 
-        # Infer wrapper path
-        tests_dir = os.path.dirname(log_path)
-        wrapper_path = os.path.join(tests_dir, f"{self.dut_name}_wrapper.sv")
+        # Step 0: Check if re-execution needed
+        exec_success, exec_result, was_rerun = _ensure_tcl_executed(
+            self, log_path, [checker_path, wrapper_path], self.tcl_script, self.dut_name, timeout
+        )
+        if not exec_success:
+            return False, exec_result
 
-        # Step 0: Check if re-execution needed (same logic as EnvironmentDebuggingChecker)
-        need_rerun = False
-        if not os.path.exists(log_path):
-            need_rerun = True
-        else:
-            log_mtime = os.path.getmtime(log_path)
-            for fpath in [checker_path, wrapper_path]:
-                if os.path.exists(fpath) and os.path.getmtime(fpath) > log_mtime:
-                    need_rerun = True
-                    break
-
-        if need_rerun:
-            info("🚀 Source files updated, re-executing TCL script...")
-            exec_checker = TclExecutionChecker(self.tcl_script, self.dut_name)
-            exec_checker.get_path = self.get_path
-            exec_success, exec_result = exec_checker.do_check(timeout)
-            if not exec_success:
-                return False, {
-                    "error": "❌ TCL script execution failed",
-                    "details": exec_result,
-                    "suggestion": "Check TCL script, checker.sv, and wrapper.sv for syntax errors"
-                }
-            info("✅ TCL execution successful, log updated")
-
-        # Step 1: Parse avis.log (via shared stage context — reuses cache from EnvironmentDebuggingChecker)
+        # Step 1: Parse avis.log and emit diagnostic report (formerly EnvironmentDebuggingChecker)
         info("🔍 Parsing verification log...")
         ctx = FormalStageContext.get_or_create(self)
-        if need_rerun:
+        if was_rerun:
             ctx.invalidate(log_path)
         raw = ctx.get_parsed_log(log_path)
         tt_props = raw.get("trivially_true", [])
@@ -1218,6 +1162,21 @@ class EnvironmentAnalysisChecker(Checker):
         }
         all_abnormal_assert = tt_props + false_props
         all_abnormal = all_abnormal_assert + cover_fail
+
+        # --- Diagnostic report (always emitted, same info EnvironmentDebuggingChecker used to provide) ---
+        checker_content = ctx.get_checker_content(checker_path)
+        if tt_props:
+            tt_list = "\n".join(f"  - {p}" for p in tt_props)
+            info(
+                f"⚠️  {len(tt_props)} TRIVIALLY_TRUE properties (env over-constrained):\n{tt_list}\n"
+                "Fix: relax assume constraints or check wrapper.sv signal mapping."
+            )
+        if false_props or cover_fail:
+            all_fail = false_props + cover_fail
+            for prop in all_fail:
+                code = self._extract_prop_code(prop, checker_content)
+                info(f"❌ FALSE: {prop}\n  SVA code:\n{code}")
+            info("Hint: classify each FALSE property as RTL_BUG or ENV_ISSUE in 07_env_analysis.md.")
 
         # Step 2: Record iteration stats
         stats = {
@@ -1245,7 +1204,7 @@ class EnvironmentAnalysisChecker(Checker):
                 "error": "❌ Environment analysis document not found",
                 "details": (
                     f"Please create '{self.analysis_doc}' following the template "
-                    f"'Guide_Doc/dut_env_analysis_template.md'.\n\n"
+                    f"'Guide_Doc/env_analysis.md'.\n\n"
                     f"The document must contain analysis entries for:\n"
                     f"  - {len(tt_props)} TRIVIALLY_TRUE properties (each needs a <TT-NNN> entry)\n"
                     f"  - {len(false_props)} FALSE assert properties (each needs a <FA-NNN> entry)\n"
@@ -1261,9 +1220,9 @@ class EnvironmentAnalysisChecker(Checker):
                 "iteration": len(history),
             }
 
-        # Step 5: Parse analysis document
+        # Step 5: Parse analysis document using Context Cache
         info("📄 Parsing environment analysis document...")
-        doc = self._parse_analysis_doc(analysis_path)
+        doc = ctx.get_analysis_doc_parsed(analysis_path)
         tt_entries = doc["tt_entries"]
         fa_entries = doc["fa_entries"]
 
@@ -1314,29 +1273,61 @@ class EnvironmentAnalysisChecker(Checker):
                     f"Review and fix the underlying assume constraints."
                 )
 
-        # --- 6d: Field completeness check ---
+        # --- 6d: Field completeness, enum validity, and judgment↔action cross-check ---
         for prop, entry in tt_entries.items():
-            if not entry.get("root_cause", "").strip():
+            root_cause = entry.get("root_cause", "").strip()
+            action     = entry.get("action",     "").strip()
+            analysis   = entry.get("analysis",   "").strip()
+
+            if not root_cause:
                 errors.append(f"❌ <TT> entry '{prop}' missing '根因分类' field")
-            elif entry["root_cause"].strip().upper() not in self.VALID_TT_ROOT_CAUSES:
+            elif root_cause.upper() not in self.VALID_TT_ROOT_CAUSES:
                 warnings.append(
-                    f"⚠️  <TT> entry '{prop}' has unknown root cause: '{entry['root_cause']}'. "
-                    f"Valid: {self.VALID_TT_ROOT_CAUSES}"
+                    f"⚠️  <TT> entry '{prop}' has unknown root cause: '{root_cause}'. "
+                    f"Valid values: {self.VALID_TT_ROOT_CAUSES}"
                 )
-            if not entry.get("action", "").strip():
+
+            if not action:
                 errors.append(f"❌ <TT> entry '{prop}' missing '修复动作' field")
-            if not entry.get("analysis", "").strip():
+            elif action.upper() not in self.VALID_TT_ACTIONS:
+                errors.append(
+                    f"❌ <TT> entry '{prop}' has invalid action: '{action}'. "
+                    f"Valid values: {self.VALID_TT_ACTIONS}"
+                )
+
+            if not analysis:
                 errors.append(f"❌ <TT> entry '{prop}' missing '分析' field")
 
         for prop, entry in fa_entries.items():
-            if not entry.get("judgment", "").strip():
-                errors.append(f"❌ <FA> entry '{prop}' missing '判定结果' field")
-            if not entry.get("action", "").strip():
-                errors.append(f"❌ <FA> entry '{prop}' missing '修复动作' field")
-            if not entry.get("analysis", "").strip():
+            resolution = entry.get("resolution", "").strip()
+            analysis   = entry.get("analysis", "").strip()
+
+            if not resolution:
+                errors.append(f"❌ <FA> entry '{prop}' missing '解决状态' field")
+            elif resolution.upper() not in self.VALID_FA_RESOLUTIONS:
+                errors.append(
+                    f"❌ <FA> entry '{prop}' has invalid resolution: '{resolution}'. "
+                    f"Valid values: {self.VALID_FA_RESOLUTIONS}"
+                )
+
+            if not analysis:
                 errors.append(f"❌ <FA> entry '{prop}' missing '分析/反例' field")
 
-        # --- 6e: Convergence warnings ---
+        # --- 6e: ENV_PENDING resolution gate ---
+        # Properties marked as ENV_PENDING block the stage until they are fixed.
+        unresolved_env = [
+            prop for prop, entry in fa_entries.items()
+            if entry.get("resolution", "").strip().upper() == "ENV_PENDING"
+        ]
+        if unresolved_env:
+            errors.append(
+                f"❌ {len(unresolved_env)} ENV_PENDING properties are analyzed but NOT yet resolved:\n"
+                + "\n".join(f"  - '{p}'" for p in unresolved_env) + "\n"
+                f"  Hint: Re-run verification after adding/modifying assume constraints, "
+                f"then update the '解决状态' field to 'ENV_FIXED'."
+            )
+
+        # --- 6f: Convergence warnings ---
         if conv_msg:
             warnings.append(conv_msg)
 
@@ -1353,7 +1344,7 @@ class EnvironmentAnalysisChecker(Checker):
                 "tt_entries": len(tt_entries),
                 "fa_entries": len(fa_entries),
                 "rtl_bug_count": sum(1 for e in fa_entries.values()
-                                     if e.get("judgment", "").strip().upper() == "RTL_BUG"),
+                                     if e.get("resolution", "").strip().upper() == "RTL_BUG"),
             },
             "iteration": len(history),
         }
@@ -1376,19 +1367,22 @@ class EnvironmentAnalysisChecker(Checker):
         tt_accepted = sum(1 for e in tt_entries.values()
                           if e.get("action", "").strip().upper() == "ACCEPTED")
         fa_rtl_bug = sum(1 for e in fa_entries.values()
-                         if e.get("judgment", "").strip().upper() == "RTL_BUG")
-        fa_env_issue = sum(1 for e in fa_entries.values()
-                           if e.get("judgment", "").strip().upper() == "ENV_ISSUE")
+                         if e.get("resolution", "").strip().upper() == "RTL_BUG")
+        fa_env_fixed = sum(1 for e in fa_entries.values()
+                           if e.get("resolution", "").strip().upper() == "ENV_FIXED")
+        fa_env_pending = sum(1 for e in fa_entries.values()
+                             if e.get("resolution", "").strip().upper() == "ENV_PENDING")
         fa_cover_expected = sum(1 for e in fa_entries.values()
-                                if e.get("judgment", "").strip().upper() == "COVER_EXPECTED_FAIL")
+                                if e.get("resolution", "").strip().upper() == "COVER_EXPECTED_FAIL")
 
         report["message"] = (
             f"✅ Environment analysis validation passed (iteration #{len(history)})\n"
             f"  TRIVIALLY_TRUE: {len(tt_entries)} analyzed "
             f"({tt_fixed} fixed, {tt_accepted} accepted)\n"
             f"  FALSE: {len(fa_entries)} analyzed "
-            f"({fa_rtl_bug} RTL bugs, {fa_env_issue} env issues, "
-            f"{fa_cover_expected} expected cover fails)"
+            f"({fa_rtl_bug} RTL_BUG, "
+            f"{fa_env_fixed} ENV_FIXED, {fa_env_pending} ENV_PENDING, "
+            f"{fa_cover_expected} COVER_EXPECTED_FAIL)"
         )
         if warnings:
             report["message"] += "\n  " + "\n  ".join(warnings)
@@ -1413,28 +1407,26 @@ class CounterexampleTestgenChecker(Checker):
     4. If no RTL_BUG properties exist, the test file should contain a
        "no defects" comment.
     """
+    _FUNC_PATTERN = re.compile(r'^def\s+(test_cex_\w+)\s*\(', re.MULTILINE)
 
-    def __init__(self, dut_name, analysis_doc, test_file, log_file=None, **kwargs):
+    def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
-        self.analysis_doc = analysis_doc
-        self.test_file = test_file
-        self.log_file = log_file
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.analysis_doc = paths["analysis_doc"]
+        self.test_file = paths["test_file"]
 
     def _extract_test_functions(self, test_path: str) -> dict:
         """Extract test function details from the Python test file.
-
-        Returns a dict: { 'test_cex_ck_xxx': {'has_assert': bool, 'has_finish': bool} }
+        Returns: { 'test_cex_A_CK_XXX': {'has_assert': bool, 'has_finish': bool}, ... }
         """
+        functions = {}
         if not os.path.exists(test_path):
-            return {}
+            return functions
 
         with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
 
-        functions = {}
-        # Find all test_cex_ function definitions
-        func_pattern = re.compile(r'^def\s+(test_cex_\w+)\s*\(', re.MULTILINE)
-        func_matches = list(func_pattern.finditer(content))
+        func_matches = list(self._FUNC_PATTERN.finditer(content))
 
         for idx, match in enumerate(func_matches):
             func_name = match.group(1)
@@ -1455,13 +1447,13 @@ class CounterexampleTestgenChecker(Checker):
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validates counterexample test file against RTL_BUG properties from analysis doc."""
-        analysis_path = self.get_path(self.analysis_doc)
-        test_path = self.get_path(self.test_file)
+        analysis_path = self.analysis_doc
+        test_path = self.test_file
 
         # Step 1: Extract RTL bugs from analysis document
-        rtl_bug_tuples = extract_rtl_bug_from_analysis_doc(analysis_path)
-        # Extract just property names for comparison
-        rtl_bugs = [prop_name for _fa_id, prop_name in rtl_bug_tuples]
+        # We can extract from parse tree cleanly
+        ctx = FormalStageContext.get_or_create(self)
+        rtl_bugs = ctx.get_rtl_bug_properties(analysis_path)
         info(f"Found {len(rtl_bugs)} RTL_BUG properties from analysis document")
 
         # Step 2: Check test file existence
@@ -1603,10 +1595,11 @@ class StaticFormalBugLinkageChecker(Checker):
     - Confirmed Tag: <LINK-BUG-[BG-SUM-WIDTH-001]> or <LINK-BUG-[BG-XXX][BG-YYY]>
     - False Positive Tag: <LINK-BUG-[BG-NA]>
     """
-    def __init__(self, static_doc, bug_report_doc, log_file, **kwargs):
-        self.static_doc = static_doc
-        self.bug_report_doc = bug_report_doc
-        self.log_file = log_file
+    def __init__(self, dut_name, **kwargs):
+        self.dut_name = dut_name
+        paths = _resolve_paths(dut_name, **kwargs)
+        self.static_doc = paths["static_doc"]
+        self.bug_report_doc = paths["bug_report_doc"]
 
     def _extract_static_bugs(self, static_path: str) -> dict:
         """
@@ -1675,19 +1668,16 @@ class StaticFormalBugLinkageChecker(Checker):
             bg_pattern = re.compile(r'<(BG-[A-Za-z0-9_-]+)>')
             formal_bugs.update(bg_pattern.findall(content))
 
-        # 2. Extract detection points corresponding to FALSE properties from avis.log
-        if os.path.exists(log_path):
-            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                pass  # Reserved for future: extract FALSE properties to enrich linkage
+        # NOTE: avis.log parsing for FALSE property linkage reserved for future enhancement.
 
         return formal_bugs
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Performs static bug and formal verification results linkage check"""
 
-        static_path = self.get_path(self.static_doc)
-        bug_report_path = self.get_path(self.bug_report_doc)
-        log_path = self.get_path(self.log_file)
+        static_path = self.static_doc
+        bug_report_path = self.bug_report_doc
+        log_path = self.log_file
 
         # Step 1: Parse static bug analysis document
         info("🔍 Parsing static bug analysis document...")
