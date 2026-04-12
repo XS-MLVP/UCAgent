@@ -41,6 +41,7 @@ from ucagent.util.log import info, warning
 
 # Shared utilities – single source of truth
 from examples.Formal.scripts.formal_tools import parse_avis_log
+from examples.Formal.scripts.formal_adapter import get_adapter
 
 def _resolve_paths(dut_name: str, **kwargs) -> dict:
     """Resolve standard absolute paths for Formal Checkers.
@@ -51,14 +52,16 @@ def _resolve_paths(dut_name: str, **kwargs) -> dict:
     workspace = os.environ.get("UCAGENT_WORKSPACE", os.getcwd())
     formal_test_dir = os.path.join(workspace, "formal_test")
     tests_dir = os.path.join(formal_test_dir, "tests")
+    adapter = get_adapter()
 
     return {
         "checker_file":   kwargs.get("checker_file")   or os.path.join(tests_dir, f"{dut_name}_checker.sv"),
         "wrapper_file":   kwargs.get("wrapper_file")   or os.path.join(tests_dir, f"{dut_name}_wrapper.sv"),
         "spec_file":      kwargs.get("spec_file")      or os.path.join(formal_test_dir, f"03_{dut_name}_functions_and_checks.md"),
         "tcl_script":     kwargs.get("tcl_script")     or os.path.join(tests_dir, f"{dut_name}_formal.tcl"),
-        "log_file":       kwargs.get("log_file")       or os.path.join(tests_dir, "avis.log"),
-        "fanin_rep":      kwargs.get("fanin_rep")      or os.path.join(tests_dir, "avis", "fanin.rep"),
+        "log_file":       kwargs.get("log_file")       or os.path.join(tests_dir, adapter.log_filename()),
+        "fanin_rep":      kwargs.get("fanin_rep")      or adapter.coverage_report_path(tests_dir),
+        "docs_dir":       kwargs.get("docs_dir")       or formal_test_dir,
         "analysis_doc":   kwargs.get("analysis_doc")   or os.path.join(formal_test_dir, f"07_{dut_name}_env_analysis.md"),
         "bug_report_doc": kwargs.get("bug_report_doc") or os.path.join(formal_test_dir, f"04_{dut_name}_bug_report.md"),
         "static_doc":     kwargs.get("static_doc")     or os.path.join(formal_test_dir, f"04_{dut_name}_static_bug_analysis.md"),
@@ -135,67 +138,16 @@ class FormalStageContext:
         self._checker_cache = {}    # path -> {"mtime": float, "content": str}
         self._doc_cache = {}        # path -> {"mtime": float, "data": dict}
 
-    _TT_PATTERN = re.compile(
-        r'###\s*<TT-\d+>\s*(\S+)\s*\n(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',
-        re.DOTALL | re.MULTILINE
-    )
-    _FA_PATTERN = re.compile(
-        r'###\s*<FA-\d+>\s*(\S+)\s*\n(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^## \d+\.|\Z)',
-        re.DOTALL | re.MULTILINE
-    )
-
     def get_analysis_doc_parsed(self, doc_path: str) -> dict:
         """Parse analysis document with mtime-based cache invalidation."""
         if self._is_stale(self._doc_cache, doc_path):
-            result = {"tt_entries": {}, "fa_entries": {}, "raw_content": ""}
-            if os.path.exists(doc_path):
-                with open(doc_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-                result["raw_content"] = content
-
-                for match in self._TT_PATTERN.finditer(content):
-                    prop_name = match.group(1).strip()
-                    entry = self._parse_entry_body(match.group(2), is_tt=True)
-                    entry["prop_name"] = prop_name
-                    result["tt_entries"][prop_name] = entry
-
-                for match in self._FA_PATTERN.finditer(content):
-                    prop_name = match.group(1).strip()
-                    entry = self._parse_entry_body(match.group(2), is_tt=False)
-                    entry["prop_name"] = prop_name
-                    result["fa_entries"][prop_name] = entry
-
+            from examples.Formal.scripts.formal_tools import parse_env_analysis_doc
+            result = parse_env_analysis_doc(doc_path)
             self._doc_cache[doc_path] = {
                 "mtime": os.path.getmtime(doc_path) if os.path.exists(doc_path) else 0,
                 "data": result,
             }
         return self._doc_cache[doc_path]["data"]
-
-    def _parse_entry_body(self, body: str, is_tt: bool) -> dict:
-        """Extract structured fields from a TT or FA entry body."""
-        entry = {}
-        def _extract(field_name, text):
-            pattern = re.compile(
-                rf'[-*]*\s*\*\*{re.escape(field_name)}\*\*\s*:\s*(.*?)(?=\n\s*[-*]*\s*\*\*|\n```|\Z)',
-                re.DOTALL
-            )
-            m = pattern.search(text)
-            return m.group(1).strip() if m else None
-
-        entry["prop_name_field"] = _extract("属性名", body) or _extract("Property", body)
-        if is_tt:
-            entry["root_cause"] = _extract("根因分类", body) or _extract("Root Cause", body) or ""
-            entry["related_assume"] = _extract("关联 Assume", body) or _extract("Related Assume", body) or ""
-            entry["action"] = _extract("修复动作", body) or _extract("Fix Action", body) or ""
-            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
-        else:
-            # support both new '解决状态' and old '判定结果' for backward compatibility
-            entry["resolution"] = _extract("解决状态", body) or _extract("Resolution", body) or _extract("判定结果", body) or _extract("Judgment", body) or ""
-            entry["action_detail"] = _extract("修复说明", body) or _extract("Fix Detail", body) or ""
-            entry["prop_type"] = _extract("属性类型", body) or _extract("Property Type", body) or ""
-
-        entry["analysis"] = _extract("分析", body) or _extract("Analysis", body) or _extract("反例/分析", body) or ""
-        return entry
 
     @classmethod
     def get_or_create(cls, checker_instance, *_args):
@@ -535,7 +487,8 @@ class ScriptGenerationChecker(Checker):
         with open(tcl_path, 'r', encoding='utf-8') as f:
             tcl_content = f.read()
 
-        required_cmds = ["read_design", "prove", "def_clk", "def_rst"]
+        adapter = get_adapter()
+        required_cmds = adapter.required_script_commands()
         missing = [k for k in required_cmds if k not in tcl_content]
         if missing:
             return False, {
@@ -586,51 +539,40 @@ class TclExecutionChecker(Checker):
         # Use the TCL script's directory as the execution and work directory
         exec_dir = os.path.dirname(tcl_path)
 
-        # The log file is now relative to the execution directory
-        log_file_name = "avis.log"
+        adapter = get_adapter()
+        log_file_name = adapter.log_filename()
         log_path = os.path.join(exec_dir, log_file_name)
 
         # The -work_dir argument tells FormalMC where to place its output files.
-        cmd = ["FormalMC", "-f", tcl_path, "-override", "-work_dir", exec_dir]
+        cmd = adapter.build_command(tcl_path, exec_dir)
         info(f"Running command: {' '.join(cmd)} in directory {exec_dir}")
 
-        stdout_log = ""
-        stderr_log = ""
-        try:
-            worker = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=exec_dir  # Execute from the script's directory
-            )
-            self.set_check_process(worker, timeout)
-            stdout_log, stderr_log = worker.communicate(timeout=timeout)
+        from examples.Formal.scripts.formal_tools import run_formal_command_sync
+        
+        success, stdout_log, stderr_log, err_msg = run_formal_command_sync(
+            cmd=cmd,
+            exec_dir=exec_dir,
+            timeout=timeout,
+            on_start=lambda w: self.set_check_process(w, timeout)
+        )
 
-            if worker.returncode != 0:
+        if not success:
+            if "not found" in err_msg:
+                return False, {"error": f"The '{cmd[0]}' command was not found. Please ensure it is installed and in your PATH."}
+            elif "Timeout" in err_msg:
                 return False, {
-                    "error": f"FormalMC execution failed with return code {worker.returncode}.",
+                    "error": f"Formal verification timed out after {timeout} seconds.",
+                    "details": "This check was forcefully terminated. Please review the constraints or state space.",
+                    "stdout": stdout_log,
+                    "stderr": stderr_log
+                }
+            else:
+                return False, {
+                    "error": f"Formal execution failed with {err_msg}.",
                     "details": "This might indicate an issue with the tool, script, or environment.",
                     "stdout": stdout_log,
                     "stderr": stderr_log
                 }
-
-        except FileNotFoundError:
-            return False, {"error": "The 'FormalMC' command was not found. Please ensure it is installed and in your PATH."}
-        except subprocess.TimeoutExpired:
-            try:
-                # Import shared helper for robust cleanup
-                from examples.Formal.scripts.formal_tools import _terminate_process_tree
-                _terminate_process_tree(worker, timeout=5)
-            except Exception as ex:
-                warning(f"Error terminating process after timeout: {ex}")
-            stdout_log, stderr_log = worker.communicate()
-            return False, {
-                "error": f"Formal verification timed out after {timeout} seconds.",
-                "stdout": stdout_log,
-                "stderr": stderr_log
-            }
-
         # --- Analyze the log to see if verification ran and produced results ---
         if not os.path.exists(log_path):
             return False, {"error": f"Log file '{log_file_name}' was not generated in '{exec_dir}' by the verification run."}
@@ -639,33 +581,32 @@ class TclExecutionChecker(Checker):
             log_content = f.read()
 
         # Check for non-zero blackboxes in log statistics
-        blackbox_stats = re.search(r"blackboxes\s*:\s*(\d+)", log_content, re.IGNORECASE)
-        if blackbox_stats:
-            count = int(blackbox_stats.group(1))
-            if count > 0:
-                return False, {
-                    "error": f"Design contains {count} blackboxes which is not allowed for complete formal verification.",
-                    "details": "The log file indicates that some modules were treated as blackboxes. Please modify your formal TCL script to ensure all RTL files are correctly included and correctly identified.",
-                    "stdout": stdout_log,
-                    "stderr": stderr_log
-                }
+        count = adapter.extract_blackbox_count(log_content)
+        if count > 0:
+            return False, {
+                "error": f"Design contains {count} blackboxes which is not allowed for complete formal verification.",
+                "details": "The log file indicates that some modules were treated as blackboxes. Please modify your formal TCL script to ensure all RTL files are correctly included and correctly identified.",
+                "stdout": stdout_log,
+                "stderr": stderr_log
+            }
 
-        # Per user request, check passes if ANY result is found, indicating a successful run.
-        if re.search(r"Info-P016: property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)", log_content):
-            failed_properties = re.findall(r"Info-P016: property ([\w_.]+) is (?:TRIVIALLY_)?FALSE", log_content)
-            if failed_properties:
+        # Check passes if ANY result is found, indicating a successful run.
+        if adapter.validate_log_has_results(log_content):
+            parsed = adapter.parse_log(log_path)
+            failed_count = len(parsed.get('false', [])) + len(parsed.get('cover_fail', []))
+            if failed_count > 0:
                 return True, {
-                    "message": f"Verification run completed, but {len(failed_properties)} properties failed. This check passes as the script executed correctly.",
+                    "message": f"Verification run completed, but {failed_count} properties failed. This check passes as the script executed correctly.",
                     "details": "The next stage will involve analyzing these failures.",
-                    "failed_properties": failed_properties
+                    "failed_count": failed_count
                 }
             else:
                  return True, "Verification run completed successfully. All properties passed."
 
-        # If no TRUE or FALSE results, it's a failure of the run itself.
+        # If no results, it's a failure of the run itself.
         return False, {
             "error": "TCL script execution failed to produce results.",
-            "details": "The log file was generated, but it contains no conclusive '... is TRUE' or '... is FALSE' messages. This may indicate a syntax error in the SVA or TCL files that prevented the 'prove' command from completing.",
+            "details": "The log file was generated, but it contains no conclusive results messages. This may indicate a syntax error in the SVA or TCL files that prevented the verification from completing.",
             "stdout": stdout_log,
             "stderr": stderr_log
         }
@@ -792,127 +733,60 @@ class CoverageAnalysisChecker(Checker):
     def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
         paths = _resolve_paths(dut_name, **kwargs)
-        self.fanin_rep = paths["fanin_rep"]
+        self.tests_dir = os.path.dirname(paths["tcl_script"])
         self.tcl_script = paths["tcl_script"]
         self.checker_file = paths["checker_file"]
         self.coi_threshold = float(kwargs.get("coi_threshold", 100.0))
 
-    _METRIC_RE = re.compile(
-        r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%',
-        re.IGNORECASE
-    )
-    _NAME_MAP = {
-        'input': 'inputs', 'inputs': 'inputs',
-        'output': 'outputs', 'outputs': 'outputs',
-        'dff': 'dffs', 'dffs': 'dffs',
-        'net': 'nets', 'nets': 'nets',
-    }
-
-    def _parse_fanin_report(self, fanin_path: str) -> dict:
-        """
-        Parses fanin.rep and extracts all COI coverage metrics and the list of uncovered signals.
-
-        Returns:
-          {
-            "inputs":  {"covered": N, "total": N, "pct": N},
-            "outputs": {...},
-            "dffs":    {...},
-            "nets":    {...},
-            "uncovered": [signal, ...]   # lines starting with "- " in fanin -list
-          }
-        """
-        empty = {"covered": 0, "total": 0, "pct": 0.0}
-        result = {
-            "inputs": dict(empty), "outputs": dict(empty),
-            "dffs": dict(empty), "nets": dict(empty),
-            "uncovered": []
-        }
-        if not os.path.exists(fanin_path):
-            return result
-
-        with open(fanin_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-
-        for m in self._METRIC_RE.finditer(content):
-            key = self._NAME_MAP.get(m.group(1).lower())
-            if key:
-                result[key] = {
-                    "covered": int(m.group(2)),
-                    "total":   int(m.group(3)),
-                    "pct":     float(m.group(4))
-                }
-
-        # fanin -list output: uncovered signals are listed in the format "- signal_name"
-        result["uncovered"] = re.findall(r'^\s*-\s+(\S+)', content, re.MULTILINE)
-        return result
-
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """Performs COI coverage check"""
+        """Performs COI coverage check using the tool adapter."""
 
-        fanin_path   = self.fanin_rep
         checker_path = self.checker_file
+        adapter = get_adapter()
+        fanin_path = adapter.coverage_report_path(self.tests_dir)
 
         # Step 1: Ensure TCL is executed if needed
+        # Fallback to checking the main log file's modification time if there is no distinct explicit report
+        tracking_path = fanin_path or os.path.join(self.tests_dir, adapter.log_filename())
         exec_success, exec_result, was_rerun = _ensure_tcl_executed(
-            self, fanin_path, [checker_path], self.tcl_script, self.dut_name, timeout
+            self, tracking_path, [checker_path], self.tcl_script, self.dut_name, timeout
         )
         if not exec_success:
-            # We add the suggestion context here
             exec_result["suggestion"] = "Please check checker.sv and wrapper.sv for syntax errors"
             return False, exec_result
-            
-        # Optional invalidate if was_rerun, but here fanin_rep isn't Context cached, so no need.
 
-        # Step 2: Parse fanin.rep
-        info(f"🔍 Parsing COI coverage report: {fanin_path}")
-        coi = self._parse_fanin_report(fanin_path)
+        # Step 2: Parse coverage via adapter
+        info(f"🔍 Parsing COI coverage report...")
+        coi = adapter.parse_coverage(self.tests_dir)
 
-        def fmt(d):
-            if d["total"] == 0:
-                return "N/A (no such signals)"
-            return f"{d['covered']}/{d['total']}  ({d['pct']:.1f}%)"
-
-        net_pct = coi["nets"]["pct"]
-        dff_pct = coi["dffs"]["pct"]
-        net_ok = coi["nets"]["total"] == 0 or net_pct >= self.coi_threshold
-        dff_ok = coi["dffs"]["total"] == 0 or dff_pct >= self.coi_threshold
-        all_ok = net_ok and dff_ok
+        overall_pct = coi.get("overall_pct", 0.0)
+        uncovered = coi.get("uncovered", [])
+        all_ok = overall_pct >= self.coi_threshold
 
         report = {
-            "fanin_rep": fanin_path,
             "Threshold": f">= {self.coi_threshold:.0f}%",
-            "Inputs  COI": fmt(coi["inputs"]),
-            "Outputs COI": fmt(coi["outputs"]),
-            "Dffs    COI (Register State Coverage)": fmt(coi["dffs"]),
-            "Nets    COI (Combinational Logic Coverage)":   fmt(coi["nets"]),
-            "Uncovered Signal Count": len(coi["uncovered"]),
-            "Uncovered Signals (First 30)": coi["uncovered"][:30],
+            "Overall COI Pct": f"{overall_pct:.1f}%",
+            "Uncovered Signal Count": len(uncovered),
+            "Uncovered Signals (First 30)": uncovered[:30],
         }
+
+        # Add detailed metrics if explicitly populated (e.g. FormalMC)
+        if "nets" in coi:
+            report["Nets COI"] = f"{coi['nets']['pct']:.1f}% ({coi['nets']['covered']}/{coi['nets']['total']})"
+        if "dffs" in coi:
+            report["Dffs COI"] = f"{coi['dffs']['pct']:.1f}% ({coi['dffs']['covered']}/{coi['dffs']['total']})"
 
         if all_ok:
             return True, {
-                "message": (
-                    f"✅ COI coverage reached threshold\n"
-                    f"  Dff COI (Register): {fmt(coi['dffs'])}\n"
-                    f"  Net COI (Logic): {fmt(coi['nets'])}"
-                ),
+                "message": f"✅ COI coverage reached threshold: {overall_pct:.1f}%",
                 "report": report
             }
         else:
-            issues = []
-            if not dff_ok:
-                issues.append(
-                    f"Insufficient Dff COI: {dff_pct:.1f}% < {self.coi_threshold:.0f}%\n"
-                    f"  → Some register states are not reached by any assertion; add (Style: Seq) assertions"
-                )
-            if not net_ok:
-                issues.append(
-                    f"Insufficient Net COI: {net_pct:.1f}% < {self.coi_threshold:.0f}%\n"
-                    f"  → Some combinational logic paths are not covered; add (Style: Comb) assertions"
-                )
-
-            # List uncovered signals so LLM can write targeted assertions
-            uncovered = coi["uncovered"]
+            issues = [
+                f"Insufficient COI: {overall_pct:.1f}% < {self.coi_threshold:.0f}%\n"
+                f"  → Check the '{adapter.tool_display_name()}' output to find which logic is not influenced by assertions.\n"
+                f"  → Typically, you should write assertions monitoring the uncovered signals, or trace to find unused logic."
+            ]
             if uncovered:
                 signal_list = "\n".join(f"    - {s}" for s in uncovered[:20])
                 issues.append(
@@ -1407,43 +1281,11 @@ class CounterexampleTestgenChecker(Checker):
     4. If no RTL_BUG properties exist, the test file should contain a
        "no defects" comment.
     """
-    _FUNC_PATTERN = re.compile(r'^def\s+(test_cex_\w+)\s*\(', re.MULTILINE)
-
     def __init__(self, dut_name, **kwargs):
         self.dut_name = dut_name
         paths = _resolve_paths(dut_name, **kwargs)
         self.analysis_doc = paths["analysis_doc"]
         self.test_file = paths["test_file"]
-
-    def _extract_test_functions(self, test_path: str) -> dict:
-        """Extract test function details from the Python test file.
-        Returns: { 'test_cex_A_CK_XXX': {'has_assert': bool, 'has_finish': bool}, ... }
-        """
-        functions = {}
-        if not os.path.exists(test_path):
-            return functions
-
-        with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-
-        func_matches = list(self._FUNC_PATTERN.finditer(content))
-
-        for idx, match in enumerate(func_matches):
-            func_name = match.group(1)
-            # Get the function body (until the next def or end of file)
-            start = match.start()
-            if idx + 1 < len(func_matches):
-                end = func_matches[idx + 1].start()
-            else:
-                end = len(content)
-            func_body = content[start:end]
-
-            functions[func_name] = {
-                'has_assert': 'assert ' in func_body,
-                'has_finish': 'Finish()' in func_body,
-            }
-
-        return functions
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Validates counterexample test file against RTL_BUG properties from analysis doc."""
@@ -1492,9 +1334,10 @@ class CounterexampleTestgenChecker(Checker):
                 "note": "Consider adding a comment indicating no RTL defects were found",
             }
 
-        # Step 4: Extract test functions
-        test_funcs = self._extract_test_functions(test_path)
-        if not test_funcs:
+        # Step 3: Extract implemented test functions
+        from examples.Formal.scripts.formal_tools import extract_python_test_functions
+        impl_functions = extract_python_test_functions(test_path)
+        if not impl_functions:
             return False, {
                 "error": f"❌ No test_cex_* functions found in {self.test_file}",
                 "details": (
@@ -1519,7 +1362,7 @@ class CounterexampleTestgenChecker(Checker):
 
             # Check if any test function name contains the normalized property name
             found = False
-            for func_name in test_funcs:
+            for func_name in impl_functions:
                 # test_cex_ck_xxx should contain ck_xxx
                 if normalized in func_name:
                     found = True
@@ -1534,7 +1377,7 @@ class CounterexampleTestgenChecker(Checker):
 
         # Step 6: Validate test function quality
         quality_warnings = []
-        for func_name, info_dict in test_funcs.items():
+        for func_name, info_dict in impl_functions.items():
             if not info_dict['has_assert']:
                 errors.append(
                     f"Function '{func_name}' has no assert statement. "
@@ -1552,7 +1395,7 @@ class CounterexampleTestgenChecker(Checker):
                 "issues": errors,
                 "rtl_bugs_total": len(rtl_bugs),
                 "covered": len(covered_bugs),
-                "test_functions_found": list(test_funcs.keys()),
+                "test_functions_found": list(impl_functions.keys()),
             }
             if quality_warnings:
                 result["warnings"] = quality_warnings
@@ -1563,10 +1406,10 @@ class CounterexampleTestgenChecker(Checker):
             "message": (
                 f"✅ Counterexample test generation passed: "
                 f"{len(rtl_bugs)} RTL_BUG properties covered by "
-                f"{len(test_funcs)} test functions"
+                f"{len(impl_functions)} test functions"
             ),
             "rtl_bugs": rtl_bugs,
-            "test_functions": list(test_funcs.keys()),
+            "test_functions": list(impl_functions.keys()),
         }
         if quality_warnings:
             result["warnings"] = quality_warnings

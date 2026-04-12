@@ -15,6 +15,35 @@ if {[llength $RTL_FILES] == 0} {
 lappend RTL_FILES [file join $SCRIPT_DIR {{DUT}}_checker.sv]
 lappend RTL_FILES [file join $SCRIPT_DIR {{DUT}}_wrapper.sv]
 
+{% if FORMAL_TOOL == "vcformal" %}
+# ==============================================================================
+# VC Formal Configuration Block
+# ==============================================================================
+set_app_var fml_mode_on true
+set_fml_appmode FPV
+
+# Read Design with Wrapper as Top
+read_file -top {{DUT}}_wrapper -format sverilog -sva -vcs $RTL_FILES
+
+# Clock and Reset
+create_clock clk -period 100
+create_reset rst_n -low
+
+# Save reset state and start proof
+sim_run -stable
+sim_save_reset
+check_fv -block
+report_fv -list
+
+# COI (Cone-of-Influence) coverage analysis
+analyze_fv_coverage
+report_fv_coverage -list_uncovered
+quit
+
+{% else %}
+# ==============================================================================
+# FormalMC Configuration Block
+# ==============================================================================
 # Read Design with Wrapper as Top
 # Using -mfcu (Multi-File Compilation Unit) is recommended for SVA binding and parameter propagation
 read_design -top {{DUT}}_wrapper -sysv -mfcu $RTL_FILES
@@ -45,6 +74,7 @@ show_prop -summary
 # COI (Cone-of-Influence) coverage analysis
 # Generates avis/fanin.rep with line-level and net-level coverage statistics
 fanin -cover -list -dump
+{% endif %}
 
 # ==============================================================================
 # Pure Tcl VCD Patcher for 'surfer' compatibility

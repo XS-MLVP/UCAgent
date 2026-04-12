@@ -1,10 +1,10 @@
 
 ex_tools:
-  - "examples.Formal.scripts.formal_tools.GenerateFormalEnv"
-  - "examples.Formal.scripts.formal_tools.RunFormalVerification"
-  - "examples.Formal.scripts.formal_tools.InitEnvAnalysis"
-  - "examples.Formal.scripts.formal_tools.InitTestFile"
-  - "examples.Formal.scripts.formal_tools.InitBugReport"
+  - "examples.Formal.scripts.formal_skill.GenerateFormalEnv"
+  - "examples.Formal.scripts.formal_skill.RunFormalVerification"
+  - "examples.Formal.scripts.formal_skill.InitEnvAnalysis"
+  - "examples.Formal.scripts.formal_skill.InitTestFile"
+  - "examples.Formal.scripts.formal_skill.InitBugReport"
 
 # ---------- Skill Configuration ----------
 skill:
@@ -361,7 +361,7 @@ stage:
       - "迭代中若有新的异常属性，调用 `UpdateEnvAnalysis` 进行增量文档追加。"
       - "注：如有需要，请自行使用 ReadTextFile 查阅 {RTL_PATH}/{DUT}.v 或 Guide_Doc/sva_property.md。"
     reference_files:
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
       - "Guide_Doc/env_analysis.md"
@@ -384,7 +384,7 @@ stage:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
       - "**首要行动：加载 `coverage-optimization` 技能并按其步骤执行。**"
     reference_files:
-      - "{OUT}/tests/avis/fanin.rep"
+      - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/03_{DUT}_functions_and_checks.md"
     output_files:
@@ -416,7 +416,7 @@ stage:
       - "{OUT}/07_{DUT}_env_analysis.md"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
     output_files:
       - "{OUT}/tests/test_{DUT}_counterexample.py"
     checker:
@@ -440,7 +440,7 @@ stage:
     reference_files:
       - "Guide_Doc/bug_report.md"
       - "{OUT}/07_{DUT}_env_analysis.md"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
     output_files:
       - "{OUT}/04_{DUT}_bug_report.md"
@@ -455,8 +455,8 @@ stage:
     task:
       - "目标：将静态Bug分析阶段发现的潜在Bug与形式化验证结果进行关联，建立标签追踪链接，消除所有<LINK-BUG-[BG-TBD]>占位标签"
       - "第1步：扫描{OUT}/04_{DUT}_static_bug_analysis.md，列出所有<BG-STATIC-*>条目及其<LINK-BUG-[BG-TBD]>标签，确认每个待关联的静态Bug"
-      - "第2步：读取{OUT}/tests/avis.log和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
-      - "  - 从avis.log提取所有FALSE状态的属性"
+      - "第2步：读取{OUT}/tests/{LOG_FILE}和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
+      - "  - 从 {LOG_FILE} 提取所有FALSE状态的属性"
       - "  - 从bug_report.md提取所有<BG-*>标签及其详细信息"
       - "第3步：建立静态Bug与形式化Bug的关联映射"
       - "  对于每个<BG-STATIC-*>静态Bug，执行以下判断："
@@ -486,7 +486,7 @@ stage:
     reference_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
       - "{OUT}/04_{DUT}_bug_report.md"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
     output_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
     checker:
@@ -501,13 +501,13 @@ stage:
     desc: "验证总结与审查"
     task:
       - "目标：生成形式化验证的最终总结与审查报告。"
-      - "第1步：读取 `{OUT}/tests/avis.log` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
+      - "第1步：读取 `{OUT}/tests/{LOG_FILE}` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
       - "第2步：参考 `Guide_Doc/formal_summary.md` 格式，编写 `{OUT}/05_{DUT}_formal_summary.md`。"
       - "第3步：完成后调用 Check 工具，等待人工审核。"
     reference_files:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
-      - "{OUT}/tests/avis.log"
-      - "{OUT}/tests/avis/fanin.rep"
+      - "{OUT}/tests/{LOG_FILE}"
+      - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/04_{DUT}_bug_report.md"
       - "{OUT}/tests/test_{DUT}_counterexample.py"
       - "Guide_Doc/formal_summary.md"
