@@ -4,7 +4,7 @@
 set SCRIPT_DIR [file dirname [info script]]
 
 # RTL Files - glob both .v and .sv from the RTL directory
-set RTL_DIR [file join $SCRIPT_DIR "../../{{RTL_PATH}}"]
+set RTL_DIR [file join $SCRIPT_DIR "../../{{DUT}}"]
 set RTL_FILES [glob -nocomplain [file join $RTL_DIR *.v] [file join $RTL_DIR *.sv]]
 
 if {[llength $RTL_FILES] == 0} {

@@ -7,16 +7,11 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 
 import psutil
 import pyslang
-from langchain_core.tools.base import ArgsSchema
-from pydantic import BaseModel, Field
-
-from ucagent.tools.fileops import BaseReadWrite
-from ucagent.tools.uctool import UCTool
-from ucagent.util.log import str_error, str_info
+from ucagent.util.log import str_error, str_info, warning, info
 
 from examples.Formal.scripts.formal_adapter import get_adapter
 
@@ -25,44 +20,42 @@ __all__ = [
     "parse_env_analysis_doc",
     "extract_rtl_bug_from_analysis_doc",
     "extract_python_test_functions",
-    "_terminate_process_tree",
     "run_formal_command_sync",
+    "resolve_paths",
+    "strip_prop_prefix",
+    "extract_property_code",
+    "extract_ports",
+    "detect_clock_reset",
+    "build_symbolic_logic",
+    "build_clk_rst_remap",
+    "parse_wrapper_clock_reset",
+    "extract_property_details",
+    "parse_bug_report_properties",
+    "extract_static_bugs",
+    "extract_formal_bug_tags",
+    "analyze_signal_coverage_usage",
+    "parse_spec_ck_items",
+    "run_formal_verification",
+    "summarize_execution",
 ]
-
 
 # =============================================================================
 # Shared Utilities
 # =============================================================================
 
-
 def parse_avis_log(log_path: str) -> Dict[str, list]:
-    """Parse formal log and return property result statistics.
-
-    This is the single source of truth for log parsing, shared by
-    ``RunFormalVerification`` and all Checker classes that need to
-    inspect verification results.
-
-    Returns a dict with the following keys:
-        pass            – list of assert properties that passed
-        trivially_true  – list of assert TRIVIALLY_TRUE properties
-        false           – list of assert properties that failed
-        cover_pass      – list of cover properties that passed
-        cover_fail      – list of cover properties that failed
-    """
     adapter = get_adapter()
     return adapter.parse_log(log_path)
 
-
-
+def _extract_field(field_name: str, text: str) -> Optional[str]:
+    pat = re.compile(
+        rf'[-*]*\s*\*\*{re.escape(field_name)}\*\*\s*:\s*(.*?)(?=\n\s*[-*]*\s*\*\*|\n```|\Z)',
+        re.DOTALL
+    )
+    m = pat.search(text)
+    return m.group(1).strip() if m else None
 
 def parse_env_analysis_doc(doc_path: str) -> dict:
-    """Parse analysis document.
-    
-    Returns a dictionary with:
-    - tt_entries: Output of TT blocks.
-    - fa_entries: Output of FA blocks.
-    - raw_content: Raw str.
-    """
     result = {"tt_entries": {}, "fa_entries": {}, "raw_content": ""}
     if not os.path.exists(doc_path):
         return result
@@ -82,26 +75,17 @@ def parse_env_analysis_doc(doc_path: str) -> dict:
     
     def _parse_entry_body(body: str, is_tt: bool) -> dict:
         entry = {}
-        def _ext(field_name, text):
-            pat = re.compile(
-                rf'[-*]*\s*\*\*{re.escape(field_name)}\*\*\s*:\s*(.*?)(?=\n\s*[-*]*\s*\*\*|\n```|\Z)',
-                re.DOTALL
-            )
-            m = pat.search(text)
-            return m.group(1).strip() if m else None
-
-        entry["prop_name_field"] = _ext("属性名", body) or _ext("Property", body)
+        entry["prop_name_field"] = _extract_field("属性名", body) or _extract_field("Property", body)
         if is_tt:
-            entry["root_cause"] = _ext("根因分类", body) or _ext("Root Cause", body) or ""
-            entry["related_assume"] = _ext("关联 Assume", body) or _ext("Related Assume", body) or ""
-            entry["action"] = _ext("修复动作", body) or _ext("Fix Action", body) or ""
-            entry["action_detail"] = _ext("修复说明", body) or _ext("Fix Detail", body) or ""
+            entry["root_cause"] = _extract_field("根因分类", body) or _extract_field("Root Cause", body) or ""
+            entry["related_assume"] = _extract_field("关联 Assume", body) or _extract_field("Related Assume", body) or ""
+            entry["action"] = _extract_field("修复动作", body) or _extract_field("Fix Action", body) or ""
+            entry["action_detail"] = _extract_field("修复说明", body) or _extract_field("Fix Detail", body) or ""
         else:
-            entry["resolution"] = _ext("解决状态", body) or _ext("Resolution", body) or _ext("判定结果", body) or _ext("Judgment", body) or ""
-            entry["action_detail"] = _ext("修复说明", body) or _ext("Fix Detail", body) or ""
-            entry["prop_type"] = _ext("属性类型", body) or _ext("Property Type", body) or ""
-
-        entry["analysis"] = _ext("分析", body) or _ext("Analysis", body) or _ext("反例/分析", body) or ""
+            entry["resolution"] = _extract_field("解决状态", body) or _extract_field("Resolution", body) or _extract_field("判定结果", body) or _extract_field("Judgment", body) or ""
+            entry["action_detail"] = _extract_field("修复说明", body) or _extract_field("Fix Detail", body) or ""
+            entry["prop_type"] = _extract_field("属性类型", body) or _extract_field("Property Type", body) or ""
+        entry["analysis"] = _extract_field("分析", body) or _extract_field("Analysis", body) or _extract_field("反例/分析", body) or ""
         return entry
 
     for match in tt_pattern.finditer(content):
@@ -123,63 +107,37 @@ def parse_env_analysis_doc(doc_path: str) -> dict:
     return result
 
 def extract_rtl_bug_from_analysis_doc(analysis_path: str) -> List[Tuple[str, str]]:
-    """Extract RTL_BUG property names and FA IDs from the analysis document.
-
-    This is the single source of truth for RTL bug identification.
-    Returns a list of (fa_id, prop_name) tuples,
-    e.g. ``[('FA-001', 'A_CK_SUM_WIDTH'), ...]``.
-    """
     doc = parse_env_analysis_doc(analysis_path)
     rtl_bugs = []
-    
-    # We iterate properly checking resolution
     for prop_name, entry in doc.get("fa_entries", {}).items():
-        if entry.get("resolution", "").strip().upper() == "RTL_BUG" or "RTL_BUG" in entry.get("resolution", "").strip().upper():
+        if entry.get("resolution", "").strip().upper() == "RTL_BUG":
             rtl_bugs.append((entry["id"], prop_name))
-            
-    # Sort to remain consistent behavior
     rtl_bugs.sort(key=lambda x: str(x[0]))
     return rtl_bugs
 
-
 def extract_python_test_functions(test_path: str) -> dict:
-    """Extract test function details from the Python test file.
-    Returns: { 'test_cex_A_CK_XXX': {'has_assert': bool, 'has_finish': bool}, ... }
-    """
     functions = {}
     if not os.path.exists(test_path):
         return functions
-
     with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
         content = f.read()
-
     func_pattern = re.compile(r'^def\s+(test_cex_\w+)\s*\(', re.MULTILINE)
     func_matches = list(func_pattern.finditer(content))
-
     for idx, match in enumerate(func_matches):
         func_name = match.group(1)
-        # Get the function body (until the next def or end of file)
         start = match.start()
-        if idx + 1 < len(func_matches):
-            end = func_matches[idx + 1].start()
-        else:
-            end = len(content)
+        end = func_matches[idx + 1].start() if idx + 1 < len(func_matches) else len(content)
         func_body = content[start:end]
-
         functions[func_name] = {
             'has_assert': 'assert ' in func_body,
             'has_finish': 'Finish()' in func_body,
         }
-
     return functions
 
-
 def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
-    """Gracefully terminate a process and all its children."""
     try:
         parent = psutil.Process(proc.pid)
         children = parent.children(recursive=True)
-        # Terminate children first, then parent
         for child in children:
             try:
                 child.terminate()
@@ -189,9 +147,7 @@ def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
             parent.terminate()
         except psutil.NoSuchProcess:
             pass
-        # Wait for all to exit
         gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
-        # Force-kill any survivors
         for p in alive:
             try:
                 p.kill()
@@ -200,25 +156,12 @@ def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
     except psutil.NoSuchProcess:
         pass
     except Exception:
-        # Last resort
         try:
             proc.kill()
         except Exception:
             pass
 
-
 def run_formal_command_sync(cmd: List[str], exec_dir: str, timeout: int = 300, on_start=None) -> Tuple[bool, str, str, str]:
-    """Execute formal command synchronously with timeout and cleanup.
-    
-    Args:
-        cmd: Command list to execute
-        exec_dir: Working directory
-        timeout: Execution timeout in seconds
-        on_start: Optional callback function triggered immediately after Popen with the worker instance.
-        
-    Returns:
-        (success, stdout, stderr, error_msg)
-    """
     stdout_log = ""
     stderr_log = ""
     try:
@@ -231,24 +174,392 @@ def run_formal_command_sync(cmd: List[str], exec_dir: str, timeout: int = 300, o
         )
         if on_start:
             on_start(worker)
-            
         try:
             stdout_log, stderr_log = worker.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _terminate_process_tree(worker, timeout=5)
-            # Fetch any remaining output after termination
             stdout_log, stderr_log = worker.communicate()
             return False, stdout_log, stderr_log, f"Timeout after {timeout} seconds"
-
         if worker.returncode != 0:
             return False, stdout_log, stderr_log, f"Return code {worker.returncode}"
-            
         return True, stdout_log, stderr_log, ""
-
     except FileNotFoundError:
         return False, "", "", f"Command '{cmd[0]}' not found"
     except Exception as e:
         return False, "", "", f"Execution error: {e}"
 
+def run_formal_verification(tcl_path: str, timeout: int = 300, on_start=None) -> dict:
+    """Executes formal verification script and returns structured results."""
+    adapter = get_adapter()
+    exec_dir = os.path.dirname(tcl_path)
+    log_path = os.path.join(exec_dir, adapter.log_filename())
+    cmd = adapter.build_command(tcl_path, exec_dir)
+    
+    success, stdout, stderr, err_msg = run_formal_command_sync(cmd, exec_dir, timeout, on_start)
+    if not success:
+        return {
+            "success": False, "error": err_msg, "log_path": log_path,
+            "parsed_log": None, "blackbox_count": 0, "has_results": False,
+            "stdout": stdout, "stderr": stderr
+        }
+        
+    if not os.path.exists(log_path):
+        return {
+            "success": False, "error": "Log not generated", "log_path": log_path,
+            "parsed_log": None, "blackbox_count": 0, "has_results": False,
+            "stdout": stdout, "stderr": stderr
+        }
+        
+    with open(log_path, 'r', encoding='utf-8') as f:
+        log_content = f.read()
+        
+    blackbox_count = adapter.extract_blackbox_count(log_content)
+    has_results = adapter.validate_log_has_results(log_content)
+    parsed_log = parse_avis_log(log_path) if has_results else None
+    
+    return {
+        "success": has_results,
+        "error": None if has_results else "No valid results in log",
+        "log_path": log_path,
+        "parsed_log": parsed_log,
+        "blackbox_count": blackbox_count,
+        "has_results": has_results,
+        "stdout": stdout,
+        "stderr": stderr
+    }
 
+def summarize_execution(stdout: str, stderr: str, max_chars: int = 1500) -> str:
+    """Summarizes stdout and stderr into a single string for LLM consumption, truncating if necessary."""
+    def trunc(txt: str) -> str:
+        if not txt: return ""
+        if len(txt) <= max_chars: return txt
+        half = max_chars // 2
+        return txt[:half] + "\n\n... [LOG TRUNCATED, SHOWING START AND END] ...\n\n" + txt[-half:]
 
+    res = []
+    if stderr:
+        res.append(f"--- STDERR ---\n{trunc(stderr)}")
+    if stdout and "Return code" not in stdout: # just sanity
+        # if stdout is extremely long we truncate it as well
+        res.append(f"--- STDOUT ---\n{trunc(stdout)}")
+        
+    return "\n".join(res) if res else "(empty)"
+
+def resolve_paths(dut_name: str, output_dir: str = "formal_test", **kwargs) -> dict:
+    workspace = os.environ.get("UCAGENT_WORKSPACE", os.getcwd())
+    formal_test_dir = os.path.join(workspace, output_dir)
+    tests_dir = os.path.join(formal_test_dir, "tests")
+    adapter = get_adapter()
+    
+    rtl_dir = kwargs.get("rtl_dir")
+    if not rtl_dir:
+        rtl_dir = os.path.abspath(os.path.join(workspace, dut_name))
+    elif not os.path.isabs(rtl_dir):
+        rtl_dir = os.path.abspath(os.path.join(workspace, rtl_dir))
+
+    return {
+        "workspace":      workspace,
+        "rtl_dir":        rtl_dir,
+        "checker_file":   kwargs.get("checker_file")   or os.path.join(tests_dir, f"{dut_name}_checker.sv"),
+        "wrapper_file":   kwargs.get("wrapper_file")   or os.path.join(tests_dir, f"{dut_name}_wrapper.sv"),
+        "spec_file":      kwargs.get("spec_file")      or os.path.join(formal_test_dir, f"03_{dut_name}_functions_and_checks.md"),
+        "tcl_script":     kwargs.get("tcl_script")     or os.path.join(tests_dir, f"{dut_name}_formal.tcl"),
+        "log_file":       kwargs.get("log_file")       or os.path.join(tests_dir, adapter.log_filename()),
+        "fanin_rep":      kwargs.get("fanin_rep")      or adapter.coverage_report_path(tests_dir),
+        "docs_dir":       kwargs.get("docs_dir")       or formal_test_dir,
+        "analysis_doc":   kwargs.get("analysis_doc")   or os.path.join(formal_test_dir, f"07_{dut_name}_env_analysis.md"),
+        "bug_report_doc": kwargs.get("bug_report_doc") or os.path.join(formal_test_dir, f"04_{dut_name}_bug_report.md"),
+        "static_doc":     kwargs.get("static_doc")     or os.path.join(formal_test_dir, f"04_{dut_name}_static_bug_analysis.md"),
+        "test_file":      kwargs.get("test_file")      or os.path.join(tests_dir, f"test_{dut_name}_counterexample.py"),
+        "rtl_path":       kwargs.get("rtl_path")       or os.path.join(workspace, dut_name, f"{dut_name}.v"),
+    }
+
+def strip_prop_prefix(prop_name: str) -> str:
+    for prefix in ("A_CK_", "M_CK_", "C_CK_", "CK_", "A_", "M_", "C_"):
+        if prop_name.startswith(prefix):
+            return prop_name[len(prefix):]
+    return prop_name
+
+def extract_property_code(checker_content: str, prop_name: str) -> str:
+    if not checker_content:
+        return f"  // Property code unavailable for {prop_name}"
+    pattern = re.compile(
+        rf"(property\s+(?:(?:A|M|C)_)?{re.escape(prop_name)}[\s;].*?endproperty)",
+        re.DOTALL,
+    )
+    match = pattern.search(checker_content)
+    if match:
+        return "\n".join("  " + line for line in match.group(1).split("\n"))
+    pattern_inline = re.compile(
+        rf"(?:assert|assume|cover)\s+property\s*\([^;]*{re.escape(prop_name)}[^;]*\)\s*;"
+    )
+    match = pattern_inline.search(checker_content)
+    if match:
+        return f"  {match.group(0)}"
+    core_name = strip_prop_prefix(prop_name)
+    if core_name != prop_name:
+        pattern_core = re.compile(
+            rf"(property\s+.*?{re.escape(core_name)}.*?;.*?endproperty)",
+            re.DOTALL,
+        )
+        match = pattern_core.search(checker_content)
+        if match:
+            return "\n".join("  " + line for line in match.group(1).split("\n"))
+    lines = checker_content.split("\n")
+    for i, line in enumerate(lines):
+        if prop_name in line and ("assert" in line or "property" in line or ":" in line):
+            return "\n".join(lines[max(0, i - 3):min(len(lines), i + 6)])
+    for i, line in enumerate(lines):
+        if prop_name in line:
+            return "\n".join(lines[max(0, i - 2):min(len(lines), i + 4)])
+    return f"  // Property definition not found for {prop_name}"
+
+def parse_spec_ck_items(content: str) -> List[Tuple[str, str, str]]:
+    """Extract CK items from spec document.
+    Returns list of (ck_name, style, raw_desc_line)
+    """
+    ck_pattern = re.compile(r"<\s*CK-([^>]+)\s*>")
+    style_pattern = re.compile(r"\(\s*Style:\s*([A-Za-z]+)\s*\)")
+    results = []
+    
+    for line in content.split("\n"):
+        ck_match = ck_pattern.search(line)
+        if ck_match:
+            ck_name = ck_match.group(1).replace("-", "_")
+            style_match = style_pattern.search(line)
+            style = style_match.group(1) if style_match else "Seq"
+            results.append((ck_name, style, line.strip()))
+    return results
+
+def extract_property_details(content: str) -> dict:
+    """Extract property details ``{name: {body, type}}`` from checker.sv content.
+
+    Args:
+        content: Raw SystemVerilog source text (NOT a file path).
+
+    Returns:
+        Dict mapping ``CK_*`` property names to ``{'body': str, 'type': str|None}``.
+    """
+    details = {}
+    if not content:
+        return details
+    try:
+        prop_blocks = re.findall(r'property\s+(CK_[A-Za-z0-9_]+)\s*;(.*?)\bendproperty', content, re.DOTALL)
+        for name, body in prop_blocks:
+            details[name] = {'body': body, 'type': None}
+        stmt_matches = re.findall(r'(\w+)\s*:\s*(assert|assume|cover)\s+property\s*\((CK_[A-Za-z0-9_]+)\)', content)
+        for inst_label, p_type, prop_name in stmt_matches:
+            if prop_name in details:
+                details[prop_name]['type'] = p_type
+        return details
+    except Exception as e:
+        warning(f"Failed to extract property details: {e}")
+        return {}
+
+def extract_ports(file_path: str) -> Tuple[str, List[Tuple[str, str]], List[Tuple[str, str]]]:
+    try:
+        tree = pyslang.SyntaxTree.fromFile(file_path)
+    except Exception as e:
+        str_error(f"Failed to parse RTL file with pyslang: {e}")
+        return f"// Error parsing file: {e}", [], []
+
+    port_info_list = []
+    param_info_list = []
+
+    for member in tree.root.members:
+        if member.kind == pyslang.SyntaxKind.ModuleDeclaration:
+            header = member.header
+            if hasattr(header, "parameters") and header.parameters:
+                if hasattr(header.parameters, "declarations"):
+                    for decl in header.parameters.declarations:
+                        if decl.kind == pyslang.SyntaxKind.ParameterDeclaration:
+                            if hasattr(decl, "declarators"):
+                                for declarator in decl.declarators:
+                                    if hasattr(declarator, "name"):
+                                        param_name = declarator.name.value
+                                        default_value = None
+                                        if hasattr(declarator, "initializer") and declarator.initializer:
+                                            default_value = str(declarator.initializer.expr).strip()
+                                        if default_value:
+                                            full_param_def = f"parameter {param_name} = {default_value}"
+                                        else:
+                                            full_param_def = f"parameter {param_name}"
+                                        param_info_list.append((param_name, full_param_def))
+                                        str_info(f"Extracted parameter: {param_name} = {default_value}")
+            if hasattr(header, "ports") and header.ports.kind == pyslang.SyntaxKind.AnsiPortList:
+                for port in header.ports.ports:
+                    if port.kind == pyslang.SyntaxKind.ImplicitAnsiPort:
+                        port_name = port.declarator.name.value
+                        full_def = str(port).strip()
+                        port_info_list.append((port_name, full_def))
+                        str_info(f"Extracted port: {port_name}")
+            break
+
+    if not port_info_list:
+        str_error("No ports found in module")
+        return "// Error: No ports found", [], []
+    port_decl_str = ",\n  ".join([info[1] for info in port_info_list])
+    str_info(f"Extracted {len(param_info_list)} parameters and {len(port_info_list)} ports")
+    return port_decl_str, port_info_list, param_info_list
+
+def detect_clock_reset(port_info: List[Tuple[str, str]]) -> Tuple[Optional[str], Optional[str], bool]:
+    clk_exact = frozenset({"clk", "clock", "sys_clk", "i_clk", "i_clock", "pclk", "aclk", "hclk", "fclk", "clk_i", "clk_in"})
+    rst_exact = frozenset({"rst_n", "rstn", "rst", "reset", "reset_n", "resetn", "sys_rst", "arst_n", "arst", "nreset", "n_reset", "rst_b", "reset_b", "i_rst", "i_reset", "i_rstn", "i_rst_n", "rst_ni", "rst_i"})
+    clk_port, rst_port = None, None
+    for port_name, _ in port_info:
+        lower = port_name.lower()
+        if clk_port is None and lower in clk_exact: clk_port = port_name
+        if rst_port is None and lower in rst_exact: rst_port = port_name
+    if clk_port is None or rst_port is None:
+        for port_name, _ in port_info:
+            lower = port_name.lower()
+            if clk_port is None and ("clk" in lower or "clock" in lower): clk_port = port_name
+            if rst_port is None and ("rst" in lower or "reset" in lower): rst_port = port_name
+    rst_active_low = True
+    if rst_port:
+        lower_rst = rst_port.lower()
+        if lower_rst in ("rst", "reset", "arst", "sys_rst", "i_rst", "i_reset"):
+            rst_active_low = False
+    str_info(f"Detected clock: '{clk_port}', reset: '{rst_port}' (active-{'low' if rst_active_low else 'high'})")
+    return clk_port, rst_port, rst_active_low
+
+def build_symbolic_logic(port_info: List[Tuple[str, str]]) -> Tuple[Dict[str, List[str]], str, int]:
+    symbolic_groups: Dict[str, List[str]] = {}
+    for port_name, _ in port_info:
+        match = re.match(r"^(.*)_(\d+)$", port_name)
+        if match:
+            base_name, index = match.groups()
+            symbolic_groups.setdefault(base_name, []).append(index)
+    if not symbolic_groups:
+        return {}, "", 4
+    max_index = max(int(idx) for indices in symbolic_groups.values() for idx in indices)
+    fv_idx_width = max(1, int(math.ceil(math.log2(max_index + 1))))
+
+    lines = [
+        "  // =============================================================================",
+        "  // Symbolic Indexing Configuration",
+        "  // =============================================================================",
+        f"  // Detected {len(symbolic_groups)} array structures, symbolic verification required",
+        f"  // Index width: {fv_idx_width} bits (supports indices 0 to {(2**fv_idx_width) - 1})",
+        "  //",
+        "  // [IMPORTANT] Please add the following constraints to the checker to prevent false positives:",
+        "  // 1. M_CK_FV_IDX_STABLE: assume property(@(posedge clk) disable iff(!rst_n) $stable(fv_idx));",
+        "  // 2. M_CK_FV_IDX_VALID:  assume property(@(posedge clk) fv_idx < NUM_PORTS);",
+        "  // 3. M_CK_FV_IDX_KNOWN:  assume property(@(posedge clk) !$isunknown(fv_idx));",
+        "  //",
+    ]
+    for base, indices in symbolic_groups.items():
+        if len(indices) <= 1: continue
+        sorted_indices = sorted(int(idx) for idx in indices)
+        width_str = ""
+        for p_name, p_def in port_info:
+            if p_name == f"{base}_{sorted_indices[0]}":
+                width_m = re.search(r"\[(\d+:\d+)\]", p_def)
+                if width_m: width_str = f"[{width_m.group(1)}] "
+                break
+        lines.append(f"  // Array '{base}' contains {len(indices)} elements (indices {sorted_indices[0]} to {sorted_indices[-1]})")
+        lines.append(f"  // wire {width_str}fv_mon_{base};")
+        lines.append("  // always_comb begin")
+        mux_parts = [f"(fv_idx == {idx}) ? {base}_{idx}" for idx in sorted_indices]
+        mux_expr = " : ".join(mux_parts) + " : 'x;"
+        lines.append(f"  //   fv_mon_{base} = {mux_expr}")
+        lines.append("  // end")
+        lines.append("  //")
+    return symbolic_groups, "\n".join(lines), fv_idx_width
+
+def build_clk_rst_remap(clk_port: Optional[str], rst_port: Optional[str], rst_active_low: bool) -> str:
+    remap_lines = []
+    if clk_port is None or rst_port is None:
+        missing = []
+        if clk_port is None: missing.append("clk")
+        if rst_port is None: missing.append("rst_n")
+        remap_lines.append(f"  // No {'/'.join(missing)} detected in RTL (combinational design); added for SVA sampling only")
+    if clk_port and clk_port != "clk":
+        remap_lines.append(f"  // Clock remapping: RTL uses '{clk_port}', wrapper standardizes to 'clk'")
+        remap_lines.append(f"  wire {clk_port} = clk;")
+    if rst_port and rst_port != "rst_n":
+        if rst_active_low:
+            remap_lines.append(f"  // Reset remapping: RTL uses '{rst_port}' (active-low), mapped from 'rst_n'")
+            remap_lines.append(f"  wire {rst_port} = rst_n;")
+        else:
+            remap_lines.append(f"  // Reset remapping: RTL uses '{rst_port}' (active-high), inverted from 'rst_n'")
+            remap_lines.append(f"  wire {rst_port} = ~rst_n;")
+    return "\n".join(remap_lines)
+
+def parse_wrapper_clock_reset(wrapper_path: str) -> Tuple[Optional[str], Optional[str]]:
+    clock_name, reset_name = None, None
+    if not os.path.exists(wrapper_path): return clock_name, reset_name
+    with open(wrapper_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+    clk_match = re.search(r"wire\s+clk\s*=\s*(\w+)\s*;", content)
+    if clk_match: clock_name = clk_match.group(1)
+    rst_match = re.search(r"wire\s+rst_n\s*=\s*(\w+)\s*;", content)
+    if rst_match: reset_name = rst_match.group(1)
+    if clock_name is None:
+        for pat in [r"input\s+(?:wire\s+)?(\w*cl(?:oc)?k\w*)", r"input\s+(?:wire\s+)?(clk\w*)"]:
+            m = re.search(pat, content, re.IGNORECASE)
+            if m: clock_name = m.group(1); break
+    if reset_name is None:
+        for pat in [r"input\s+(?:wire\s+)?(\w*res(?:et)?\w*)", r"input\s+(?:wire\s+)?(rst\w*)"]:
+            m = re.search(pat, content, re.IGNORECASE)
+            if m: reset_name = m.group(1); break
+    return clock_name, reset_name
+
+def parse_bug_report_properties(content: str) -> Set[str]:
+    report_sections = re.split(r'##\s*❌?\s*Failed Property:\s*`?([\w.]+)`?', content)
+    reported_props = set()
+    for i in range(1, len(report_sections), 2):
+        prop_name = report_sections[i].strip()
+        short_name = prop_name.split('.')[-1] if '.' in prop_name else prop_name
+        reported_props.add(short_name)
+    return reported_props
+
+def extract_static_bugs(static_path: str) -> dict:
+    result = {"pending": [], "confirmed": [], "false_positive": []}
+    if not os.path.exists(static_path): return result
+    with open(static_path, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+    bg_pattern = re.compile(r'(<BG-STATIC-[A-Za-z0-9_-]+>)')
+    bg_matches = bg_pattern.findall(content)
+    link_pattern = re.compile(r'(<LINK-BUG-\[([^\]]+)\]>)')
+    for bg_id in bg_matches:
+        bg_pos = content.find(bg_id)
+        if bg_pos == -1: continue
+        search_range = content[bg_pos:bg_pos + 500]
+        link_matches = link_pattern.findall(search_range)
+        if link_matches:
+            for full_tag, link_value in link_matches:
+                if link_value == "BG-TBD": result["pending"].append((bg_id, full_tag))
+                elif link_value == "BG-NA": result["false_positive"].append((bg_id, full_tag))
+                else: result["confirmed"].append((bg_id, full_tag))
+    return result
+
+def extract_formal_bug_tags(bug_report_path: str) -> Set[str]:
+    formal_bugs = set()
+    if os.path.exists(bug_report_path):
+        with open(bug_report_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        bg_pattern = re.compile(r'<(BG-[A-Za-z0-9_-]+)>')
+        formal_bugs.update(bg_pattern.findall(content))
+    return formal_bugs
+
+def analyze_signal_coverage_usage(checker_content: str, uncovered: List[str]) -> List[str]:
+    cover_only_signals = []
+    for sig in uncovered[:10]:
+        base_name = re.sub(r'\[.*\]', '', sig).strip()
+        base_name = base_name.replace("checker_inst.", "")
+        if not base_name: continue
+        in_assert = bool(re.search(rf'\bassert\s+property\b.*?{re.escape(base_name)}', checker_content, re.DOTALL)) or \
+                    bool(re.search(rf'{re.escape(base_name)}.*?\bassert\s+property\b', checker_content, re.DOTALL))
+        in_cover = bool(re.search(rf'\bcover\s+property\b.*?{re.escape(base_name)}', checker_content, re.DOTALL))
+        if in_cover and not in_assert:
+            cover_only_signals.append(base_name)
+    if cover_only_signals:
+        unique_sigs = list(dict.fromkeys(cover_only_signals))
+        return [
+            f"⚠️  These uncovered signals appear in cover but NOT in any assert:\n"
+            + "\n".join(f"    - {s}" for s in unique_sigs[:10]) + "\n"
+            f"  Cover properties provide WEAK COI contribution.\n"
+            f"  → Write assert properties that verify the behavioral correctness of these signals."
+        ]
+    return []
