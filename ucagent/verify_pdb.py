@@ -959,11 +959,23 @@ class VerifyPDB(Pdb):
         updated = []
         stage_manager = self.agent.stage_manager
         current_stage = stage_manager.get_current_stage()
+        has_non_skip_update = any(
+            value is not None
+            for value in (hmcheck_needed, llm_fail_suggestion, llm_pass_suggestion)
+        )
         for stage_index in indices:
             stage = stage_manager.get_stage(stage_index)
             if stage is None:
                 raise ValueError(f"No stage found at index {stage_index}.")
-            if stage_index <= stage_manager.stage_index or stage.is_completed() or (current_stage is not None and stage == current_stage):
+            is_current_stage = current_stage is not None and stage == current_stage
+            if stage.is_completed() or stage_index < stage_manager.stage_index:
+                raise ValueError(f"Stage {stage_index} cannot be modified after completion.")
+            if is_current_stage:
+                if skip is not None:
+                    raise ValueError(f"Stage {stage_index} cannot be skipped while it is in progress.")
+                if not has_non_skip_update:
+                    raise ValueError(f"Stage {stage_index} has no editable flags in this request.")
+            elif stage_index <= stage_manager.stage_index:
                 raise ValueError(f"Stage {stage_index} cannot be modified after completion or while it is in progress.")
             if hmcheck_needed is not None:
                 stage.do_set_hmcheck_needed(hmcheck_needed)

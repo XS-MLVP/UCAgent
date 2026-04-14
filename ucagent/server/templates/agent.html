@@ -112,6 +112,19 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-file-container{display:flex;flex-direction:column;height:100%}
 .stage-diff-section{margin-bottom:8px}
 .stage-diff-content{background:var(--bg3);padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;white-space:pre}
+.stage-diff-merge{height:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
+.stage-diff-table{width:max-content;min-width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;line-height:1.6}
+.stage-diff-table td{padding:0;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top;white-space:pre}
+.stage-diff-lnum{width:56px;min-width:56px;background:var(--bg2);color:var(--text-dim);text-align:right;user-select:none;padding:0 8px;border-right:1px solid var(--border)}
+.stage-diff-sign{width:22px;min-width:22px;text-align:center;color:var(--text-dim);user-select:none;padding:0 4px;border-right:1px solid var(--border)}
+.stage-diff-code{padding:0 12px;color:var(--text)}
+.stage-diff-row-add td{background:rgba(54,211,153,.12)}
+.stage-diff-row-add .stage-diff-sign,.stage-diff-row-add .stage-diff-code{color:var(--green)}
+.stage-diff-row-del td{background:rgba(248,114,114,.12)}
+.stage-diff-row-del .stage-diff-sign,.stage-diff-row-del .stage-diff-code{color:var(--red)}
+.stage-diff-row-hunk td{background:rgba(79,142,247,.12);color:var(--accent)}
+.stage-diff-row-note td{background:rgba(255,255,255,.04);color:var(--text-dim)}
+.stage-diff-info{padding:0 12px;white-space:pre-wrap}
 .stage-content-section{margin-bottom:8px;display:flex;flex-direction:column}
 .task-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;font-size:12px;cursor:default}
 .task-row:hover{background:var(--bg3)}
@@ -887,6 +900,7 @@ async function fetchMission(){
     let html=`<div class="mission-name">${esc(missionName)}</div>`;
     for(const stage of stages){
       const canEditFlags=!!stage.can_edit_flags;
+      const canQuickEditFlags=canEditFlags||!!stage.is_current;
       const outcome=stage.out_come;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
@@ -910,10 +924,12 @@ async function fetchMission(){
       html+=`<div style="flex:1;min-width:0">`;
       html+=`<div class="stage-row">`;
       html+=`<div class="stage-text">${_ansiToHtml(stage.text||"")}</div>`;
-      if(canEditFlags){
+      if(canQuickEditFlags){
         html+=`<div class="stage-actions">`;
         html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;
-        html+=`<button class="stage-quick-btn${stage.is_skipped?" active-skip":""}" onclick="toggleStageQuickAction(${stage.index},'skip',${stage.is_skipped?'true':'false'})" title="Toggle skip">Skip</button>`;
+        if(canEditFlags){
+          html+=`<button class="stage-quick-btn${stage.is_skipped?" active-skip":""}" onclick="toggleStageQuickAction(${stage.index},'skip',${stage.is_skipped?'true':'false'})" title="Toggle skip">Skip</button>`;
+        }
         if(enableLlmFailSuggestion){
           html+=`<button class="stage-quick-btn${stage.need_fail_llm_suggestion?" active-lf":""}" onclick="toggleStageQuickAction(${stage.index},'llm_fail_suggestion',${stage.need_fail_llm_suggestion?'true':'false'})" title="Toggle LLM fail suggestion">LF</button>`;
         }
@@ -1071,7 +1087,7 @@ function _renderStageFileContent(body,ext,showDiff){
   html+=`<div class="stage-file-container">`;
   if(showDiff&&hasDiff){
     html+=`<div class="stage-diff-section" style="margin:0;flex:1;overflow:auto">`;
-    html+=`<pre class="stage-diff-content">${esc(diff)}</pre>`;
+    html+=`<div id="stage-diff-view" class="stage-diff-merge"></div>`;
     html+=`</div>`;
   }else{
     if(_MD_EXTS.has(ext)){
@@ -1092,7 +1108,9 @@ function _renderStageFileContent(body,ext,showDiff){
   }
   html+=`</div>`;
   body.innerHTML=html;
-  if(!showDiff||!hasDiff){
+  if(showDiff&&hasDiff){
+    _renderStageUnifiedDiff(diff);
+  }else{
     if(_MD_EXTS.has(ext)){
       _renderViewMarkdown(content);
     }else{
@@ -1105,6 +1123,72 @@ function _toggleStageView(showDiff){
   const body=qs("#view-body");
   if(!body)return;
   _renderStageFileContent(body,_viewCurrentExt,showDiff);
+}
+
+function _parseStageUnifiedDiff(diff){
+  const rows=[];
+  const lines=String(diff||"").replace(/\r\n?/g,"\n").split("\n");
+  let oldLine=0;
+  let newLine=0;
+  let inHunk=false;
+  for(const line of lines){
+    const hunk=line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)$/);
+    if(hunk){
+      oldLine=parseInt(hunk[1],10);
+      newLine=parseInt(hunk[3],10);
+      inHunk=true;
+      rows.push({type:"hunk",text:line});
+      continue;
+    }
+    if(!inHunk){
+      continue;
+    }
+    if(line==="\\ No newline at end of file"){
+      rows.push({type:"note",text:line});
+      continue;
+    }
+    if(line.startsWith("+")){
+      rows.push({type:"add",oldNumber:"",newNumber:newLine++,sign:"+",text:line.slice(1)});
+      continue;
+    }
+    if(line.startsWith("-")){
+      rows.push({type:"del",oldNumber:oldLine++,newNumber:"",sign:"-",text:line.slice(1)});
+      continue;
+    }
+    if(line.startsWith(" ")){
+      rows.push({type:"ctx",oldNumber:oldLine++,newNumber:newLine++,sign:" ",text:line.slice(1)});
+      continue;
+    }
+    rows.push({type:"note",text:line});
+  }
+  return rows;
+}
+
+function _renderStageUnifiedDiff(diff){
+  const el=qs("#stage-diff-view");
+  if(!el)return;
+  const rows=_parseStageUnifiedDiff(diff);
+  if(!rows.length){
+    el.innerHTML=`<pre class="stage-diff-content">${esc(diff)}</pre>`;
+    return;
+  }
+  let html=`<table class="stage-diff-table"><tbody>`;
+  for(const row of rows){
+    if(row.type==="hunk"||row.type==="note"){
+      const cls=row.type==="hunk"?"stage-diff-row-hunk":"stage-diff-row-note";
+      html+=`<tr class="${cls}"><td class="stage-diff-info" colspan="4">${esc(row.text)}</td></tr>`;
+      continue;
+    }
+    const cls=row.type==="add"?"stage-diff-row-add":row.type==="del"?"stage-diff-row-del":"stage-diff-row-ctx";
+    html+=`<tr class="${cls}">`;
+    html+=`<td class="stage-diff-lnum">${row.oldNumber===""?"&nbsp;":row.oldNumber}</td>`;
+    html+=`<td class="stage-diff-lnum">${row.newNumber===""?"&nbsp;":row.newNumber}</td>`;
+    html+=`<td class="stage-diff-sign">${row.sign===" "?"&nbsp;":esc(row.sign)}</td>`;
+    html+=`<td class="stage-diff-code">${row.text===""?"&nbsp;":esc(row.text)}</td>`;
+    html+=`</tr>`;
+  }
+  html+=`</tbody></table>`;
+  el.innerHTML=html;
 }
 
 /* ── tools ── */
