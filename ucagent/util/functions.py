@@ -758,17 +758,19 @@ def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list
 
     copied_skills = []
     
-    # get all skills in src_dir
-    all_skills = []
-    for item in os.listdir(src_dir):
-        item_path = os.path.join(src_dir, item)
-        if os.path.isdir(item_path):
-            all_skills.append(item)
+    # recursively discover skills by SKILL.md
+    skill_dir_map = {}
+    for root, _, files in os.walk(src_dir):
+        if "SKILL.md" not in files:
+            continue
+        skill_name = os.path.basename(root)
+        skill_dir_map[skill_name] = root
+    all_skills = list(skill_dir_map.keys())
     
     # determine which skills to copy based on enable_skill_list and disable_skill_list
     skills_to_copy = []
     if enable_skill_list:
-        skills_to_copy = [skill for skill in enable_skill_list if skill in all_skills]
+        skills_to_copy = [skill for skill in enable_skill_list if skill in skill_dir_map]
     elif disable_skill_list:
         skills_to_copy = [skill for skill in all_skills if skill not in disable_skill_list]
     else:
@@ -776,10 +778,11 @@ def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list
     
     # copy skill
     for skill in skills_to_copy:
-        src_skill_dir = os.path.join(src_dir, skill)
-        dst_skill_dir = os.path.join(dst_dir, skill) 
-        if not os.path.exists(src_skill_dir):
+        src_skill_dir = skill_dir_map.get(skill)
+        if not src_skill_dir or not os.path.exists(src_skill_dir):
             continue
+        skill_rel_dir = os.path.relpath(src_skill_dir, src_dir)
+        dst_skill_dir = os.path.join(dst_dir, skill_rel_dir)
         if not os.path.exists(dst_skill_dir):
             os.makedirs(dst_skill_dir)
         for root, dirs, files in os.walk(src_skill_dir):
@@ -802,6 +805,18 @@ def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list
                 copied_skills.append(skill)
     
     return copied_skills
+
+
+def find_skill_dir_by_name(root_dir, target_dir_name):
+    if not root_dir or not target_dir_name:
+        return None
+    if not os.path.isdir(root_dir):
+        return None
+
+    for root, dirs, _ in os.walk(root_dir):
+        if target_dir_name in dirs:
+            return os.path.join(root, target_dir_name)
+    return None
 
 def render_template_dir(workspace, template_dir, kwargs):
     """
@@ -2318,7 +2333,7 @@ def copy_skill_files(cfg, workspace, root_dir):
         workspace: Workspace directory path
         root_dir: Root directory path
     """
-    dst_path = os.path.join(workspace, ".ucagent/skills")
+    dst_path = get_workspace_skill_root(workspace)
     src_paths=[]
     # default skills path
     default_skill_path = os.path.join(root_dir,"lang",cfg.lang,"skills")
@@ -2377,3 +2392,6 @@ def find_most_similar_strings(a: Union[str, List[str]], b: List[str]) -> Union[i
                 best_index = idx
         result.append((a_item, best_index))
     return result
+
+def get_workspace_skill_root(workspace):
+    return get_abs_path_cwd_ucagent(workspace, "skills")

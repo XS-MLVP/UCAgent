@@ -5,7 +5,6 @@ This module provides tools to list and manage available skills in the workspace.
 
 import re
 import os
-import shutil
 from pathlib import Path
 from typing import Optional, TypedDict, Any, List
 import yaml
@@ -14,6 +13,7 @@ from pydantic import Field, BaseModel
 import subprocess
 from .uctool import UCTool, ArgsSchema, EmptyArgs
 from ucagent.util.log import warning,info
+import ucagent.util.functions as fc
 
 # Security: Maximum size for SKILL.md files to prevent DoS attacks (10MB)
 MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
@@ -154,26 +154,29 @@ def _parse_skill_metadata(
     )
 
 
-def _list_skills(source_path: str, workspace: str = None) -> list[SkillMetadata]:
+def _list_skills(workspace: str) -> list[SkillMetadata]:
     """List all skills from a directory.
-    Scans directory for subdirectories containing SKILL.md files, reads their content,
+    Scans directory recursively for SKILL.md files, reads their content,
     parses YAML frontmatter, and returns skill metadata.
     Expected structure:
-        source_path/
-        ├── skill-1-name/
-        │   ├── SKILL.md        # Required
-        │   └── helper.py       # Optional
+        skill_path/
+        ├── group-a/
+        │   ├── skill-1-name/
+        │   │   ├── SKILL.md    # Required
+        │   │   ├── scripts
+        │   │   │   └── hooks.py   # Optional
         ├── skill-2-name/
         │   ├── SKILL.md        # Required
     Args:
-        source_path: Path to the skills directory
-        workspace: Path to workspace directory. If provided, skills will be copied to workspace/skills/
+        workspace: Path to the workspace directory containing skills
     Returns:
         List of skill metadata from successfully parsed SKILL.md files
     """
     skills: list[SkillMetadata] = []
 
-    # Convert to Path object for easier manipulation
+    # Convert to Path objects for easier manipulation
+    workspace_path = Path(workspace).resolve()
+    source_path = fc.get_workspace_skill_root(workspace)
     base_path = Path(source_path)
 
     # Check if source path exists
@@ -185,30 +188,12 @@ def _list_skills(source_path: str, workspace: str = None) -> list[SkillMetadata]
         warning(f"Skills source path is not a directory: {source_path}")
         return []
 
-    # Iterate through all subdirectories
+    # Iterate through all skill directories recursively by SKILL.md marker file
     try:
-        for skill_dir in base_path.iterdir():
-            if not skill_dir.is_dir():
+        for skill_md_path in sorted(base_path.rglob("SKILL.md")):
+            if not skill_md_path.is_file():
                 continue
-
-            # Check if SKILL.md exists in this directory
-            skill_md_path = skill_dir / "SKILL.md"
-            if not skill_md_path.exists():
-                continue
-
-            # Copy skill directory to workspace if workspace is provided
-            if workspace:
-                try:
-                    workspace_skills_dir = Path(workspace) / "skills"
-                    workspace_skills_dir.mkdir(parents=True, exist_ok=True)
-                    dest_skill_dir = workspace_skills_dir / skill_dir.name
-
-                    # Copy the entire skill directory to workspace
-                    if dest_skill_dir.exists():
-                        shutil.rmtree(dest_skill_dir)
-                    shutil.copytree(skill_dir, dest_skill_dir)
-                except Exception as e:
-                    warning(f"Failed to copy skill directory {skill_dir} to workspace: {e}")
+            skill_dir = skill_md_path.parent
 
             # Read SKILL.md content
             try:
@@ -224,16 +209,16 @@ def _list_skills(source_path: str, workspace: str = None) -> list[SkillMetadata]
             # Parse metadata
             skill_metadata = _parse_skill_metadata(
                 content=content,
-                skill_path=str(skill_md_path),
+                skill_path=skill_md_path.resolve().relative_to(workspace_path).as_posix(),
                 directory_name=skill_dir.name
             )
             if skill_metadata:
                 skill_metadata['script'] = {}
                 script_dir = skill_dir / "scripts"
                 if script_dir.exists() and script_dir.is_dir():
-                    for f in script_dir.iterdir():
+                    for f in sorted(script_dir.iterdir()):
                         if f.is_file() and f.name != '__init__.py' and f.name != 'hooks.py':
-                            skill_metadata['script'][f.name] = str(f)
+                            skill_metadata['script'][f.name] = f.resolve().relative_to(workspace_path).as_posix()
                 skills.append(skill_metadata)
 
     except PermissionError as e:
@@ -252,17 +237,26 @@ def list_skills_in_format(skills: list[SkillMetadata], workspace: str = '.', abl
     Returns:
         A formatted string listing each skill's name, description, and path
     """
+    def _format_display_path(path_value: str) -> str:
+        p = Path(path_value)
+        if not p.is_absolute():
+            return str(p)
+        try:
+            return str(p.relative_to(Path(workspace)))
+        except ValueError:
+            return str(p)
+
     result_lines = []
     count=1
     for skill in skills:
         if (not able_to_list) or skill['name'] in able_to_list:
             result_lines.append(f"{count}. Skill Name: {skill['name']}")
             result_lines.append(f"   Skill Description: {skill['description']}")
-            result_lines.append(f"   Skill Path: {Path(skill['path']).relative_to(Path(workspace))}")
+            result_lines.append(f"   Skill Path: {_format_display_path(skill['path'])}")
             if skill.get('script'):
                 result_lines.append("   Script Path:")
                 for fname, fpath in skill['script'].items():
-                    result_lines.append(f"     - {fname}: {Path(fpath).relative_to(Path(workspace))}")
+                    result_lines.append(f"     - {fname}: {_format_display_path(fpath)}")
             count+=1
     return "\n".join(result_lines)
 
@@ -295,10 +289,10 @@ class ListSkill(UCTool):
         Returns:
             A formatted string containing information about all available skills.
         """
-        skills_path = Path(self.workspace) / ".ucagent/skills"
+        skills_path = Path(fc.get_workspace_skill_root(self.workspace))
         if not skills_path.exists():
             raise ValueError(f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace.")
-        skills = _list_skills(str(skills_path), workspace=None)
+        skills = _list_skills(self.workspace)
 
         if not skills:
             raise ValueError(f"No available skills found in skill directory {skills_path}. Skills should be subdirectories containing a SKILL.md file.")

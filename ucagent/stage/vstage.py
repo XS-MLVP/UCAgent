@@ -205,14 +205,6 @@ class VerifyStage(object):
         except Exception as e:
             return {"error": f"cannot get file content ({file_path}) from commit ({hash_id}): {e}"}
 
-    def get_skill_root(self):
-        return fc.get_abs_path_cwd_ucagent(self.workspace, "skills")
-
-    def is_skill_path(self, file_path):
-        skill_root = self.get_skill_root()
-        abs_file_path = os.path.abspath(self.workspace + os.path.sep + file_path)
-        return abs_file_path.startswith(skill_root)
-
     def on_init(self):
         for c in self.checker:
             c.on_init()
@@ -230,9 +222,9 @@ class VerifyStage(object):
                     return hook_func(original_method, *args, **kwargs)
                 setattr(self, method_name, hooked_method)
             self.add_hook = add_hook
-            skills_dir = self.get_skill_root()
+            skills_dir = fc.get_workspace_skill_root(self.workspace)
             for skill_name in self.skill_list.keys():
-                script_dir = os.path.join(skills_dir, skill_name, "scripts")
+                script_dir = os.path.join(fc.find_skill_dir_by_name(skills_dir, skill_name) or os.path.join(skills_dir, skill_name), "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")
                 if os.path.isdir(script_dir) and os.path.isfile(init_file) and os.path.getsize(init_file) > 0:
                     try:
@@ -337,6 +329,11 @@ class VerifyStage(object):
             c.set_stage_manager(manager)
         self.vmanager = manager
 
+    def is_skill_path(self, file_path):
+        skill_root = fc.get_workspace_skill_root(self.workspace)
+        abs_file_path = os.path.abspath(self.workspace + os.path.sep + file_path)
+        return abs_file_path.startswith(skill_root)
+    
     def on_file_read(self, success, file_path, content):
         if not self.is_curent_active():
             return
@@ -350,11 +347,11 @@ class VerifyStage(object):
 
         if self.is_skill_path(file_path):
             abs_path = os.path.abspath(self.workspace + os.path.sep + file_path)
-            abs_skill_root = self.get_skill_root()
-            skill_name = os.path.relpath(abs_path, abs_skill_root).split(os.path.sep)[0]
-            if skill_name in self.skill_list:
-                self.set_usage_skill_list(skill_name, read=True)
-                info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
+            if os.path.basename(abs_path) == "SKILL.md":
+                skill_name = os.path.basename(os.path.dirname(abs_path))
+                if skill_name in self.skill_list:
+                    self.set_usage_skill_list(skill_name, read=True)
+                    info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
 
     def __repr__(self):
         return f"VerifyStage(name={self.name}, description={self.description()}, "+\

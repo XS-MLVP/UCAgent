@@ -581,7 +581,7 @@ class VerifyAgent:
         """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
         system = self.cfg.mission.prompt.get_value("system", "").strip()
         if self.cfg.skill.use_skill:
-            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"),self.workspace,self.cfg.skill.general_skill_list)
+            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.general_skill_list)
             skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
             system = system.replace("{skill_system}", skill_prompt)
         else:
