@@ -224,7 +224,7 @@ class VerifyStage(object):
             self.add_hook = add_hook
             skills_dir = fc.get_workspace_skill_root(self.workspace)
             for skill_name in self.skill_list.keys():
-                script_dir = os.path.join(fc.find_skill_dir_by_name(skills_dir, skill_name) or os.path.join(skills_dir, skill_name), "scripts")
+                script_dir = os.path.join(fc.find_skill_dir_by_name(skills_dir, skill_name), "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")
                 if os.path.isdir(script_dir) and os.path.isfile(init_file) and os.path.getsize(init_file) > 0:
                     try:
