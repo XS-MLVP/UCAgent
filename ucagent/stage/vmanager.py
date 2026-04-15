@@ -655,7 +655,7 @@ class StageManager(object):
         skills_to_use = [skill_name for skill_name in cstage.skill_list]
         if skills_to_use:
             if self.agent.cfg.skill.use_skill:
-                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace+"/.ucagent/skills"), self.workspace, skills_to_use)
+                formatted_skill_list = list_skills_in_format(_list_skills(self.workspace), self.workspace, skills_to_use)
                 tips["notes"] = tips.get("notes", "") + f"Firstly you must read the SKILL.md of the following skills to know how to complete current stage:\n{formatted_skill_list}\n"
             else:
                 raise ValueError("Enable the arg(--use-skill) to use skills, or remove the skill_list specified in current stage.")
@@ -745,16 +745,11 @@ class StageManager(object):
         """set the skill usage of curretn stage or return feedback based on skill_usage"""
         current_stage = self.get_current_stage()
         if current_stage.skill_list:
-            skills_dir = os.path.join(self.workspace, ".ucagent/skills")
-            have_skill_list = []
-            if os.path.isdir(skills_dir):
-                have_skill_list = sorted(
-                    name for name in os.listdir(skills_dir)
-                    if os.path.isdir(os.path.join(skills_dir, name))
-                )
             for skill_name in current_stage.skill_list:
-                if skill_name not in have_skill_list:
-                    raise ValueError(f"Skill '{skill_name}' is not found in workspace path '{skills_dir}'. ")
+                skill_root = fc.get_workspace_skill_root(self.workspace)
+                skill_dir = fc.find_skill_dir_by_name(skill_root, skill_name)
+                if not skill_dir:
+                    raise ValueError(f"Skill '{skill_name}' is not found in workspace. ")
                 if skill_name not in skill_usage:
                     return f"You must use skill '{skill_name}' in current stage, using tool `ListSkill` to list and use it."
                 else:
