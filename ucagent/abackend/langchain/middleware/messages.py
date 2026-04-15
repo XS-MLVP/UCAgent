@@ -18,6 +18,7 @@ from langgraph.graph.message import (
 from typing_extensions import override
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
+from langchain.agents.middleware import SummarizationMiddleware
 
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import warning, info
@@ -258,6 +259,10 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         return self
 
     @override
+    async def abefore_model(self, state, runtime) -> dict[str, Any] | None:
+        return self.before_model(state)
+
+    @override
     def before_model(self, state: AgentState[Any]) -> dict[str, Any] | None:
         fix_tool_call_args(state)
         messages = state["messages"]
@@ -271,11 +276,18 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         if self._is_reset_summary:
             self.summary_data = []
             # Remove all previous messages except system message and the most recent Human/Tool message
-            humam_msg_index = len(llm_input_msgs) - 2
-            while humam_msg_index >= 0 and llm_input_msgs[humam_msg_index].type == "tool":
+            tail_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - 2))
+            # Ensure tail_msgs starts with a HumanMessage: some LLM APIs (e.g. Anthropic) require
+            # the first non-system message to be a human/user message. _find_safe_cutoff_point may
+            # backtrack past a HumanMessage to keep AIMessage/ToolMessage pairs together, leaving
+            # tail_msgs starting with an AIMessage which causes "No generations found in stream".
+            humam_msg_index = max(0, tail_index)
+            while humam_msg_index > 0 and not isinstance(llm_input_msgs[humam_msg_index], HumanMessage):
                 humam_msg_index -= 1
             humam_msg_index = max(0, humam_msg_index)
-            tail_msgs = llm_input_msgs[humam_msg_index:]
+            tail_msgs = llm_input_msgs[tail_index:]
+            if humam_msg_index < tail_index:
+                tail_msgs = [llm_input_msgs[humam_msg_index], *tail_msgs]
             ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + tail_msgs
             self._is_reset_summary = False
             warning(f"Summary reset, all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
@@ -285,15 +297,10 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
             if len(llm_input_msgs) > self.max_keep_msgs or is_exceed:
                 if (is_exceed):
                     warning(f"Messages token size {current_token_size} exceed max tokens {self.max_tokens}.")
-                # get init start index
-                tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
-                start_msg = llm_input_msgs[tail_msgs_start_index]
-                # search for the last not tool message
-                while start_msg.type == "tool" and tail_msgs_start_index > 0:
-                    tail_msgs_start_index -= 1
-                    start_msg = llm_input_msgs[tail_msgs_start_index]
-                tail_msgs = llm_input_msgs[tail_msgs_start_index:]
+                # get tail start index
+                tail_msgs_start_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - self.tail_keep_msgs))
                 if tail_msgs_start_index > 0:
+                    tail_msgs = llm_input_msgs[tail_msgs_start_index:]
                     self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
                     warning(f"Trimmed { tail_msgs_start_index-1 } messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
                     ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + self.summary_data + tail_msgs
