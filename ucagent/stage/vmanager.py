@@ -254,6 +254,17 @@ class ArgCheck(BaseModel):
     )
 
 
+class ArgsDoCheck(BaseModel):
+    timeout: int = Field(
+        default=0,
+        description="Timeout for Check/Complete tools. Zero means use default cfg.call_time_out."
+    )
+    ex_args: str = Field(
+        default="",
+        description="Args passed to the stage checkers. According to the stage help info to pass the corrent value."
+    )
+
+
 class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""
     name: str = "RunTestCases"
@@ -277,13 +288,6 @@ class ToolRunTestCases(ManagerTool):
             return error_msg
 
 
-class ArgTimeout(BaseModel):
-    timeout: int = Field(
-        default=0,
-        description="Timeout for the test run in seconds. Zero means use default cfg.call_time_out."
-    )
-
-
 class ToolDoCheck(ManagerTool):
     """Advanced validation tool for stage requirements and implementation quality."""
     name: str = "Check"
@@ -291,14 +295,15 @@ class ToolDoCheck(ManagerTool):
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
         "The tool provides detailed feedback."
     )
-    args_schema: Optional[ArgsSchema] = ArgTimeout
+    args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, timeout=0, ex_args="", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
         
         Args:
             target: Test target specification (pytest format)
+            ex_args: String args passed to checkers
             run_manager: Callback manager for tool execution
             
         Returns:
@@ -307,7 +312,7 @@ class ToolDoCheck(ManagerTool):
         try:
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout)
+            return self.function(timeout, ex_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
@@ -325,13 +330,13 @@ class ToolDoComplete(ManagerTool):
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
         "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
     )
-    args_schema: Optional[ArgsSchema] = ArgTimeout
+    args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, timeout=0, ex_args="", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout)
+            return self.function(timeout, ex_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Completion failed: {str(e)}"
@@ -804,13 +809,13 @@ class StageManager(object):
             return True
         return False
 
-    def check(self, timeout):
+    def check(self, timeout, ex_args=""):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout})
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "ex_args": ex_args})
         ret_data = OrderedDict({
             "check_info": ck_info,
             "check_pass": ck_pass,
@@ -889,7 +894,7 @@ class StageManager(object):
         if self.llm_pass_suggestion:
             self.llm_pass_suggestion.on_stage_complete(stage)
 
-    def complete(self, timeout):
+    def complete(self, timeout, ex_args=""):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
@@ -897,7 +902,7 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "is_complete": True})
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "is_complete": True, "ex_args": ex_args})
         stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
@@ -1022,8 +1027,8 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)
 
-    def tool_check(self, timeout):
-        ret = make_llm_tool_ret(self.check(timeout))
+    def tool_check(self, timeout, ex_args=""):
+        ret = make_llm_tool_ret(self.check(timeout, ex_args))
         info("ToolCheck:\n" + ret)
         return self.attach_todo_summary(ret)
 
@@ -1032,8 +1037,8 @@ class StageManager(object):
         info("ToolExit:\n" + ret)
         return ret
 
-    def tool_complete(self, timeout):
-        ret = make_llm_tool_ret(self.complete(timeout))
+    def tool_complete(self, timeout, ex_args=""):
+        ret = make_llm_tool_ret(self.complete(timeout, ex_args))
         info("ToolComplete:\n" + ret)
         return self.attach_todo_summary(ret)
 
