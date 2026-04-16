@@ -52,20 +52,8 @@ jobs:
               "$API_URL")"
 
             if [ "$HTTP_CODE" = "200" ]; then
-              LATEST_RELEASE_TAG="$(python - <<'PY'
-import json
-from pathlib import Path
-data = json.loads(Path('/tmp/latest_release.json').read_text(encoding='utf-8'))
-print(data.get('tag_name', ''))
-PY
-)"
-              LATEST_RELEASE_PUBLISHED_AT="$(python - <<'PY'
-import json
-from pathlib import Path
-data = json.loads(Path('/tmp/latest_release.json').read_text(encoding='utf-8'))
-print(data.get('published_at', ''))
-PY
-)"
+              LATEST_RELEASE_TAG="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); print(data.get('tag_name', ''))")"
+              LATEST_RELEASE_PUBLISHED_AT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); print(data.get('published_at', ''))")"
             elif [ "$HTTP_CODE" = "404" ]; then
               # No previous release; allow scheduled run.
               true
@@ -89,16 +77,7 @@ PY
             TRIGGER_REASON="scheduled_check"
             if [ -n "$LATEST_RELEASE_PUBLISHED_AT" ]; then
               export LATEST_RELEASE_PUBLISHED_AT
-              DAYS_SINCE_LAST_RELEASE="$(python - <<'PY'
-import os
-from datetime import datetime, timezone
-
-ts = os.environ['LATEST_RELEASE_PUBLISHED_AT']
-release_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-now = datetime.now(timezone.utc)
-print((now - release_dt).days)
-PY
-)"
+              DAYS_SINCE_LAST_RELEASE="$(python -c "import os; from datetime import datetime, timezone; ts=os.environ['LATEST_RELEASE_PUBLISHED_AT']; release_dt=datetime.fromisoformat(ts.replace('Z', '+00:00')); now=datetime.now(timezone.utc); print((now - release_dt).days)")"
               if [ "$DAYS_SINCE_LAST_RELEASE" -lt 60 ]; then
                 SHOULD_RUN="false"
                 TRIGGER_REASON="last_release_within_60_days"
