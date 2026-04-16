@@ -1,7 +1,10 @@
-# {DUT} 形式化属性 (SVA) 生成模板 (v3.1)
+# SVA 属性编码规范与参考
 
-本模板是 SVA 代码生成的**执行手册**。请根据规划文档 (`03_...md`) 中每个检测点 `<CK-...>` 后面的 `(Style: ...)` 标签，严格选择对应的代码模板。
-注意: 对于规划文档中的每一个检测点 `<CK-...>` 在实现时都要有一个属性与他对应`property CK_...;`
+本文档是 SVA 代码编写的**领域知识参考**。包含编码原则、各 Style 代码模板、高级验证模式和常见错误清单。
+
+> 工作流程请参见 `sva-property-generation` 技能。
+
+注意: 对于规划文档中的每一个检测点 `<CK-...>` 在实现时都要有一个属性与他对应 `property CK_...;`
 
 ---
 
@@ -187,6 +190,46 @@ property CK_REACHABLE_STATE;
 endproperty
 C_CK_REACHABLE_STATE: cover property (CK_REACHABLE_STATE);
 ```
+
+### 3.5 活性属性 (Liveness)
+**适用**: 证明"某事**最终一定会发生**"，比 Cover（可达性）更强。
+
+- Cover = 某个状态**可以**到达
+- Liveness = 某个条件**一定会**最终满足（无论中间经历多少周期）
+
+```systemverilog
+// <CK-REQ-EVENTUALLY-GRANTED> (Style: Seq)
+// 活性：每个请求最终都会被授予
+property CK_REQ_EVENTUALLY_GRANTED;
+  @(posedge clk) disable iff (!rst_n)
+  req |-> s_eventually grant;
+endproperty
+A_CK_REQ_EVENTUALLY_GRANTED: assert property (CK_REQ_EVENTUALLY_GRANTED);
+```
+
+**使用场景**：FIFO 不会永久满/空、仲裁器请求最终被响应、状态机不会死锁。
+
+**注意事项**：
+- `s_eventually` 在无界模型检查中可能导致引擎超时。对于简单设计可跳过。
+- 如果引擎返回 `UNDETERMINED`，可能需要添加公平性约束（fairness constraint）来保证环境的活性假设。
+- 对于纯组合逻辑设计（如 Adder），Liveness 不适用。
+
+---
+
+## 3.6 Assume 约束的禁忌（过约束防范）
+
+所有 assume 都必须来源于 spec 文档 (`03_{DUT}_functions_and_checks.md`) 中标注为 `(Style: Assume)` 的检测点。
+
+### 常见的过约束错误（绝对禁止）
+
+1. **对输出信号加 assume**：`assume property (!$isunknown(dut_output))` — 这会掩盖 RTL bug 导致假阳性
+2. **对内部信号加 assume**：`assume property (fsm_state != IDLE)` — 这会删除合法的状态空间
+3. **在 wrapper 中隐式约束**：用 `assign` 强制拉死某个输入信号（等效于隐式 assume）
+4. **过度约束输入范围**：如果 DUT 支持 0-255 的输入，不要约束为只测 0-15
+
+### 过约束的后果
+
+过约束会导致大量 TRIVIALLY_TRUE（属性在给定约束下永远为真），极大增加调试工作量。
 
 ---
 

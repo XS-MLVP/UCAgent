@@ -1,10 +1,7 @@
-# {DUT} 形式化验证环境 (Checker Module) 模板
+# {DUT} 形式化验证环境 (Checker Module) 模板指南
 
-> **UCAgent 机器可读模板**
->
-> - **目的**: 本模板用于生成 `{DUT}` 的 SystemVerilog Checker 模块。
-> - **来源**: UCAgent 将读取 `{OUT}/03_{DUT}_functions_and_checks.md` 中的 SVA 属性。
-> - **使用者**: 在 `environment_generation` 阶段，UCAgent (AI) 会将提取的 SVA 代码注入到下方的“注入锚点”中，最终生成 `{OUT}/{DUT}_checker.sv` 文件。
+本指南展示 Checker 模块的代码骨架结构、端口声明规范和时钟块定义。
+在验证环境中，所有 SVA 断言都会被注入到这个模块的对应区域中。
 
 ## 模块定义
 ```systemverilog
@@ -81,22 +78,6 @@ module {DUT}_checker (
 
 endmodule
 
-// ==========================================
-// Bind 语句 (将 Checker 绑定到 DUT)
-// ==========================================
-// AI 将自动生成此 bind 模块
-// <UCAgent-Inject-Bind>
-/*
-bind {DUT} {DUT}_checker u_{DUT}_checker (
-    .clk(clk),
-    .rst_n(rst_n),
-    .data_in(data_in),
-    .valid_in(valid_in),
-    .ready_out(ready_out)
-    // ...
-);
-*/
-// </UCAgent-Inject-Bind>
 
 ```
 
