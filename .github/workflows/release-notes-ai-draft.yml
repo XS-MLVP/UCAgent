@@ -126,11 +126,11 @@ jobs:
           elif [ -f .github/release-notes-prompt.md ]; then
             cp .github/release-notes-prompt.md prompt.txt
           else
-            cat > prompt.txt <<'EOF'
-            你是 Release Manager。根据给定版本号和 commit logs 生成 Markdown 发布说明。
-            包含分类：Features、Bug Fixes、Breaking Changes（如有）、Assets。
-            仅输出最终 Markdown。
-            EOF
+            printf "%s\n" \
+              "你是 Release Manager。根据给定版本号和 commit logs 生成 Markdown 发布说明。" \
+              "包含分类：Features、Bug Fixes、Breaking Changes（如有）、Assets。" \
+              "仅输出最终 Markdown。" \
+              > prompt.txt
           fi
 
       - name: Generate release notes (AI with fallback)
@@ -262,12 +262,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > RELEASE_NOTES.md <<EOF
-          ## What's Changed in ${{ steps.prep.outputs.version }}
-          ### 📦 Assets
-          - `ucagent-${{ steps.prep.outputs.version }}-py3-none-any.whl` (platform)
-          - `ucagent-docker` (platform)
-          EOF
+          printf "%s\n" \
+            "## What's Changed in ${{ steps.prep.outputs.version }}" \
+            "### 📦 Assets" \
+            "- `ucagent-${{ steps.prep.outputs.version }}-py3-none-any.whl` (platform)" \
+            "- `ucagent-docker` (platform)" \
+            > RELEASE_NOTES.md
           echo "ai_used=false" > ai_meta.txt
 
       - name: Publish skip summary
