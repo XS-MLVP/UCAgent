@@ -1064,41 +1064,61 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
 
 
 def list_files_by_mtime(
-    directory,
-    max_files=100,
-    subdir=None,
-    ignore_patterns="*.pyc,*.log,*.tmp,*.fst,*.dat,*.vcd,*.bin,*.ini,.*",
-):
+    directory: str | os.PathLike[str],
+    max_files: int = 100,
+    subdir: str | Sequence[str] | None = None,
+    ignore_patterns: str = "*.pyc,*.log,*.tmp,*.fst,*.dat,*.vcd,*.bin,*.ini,.*",
+) -> list[tuple[float, float, str]]:
     """列出目录中的文件并按修改时间倒序排列"""
-    ntime = time.time()
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        return []
 
-    def find_f(source_dir, workspace):
-        files = []
-        for file_path in Path(source_dir).rglob("*"):
-            try:
-                if file_path.is_file():
-                    mtime = os.path.getmtime(file_path)
-                    file_path = os.path.abspath(str(file_path)).replace(workspace + os.sep, "")
-                    if any(fnmatch.fnmatch(file_path, pattern) for pattern in ignore_patterns.split(',')):
-                        continue
-                    files.append((ntime - mtime, mtime, file_path))
-            except Exception as e:
-                warning(f"Error processing file {file_path}: {e}")
-                continue
-        return files
+    now = time.time()
+    patterns = [pattern.strip() for pattern in ignore_patterns.split(",") if pattern.strip()]
+    files: list[tuple[float, float, str]] = []
 
-    directory = os.path.abspath(directory)
-    files = []
+    def collect(current: Path) -> None:
+        try:
+            for entry in current.iterdir():
+                try:
+                    stat_result = entry.stat()
+                except OSError as error:
+                    warning(f"Error processing path {entry}: {error}")
+                    continue
+
+                if stat.S_ISDIR(stat_result.st_mode):
+                    collect(entry)
+                    continue
+
+                if not stat.S_ISREG(stat_result.st_mode):
+                    continue
+
+                try:
+                    relative = entry.relative_to(root)
+                except ValueError:
+                    relative = Path(os.path.relpath(entry, root))
+
+                relative_str = str(relative)
+                if any(fnmatch.fnmatch(relative_str, pattern) for pattern in patterns):
+                    continue
+
+                files.append((now - stat_result.st_mtime, stat_result.st_mtime, relative_str))
+        except OSError as error:
+            warning(f"Error listing directory {current}: {error}")
+
     if subdir is None:
-        files = find_f(directory, directory)
+        targets = [root]
+    elif isinstance(subdir, str):
+        targets = [root / subdir]
     else:
-        for sub in subdir:
-            sub_path = os.path.join(directory, sub)
-            if not os.path.exists(sub_path):
-                continue
-            if not os.path.isdir(sub_path):
-                continue
-            files += find_f(sub_path, directory)
+        targets = [root / item for item in subdir]
+
+    for target in targets:
+        if not target.is_dir():
+            continue
+        collect(target)
+
     files.sort(key=lambda x: x[0])
     return files[:max_files]
 
