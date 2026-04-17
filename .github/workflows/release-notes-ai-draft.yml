@@ -159,6 +159,7 @@ jobs:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_API_BASE_SECRET: ${{ secrets.AI_API_BASE }}
           AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
+          AI_CHAT_PATH: ${{ vars.AI_CHAT_PATH }}
           CURRENT_VERSION: ${{ steps.prep.outputs.version }}
         run: |
           set -euo pipefail
@@ -166,24 +167,47 @@ jobs:
           import json
           import os
           import re
+          import time
+          import urllib.error
           import urllib.request
           from pathlib import Path
 
           version = os.environ["CURRENT_VERSION"]
           model = os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET") or "gpt-5.3-codex"
           api_base = (os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET") or "https://api.openai.com/v1").rstrip("/")
+          chat_path = (os.environ.get("AI_CHAT_PATH") or "/chat/completions").strip()
+          if not chat_path.startswith("/"):
+            chat_path = "/" + chat_path
           api_key = os.environ.get("AI_API_KEY")
           model_present = bool(os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET"))
           api_base_present = bool(os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET"))
           api_key_present = bool(api_key)
 
           prompt = Path("prompt.txt").read_text(encoding="utf-8", errors="ignore")
-          commits = Path("commits_raw.txt").read_text(encoding="utf-8", errors="ignore")
+          raw_commits = Path("commits_raw.txt").read_text(encoding="utf-8", errors="ignore")
 
-          # 控制输入体积，避免超 token；保留最近提交优先。
-          max_chars = 120000
+          # 压缩 commit 输入体积，优先保留最近提交的 subject 与简短 body，降低 5xx/超时概率。
+          max_entries = 220
+          max_body_lines = 8
+          max_entry_chars = 1200
+          max_chars = 70000
+
+          blocks = [b.strip() for b in raw_commits.split("<<<END>>>") if b.strip()]
+          compact_blocks = []
+          for b in blocks[:max_entries]:
+            lines = [ln.rstrip() for ln in b.splitlines()]
+            if not lines:
+              continue
+            subject = lines[0].strip()
+            body_lines = [ln for ln in lines[1:] if ln.strip()][:max_body_lines]
+            entry = "\n".join([subject] + body_lines)
+            if len(entry) > max_entry_chars:
+              entry = entry[:max_entry_chars] + "\n...[TRUNCATED]"
+            compact_blocks.append(entry)
+
+          commits = "\n<<<END>>>\n".join(compact_blocks)
           if len(commits) > max_chars:
-              commits = commits[:max_chars] + "\n[TRUNCATED]\n"
+            commits = commits[:max_chars] + "\n[TRUNCATED]\n"
 
           def fallback_notes(raw: str) -> str:
               blocks = [b.strip() for b in raw.split("<<<END>>>") if b.strip()]
@@ -254,25 +278,49 @@ jobs:
                   ],
                   "temperature": 0.2,
               }
-              req = urllib.request.Request(
-                  url=f"{api_base}/chat/completions",
+              retry_status_codes = {408, 429, 500, 502, 503, 504, 529}
+              retry_delays = [2, 5, 10]
+              last_error = ""
+              for attempt in range(len(retry_delays) + 1):
+                req = urllib.request.Request(
+                  url=f"{api_base}{chat_path}",
                   data=json.dumps(payload).encode("utf-8"),
                   headers={
-                      "Content-Type": "application/json",
-                      "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
                   },
                   method="POST",
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=120) as resp:
-                      data = json.loads(resp.read().decode("utf-8"))
+                )
+                try:
+                  with urllib.request.urlopen(req, timeout=180) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
                   notes = data["choices"][0]["message"]["content"].strip()
                   ai_used = True
                   ai_status = "ai_success"
-              except Exception as e:
-                  ai_status = "fallback_ai_error"
-                  ai_error = str(e)
-                  Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
+                  break
+                except urllib.error.HTTPError as e:
+                  err_body = ""
+                  try:
+                    err_body = e.read().decode("utf-8", errors="ignore")
+                  except Exception:
+                    err_body = ""
+                  snippet = err_body[:400].replace("\n", " ").strip()
+                  last_error = f"HTTP {e.code}: {snippet}" if snippet else f"HTTP {e.code}: {e.reason}"
+                  if e.code in retry_status_codes and attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
+                    continue
+                  break
+                except Exception as e:
+                  last_error = str(e)
+                  if attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
+                    continue
+                  break
+
+              if not ai_used:
+                ai_status = "fallback_ai_error"
+                ai_error = last_error or "AI request failed with unknown error"
+                Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
 
           if not notes:
               notes = fallback_notes(commits)
@@ -291,6 +339,7 @@ jobs:
                   f"model_present={str(model_present).lower()}\n"
                   f"model={model}\n"
                   f"api_base={api_base}\n"
+                  f"chat_path={chat_path}\n"
               ),
               encoding="utf-8",
           )
@@ -343,6 +392,10 @@ jobs:
             echo "- Commit count: ${{ steps.prep.outputs.count }}"
             echo ""
             cat ai_meta.txt
+            if [ -f ai_error.txt ]; then
+              echo ""
+              echo "ai_error=$(head -n 1 ai_error.txt)"
+            fi
             echo ""
             echo "---"
             echo ""
