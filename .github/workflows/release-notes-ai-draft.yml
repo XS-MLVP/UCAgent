@@ -2,7 +2,8 @@ name: AI Release Notes Draft
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    # 每周一次检查（UTC星期二01:00），满足60天 + 无draft PR 时执行
+    - cron: "0 1 * * 2"
   workflow_dispatch:
     inputs:
       since_tag:
@@ -90,9 +91,11 @@ jobs:
           SHOULD_RUN="true"
           TRIGGER_REASON="manual_dispatch"
           DAYS_SINCE_LAST_RELEASE="N/A"
+          DRAFT_PR_EXISTS="false"
 
           if [ "$EVENT_NAME" = "schedule" ]; then
             TRIGGER_REASON="scheduled_check"
+            # 先检查距离上次release是否超过60天
             if [ -n "$LATEST_RELEASE_PUBLISHED_AT" ]; then
               export LATEST_RELEASE_PUBLISHED_AT
               DAYS_SINCE_LAST_RELEASE="$(python -c "import os; from datetime import datetime, timezone; ts=os.environ['LATEST_RELEASE_PUBLISHED_AT']; release_dt=datetime.fromisoformat(ts.replace('Z', '+00:00')); now=datetime.now(timezone.utc); print((now - release_dt).days)")"
@@ -100,7 +103,29 @@ jobs:
                 SHOULD_RUN="false"
                 TRIGGER_REASON="last_release_within_60_days"
               else
-                TRIGGER_REASON="last_release_over_60_days"
+                # 满足60天条件，再检查是否已有draft PR
+                TRIGGER_REASON="checking_for_draft_pr"
+                DRAFT_PR_JSON="/tmp/draft_prs.json"
+                HTTP_CODE="$(curl -sS -L -o "$DRAFT_PR_JSON" -w '%{http_code}' \
+                  -H "Authorization: Bearer ${{ github.token }}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/$REPO/pulls?state=open&head=${{ github.repository_owner }}:release-notes-ai-draft&per_page=5")"
+                
+                if [ "$HTTP_CODE" = "200" ]; then
+                  DRAFT_PR_COUNT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('$DRAFT_PR_JSON').read_text(encoding='utf-8')); print(len(data))")"
+                  if [ "$DRAFT_PR_COUNT" -gt 0 ]; then
+                    DRAFT_PR_EXISTS="true"
+                    SHOULD_RUN="false"
+                    TRIGGER_REASON="draft_pr_already_exists"
+                  else
+                    TRIGGER_REASON="last_release_over_60_days_no_draft_pr"
+                  fi
+                else
+                  # API调用失败，保守地跳过此次运行
+                  echo "Warning: failed to check draft PRs (HTTP $HTTP_CODE), skipping this schedule"
+                  SHOULD_RUN="false"
+                  TRIGGER_REASON="draft_pr_check_failed"
+                fi
               fi
             else
               TRIGGER_REASON="no_previous_release"
@@ -125,6 +150,7 @@ jobs:
           echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
           echo "trigger_reason=$TRIGGER_REASON" >> "$GITHUB_OUTPUT"
           echo "days_since_last_release=$DAYS_SINCE_LAST_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "draft_pr_exists=$DRAFT_PR_EXISTS" >> "$GITHUB_OUTPUT"
 
       - name: Collect commit logs
         if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.count != '0'
@@ -363,16 +389,22 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### AI Release Notes Draft"
+            echo "### ⏭️ AI Release Notes Draft (Skipped)"
             echo ""
-            echo "- Trigger result: skipped"
-            echo "- Reason: ${{ steps.prep.outputs.trigger_reason }}"
-            echo "- Baseline source: ${{ steps.prep.outputs.release_source || 'N/A' }}"
-            echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'N/A' }}"
-            echo "- Latest release time (UTC): ${{ steps.prep.outputs.latest_release_published_at || 'N/A' }}"
+            echo "- Trigger reason: ${{ steps.prep.outputs.trigger_reason }}"
+            echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'none' }}"
             echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
+            if [ "${{ steps.prep.outputs.draft_pr_exists }}" = "true" ]; then
+              echo "- Draft PR exists: **yes** (generation skipped)"
+            fi
             echo ""
-            echo "Scheduled run only generates notes when the last release is 60+ days old."
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo "**Scheduled run:** Generates notes only when:"
+              echo "1. Last release is 60+ days old"
+              echo "2. No existing draft PR is present"
+              echo ""
+              echo "Next check: weekly on Tuesday 01:00 UTC"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish job summary
@@ -380,21 +412,22 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### AI Release Notes Draft"
+            echo "### ✅ AI Release Notes Draft (Generated)"
             echo ""
-            echo "- Version: ${{ steps.prep.outputs.version }}"
-            echo "- Base tag: ${{ steps.prep.outputs.base_tag || 'N/A' }}"
-            echo "- Baseline source: ${{ steps.prep.outputs.release_source || 'N/A' }}"
-            echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'N/A' }}"
-            echo "- Latest release time (UTC): ${{ steps.prep.outputs.latest_release_published_at || 'N/A' }}"
+            echo "- Version: \`${{ steps.prep.outputs.version }}\`"
+            echo "- Baseline: ${{ steps.prep.outputs.base_tag || 'N/A' }} (${{ steps.prep.outputs.release_source }})"
+            echo "- Commits analyzed: ${{ steps.prep.outputs.count }}"
             echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
-            echo "- Commit range: ${{ steps.prep.outputs.range }}"
-            echo "- Commit count: ${{ steps.prep.outputs.count }}"
+            echo ""
+            echo "**Generation Details:**"
             echo ""
             cat ai_meta.txt
+            echo ""
             if [ -f ai_error.txt ]; then
-              echo ""
-              echo "ai_error=$(head -n 1 ai_error.txt)"
+              echo "**Generation Status:**"
+              echo "\`\`\`"
+              head -n 3 ai_error.txt
+              echo "\`\`\`"
             fi
             echo ""
             echo "---"
