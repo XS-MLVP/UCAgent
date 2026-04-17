@@ -198,9 +198,9 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          version = os.environ["CURRENT_VERSION"]
-          model = os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET") or "gpt-5.3-codex"
-          api_base = (os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET") or "https://api.openai.com/v1").rstrip("/")
+          version = os.environ["CURRENT_VERSION"].strip()
+          model = (os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET") or "gpt-5.3-codex").strip()
+          api_base = (os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET") or "https://api.openai.com/v1").strip().rstrip("/")
           chat_path = (os.environ.get("AI_CHAT_PATH") or "/chat/completions").strip()
           if not chat_path.startswith("/"):
             chat_path = "/" + chat_path
