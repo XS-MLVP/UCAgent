@@ -4,6 +4,7 @@ import copy
 import shutil
 import socket
 import stat
+from collections.abc import Sequence
 from ucagent.util.log import info, warning
 import os
 from typing import List, Tuple, Union
