@@ -43,19 +43,32 @@ jobs:
           INPUT_TAG="${{ github.event.inputs.since_tag || '' }}"
           LATEST_RELEASE_TAG=""
           LATEST_RELEASE_PUBLISHED_AT=""
+          BASE_TAG=""
+          RELEASE_SOURCE=""
 
-          if [ -z "$INPUT_TAG" ]; then
-            API_URL="https://api.github.com/repos/$REPO/releases/latest"
+          git fetch --tags --force >/dev/null 2>&1 || true
+
+          if [ -n "$INPUT_TAG" ]; then
+            BASE_TAG="$INPUT_TAG"
+            RELEASE_SOURCE="manual_input_tag"
+          fi
+
+          if [ -z "$BASE_TAG" ]; then
+            API_URL="https://api.github.com/repos/$REPO/releases?per_page=20"
             HTTP_CODE="$(curl -sS -L -o /tmp/latest_release.json -w '%{http_code}' \
               -H "Authorization: Bearer ${{ github.token }}" \
               -H "Accept: application/vnd.github+json" \
               "$API_URL")"
 
             if [ "$HTTP_CODE" = "200" ]; then
-              LATEST_RELEASE_TAG="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); print(data.get('tag_name', ''))")"
-              LATEST_RELEASE_PUBLISHED_AT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); print(data.get('published_at', ''))")"
+              LATEST_RELEASE_TAG="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); rel=next((r for r in data if not r.get('draft', False)), {}); print(rel.get('tag_name', ''))")"
+              LATEST_RELEASE_PUBLISHED_AT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); rel=next((r for r in data if not r.get('draft', False)), {}); print(rel.get('published_at', ''))")"
+              if [ -n "$LATEST_RELEASE_TAG" ]; then
+                BASE_TAG="$LATEST_RELEASE_TAG"
+                RELEASE_SOURCE="github_release"
+              fi
             elif [ "$HTTP_CODE" = "404" ]; then
-              # No previous release; allow scheduled run.
+              # No releases endpoint result; fallback to tag.
               true
             else
               echo "Unexpected GitHub API status: $HTTP_CODE"
@@ -64,9 +77,14 @@ jobs:
             fi
           fi
 
-          BASE_TAG="$INPUT_TAG"
           if [ -z "$BASE_TAG" ]; then
-            BASE_TAG="$LATEST_RELEASE_TAG"
+            FALLBACK_TAG="$(git tag --sort=-creatordate | head -n 1 || true)"
+            if [ -n "$FALLBACK_TAG" ]; then
+              BASE_TAG="$FALLBACK_TAG"
+              RELEASE_SOURCE="latest_git_tag_fallback"
+            else
+              RELEASE_SOURCE="no_release_or_tag"
+            fi
           fi
 
           SHOULD_RUN="true"
@@ -89,8 +107,6 @@ jobs:
             fi
           fi
 
-          git fetch --tags --force >/dev/null 2>&1 || true
-
           if [ -n "$BASE_TAG" ]; then
             RANGE="$BASE_TAG..HEAD"
           else
@@ -101,6 +117,7 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_source=$RELEASE_SOURCE" >> "$GITHUB_OUTPUT"
           echo "latest_release_tag=$LATEST_RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "latest_release_published_at=$LATEST_RELEASE_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
           echo "range=$RANGE" >> "$GITHUB_OUTPUT"
@@ -140,6 +157,8 @@ jobs:
           AI_API_BASE: ${{ vars.AI_API_BASE }}
           AI_MODEL: ${{ vars.AI_MODEL }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_BASE_SECRET: ${{ secrets.AI_API_BASE }}
+          AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
           CURRENT_VERSION: ${{ steps.prep.outputs.version }}
         run: |
           set -euo pipefail
@@ -151,9 +170,12 @@ jobs:
           from pathlib import Path
 
           version = os.environ["CURRENT_VERSION"]
-          model = os.environ.get("AI_MODEL") or "gpt-5.3-codex"
-          api_base = (os.environ.get("AI_API_BASE") or "https://api.openai.com/v1").rstrip("/")
+          model = os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET") or "gpt-5.3-codex"
+          api_base = (os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET") or "https://api.openai.com/v1").rstrip("/")
           api_key = os.environ.get("AI_API_KEY")
+          model_present = bool(os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET"))
+          api_base_present = bool(os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET"))
+          api_key_present = bool(api_key)
 
           prompt = Path("prompt.txt").read_text(encoding="utf-8", errors="ignore")
           commits = Path("commits_raw.txt").read_text(encoding="utf-8", errors="ignore")
@@ -210,6 +232,8 @@ jobs:
 
           notes = None
           ai_used = False
+            ai_status = "fallback_missing_api_key"
+            ai_error = ""
 
           if api_key:
               payload = {
@@ -244,15 +268,30 @@ jobs:
                       data = json.loads(resp.read().decode("utf-8"))
                   notes = data["choices"][0]["message"]["content"].strip()
                   ai_used = True
+                  ai_status = "ai_success"
               except Exception as e:
-                  Path("ai_error.txt").write_text(str(e), encoding="utf-8")
+                  ai_status = "fallback_ai_error"
+                  ai_error = str(e)
+                  Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
 
           if not notes:
               notes = fallback_notes(commits)
 
+              if not api_key_present:
+                ai_error = "AI_API_KEY is missing in this environment context."
+                Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
+
           Path("RELEASE_NOTES.md").write_text(notes + "\n", encoding="utf-8")
           Path("ai_meta.txt").write_text(
-              f"ai_used={str(ai_used).lower()}\nmodel={model}\napi_base={api_base}\n",
+                (
+                  f"ai_used={str(ai_used).lower()}\n"
+                  f"ai_status={ai_status}\n"
+                  f"api_key_present={str(api_key_present).lower()}\n"
+                  f"api_base_present={str(api_base_present).lower()}\n"
+                  f"model_present={str(model_present).lower()}\n"
+                  f"model={model}\n"
+                  f"api_base={api_base}\n"
+                ),
               encoding="utf-8",
           )
           PY
@@ -279,6 +318,7 @@ jobs:
             echo ""
             echo "- Trigger result: skipped"
             echo "- Reason: ${{ steps.prep.outputs.trigger_reason }}"
+            echo "- Baseline source: ${{ steps.prep.outputs.release_source || 'N/A' }}"
             echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'N/A' }}"
             echo "- Latest release time (UTC): ${{ steps.prep.outputs.latest_release_published_at || 'N/A' }}"
             echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
@@ -295,6 +335,7 @@ jobs:
             echo ""
             echo "- Version: ${{ steps.prep.outputs.version }}"
             echo "- Base tag: ${{ steps.prep.outputs.base_tag || 'N/A' }}"
+            echo "- Baseline source: ${{ steps.prep.outputs.release_source || 'N/A' }}"
             echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'N/A' }}"
             echo "- Latest release time (UTC): ${{ steps.prep.outputs.latest_release_published_at || 'N/A' }}"
             echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
