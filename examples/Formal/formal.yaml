@@ -1,11 +1,4 @@
 
-ex_tools:
-  - "examples.Formal.scripts.formal_tools.GenerateFormalEnv"
-  - "examples.Formal.scripts.formal_tools.RunFormalVerification"
-  - "examples.Formal.scripts.formal_tools.InitEnvAnalysis"
-  - "examples.Formal.scripts.formal_tools.InitTestFile"
-  - "examples.Formal.scripts.formal_tools.InitBugReport"
-
 # ---------- Skill Configuration ----------
 skill:
   use_skill: true
@@ -91,7 +84,7 @@ mission:
       | EditTextFile | 编辑文件（写入、追加、替换） |
       | GenerateChecker | 生成 checker.sv + wrapper.sv |
       | GenerateFormalScript | 生成 TCL 脚本 |
-      | RunFormalVerification | 执行验证并返回摘要（推荐: `RunFormalVerification(dut_name="{DUT}")` 自动查找 TCL）|
+      | RunSkillScript | 执行技能脚本（例如运行形式化验证、生成文档骨架） |
       | SetCurrentStageJournal | 阶段日志记录（推进前必调）|
       | Detail / Status | Mission 详情 / 摘要与阶段状态 |
 
@@ -131,7 +124,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "使用 RunFormalVerification 工具可即时验证修改效果，无需等待 Check 触发；推荐 `RunFormalVerification(dut_name=\"{DUT}\")`"
+        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/coverage-optimization/scripts/run_formal_verification.py -dut_name {DUT}` 即时验证，无需等待 Check 触发"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -358,10 +351,10 @@ stage:
       - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束，并生成结构化的环境分析文档。"
       - "本阶段的具体执行规范、文档生成方式及迭代修复步骤已全部内聚于 `env-analysis` 技能中。"
       - "**首要行动：利用 `SkillList` 工具加载并阅读 `env-analysis` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成文件并执行任务。**"
-      - "迭代中若有新的异常属性，调用 `UpdateEnvAnalysis` 进行增量文档追加。"
+      - "迭代中若有新的异常属性，使用 RunSkillScript 执行 `python3 .ucagent/skills/env-analysis/scripts/env_analysis.py -mode update -dut_name {DUT}` 进行增量文档追加。"
       - "注：如有需要，请自行使用 ReadTextFile 查阅 {RTL_PATH}/{DUT}.v 或 Guide_Doc/sva_property.md。"
     reference_files:
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
       - "Guide_Doc/env_analysis.md"
@@ -384,7 +377,7 @@ stage:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
       - "**首要行动：加载 `coverage-optimization` 技能并按其步骤执行。**"
     reference_files:
-      - "{OUT}/tests/avis/fanin.rep"
+      - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/03_{DUT}_functions_and_checks.md"
     output_files:
@@ -416,7 +409,7 @@ stage:
       - "{OUT}/07_{DUT}_env_analysis.md"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
     output_files:
       - "{OUT}/tests/test_{DUT}_counterexample.py"
     checker:
@@ -433,14 +426,14 @@ stage:
       - "bug-report"
     task:
       - "目标：对环境分析文档中判定为 RTL_BUG 的属性进行深度分析并生成 BUG 报告。"
-      - "**强制且首要行动：必须首先调用 `InitBugReport(dut_name='{DUT}')` 工具以初​​始化生成 `{OUT}/04_{DUT}_bug_report.md`。绝对不要手动编写或覆盖！**"
-      - "第1步：调用 `InitBugReport` 工具生成报告代码骨架之后，打开该文档。其内部包含了需要你填写的 `[LLM-TODO]` 空缺。"
+      - "**强制且首要行动：必须首先使用 RunSkillScript 执行 `python3 .ucagent/skills/bug-report/scripts/init_bug_report.py -dut_name {DUT}` 生成 `{OUT}/04_{DUT}_bug_report.md` 骨架。绝对不要手动编写或覆盖！**"
+      - "第1步：执行上述脚本生成报告骨架之后，打开该文档。其内部包含了需要你填写的 `[LLM-TODO]` 空缺。"
       - "第2步：严格遵循 `bug-report` 技能（位于 `SKILL.md`）的分析指南，逐条完成该文档中的每个 BUG 分析与修复建议填空。"
       - "注：如需提取源码上下文，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
     reference_files:
       - "Guide_Doc/bug_report.md"
       - "{OUT}/07_{DUT}_env_analysis.md"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
     output_files:
       - "{OUT}/04_{DUT}_bug_report.md"
@@ -455,8 +448,8 @@ stage:
     task:
       - "目标：将静态Bug分析阶段发现的潜在Bug与形式化验证结果进行关联，建立标签追踪链接，消除所有<LINK-BUG-[BG-TBD]>占位标签"
       - "第1步：扫描{OUT}/04_{DUT}_static_bug_analysis.md，列出所有<BG-STATIC-*>条目及其<LINK-BUG-[BG-TBD]>标签，确认每个待关联的静态Bug"
-      - "第2步：读取{OUT}/tests/avis.log和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
-      - "  - 从avis.log提取所有FALSE状态的属性"
+      - "第2步：读取{OUT}/tests/{LOG_FILE}和{OUT}/04_{DUT}_bug_report.md，提取形式化验证已证实的RTL缺陷列表"
+      - "  - 从 {LOG_FILE} 提取所有FALSE状态的属性"
       - "  - 从bug_report.md提取所有<BG-*>标签及其详细信息"
       - "第3步：建立静态Bug与形式化Bug的关联映射"
       - "  对于每个<BG-STATIC-*>静态Bug，执行以下判断："
@@ -486,7 +479,7 @@ stage:
     reference_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
       - "{OUT}/04_{DUT}_bug_report.md"
-      - "{OUT}/tests/avis.log"
+      - "{OUT}/tests/{LOG_FILE}"
     output_files:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
     checker:
@@ -501,13 +494,13 @@ stage:
     desc: "验证总结与审查"
     task:
       - "目标：生成形式化验证的最终总结与审查报告。"
-      - "第1步：读取 `{OUT}/tests/avis.log` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
+      - "第1步：读取 `{OUT}/tests/{LOG_FILE}` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
       - "第2步：参考 `Guide_Doc/formal_summary.md` 格式，编写 `{OUT}/05_{DUT}_formal_summary.md`。"
       - "第3步：完成后调用 Check 工具，等待人工审核。"
     reference_files:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
-      - "{OUT}/tests/avis.log"
-      - "{OUT}/tests/avis/fanin.rep"
+      - "{OUT}/tests/{LOG_FILE}"
+      - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/04_{DUT}_bug_report.md"
       - "{OUT}/tests/test_{DUT}_counterexample.py"
       - "Guide_Doc/formal_summary.md"

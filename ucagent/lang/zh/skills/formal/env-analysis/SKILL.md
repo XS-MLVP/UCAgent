@@ -13,10 +13,10 @@ description: 自动解析 avis.log 生成环境分析文档框架（07_{DUT}_env
 
 ### 1. 生成文档框架
 
-调用工具 `InitEnvAnalysis`：
+使用 `RunSkillScript` 工具执行以下命令初始化文档：
 
-```python
-InitEnvAnalysis(dut_name="{DUT}")
+```bash
+python3 .ucagent/skills/env-analysis/scripts/env_analysis.py -mode init -dut_name {DUT}
 ```
 
 工具自动解析 `avis.log`，生成含概览表和 TT/FA 条目空壳的文档。已有文件自动备份为 `.bak`。
@@ -32,8 +32,8 @@ InitEnvAnalysis(dut_name="{DUT}")
 
 修改 checker.sv 后重跑验证，如出现新异常，调用：
 
-```python
-UpdateEnvAnalysis(dut_name="{DUT}")
+```bash
+python3 .ucagent/skills/env-analysis/scripts/env_analysis.py -mode update -dut_name {DUT}
 ```
 
 工具仅追加新条目，保留已分析内容。

@@ -31,7 +31,11 @@ description: 指导解释覆盖率报告并优化未覆盖死角的技能
 
 ### 4. 重跑验证
 
-调用 `RunFormalVerification` → 查看新的 COI → 重复直到达标
+使用 `RunSkillScript` 工具执行以下命令重跑验证，并查看新的 COI：
+
+```bash
+python3 .ucagent/skills/coverage-optimization/scripts/run_formal_verification.py -dut_name {DUT}
+```
 
 ### 5. 完成后调用 Complete
 
