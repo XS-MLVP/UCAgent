@@ -133,7 +133,7 @@ def _mask_secret(value: str) -> str:
     raw = str(value)
     if len(raw) <= 4:
         return "*" * len(raw)
-    return raw[:2] + "*" * max(4, len(raw) - 4) + raw[-2:]
+    return raw[:2] + "*" * min(8, max(4, len(raw) - 4)) + raw[-2:]
 
 
 def _is_pid_alive(pid: Optional[int]) -> bool:
@@ -1451,43 +1451,9 @@ class PdbMasterApiServer:
 
         env = os.environ.copy()
         env_updates = req.get("env") or {}
-        env_updates = {
-            **self._launch_default_env_updates(env_updates),
-            **{str(k): str(v) for k, v in env_updates.items() if str(v).strip()},
-        }
-        sorted_env = self._sort_env_by_dependencies(env_updates)
-        env.update({str(k): str(v) for k, v in sorted_env.items()})
+        env_updates.update(self._launch_default_env_updates())
+        env.update({str(k): str(v) for k, v in env_updates.items()})
         return argv, env
-
-    def _sort_env_by_dependencies(self, env_updates: Dict[str, Any]) -> Dict[str, Any]:
-        import re
-        env_updates = {str(k): str(v) for k, v in env_updates.items()}
-        var_pattern = re.compile(r'\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?')
-        dependencies = {}
-        for key, value in env_updates.items():
-            deps = set()
-            for match in var_pattern.finditer(value):
-                dep_var = match.group(1)
-                if dep_var in env_updates:
-                    deps.add(dep_var)
-            dependencies[key] = deps
-        sorted_keys = []
-        visited = set()
-        temp_visited = set()
-        def visit(key):
-            if key in temp_visited:
-                return
-            if key in visited:
-                return
-            temp_visited.add(key)
-            for dep in dependencies.get(key, set()):
-                visit(dep)
-            temp_visited.remove(key)
-            visited.add(key)
-            sorted_keys.append(key)
-        for key in env_updates.keys():
-            visit(key)
-        return {k: env_updates[k] for k in sorted_keys}
 
     def _start_task_process(self, task: Dict[str, Any], env: Dict[str, str]) -> subprocess.Popen:
         stdout_log = open(task["stdout_log_path"], "a", encoding="utf-8", buffering=1)
@@ -1919,15 +1885,13 @@ class PdbMasterApiServer:
             })
         return items
 
-    def _launch_default_env_updates(self, env_updates: Dict[str, Any]) -> Dict[str, str]:
+    def _launch_default_env_updates(self) -> Dict[str, str]:
         configured = self.cfg.get_value("launch.default_env", []) or []
         if hasattr(configured, "as_dict"):
             configured = configured.as_dict()
         if not isinstance(configured, list):
             configured = []
-        ref_pattern = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
         current = {str(k): str(v) for k, v in (os.environ or {}).items()}
-        current.update({str(k): str(v) for k, v in (env_updates or {}).items() if str(v).strip()})
         default_updates: Dict[str, str] = {}
         for entry in configured:
             if hasattr(entry, "as_dict"):
@@ -1938,17 +1902,21 @@ class PdbMasterApiServer:
                 continue
             key, raw = next(iter(entry.items()))
             key = str(key).strip()
-            if not key or str((env_updates or {}).get(key, "")).strip():
+            raw_value = str(raw).strip()
+            if not key:
                 continue
-            raw_value = str(raw)
-            match = ref_pattern.match(raw_value.strip())
+            match = raw_value.startswith("$")
             if match:
-                ref_key = match.group(1)
-                if str(current.get(ref_key, "")).strip():
-                    default_updates[key] = raw_value
-                    current[key] = raw_value
+                ref_key = raw_value[1:].strip()
+                ref_val = str(current.get(ref_key, "")).strip()
+                if ref_val:
+                    default_updates[key] = ref_val
+                    current[key] = ref_val
+                    warning(f"Launch default env: set '{key}' from reference '{ref_key}' with value '{_mask_secret(ref_val)}'")
+                else:
+                    warning(f"Launch default env: reference '{ref_key}' for key '{key}' is not set in environment; skipping")
                 continue
-            if raw_value.strip():
+            if raw_value:
                 default_updates[key] = raw_value
                 current[key] = raw_value
         return default_updates
