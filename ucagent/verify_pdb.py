@@ -1337,6 +1337,28 @@ class VerifyPDB(Pdb):
             echo_y("export name cannot be empty. Usage: export_stage_manager <name>")
         self.curframe.f_locals[name] = self.agent.stage_manager
 
+    def do_messages_reset(self, arg):
+        """
+        Reset the messages in the agent's state.
+        Usage: messages_reset [force]
+        """
+        arg = arg.strip().lower()
+        force = arg == "force"
+        if arg and not force:
+            echo_y(f"Unknown argument: {arg}. Usage: messages_reset [force]")
+            return
+        self.agent.backend.reset_chat(force=force)
+        message(f"Messages have been reset [force={force}].")
+
+    def complete_messages_reset(self, text, line, begidx, endidx):
+        """
+        Auto-complete the messages_reset command.
+        """
+        options = ["force"]
+        if not text:
+            return options
+        return [option for option in options if option.startswith(text.strip().lower())]
+
     def do_messages_info(self, arg):
         """
         Show information about the messages in the agent's state.

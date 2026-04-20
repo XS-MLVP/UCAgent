@@ -247,11 +247,13 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         self.summary_data = []
         self.model = model
         self.arbit_summary_data = None
-        self._is_reset_summary = False
+        self._is_reset_chat = False
+        self._is_reset_force = False
         self.system_message = None
 
-    def reset_summary(self):
-        self._is_reset_summary = True
+    def reset_chat(self, force=False):
+        self._is_reset_chat = True
+        self._is_reset_force = force
         return self
 
     def set_system_message(self, system_message: SystemMessage):
@@ -273,7 +275,7 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
-        if self._is_reset_summary:
+        if self._is_reset_chat:
             self.summary_data = []
             # Remove all previous messages except system message and the most recent Human/Tool message
             tail_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - 2))
@@ -288,9 +290,21 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
             tail_msgs = llm_input_msgs[tail_index:]
             if humam_msg_index < tail_index:
                 tail_msgs = [llm_input_msgs[humam_msg_index], *tail_msgs]
+            if self._is_reset_force:
+                # find the last HumanMessage
+                force_human_list = -1
+                for i in range(len(tail_msgs)-1, -1, -1):
+                    if isinstance(tail_msgs[i], HumanMessage):
+                        force_human_list = i
+                        break
+                if force_human_list >= 0:
+                    tail_msgs = [tail_msgs[force_human_list]]
+                else:
+                    warning(f"No HumanMessage found in tails messages (size={len(tail_msgs)}), cannot force reset to human message, falling back to normal behavior.")
             ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + tail_msgs
-            self._is_reset_summary = False
-            warning(f"Summary reset, all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
+            warning(f"Chat reset [force={self._is_reset_force}], all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
+            self._is_reset_chat = False
+            self._is_reset_force = False
         elif self.arbit_summary_data is None:
             current_token_size = count_tokens_approximately(messages)
             is_exceed = current_token_size > self.max_tokens

@@ -155,3 +155,9 @@ class AgentBackendBase(object):
         :param stage: The stage that has finished.
         """
         pass
+
+    def reset_chat(self, force=False):
+        """
+        Reset the chat state, if applicable.
+        """
+        pass
