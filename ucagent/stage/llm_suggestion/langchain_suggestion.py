@@ -9,7 +9,7 @@ from langchain.agents import create_agent
 from ucagent.stage.vstage import VerifyStage
 from ucagent.util.functions import make_llm_tool_ret
 from langchain.agents.middleware import SummarizationMiddleware
-from langchain_core.messages import RemoveMessage
+from langchain_core.messages import RemoveMessage, HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 from langchain.agents.middleware.types import AgentState
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -178,8 +178,7 @@ class OpenAILLMFailSuggestion(BaseLLMSuggestion):
                     "\n</report>\n\n" + \
                     self.suggestion_prompt
         messages = [
-            ("system", self.system_prompt),
-            ("user", user_text),
+            HumanMessage(content=user_text),
         ]
         sg_msg = do_work_values(self, {"messages": messages}, self.get_work_cfg())
         sg_msg = self._remove_ignore_labels(sg_msg, self.ignore_labels)
@@ -294,8 +293,7 @@ class OpenAILLMPassSuggestion(BaseLLMSuggestion):
                     "Diff Information:\n<stagediff>\n" + stage_diff + "\n</stagediff>\n\n" + \
                     self.suggestion_prompt
         messages = [
-            ("system", self.system_prompt),
-            ("user", user_text),
+            HumanMessage(content=user_text),
         ]
         sg_msg = do_work_values(self, {"messages": messages}, self.get_work_cfg())
         sg_msg = self._remove_ignore_labels(sg_msg, self.ignore_labels)
