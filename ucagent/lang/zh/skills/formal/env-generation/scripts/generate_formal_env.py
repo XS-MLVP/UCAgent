@@ -6,40 +6,22 @@ import glob
 import os
 import re
 import sys
-from typing import List, Optional, Tuple
 
+import os
+import sys
 
-# Bootstrap: Ensure workspace root is in sys.path so 'examples.Formal' can be imported.
+# Bootstrap: Add UCAgent project root to sys.path so we can import 'ucagent'.
 _root = os.path.dirname(os.path.abspath(__file__))
-while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "examples", "Formal")):
+while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "ucagent", "__init__.py")):
     _root = os.path.dirname(_root)
-sys.path.insert(0, _root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-from examples.Formal.scripts.formal_tools import get_workspace_root, normalize_output_dir, resolve_formal_paths
+from ucagent.lang.zh.skills.formal.lib import FormalPaths
 from ucagent.util.log import str_error, str_info
 
+from typing import List, Optional, Tuple
 
-def _resolve_paths(dut_name: str, output_dir: str) -> dict:
-    workspace = get_workspace_root()
-    default_candidate = os.path.abspath(os.path.join(workspace, dut_name))
-    default_example = os.path.abspath(os.path.join(workspace, "examples", dut_name))
-    if os.path.isdir(default_candidate):
-        rtl_dir = default_candidate
-    elif os.path.isdir(default_example):
-        rtl_dir = default_example
-    else:
-        rtl_dir = default_candidate
-    paths = resolve_formal_paths(
-        dut_name,
-        output_dir,
-        path_specs={
-            "checker_file": ("tests", "{dut_name}_checker.sv"),
-            "wrapper_file": ("tests", "{dut_name}_wrapper.sv"),
-            "spec_file": ("formal", "03_{dut_name}_functions_and_checks.md"),
-        },
-    )
-    paths["rtl_dir"] = rtl_dir
-    return paths
 
 
 def _extract_ports_simple(rtl_file_path: str, dut_name: str) -> List[Tuple[str, str]]:
@@ -219,21 +201,12 @@ def main() -> None:
     if not args.dut_name:
         print(str_error("Missing DUT name. Please provide -dut_name or set DUT environment variable."))
         return
-    output_dir_env = os.environ.get("OUT")
-    if not output_dir_env:
-        print(str_error("Missing OUT environment variable."))
-        return
 
-    output_dir = normalize_output_dir(output_dir_env)
-
-    paths = _resolve_paths(
-        args.dut_name,
-        output_dir=output_dir,
-    )
-    rtl_dir_res = paths["rtl_dir"]
-    checker_path = paths["checker_file"]
-    wrapper_path = paths["wrapper_file"]
-    spec_path = paths["spec_file"]
+    paths = FormalPaths(dut=args.dut_name)
+    rtl_dir_res = paths.rtl_dir
+    checker_path = paths.checker
+    wrapper_path = paths.wrapper
+    spec_path = paths.spec
 
     try:
         rtl_file_path = _find_rtl_file(rtl_dir_res, args.dut_name)

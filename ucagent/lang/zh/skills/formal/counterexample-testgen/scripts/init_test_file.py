@@ -6,59 +6,23 @@ import os
 import re
 import shutil
 import sys
+
+import os
+import sys
+
+# Bootstrap: Add UCAgent project root to sys.path so we can import 'ucagent'.
+_root = os.path.dirname(os.path.abspath(__file__))
+while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "ucagent", "__init__.py")):
+    _root = os.path.dirname(_root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+from ucagent.lang.zh.skills.formal.lib import FormalPaths
+from ucagent.util.log import str_error, str_info
+
 from typing import Optional
 
 
-def _bootstrap_formal_import() -> None:
-    """Ensure repository root is on sys.path so examples.Formal can be imported."""
-    marker = os.path.join("examples", "Formal", "scripts", "formal_tools.py")
-    seen = set()
-    candidates = []
-
-    for base in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        cur = os.path.abspath(base)
-        for _ in range(12):
-            if cur in seen:
-                break
-            seen.add(cur)
-            candidates.append(cur)
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                break
-            cur = parent
-
-    for root in candidates:
-        if os.path.exists(os.path.join(root, marker)):
-            if root not in sys.path:
-                sys.path.insert(0, root)
-            return
-
-_bootstrap_formal_import()
-from examples.Formal.scripts.formal_tools import normalize_output_dir, resolve_formal_paths
-from ucagent.util.log import str_error, str_info
-
-
-def _resolve_paths(
-    dut_name: str,
-    output_dir: str,
-    analysis_doc: str = None,
-    wrapper_file: str = None,
-    test_file: str = None,
-) -> dict:
-    return resolve_formal_paths(
-        dut_name,
-        output_dir,
-        path_specs={
-            "analysis_doc": ("formal", "07_{dut_name}_env_analysis.md"),
-            "wrapper_file": ("tests", "{dut_name}_wrapper.sv"),
-            "test_file": ("tests", "test_{dut_name}_counterexample.py"),
-        },
-        overrides={
-            "analysis_doc": analysis_doc,
-            "wrapper_file": wrapper_file,
-            "test_file": test_file,
-        },
-    )
 
 
 def _strip_prop_prefix(prop_name: str) -> str:
@@ -162,15 +126,12 @@ def main() -> None:
         print(str_error("Missing OUT environment variable."))
         return
 
-    output_dir = normalize_output_dir(output_dir_env)
 
-    paths = _resolve_paths(
-        args.dut_name,
-        output_dir=output_dir,
-    )
-    res_analysis_path = paths["analysis_doc"]
-    res_wrapper_path = paths["wrapper_file"]
-    res_output_path = paths["test_file"]
+
+    paths = FormalPaths(dut=args.dut_name)
+    res_analysis_path = paths.analysis
+    res_wrapper_path = paths.wrapper
+    res_output_path = paths.test_file
 
     if not os.path.exists(res_analysis_path):
         print(str_error(f"Error: Analysis doc not found at {res_analysis_path}"))

@@ -6,54 +6,29 @@ import os
 import subprocess
 import sys
 
+import os
+import sys
 
-def _bootstrap_formal_import() -> None:
-    """Ensure repository root is on sys.path so examples.Formal can be imported."""
-    marker = os.path.join("examples", "Formal", "scripts", "formal_tools.py")
-    seen = set()
-    candidates = []
+# Bootstrap: Add UCAgent project root to sys.path so we can import 'ucagent'.
+_root = os.path.dirname(os.path.abspath(__file__))
+while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "ucagent", "__init__.py")):
+    _root = os.path.dirname(_root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-    for base in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        cur = os.path.abspath(base)
-        for _ in range(12):
-            if cur in seen:
-                break
-            seen.add(cur)
-            candidates.append(cur)
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                break
-            cur = parent
-
-    for root in candidates:
-        if os.path.exists(os.path.join(root, marker)):
-            if root not in sys.path:
-                sys.path.insert(0, root)
-            return
-
-_bootstrap_formal_import()
-from examples.Formal.scripts.formal_tools import normalize_output_dir, resolve_formal_paths
+from ucagent.lang.zh.skills.formal.lib import FormalPaths
 from ucagent.util.log import str_error, str_info
-from examples.Formal.scripts.formal_adapter import get_adapter
+from ucagent.lang.zh.skills.formal.lib import formal_adapter
+from ucagent.lang.zh.skills.formal.lib import run_formal_verification, summarize_execution
 
 
-def _resolve_paths(dut_name: str, output_dir: str) -> dict:
-    adapter = get_adapter()
-    return resolve_formal_paths(
-        dut_name,
-        output_dir,
-        path_specs={
-            "tcl_script": ("tests", "{dut_name}_formal.tcl"),
-            "log_file": ("tests", adapter.log_filename()),
-        },
-    )
+
 
 
 def _run_formal_verification(tcl_path: str, timeout: int) -> dict:
-    adapter = get_adapter()
     exec_dir = os.path.dirname(tcl_path)
-    log_path = os.path.join(exec_dir, adapter.log_filename())
-    cmd = adapter.build_command(tcl_path, exec_dir)
+    log_path = os.path.join(exec_dir, formal_adapter.log_filename())
+    cmd = formal_adapter.build_command(tcl_path, exec_dir)
 
     try:
         process = subprocess.run(
@@ -92,8 +67,8 @@ def _run_formal_verification(tcl_path: str, timeout: int) -> dict:
 
     with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
         log_content = f.read()
-    has_results = adapter.validate_log_has_results(log_content)
-    parsed_log = adapter.parse_log(log_path) if has_results else None
+    has_results = formal_adapter.validate_log_has_results(log_content)
+    parsed_log = formal_adapter.parse_log(log_path) if has_results else None
 
     return {
         "success": has_results,
@@ -119,10 +94,10 @@ def main() -> None:
         print(str_error("Missing OUT environment variable."))
         return
 
-    output_dir = normalize_output_dir(output_dir)
 
-    paths = _resolve_paths(args.dut_name, output_dir)
-    tcl_path = paths["tcl_script"]
+
+    paths = FormalPaths(dut=args.dut_name)
+    tcl_path = paths.tcl
     if not os.path.exists(tcl_path):
         result = str_error(
             f"TCL script does not exist: {tcl_path}\n"

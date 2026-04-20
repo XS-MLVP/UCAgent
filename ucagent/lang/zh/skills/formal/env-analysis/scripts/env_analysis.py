@@ -7,56 +7,26 @@ import re
 import shutil
 import sys
 
+import os
+import sys
 
-def _bootstrap_formal_import() -> None:
-    """Ensure repository root is on sys.path so examples.Formal can be imported."""
-    marker = os.path.join("examples", "Formal", "scripts", "formal_tools.py")
-    seen = set()
-    candidates = []
+# Bootstrap: Add UCAgent project root to sys.path so we can import 'ucagent'.
+_root = os.path.dirname(os.path.abspath(__file__))
+while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "ucagent", "__init__.py")):
+    _root = os.path.dirname(_root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
-    for base in (os.getcwd(), os.path.dirname(os.path.abspath(__file__))):
-        cur = os.path.abspath(base)
-        for _ in range(12):
-            if cur in seen:
-                break
-            seen.add(cur)
-            candidates.append(cur)
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                break
-            cur = parent
-
-    for root in candidates:
-        if os.path.exists(os.path.join(root, marker)):
-            if root not in sys.path:
-                sys.path.insert(0, root)
-            return
-
-_bootstrap_formal_import()
-from examples.Formal.scripts.formal_tools import normalize_output_dir, resolve_formal_paths
+from ucagent.lang.zh.skills.formal.lib import FormalPaths
 from ucagent.util.log import str_error, str_info
-from examples.Formal.scripts.formal_adapter import get_adapter
+from ucagent.lang.zh.skills.formal.lib import formal_adapter
 
 
-def _resolve_paths(dut_name: str, output_dir: str, log_file: str = None, analysis_doc: str = None) -> dict:
-    adapter = get_adapter()
-    return resolve_formal_paths(
-        dut_name,
-        output_dir,
-        path_specs={
-            "checker_file": ("tests", "{dut_name}_checker.sv"),
-            "log_file": ("tests", adapter.log_filename()),
-            "analysis_doc": ("formal", "07_{dut_name}_env_analysis.md"),
-        },
-        overrides={
-            "log_file": log_file,
-            "analysis_doc": analysis_doc,
-        },
-    )
+
 
 
 def _parse_avis_log(log_path: str) -> dict:
-    return get_adapter().parse_log(log_path)
+    return formal_adapter.parse_log(log_path)
 
 
 def _extract_property_code(checker_content: str, prop_name: str) -> str:
@@ -112,10 +82,10 @@ def _render_fa_entry(idx: int, prop_name: str, prop_type: str, checker_content: 
 
 
 def _run_init(dut_name: str, output_dir: str, log_path: str = None, output_path: str = None) -> str:
-    paths = _resolve_paths(dut_name, output_dir=output_dir, log_file=log_path, analysis_doc=output_path)
-    res_log_path = paths["log_file"]
-    res_output_path = paths["analysis_doc"]
-    checker_path = paths["checker_file"]
+    paths = FormalPaths(dut=dut_name)
+    res_log_path = paths.log
+    res_output_path = paths.analysis
+    checker_path = paths.checker
 
     if not os.path.exists(res_log_path):
         return str_error(f"Error: log file not found at {res_log_path}")
@@ -190,10 +160,10 @@ def _run_init(dut_name: str, output_dir: str, log_path: str = None, output_path:
 
 
 def _run_update(dut_name: str, output_dir: str) -> str:
-    paths = _resolve_paths(dut_name, output_dir=output_dir)
-    log_path = paths["log_file"]
-    doc_path = paths["analysis_doc"]
-    checker_path = paths["checker_file"]
+    paths = FormalPaths(dut=dut_name)
+    log_path = paths.log
+    doc_path = paths.analysis
+    checker_path = paths.checker
 
     if not os.path.exists(log_path):
         return str_error(f"Error: log file not found at {log_path}")
@@ -274,15 +244,15 @@ def main() -> None:
         print(str_error("Missing OUT environment variable."))
         return
 
-    output_dir = normalize_output_dir(output_dir_env)
+
 
     if args.mode == "init":
         result = _run_init(
             dut_name=args.dut_name,
-            output_dir=output_dir,
+            output_dir=output_dir_env,
         )
     else:
-        result = _run_update(dut_name=args.dut_name, output_dir=output_dir)
+        result = _run_update(dut_name=args.dut_name, output_dir=output_dir_env)
 
     print(result)
 

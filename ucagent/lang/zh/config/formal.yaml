@@ -298,11 +298,11 @@ stage:
       - "{OUT}/tests/{DUT}_wrapper.sv"
     checker:
       - name: env_syntax_check
-        clss: "examples.Formal.scripts.formal_checkers.EnvSyntaxChecker"
+        clss: "ucagent.checkers.formal.EnvSyntaxChecker"
         args:
           dut_name: "{DUT}"
       - name: wrapper_timing_check
-        clss: "examples.Formal.scripts.formal_checkers.WrapperTimingChecker"
+        clss: "ucagent.checkers.formal.WrapperTimingChecker"
         args:
           dut_name: "{DUT}"
 
@@ -321,7 +321,7 @@ stage:
       - "{OUT}/tests/{DUT}_checker.sv"
     checker:
       - name: property_structure_check
-        clss: "examples.Formal.scripts.formal_checkers.PropertyStructureChecker"
+        clss: "ucagent.checkers.formal.PropertyStructureChecker"
         args:
           dut_name: "{DUT}"
 
@@ -338,7 +338,7 @@ stage:
       - "{OUT}/tests/{DUT}_formal.tcl"
     checker:
       - name: script_generation_check
-        clss: "examples.Formal.scripts.formal_checkers.ScriptGenerationChecker"
+        clss: "ucagent.checkers.formal.ScriptGenerationChecker"
         args:
           dut_name: "{DUT}"
 
@@ -364,7 +364,7 @@ stage:
       - "{OUT}/07_{DUT}_env_analysis.md"
     checker:
       - name: environment_analysis_check
-        clss: "examples.Formal.scripts.formal_checkers.EnvironmentAnalysisChecker"
+        clss: "ucagent.checkers.formal.EnvironmentAnalysisChecker"
         args:
           dut_name: "{DUT}"
           accepted_ratio_threshold: 100.0
@@ -385,11 +385,11 @@ stage:
       - "{OUT}/03_{DUT}_functions_and_checks.md"
     checker:
       - name: property_structure_check
-        clss: "examples.Formal.scripts.formal_checkers.PropertyStructureChecker"
+        clss: "ucagent.checkers.formal.PropertyStructureChecker"
         args:
           dut_name: "{DUT}"
       - name: coverage_analysis_check
-        clss: "examples.Formal.scripts.formal_checkers.CoverageAnalysisChecker"
+        clss: "ucagent.checkers.formal.CoverageAnalysisChecker"
         args:
           dut_name: "{DUT}"
           coi_threshold: 90.0
@@ -414,7 +414,7 @@ stage:
       - "{OUT}/tests/test_{DUT}_counterexample.py"
     checker:
       - name: counterexample_testgen_check
-        clss: "examples.Formal.scripts.formal_checkers.CounterexampleTestgenChecker"
+        clss: "ucagent.checkers.formal.CounterexampleTestgenChecker"
         args:
           dut_name: "{DUT}"
     ignore: $(CEX_CHECK: true)
@@ -439,7 +439,7 @@ stage:
       - "{OUT}/04_{DUT}_bug_report.md"
     checker:
       - name: bug_report_consistency_check
-        clss: "examples.Formal.scripts.formal_checkers.BugReportConsistencyChecker"
+        clss: "ucagent.checkers.formal.BugReportConsistencyChecker"
         args:
           dut_name: "{DUT}"
 
@@ -484,7 +484,7 @@ stage:
       - "{OUT}/04_{DUT}_static_bug_analysis.md"
     checker:
       - name: static_formal_bug_linkage_check
-        clss: "examples.Formal.scripts.formal_checkers.StaticFormalBugLinkageChecker"
+        clss: "ucagent.checkers.formal.StaticFormalBugLinkageChecker"
         args:
           dut_name: "{DUT}"
     ignore: $(IGNORE_STATIC_CHECK: true)
