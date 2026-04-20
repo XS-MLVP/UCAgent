@@ -180,6 +180,15 @@ docker run -it --rm \
 3. 在Agent控制页面中，点击web terminal按钮，打开在线终端。
 4. 本地启动ucagent 通过 --master 参数连接到已有的Master服务。
 
+### 更多功能
+
+1. Launch 页面：可在浏览器内完成工作区创建、文件导入/上传、模块解析、编译与启动参数预览。
+2. Task 页面：支持托管任务筛选、分页、详情与日志查看，以及停止/删除操作。
+3. Agent 页面增强：支持阶段多选与批量开关（HM/Skip/LFail/LPass），并支持阶段产物文件内容与 Diff 复盘。
+4. 统一代理访问：Master 可统一代理 task/agent 的 cmd、terminal、web-console 路径，减少跨地址跳转。
+5. Web Terminal 增强：支持多会话访问（不同 URL）。
+
+> 📖 **详细操作说明：** 查看 [TUI 使用文档](https://ucagent.open-verify.cc/content/02_usage/07_web_master/)
 ---
 
 ## 基本操作

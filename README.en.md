@@ -181,6 +181,16 @@ After successful startup, visit `http://localhost:8800` in your browser.
 3. In the Agent control page, click the web terminal button to open the online terminal.
 4. Start ucagent locally and connect to an existing Master service via the --master parameter.
 
+### More Features
+
+1. Launch page: create workspace, upload/import files, parse modules, compile, and preview launch command.
+2. Task page: filter, paginate, inspect task details/logs, and stop/delete managed tasks.
+3. Enhanced Agent page: stage multi-select and bulk toggles (HM/Skip/LFail/LPass), plus stage artifact content/diff review.
+4. Unified proxy access: Master proxies cmd/terminal/web-console paths for both task and agent entries.
+5. Improved Web Terminal: multiple terminal sessions across different URLs.
+
+> 📖 **Detailed Operations:** See [TUI Usage Documentation](https://ucagent.open-verify.cc/content/07_web_master/)
+
 ---
 
 ## Basic Operations
