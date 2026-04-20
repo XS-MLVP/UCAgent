@@ -105,7 +105,7 @@ as_master_persist:
 FORMAL_DIR   := examples/Formal
 FORMAL_CWD   ?= $(FORMAL_DIR)/output/workspace_$*
 FORMAL_CFG   := ucagent/lang/zh/config/formal.yaml
-FORMAL_DOC   := ucagent/lang/zh/doc/formal
+FORMAL_DOC   := ucagent/lang/zh/doc/Formal_Doc
 
 formal_init_%:
 	mkdir -p $(FORMAL_CWD)

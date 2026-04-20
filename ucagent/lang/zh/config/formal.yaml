@@ -124,7 +124,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/coverage-optimization/scripts/run_formal_verification.py -dut_name {DUT}` 即时验证，无需等待 Check 触发"
+        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/sva-opt/scripts/run_formal_verification.py -dut_name {DUT}` 即时验证，无需等待 Check 触发"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -182,10 +182,10 @@ stage:
   # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义"
-    skill_list: ["functional-spec"]
+    skill_list: ["func-spec"]
     task:
       - "第1步：打开已经内置了部分标签规范信息的 `{OUT_PATH}/03_{DUT}_functions_and_checks.md` 文档。"
-      - "第2步：请基于 `functional-spec` 技能指导规范，在文档中划分大类功能分组（<FG-XXX>），细分到功能规格（<FC-XXX>），最后推导出最小检验单元（<CK-XXX>）。"
+      - "第2步：请基于 `func-spec` 技能指导规范，在文档中划分大类功能分组（<FG-XXX>），细分到功能规格（<FC-XXX>），最后推导出最小检验单元（<CK-XXX>）。"
       - "第3步：**强制约束**：你的每一个检测点声明最后，一定必须跟随相应的验证形态指导，从 `(Style: Assume)`, `(Style: Seq)`, `(Style: Comb)`, `(Style: Cover)` 中必须选取且仅能选取一个。"
       - "第4步：请检查你的 Safety 和 Liveness 是否齐全，且对所有存在死锁、阻截嫌疑的路径增加了 Cover 探测点。"
     reference_files:
@@ -217,10 +217,10 @@ stage:
               leaf_node: "FC"
       - name: check_point_design
         desc: "检测点设计与定义{COUNT_CK}"
-        skill_list: ["functional-spec"]
+        skill_list: ["func-spec"]
         task:
           - "目标：为每个具体业务逻辑设计 `<CK-xxx>` 属性检查点。"
-          - "**首要行动**：遵循 `functional-spec` 技能步骤，依据 `Guide_Doc/functions_and_checks.md` 中的规范进行设计。"
+          - "**首要行动**：遵循 `func-spec` 技能步骤，依据 `Guide_Doc/functions_and_checks.md` 中的规范进行设计。"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -285,10 +285,10 @@ stage:
   # ========== Stage 4: Verification Environment Generation (Checker & Bind) ==========
   - name: environment_generation
     desc: "验证环境生成 (Checker & Bind)"
-    skill_list: ["env-generation"]
+    skill_list: ["env-gen"]
     task:
       - "目标：生成并配置 Formal 验证的基础环境结构。"
-      - "**首要行动：加载 `env-generation` 技能并按其步骤执行。**"
+      - "**首要行动：加载 `env-gen` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/02_{DUT}_basic_info.md"
       - "{OUT}/03_{DUT}_functions_and_checks.md"
@@ -309,10 +309,10 @@ stage:
   # ========== Stage 5: SVA Property Generation ==========
   - name: property_generation
     desc: "SVA 属性生成"
-    skill_list: ["sva-property-generation"]
+    skill_list: ["sva-gen"]
     task:
       - "目标：将 checker.sv 中的 [LLM-TODO] 骨架翻译为完整的 SVA 断言代码。"
-      - "**首要行动：加载 `sva-property-generation` 技能并按其步骤执行。**"
+      - "**首要行动：加载 `sva-gen` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/03_{DUT}_functions_and_checks.md"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -346,12 +346,12 @@ stage:
   - name: environment_debugging_iteration
     desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
     skill_list:
-      - "env-analysis"
+      - "sva-audit"
     task:
       - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束，并生成结构化的环境分析文档。"
-      - "本阶段的具体执行规范、文档生成方式及迭代修复步骤已全部内聚于 `env-analysis` 技能中。"
-      - "**首要行动：利用 `SkillList` 工具加载并阅读 `env-analysis` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成文件并执行任务。**"
-      - "迭代中若有新的异常属性，使用 RunSkillScript 执行 `python3 .ucagent/skills/env-analysis/scripts/env_analysis.py -mode update -dut_name {DUT}` 进行增量文档追加。"
+      - "本阶段的具体执行规范、文档生成方式及迭代修复步骤已全部内聚于 `sva-audit` 技能中。"
+      - "**首要行动：利用 `SkillList` 工具加载并阅读 `sva-audit` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成文件并执行任务。**"
+      - "迭代中若有新的异常属性，使用 RunSkillScript 执行 `python3 .ucagent/skills/sva-audit/scripts/env_analysis.py -mode update -dut_name {DUT}` 进行增量文档追加。"
       - "注：如有需要，请自行使用 ReadTextFile 查阅 {RTL_PATH}/{DUT}.v 或 Guide_Doc/sva_property.md。"
     reference_files:
       - "{OUT}/tests/{LOG_FILE}"
@@ -372,10 +372,10 @@ stage:
   # ========== Stage 8: Coverage Analysis and Assertion Optimization ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
-    skill_list: ["coverage-optimization"]
+    skill_list: ["sva-opt"]
     task:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
-      - "**首要行动：加载 `coverage-optimization` 技能并按其步骤执行。**"
+      - "**首要行动：加载 `sva-opt` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -398,11 +398,11 @@ stage:
   - name: counterexample_python_testgen
     desc: "形式化反例 Python 测试用例生成"
     skill_list:
-      - "counterexample-testgen"
+      - "cex-gen"
     task:
       - "目标：为环境分析文档中判定为 RTL_BUG 的 FALSE 属性，编写引脚级 Python 测试用例复现 Bug。"
-      - "本阶段的具体执行规范、代码框架生成方式及核心校验规则已全部内聚于 `counterexample-testgen` 技能中。"
-      - "**首要行动：利用 `SkillList` 工具加载并阅读 `counterexample-testgen` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成框架并执行任务。**"
+      - "本阶段的具体执行规范、代码框架生成方式及核心校验规则已全部内聚于 `cex-gen` 技能中。"
+      - "**首要行动：利用 `SkillList` 工具加载并阅读 `cex-gen` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成框架并执行任务。**"
       - "注：如需深究 RTL 实现细节，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
     reference_files:
       - "Guide_Doc/counterexample.md"
