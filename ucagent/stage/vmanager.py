@@ -396,6 +396,16 @@ class StageManager(object):
         self.force_todo = force_todo
         self.todo_panel = todo_panel
         self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        # Build LD_PRELOAD env for free pytest runner (used by RunTestCases tool)
+        self._free_pytest_ld_env = {}
+        check_script_env = getattr(cfg, "check_script_env", None)
+        if check_script_env:
+            from ucagent.checkers.scripts.common import _build_ld_preload
+            ld_preload = _build_ld_preload(check_script_env)
+            self._free_pytest_ld_env = {
+                "LD_PRELOAD": ld_preload,
+                "_LD_PRELOAD_HANDLED": "1"
+            }
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -817,7 +827,6 @@ class StageManager(object):
             })
         ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "ex_args": ex_args})
         ret_data = OrderedDict({
-            "stage_status": f"{'✓ ALL CHECKERS PASSED' if ck_pass else f'✗ INCOMPLETE: {passed_count}/{total_count} checkers passed'}",
             "check_info": ck_info,
             "check_pass": ck_pass,
         })
@@ -1082,7 +1091,10 @@ class StageManager(object):
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        kw = {}
+        if self._free_pytest_ld_env:
+            kw["pytest_ex_env"] = self._free_pytest_ld_env
+        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail, **kw)
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

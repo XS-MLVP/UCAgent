@@ -72,16 +72,16 @@ class VerifyStage(object):
                 **c.extra_args.as_dict()
             ).set_workspace(workspace).set_stage(self) for c in self._checker
         ]
-        # Propagate check_script_env to every checker when configured
-        _cse = getattr(self.cfg, "check_script_env", None)
-        if _cse:
-            for _c in self.checker:
-                _c.check_script_env = os.path.abspath(_cse)
         if not self.need_human_check:
             for c in self.checker:
                 if c.is_human_check_needed():
                     self.need_human_check = True
                     break
+        # Configure LD_PRELOAD isolation for checkers that need it
+        check_script_env = getattr(self.cfg, "check_script_env", None)
+        if check_script_env:
+            for c in self.checker:
+                c.set_ld_preload(check_script_env)
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
         self.fail_count = 0
@@ -507,85 +507,7 @@ class VerifyStage(object):
             self.continue_fail_count = 0
         else:
             self.continue_fail_count += 1
-        
-        # Simplify check_info: minimize verbose output
-        simplified_info = []
-        for info in self.check_info:
-            if info is None:
-                continue
-            # If this checker passed (count_fail == 0 or last check was successful)
-            if info.get('count_fail', 0) == 0 or (info.get('count_check', 0) > 0 and info.get('last_msg', '') and self.check_pass):
-                # Show only brief status for passed checkers
-                simplified_info.append({
-                    "name": info['name'],
-                    "status": "✓ PASSED",
-                    "count_pass": info['count_pass'],
-                    "count_check": info['count_check']
-                })
-            else:
-                # For failed checkers: keep essential info but simplify verbose fields
-                simplified = {
-                    "name": info['name'],
-                    "count_pass": info['count_pass'],
-                    "count_fail": info['count_fail'],
-                    "count_check": info['count_check']
-                }
-                
-                # Simplify last_msg: only keep error and truncate STDOUT/STDERR
-                last_msg = info.get('last_msg', {})
-                if isinstance(last_msg, dict):
-                    simplified_msg = {}
-                    
-                    # Always include error if present
-                    if 'error' in last_msg:
-                        simplified_msg['error'] = last_msg['error']
-                    
-                    # Truncate STDOUT if too long (keep first and last parts)
-                    if 'STDOUT' in last_msg:
-                        stdout = last_msg['STDOUT']
-                        if len(stdout) > 2000:
-                            lines = stdout.split('\n')
-                            if len(lines) > 50:
-                                simplified_msg['STDOUT'] = '\n'.join(lines[:15] + [f'\n... ({len(lines)-30} lines omitted) ...\n'] + lines[-15:])
-                            else:
-                                simplified_msg['STDOUT'] = stdout[:1000] + f'\n... ({len(stdout)-2000} chars omitted) ...\n' + stdout[-1000:]
-                        else:
-                            simplified_msg['STDOUT'] = stdout
-                    
-                    # Truncate STDERR similarly
-                    if 'STDERR' in last_msg:
-                        stderr = last_msg['STDERR']
-                        if len(stderr) > 1000:
-                            simplified_msg['STDERR'] = stderr[:500] + f'\n... ({len(stderr)-1000} chars omitted) ...\n' + stderr[-500:]
-                        else:
-                            simplified_msg['STDERR'] = stderr
-                    
-                    # Keep REPORT but remove overly nested structures
-                    if 'REPORT' in last_msg:
-                        report = last_msg['REPORT']
-                        if isinstance(report, dict):
-                            # Only keep essential report fields
-                            simplified_report = {}
-                            for key in ['run_test_success', 'tests', 'test_function_with_no_check_point_mark']:
-                                if key in report:
-                                    simplified_report[key] = report[key]
-                            simplified_msg['REPORT'] = simplified_report
-                        else:
-                            simplified_msg['REPORT'] = report
-                    
-                    # Copy other fields that aren't verbose
-                    for key in last_msg:
-                        if key not in ['STDOUT', 'STDERR', 'REPORT', 'error'] and not isinstance(last_msg[key], (dict, list)) or len(str(last_msg[key])) < 500:
-                            simplified_msg[key] = last_msg[key]
-                    
-                    simplified['last_msg'] = simplified_msg
-                else:
-                    # If last_msg is not a dict, keep it as is (likely already simple)
-                    simplified['last_msg'] = last_msg
-                
-                simplified_info.append(simplified)
-        
-        return self.check_pass, simplified_info
+        return self.check_pass, self.check_info
 
     def reset_continue_fail_count_with_batch_pass(self):
         self.is_batch_success = True

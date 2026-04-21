@@ -1,220 +1,428 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Common utilities for checker scripts.
+Common infrastructure for checker scripts.
 
-This module provides helper functions for checker scripts that run in subprocesses.
-It reuses ucagent.util.functions where possible to avoid code duplication:
-- fc.append_python_path: Add paths to sys.path
-- fc.import_python_file: Dynamically import Python modules
-- fc.get_func_arg_list: Extract function argument names
-- fc.get_target_from_file: Find functions/classes matching patterns (used in check_dut_api.py)
+This module provides:
+1. Stub modules for safe import hooks (_StubModule, _PytestStub, safe_import_hook)
+2. Isolated subprocess execution with LD_PRELOAD (run_check, run_isolated_check)
+3. JSON output utilities
 """
 
-# NOTE: LD_PRELOAD handling is done selectively:
-# - Keep LD_PRELOAD during target file import (to prevent TLS errors)
-# - Remove it before importing ucagent modules (to avoid git conflicts)
-import os
-import sys
+import glob
 import json
-import io
-import inspect
-from typing import Any, Optional, List, Tuple, Callable
-
-# NOTE: Do NOT import ucagent here at module level!
-# Import ucagent.util.functions as fc only inside functions to avoid
-# triggering git package imports
-
-import ctypes
+import os
+import re
+import subprocess
+import sys
+import sysconfig
+from typing import Any, Iterable, Optional, Tuple
 
 
-def init_helper_script():
-    """
-    Initialize helper script environment.
+# ---------------------------------------------------------------------------
+# Stub modules — shared by run_checker_stub.py and legacy standalone scripts.
+# ---------------------------------------------------------------------------
 
-    Redirects stderr to suppress warnings.
-    Note: LD_PRELOAD handling is done in remove_ld_preload_for_ucagent().
-    """
-    sys.stderr = io.StringIO()
+class _StubModule:
+    """Stub module that silently absorbs all attribute access."""
+    def __init__(self, name='Stub'):
+        self.__name__ = name
+
+    def __getattr__(self, name):
+        if name.startswith('__') and name.endswith('__'):
+            raise AttributeError(name)
+        return _StubModule(name)
+    def __call__(self, *args, **kwargs):
+        return _StubModule()
+    def __iter__(self):
+        return iter([])
+    def __len__(self):
+        return 0
+    def __bool__(self):
+        return False
+    def __mro_entries__(self, bases):
+        class _DynamicStubClass:
+            pass
+        _DynamicStubClass.__name__ = getattr(self, '__name__', 'Stub')
+        return (_DynamicStubClass,)
+    def __getitem__(self, key):
+        return _StubModule()
 
 
-def remove_ld_preload_for_ucagent():
-    """
-    Remove LD_PRELOAD environment variable before importing ucagent modules.
-    
-    This prevents conflicts with git package but should be called AFTER
-    target module has been loaded (to avoid TLS errors in target modules).
-    """
-    if 'LD_PRELOAD' in os.environ:
-        del os.environ['LD_PRELOAD']
+class _PytestStub:
+    """Special stub for pytest that provides a working fixture decorator."""
+    @staticmethod
+    def fixture(*args, **kwargs):
+        """Stub fixture decorator that returns the function unchanged."""
+        fixture_scope = kwargs.get("scope", "function")
 
+        def decorator(func):
+            func._is_pytest_fixture = True
+            func._fixture_scope = fixture_scope
+            return func
 
-def run_checker_main(check_func: Callable, expected_mode: str, min_args: int = 4, usage_hint: str = "", extra_args: bool = True):
-    """
-    Generic main function wrapper for checker scripts.
-    
-    Args:
-        check_func: The check function to call
-        expected_mode: Expected mode/check_type value
-        min_args: Minimum number of command line arguments
-        usage_hint: Optional usage hint string
-        extra_args: If True, pass all args after min_args to check_func
-    """
-    try:
-        if len(sys.argv) < min_args:
-            error_msg = f"Usage: {sys.argv[0]} <mode> <target_file> <workspace>"
-            if usage_hint:
-                error_msg += f" {usage_hint}"
-            safe_output({"success": False, "error": error_msg})
-            sys.exit(1)
-
-        mode = sys.argv[1]
-        if mode != expected_mode:
-            safe_output({"success": False, "error": f"Unknown mode: {mode}, expected: {expected_mode}"})
-            sys.exit(1)
-
-        # Call check function with arguments
-        # argv[0] = script name, argv[1] = mode, argv[2] = target_file, argv[3] = workspace, argv[4+] = extra
-        if extra_args:
-            result = check_func(*sys.argv[2:])
+        # Handle both @pytest.fixture and @pytest.fixture()
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            func = args[0]
+            func._is_pytest_fixture = True
+            func._fixture_scope = "function"
+            return func
         else:
-            result = check_func(*sys.argv[2:min_args])
-        safe_output(result)
-        sys.exit(0 if result.get("success", False) else 1)
-    except SystemExit:
-        raise
-    except Exception as e:
-        import traceback
-        safe_output({"success": False, "error": f"Fatal error in main: {str(e)}", "traceback": traceback.format_exc()})
-        sys.exit(1)
+            return decorator
 
+    def __getattr__(self, name):
+        if name.startswith('__') and name.endswith('__'):
+            raise AttributeError(name)
+        return _StubModule()
+
+
+def make_safe_import(original_import):
+    """Create a safe import hook that returns stub modules for missing packages."""
+    def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
+        try:
+            return original_import(name, globals, locals, fromlist, level)
+        except ImportError:
+            base_package = name.split('.')[0]
+            if base_package == 'pytest':
+                return _PytestStub()
+            return _StubModule()
+    return _safe_import
+
+
+# ---------------------------------------------------------------------------
+# JSON output utility
+# ---------------------------------------------------------------------------
 
 def safe_output(data: dict):
-    """Output JSON data, fallback to str if serialization fails."""
+    """Output JSON data to stdout, fallback to str if serialization fails."""
     try:
         print(json.dumps(data, ensure_ascii=False))
     except (TypeError, ValueError):
         try:
             print(json.dumps({k: str(v) for k, v in data.items()}, ensure_ascii=False))
-        except:
+        except Exception:
             print(str(data))
     sys.stdout.flush()
 
 
-def preload_so_if_needed(workspace: str, target_file: str):
-    """
-    Preload shared library (.so) files using ctypes to avoid TLS allocation errors.
-    
-    This must be called BEFORE load_module_from_file to ensure the .so is loaded
-    early enough in the Python process lifecycle.
-    
-    Args:
-        workspace: Workspace directory path
-        target_file: Target file path being checked
-    """
-    # Check if we're in a context where .so files need preloading
-    # Look for _tlm_pbsb.so in output/Adder directory
-    target_dir = os.path.dirname(target_file)
-    
-    # Common patterns for finding .so files
-    possible_so_locations = [
-        os.path.join(target_dir, '..', 'Adder', '_tlm_pbsb.so'),
-        os.path.join(workspace, 'output', 'Adder', '_tlm_pbsb.so'),
-        os.path.join(workspace, 'examples', 'back', 'output', 'Adder', '_tlm_pbsb.so'),
+# ---------------------------------------------------------------------------
+# LD_PRELOAD isolated subprocess execution
+# (merged from ld_preload_runner.py)
+# ---------------------------------------------------------------------------
+
+def _find_real_python_binary() -> str:
+    """Find the real Python ELF binary, not a shell wrapper."""
+
+    def _is_elf(path: str) -> bool:
+        try:
+            with open(path, "rb") as f:
+                return f.read(4) == b"\x7fELF"
+        except OSError:
+            return False
+
+    resolved = os.path.realpath(sys.executable)
+    if _is_elf(resolved):
+        return resolved
+
+    bin_dir = os.path.dirname(resolved)
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    candidates = [
+        os.path.join(bin_dir, f"python{version}"),
+        os.path.join(bin_dir, f"python{sys.version_info.major}"),
+        os.path.join(bin_dir, "python"),
     ]
-    
-    # Also check via environment variable if set
-    env_so = os.environ.get('UCAGENT_PRELOAD_SO')
-    if env_so:
-        possible_so_locations.insert(0, env_so)
-    
-    for so_path in possible_so_locations:
-        if so_path and os.path.exists(so_path):
+    for candidate in candidates:
+        if os.path.exists(candidate) and _is_elf(candidate):
+            return candidate
+    return sys.executable
+
+
+def _find_libpython() -> str:
+    """Find libpython for the running interpreter."""
+    ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    lib_names = [
+        f"libpython{ver}.so.1.0",
+        f"libpython{ver}.so",
+        f"libpython{ver}m.so.1.0",
+        f"libpython{ver}m.so",
+    ]
+    search_dirs = []
+    libdir = sysconfig.get_config_var("LIBDIR")
+    if libdir:
+        search_dirs.append(libdir)
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    search_dirs.append(os.path.join(os.path.dirname(exe_dir), "lib"))
+    search_dirs.append(exe_dir)
+    for directory in search_dirs:
+        for name in lib_names:
+            path = os.path.join(directory, name)
+            if os.path.exists(path):
+                return path
+        matches = sorted(glob.glob(os.path.join(directory, f"libpython{ver}*.so*")))
+        if matches:
+            return matches[0]
+    return ""
+
+
+def _build_ld_preload(so_file: str) -> str:
+    # We DO NOT prepend libpython anymore. Preloading libpython into a
+    # Python executable causes two libpythons to be loaded, which leads to
+    # double free or corruption (fasttop) upon process exit/destructor call.
+    so_path = os.path.abspath(so_file)
+    return so_path
+
+
+def _build_pythonpath_parts(workspace: str, target_file: Optional[str]) -> list[str]:
+    parts: list[str] = []
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if os.path.exists(os.path.join(project_root, "ucagent")):
+        parts.append(project_root)
+    if workspace and os.path.exists(workspace):
+        parts.append(os.path.abspath(workspace))
+    if target_file:
+        target_dir = os.path.dirname(os.path.abspath(target_file))
+        if target_dir and os.path.exists(target_dir):
+            parts.append(target_dir)
+
+    for p in sys.path:
+        if p and os.path.exists(p) and p not in parts:
+            parts.append(p)
+
+    return list(dict.fromkeys(parts))
+
+
+def _stringify_args(args: Iterable[Any]) -> list[str]:
+    return [str(arg) for arg in args]
+
+
+def run_isolated_check(
+    helper_script_name: str,
+    script_args: Iterable[Any],
+    *,
+    workspace: str,
+    target_file: Optional[str] = None,
+    so_file: str,
+    timeout: int = 30,
+) -> Tuple[bool, dict]:
+    """Run a checker helper script inside a fresh process with LD_PRELOAD."""
+    workspace = os.path.abspath(workspace)
+    if not os.path.exists(workspace):
+        return False, {"error": f"Invalid workspace: {workspace}"}
+    if not so_file:
+        return False, {"error": "check_script_env is empty, cannot run isolated_ld_preload mode"}
+
+    so_file = os.path.abspath(so_file)
+    if not os.path.exists(so_file):
+        return False, {"error": f"Shared library not found: {so_file}"}
+
+    helper_script = os.path.join(os.path.dirname(__file__), helper_script_name)
+    if not os.path.exists(helper_script):
+        return False, {"error": f"Helper script not found: {helper_script}"}
+
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = _build_ld_preload(so_file)
+    env["_LD_PRELOAD_HANDLED"] = "1"
+
+    pythonpath_parts = _build_pythonpath_parts(workspace, target_file)
+    if pythonpath_parts:
+        existing_path = env.get("PYTHONPATH", "")
+        new_path = ":".join(pythonpath_parts)
+        env["PYTHONPATH"] = f"{new_path}:{existing_path}" if existing_path else new_path
+
+    cmd = [_find_real_python_binary(), helper_script] + _stringify_args(script_args)
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=workspace,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, {"error": f"Check timed out after {timeout} seconds."}
+    except Exception as exc:
+        return False, {"error": f"Failed to run isolated checker: {exc}"}
+
+    result = _parse_json_from_output(proc.stdout)
+    if result is None:
+        stdout_info = proc.stdout[:500] if proc.stdout else ""
+        stderr_info = proc.stderr[:500] if proc.stderr else ""
+        return False, {
+            "error": f"No JSON found in output. stdout: {stdout_info}, stderr: {stderr_info}",
+        }
+
+    if proc.stderr and "stderr" not in result:
+        result["stderr"] = proc.stderr[:500]
+    return result.get("success", False), result
+
+
+def run_check(
+    workspace: str,
+    target_file: str,
+    helper_script_name: str,
+    *args: Any,
+    timeout: int = 30,
+    so_file: Optional[str] = None,
+) -> Tuple[bool, dict]:
+    """Compatibility wrapper for isolated checker extensions."""
+    if so_file is None:
+        return False, {"error": "so_file is required for run_check in isolated_ld_preload mode"}
+    return run_isolated_check(
+        helper_script_name,
+        [target_file, workspace, *args],
+        workspace=workspace,
+        target_file=target_file,
+        so_file=so_file,
+        timeout=timeout,
+    )
+
+
+run_with_ld_preload = run_check
+
+
+def run_isolated_check_json(
+    checker_type: str,
+    check_kwargs: dict,
+    *,
+    workspace: str,
+    so_file: str,
+    timeout: int = 30,
+) -> Tuple[bool, dict]:
+    """Run a checker via run_checker_stub.py with JSON-serialized kwargs.
+
+    This is the preferred way to invoke isolated checkers.  The subprocess
+    receives exactly two positional arguments:
+        sys.argv[1] = checker_type   (e.g. "test_must_pass")
+        sys.argv[2] = JSON string   (serialized check_kwargs)
+
+    run_checker_stub.py deserializes the JSON and dispatches to the
+    corresponding _check_xxx function via its internal registry.
+    """
+    workspace = os.path.abspath(workspace)
+    if not os.path.exists(workspace):
+        return False, {"error": f"Invalid workspace: {workspace}"}
+    if not so_file:
+        return False, {"error": "check_script_env is empty, cannot run isolated mode"}
+
+    so_file = os.path.abspath(so_file)
+    if not os.path.exists(so_file):
+        return False, {"error": f"Shared library not found: {so_file}"}
+
+    helper_script = os.path.join(os.path.dirname(__file__), "run_checker_stub.py")
+    if not os.path.exists(helper_script):
+        return False, {"error": f"Helper script not found: {helper_script}"}
+
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = _build_ld_preload(so_file)
+    env["_LD_PRELOAD_HANDLED"] = "1"
+
+    # Derive a target_file for PYTHONPATH from check_kwargs when available.
+    target_file = check_kwargs.get("target_file_path") or check_kwargs.get("target_file")
+    pythonpath_parts = _build_pythonpath_parts(workspace, target_file)
+    if pythonpath_parts:
+        existing_path = env.get("PYTHONPATH", "")
+        new_path = ":".join(pythonpath_parts)
+        env["PYTHONPATH"] = f"{new_path}:{existing_path}" if existing_path else new_path
+
+    json_str = json.dumps(check_kwargs, ensure_ascii=False)
+    cmd = [_find_real_python_binary(), helper_script, checker_type, json_str]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=workspace,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, {"error": f"Check timed out after {timeout} seconds."}
+    except Exception as exc:
+        return False, {"error": f"Failed to run isolated checker: {exc}"}
+
+    result = _parse_json_from_output(proc.stdout)
+    if result is None:
+        stdout_info = proc.stdout[:500] if proc.stdout else ""
+        stderr_info = proc.stderr[:500] if proc.stderr else ""
+        return False, {
+            "error": f"No JSON found in output. stdout: {stdout_info}, stderr: {stderr_info}",
+        }
+
+    if proc.stderr and "stderr" not in result:
+        result["stderr"] = proc.stderr[:500]
+    return result.get("success", False), result
+
+
+def _parse_json_from_output(output: str) -> Optional[dict]:
+    """Parse JSON from subprocess output."""
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("{"):
             try:
-                # Use RTLD_GLOBAL to make symbols available globally
-                # Use RTLD_NOW to resolve all symbols immediately  
-                ctypes.CDLL(so_path, mode=ctypes.RTLD_GLOBAL)
-                # Success - only preload once
-                return
-            except Exception:
-                # Continue trying other locations
-                pass
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
+    json_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
+    matches = re.findall(json_pattern, output, re.DOTALL)
+    for match in matches:
+        try:
+            return json.loads(match)
+        except json.JSONDecodeError:
+            continue
+    return None
 
-def setup_python_paths(workspace: str, target_file: str):
-    """Add workspace, target directory and output directories to sys.path."""
-    import ucagent.util.functions as fc
-    
-    paths_to_add = [workspace, os.path.dirname(target_file)]
-    output_dir = os.path.join(workspace, "examples", "back", "output")
-    if os.path.exists(output_dir):
-        paths_to_add.append(output_dir)
-    
-    fc.append_python_path([p for p in paths_to_add if p and os.path.exists(p)])
+# ---------------------------------------------------------------------------
+# PyTest Execution Helpers
+# ---------------------------------------------------------------------------
 
-
-def load_module_from_file(target_file: str):
-    """
-    Dynamically load a Python module from file.
-    
-    Returns:
-        Tuple[bool, Any, Optional[str]]: (success, module, error_message)
-    """
-    import ucagent.util.functions as fc
-    
-    try:
-        module = fc.import_python_file(target_file)
-        return True, module, None
-    except ImportError as e:
-        return False, None, f"Import error in '{target_file}': {str(e)}"
-    except SyntaxError as e:
-        return False, None, f"Syntax error in '{target_file}' line {e.lineno}: {str(e)}"
-    except Exception as e:
-        return False, None, f"Failed to load module '{target_file}': {str(e)}"
-
-
-def get_actual_function(obj):
-    """Get the actual function from a pytest fixture wrapper."""
-    if hasattr(obj, '_pytestfixturefunction'):
-        return getattr(obj._pytestfixturefunction, 'func', obj)
-    if type(obj).__name__ == 'FixtureFunctionDefinition':
-        return getattr(obj, 'func', getattr(obj, '_pytestfixturefunction', obj))
-    return obj
-
-
-def is_pytest_fixture(obj) -> bool:
-    """Check if an object is a pytest fixture."""
-    return (hasattr(obj, '_pytestfixturefunction') or
-            type(obj).__name__ == 'FixtureFunctionDefinition' or
-            "pytest_fixture" in str(obj))
-
-
-def get_fixture_scope(obj) -> Optional[str]:
-    """Get the scope of a pytest fixture."""
-    if hasattr(obj, '_pytestfixturefunction'):
-        return getattr(obj._pytestfixturefunction, 'scope', None)
-    return getattr(obj, 'scope', None)
-
-
-def check_function_signature(func: Any, expected_args: List[str]) -> Tuple[bool, Optional[str]]:
-    """
-    Check if a function has the expected signature.
-    
-    Args:
-        func: The function to check
-        expected_args: List of expected argument names
+def run_isolated_pytest(
+    workspace: str,
+    test_dir: str,
+    pytest_ex_args: str = "",
+    pytest_ex_env: dict = None,
+    timeout: int = 15,
+):
+    """Execute pytest comprehensively and return unpacked results.
     
     Returns:
-        Tuple[bool, Optional[str]]: (success, error_message)
+        (success, report, error_msg, stdout, stderr, env_used)
     """
+    from ucagent.tools.testops import RunUnityChipTest
     import ucagent.util.functions as fc
     
-    try:
-        actual_args = fc.get_func_arg_list(func)
-        
-        if actual_args != expected_args:
-            return False, f"Expected args ({', '.join(expected_args)}), got ({', '.join(actual_args)})"
-        
-        return True, None
-    except Exception as e:
-        return False, f"Failed to check function signature: {str(e)}"
+    run_test = RunUnityChipTest()
+    run_test.set_workspace(workspace)
+
+    effective_timeout = timeout if timeout > 0 else 15
+    env = {}
+    if pytest_ex_env:
+        env.update(pytest_ex_env)
+
+    report, str_out, str_err = run_test.do(
+        test_dir,
+        pytest_ex_args=pytest_ex_args,
+        return_stdout=True, return_stderr=True, return_all_checks=True,
+        timeout=effective_timeout,
+        pytest_ex_env=env
+    )
+
+    test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
+    error_ret = test_msg.get("error", test_msg) if isinstance(test_msg, dict) else test_msg
+    
+    return test_pass, report, error_ret, str_out, str_err, env
+
+def build_run_test_cases_wrapper(workspace: str, test_dir: str, env: dict):
+    def _run_test_cases_wrapper(pytest_args, timeout_val, **kwargs):
+        from ucagent.tools.testops import RunUnityChipTest
+        run_test = RunUnityChipTest()
+        run_test.set_workspace(workspace)
+        _, cout, cerr = run_test.do(
+            test_dir, pytest_ex_args=pytest_args, timeout=timeout_val, 
+            return_stdout=True, return_stderr=True, pytest_ex_env=env
+        )
+        return True, {"STDOUT": cout, "STDERR": cerr}
+    return _run_test_cases_wrapper

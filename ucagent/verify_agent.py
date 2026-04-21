@@ -78,7 +78,6 @@ class VerifyAgent:
         enable_context_manage_tools: bool = False,
         exit_on_completion: bool = False,
         check_script_env: str = None,
-        use_new_ui: bool = True,
     ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
