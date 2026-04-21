@@ -11,6 +11,20 @@
   - 命令行启动时可用 `--skip/- -unskip someStage` 来控制跳过/不跳过某阶段。
   - 在 tui 启动后可用 `skip_stage/unskip_stage someStage` 来控制临时跳过/不跳过某阶段。
 
+## 阶段复盘（Web 视角）
+
+除命令行与 TUI 方式外，可在 Agent 页面进行阶段级复盘：
+
+1. 查看阶段产物文件清单
+2. 预览文件内容
+3. 切换 Diff 视图分析改动
+4. 配合阶段开关（HM/Skip/LFail/LPass）快速迭代
+
+建议：
+
+1. 对连续失败阶段优先查看 Diff 与错误日志。
+2. 对风险阶段先启用 HM 或 LFail，再继续推进。
+
 ## 整体流程概览（11 个阶段）
 
 目前的流程包含：
@@ -441,6 +455,7 @@ stage:
 					markdown_file_list: "{OUT}/{DUT}_lint_report.md" # MD 文件路径或列表
 					no_line_break: true # 禁止字面量 "\n" 作为换行
 		reference_files: []
+    skill_list: []
 		output_files:
 			- "{OUT}/{DUT}_lint_report.md"
 		skip: false
@@ -841,6 +856,7 @@ stage:
     task: [...]
     reference_files: [...]
     output_files: [...]
+    skill_list: [...]
     checker: [...]
 ```
 
@@ -941,6 +957,10 @@ stage:
     reference_files:
       - "Guide_Doc/project_analysis_guide.md"
 
+    # 必用技能(Skill)
+    skill_list:
+      - "fail-analyze"
+
     # 预期输出文件（Output Files）
     output_files:
       - "{OUT}/{PROJECT}_analysis.md"
@@ -1016,6 +1036,7 @@ stage:
 | `desc`            | string       | 是   | 阶段的简短描述，显示在 TUI 界面    |
 | `task`            | list[string] | 是   | 任务列表，用自然语言描述要做的事   |
 | `reference_files` | list[string] | 否   | 参考文件列表，Agent 会读取这些文件 |
+| `skill_list`      | list[string] | 否   | 必用技能列表，Agent 将在本阶段使用这些技能 |
 | `output_files`    | list[string] | 否   | 预期输出文件，用于文档说明         |
 | `checker`         | list[object] | 否   | 检查器列表，验证阶段输出质量       |
 

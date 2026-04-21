@@ -1,26 +1,26 @@
 # -*- coding: utf-8 -*-
 
+from curses import echo
 from .tools.context import ArbitContextSummary
 from .util.config import get_config
-from .util.log import info, message, warning, error, msg_msg
+from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
 from .util.functions import (
     fmt_time_deta,
     fmt_time_stamp,
     get_template_path,
     render_template_dir,
     import_and_instance_tools,
+    copy_skill_files,
 )
-from .util.functions import yam_str
+from .util.functions import yam_str, make_llm_tool_ret
 from .util.functions import (
-    start_verify_mcps,
-    create_verify_mcps,
-    stop_verify_mcps,
     rm_workspace_prefix,
 )
 from .util.test_tools import ucagent_lib_path
 
 import ucagent.tools
 from .tools import *
+from .tools.skill import ListSkill, _list_skills, list_skills_in_format
 from .tools.planning import *
 from .stage import StageManager
 from .verify_pdb import VerifyPDB
@@ -32,6 +32,8 @@ import random
 import signal
 import copy
 import threading
+import shutil
+import os
 
 from .abackend import get_backend
 from langfuse import Langfuse
@@ -105,7 +107,6 @@ class VerifyAgent:
             force_stage_index (int, optional): Force starting from a specific stage index. Defaults to 0.
             no_write_targets (list, optional): List of files/directories that cannot be written to. Defaults to None.
             interaction_mode (str, optional): Interaction mode - 'standard', 'enhanced', or 'advanced'. Defaults to 'standard'.
-            use_new_ui (bool, optional): Whether to use the Textual-based UI. Defaults to True.
         """
         saved_info = {}
         if not no_history:
@@ -164,6 +165,13 @@ class VerifyAgent:
             shutil.copytree(doc_guide_path, guide_doc_path)
             for f in doc_files_to_append:
                 shutil.copy(f, guide_doc_path)
+
+        # if use_skill is enabled, copy skills to workspace, and add skill tools
+        self.tool_skill = []
+        if self.cfg.skill.use_skill:
+            copy_skill_files(self.cfg, self.workspace,root_dir=os.path.dirname(os.path.abspath(__file__)))  
+            self.tool_skill += [ListSkill(self.workspace).bind(self),RunSkillScript(self.workspace).bind(self)]
+
         self.thread_id = (
             thread_id if thread_id is not None else random.randint(100000, 999999)
         )
@@ -283,7 +291,10 @@ class VerifyAgent:
         self.tool_list_task = self.stage_manager.new_tools()
         self.tool_list_ext = import_and_instance_tools(
             self.cfg.get_value("ex_tools", []), ucagent.tools
-        ) + import_and_instance_tools(ex_tools, ucagent.tools)
+        ) + import_and_instance_tools(ex_tools, ucagent.tools) + self.tool_skill
+
+        # Export workspace path via environment variable for ext tools
+        os.environ["UCAGENT_WORKSPACE"] = self.workspace
 
         # Initialize planning tools
         self.planning_tools = []
@@ -332,12 +343,12 @@ class VerifyAgent:
         self._need_human = False
         self._force_trace = False
         self._continue_msg = None
-        self._mcps = None
+        self._mcps = None               # set by PdbMcpServer for api_master heartbeat
+        self._mcp_server_thread = None   # set by PdbMcpServer for api_master heartbeat
         self._mcps_logger = None
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self._exit_on_completion = exit_on_completion
-        self.use_new_ui = use_new_ui
         self._is_work_busy = False
         self.handle_sigint()
 
@@ -482,44 +493,6 @@ class VerifyAgent:
                     )
                     raise e
 
-    def start_mcps(self, no_file_ops=False, host=None, port=None):
-        if self._mcps is not None:
-            warning(
-                f"MCPs server is already running ({self._mcps.config.host}:{self._mcps.config.port})."
-            )
-            return
-        if host is None:
-            host = self.cfg.mcp_server.host
-        if port is None:
-            port = self.cfg.mcp_server.port
-        tools = self.tool_list_base + self.tool_list_task + self.tool_list_ext
-        if not no_file_ops:
-            tools += self.tool_list_file
-        self.cfg.update_template(
-            {
-                "TOOLS": ", ".join([t.name for t in tools]),
-            }
-        )
-        self._mcps, glogger = create_verify_mcps(
-            tools, host=host, port=port, logger=self._mcps_logger
-        )
-        info("Init Prompt:\n" + self.cfg.mcp_server.init_prompt)
-
-        def run_cmd():
-            start_verify_mcps(self._mcps, glogger)
-
-        self._mcp_server_thread = threading.Thread(target=run_cmd)
-        self._mcp_server_thread.daemon = True
-        self._mcp_server_thread.start()
-
-    def stop_mcps(self):
-        """Stop the MCPs server if it is running."""
-        if self._mcps is not None:
-            stop_verify_mcps(self._mcps)
-            self._mcps = None
-        else:
-            warning("MCPs server is not running.")
-
     def set_message_echo_handler(self, handler):
         """Set a custom message echo handler to process messages."""
         if not callable(handler):
@@ -611,8 +584,16 @@ class VerifyAgent:
         return self._system_message
 
     def get_default_system_prompt(self):
-        """Get the default system prompt for the agent."""
-        return self.cfg.mission.prompt.get_value("system", "").strip()
+        """Get the default system prompt for the agent. And if skill is enabled, include skill prompt and skill list."""
+        system = self.cfg.mission.prompt.get_value("system", "").strip()
+        if self.cfg.skill.use_skill:
+            formatted_skill_list = list_skills_in_format(_list_skills(self.workspace),self.workspace,self.cfg.skill.general_skill_list)
+            skill_prompt = self.cfg.mission.prompt.get_value("skill_system", "").replace("{general_skill_list}", formatted_skill_list)
+            system = system.replace("{skill_system}", skill_prompt)
+        else:
+            system = system.replace("{skill_system}", "")
+        warning(f"System prompt: {system}")
+        return system
 
     def set_continue_msg(self, msg: str):
         """Set the continue message for the agent."""
@@ -983,3 +964,36 @@ class VerifyAgent:
             else:
                 timeouts[tool.name] = None
         return timeouts
+
+    def emulate_config(self):
+        """Emulate the configuration process.
+        Process:
+        1. Echo the system prompt.
+        2. Echo mission details.
+        3. Echo current_tips
+        4. Walk through all the stages.
+            a. Echo the stage prompt.
+            b. Call the 'Complete' tool.
+        """
+        echo_g("\nStart emulate config:")
+        echo_g("="*80)
+        echo_g("                First Tips (System Prompt)")
+        echo_g(make_llm_tool_ret(self.get_current_tips()))
+        echo_g("="*80)
+        echo_g(f"               Mission Details (Total stages: {len(self.stage_manager.stages)})")
+        # Force reset the stage index to 0
+        self.stage_manager.stage_index = 0
+        #echo_g(make_llm_tool_ret(self.stage_manager.detail()))
+        echo_g("="*80)
+        echo_g("                Config walkthrough")
+        current_stage = self.stage_manager.get_current_stage()
+        while current_stage is not None:
+            echo_g(f"   Check Stage: {current_stage.title()}")
+            echo_g("    - check stage task desc")
+            self.get_current_tips()
+            echo_g("    - check stage complete")
+            self.stage_manager.complete(self.cfg.get_value("call_time_out", 300))
+            current_stage = self.stage_manager.next_stage()
+        echo_g("\n" + "="*80)
+        echo_g("                Config walkthrough completed successfully!")
+        echo_g("="*80)

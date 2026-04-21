@@ -24,6 +24,7 @@ PANDOC_FLAGS += --highlight-style=tango
 PANDOC_FLAGS += --filter pandoc-crossref
 PANDOC_FLAGS += --lua-filter=docs/pandoc/convert_md_links.lua
 PANDOC_FLAGS += --lua-filter=docs/pandoc/auto_colwidth.lua
+PANDOC_FLAGS += --lua-filter=docs/pandoc/strip_emoji_for_latex.lua
 
 # -------- LaTeX / PDF parameters --------
 # 允许通过环境变量覆盖 PDF 引擎，默认使用 xelatex；

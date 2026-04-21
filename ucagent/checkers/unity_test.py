@@ -819,8 +819,8 @@ class BaseUnityChipCheckerTestCase(Checker):
             report, str_out, str_err: A tuple where the first element is a boolean indicating success or failure,
         """
         if not os.path.exists(self.get_path(self.doc_func_check)):
-            return {}, "", f"Function and check documentation file {self.doc_func_check} does not exist in workspace. "+\
-                            "Please provide a valid file path. Review your task details."
+            return {}, "", f"[Document Missing] Functions and checkpoints document {self.doc_func_check} does not exist in the workspace. "+\
+                            "Please verify the document path is correct and check if the function description stage task has been completed (see Guide_Doc/dut_functions_and_checks.md)."
         self.run_test.set_pre_call_back(
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
@@ -1380,26 +1380,28 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
         # Basic validation: Check if tests exist
         if report.get("tests") is None:
-            info_runtest["error"] = ["Test execution failed: No test cases found in the report. Possible causes:",
-                                     "1. Test files are not properly named (should start with 'test_')",
-                                     "2. Test functions are not properly defined (should start with 'test_' and take 'dut' parameter)",
-                                     "3. Import errors in test files",
-                                     "Please ensure test cases are defined correctly in the workspace."]
+            info_runtest["error"] = ["[Test Execution Failed] No test cases found in the report.",
+                                     "[Possible Causes]",
+                                     "1. Test files are not named with 'test_' prefix",
+                                     "2. Test functions do not start with 'test_' or are missing the 'env' parameter",
+                                     "3. Import errors exist in test files",
+                                     "[Solution] Check STDOUT/STDERR output to locate the specific error. Ensure test cases are correctly defined (see Guide_Doc/dut_test_case.md)."]
             return False, info_runtest
         
         # Validate minimum test count requirement
         if report["tests"]["total"] < self.min_tests:
-            info_runtest["error"] = [f"Insufficient test coverage: {report['tests']['total']} test cases found, " +\
-                                     f"minimum required is {self.min_tests}. Please ensure that:",
-                                       "1. All required test scenarios are implemented.",
-                                       "2. Test functions follow naming conventions (test_*).",
-                                       "3. Each functional area has adequate test coverage."]
+            info_runtest["error"] = [f"[Insufficient Test Cases] Currently only {report['tests']['total']} test case(s), " +\
+                                     f"minimum requirement is {self.min_tests}.",
+                                       "[Solution]",
+                                       "1. Ensure all necessary test scenarios have been implemented",
+                                       "2. Test functions must be named with 'test_' prefix",
+                                       "3. Ensure each function group has adequate test coverage (see Guide_Doc/dut_test_case.md)"]
             return False, info_runtest
         
         # Parse documentation marks for validation
         zero_list = self.get_zero_bug_rate_list()
-        zero_rate_msg = f"Note: Find {len(zero_list)} bugs are marked with zero occurrence rate in the bug analysis document: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '. '}" + \
-                         "You may want to review and update their occurrence rates if they were encountered during testing. If these bugs are not applicable, you can ignore this message."
+        zero_rate_msg = f"Note: Found {len(zero_list)} bug mark(s) with confidence 0: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
+                         "If these bugs are confirmed during testing, please update their confidence; otherwise this message can be ignored."
 
         ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
         if not ret:
@@ -1419,16 +1421,16 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         # Success: All validations passed
-        success_msg = ["Test case validation successful!",
-                      f"✓ Executed {report['tests']['total']} test cases with comprehensive coverage.",
-                      f"✓ All {len(all_bins_test)} check points are properly implemented and documented.",
-                      f"✓ Test-documentation consistency verified.",
-                      f"✓ Marked {marked_bugs} bugs in file: {self.doc_bug_analysis}.",
-                      "Your test implementation successfully validates the DUT functionality!"]
+        success_msg = ["Test case verification passed!",
+                      f"+ Executed {report['tests']['total']} test case(s).",
+                      f"+ All {len(all_bins_test)} checkpoint(s) correctly implemented and consistent with documentation.",
+                      f"+ Test-documentation consistency check passed.",
+                      f"+ {marked_bugs} bug(s) marked in bug analysis document {self.doc_bug_analysis}.",
+                      "Test implementation successfully verified DUT functionality!"]
         if len(zero_list) > 0:
             success_msg.append(zero_rate_msg)
         if marked_bugs == 0:
-            success_msg.append("Warning: No bugs were marked in the bug analysis document. If issues were found during testing, please ensure they are documented appropriately.")
+            success_msg.append("Warning: No bugs marked in the bug analysis document. If issues were found during testing, ensure they are properly documented in the bug analysis document (see Guide_Doc/dut_bug_analysis.md).")
             success_msg.extend(fc.description_bug_doc())
         return True, success_msg
 

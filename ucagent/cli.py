@@ -12,7 +12,7 @@ import sys
 import argparse
 import bdb
 from typing import Dict, List, Any, Optional
-from .version import __version__
+import tempfile
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +20,8 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), ".ucagent/__pycache__")
+
+from ucagent.version import __version__
 
 class CheckAction(argparse.Action):
     """Custom action for --check flag that exits after checking."""
@@ -125,15 +127,18 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "workspace", 
-        type=str, 
-        default=os.getcwd(), 
-        help="Workspace directory to run the agent in"
+        "workspace",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Workspace directory to run the agent in. Optional when '--as-master/--upgrade' is used."
     )
     parser.add_argument(
-        "dut", 
-        type=str, 
-        help="DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU"
+        "dut",
+        type=str,
+        nargs="?",
+        default=None,
+        help="DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU. Optional when '--as-master/--upgrade' is used."
     )
     
     # Configuration arguments
@@ -207,6 +212,21 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="Enable ToDo related tools"
     )
+    parser.add_argument(
+        "--emulate-config",
+        action="store_true",
+        default=False,
+        help="Emulate configuration process only, without really run the stages"
+    )
+
+    # SKILL argument
+    parser.add_argument(
+        "--use-skill",
+        nargs='?',
+        const=True,
+        default=False,
+        help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
+    )
      # Miscellaneous arguments
     parser.add_argument(
         "--seed", 
@@ -221,10 +241,38 @@ def get_args() -> argparse.Namespace:
         help="Enable TUI mode (Textual UI by default)"
     )
     parser.add_argument(
-        "--legacy-ui",
-        action="store_true",
-        default=False,
-        help="Use legacy urwid-based UI (implies TUI mode)"
+        "--web-console",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]] [password]",
+        help=(
+            "Start browser-based terminal. "
+            "Bare '--web-console' uses defaults (localhost:8000, no auth). "
+            "Use '--web-console [host[:port]] [password]' to customize host/port "
+            "and optionally enable HTTP Basic Auth. "
+            "e.g. --web-console '0.0.0.0:8000 mysecret' "
+            "NOTE: --web-console runs in standalone mode and does NOT provide "
+            "local command-line interaction."
+        )
+    )
+    parser.add_argument(
+        "--web-terminal",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]][ password]",
+        help=(
+            "Start Web Terminal server (terminal_api_start) at agent startup. "
+            "Bare '--web-terminal' uses defaults (127.0.0.1:8818, no auth). "
+            "Use '--web-terminal [host[:port]] [password]' to customize address "
+            "and optionally enable HTTP Basic Auth. "
+            "e.g. --web-terminal '0.0.0.0:8818 mysecret' "
+            "Unlike --web-console, --web-terminal provides BOTH web-based terminal "
+            "AND local command-line interaction simultaneously."
+        )
     )
     parser.add_argument(
         "--sys-tips", 
@@ -239,9 +287,12 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--no-embed-tools",
-        action="store_true", 
-        default=False, 
-        help="Disable embedded tools in the agent"
+        nargs="?",
+        const=True,
+        default=True,
+        metavar="true_or_false",
+        type=lambda x: x.lower() not in ("false", "0", "no"),
+        help="Disable embedded tools in the agent. Bare '--no-embed-tools' (or '--no-embed-tools true') disables them; '--no-embed-tools false' keeps them enabled."
     )
     
     # Loop and message arguments
@@ -354,6 +405,88 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--icmd", action="append", default=[], type=str,
                         help="Initial command(s) to run at the start of the agent (can be used multiple times)")
 
+    parser.add_argument(
+        "--as-master",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]]",
+        help=(
+            "Start this agent as a Master API server. "
+            "Bare '--as-master' uses the default host/port. "
+            "'--as-master host[:port]' binds the server to the given address. "
+            "workspace and dut positional args are optional when this flag is used."
+        )
+    )
+
+    parser.add_argument(
+        "--master",
+        nargs="+",
+        action="append",
+        default=[],
+        metavar="host[:port]",
+        help=(
+            "Connect this agent to a Master API server (can be used multiple times). "
+            "Format: host[:port] [access_key]. "
+            "E.g. --master 192.168.1.10:8800 --master 192.168.1.20:8800 secretkey"
+        )
+    )
+    parser.add_argument(
+        "--client-id",
+        type=str,
+        default=None,
+        help="Client identifier used when connecting to a master. Passed to connect_master_to --id."
+    )
+
+    parser.add_argument(
+        "--as-master-key",
+        type=str,
+        default=None,
+        metavar="key",
+        help="Access key that clients must supply to register with this master "
+             "(used with --as-master). Passed as --key to master_api_start."
+    )
+
+    parser.add_argument(
+        "--as-master-password",
+        type=str,
+        default=None,
+        metavar="password",
+        help="HTTP Basic Auth password to protect the Master API dashboard and all API endpoints "
+             "(used with --as-master). Passed as --password to master_api_start."
+    )
+
+    parser.add_argument(
+        "--as-master-persist",
+        type=str,
+        nargs="?",
+        const="/tmp/ucagent_master_persist",
+        default=None,
+        metavar="path",
+        help=(
+            "Use persistent workspace directory when running as master (instead of temporary directory). "
+            "If path is provided, use it as the workspace directory. "
+            "If no path is provided, default to /tmp/ucagent_master_persist."
+        )
+    )
+
+    parser.add_argument(
+        "--export-cmd-api",
+        type=str,
+        nargs="?",
+        const="",
+        default=None,
+        metavar="[host[:port]][ password]",
+        help=(
+            "Start the CMD API server (PdbCmdApiServer) as part of agent startup. "
+            "Bare '--export-cmd-api' uses default host/port (127.0.0.1:8765). "
+            "'--export-cmd-api host[:port]' binds to the given address. "
+            "Append a password after a space to enable HTTP Basic Auth, "
+            "e.g. --export-cmd-api '0.0.0.0:8765 mysecret'."
+        )
+    )
+
     parser.add_argument("--no-history", action="store_true", default=False,
                         help="Disable history loading from previous runs in the workspace")
 
@@ -372,8 +505,13 @@ def get_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--upgrade",
-        action=UpgradeAction,
-        help="Upgrade UCAgent to the latest version from GitHub main branch"
+        nargs="?",
+        const="",
+        default=None,
+        metavar="pip_extra_args",
+        help="Upgrade UCAgent to the latest version from GitHub main branch. "
+             "Optional value is passed as extra arguments to pip install (e.g. --upgrade '--index-url https://...'). "
+             "workspace and dut positional args are not required when this flag is used."
     )
 
     parser.add_argument(
@@ -402,13 +540,27 @@ def get_args() -> argparse.Namespace:
               "output/Adder/_tlm_pbsb.so).")
     )
 
+    parser.add_argument(
+        "--web-console-session-host",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
+    parser.add_argument(
+        "--web-console-session-port",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+
     args = parser.parse_args()
     return args
 
 
-def upgrade() -> None:
+def upgrade(extra_pip_args: str = "") -> None:
     import subprocess
-    exargs = sys.argv[2:]
+    exargs = extra_pip_args.split() if extra_pip_args.strip() else []
     print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
     print(f"Python executable: {sys.executable}")
     for url in ["https://github.com/XS-MLVP",
@@ -504,9 +656,61 @@ def run() -> None:
     """Main entry point for UCAgent CLI."""
     args = get_args()
 
-    from .verify_agent import VerifyAgent
-    from .util.log import init_log_logger, init_msg_logger
-    from .util.functions import append_python_path, find_available_port
+    # --upgrade: run before workspace/dut validation, then exit
+    if getattr(args, 'upgrade', None) is not None:
+        upgrade(args.upgrade)
+        sys.exit(0)
+
+    if args.web_console is not None and \
+       args.web_console_session_host is None and \
+       args.web_console_session_port is None:
+        from ucagent.server.api_terminal import _serve_web_console
+        try:
+            return _serve_web_console()
+        except Exception as e:
+            print(f"Failed to start Web UI: {e}")
+            sys.exit(1)
+
+    # --as-master with no positional args → spin up a fake DUT under /tmp or persistent directory
+    if getattr(args, 'as_master', None) is not None and args.workspace is None:
+        if getattr(args, 'as_master_persist', None) is not None:
+            # Use persistent directory
+            args.workspace = args.as_master_persist
+            os.makedirs(args.workspace, exist_ok=True)
+            args.dut = "empty"
+            args.human = True
+            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
+        else:
+            # Use temporary directory
+            temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
+            args.workspace = temp_dir.name
+            args.dut = "empty"
+            args.human = True
+            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
+            args._temp_dir = temp_dir
+
+    if args.emulate_config:
+        if args.config is None:
+            print("Error: --emulate-config requires --config argument")
+            sys.exit(1)
+        temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_emulate_")
+        args.workspace = temp_dir.name
+        args.dut = "DUT_TEST"
+        dut_path = os.path.join(temp_dir.name, args.dut)
+        os.makedirs(dut_path, exist_ok=True)
+        open(os.path.join(dut_path, "__init__.py"), "w+").close()
+        args._temp_dir = temp_dir
+        print(f"Check config file: {args.config}")
+
+    # Validate required positional args for normal (non-as-master) usage
+    if args.workspace is None or args.dut is None:
+        import argparse as _argparse
+        _p = _argparse.ArgumentParser(prog="ucagent")
+        _p.error("the following arguments are required: workspace, dut")
+
+    from ucagent.verify_agent import VerifyAgent
+    from ucagent.util.log import init_log_logger, init_msg_logger
+    from ucagent.util.functions import append_python_path, find_available_port
 
     # Initialize logging if requested
     if args.log_file or args.msg_file or args.log:
@@ -521,11 +725,28 @@ def run() -> None:
     
     # Prepare initial commands
     init_cmds = []
-    use_tui = args.tui or args.new_ui or args.legacy_ui
-    if use_tui:
+    if getattr(args, 'web_terminal', None) is not None:
+        extra_web_term_opts = ""
+        addr_part = args.web_terminal.strip()
+        passwd_part = ""
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_web_term_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"terminal_api_start{extra_web_term_opts}".strip()]
+        elif ":" in addr_part:
+            t_host, t_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"terminal_api_start {t_host} {t_port}{extra_web_term_opts}"]
+        else:
+            init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
+
+    if args.tui:
         init_cmds += ["tui"]
     
     # Handle MCP server commands
+    args.override = args.override or {}
     if args.mcp_server_port == -1:
         args.mcp_server_port = find_available_port()
     mcp_cmd = None
@@ -534,19 +755,20 @@ def run() -> None:
     if args.mcp_server_no_file_tools:
         mcp_cmd = "start_mcp_server_no_file_ops"
     if mcp_cmd is not None:
-        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port} &"]
-
+        init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
     if args.mcp_server_port is not None:
         args.override = args.override or {}
         args.override["mcp_server.port"] = args.mcp_server_port
-
     if args.mcp_server_host is not None:
         args.override = args.override or {}
         args.override["mcp_server.host"] = args.mcp_server_host
 
     if args.backend:
-        args.override = args.override or {}
         args.override["backend.key_name"] = args.backend
+
+    if args.use_skill:
+        args.override = args.override or {}
+        args.override["skill.use_skill"] = args.use_skill
 
     template_cfg_overrides = {}
     if args.template_cfg_override:
@@ -556,6 +778,57 @@ def run() -> None:
             with open(cfg_file, 'r') as f:
                 cfg_data = yaml.safe_load(f)
                 template_cfg_overrides.update(cfg_data)
+
+    # Handle --as-master: start this agent as a Master API server
+    if args.as_master is not None:
+        extra_master_opts = ""
+        if getattr(args, 'as_master_key', None):
+            extra_master_opts += f" --key {args.as_master_key}"
+        if getattr(args, 'as_master_password', None):
+            extra_master_opts += f" --password {args.as_master_password}"
+        if args.as_master == "":
+            init_cmds += [f"master_api_start{extra_master_opts}".strip()]
+        else:
+            addr = args.as_master
+            if ":" in addr:
+                m_host, m_port = addr.rsplit(":", 1)
+                init_cmds += [f"master_api_start {m_host} {m_port}{extra_master_opts}"]
+            else:
+                init_cmds += [f"master_api_start {addr}{extra_master_opts}"]
+
+    # Handle --export-cmd-api: start the CMD API server
+    if args.export_cmd_api is not None:
+        extra_cmd_api_opts = ""
+        addr_part = args.export_cmd_api.strip()
+        passwd_part = ""
+        # Allow embedded password after a space: "host[:port] passwd" or just "passwd"
+        if " " in addr_part:
+            addr_part, passwd_part = addr_part.split(" ", 1)
+            passwd_part = passwd_part.strip()
+        if passwd_part:
+            extra_cmd_api_opts += f" --passwd {passwd_part}"
+        if addr_part == "":
+            init_cmds += [f"cmd_api_start{extra_cmd_api_opts}".strip()]
+        elif ":" in addr_part:
+            c_host, c_port = addr_part.rsplit(":", 1)
+            init_cmds += [f"cmd_api_start {c_host} {c_port}{extra_cmd_api_opts}"]
+        else:
+            init_cmds += [f"cmd_api_start {addr_part}{extra_cmd_api_opts}"]
+
+    # Handle --master: connect to one or more Master API servers
+    # Each entry is a list: [host[:port]] or [host[:port], access_key]
+    for master_tokens in args.master:
+        master_addr = master_tokens[0]
+        access_key = master_tokens[1] if len(master_tokens) > 1 else ""
+        extra_client_opts = f" --key {access_key}" if access_key else ""
+        if args.client_id:
+            extra_client_opts += f" --id {args.client_id}"
+        if ":" in master_addr:
+            m_host, m_port = master_addr.rsplit(":", 1)
+            master_cmd = f"connect_master_to {m_host} {m_port}{extra_client_opts}"
+        else:
+            master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
+        init_cmds += [master_cmd]
 
     if args.icmd:
         init_cmds += args.icmd
@@ -603,14 +876,23 @@ def run() -> None:
         check_script_env=args.check_script_env,
         use_new_ui=not args.legacy_ui,
     )
-    
+    if args.web_console_session_host is not None or \
+       args.web_console_session_port is not None:
+        agent.web_console_session_info = {
+            "host": args.web_console_session_host,
+            "port": args.web_console_session_port,
+        }
+
     # Set break mode if human interaction or TUI is requested
-    if args.human or use_tui:
+    if args.human or args.tui:
         agent.set_break(True)
     
     # Run the agent
     try:
-        agent.run()
+        if args.emulate_config:
+            agent.emulate_config()
+        else:
+            agent.run()
     except AssertionError as e:
         print(f"Fail: {e}")
         sys.exit(1)

@@ -47,11 +47,19 @@ class UCAgentLangChainBackend(AgentBackendBase):
             middleware=[self.message_manage_node]
         )
 
+    def reset_chat(self, force=False):
+        self.message_manage_node.reset_chat(force)
+
+    def on_stage_complete(self, stage):
+        self.reset_chat(force=False)
+
     def get_human_message(self, text):
         return HumanMessage(content=text)
 
     def get_system_message(self, text):
-        return SystemMessage(content=text)
+        msg = SystemMessage(content=text)
+        self.message_manage_node.set_system_message(msg)
+        return msg
 
     def state_record_mesg(self, msg):
         if isinstance(msg, AIMessage):

@@ -225,7 +225,8 @@ class RunUnityChipTest(RunPyTest):
              return_stderr: bool = False,
              timeout: int = 15,
              pytest_ex_env:dict = {},
-             run_manager: CallbackManagerForToolRun = None, return_all_checks=False) -> dict:
+             run_manager: CallbackManagerForToolRun = None, return_all_checks=False,
+             **kw) -> dict:
         """Run the Unity chip tests."""
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,

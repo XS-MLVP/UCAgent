@@ -1,16 +1,56 @@
 # -*- coding: utf-8 -*-
 """Specialized PDB debugger for UCAgent verification."""
 
+import ctypes
+from dataclasses import dataclass
 from pdb import Pdb
 import os
-from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message
-from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str
+import sys
+from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message, set_console_sync_handler
+from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
 import time
 import signal
+import threading
 import traceback
 from ucagent.util.log import L_GREEN, L_YELLOW, L_RED, RESET, L_BLUE
 import readline
 import random
+from collections import OrderedDict
+from typing import TYPE_CHECKING
+
+from ucagent.tui.utils import PersistentConsoleMirror
+
+if TYPE_CHECKING:
+    from ucagent.tui.widgets.console import ConsoleWidgetState
+    from ucagent.tui.widgets.messages_panel import MessagesPanelState
+
+
+@dataclass
+class RunningCommandState:
+    token: int
+    command: str
+    started_at: float
+    thread_id: int | None = None
+    foreground: bool = True
+
+
+def _raise_keyboard_interrupt_in_thread(thread_id: int) -> bool:
+    if thread_id == threading.current_thread().ident:
+        return True
+    try:
+        result = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(thread_id),
+            ctypes.py_object(KeyboardInterrupt),
+        )
+    except Exception:
+        return False
+
+    if result == 0:
+        return False
+    if result > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread_id), None)
+        return False
+    return True
 
 
 class VerifyPDB(Pdb):
@@ -44,17 +84,328 @@ class VerifyPDB(Pdb):
         self._in_tui = False
         # Control whether empty line repeats last command
         self._repeat_last_command = True
+        # MCP server instance (created on demand)
+        self._mcp_server = None
+        # CMD API server instance (created on demand)
+        self._cmd_api_server = None
+        # Web Terminal server instance (created on demand)
+        self._terminal_server = None
+        # Master API server instance (created on demand)
+        self._master_api_server = None
+        # Master clients keyed by master_url (supports multiple simultaneous connections)
+        self._master_clients: dict = {}  # {master_url: PdbMasterClient}
         self.max_loop_retry = max_loop_retry
         self.retry_delay_start, self.retry_delay_end = retry_delay
         self.loop_alive_time = loop_alive_time
+        # Flag: when True the next SIGINT is an API-triggered wakeup,
+        # not a real Ctrl-C from the user.
+        self._api_wakeup = False
+        self._api_wakeup_done = False  # set after API wakeup to suppress message
+        self._tui_app = None  # set by enter_tui() while TUI is running
+        self._current_cmd: str | None = None  # the command currently being executed
+        self._console_state_lock = threading.RLock()
+        self._tui_console_state: ConsoleWidgetState | None = None
+        self._tui_messages_state: MessagesPanelState | None = None
+        self._running_commands: OrderedDict[int, RunningCommandState] = OrderedDict()
+        self._running_commands_lock = threading.RLock()
+        self._running_commands_local = threading.local()
+        self._running_command_seq = 0
+        set_console_sync_handler(self.record_console_output)
+        self._install_persistent_console_mirror()
+
+    @property
+    def tui_console_state(self) -> "ConsoleWidgetState | None":
+        with self._console_state_lock:
+            return self._tui_console_state
+
+    @tui_console_state.setter
+    def tui_console_state(self, state: "ConsoleWidgetState | None") -> None:
+        with self._console_state_lock:
+            self._tui_console_state = state
+
+    @property
+    def tui_messages_state(self) -> "MessagesPanelState | None":
+        return self._tui_messages_state
+
+    @tui_messages_state.setter
+    def tui_messages_state(self, state: "MessagesPanelState | None") -> None:
+        self._tui_messages_state = state
+
+    def precmd(self, line: str, foreground: bool = True) -> str:
+        if not self._in_tui:
+            self._install_persistent_console_mirror()
+        command = line.strip()
+        if (
+                not self._in_tui
+                and command
+                and self._should_track_running_command(command)
+        ):
+            self.record_console_command(command)
+        token = self._register_running_command(line, foreground=foreground)
+        if token is not None:
+            self._push_running_command_token(token)
+        return line
+
+    def postcmd(self, stop: bool, line: str) -> bool:
+        self._finish_running_command(self._pop_running_command_token())
+        return stop
+
+    def execute_command(self, line: str, *, foreground: bool = True) -> bool:
+        """Execute a single command with the same tracking hooks as cmdloop()."""
+        line = self.precmd(line, foreground=foreground)
+        stop = False
+        try:
+            stop = self.onecmd(line)
+        except BaseException:
+            self.postcmd(stop, line)
+            raise
+        return self.postcmd(stop, line)
+
+    def get_running_commands(self) -> list[str]:
+        with self._running_commands_lock:
+            return [
+                state.command
+                for state in self._running_commands.values()
+                if state.foreground
+            ]
+
+    def has_running_commands(self) -> bool:
+        with self._running_commands_lock:
+            return any(state.foreground for state in self._running_commands.values())
+
+    def cancel_last_running_command(self) -> bool:
+        with self._running_commands_lock:
+            thread_id = None
+            for last_key in reversed(self._running_commands):
+                state = self._running_commands[last_key]
+                if state.foreground:
+                    thread_id = state.thread_id
+                    break
+
+        if thread_id is None:
+            return False
+        self.request_thread_interrupt(thread_id)
+        return True
+
+    def request_thread_interrupt(self, thread_id: int | None) -> bool:
+        if thread_id is None:
+            return False
+        self.agent.set_break_thread(thread_id)
+        _raise_keyboard_interrupt_in_thread(thread_id)
+        return True
+
+    def should_record_console_output(self) -> bool:
+        """Shared console transcript should include every visible PDB/TUI write."""
+        return True
+
+    def record_console_output(self, text: str) -> None:
+        if not text:
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            if state.entries and state.entries[-1].kind == "output":
+                state.entries[-1].payload += text
+                return
+            state.entries.append(self._new_console_entry("output", text))
+
+    def record_console_command(self, cmd: str) -> None:
+        cmd = cmd.strip()
+        if not cmd or not self._should_track_running_command(cmd):
+            return
+
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.append(self._new_console_entry("command", cmd))
+
+    def clear_console_state(self) -> None:
+        with self._console_state_lock:
+            state = self._ensure_console_state()
+            state.entries.clear()
+
+    def get_console_entry_count(self) -> int:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            return len(state.entries) if state is not None else 0
+
+    def render_console_entries_since(self, start_index: int = 0) -> str:
+        with self._console_state_lock:
+            state = self._tui_console_state
+            if state is None or not state.entries:
+                return ""
+            entries = list(state.entries)
+
+        if start_index < 0:
+            start_index = 0
+        if start_index > len(entries):
+            visible_entries = entries
+        else:
+            visible_entries = entries[start_index:]
+
+        parts: list[str] = []
+        for entry in visible_entries:
+            if entry.kind == "command":
+                if parts and not parts[-1].endswith("\n"):
+                    parts.append("\n")
+                parts.append(f"> {entry.payload}\n")
+            elif entry.kind == "output":
+                parts.append(entry.payload)
+        return "".join(parts)
+
+    def _register_running_command(
+            self, line: str, *, foreground: bool = True
+    ) -> int | None:
+        command = line.strip()
+        if not command:
+            return None
+        if not self._should_track_running_command(command):
+            return None
+
+        with self._running_commands_lock:
+            self._running_command_seq += 1
+            token = self._running_command_seq
+            self._running_commands[token] = RunningCommandState(
+                token=token,
+                command=command,
+                started_at=time.time(),
+                thread_id=threading.current_thread().ident,
+                foreground=foreground,
+            )
+            self._current_cmd = command
+            return token
+
+    def _finish_running_command(self, token: int | None) -> None:
+        if token is None:
+            return
+
+        with self._running_commands_lock:
+            self._running_commands.pop(token, None)
+            if self._running_commands:
+                last_key = next(reversed(self._running_commands))
+                self._current_cmd = self._running_commands[last_key].command
+            else:
+                self._current_cmd = None
+
+    def _should_track_running_command(self, command: str) -> bool:
+        cmd, _, _ = self.parseline(command)
+        return (cmd or "").lower() != "tui"
+
+    def _install_persistent_console_mirror(self) -> None:
+        stdout = self._wrap_console_stream(sys.stdout)
+        stderr = self._wrap_console_stream(sys.stderr)
+        sys.stdout = stdout  # type: ignore[assignment]
+        sys.stderr = stderr  # type: ignore[assignment]
+        self.stdout = stdout
+        self.stderr = stderr
+
+    def _wrap_console_stream(self, stream):
+        if isinstance(stream, PersistentConsoleMirror) and stream._vpdb is self:
+            return stream
+        return PersistentConsoleMirror(self, stream)
+
+    def _ensure_console_state(self) -> "ConsoleWidgetState":
+        if self._tui_console_state is None:
+            from ucagent.tui.widgets.console import ConsoleWidgetState
+
+            self._tui_console_state = ConsoleWidgetState(entries=[])
+        return self._tui_console_state
+
+    def _new_console_entry(self, kind: str, payload: str):
+        from ucagent.tui.widgets.console import ConsoleEntry
+
+        return ConsoleEntry(kind, payload)
+
+    def _push_running_command_token(self, token: int) -> None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if stack is None:
+            stack = []
+        stack.append(token)
+        self._running_commands_local.tokens = stack
+
+    def _pop_running_command_token(self) -> int | None:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        if not stack:
+            return None
+
+        token = stack.pop()
+        if stack:
+            self._running_commands_local.tokens = stack
+        else:
+            delattr(self._running_commands_local, "tokens")
+        return token
+
+    def _has_running_command_in_current_thread(self) -> bool:
+        stack = getattr(self._running_commands_local, "tokens", None)
+        return bool(stack)
+
+    def _abort_running_commands_for_current_thread(self) -> None:
+        while True:
+            token = self._pop_running_command_token()
+            if token is None:
+                break
+            self._finish_running_command(token)
+
+    def _interruptible_sleep(self, duration: float, interval: float = 0.05) -> bool:
+        remaining = max(0.0, duration)
+        while remaining > 0:
+            if self.agent.is_break():
+                return False
+            step = min(interval, remaining)
+            time.sleep(step)
+            remaining -= step
+        return True
+
+    def get_cmd_history(self) -> list[str]:
+        """Return the current readline-backed command history."""
+        history_length = readline.get_current_history_length()
+        return [
+            item
+            for i in range(1, history_length + 1)
+            if (item := readline.get_history_item(i)) is not None
+        ]
+
+    def record_cmd_history(self, cmd: str) -> None:
+        """Append a command into the shared PDB/readline history."""
+        cmd = cmd.strip()
+        if not cmd:
+            return
+
+        history_length = readline.get_current_history_length()
+        if history_length > 0 and readline.get_history_item(history_length) == cmd:
+            return
+        readline.add_history(cmd)
+
+    def save_cmd_history(self) -> None:
+        """Persist the shared readline history to disk."""
+        try:
+            os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+            readline.write_history_file(self.history_file)
+        except Exception:
+            pass
 
     def interaction(self, frame, traceback):
         if self.init_cmd:
             self.setup(frame, traceback)
             while self.init_cmd:
                 cmd = self.init_cmd.pop(0)
-                self.onecmd(cmd)
+                self.execute_command(cmd)
         return super().interaction(frame, traceback)
+
+    def _cmdloop(self):
+        """Override Pdb._cmdloop to suppress the ``--KeyboardInterrupt--``
+        message when the interrupt was triggered by the API (add_cmds)."""
+        while True:
+            try:
+                self.allow_kbdint = True
+                self.cmdloop()
+                self.allow_kbdint = False
+                break
+            except KeyboardInterrupt:
+                had_running_command = self._has_running_command_in_current_thread()
+                self._abort_running_commands_for_current_thread()
+                if not self._api_wakeup_done and not had_running_command:
+                    self.message('--KeyboardInterrupt--')
+                self._api_wakeup_done = False
 
     def add_cmds(self, cmds):
         """
@@ -65,19 +416,39 @@ class VerifyPDB(Pdb):
         if isinstance(cmds, str):
             cmds = [cmds]
         if self._in_tui:
-            if self.init_cmd is None:
-                self.init_cmd = cmds
+            tui_app = self._tui_app
+            if tui_app is not None:
+                for cmd in cmds:
+                    tui_app.call_from_thread(tui_app.key_handler.process_command, cmd)
             else:
-                self.init_cmd.extend(cmds)
+                if self.init_cmd is None:
+                    self.init_cmd = cmds
+                else:
+                    self.init_cmd.extend(cmds)
         else:
             self.cmdqueue.extend(cmds)
+            # Send SIGINT to interrupt the blocking input() call inside
+            # cmd.Cmd.cmdloop.  Pdb._cmdloop catches the resulting
+            # KeyboardInterrupt and restarts cmdloop(), which re-checks
+            # cmdqueue at the top of its loop – executing our commands.
+            self._api_wakeup = True
+            os.kill(os.getpid(), signal.SIGINT)
 
     def _sigint_handler(self, signum, frame):
         """
         Handle SIGINT (Ctrl+C) to allow graceful exit from the PDB.
+        Also handles API-triggered wakeup to interrupt blocking input().
         """
+        # Check if this SIGINT was sent by add_cmds to wake up input()
+        if self._api_wakeup:
+            self._api_wakeup = False
+            self._api_wakeup_done = True
+            raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
+        had_running_command = self._has_running_command_in_current_thread()
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
+        if had_running_command:
+            raise KeyboardInterrupt
         if self.agent.is_break():
             echo_y("PDB interrupted. Use 'continue' to resume execution.")
         else:
@@ -234,7 +605,8 @@ class VerifyPDB(Pdb):
                 delay_time = random.randint(self.retry_delay_start, self.retry_delay_end)
                 while delay_time > 0:
                     echo_y(f"[{try_count}]Retrying in {delay_time} seconds...")
-                    time.sleep(1)
+                    if not self._interruptible_sleep(1):
+                        break
                     delay_time -= 1
                     if self.agent.is_break():
                         break
@@ -450,6 +822,34 @@ class VerifyPDB(Pdb):
             "task_list": task_list
         }
 
+    def api_get_stage_file(self, index, file_path):
+        """
+        Get the content of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Content of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_stage_file_content(file_path)
+
+    def api_get_stage_file_current(self, index, file_path):
+        """
+        Get the diff of a file in a specific stage.
+        Args:
+            index (int): Index of the stage.
+            file_path (str): Path to the file.
+        Returns:
+            str: Diff of the file.
+        """
+        if index >= len(self.agent.stage_manager.stages) or index < 0:
+            return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
+        stage = self.agent.stage_manager.stages[index]
+        return stage.get_current_file_content_with_diff(file_path)
+
     def api_get_check_tag_list(self, stage_list):
         """
         Get colored llm and human check tag for the stage.
@@ -479,20 +879,31 @@ class VerifyPDB(Pdb):
                 ret[i][j] = ""
         return [f"{a}{b}{c}" for a, b, c in ret]
 
-    def api_mission_info(self):
+    def api_mission_info(self, return_dict=False):
         """
         Get mission information with colored output.
         """
         task_data = self.api_task_list()
         current_index = task_data['task_index']
         ret = [f"\n{task_data['mission_name']}\n"]
+        ret_dict = OrderedDict({
+            "misson_name": task_data['mission_name'],
+            "current_index": current_index,
+            "enable_llm_fail_suggestion": self.agent.stage_manager.llm_fail_suggestion is not None,
+            "enable_llm_pass_suggestion": self.agent.stage_manager.llm_pass_suggestion is not None,
+            "stages": []
+        })
         stage_list = task_data['task_list']["stage_list"]
         ck_tags = self.api_get_check_tag_list(stage_list)
+        current_stage = self.agent.stage_manager.get_current_stage()
         for i, stage in enumerate(stage_list):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
+            vstage = self.agent.stage_manager.get_stage(i)
+            is_current_stage = vstage is not None and current_stage is not None and vstage == current_stage
+            is_completed_stage = (i < current_index) or (vstage.is_completed() if vstage is not None else stage.get("is_completed", False))
             if time_cost:
                 time_cost = f", {time_cost}"
             color, cend = "", ""
@@ -510,20 +921,235 @@ class VerifyPDB(Pdb):
             check_tag = ck_tags[i]
             text = f"{color}{i:2d}{cend} {check_tag}{color}{task_title}{fail_count_msg}{cend}"
             ret.append(text)
+            vstage_data = {
+                "index": i,
+                "text": text,
+                "out_come": None,
+                "title": stage["title"],
+                "is_current": is_current_stage,
+                "is_completed": is_completed_stage,
+                "is_skipped": is_skipped,
+                "needs_human_check": stage.get("needs_human_check", False),
+                "need_fail_llm_suggestion": stage.get("need_fail_llm_suggestion", False),
+                "need_pass_llm_suggestion": stage.get("need_pass_llm_suggestion", False),
+                "can_edit_flags": (i > current_index) and (vstage is not None) and (not is_current_stage) and (not is_completed_stage),
+            }
+            if current_index >= i:
+                if vstage:
+                    vstage_data["out_come"] = vstage.get_stage_outcome(current_index != i)
+            ret_dict["stages"].append(vstage_data)
+        if return_dict:
+            return ret_dict
         return ret
+
+    def api_update_stage_flags(
+        self,
+        indices,
+        hmcheck_needed=None,
+        skip=None,
+        llm_fail_suggestion=None,
+        llm_pass_suggestion=None,
+    ):
+        """
+        Update stage flags for one or more stages.
+        """
+        if not indices:
+            raise ValueError("Stage indices cannot be empty.")
+        changed = False
+        updated = []
+        stage_manager = self.agent.stage_manager
+        current_stage = stage_manager.get_current_stage()
+        has_non_skip_update = any(
+            value is not None
+            for value in (hmcheck_needed, llm_fail_suggestion, llm_pass_suggestion)
+        )
+        for stage_index in indices:
+            stage = stage_manager.get_stage(stage_index)
+            if stage is None:
+                raise ValueError(f"No stage found at index {stage_index}.")
+            is_current_stage = current_stage is not None and stage == current_stage
+            if stage.is_completed() or stage_index < stage_manager.stage_index:
+                raise ValueError(f"Stage {stage_index} cannot be modified after completion.")
+            if is_current_stage:
+                if skip is not None:
+                    raise ValueError(f"Stage {stage_index} cannot be skipped while it is in progress.")
+                if not has_non_skip_update:
+                    raise ValueError(f"Stage {stage_index} has no editable flags in this request.")
+            elif stage_index <= stage_manager.stage_index:
+                raise ValueError(f"Stage {stage_index} cannot be modified after completion or while it is in progress.")
+            if hmcheck_needed is not None:
+                stage.do_set_hmcheck_needed(hmcheck_needed)
+                changed = True
+            if llm_fail_suggestion is not None:
+                stage.set_llm_fail_suggestion(llm_fail_suggestion)
+                changed = True
+            if llm_pass_suggestion is not None:
+                stage.set_llm_pass_suggestion(llm_pass_suggestion)
+                changed = True
+            if skip is True:
+                stage_manager.skip_stage(stage_index)
+                changed = True
+            elif skip is False:
+                stage_manager.unskip_stage(stage_index)
+                changed = True
+            stage = stage_manager.get_stage(stage_index)
+            updated.append({
+                "index": stage_index,
+                "title": stage.title(),
+                "is_skipped": stage.is_skipped(),
+                "needs_human_check": stage.is_hmcheck_needed(),
+                "need_fail_llm_suggestion": stage_manager.stage_need_llm_fail_suggestion(stage),
+                "need_pass_llm_suggestion": stage_manager.stage_need_llm_pass_suggestion(stage),
+            })
+        if changed:
+            stage_manager.save_stage_info()
+        return updated
 
     def api_all_cmds(self, prefix=""):
         """
-        List all available commands in the current workspace.
-        Returns:
-            list: List of command names.
+        List available completions for *prefix*.
+
+        - If *prefix* contains no space: return all command names that start
+          with *prefix* (standard command-name completion).
+        - If *prefix* contains a space: treat it as a full input line and
+          delegate to the appropriate ``complete_<cmd>`` method (or
+          ``completedefault``), returning full lines (``"<cmd> <arg>"``)
+          so the caller can substitute them directly into the input field.
         """
-        ret = []
-        for cmd in self.get_names():
-            if cmd.startswith("do_"):
-                text = cmd[3:]
-                ret.append(text)
-        return [c for c in ret if c.startswith(prefix)]
+        # ── command-name completion ───────────────────────────────────────
+        if " " not in prefix:
+            ret = []
+            for name in self.get_names():
+                if name.startswith("do_"):
+                    ret.append(name[3:])
+            return [c for c in ret if c.startswith(prefix)]
+
+        # ── argument completion ───────────────────────────────────────────
+        line = prefix
+        endidx = len(line)
+        if line.endswith(" "):
+            text = ""
+            begidx = endidx
+        else:
+            text = line.split()[-1]
+            begidx = endidx - len(text)
+        cmd_name = line.split()[0]
+        completer = getattr(self, f"complete_{cmd_name}", None)
+        if completer is None:
+            completer = self.completedefault
+        try:
+            completions = completer(text, line, begidx, endidx) or []
+        except Exception:
+            completions = []
+        # Return full input-ready lines so the client can replace the field directly
+        prefix_base = line[:begidx]
+        return [prefix_base + c for c in completions]
+
+    def api_server_info(self):
+        """
+        Return a dict with basic information about the CMD API, Master API, and
+        MCP servers managed by this PDB instance.
+
+        Each key maps to a sub-dict with the following fields when the server is
+        running, or ``None`` when it has not been started / is stopped:
+
+        cmd_api:
+            host, port, sock, tcp, password_set, started_at, url
+        master_api:
+            host, port, sock, tcp, password_set, access_key_set, started_at, url
+        mcp:
+            host, port, no_file_ops, started_at, url
+        """
+        import time as _time
+
+        def _fmt_time(ts):
+            if ts is None:
+                return None
+            import datetime
+            return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+        def _elapsed(ts):
+            if ts is None:
+                return None
+            secs = int(_time.time() - ts)
+            h, r = divmod(secs, 3600)
+            m, s = divmod(r, 60)
+            return f"{h:02d}:{m:02d}:{s:02d}"
+
+        # ── CMD API ──────────────────────────────────────────────────────
+        s = self._cmd_api_server
+        if s is not None and s.is_running:
+            cmd_api = {
+                "host":         s.host,
+                "port":         s.port,
+                "sock":         s.sock,
+                "tcp":          s.tcp,
+                "password_set": bool(s.password),
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            cmd_api = None
+
+        # ── Master API ───────────────────────────────────────────────────
+        s = self._master_api_server
+        if s is not None and s.is_running:
+            master_api = {
+                "host":             s.host,
+                "port":             s.port,
+                "sock":             s.sock,
+                "tcp":              s.tcp,
+                "password_set":     bool(s.password),
+                "access_key_set":   bool(s.access_key),
+                "started_at":       _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":          _elapsed(getattr(s, "started_at", None)),
+                "url":              s.url(),
+            }
+
+        else:
+            master_api = None
+
+        # ── MCP ──────────────────────────────────────────────────────────
+        s = self._mcp_server
+        if s is not None and s.is_running:
+            mcp_server = {
+                "host":         s.host,
+                "port":         s.port,
+                "no_file_ops":  s.no_file_ops,
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            mcp_server = None
+
+        # ── Web UI ───────────────────────────────────────────────────────
+        web_console = None
+        if hasattr(self.agent, "web_console_session_info"):
+            web_console = self.agent.web_console_session_info
+
+        # ── Terminal API ─────────────────────────────────────────────────
+        s = getattr(self, '_terminal_server', None)
+        if s is not None and s.is_running:
+            terminal_api = {
+                "host":         s.host,
+                "port":         s.port,
+                "password_set": bool(s.password),
+                "started_at":   _fmt_time(getattr(s, "started_at", None)),
+                "elapsed":      _elapsed(getattr(s, "started_at", None)),
+                "url":          s.url(),
+            }
+        else:
+            terminal_api = None
+
+        return {
+            "cmd_api":     cmd_api,
+            "master_api":  master_api,
+            "mcp_server":  mcp_server,
+            "web_console": web_console,
+            "terminal_api": terminal_api,
+        }
 
     def api_changed_files(self, count=10):
         """
@@ -633,22 +1259,62 @@ class VerifyPDB(Pdb):
         if self._in_tui:
             echo_y("Already in TUI mode. Use 'exit_tui' to exit.")
             return
-        use_new_ui = getattr(self.agent, "use_new_ui", False)
-        if use_new_ui:
-            from ucagent.tui import enter_tui
-        else:
-            from ucagent.verify_ui import enter_simple_tui as enter_tui
+        from ucagent.tui import enter_tui
+        # Disable PTY echo while TUI is active to prevent mouse-tracking
+        # escape sequences from being echoed as visible garbage.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(False)
+        import sys as _sys
+        _saved_sys_stdout = _sys.stdout
+        _saved_sys_stderr = _sys.stderr
+        _saved_pdb_stdout = self.stdout
+        _saved_pdb_stderr = getattr(self, "stderr", None)
         self._in_tui = True
+
         try:
             enter_tui(self)
         except Exception as e:
             import traceback
             echo_r(f"TUI mode error: {e}\n" + traceback.format_exc())
+        finally:
+            self.agent.unset_message_echo_handler()
+            # Restore sys.stdout/stderr and pdb.stdout/stderr to their pre-TUI
+            # values.  TUI frameworks (Textual in particular) have their OWN
+            # save/restore of sys.stdout that runs AFTER our cleanup, which can
+            # clobber any wrapper we tried to keep in place.  Therefore we
+            # first force everything back to the pre-TUI baseline, then
+            # re-install PdbCmdApiServer's _ConsoleCapture if the server is
+            # still active.
+            _sys.stdout = _saved_sys_stdout
+            _sys.stderr = _saved_sys_stderr
+            self.stdout = _saved_pdb_stdout
+            if _saved_pdb_stderr is not None:
+                self.stderr = _saved_pdb_stderr
+            # If PdbCmdApiServer is running, its _ConsoleCapture MUST wrap
+            # sys.stdout and pdb.stdout so the ring-buffer continues to
+            # receive all output.
+            if (self._cmd_api_server is not None
+                    and self._cmd_api_server.is_running):
+                cc = self._cmd_api_server._console_capture
+                if _sys.stdout is not cc:
+                    cc._original = _sys.stdout
+                    _sys.stdout = cc
+                if self.stdout is not cc:
+                    self.stdout = cc
+        # Re-enable PTY echo so PDB input is visible again.
+        if self._terminal_server is not None and self._terminal_server._pty_active:
+            self._terminal_server.set_pty_echo(True)
         self._in_tui = False
         if self.init_cmd:
             self.cmdqueue.extend(self.init_cmd)
             self.init_cmd = None
         message("Exited TUI mode. Returning to PDB.")
+
+    def do_show_web_session(self, arg):
+        if hasattr(self.agent, "web_console_session_info"):
+            message(yam_str(self.agent.web_console_session_info))
+        else:
+            echo_y("Agent does not launched in Web UI.")
 
     def do_export_agent(self, arg):
         """
@@ -670,6 +1336,28 @@ class VerifyPDB(Pdb):
         if not name:
             echo_y("export name cannot be empty. Usage: export_stage_manager <name>")
         self.curframe.f_locals[name] = self.agent.stage_manager
+
+    def do_messages_reset(self, arg):
+        """
+        Reset the messages in the agent's state.
+        Usage: messages_reset [force]
+        """
+        arg = arg.strip().lower()
+        force = arg == "force"
+        if arg and not force:
+            echo_y(f"Unknown argument: {arg}. Usage: messages_reset [force]")
+            return
+        self.agent.backend.reset_chat(force=force)
+        message(f"Messages have been reset [force={force}].")
+
+    def complete_messages_reset(self, text, line, begidx, endidx):
+        """
+        Auto-complete the messages_reset command.
+        """
+        options = ["force"]
+        if not text:
+            return options
+        return [option for option in options if option.startswith(text.strip().lower())]
 
     def do_messages_info(self, arg):
         """
@@ -705,35 +1393,991 @@ class VerifyPDB(Pdb):
         for m in self.agent.message_get_str(start, size):
             message(m)
 
-    def do_start_mcp_server(self, arg, kwargs={"no_file_ops": False}):
+    def do_start_mcp_server(self, arg):
         """
-        Start the MCP server:
-        usage: start_mcp_server [host] [port]
+        Start the MCP server (FastMCP/uvicorn).
+
+        Usage: start_mcp_server [options] [host [port]]
+
+        Options:
+          --no-file-ops   Exclude file-operation tools from the MCP server
+          host            TCP bind address  (default: from config, typically 127.0.0.1)
+          port            TCP bind port     (default: from config, typically 5000)
+
+        Examples:
+          start_mcp_server
+          start_mcp_server 0.0.0.0 5000
+          start_mcp_server --no-file-ops
+          start_mcp_server --no-file-ops 127.0.0.1 5001
         """
-        args = arg.strip().split()
-        if len(args) > 0:
-            if args[0] != "None":
-                kwargs["host"] = args[0]
-        if len(args) > 1:
+        if self._mcp_server is not None and self._mcp_server.is_running:
+            echo_y(f"MCP server is already running at {self._mcp_server.url()}.")
+            echo_y("Use 'stop_mcp_server' first before starting a new instance.")
+            return
+        from ucagent.server import PdbMcpServer
+        host = self.agent.cfg.mcp_server.host
+        port = self.agent.cfg.mcp_server.port
+        port_specified = False
+        no_file_ops = False
+        # Parse flags and positional args
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == "--no-file-ops":
+                no_file_ops = True
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if len(positional) >= 1 and positional[0] not in ("", "None"):
+            host = positional[0]
+        if len(positional) >= 2:
             try:
-                if args[1] != "None":
-                    kwargs["port"] = int(args[1])
+                port_specified = (positional[1] not in ("", "None"))
+                port = int(positional[1]) if port_specified else port
             except ValueError:
-                echo_r(f"Invalid port number: {args[1]}. Port must be an integer.\n Usage: start_mcp_server [host] [port]")
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
                 return
-        self.agent.start_mcps(**kwargs)
+        # -1 means auto-select an available port
+        if port == -1:
+            from ucagent.util.functions import find_available_port
+            port = find_available_port()
+            echo_y(f"Auto-selected available port: {port}")
+            port_specified = False
+        # Port availability check
+        if not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
+        try:
+            self._mcp_server = PdbMcpServer(
+                self, host=host, port=port, no_file_ops=no_file_ops
+            )
+            ok, msg = self._mcp_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start MCP server: {e}")
+            return
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
 
     def do_stop_mcp_server(self, arg):
         """
         Stop the MCP server.
+        Usage: stop_mcp_server
         """
-        self.agent.stop_mcps()
+        if self._mcp_server is None or not self._mcp_server.is_running:
+            echo_y("MCP server is not running.")
+            return
+        ok, msg = self._mcp_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_mcp_server_status(self, arg):
+        """
+        Show the current status of the MCP server.
+        Usage: mcp_server_status
+        """
+        if self._mcp_server is None:
+            echo_y("MCP server has not been started.")
+            return
+        if self._mcp_server.is_running:
+            echo_g(f"MCP server is running at {self._mcp_server.url()}")
+            if self._mcp_server.no_file_ops:
+                echo_g("  File ops   : disabled")
+        else:
+            echo_y("MCP server is stopped.")
 
     def do_start_mcp_server_no_file_ops(self, arg):
         """
         Start the MCP server without file operations.
         """
-        return self.do_start_mcp_server(arg, kwargs={"no_file_ops": True})
+        return self.do_start_mcp_server("--no-file-ops " + arg if arg.strip() else "--no-file-ops")
+
+    # ------------------------------------------------------------------
+    # CMD API server commands
+    # ------------------------------------------------------------------
+
+    # Default Unix socket path used when no --sock argument is provided
+    # sock=None passed to PdbCmdApiServer means "auto-generate /tmp/ucagent_cmd_{port}.sock"
+    # sock=""  means "disable unix socket"
+
+    def do_cmd_api_start(self, arg):
+        """
+        Start the CMD API server (FastAPI).  TCP and Unix socket listeners are
+        independent and both enabled by default.
+
+        Usage: cmd_api_start [options] [host [port]]
+
+        Options:
+          --sock <path>   Unix socket path  (default: /tmp/ucagent_cmd_{port}.sock)
+          --sock none     Disable Unix socket listener
+          --no-tcp        Disable TCP listener
+          --passwd <pwd>  HTTP Basic password to protect API endpoints (default: none)
+          host            TCP bind address  (default: 127.0.0.1)
+          port            TCP bind port     (default: 8765)
+
+        Examples:
+          cmd_api_start                          # both TCP + socket (defaults)
+          cmd_api_start 0.0.0.0 9000             # custom TCP, default socket
+          cmd_api_start --sock /run/uc.sock      # custom socket, default TCP
+          cmd_api_start --sock none              # TCP only
+          cmd_api_start --no-tcp                 # socket only
+          cmd_api_start --sock none 0.0.0.0 9000 # TCP only, custom address
+          cmd_api_start --passwd secret123       # enable password protection
+
+        Once running, external tools can call:
+          GET  /api/status              - Agent status
+          GET  /api/tasks               - Task list
+          GET  /api/task/<index>        - Task detail
+          GET  /api/mission             - Mission overview
+          GET  /api/cmds[?prefix=]      - List PDB commands
+          GET  /api/help[?cmd=]         - Command help
+          GET  /api/tools               - Tool list
+          GET  /api/changed_files[?count=10] - Changed output files
+          POST /api/cmd                 - Enqueue a command  {"cmd": "..."}
+          POST /api/cmds/batch          - Enqueue commands   {"cmds": [...]}
+          GET  /docs                    - Interactive API docs (Swagger UI)
+        """
+        if self._cmd_api_server is not None and self._cmd_api_server.is_running:
+            echo_y(f"CMD API server is already running at {self._cmd_api_server.url()}.")
+            echo_y("Use 'cmd_api_stop' first before starting a new instance.")
+            return
+        from ucagent.server import PdbCmdApiServer
+        host = self.agent.cfg.get_value("cmd_api.host", "127.0.0.1")
+        port = self.agent.cfg.get_value("cmd_api.port", 8765)
+        port_specified = False
+        sock = None   # None → server auto-generates /tmp/ucagent_cmd_{port}.sock
+        tcp = True                          # TCP enabled by default
+        passwd = ""                         # password disabled by default
+        # Parse flags and positional args
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--sock", "-s"):
+                if i + 1 < len(parts):
+                    val = parts[i + 1]
+                    sock = "" if val.lower() == "none" else val
+                    i += 2
+                else:
+                    echo_r("--sock requires a path or 'none'.")
+                    return
+            elif token.startswith("--sock="):
+                val = token[7:]
+                sock = "" if val.lower() == "none" else val
+                i += 1
+            elif token == "--no-tcp":
+                tcp = False
+                i += 1
+            elif token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if not tcp and sock == "":
+            echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
+            return
+        # Positional args set TCP address
+        if len(positional) >= 1 and positional[0] not in ("", "None"):
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+                port_specified = True
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
+                return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
+        try:
+            self._cmd_api_server = PdbCmdApiServer(
+                self, host=host, port=port, sock=sock, tcp=tcp, password=passwd
+            )
+            ok, msg = self._cmd_api_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start CMD API server: {e}")
+            return
+        if ok:
+            if passwd:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_cmd_api_stop(self, arg):
+        """
+        Stop the CMD API server.
+        Usage: cmd_api_stop
+        """
+        if self._cmd_api_server is None or not self._cmd_api_server.is_running:
+            echo_y("CMD API server is not running.")
+            return
+        ok, msg = self._cmd_api_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_cmd_api_status(self, arg):
+        """
+        Show the current status of the CMD API server.
+        Usage: cmd_api_status
+        """
+        if self._cmd_api_server is None:
+            echo_y("CMD API server has not been started.")
+            return
+        if self._cmd_api_server.is_running:
+            s = self._cmd_api_server
+            echo_g(f"CMD API server is running at {s.url()}")
+            if s.password:
+                echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
+            if s.tcp:
+                echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
+            if s.sock:
+                echo_g(f"  Sock curl: curl --unix-socket {s.sock} http://localhost/api/status")
+                echo_g(f"  Sock docs: curl --unix-socket {s.sock} http://localhost/docs")
+        else:
+            echo_y("CMD API server is stopped.")
+
+    # ------------------------------------------------------------------
+    # Terminal API server commands  (web-based terminal via WebSocket)
+    # ------------------------------------------------------------------
+
+    def do_terminal_api_start(self, arg):
+        """
+        Start the Web Terminal server (aiohttp + xterm.js).
+
+        Maps the current UCAgent console I/O (PDB command line or TUI) to a
+        browser-based terminal.  Only one browser tab can connect at a time;
+        refreshing the page re-attaches to the same session.
+
+        Usage: terminal_api_start [options] [host [port]]
+
+        Options:
+          --passwd <pwd>  HTTP Basic password (default: none)
+          host            Bind address  (default: 127.0.0.1)
+          port            Bind port     (default: 8818)
+
+        Examples:
+          terminal_api_start                        # defaults
+          terminal_api_start 0.0.0.0 9090           # custom address
+          terminal_api_start --passwd secret123      # password protected
+
+        Once running, open the URL in a browser to get an interactive terminal.
+        REST endpoints:
+          GET  /api/status   – server status (uptime, client count, mode)
+          GET  /api/clients  – connected client details
+        """
+        if getattr(self, '_terminal_server', None) is not None and self._terminal_server.is_running:
+            echo_y(f"Terminal server is already running at {self._terminal_server.url()}")
+            echo_y("Use 'terminal_api_stop' first before starting a new instance.")
+            return
+        if hasattr(self.agent, "web_console_session_info"):
+            echo_y("Terminal server cannot not be launched in web console mode.")
+            return
+        if self._in_tui:
+            echo_y("Terminal server cannot be launched while in TUI mode.")
+            return
+        from ucagent.server.api_terminal import PdbWebTermServer
+
+        host = "127.0.0.1"
+        port = 8818
+        port_specified = False
+        passwd = ""
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif token.startswith("--passwd="):
+                passwd = token[9:]
+                i += 1
+            elif token.startswith("--password="):
+                passwd = token[11:]
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if len(positional) >= 1:
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+                port_specified = True
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}. Port must be an integer.")
+                return
+
+        if not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use.")
+                return
+            from ucagent.util.functions import find_available_port
+            port = find_available_port(port + 1)
+            echo_y(f"Default port was busy; using port {port} instead.")
+
+        try:
+            server = PdbWebTermServer(
+                command=None,
+                host=host,
+                port=port,
+                password=passwd,
+                title="UCAgent Terminal",
+            )
+            # Always use PTY mode so both PDB command line and TUI
+            # are captured and displayed in the web terminal.
+            server.enter_pty_mode()
+            ok, msg = server.start()
+        except Exception as e:
+            echo_r(f"Failed to start Terminal server: {e}")
+            return
+
+        if ok:
+            self._terminal_server = server
+            echo_g(msg)
+            echo_g(f"  Open in browser: {server.url()}")
+            if passwd:
+                echo_g(f"  Password: set (HTTP Basic Auth)")
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_stop(self, arg):
+        """
+        Stop the Web Terminal server.
+        Usage: terminal_api_stop
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        srv.exit_pty_mode()
+        ok, msg = srv.stop()
+        if ok:
+            echo_g(msg)
+            self._terminal_server = None
+        else:
+            echo_r(msg)
+
+    def do_terminal_api_status(self, arg):
+        """
+        Show the current status of the Web Terminal server.
+        Usage: terminal_api_status
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None:
+            echo_y("Terminal server has not been started.")
+            return
+        if srv.is_running:
+            status = srv.get_status()
+            echo_g(f"Terminal server is running at {srv.url()}")
+            echo_g(f"  Mode     : {status['mode']}")
+            echo_g(f"  Clients  : {status['clients']}")
+            if status.get('uptime_s'):
+                echo_g(f"  Uptime   : {status['uptime_s']}s")
+            if status['password_protected']:
+                echo_g(f"  Password : set (HTTP Basic Auth)")
+        else:
+            echo_y("Terminal server is stopped.")
+
+    def do_terminal_api_list(self, arg):
+        """
+        List connected Web Terminal clients with details.
+        Usage: terminal_api_list
+        """
+        srv = getattr(self, '_terminal_server', None)
+        if srv is None or not srv.is_running:
+            echo_y("Terminal server is not running.")
+            return
+        clients = srv.get_clients()
+        if not clients:
+            echo_y("No clients connected.")
+            return
+        echo_g(f"{len(clients)} client(s) connected:")
+        for i, c in enumerate(clients, 1):
+            echo(f"  [{i}] session={c['session_id']}  remote={c['remote']}  "
+                 f"duration={c['duration_s']}s")
+            echo(f"      user_agent={c['user_agent']}")
+
+    # ------------------------------------------------------------------
+    # Master API server commands
+    # ------------------------------------------------------------------
+
+    # sock=None passed to PdbMasterApiServer means "auto-generate /tmp/ucagent_master_{port}.sock"
+    # sock=""  means "disable unix socket"
+
+    def do_master_api_start(self, arg):
+        """
+        Start the Master API server (FastAPI).  Acts as a central aggregator
+        that collects heartbeats from multiple UCAgent instances.
+
+        Usage: master_api_start [options] [host [port]]
+
+        Options:
+          --sock <path>       Unix socket path  (default: /tmp/ucagent_master_{port}.sock)
+          --sock none         Disable Unix socket listener
+          --no-tcp            Disable TCP listener
+          --timeout <secs>    Seconds without heartbeat before marking offline (default: 30)
+          --key <key>         Access key: clients must send this to register (default: none)
+          --password <pwd>    HTTP Basic password to access dashboard/API (default: none)
+          host                TCP bind address  (default: 0.0.0.0)
+          port                TCP bind port     (default: 8800)
+
+        Examples:
+          master_api_start                           # both TCP + socket, no auth
+          master_api_start 0.0.0.0 9900              # custom TCP, default socket
+          master_api_start --sock none               # TCP only
+          master_api_start --no-tcp                  # socket only
+          master_api_start --timeout 60              # 60-second offline threshold
+          master_api_start --key secret123           # require key from clients
+          master_api_start --password mypass         # protect dashboard with password
+          master_api_start --key k1 --password p1    # both auth mechanisms
+
+        Endpoints exposed:
+          GET    /api/agents                     - List all agents (?include_offline=true)
+          GET    /api/agent/{id}                 - Agent detail
+          DELETE /api/agent/{id}                 - Remove agent (client notified)
+          POST   /api/register                   - Register / heartbeat
+          GET    /docs                           - Swagger UI
+        """
+        if self._master_api_server is not None and self._master_api_server.is_running:
+            echo_y(f"Master API server is already running at {self._master_api_server.url()}.")
+            echo_y("Use 'master_api_stop' first before starting a new instance.")
+            return
+        from ucagent.server import PdbMasterApiServer
+        host = self.agent.cfg.get_value("master_api.host", "0.0.0.0")
+        port = self.agent.cfg.get_value("master_api.port", 8800)
+        port_specified = False
+        sock = None   # None → server auto-generates /tmp/ucagent_master_{port}.sock
+        tcp = True
+        offline_timeout = 30.0
+        access_key = ""
+        password = ""
+        parts = arg.strip().split()
+        positional = []
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token in ("--sock", "-s"):
+                if i + 1 < len(parts):
+                    val = parts[i + 1]
+                    sock = "" if val.lower() == "none" else val
+                    i += 2
+                else:
+                    echo_r("--sock requires a path or 'none'.")
+                    return
+            elif token.startswith("--sock="):
+                val = token[7:]
+                sock = "" if val.lower() == "none" else val
+                i += 1
+            elif token == "--no-tcp":
+                tcp = False
+                i += 1
+            elif token in ("--timeout", "-t"):
+                if i + 1 < len(parts):
+                    try:
+                        offline_timeout = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid timeout: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--timeout requires a number.")
+                    return
+            elif token.startswith("--timeout="):
+                try:
+                    offline_timeout = float(token[10:])
+                except ValueError:
+                    echo_r(f"Invalid timeout: {token[10:]}")
+                    return
+                i += 1
+            elif token in ("--key", "-k"):
+                if i + 1 < len(parts):
+                    access_key = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--key requires a value.")
+                    return
+            elif token.startswith("--key="):
+                access_key = token[6:]
+                i += 1
+            elif token == "--password":
+                if i + 1 < len(parts):
+                    password = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--password requires a value.")
+                    return
+            elif token.startswith("--password="):
+                password = token[11:]
+                i += 1
+            else:
+                positional.append(token)
+                i += 1
+        if not tcp and sock == "":
+            echo_r("Cannot disable both TCP and socket. At least one listener must be enabled.")
+            return
+        if len(positional) >= 1:
+            host = positional[0]
+        if len(positional) >= 2:
+            try:
+                port = int(positional[1])
+                port_specified = True
+            except ValueError:
+                echo_r(f"Invalid port number: {positional[1]}.")
+                return
+        # Port availability check (TCP only)
+        if tcp and not is_port_free(host, port):
+            if port_specified:
+                echo_r(f"Port {port} on {host} is already in use. Please choose a different port.")
+                return
+            else:
+                from ucagent.util.functions import find_available_port
+                port = find_available_port(port + 1)
+                echo_y(f"Default port was busy; using port {port} instead.")
+        try:
+            self._master_api_server = PdbMasterApiServer(
+                host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout,
+                workspace=self.agent.workspace,
+                access_key=access_key, password=password,
+            )
+            ok, msg = self._master_api_server.start()
+        except Exception as e:
+            echo_r(f"Failed to start Master API server: {e}")
+            return
+        if ok:
+            if access_key:
+                echo_g(f"  Access key : set (clients must supply --key)")
+            if password:
+                echo_g(f"  Password   : set (dashboard/API requires HTTP Basic Auth)")
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_master_api_stop(self, arg):
+        """
+        Stop the Master API server.
+        Usage: master_api_stop
+        """
+        if self._master_api_server is None or not self._master_api_server.is_running:
+            echo_y("Master API server is not running.")
+            return
+        ok, msg = self._master_api_server.stop()
+        if ok:
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_master_api_status(self, arg):
+        """
+        Show the current status of the Master API server.
+        Usage: master_api_status
+        """
+        if self._master_api_server is None:
+            echo_y("Master API server has not been started.")
+            return
+        if self._master_api_server.is_running:
+            s = self._master_api_server
+            counts = s.agent_count()
+            echo_g(f"Master API server is running at {s.url()}")
+            echo_g(f"  Agents: {counts['online']} online, {counts['offline']} offline")
+            if s.tcp:
+                echo_g(f"  TCP docs:  http://{s.host}:{s.port}/docs")
+            if s.sock:
+                echo_g(f"  Sock curl: curl --unix-socket {s.sock} http://localhost/api/agents")
+                echo_g(f"  Sock docs: curl --unix-socket {s.sock} http://localhost/docs")
+        else:
+            echo_y("Master API server is stopped.")
+
+    def do_master_api_list(self, arg):
+        """
+        Query the Master API server for all registered agents and display a
+        summary table.  When a local master is running the query is made
+        directly; otherwise the --master option selects a remote master.
+
+        Usage: master_api_list [--master <url>] [--passwd <password>] [--all]
+
+        Options:
+          --master <url>      Base URL of the master  (default: local master if running)
+          --passwd <password> HTTP Basic password for remote master (default: none)
+          --all               Include offline agents  (default: online only)
+
+        Examples:
+          master_api_list
+          master_api_list --all
+          master_api_list --master http://192.168.1.10:8800
+          master_api_list --master http://192.168.1.10:8800 --passwd mypass
+        """
+        try:
+            import requests
+        except ImportError:
+            echo_r("'requests' is required.  pip install requests")
+            return
+        parts = arg.strip().split()
+        master_url = None
+        include_all = False
+        remote_passwd = ""
+        i = 0
+        while i < len(parts):
+            t = parts[i]
+            if t in ("--master", "-m"):
+                if i + 1 < len(parts):
+                    master_url = parts[i + 1].rstrip("/")
+                    i += 2
+                else:
+                    echo_r("--master requires a URL.")
+                    return
+            elif t.startswith("--master="):
+                master_url = t[9:].rstrip("/")
+                i += 1
+            elif t in ("--passwd", "--password"):
+                if i + 1 < len(parts):
+                    remote_passwd = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--passwd requires a value.")
+                    return
+            elif t.startswith("--passwd="):
+                remote_passwd = t[9:]
+                i += 1
+            elif t.startswith("--password="):
+                remote_passwd = t[11:]
+                i += 1
+            elif t == "--all":
+                include_all = True
+                i += 1
+            else:
+                i += 1
+        _local_server = None
+        if master_url is None:
+            if self._master_api_server and self._master_api_server.is_running:
+                s = self._master_api_server
+                _local_server = s
+                _query_host = "127.0.0.1" if s.host in ("0.0.0.0", "") else s.host
+                master_url = f"http://{_query_host}:{s.port}"
+                if not s.tcp and s.sock:
+                    echo_y("Note: local master has no TCP listener; querying socket is not "
+                           "supported from here.  Provide --master <url> instead.")
+                    return
+            else:
+                echo_r("No local master running.  Use --master <url> to specify a remote master, "
+                       "or start one with 'master_api_start'.")
+                return
+        url = f"{master_url}/api/agents?include_offline={'true' if include_all else 'false'}"
+        _auth = None
+        if _local_server and _local_server.password and not remote_passwd:
+            _auth = ("", _local_server.password)
+        elif remote_passwd:
+            _auth = ("", remote_passwd)
+        try:
+            resp = requests.get(url, timeout=10, auth=_auth)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            echo_r(f"Failed to query master at {master_url}: {e}")
+            return
+        agents = data.get("agents", [])
+        if not agents:
+            echo_y(f"No agents found at {master_url}.")
+            return
+        # Pre-compute display strings for each row
+        rows = []
+        for a in agents:
+            cur = a.get("current_stage_index", -1)
+            tot = a.get("total_stage_count", 0)
+            rows.append({
+                "id":       a.get("id", ""),
+                "host":     a.get("host", ""),
+                "status":   a.get("status", "?"),
+                "version":  a.get("version", ""),
+                "progress": f"{cur}/{tot}" if tot > 0 else "-",
+                "run_time": str(a.get("run_time") or ""),
+                "done":     "YES" if a.get("is_mission_complete", False) else "no",
+                "mcp":      "yes" if a.get("mcp_running", False) else "no",
+                "break":    "yes" if a.get("is_break", False) else "no",
+                "api":      "on"  if a.get("cmd_api_tcp") else "off",
+                "stage":    a.get("current_stage_name", ""),
+                "cmd":      a.get("last_cmd", "")[:40],
+                "mission":  a.get("mission", ""),
+            })
+        # Compute column widths from data + header labels
+        cols = ["id", "host", "status", "version", "progress", "run_time", "done", "mcp", "break", "api", "stage", "cmd", "mission"]
+        hdrs = ["ID",  "HOST", "STATUS", "VERSION", "PROGRESS", "RUN_TIME", "DONE", "MCP", "BREAK", "API", "STAGE", "CMD", "MISSION"]
+        widths = {c: len(h) for c, h in zip(cols, hdrs)}
+        for r in rows:
+            for c in cols:
+                widths[c] = max(widths[c], len(r[c]))
+        # Render header (last column is not padded)
+        sep = "  "
+        hdr_parts = [f"{h:<{widths[c]}}" for c, h in zip(cols[:-1], hdrs[:-1])]
+        hdr_parts.append(hdrs[-1])
+        HDR = sep.join(hdr_parts)
+        echo_g(HDR)
+        echo_g("-" * len(HDR))
+        for r in rows:
+            color = echo_g if r["status"] == "online" else echo_y
+            row_parts = [f"{r[c]:<{widths[c]}}" for c in cols[:-1]]
+            row_parts.append(r["mission"])
+            color(sep.join(row_parts))
+        echo_g(f"\nTotal: {data.get('count', len(agents))} agent(s).")
+
+    def do_connect_master_to(self, arg):
+        """
+        Connect this agent as a heartbeat client to a Master API server.
+        Multiple masters can be connected simultaneously.
+
+        Usage: connect_master_to <host> [port] [options]
+
+        Options:
+          --port <n>      TCP port of the master  (default: 8800)
+          --interval <n>  Heartbeat interval in seconds  (default: 5)
+          --id <agent_id> Custom agent identifier  (default: <hostname>-<pid>)
+          --reconnect <n> Seconds between reconnect attempts  (default: 10)
+          --key <key>     Access key required by the master  (default: none)
+
+        Examples:
+          connect_master_to 192.168.1.10
+          connect_master_to 192.168.1.10 9900
+          connect_master_to 192.168.1.10 --interval 10
+          connect_master_to 192.168.1.10 --id my-agent-01
+          connect_master_to 192.168.1.10 --key secret123
+          connect_master_to 192.168.1.20 9900   # connect to a second master
+        """
+        from ucagent.server import PdbMasterClient
+        parts = arg.strip().split()
+        if not parts:
+            echo_r("Usage: connect_master_to <host> [port] [--interval N] [--id <id>] [--reconnect N] [--key <key>]")
+            return
+        host = parts[0]
+        port = 8800
+        interval = 5.0
+        reconnect_interval = 10.0
+        agent_id = None
+        access_key = ""
+        positional_left = []
+        i = 1
+        while i < len(parts):
+            t = parts[i]
+            if t in ("--port", "-p"):
+                if i + 1 < len(parts):
+                    try:
+                        port = int(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid port: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--port requires a number.")
+                    return
+            elif t.startswith("--port="):
+                try:
+                    port = int(t[7:])
+                except ValueError:
+                    echo_r(f"Invalid port: {t[7:]}")
+                    return
+                i += 1
+            elif t in ("--interval", "-i"):
+                if i + 1 < len(parts):
+                    try:
+                        interval = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid interval: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--interval requires a number.")
+                    return
+            elif t.startswith("--interval="):
+                try:
+                    interval = float(t[11:])
+                except ValueError:
+                    echo_r(f"Invalid interval: {t[11:]}")
+                    return
+                i += 1
+            elif t in ("--reconnect", "-r"):
+                if i + 1 < len(parts):
+                    try:
+                        reconnect_interval = float(parts[i + 1])
+                    except ValueError:
+                        echo_r(f"Invalid reconnect interval: {parts[i + 1]}")
+                        return
+                    i += 2
+                else:
+                    echo_r("--reconnect requires a number.")
+                    return
+            elif t.startswith("--reconnect="):
+                try:
+                    reconnect_interval = float(t[12:])
+                except ValueError:
+                    echo_r(f"Invalid reconnect interval: {t[12:]}")
+                    return
+                i += 1
+            elif t in ("--id",):
+                if i + 1 < len(parts):
+                    agent_id = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--id requires an identifier.")
+                    return
+            elif t.startswith("--id="):
+                agent_id = t[5:]
+                i += 1
+            elif t in ("--key", "-k"):
+                if i + 1 < len(parts):
+                    access_key = parts[i + 1]
+                    i += 2
+                else:
+                    echo_r("--key requires a value.")
+                    return
+            elif t.startswith("--key="):
+                access_key = t[6:]
+                i += 1
+            else:
+                positional_left.append(t)
+                i += 1
+        # allow port as second positional
+        if positional_left:
+            try:
+                port = int(positional_left[0])
+            except ValueError:
+                echo_r(f"Invalid port: {positional_left[0]}")
+                return
+        master_url = f"http://{host}:{port}"
+        # Warn if already connected to this master
+        existing = self._master_clients.get(master_url)
+        if existing is not None and existing.is_running:
+            echo_y(f"Already connected to {master_url}. Use 'connect_master_close {master_url}' first to reconnect.")
+            return
+        try:
+            client = PdbMasterClient(
+                self, master_url=master_url, agent_id=agent_id,
+                interval=interval, reconnect_interval=reconnect_interval,
+                access_key=access_key,
+            )
+            ok, msg = client.start()
+        except Exception as e:
+            echo_r(f"Failed to connect to master: {e}")
+            return
+        if ok:
+            self._master_clients[master_url] = client
+            echo_g(msg)
+        else:
+            echo_r(msg)
+
+    def do_connect_master_close(self, arg):
+        """
+        Disconnect from one or all Master API servers.
+
+        Usage:
+          connect_master_close                    - disconnect all masters
+          connect_master_close <url>              - disconnect a specific master
+          connect_master_close http://1.2.3.4:8800
+        """
+        url = arg.strip()
+        if url:
+            client = self._master_clients.get(url)
+            if client is None:
+                echo_y(f"No connection found for '{url}'.")
+                echo_y("Use 'connect_master_list' to see all active connections.")
+                return
+            ok, msg = client.stop()
+            if ok:
+                del self._master_clients[url]
+                echo_g(msg)
+            else:
+                echo_r(msg)
+        else:
+            if not self._master_clients:
+                echo_y("Not connected to any master.")
+                return
+            for u, client in list(self._master_clients.items()):
+                ok, msg = client.stop()
+                if ok:
+                    del self._master_clients[u]
+                    echo_g(msg)
+                else:
+                    echo_r(msg)
+
+    def do_connect_master_list(self, arg):
+        """
+        List all master connections and their current status.
+        Usage: connect_master_list
+        """
+        if not self._master_clients:
+            echo_y("No master connections configured.")
+            return
+        # Build rows
+        rows = []
+        for url, client in self._master_clients.items():
+            if client.is_kicked:
+                state = "kicked"
+            elif client.is_auth_failed:
+                state = "forbidden"
+            elif not client.is_running:
+                state = "stopped"
+            elif client._connected:
+                state = "connected"
+            else:
+                state = "reconnecting"
+            rows.append({
+                "url":       url,
+                "agent_id":  client.agent_id,
+                "interval":  f"{client.interval}s",
+                "reconnect": f"{client.reconnect_interval}s",
+                "status":    state,
+            })
+        # Compute column widths
+        cols = ["url", "agent_id", "interval", "reconnect", "status"]
+        hdrs = ["MASTER URL", "AGENT ID", "INTERVAL", "RECONNECT", "STATUS"]
+        sep = "  "
+        widths = {c: len(h) for c, h in zip(cols, hdrs)}
+        for r in rows:
+            for c in cols:
+                widths[c] = max(widths[c], len(r[c]))
+        header = sep.join(f"{h:<{widths[c]}}" for c, h in zip(cols, hdrs))
+        echo_g(f"Master connections ({len(rows)}):")
+        echo_g(header)
+        echo_g("-" * len(header))
+        _color = {"connected": echo_g, "reconnecting": echo_y, "kicked": echo_r,
+                  "forbidden": echo_r, "stopped": echo_y}
+        for r in rows:
+            line = sep.join(f"{r[c]:<{widths[c]}}" for c in cols)
+            _color.get(r["status"], echo_y)(line)
 
     def do_list_demo_cmds(self, arg):
         """
@@ -1452,8 +3096,14 @@ class VerifyPDB(Pdb):
     def do_mission_info(self, arg):
         """
         Show mission information with colored output.
+        args:
+            [dict, default False]
         """
-        info = self.api_mission_info()
+        ret_dict = arg.strip() == "dict"
+        info = self.api_mission_info(ret_dict)
+        if ret_dict:
+            echo_g(yam_str(info))
+            return
         for i, line in enumerate(info):
             if i == 0:
                 echo_g(line)
@@ -1485,6 +3135,80 @@ class VerifyPDB(Pdb):
         Auto-complete the protect_files_off command.
         """
         return self.api_complite_workspace_file(text)
+
+    def do_stage_outcome(self, arg):
+        """
+        Show the outcome of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        index = arg.strip()
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        if index:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage outcome: \n{yam_str(stage.get_stage_outcome())}")
+
+    def complete_stage_outcome(self, text, line, begidx, endidx):
+        """
+        Auto-complete the stage_outcome command.
+        """
+        stage_index = [str(i) for i in range(len(self.agent.stage_manager.stages))]
+        return [i for f in stage_index if f.startswith(text.strip())]
+
+    def do_stage_file_content(self, arg):
+        """
+        Show the content of the current stage.
+        args:
+            [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(index)
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage file content: \n{yam_str(stage.get_stage_file_content(file_path))}")
+
+    def do_stage_cfile_content(self, arg):
+        """
+        Show the content of the current stage file.
+        args:
+            <file_path> [stage_index, default current stage]
+        """
+        args = arg.strip().split()
+        file_path = args[0]
+        index = args[1] if len(args) >= 2 else None
+        if not index:
+            stage = self.agent.stage_manager.get_current_stage()
+        else:
+            try:
+                index = int(index)
+            except ValueError:
+                echo_r(f"Invalid stage index: {index}")
+                return
+            stage = self.agent.stage_manager.get_stage(int(index))
+        if stage is None:
+            echo_r("No stage available.")
+            return
+        echo_g(f"Stage current file content with diff: \n{yam_str(stage.get_current_file_content_with_diff(file_path))}")
 
     def do_stage_diff(self, arg):
         """
@@ -1532,10 +3256,7 @@ class VerifyPDB(Pdb):
         Quit the debugger.
         """
         self.agent.stage_manager.save_stage_info()
-        try:
-            readline.write_history_file(self.history_file)
-        except Exception:
-            pass
+        self.save_cmd_history()
         echo_g("Stage information saved. Exiting debugger.")
         self.agent.exit()
         return super().do_quit(arg)
@@ -1557,7 +3278,7 @@ class VerifyPDB(Pdb):
         """
         try:
             t = float(arg.strip())
-            time.sleep(t)
+            self._interruptible_sleep(t)
         except Exception as e:
             echo_y(e)
             echo_r("usage: sleep <seconds>")

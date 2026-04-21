@@ -85,10 +85,14 @@ make mcp_Adder ARGS="--loop --backend=qwen"
 **（1）启动 MCP-Server**
 
 ```bash
-make mcp_Adder  # workspace 设置为当前目录下的 output
+make mcp_Adder  # workspace 设置为当前目录下的 output/workspace_Adder
 # 调用了如下命令：
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
-#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
+#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+# 浏览器 Web UI 模式：
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
+# 自定义 Web UI 地址/端口/密码（HTTP Basic Auth）：
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 MCP Server的默认地址为：http://127.0.0.1:5000/mcp
@@ -96,7 +100,7 @@ MCP Server的默认地址为：http://127.0.0.1:5000/mcp
 **（2）启动 qwen 执行任务**
 
 ```bash
-cd output
+cd output/workspace_Adder
 qwen
 ```
 
@@ -105,7 +109,7 @@ qwen
 > 请通过工具`RoleInfo`获取你的角色信息和基本指导，然后完成任务。请使用工具`ReadTextFile`读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
 **注意：**
-- 需要在工作目录（如上述例子中的 output）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
+- 需要在工作目录（如上述例子中的 output/workspace_Adder）中启动 Code Agent，否则可能会出现文件路径不匹配问题。
 - 如果DUT比较复杂，有外围组件依赖，需要通过ucagent交互命令打开默认skip的阶段。
 
 **提示：**
@@ -126,6 +130,65 @@ qwen
 
 阶段默认检查顺序：Python Checker -> LLM -> 人工
 
+---
+
+## 通过Web界面交互
+
+UCAgent提供了Master模式，基于它可以通过Web界面进行Agent集中管理、创建任务、查看状态、在线终端等操作。
+
+### 本地启动
+
+#### 1. 配置环境变量
+```bash
+# 编辑一个自定义文件export ucagent需要的环境变量，例如：
+# export OPENAI_API_BASE=<your_openai_api_base>
+# export OPENAI_API_KEY=<your_openai_api_key>
+# export OPENAI_MODEL=<your_openai_model>
+vim ~/.ucagent_env
+# 然后加载环境变量
+source ~/.ucagent_env
+```
+
+#### 2. 启动 UCAgent Master
+
+```bash
+make as_master_persist
+# 或者，如果安装了ucagent，也可以直接运行ucagent启动master模式
+ucagent --as-master-persist  --as-master
+```
+
+然后在浏览器中访问 `http://localhost:8800` 即可。
+
+### 容器启动
+
+```bash
+docker run -it --rm \
+  -e OPENAI_API_BASE=<your_openai_api_base> \
+  -e OPENAI_API_KEY=<your_openai_api_key> \
+  -e OPENAI_MODEL=<your_openai_model> \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist  --as-master
+```
+
+如果 ghcr.io 无法访问，可以直接替换其为 ghcr.nju.edu.cn 等镜像地址。
+
+启动成功后，在浏览器中访问 `http://localhost:8800` 即可。
+
+### 基本操作
+1. 在Web界面中，点击`+`按钮（或者launch按钮），创建一个新的任务。
+2. 在Agent列表中，点击API按钮，连接到具体Agent的控制页面。
+3. 在Agent控制页面中，点击web terminal按钮，打开在线终端。
+4. 本地启动ucagent 通过 --master 参数连接到已有的Master服务。
+
+### 更多功能
+
+1. Launch 页面：可在浏览器内完成工作区创建、文件导入/上传、模块解析、编译与启动参数预览。
+2. Task 页面：支持托管任务筛选、分页、详情与日志查看，以及停止/删除操作。
+3. Agent 页面增强：支持阶段多选与批量开关（HM/Skip/LFail/LPass），并支持阶段产物文件内容与 Diff 复盘。
+4. 统一代理访问：Master 可统一代理 task/agent 的 cmd、terminal、web-console 路径，减少跨地址跳转。
+5. Web Terminal 增强：支持多会话访问（不同 URL）。
+
+> 📖 **详细操作说明：** 查看 [TUI 使用文档](https://ucagent.open-verify.cc/content/02_usage/07_web_master/)
 ---
 
 ## 基本操作

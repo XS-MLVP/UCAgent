@@ -60,9 +60,9 @@ nav:
       - 人机协同验证: content/02_usage/02_assit.md
       - 参数说明: content/02_usage/03_option.md
       - TUI: content/02_usage/04_tui.md
-      - 旧版 TUI（urwid）: content/02_usage/04_tui_legacy.md
       - FAQ: content/02_usage/05_faq.md
       - LLM Check & Refinement: content/02_usage/06_llm_check.md
+      - Web Master 使用指南: content/02_usage/07_web_master.md
   - 定制开发:
       - 概览: content/03_develop/00_index.md
       - 定制开发入门: content/03_develop/01_quick_start.md

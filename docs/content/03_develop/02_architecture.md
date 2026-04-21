@@ -96,6 +96,24 @@ UCAgent 由三大核心组件构成，它们相互协作完成验证任务：
 
 **模板使用方式**：在阶段配置中通过 `reference_files` 字段引用。
 
+## Web Master 架构补充
+
+近期版本在 Master 侧形成三页面协同架构：
+
+1. Dashboard（master.html）
+    - Agent 汇总、过滤、排序、分页、离线策略
+2. Launch（launch.html）
+    - 工作区准备、文件导入、模块解析、编译、启动编排
+3. Task（task.html）
+    - 托管任务列表、状态与日志运维
+
+统一代理层：
+
+1. 对 task/agent 提供 cmd 代理路径
+2. 对 task/agent 提供 terminal 代理路径
+3. 对 task/agent 提供 web-console 代理路径
+4. 支持 WebSocket 转发与重连增强
+
 ## 配置文件体系
 
 UCAgent 采用**三层配置体系**，支持灵活的配置管理：
@@ -215,6 +233,7 @@ graph TD
             ├──> Stage 1
             │     ├─> task ──> Agent 执行任务
             │     ├─> reference_files ──> Agent 读取模板
+            │     ├─> skill_list ──> 阶段必用技能
             │     ├─> output_files ──> 预期输出
             │     └─> checker ──> 验证输出质量
             │

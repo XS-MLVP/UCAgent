@@ -80,12 +80,14 @@ class ConsoleInput(Vertical):
         self._programmatic_change: bool = False
         self._running_cmds_height: int = 0
         self._suggestions_height: int = 0
+        self._has_running_commands: bool = False
 
     def compose(self) -> ComposeResult:
         """Compose the input and suggestion widgets."""
-        yield Static(id="running-commands")
-        with Horizontal(id="console-input-row"):
+        with Horizontal(id="indicator-row"):
             yield BusyIndicator(id="console-loading")
+            yield Static(id="running-commands")
+        with Horizontal(id="console-input-row"):
             yield Input(placeholder=self.prompt, id="console-input")
         yield Static(id="console-suggest")
 
@@ -94,7 +96,7 @@ class ConsoleInput(Vertical):
         self.refresh_prompt()
         self._hide_suggestions()
         self._hide_running_commands()
-        self._set_loading_visible(False)
+        self.set_busy(False)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         cmd = event.value.strip()
@@ -215,7 +217,8 @@ class ConsoleInput(Vertical):
 
     def set_busy(self, busy: bool) -> None:
         self.is_busy = busy
-        self._set_loading_visible(busy)
+        self.query_one("#console-loading").styles.display = "block" if busy else "none"
+        self._sync_indicator_row()
 
     def set_page_mode(self, enabled: bool) -> None:
         """Set page mode prompt prefix."""
@@ -228,9 +231,10 @@ class ConsoleInput(Vertical):
     def has_suggestions(self) -> bool:
         return self._suggestions_visible
 
-    def update_running_commands(self) -> None:
+    def update_running_commands(self, commands: list[str] | None = None) -> None:
         """Update the running commands display."""
-        commands = self.app.key_handler.get_running_commands()
+        if commands is None:
+            commands = self.app.vpdb.get_running_commands()
 
         if not commands:
             self._hide_running_commands()
@@ -286,13 +290,17 @@ class ConsoleInput(Vertical):
         widget.styles.display = "none"
 
     def _show_running_commands(self) -> None:
+        self._has_running_commands = True
         widget = self.query_one("#running-commands")
         widget.styles.display = "block"
+        self._sync_indicator_row()
 
     def _hide_running_commands(self) -> None:
+        self._has_running_commands = False
         widget = self.query_one("#running-commands")
         widget.styles.display = "none"
         self._running_cmds_height = 0
+        self._sync_indicator_row()
         self._update_console_extra_height()
 
     def _measure_suggestion_lines(self, text: str) -> int:
@@ -312,7 +320,6 @@ class ConsoleInput(Vertical):
         if parent is not None and hasattr(parent, "set_extra_height"):
             parent.set_extra_height(total)
 
-    def _set_loading_visible(self, visible: bool) -> None:
-        indicator = self.query_one("#console-loading", BusyIndicator)
-        indicator.set_class(visible, "is-visible")
-        indicator.refresh(layout=True)
+    def _sync_indicator_row(self) -> None:
+        row = self.query_one("#indicator-row")
+        row.styles.display = "block" if (self.is_busy or self._has_running_commands) else "none"

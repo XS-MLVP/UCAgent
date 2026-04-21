@@ -1,0 +1,449 @@
+name: AI Release Notes Draft
+
+on:
+  schedule:
+    # 每周一次检查（UTC星期二01:00），满足60天 + 无draft PR 时执行
+    - cron: "0 1 * * 2"
+  workflow_dispatch:
+    inputs:
+      since_tag:
+        description: "可选：指定起始 tag（默认自动取最新 tag）"
+        required: false
+        type: string
+      prompt_override:
+        description: "可选：临时覆盖提示词"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-release-notes-draft
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    if: github.repository == 'XS-MLVP/UCAgent' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: release-notes-ai
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release window
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="v$(date -u +'%y.%m.%d')"
+          EVENT_NAME="${{ github.event_name }}"
+          REPO="${{ github.repository }}"
+          INPUT_TAG="${{ github.event.inputs.since_tag || '' }}"
+          LATEST_RELEASE_TAG=""
+          LATEST_RELEASE_PUBLISHED_AT=""
+          BASE_TAG=""
+          RELEASE_SOURCE=""
+
+          git fetch --tags --force >/dev/null 2>&1 || true
+
+          if [ -n "$INPUT_TAG" ]; then
+            BASE_TAG="$INPUT_TAG"
+            RELEASE_SOURCE="manual_input_tag"
+          fi
+
+          if [ -z "$BASE_TAG" ]; then
+            API_URL="https://api.github.com/repos/$REPO/releases?per_page=20"
+            HTTP_CODE="$(curl -sS -L -o /tmp/latest_release.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Accept: application/vnd.github+json" \
+              "$API_URL")"
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              LATEST_RELEASE_TAG="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); rel=next((r for r in data if not r.get('draft', False)), {}); print(rel.get('tag_name', ''))")"
+              LATEST_RELEASE_PUBLISHED_AT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('/tmp/latest_release.json').read_text(encoding='utf-8')); rel=next((r for r in data if not r.get('draft', False)), {}); print(rel.get('published_at', ''))")"
+              if [ -n "$LATEST_RELEASE_TAG" ]; then
+                BASE_TAG="$LATEST_RELEASE_TAG"
+                RELEASE_SOURCE="github_release"
+              fi
+            elif [ "$HTTP_CODE" = "404" ]; then
+              # No releases endpoint result; fallback to tag.
+              true
+            else
+              echo "Unexpected GitHub API status: $HTTP_CODE"
+              cat /tmp/latest_release.json || true
+              exit 1
+            fi
+          fi
+
+          if [ -z "$BASE_TAG" ]; then
+            FALLBACK_TAG="$(git tag --sort=-creatordate | head -n 1 || true)"
+            if [ -n "$FALLBACK_TAG" ]; then
+              BASE_TAG="$FALLBACK_TAG"
+              RELEASE_SOURCE="latest_git_tag_fallback"
+            else
+              RELEASE_SOURCE="no_release_or_tag"
+            fi
+          fi
+
+          SHOULD_RUN="true"
+          TRIGGER_REASON="manual_dispatch"
+          DAYS_SINCE_LAST_RELEASE="N/A"
+          DRAFT_PR_EXISTS="false"
+
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            TRIGGER_REASON="scheduled_check"
+            # 先检查距离上次release是否超过60天
+            if [ -n "$LATEST_RELEASE_PUBLISHED_AT" ]; then
+              export LATEST_RELEASE_PUBLISHED_AT
+              DAYS_SINCE_LAST_RELEASE="$(python -c "import os; from datetime import datetime, timezone; ts=os.environ['LATEST_RELEASE_PUBLISHED_AT']; release_dt=datetime.fromisoformat(ts.replace('Z', '+00:00')); now=datetime.now(timezone.utc); print((now - release_dt).days)")"
+              if [ "$DAYS_SINCE_LAST_RELEASE" -lt 60 ]; then
+                SHOULD_RUN="false"
+                TRIGGER_REASON="last_release_within_60_days"
+              else
+                # 满足60天条件，再检查是否已有draft PR
+                TRIGGER_REASON="checking_for_draft_pr"
+                DRAFT_PR_JSON="/tmp/draft_prs.json"
+                HTTP_CODE="$(curl -sS -L -o "$DRAFT_PR_JSON" -w '%{http_code}' \
+                  -H "Authorization: Bearer ${{ github.token }}" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/$REPO/pulls?state=open&head=${{ github.repository_owner }}:release-notes-ai-draft&per_page=5")"
+                
+                if [ "$HTTP_CODE" = "200" ]; then
+                  DRAFT_PR_COUNT="$(python -c "import json, pathlib; data=json.loads(pathlib.Path('$DRAFT_PR_JSON').read_text(encoding='utf-8')); print(len(data))")"
+                  if [ "$DRAFT_PR_COUNT" -gt 0 ]; then
+                    DRAFT_PR_EXISTS="true"
+                    SHOULD_RUN="false"
+                    TRIGGER_REASON="draft_pr_already_exists"
+                  else
+                    TRIGGER_REASON="last_release_over_60_days_no_draft_pr"
+                  fi
+                else
+                  # API调用失败，保守地跳过此次运行
+                  echo "Warning: failed to check draft PRs (HTTP $HTTP_CODE), skipping this schedule"
+                  SHOULD_RUN="false"
+                  TRIGGER_REASON="draft_pr_check_failed"
+                fi
+              fi
+            else
+              TRIGGER_REASON="no_previous_release"
+            fi
+          fi
+
+          if [ -n "$BASE_TAG" ]; then
+            RANGE="$BASE_TAG..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          COUNT="$(git rev-list --count "$RANGE")"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_source=$RELEASE_SOURCE" >> "$GITHUB_OUTPUT"
+          echo "latest_release_tag=$LATEST_RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "latest_release_published_at=$LATEST_RELEASE_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
+          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "trigger_reason=$TRIGGER_REASON" >> "$GITHUB_OUTPUT"
+          echo "days_since_last_release=$DAYS_SINCE_LAST_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "draft_pr_exists=$DRAFT_PR_EXISTS" >> "$GITHUB_OUTPUT"
+
+      - name: Collect commit logs
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git log "${{ steps.prep.outputs.range }}" --pretty=format:'%h%x09%s%n%b%n<<<END>>>' > commits_raw.txt
+
+      - name: Build prompt payload
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.prompt_override || '' }}" ]; then
+            printf "%s\n" "${{ github.event.inputs.prompt_override }}" > prompt.txt
+          elif [ -f .github/release-notes-prompt.md ]; then
+            cp .github/release-notes-prompt.md prompt.txt
+          else
+            printf "%s\n" \
+              "你是 Release Manager。根据给定版本号和 commit logs 生成 Markdown 发布说明。" \
+              "包含分类：Features、Bug Fixes、Breaking Changes（如有）、Assets。" \
+              "仅输出最终 Markdown。" \
+              > prompt.txt
+          fi
+
+      - name: Generate release notes (AI with fallback)
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.count != '0'
+        shell: bash
+        env:
+          AI_API_BASE: ${{ vars.AI_API_BASE }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_API_BASE_SECRET: ${{ secrets.AI_API_BASE }}
+          AI_MODEL_SECRET: ${{ secrets.AI_MODEL }}
+          AI_CHAT_PATH: ${{ vars.AI_CHAT_PATH }}
+          CURRENT_VERSION: ${{ steps.prep.outputs.version }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          version = os.environ["CURRENT_VERSION"].strip()
+          model = (os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET") or "gpt-5.3-codex").strip()
+          api_base = (os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET") or "https://api.openai.com/v1").strip().rstrip("/")
+          chat_path = (os.environ.get("AI_CHAT_PATH") or "/chat/completions").strip()
+          if not chat_path.startswith("/"):
+            chat_path = "/" + chat_path
+          api_key = os.environ.get("AI_API_KEY")
+          model_present = bool(os.environ.get("AI_MODEL") or os.environ.get("AI_MODEL_SECRET"))
+          api_base_present = bool(os.environ.get("AI_API_BASE") or os.environ.get("AI_API_BASE_SECRET"))
+          api_key_present = bool(api_key)
+
+          prompt = Path("prompt.txt").read_text(encoding="utf-8", errors="ignore")
+          raw_commits = Path("commits_raw.txt").read_text(encoding="utf-8", errors="ignore")
+
+          # 压缩 commit 输入体积，优先保留最近提交的 subject 与简短 body，降低 5xx/超时概率。
+          max_entries = 220
+          max_body_lines = 8
+          max_entry_chars = 1200
+          max_chars = 70000
+
+          blocks = [b.strip() for b in raw_commits.split("<<<END>>>") if b.strip()]
+          compact_blocks = []
+          for b in blocks[:max_entries]:
+            lines = [ln.rstrip() for ln in b.splitlines()]
+            if not lines:
+              continue
+            subject = lines[0].strip()
+            body_lines = [ln for ln in lines[1:] if ln.strip()][:max_body_lines]
+            entry = "\n".join([subject] + body_lines)
+            if len(entry) > max_entry_chars:
+              entry = entry[:max_entry_chars] + "\n...[TRUNCATED]"
+            compact_blocks.append(entry)
+
+          commits = "\n<<<END>>>\n".join(compact_blocks)
+          if len(commits) > max_chars:
+            commits = commits[:max_chars] + "\n[TRUNCATED]\n"
+
+          def fallback_notes(raw: str) -> str:
+              blocks = [b.strip() for b in raw.split("<<<END>>>") if b.strip()]
+              feat, fix, br = [], [], []
+              for b in blocks:
+                  subject = b.splitlines()[0].strip()
+                  low = b.lower()
+                  if re.search(r"breaking change|refactor!|drop support|remove .*support|incompatible|migration", low):
+                      br.append(subject)
+                  elif re.search(r"\b(feat|add|support)\b", low):
+                      feat.append(subject)
+                  elif re.search(r"\b(fix|bug|resolve|patch)\b", low):
+                      fix.append(subject)
+
+              def uniq(items):
+                  seen = set()
+                  out = []
+                  for x in items:
+                      if x not in seen:
+                          out.append(x)
+                          seen.add(x)
+                  return out
+
+              feat = uniq(feat)[:20]
+              fix = uniq(fix)[:20]
+              br = uniq(br)[:10]
+
+              lines = [f"## What's Changed in {version}"]
+              if feat:
+                  lines.append("### ✨ Features")
+                  lines.extend([f"- {x}" for x in feat])
+                  lines.append("")
+              if fix:
+                  lines.append("### 🐛 Bug Fixes")
+                  lines.extend([f"- {x}" for x in fix])
+                  lines.append("")
+              if br:
+                  lines.append("### ⚠️ Breaking Changes")
+                  lines.extend([f"- **{x}**: 该变更可能影响现有使用方式，请发布前补充升级说明。" for x in br])
+                  lines.append("")
+              lines.append("### 📦 Assets")
+              lines.append(f"- `ucagent-{version}-py3-none-any.whl` (platform)")
+              lines.append("- `ucagent-docker` (platform)")
+              lines.append("")
+              return "\n".join(lines)
+
+          notes = None
+          ai_used = False
+          ai_status = "fallback_missing_api_key"
+          ai_error = ""
+
+          if api_key:
+              payload = {
+                  "model": model,
+                  "messages": [
+                      {"role": "system", "content": "你是严谨的 Release Manager。只输出最终 Markdown。"},
+                      {
+                          "role": "user",
+                          "content": (
+                              f"{prompt}\n\n"
+                              f"# Inputs\n"
+                              f"- CURRENT_VERSION: {version}\n"
+                              f"- COMMIT_LOGS:\n{commits}\n\n"
+                              f"# Action\n"
+                              f"请直接生成 Release Notes。"
+                          ),
+                      },
+                  ],
+                  "temperature": 0.2,
+              }
+              retry_status_codes = {408, 429, 500, 502, 503, 504, 529}
+              retry_delays = [2, 5, 10]
+              last_error = ""
+              for attempt in range(len(retry_delays) + 1):
+                req = urllib.request.Request(
+                  url=f"{api_base}{chat_path}",
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                  },
+                  method="POST",
+                )
+                try:
+                  with urllib.request.urlopen(req, timeout=180) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                  notes = data["choices"][0]["message"]["content"].strip()
+                  ai_used = True
+                  ai_status = "ai_success"
+                  break
+                except urllib.error.HTTPError as e:
+                  err_body = ""
+                  try:
+                    err_body = e.read().decode("utf-8", errors="ignore")
+                  except Exception:
+                    err_body = ""
+                  snippet = err_body[:400].replace("\n", " ").strip()
+                  last_error = f"HTTP {e.code}: {snippet}" if snippet else f"HTTP {e.code}: {e.reason}"
+                  if e.code in retry_status_codes and attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
+                    continue
+                  break
+                except Exception as e:
+                  last_error = str(e)
+                  if attempt < len(retry_delays):
+                    time.sleep(retry_delays[attempt])
+                    continue
+                  break
+
+              if not ai_used:
+                ai_status = "fallback_ai_error"
+                ai_error = last_error or "AI request failed with unknown error"
+                Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
+
+          if not notes:
+              notes = fallback_notes(commits)
+
+          if not api_key_present:
+              ai_error = "AI_API_KEY is missing in this environment context."
+              Path("ai_error.txt").write_text(ai_error, encoding="utf-8")
+
+          Path("RELEASE_NOTES.md").write_text(notes + "\n", encoding="utf-8")
+          Path("ai_meta.txt").write_text(
+              (
+                  f"ai_used={str(ai_used).lower()}\n"
+                  f"ai_status={ai_status}\n"
+                  f"api_key_present={str(api_key_present).lower()}\n"
+                  f"api_base_present={str(api_base_present).lower()}\n"
+                  f"model_present={str(model_present).lower()}\n"
+                  f"model={model}\n"
+                  f"api_base={api_base}\n"
+                  f"chat_path={chat_path}\n"
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Create empty draft when no changes
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.count == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf "%s\n" \
+            "## What's Changed in ${{ steps.prep.outputs.version }}" \
+            "### 📦 Assets" \
+            "- `ucagent-${{ steps.prep.outputs.version }}-py3-none-any.whl` (platform)" \
+            "- `ucagent-docker` (platform)" \
+            > RELEASE_NOTES.md
+          echo "ai_used=false" > ai_meta.txt
+
+      - name: Publish skip summary
+        if: steps.prep.outputs.should_run != 'true'
+        shell: bash
+        run: |
+          {
+            echo "### ⏭️ AI Release Notes Draft (Skipped)"
+            echo ""
+            echo "- Trigger reason: ${{ steps.prep.outputs.trigger_reason }}"
+            echo "- Latest release tag: ${{ steps.prep.outputs.latest_release_tag || 'none' }}"
+            echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
+            if [ "${{ steps.prep.outputs.draft_pr_exists }}" = "true" ]; then
+              echo "- Draft PR exists: **yes** (generation skipped)"
+            fi
+            echo ""
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              echo "**Scheduled run:** Generates notes only when:"
+              echo "1. Last release is 60+ days old"
+              echo "2. No existing draft PR is present"
+              echo ""
+              echo "Next check: weekly on Tuesday 01:00 UTC"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish job summary
+        if: steps.prep.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          {
+            echo "### ✅ AI Release Notes Draft (Generated)"
+            echo ""
+            echo "- Version: \`${{ steps.prep.outputs.version }}\`"
+            echo "- Baseline: ${{ steps.prep.outputs.base_tag || 'N/A' }} (${{ steps.prep.outputs.release_source }})"
+            echo "- Commits analyzed: ${{ steps.prep.outputs.count }}"
+            echo "- Days since last release: ${{ steps.prep.outputs.days_since_last_release }}"
+            echo ""
+            echo "**Generation Details:**"
+            echo ""
+            cat ai_meta.txt
+            echo ""
+            if [ -f ai_error.txt ]; then
+              echo "**Generation Status:**"
+              echo "\`\`\`"
+              head -n 3 ai_error.txt
+              echo "\`\`\`"
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            cat RELEASE_NOTES.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: steps.prep.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ steps.prep.outputs.version }}
+          path: |
+            RELEASE_NOTES.md
+            ai_meta.txt
+            prompt.txt
+            commits_raw.txt
+            ai_error.txt
+          if-no-files-found: ignore

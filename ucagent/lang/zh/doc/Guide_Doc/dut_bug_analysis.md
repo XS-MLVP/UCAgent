@@ -2,7 +2,7 @@
 
 ## 概述
 
-当测试执行过程中发现某些检查点（Check Point）未能通过时，需要在 `{DUT}_bug_analysis.md` 文档中进行详细的缺陷分析。本文档用于记录和分析测试失败的检查点，评估缺陷的严重程度，并提供根因分析。
+当测试执行过程中发现某些检查点（Check Point）未能通过时，需要在 `{DUT}_bug_analysis.md` 文档中进行详细的缺陷分析。本文档用于记录和分析测试用例失败的检查点，评估缺陷的严重程度，并提供根因分析。
 
 ## 文档结构
 
@@ -374,3 +374,390 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 - 当一个测试用例覆盖多个测试点时，如可行，应拆分为多个细粒度用例，使定位和覆盖统计更清晰。
 - 标签`BG-*-xx`中xx为0时，表示该标签用于为占位，其后续的测试用例标签`TC-*`可以为Pass或者Fail，如果不为零，这些测试用例必须为Fail。
 - 当Check Point为Fail且并没有对应的Fail测试用例说明其是否有bug时，需要用标签`BG-*-0`进行标记，在后续验证中需要再次对Bug置信度为0的标记进行深入分析。
+
+---
+
+## 静态分析Bug文档规范（`{DUT}_static_bug_analysis.md`）
+
+静态分析阶段通过源码审查（不运行仿真）发现潜在设计缺陷，其结果记录在独立文件 `{OUT}/{DUT}_static_bug_analysis.md` 中，与动态测试结果文件 `{DUT}_bug_analysis.md` 相互补充，共同构成完整的Bug记录体系。
+
+### 标签层级结构
+
+静态分析文档与动态测试文档使用**完全相同的** `FG → FC → CK` 层级组织结构。`<BG-STATIC-*>` 挂靠在 `<CK-*>` 之下，其下一级是**动态Bug关联标签 `<LINK-BUG-*>`**，用于在 `static_bug_validation` 阶段建立静态Bug与动态Bug之间的可追踪链接。每个 `<LINK-BUG-*>` 下还必须包含**源文件位置标签 `<FILE-*>`**，标记该Bug在源代码中的具体位置。
+
+**重要**：一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug。
+
+```
+<FG-功能组>                                 ← 与 _functions_and_checks.md 共用或新增 <FG-STATIC>
+  <FC-功能点>                               ← 与 _functions_and_checks.md 共用或新增 <FC-STATIC-*>
+    <CK-检测点>                             ← 一个CK检测点（可挂靠多个BG-STATIC）
+      <BG-STATIC-序号-名称1>                ← 第一个静态Bug
+        <LINK-BUG-[BG-TBD]>                 ← 静态分析时默认填写，validation阶段必须替换
+          <FILE-filepath:line1-line2>       ← 源文件位置（必填），紧排在 LINK-BUG 行下
+      <BG-STATIC-序号-名称2>                ← 第二个静态Bug（同一CK下）
+        <LINK-BUG-[BG-TBD]>
+          <FILE-filepath:line1-line2>
+```
+
+`<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签状态转换：
+
+| 子标签 | 状态 | 含义 |
+|--------|------|------|
+| `<LINK-BUG-[BG-TBD]>` | 待验证 | 静态分析阶段默认填写，表示尚未有对应动态测试结果 |
+| `<LINK-BUG-[BG-NAME-xx]>` | 已证实（单个） | 替换 `<LINK-BUG-[BG-TBD]>`，填写 `_bug_analysis.md` 中对应动态Bug的实际标签名 |
+| `<LINK-BUG-[BG-NAME1-xx][BG-NAME2-xx]>` | 已证实（多个） | 一个静态Bug对应多个动态Bug时，用多个 `[BG-*]` 方括号组依次拼写；每个标签均须在 `_bug_analysis.md` 中存在 |
+| `<LINK-BUG-[BG-NA]>` | 误报 | 替换 `<LINK-BUG-[BG-TBD]>`，表示经动态测试验证该潜在Bug不存在 |
+
+**`static_bug_validation` 阶段的核心任务就是消除所有 `<LINK-BUG-[BG-TBD]>`：**
+- 扫描 `_static_bug_analysis.md` 中所有 `<LINK-BUG-[BG-TBD]>` 标签
+- 对每一个编写动态测试用例，根据测试结果将 `<LINK-BUG-[BG-TBD]>` 替换为 `<LINK-BUG-[BG-NAME-xx]>`（或多标签形式）或 `<LINK-BUG-[BG-NA]>`
+- 阶段完成时 `_static_bug_analysis.md` 中**不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留**
+
+`<LINK-BUG-*>` 标签是标准的层级标签，可由 `parse_nested_keys` 统一解析（层级：`FG → FC → CK → BG-STATIC → LINK-BUG`）。
+
+与动态格式的对比：
+
+| 层级 | 动态测试文档（`_bug_analysis.md`） | 静态分析文档（`_static_bug_analysis.md`） |
+|------|----------------------------------|------------------------------------------|
+| 功能组 | `<FG-*>` | `<FG-*>`（同，可引用已有或新增 `<FG-STATIC>`） |
+| 功能点 | `<FC-*>` | `<FC-*>`（同，可引用已有或新增 `<FC-STATIC-*>`） |
+| 检测点 | `<CK-*>` | `<CK-*>`（同，可引用已有或在 `_functions_and_checks.md` 中新增） |
+| 静态Bug标签 | 无 | `<BG-STATIC-序号[-名称]>`（挂靠在 CK 之下） |
+| 动态Bug关联 | `<BG-功能名-置信度数字>`（直接在 CK 下） | `<LINK-BUG-[BG-TBD]>` / `<LINK-BUG-[BG-NAME-xx]>` / `<LINK-BUG-[BG-NA]>`（挂靠在 BG-STATIC 之下） |
+| 源文件位置 | 无 | `<FILE-filepath:line1-line2>`（挂靠在 LINK-BUG 之下，**必填**） |
+| 测试用例 | `<TC-*>`（必须 Fail） | **不出现**（写入 `_bug_analysis.md`） |
+
+### 源文件位置标签 `<FILE-filepath:linerange>`
+
+每个 `<LINK-BUG-*>` 标签下必须紧跟至少一个 `<FILE-*>` 子标签，标明该静态Bug在源代码中的具体位置，格式为：
+
+```
+  - <FILE-filepath:line1-line2[,line3-line4,...]>
+```
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `filepath` | 源文件**相对于工作区根目录**的相对路径，不含空格 | `UartTx.v`，`src/rtl/fsm.v` |
+| `:` | 路径与行号分隔符（固定为英文冒号） | `:` |
+| `line1-line2` | 连续行范围，start ≤ end | `50-56`，`100-120` |
+| `,line3-line4` | 多个不连续行范围，逗号分隔 | `50-56,100-120` |
+
+**一个 `<LINK-BUG-*>` 可以携带多个 `<FILE-*>` 标签**，对应同一静态Bug涉及多个文件或多处代码段的情形：
+
+```
+  - <LINK-BUG-[BG-TBD]>
+    - <FILE-UartTx.v:50-56>
+    - <FILE-UartTx.v:100-105>
+    - <FILE-pkg/uart_pkg.sv:22-24>
+```
+
+#### 未发现Bug（在所有文件中都未发现任何bug）
+
+在所有文件中都未发现潜在Bug时，用标签`<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>` 表示。该标签无需 `<LINK-BUG-*>` 子标签，因此也无需 `<LINK-BUG-*>`和`<FILE-*>` 子标签。
+
+`<BG-STATIC-NULL>`仅在所有文件中都未发现任何Bug时使用，不能和`<BG-STATIC-*>`同时使用。
+
+
+**Checker 强制验证**：每个非 NULL 的 `<BG-STATIC-*>` 下的 `<LINK-BUG-*>` 子标签必须至少包含一个格式合法的 `<FILE-*>` 子标签，否则报错。同时 Checker 会通过 `self.get_path(filepath)` 验证 `filepath` 指向的源文件在工作区中实际存在；若文件不存在则报错，提示将路径更正为相对于工作区根目录的正确相对路径（例如 `rtl/dut.v:50-56`，而非绝对路径）。
+
+**源代码引用要求**：在 `<FILE-*>` 标签行下方（作为自由文本子内容），必须贴出对应的 RTL 源代码片段（fenced code block），以便审阅者无需打开原始文件即可理解Bug上下文：
+
+```markdown
+  - <FILE-UartTx.v:50-56>
+    ```verilog
+    50: always @(posedge clk) begin
+    51:   case (state)
+    52:     IDLE: if (start) state <= SEND;   // BUG: 未检查 tx_busy
+    53:     SEND: if (bit_cnt == 8) state <= IDLE;
+    54:     // default 分支缺失
+    55:   endcase
+    56: end
+    ```
+```
+
+### 批次分析进度标记 `<file>`
+
+`static_bug_analysis` 阶段采用**批次推进**方式：`UnityChipBatchCheckerStaticBug` Checker 每次从待分析文件列表中取出若干个文件（由 `batch_size` 控制，默认为 1），由 LLM 对其进行静态审查并将结果写入 `{DUT}_static_bug_analysis.md`。
+
+每完成一批次的分析后，LLM 需要在 `{DUT}_static_bug_analysis.md` **末尾**维护一个 **`## 批次分析进度`** 进度表格，记录每个已分析文件及其发现的疑似Bug数量。
+
+#### 进度表格格式
+
+````markdown
+## 批次分析进度
+
+| 源文件 | 发现疑似Bug数 | 状态 |
+|--------|-------------|------|
+| <file>UartTx/UartTx.v</file> | 1 | ✅ 完成 |
+| <file>UartTx/uart_pkg.sv</file> | 0 | ✅ 完成 |
+````
+
+**操作规则：**
+
+1. **首次追加**：若文档末尾尚无 `## 批次分析进度` 章节，先创建该章节和表格标题行，再添加文件行；
+2. **后续批次**：直接在已有表格中**追加新行**，不重新创建章节；
+3. 每个已分析文件**一行**，格式固定为 `| <file>文件路径</file> | N | ✅ 完成 |`。
+
+**列说明：**
+
+| 列 | 要求 | 示例 |
+|----|------|------|
+| 源文件 | `<file>` 标签包裹路径，与工作区根目录的相对路径**完全一致**（大小写敏感） | `<file>UartTx/UartTx.v</file>` |
+| 发现疑似Bug数 | 本批次分析该文件发现的疑似 Bug 数量（整数，可为 0） | `1`、`0` |
+| 状态 | 固定写 `✅ 完成` | — |
+
+**Checker 的状态推导机制（无状态）：**
+
+`UnityChipBatchCheckerStaticBug` 是**无状态**的，每次检查时通过正则解析文档中所有 `<file>…</file>` 标记来确定已完成的文件列表：
+
+- 若某文件的路径出现在任意 `<file>` 标记中（无论其位于纯文本还是表格行内），则认为该文件已完成分析；
+- 否则该文件将被纳入下一批次；
+- 当所有文件均有对应标记后，Checker 自动调用 `UnityChipCheckerStaticBugFormat` 执行完整格式校验；
+- `<file>` 标记（进度追踪）与 `<FILE-*>` 源文件位置标签（Bug 层级中的结构化标签）**功能不同，勿混淆**。
+
+> **注意**：`## 批次分析进度` 章节是追加在文档正文之后的**进度元数据**，不属于标签层级结构，`parse_nested_keys` 不会解析它；`<file>` 标签内容中的斜杠、冒号等字符不影响主体文档的标签解析。
+
+### 静态Bug标签 `<BG-STATIC-*>`
+
+静态Bug标签格式为 `<BG-STATIC-序号>` 或 `<BG-STATIC-序号-名称>`，序号从 `001` 开始递增：
+
+- `<BG-STATIC-001>` — 纯序号形式
+- `<BG-STATIC-001-FSM-DEAD>` — 推荐格式，附加简洁名称提高可读性
+- `<BG-STATIC-NULL>` — **无Bug声明**：静态审查完成后**所有文件都未发现任何潜在缺陷**时使用；**不需要** `<LINK-BUG-*>` 子标签；**不允许**与其他 `<BG-STATIC-*>` 标签共存。Checker 强制验证：若文档中既无任何 `<BG-STATIC-*>` 标签、又无 `<BG-STATIC-NULL>`，则报错。
+
+**`<FG-*>`/`<FC-*>`/`<CK-*>` 的来源规则：**
+
+| 情形 | 做法 |
+|------|------|
+| 静态bug对应已有功能点 | 直接使用 `_functions_and_checks.md` 中已有的 `<FG-*>`、`<FC-*>`、`<CK-*>` 标签 |
+| 静态bug对应已有功能点但缺少检测点 | 在 `_functions_and_checks.md` 中补充新 `<CK-*>` 检测点，再在静态文档中引用 |
+| 静态bug对应全新功能域（源码中发现但原规格未覆盖） | 在 `_functions_and_checks.md` 中新增 `<FG-STATIC>`、`<FC-STATIC-*>`、`<CK-STATIC-*>`，再引用 |
+
+高/中置信度潜在Bug新增的 `<CK-*>` 检测点，必须可通过 DUT 输入输出端口观测（不依赖内部信号状态），以确保后续动态测试可验证。
+
+### 静态分析置信度
+
+| 置信度 | 含义 | 后续处理 |
+|--------|------|---------|
+| 高 | RTL 逻辑明确有误，无需仿真即可判断是Bug | 必须补充 `<CK-*>` 检测点；动态测试阶段优先复现 |
+| 中 | 代码逻辑可疑，行为不确定，需测试验证 | 应补充 `<CK-*>` 检测点；动态测试阶段进行验证 |
+| 低 | 边界条件存疑或风格问题，可能不影响功能 | 可在资源充裕时进行验证，检测点可选 |
+
+### `{DUT}_static_bug_analysis.md` 文档结构
+
+```markdown
+# {DUT} RTL 源码静态分析报告
+
+## 一、架构概述
+
+（简要描述模块层次、数据流、关键设计单元）
+
+## 二、审查范围
+
+- 审查文件列表：...
+- 对应功能测试点文档：{OUT}/{DUT}_functions_and_checks.md
+
+## 三、潜在Bug汇总
+
+（按置信度从高到低排列；动态Bug关联列初始全部填写 LINK-BUG-[BG-TBD]，validation 后更新）
+
+| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
+|------|---------|---------|---------|--------|---------|------------|
+| 001 | BG-STATIC-001-NAME | FG-XXX/FC-YYY/CK-ZZZ | 描述... | 高 | Foo.v | LINK-BUG-[BG-TBD] |
+| 002 | BG-STATIC-002-NAME | FG-XXX/FC-YYY/CK-ZZZ | 描述... | 中 | Foo.v | LINK-BUG-[BG-TBD] |
+
+## 四、详细分析
+
+（与动态bug文档相同的层级结构，Bug标签改为 <BG-STATIC-*>；每个 <BG-STATIC-*> 下必须紧跟一行动态Bug关联子标签）
+
+### <FG-功能组> 功能组描述
+#### <FC-功能点> 功能点描述
+##### <CK-检测点> 检测点描述
+  - <BG-STATIC-001-NAME> Bug描述
+    - <LINK-BUG-[BG-TBD]>    ← 静态分析阶段默认填写；validation后替换为 <LINK-BUG-[BG-NAME-xx]> 或 <LINK-BUG-[BG-NA]>
+      - <FILE-{DUT}.v:xx-yy>   ← 必填；标记Bug所在源文件和行号范围
+        ```verilog
+        xx: ...
+        yy: ...
+        ```
+    - **触发条件**：（输入/状态组合）
+    - **预期行为**：（正确应有的输出）
+    - **推断实际行为**：（RTL 推断出的错误输出）
+    - **修复建议**：
+      ```verilog
+      // 修复后
+      xx: ...   // 修复说明
+      ```
+```
+
+> **注意**：`<LINK-BUG-[BG-TBD]>` 是每条静态Bug的**必填子标签**，在 `static_bug_analysis` 阶段写入，紧排在 `<BG-STATIC-*>` 行的下一子条目。`<FILE-filepath:line1-line2>` 是 `<LINK-BUG-*>` 的**必填子标签**，紧排在 `<LINK-BUG-*>` 行的下一子条目，并附带 RTL 源代码片段。`static_bug_validation` 阶段结束后不允许有 `<LINK-BUG-[BG-TBD]>` 残留。
+
+### 动态Bug关联标签规范（`<LINK-BUG-[BG-TBD]>` → `<LINK-BUG-[BG-NAME-xx]>` / `<LINK-BUG-[BG-NA]>`）
+
+每个 `<BG-STATIC-*>` 下方的第一个子项**必须**是动态Bug关联标签，格式固定为：
+
+```
+  - <LINK-BUG-[标签内容]>
+```
+
+其中 `[标签内容]` 按如下规则确定：
+
+| 标签格式 | 阶段 | 含义 | 要求 |
+|----------|------|------|------|
+| `<LINK-BUG-[BG-TBD]>` | `static_bug_analysis` 写入 | 待验证，尚未有动态测试结果 | 所有新建静态Bug的默认值，不允许在 `static_bug_validation` 结束时残留 |
+| `<LINK-BUG-[BG-NAME-xx]>` | `static_bug_validation` 更新 | 已证实，对应单个动态Bug | 必须在 `{DUT}_bug_analysis.md` 中存在对应完整 `<BG-NAME-xx>` + `<TC-*>` 记录 |
+| `<LINK-BUG-[BG-N1-xx][BG-N2-xx]>` | `static_bug_validation` 更新 | 已证实，对应多个动态Bug | 用多个 `[BG-*]` 方括号组依次拼写；每个动态Bug均须在 `{DUT}_bug_analysis.md` 中有完整记录 |
+| `<LINK-BUG-[BG-NA]>` | `static_bug_validation` 更新 | 误报，经动态测试验证该潜在Bug不存在 | 在该行下方（可选）添加一行误判说明 |
+
+**`static_bug_validation` 阶段完成标准**：`{DUT}_static_bug_analysis.md` 中不存在任何 `<LINK-BUG-[BG-TBD]>` 标签，Checker 会通过 `parse_nested_keys` 解析该文件强制验证此规则。
+
+### 完整示例（三阶段演进）
+
+以 UartTx 模块为例，展示从静态发现到动态验证的完整标签演进过程。
+
+**阶段一：`static_bug_analysis` 阶段完成时**（所有静态Bug均为 `<LINK-BUG-[BG-TBD]>`）
+
+```markdown
+## 三、潜在Bug汇总
+
+| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
+|------|---------|---------|---------|--------|---------|------------|
+| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
+| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-TBD] |
+| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-TBD] |
+
+## 四、详细分析
+
+### <FG-CONTROL> 控制组
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:50-56>
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // default 分支缺失
+        55:   endcase
+        56: end
+        ```
+  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:50-56>
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // BUG: default 分支缺失，可能导致锁死
+        55:   endcase
+        56: end
+        ```
+
+### <FG-TIMING>
+#### 波特率计数功能 <FC-BAUD>
+##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
+  - <BG-STATIC-002-WIDTH-MISMATCH>
+    - <LINK-BUG-[BG-TBD]>
+      - <FILE-UartTx.v:20>
+        ```verilog
+        20: reg [7:0] baud_cnt;   // BUG: 8位宽不足以确论覆盖所有分频参数
+        ```
+
+**阶段二：`static_bug_validation` 阶段完成时**（`<LINK-BUG-[BG-TBD]>` 全部被替换，无残留）
+
+```markdown
+## 三、潜在Bug汇总
+
+| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
+|------|---------|---------|---------|--------|---------|------------|
+| 001 | BG-STATIC-001-FSM-DEAD | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM跳转缺少tx_busy保护 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEAD-92] |
+| 002 | BG-STATIC-002-FSM-DEFAULT | FG-CONTROL/FC-FSM/CK-FSM-BUSY-CONFLICT | FSM缺少default分支 | 高 | UartTx.v | LINK-BUG-[BG-FSM-DEFAULT-85] |
+| 003 | BG-STATIC-003-WIDTH-MISMATCH | FG-TIMING/FC-BAUD/CK-BAUD-OVERFLOW | baud_cnt位宽可能不足 | 中 | UartTx.v | LINK-BUG-[BG-NA] |
+
+## 四、详细分析
+
+### <FG-CONTROL>
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 状态机检测点（该检测点下发现两个Bug）
+  - <BG-STATIC-001-FSM-DEAD> IDLE→SEND 跳转缺少 tx_busy 保护，start 在发送中拉高时可能进入未定义状态；置信度：高
+    - <LINK-BUG-[BG-FSM-DEAD-92]>    ← 已替换，该静态Bug证实对应一个动态Bug
+      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;          // BUG: 未检查 tx_busy
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // default 分支缺失
+        55:   endcase
+        56: end
+        ```
+  - <BG-STATIC-002-FSM-DEFAULT> FSM缺少default分支，可能进入非法状态；置信度：高
+    - <LINK-BUG-[BG-FSM-DEFAULT-85]>    ← 已替换，该静态Bug证实对应一个动态Bug
+      - <FILE-UartTx.v:50-56>    ← 源文件位置不变
+        ```verilog
+        50: always @(posedge clk) begin
+        51:   case (state)
+        52:     IDLE: if (start) state <= SEND;
+        53:     SEND: if (bit_cnt == 8) state <= IDLE;
+        54:     // BUG: default 分支缺失，可能导致锁死
+        55:   endcase
+        56: end
+        ```
+
+### <FG-TIMING>
+#### <FC-BAUD> 波特率计数功能
+##### <CK-BAUD-OVERFLOW> baud_cnt 位宽为 8 位，当分频系数超过 255 时可能截断；置信度：中 
+  - <BG-STATIC-003-WIDTH-MISMATCH>
+    - <LINK-BUG-[BG-NA]>             ← 已替换，误报
+      - <FILE-UartTx.v:20>    ← 源文件位置不变
+        ```verilog
+        20: reg [7:0] baud_cnt;   // 实际参数通过 parameter 约束不超过 200，8位宽足够
+        ```
+    - 误判说明：波特率参数通过 `parameter` 约束不超过 200，8 位宽足够
+```
+
+**阶段三：`{DUT}_bug_analysis.md` 中对应的动态Bug记录**（由 `static_bug_validation` 阶段写入）
+
+```markdown
+### <FG-CONTROL>
+#### <FC-FSM> 状态机功能
+##### <CK-FSM-BUSY-CONFLICT> 测试 start 在 tx_busy=1 期间重新置位时 FSM 行为
+  - <BG-FSM-DEAD-92>
+    - <TC-FSM-REENTRANT-FAIL> start_during_send：验证FSM重入保护
+      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-001-FSM-DEAD
+
+##### <CK-FSM-BUSY-CONFLICT> 测试缺少 default 分支时 FSM 进入非法状态的行为
+  - <BG-FSM-DEFAULT-85>
+    - <TC-FSM-ILLEGAL-STATE> illegal_state_enter：验证default分支缺失
+      - 测试结果：FAIL ← 证实静态分析Bug BG-STATIC-002-FSM-DEFAULT
+```
+
+### 标签书写要点
+
+| 层级 | 格式示例 | 说明 |
+|------|---------|------|
+| 功能组 FG | `<FG-CONTROL>` | 与 `_functions_and_checks.md` 共用，或新增 `<FG-STATIC>` |
+| 功能点 FC | `<FC-FSM>` | 与 `_functions_and_checks.md` 共用，或新增 `<FC-STATIC-*>` |
+| 检测点 CK | `<CK-FSM-BUSY-CONFLICT>` | 需同步写入 `_functions_and_checks.md`（高/中置信度必须） |
+| 静态Bug | `<BG-STATIC-001-FSM-DEAD>` | 挂靠在 `<CK-*>` 之后，序号+名称格式；**一个 `<CK-*>` 下可以有多个 `<BG-STATIC-*>` 标签** |
+| 静态Bug（无Bug声明） | `<BG-STATIC-NULL>` | 挂靠在 `<FG-NULL>`、`<FC-NULL>`、`<CK-NULL>` 之后；不需要 `<LINK-BUG-*>` 子标签；不可与其他 `<BG-STATIC-*>` 共存 |
+| 动态Bug关联（待验证） | `<LINK-BUG-[BG-TBD]>` | 每个 `<BG-STATIC-*>` 的**必填**子标签，`static_bug_analysis` 阶段写入 |
+| 动态Bug关联（已证实，单个） | `<LINK-BUG-[BG-FSM-DEAD-92]>` | `static_bug_validation` 后替换，需在 `_bug_analysis.md` 中有对应完整记录 |
+| 动态Bug关联（已证实，多个） | `<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>` | 一个静态Bug证实存在多个动态Bug时，用多个 `[BG-*]` 方括号组依次拼写；每个标签均须在 `_bug_analysis.md` 中有完整记录 |
+| 动态Bug关联（误报） | `<LINK-BUG-[BG-NA]>` | `static_bug_validation` 后替换，可选附加误判说明行 |
+| 源文件位置（单个范围） | `<FILE-UartTx.v:50-56>` | 每个 `<LINK-BUG-*>` 的**必填**子标签；路径相对于项目根目录；行号范围 `N-M` |
+| 源文件位置（多范围） | `<FILE-UartTx.v:50-56,100-120>` | 同一文件的多个不连续行范围，逗号分隔 |
+| 源文件位置（多文件） | `<FILE-pkg/uart_pkg.sv:22-24>` | 同一 `<LINK-BUG-*>` 下可配置多个 `<FILE-*>` 子标签 |
+
+**注意**：
+- `<BG-STATIC-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
+- **一个 `<CK-*>` 检测点下可以挂靠多个 `<BG-STATIC-*>` 标签，每个标签代表在该检测点发现的一个独立Bug**
+- `<BG-STATIC-NULL>` 是必须显式书写的无Bug声明，不可省略——若 `_static_bug_analysis.md` 中既无任何 `<BG-STATIC-*>` 又无 `<BG-STATIC-NULL>`，Checker 将报错
+- `<LINK-BUG-*>` 标签仅在 `{DUT}_static_bug_analysis.md` 中使用，不出现在 `{DUT}_bug_analysis.md` 中
+- `<FILE-*>` 标签是 `<LINK-BUG-*>` 的必填子标签，Checker 强制验证其存在和格式；`<FILE-*>` 行下方必须附带对应 RTL 源代码片段
+- `static_bug_validation` 阶段结束后，`{DUT}_static_bug_analysis.md` 中**不允许有任何 `<LINK-BUG-[BG-TBD]>` 残留**，Checker 通过 `parse_nested_keys` 强制验证
+- 在文中引用标签时去掉尖括号，例如 `BG-STATIC-001`，防止解析错误
+- 静态分析报告的主体文档内容须使用 `{DOC_GEN_LANG}` 指定的语言编写

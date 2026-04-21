@@ -86,10 +86,14 @@ For supported backends, please refer to the `backend` section in [ucagent/settin
 **（1）Start MCP-Server**
 
 ```bash
-make mcp_Adder  # workspace is set to output directory
+make mcp_Adder  # workspace is set to output/workspace_Adder directory
 # Calls the following commands:
-#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/ -c -w output/Adder/Adder.fst
-#   ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+#   picker export Adder/Adder.v --rw 1 --sname Adder --tdir output/workspace_Adder/ -c -w output/workspace_Adder/Adder/Adder.fst
+#   ucagent output/workspace_Adder/ Adder -s -hm --tui --mcp-server-no-file-tools --no-embed-tools
+# Browser Web UI mode:
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console --mcp-server-no-file-tools --no-embed-tools
+# Custom Web UI host/port/password (HTTP Basic Auth):
+#   ucagent output/workspace_Adder/ Adder -s -hm --web-console 0.0.0.0:18000:secret --mcp-server-no-file-tools --no-embed-tools
 ```
 
 The default MCP Server address is: http://127.0.0.1:5000/mcp
@@ -97,7 +101,7 @@ The default MCP Server address is: http://127.0.0.1:5000/mcp
 **（2）Start qwen to execute task**
 
 ```bash
-cd output
+cd output/workspace_Adder
 qwen
 ```
 
@@ -106,7 +110,7 @@ After starting qwen as above, input the task prompt:
 > Please use the tool `RoleInfo` to get your role information and basic guidance, then complete the task. Use the tool `ReadTextFile` to read files. You need to perform file operations in the current working directory and should not go beyond this directory.
 
 **Note:**
-- Start the Code Agent in the working directory (e.g., output in the example above), otherwise file path mismatch issues may occur.
+- Start the Code Agent in the working directory (e.g., output/workspace_Adder in the example above), otherwise file path mismatch issues may occur.
 - If the DUT is complex and has peripheral component dependencies, you need to open the default skipped stages via ucagent interaction commands.
 
 **Tips:**
@@ -126,6 +130,66 @@ By default, UCAgent only enables the internal `Python Checker` for stage checkin
 2. [Enable human stage checking](https://ucagent.open-verify.cc/content/02_usage/02_assit/)
 
 Default stage checking order: Python Checker -> LLM -> Human
+
+---
+
+## Interact via Web Interface
+
+UCAgent provides Master mode, based on which you can perform centralized Agent management, create tasks, view status, use online terminals, and other operations through the web interface.
+
+### Local Startup
+
+#### 1. Configure Environment Variables
+```bash
+# Edit a custom file to export environment variables required by ucagent, for example:
+# export OPENAI_API_BASE=<your_openai_api_base>
+# export OPENAI_API_KEY=<your_openai_api_key>
+# export OPENAI_MODEL=<your_openai_model>
+vim ~/.ucagent_env
+# Then load the environment variables
+source ~/.ucagent_env
+```
+
+#### 2. Start UCAgent Master
+
+```bash
+make as_master_persist
+# Or, if ucagent is installed, you can directly run ucagent to start master mode
+ucagent --as-master-persist --as-master
+```
+
+Then visit `http://localhost:8800` in your browser.
+
+### Docker Startup
+
+```bash
+docker run -it --rm \
+  -e OPENAI_API_BASE=<your_openai_api_base> \
+  -e OPENAI_API_KEY=<your_openai_api_key> \
+  -e OPENAI_MODEL=<your_openai_model> \
+  -p 8800:8800 \
+  ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
+```
+
+If ghcr.io is not accessible, you can directly replace it with mirror addresses such as ghcr.nju.edu.cn.
+
+After successful startup, visit `http://localhost:8800` in your browser.
+
+### Basic Operations
+1. In the web interface, click the `+` button (or launch button) to create a new task.
+2. In the Agent list, click the API button to connect to the control page of a specific Agent.
+3. In the Agent control page, click the web terminal button to open the online terminal.
+4. Start ucagent locally and connect to an existing Master service via the --master parameter.
+
+### More Features
+
+1. Launch page: create workspace, upload/import files, parse modules, compile, and preview launch command.
+2. Task page: filter, paginate, inspect task details/logs, and stop/delete managed tasks.
+3. Enhanced Agent page: stage multi-select and bulk toggles (HM/Skip/LFail/LPass), plus stage artifact content/diff review.
+4. Unified proxy access: Master proxies cmd/terminal/web-console paths for both task and agent entries.
+5. Improved Web Terminal: multiple terminal sessions across different URLs.
+
+> 📖 **Detailed Operations:** See [TUI Usage Documentation](https://ucagent.open-verify.cc/content/07_web_master/)
 
 ---
 

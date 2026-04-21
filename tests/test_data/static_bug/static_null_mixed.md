@@ -1,0 +1,7 @@
+<FG-CTRL>
+
+#### 控制功能 <FC-FSM>
+- <CK-FSM-GUARD> 发现Bug <BG-STATIC-001-GUARD>
+  - <LINK-BUG-[BG-TBD]>
+    - <FILE-rtl/DUT.v:13>
+- <CK-FSM-RESET> 无Bug <BG-STATIC-NULL>

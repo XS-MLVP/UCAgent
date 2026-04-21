@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UCAgent Tasks</title>
+<link rel="icon" type="image/svg+xml" href="/static/share/ucagent-favicon.svg">
+<link rel="stylesheet" href="/static/share/ucagent-shell.css">
+<style>
+  :root{
+    --bg:#0f1117;--surface:#1a1d26;--surface2:#22263a;--border:#2e3248;
+    --text:#e2e8f0;--text-dim:#8892a4;--accent:#6366f1;--accent-hover:#818cf8;
+    --ok:#22c55e;--err:#ef4444;--warn:#f59e0b;--radius:8px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{display:flex;align-items:center;gap:12px;padding:16px 24px;border-bottom:1px solid var(--border);background:var(--surface)}
+  header .title{font-size:18px;font-weight:700}
+  header .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:4px;padding:6px 9px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px}
+  .btn:hover{border-color:var(--accent);color:#fff}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-danger{border-color:#7f1d1d;color:#fca5a5;background:#3a1818}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  main{max-width:1920px;margin:0 auto;padding:24px;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(420px,.75fr);gap:20px;align-items:start}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .card h2{margin:0 0 14px;font-size:16px}
+  .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px}
+  input,select,textarea{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text)}
+  table{width:100%;border-collapse:collapse;table-layout:auto}
+  th,td{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.05);text-align:left;vertical-align:top;white-space:nowrap}
+  th{font-size:11px;color:var(--text-dim);background:var(--surface2);position:sticky;top:0}
+  .table-wrap{max-height:70vh;overflow-y:auto;overflow-x:hidden;border:1px solid var(--border);border-radius:8px}
+  .badge{display:inline-flex;align-items:center;padding:1px 6px;border-radius:999px;font-size:10px;border:1px solid transparent}
+  .ok{background:rgba(34,197,94,.14);color:#86efac;border-color:rgba(34,197,94,.25)}
+  .err{background:rgba(239,68,68,.14);color:#fca5a5;border-color:rgba(239,68,68,.25)}
+  .warn{background:rgba(245,158,11,.14);color:#fcd34d;border-color:rgba(245,158,11,.25)}
+  .muted{color:var(--text-dim)}
+  pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace, SFMono-Regular, Menlo, monospace}
+  .stack{display:flex;flex-direction:column;gap:12px}
+  .actions{display:flex;gap:5px;flex-wrap:nowrap}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}
+  .toolbar-right,.toolbar-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .toolbar .inline{display:flex;align-items:center;gap:8px}
+  .toolbar .inline label{margin:0}
+  .compact-select{width:auto;min-width:84px}
+  .summary-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)}
+  .summary-banner strong{font-size:13px}
+  .summary-chip{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:12px}
+  .pagination{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .detail-card{position:sticky;top:24px;max-height:calc(100vh - 48px);overflow:auto}
+  .detail-meta{display:grid;grid-template-columns:minmax(120px,160px) 1fr;gap:8px 12px;align-items:start}
+  .detail-meta strong{color:var(--text-dim)}
+  .detail-command{max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface2)}
+  tr.task-row-highlight{outline:2px solid rgba(99,102,241,.75);outline-offset:-2px;background:rgba(99,102,241,.10)}
+  .ansi-seg{white-space:pre-wrap}
+  .logs-box{min-height:240px;max-height:70vh;overflow:auto;padding:12px;border-radius:8px;border:1px solid var(--border);background:#0b0d12;color:var(--text);font:12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap;word-break:break-word}
+  .truncate{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .task-cell{max-width:140px}
+  .created-cell{max-width:152px}
+  .dut-cell{max-width:110px}
+  .registered-cell{max-width:128px}
+  @media (max-width: 1280px){main{grid-template-columns:1fr}.detail-card{position:static;max-height:none}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width: 1080px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>Managed Tasks</span></div>
+  <div class="spacer"></div>
+  <div id="uc-shell-header-actions" class="actions" style="align-items:center">
+    <a class="btn btn-primary" href="/launch/">Launch</a>
+    <a class="btn" href="/">Master</a>
+  </div>
+</header>
+<main>
+  <section class="card stack">
+    <div>
+      <h2>Filters</h2>
+      <div class="grid">
+        <div>
+          <label>Status</label>
+          <select id="filter-status">
+            <option value="">All</option>
+            <option value="pending">pending</option>
+            <option value="starting">starting</option>
+            <option value="running">running</option>
+            <option value="stopping">stopping</option>
+            <option value="stopped">stopped</option>
+            <option value="failed">failed</option>
+          </select>
+        </div>
+        <div>
+          <label>DUT / Module</label>
+          <input id="filter-dut" placeholder="Adder / top module">
+        </div>
+        <div>
+          <label>Keyword</label>
+          <input id="filter-q" placeholder="task_id / pid / workspace">
+        </div>
+        <div>
+          <label>Page Size</label>
+          <select id="page-size" class="compact-select">
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-primary" onclick="loadTasks()">Refresh</button>
+      </div>
+    </div>
+
+    <div>
+      <h2>Task List</h2>
+      <div id="task-summary-banner" class="summary-banner">
+        <strong id="task-summary">Loading…</strong>
+        <span id="task-filter-summary" class="summary-chip muted">Filters: none</span>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div id="task-summary-detail" class="muted">Loading…</div>
+        </div>
+        <div class="toolbar-right">
+          <div class="pagination">
+            <button id="page-prev" class="btn" type="button">Prev</button>
+            <span id="page-info" class="muted">Page 1 / 1</span>
+            <button id="page-next" class="btn" type="button">Next</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Created</th>
+              <th>Status</th>
+              <th>DUT</th>
+              <th>PID</th>
+              <th>Registered</th>
+              <th>CMD</th>
+              <th>Terminal</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="task-rows">
+            <tr><td colspan="9" class="muted">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card stack detail-card">
+    <div>
+      <h2>Task Detail</h2>
+      <div id="task-detail" class="muted">Select a task from the list.</div>
+    </div>
+    <div>
+      <h2>Logs</h2>
+      <div id="task-logs" class="logs-box muted">Select a task from the list.</div>
+    </div>
+  </section>
+</main>
+<footer id="uc-shell-footer" class="uc-shell-footer"></footer>
+<script>
+let currentTaskId = '';
+let allTasks = [];
+let totalTaskCount = 0;
+const STORAGE_KEY = 'ucagent-task-page-state';
+
+function esc(s){return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+
+function loadViewState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveViewState() {
+  const data = {
+    status: document.getElementById('filter-status').value,
+    dut: document.getElementById('filter-dut').value,
+    q: document.getElementById('filter-q').value,
+    pageSize: document.getElementById('page-size').value,
+    page: Number(document.getElementById('page-info').dataset.page || 1),
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function applyViewState() {
+  const data = loadViewState();
+  if (data.status !== undefined) document.getElementById('filter-status').value = data.status;
+  if (data.dut !== undefined) document.getElementById('filter-dut').value = data.dut;
+  if (data.q !== undefined) document.getElementById('filter-q').value = data.q;
+  if (data.pageSize !== undefined) document.getElementById('page-size').value = String(data.pageSize);
+}
+
+function formatApiError(data, fallback='Request failed') {
+  if (!data) return fallback;
+  if (typeof data.detail === 'string' && data.detail.trim()) return data.detail;
+  if (Array.isArray(data.detail) && data.detail.length) {
+    return data.detail.map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        const location = Array.isArray(item.loc) ? item.loc.join('.') : '';
+        const message = item.msg || JSON.stringify(item);
+        return location ? `${location}: ${message}` : message;
+      }
+      return String(item);
+    }).join('; ');
+  }
+  if (data.detail && typeof data.detail === 'object') {
+    try { return JSON.stringify(data.detail); } catch {}
+  }
+  if (typeof data.message === 'string' && data.message.trim()) return data.message;
+  if (typeof data.raw === 'string' && data.raw.trim()) return data.raw;
+  try { return JSON.stringify(data); } catch {}
+  return fallback;
+}
+
+async function api(url, options={}) {
+  const resp = await fetch(url, options);
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!resp.ok) throw new Error(formatApiError(data, resp.statusText || 'Request failed'));
+  return data;
+}
+
+const ANSI_FG = {
+  30: '#4a4a4a', 31: '#f87171', 32: '#4ade80', 33: '#fbbf24',
+  34: '#60a5fa', 35: '#c084fc', 36: '#22d3ee', 37: '#e5e7eb',
+  90: '#6b7280', 91: '#fca5a5', 92: '#86efac', 93: '#fde68a',
+  94: '#93c5fd', 95: '#d8b4fe', 96: '#67e8f9', 97: '#f8fafc',
+};
+
+function ansiToHtml(input) {
+  const text = String(input ?? '');
+  const pattern = /(?:\x1b\[|\[)(\d+(?:;\d+)*)m/g;
+  let html = '';
+  let lastIndex = 0;
+  let bold = false;
+  let color = '';
+  let match;
+  while ((match = pattern.exec(text))) {
+    const chunk = text.slice(lastIndex, match.index);
+    if (chunk) {
+      let style = '';
+      if (bold) style += 'font-weight:700;';
+      if (color) style += `color:${color};`;
+      const content = esc(chunk).replace(/\n/g, '<br>');
+      html += style ? `<span class="ansi-seg" style="${style}">${content}</span>` : content;
+    }
+    for (const codeRaw of match[1].split(';')) {
+      const code = Number(codeRaw);
+      if (code === 0) {
+        bold = false;
+        color = '';
+      } else if (code === 1) {
+        bold = true;
+      } else if (ANSI_FG[code]) {
+        color = ANSI_FG[code];
+      }
+    }
+    lastIndex = pattern.lastIndex;
+  }
+  const tail = text.slice(lastIndex);
+  if (tail) {
+    let style = '';
+    if (bold) style += 'font-weight:700;';
+    if (color) style += `color:${color};`;
+    const content = esc(tail).replace(/\n/g, '<br>');
+    html += style ? `<span class="ansi-seg" style="${style}">${content}</span>` : content;
+  }
+  return html || esc(text);
+}
+
+function setTaskLogs(text, muted=false) {
+  const element = document.getElementById('task-logs');
+  if (!element) return;
+  element.classList.toggle('muted', muted);
+  element.innerHTML = ansiToHtml(text);
+  element.scrollTop = 0;
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '—';
+  try {
+    return new Date(Number(ts) * 1000).toLocaleString();
+  } catch {
+    return '—';
+  }
+}
+
+function badge(status) {
+  const cls = status === 'running' ? 'ok' : (status === 'failed' ? 'err' : 'warn');
+  return `<span class="badge ${cls}">${esc(status)}</span>`;
+}
+
+function serviceBadge(status) {
+  if (status === 'running') return '<span class="badge ok">running</span>';
+  if (status === 'stopped') return '<span class="badge muted">stopped</span>';
+  return `<span class="badge warn">${esc(status || 'starting')}</span>`;
+}
+
+function getHashTaskId() {
+  const hash = window.location.hash || '';
+  if (!hash.startsWith('#task-')) return '';
+  try {
+    return decodeURIComponent(hash.slice('#task-'.length));
+  } catch {
+    return hash.slice('#task-'.length);
+  }
+}
+
+function focusTaskRow(taskId) {
+  document.querySelectorAll('#task-rows tr.task-row-highlight').forEach((row) => row.classList.remove('task-row-highlight'));
+  if (!taskId) return;
+  const row = document.getElementById(`task-${encodeURIComponent(taskId)}`);
+  if (!row) return;
+  row.classList.add('task-row-highlight');
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function hasWebConsole(task) {
+  const runtime = task?.web_console;
+  if (runtime?.port || runtime?.url) return true;
+  const value = task?.cli_args_structured?.web_console;
+  return value !== undefined && value !== null && value !== false && value !== '';
+}
+
+function isLocalHost(host) {
+  if (!host) return true;
+  const h = String(host).toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '::1' || h === '[::1]';
+}
+
+function isMasterTaskPage() {
+  return window.location.pathname.startsWith('/task/');
+}
+
+function buildDirectUrl(host, port) {
+  let actualHost = host;
+  if (isLocalHost(host)) {
+    actualHost = window.location.hostname;
+  }
+  return `${window.location.protocol}//${actualHost}:${port}`;
+}
+
+function normalizeDirectUrl(url) {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (isLocalHost(parsed.hostname)) {
+      parsed.hostname = window.location.hostname;
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function directTerminalTarget(task) {
+  const terminalApi = task?.terminal_api;
+  if (terminalApi?.url) {
+    return { href: normalizeDirectUrl(terminalApi.url), label: 'Terminal', title: 'Open Web Terminal' };
+  }
+  if (terminalApi?.port) {
+    return { href: buildDirectUrl(terminalApi.host, terminalApi.port), label: 'Terminal', title: 'Open Web Terminal' };
+  }
+  const webConsole = task?.web_console;
+  if (webConsole?.url) {
+    return { href: normalizeDirectUrl(webConsole.url), label: 'Terminal', title: 'Open Web Console' };
+  }
+  if (webConsole?.port) {
+    return { href: buildDirectUrl(webConsole.host, webConsole.port), label: 'Terminal', title: 'Open Web Console' };
+  }
+  return null;
+}
+
+function terminalTarget(task) {
+  if (isMasterTaskPage() && task?.terminal_api?.enabled) {
+    return { href: `/task/${encodeURIComponent(task.task_id)}/terminal/`, label: 'Terminal', title: 'Open Web Terminal' };
+  }
+  if (isMasterTaskPage() && hasWebConsole(task)) {
+    return { href: `/task/${encodeURIComponent(task.task_id)}/web-console/`, label: 'Terminal', title: 'Open Web Console' };
+  }
+  const direct = directTerminalTarget(task);
+  if (direct) return direct;
+  if (task?.terminal_api?.enabled) {
+    return { href: `/task/${encodeURIComponent(task.task_id)}/terminal/`, label: 'Terminal', title: 'Open Web Terminal' };
+  }
+  if (hasWebConsole(task)) {
+    return { href: `/task/${encodeURIComponent(task.task_id)}/web-console/`, label: 'Terminal', title: 'Open Web Console' };
+  }
+  return null;
+}
+
+function clampPage(page, totalPages) {
+  return Math.min(Math.max(page, 1), Math.max(totalPages, 1));
+}
+
+function resolvePageTasks(tasks) {
+  const pageSize = Number(document.getElementById('page-size').value || 20);
+  const pageInfo = document.getElementById('page-info');
+  let page = Number(pageInfo.dataset.page || 1);
+  const targetTaskId = getHashTaskId() || currentTaskId;
+  if (targetTaskId) {
+    const targetIndex = tasks.findIndex((task) => task.task_id === targetTaskId);
+    if (targetIndex >= 0) {
+      page = Math.floor(targetIndex / pageSize) + 1;
+    }
+  }
+  const totalPages = Math.max(1, Math.ceil(tasks.length / pageSize));
+  page = clampPage(page, totalPages);
+  pageInfo.dataset.page = String(page);
+  pageInfo.textContent = `Page ${page} / ${totalPages}`;
+  document.getElementById('page-prev').disabled = page <= 1;
+  document.getElementById('page-next').disabled = page >= totalPages;
+  saveViewState();
+  const start = (page - 1) * pageSize;
+  return tasks.slice(start, start + pageSize);
+}
+
+function setPage(page) {
+  document.getElementById('page-info').dataset.page = String(page);
+  saveViewState();
+  renderTaskRows();
+}
+
+function activeFilterSummary() {
+  const parts = [];
+  const status = document.getElementById('filter-status').value.trim();
+  const dut = document.getElementById('filter-dut').value.trim();
+  const q = document.getElementById('filter-q').value.trim();
+  if (status) parts.push(`status=${status}`);
+  if (dut) parts.push(`dut=${dut}`);
+  if (q) parts.push(`q=${q}`);
+  return parts;
+}
+
+function updateTaskSummary() {
+  const matched = (allTasks || []).length;
+  const filters = activeFilterSummary();
+  const headline = matched === totalTaskCount
+    ? `Showing ${matched} / ${totalTaskCount} task(s)`
+    : `Showing ${matched} / ${totalTaskCount} task(s)`;
+  document.getElementById('task-summary').textContent = headline;
+  document.getElementById('task-summary-detail').textContent = matched
+    ? `${matched} task(s) matched the current view`
+    : 'No tasks matched the current view.';
+  document.getElementById('task-filter-summary').textContent = filters.length
+    ? `Filters: ${filters.join(', ')}`
+    : 'Filters: none';
+}
+
+function renderTaskRows() {
+  const tbody = document.getElementById('task-rows');
+  const rows = allTasks || [];
+  updateTaskSummary();
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="muted">No managed tasks.</td></tr>';
+    document.getElementById('page-info').dataset.page = '1';
+    document.getElementById('page-info').textContent = 'Page 1 / 1';
+    document.getElementById('page-prev').disabled = true;
+    document.getElementById('page-next').disabled = true;
+    return;
+  }
+  const pageRows = resolvePageTasks(rows);
+  tbody.innerHTML = pageRows.map(task => {
+    const terminal = terminalTarget(task);
+    return `
+      <tr id="task-${encodeURIComponent(task.task_id)}">
+        <td><button class="btn truncate task-cell" onclick="showTask('${esc(task.task_id)}')" title="${esc(task.task_id)}">${esc(task.task_id)}</button></td>
+        <td class="muted" title="${esc(formatTimestamp(task.created_at))}"><span class="truncate created-cell">${esc(formatTimestamp(task.created_at))}</span></td>
+        <td>${badge(task.process_status)}</td>
+        <td title="${esc(`${task.dut_name || '—'} ${task.selected_module || ''}`.trim())}"><div class="truncate dut-cell">${esc(task.dut_name || '—')}</div><div class="muted truncate dut-cell">${esc(task.selected_module || '')}</div></td>
+        <td title="${esc(task.pid || '—')}"><span class="truncate">${task.pid || '—'}</span></td>
+        <td title="${esc(task.registered_agent_id || 'no')}">${task.registered_to_master ? `<span class="badge ok truncate registered-cell">${esc(task.registered_agent_id || 'yes')}</span>` : '<span class="badge warn">no</span>'}</td>
+        <td>${serviceBadge(task.cmd_api?.status)}</td>
+        <td>${terminal ? `<a class="btn" href="${terminal.href}" target="_blank" title="${esc(terminal.title)}">${terminal.label}</a>` : '<button class="btn" disabled title="No web terminal available">Terminal</button>'}</td>
+        <td>
+          <div class="actions">
+            <a class="btn" href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">CMD</a>
+            <button class="btn btn-danger" ${['starting','running','stopping'].includes(task.process_status) ? '' : 'disabled'} onclick="stopTask('${esc(task.task_id)}')">Stop</button>
+            <button class="btn" ${['stopped','failed'].includes(task.process_status) ? '' : 'disabled'} onclick="deleteTask('${esc(task.task_id)}')">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  const hashTaskId = getHashTaskId();
+  if (hashTaskId) {
+    focusTaskRow(hashTaskId);
+    if (currentTaskId !== hashTaskId) showTask(hashTaskId);
+  } else if (currentTaskId) {
+    focusTaskRow(currentTaskId);
+  }
+}
+
+async function loadTasks() {
+  const status = document.getElementById('filter-status').value.trim();
+  const dut = document.getElementById('filter-dut').value.trim();
+  const q = document.getElementById('filter-q').value.trim();
+  const url = `/api/tasks?status=${encodeURIComponent(status)}&dut=${encodeURIComponent(dut)}&q=${encodeURIComponent(q)}`;
+  try {
+    const [data, totalData] = await Promise.all([
+      api(url),
+      api('/api/tasks'),
+    ]);
+    allTasks = data.tasks || [];
+    totalTaskCount = Number(totalData.count || (totalData.tasks || []).length || 0);
+    renderTaskRows();
+  } catch (err) {
+    document.getElementById('task-summary').textContent = 'Failed to load tasks.';
+    document.getElementById('task-summary-detail').textContent = 'Task summary unavailable.';
+    document.getElementById('task-filter-summary').textContent = 'Filters: unavailable';
+    document.getElementById('task-rows').innerHTML = `<tr><td colspan="9" class="err">${esc(err.message)}</td></tr>`;
+  }
+}
+
+async function showTask(taskId) {
+  currentTaskId = taskId;
+  window.location.hash = `task-${encodeURIComponent(taskId)}`;
+  focusTaskRow(taskId);
+  try {
+    const data = await api(`/api/task/${encodeURIComponent(taskId)}`);
+    const task = data.task;
+    const terminal = terminalTarget(task);
+    const detail = document.getElementById('task-detail');
+    detail.innerHTML = `
+      <div class="stack">
+        <div class="detail-meta">
+          <strong>Task ID</strong><div><code>${esc(task.task_id)}</code></div>
+          <strong>Status</strong><div>${badge(task.process_status)}</div>
+          <strong>Created</strong><div>${esc(formatTimestamp(task.created_at))}</div>
+          <strong>Started</strong><div>${esc(formatTimestamp(task.started_at))}</div>
+          <strong>Workspace</strong><div><code>${esc(task.workspace_dir)}</code></div>
+          <strong>PID</strong><div>${task.pid || '—'}</div>
+          <strong>Registered Agent</strong><div>${esc(task.registered_agent_id || '—')}</div>
+          <strong>Picker</strong><div>${badge(task.picker_status || 'not_started')}</div>
+          <strong>CMD Proxy</strong><div><a href="/task/${encodeURIComponent(task.task_id)}/cmd/" target="_blank">/task/${esc(task.task_id)}/cmd/</a></div>
+          <strong>Terminal</strong><div>${terminal ? `<a href="${terminal.href}" target="_blank">${esc(terminal.title)}</a>` : '—'}</div>
+        </div>
+        <div>
+          <strong>Command</strong>
+          <pre class="detail-command">${esc((task.resolved_command || []).join(' '))}</pre>
+        </div>
+      </div>`;
+    const logs = await api(`/api/task/${encodeURIComponent(taskId)}/logs`);
+    setTaskLogs(
+      `[stdout]\n${logs.stdout || ''}\n\n[stderr]\n${logs.stderr || ''}`
+    );
+  } catch (err) {
+    document.getElementById('task-detail').innerHTML = `<div class="err">${esc(err.message)}</div>`;
+    setTaskLogs('', true);
+  }
+}
+
+async function stopTask(taskId) {
+  try {
+    await api(`/api/task/${encodeURIComponent(taskId)}/stop`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({force: false})
+    });
+    await loadTasks();
+    if (currentTaskId === taskId) await showTask(taskId);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteTask(taskId) {
+  if (!confirm(`Delete task record ${taskId}?`)) return;
+  try {
+    await api(`/api/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+    if (currentTaskId === taskId) {
+      currentTaskId = '';
+      document.getElementById('task-detail').textContent = 'Select a task from the list.';
+      setTaskLogs('Select a task from the list.', true);
+    }
+    await loadTasks();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+setInterval(() => {
+  loadTasks();
+  if (currentTaskId) showTask(currentTaskId);
+}, 5000);
+
+window.addEventListener('hashchange', () => {
+  const hashTaskId = getHashTaskId();
+  if (hashTaskId) {
+    currentTaskId = hashTaskId;
+    loadTasks();
+    showTask(hashTaskId);
+  }
+});
+
+document.getElementById('page-prev').addEventListener('click', () => {
+  setPage(Number(document.getElementById('page-info').dataset.page || 1) - 1);
+});
+
+document.getElementById('page-next').addEventListener('click', () => {
+  setPage(Number(document.getElementById('page-info').dataset.page || 1) + 1);
+});
+
+['filter-status', 'filter-dut', 'filter-q', 'page-size'].forEach((id) => {
+  const el = document.getElementById(id);
+  const eventName = id === 'filter-dut' || id === 'filter-q' ? 'input' : 'change';
+  el.addEventListener(eventName, () => {
+    document.getElementById('page-info').dataset.page = '1';
+    saveViewState();
+    loadTasks();
+  });
+});
+
+const initialHashTaskId = getHashTaskId();
+applyViewState();
+const savedState = loadViewState();
+document.getElementById('page-info').dataset.page = String(savedState.page || 1);
+if (initialHashTaskId) currentTaskId = initialHashTaskId;
+loadTasks();
+if (initialHashTaskId) showTask(initialHashTaskId);
+</script>
+<script src="/static/share/ucagent-shell.js"></script>
+<script>
+window.UCAgentShell.init({actionsSelector:'#uc-shell-header-actions',metaUrl:'/api/ui-meta'});
+</script>
+</body>
+</html>

@@ -18,7 +18,7 @@ backend:
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
         - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # Add a project-scoped server claude mcp add --scope project ...., then backup the config to ~/.claude/.mcp.json
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.mcp.json" # modify the mcp port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.mcp.json" # modify the mcp port (5000) to the configured port
   opencode:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -26,7 +26,7 @@ backend:
       cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} -c < {MSG_FILE}"
       pre_bash_cmd:
         - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # You need to setup opencode config first
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/opencode.json" # modify the server port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/opencode.json" # modify the server port (5000) to the configured port
   copilot:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -35,7 +35,7 @@ backend:
       pre_bash_cmd:
         - "mkdir -p {CWD}/.copilot/"
         - "cp ~/.copilot/mcp-config.json {CWD}/.copilot/mcp-config.json"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.copilot/mcp-config.json" # modify the mcp port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.copilot/mcp-config.json" # modify the mcp port (5000) to the configured port
   qwen:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -44,7 +44,7 @@ backend:
       pre_bash_cmd:
         - "mkdir -p {CWD}/.qwen/"
         - "cp ~/.qwen/settings.json {CWD}/.qwen/settings.json"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.qwen/settings.json" # modify the mcp port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.qwen/settings.json" # modify the mcp port (5000) to the configured port
   kilo:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -53,7 +53,7 @@ backend:
       pre_bash_cmd:
         - "mkdir -p {CWD}/.kilocode/"
         - "cp ~/.kilocode/cli/global/settings/mcp_settings.json {CWD}/.kilocode/mcp.json"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.kilocode/mcp.json" # modify the mcp port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.kilocode/mcp.json" # modify the mcp port (5000) to the configured port
   iflow: # FIXME: too complex to parse the session id
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -62,11 +62,46 @@ backend:
       pre_bash_cmd:
         - "mkdir -p {CWD}/.iflow/"
         - "cp ~/.iflow/settings.json {CWD}/.iflow/settings.json"
-        - "sed -i \"s/5000\/mcp/{PORT}\/mcp/\" {CWD}/.iflow/settings.json" # modify the mcp port (5000) to the configured port
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.iflow/settings.json" # modify the mcp port (5000) to the configured port
 
 mcp_server:
   host: 127.0.0.1
   port: 5000
+
+cmd_api:
+  host: 127.0.0.1
+  port: 8765
+
+master_api:
+  host: 0.0.0.0
+  port: 8800
+
+launch:
+  file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
+  workspace_root: /tmp/               # base directory for creating launch workspaces
+  default_args:
+    output: "unity_test"              # output directory name
+    stream_output: true               # -s flag
+    human: true                       # -hm flag
+    tui: true                         # --tui flag
+    mcp_server_no_file_tools: false
+    web_console: "0.0.0.0:-1"         # --web-console flag
+    loop: true                        # -l flag
+    extra_args: []                    # additional CLI arguments
+    configs:                          # predefined config options for dropdown
+      UT: "default.yaml"
+  default_env:
+    - "OPENAI_MODEL"
+    - "OPENAI_API_KEY"
+    - "OPENAI_API_BASE"
+    - "ENABLE_LLM_FAIL_SUGGESTION": true
+    - "FAIL_SUGGESTION_MODEL": "$OPENAI_MODEL"
+    - "FAIL_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
+    - "FAIL_SUGGESTION_API_KEY": "$OPENAI_API_KEY"
+    - "ENABLE_LLM_PASS_SUGGESTION": true
+    - "PASS_SUGGESTION_MODEL": "$OPENAI_MODEL"
+    - "PASS_SUGGESTION_API_BASE": "$OPENAI_API_BASE"
+    - "PASS_SUGGESTION_API_KEY": "$OPENAI_API_KEY"
 
 # Model support: openai, anthropic, google_genai
 model_type: openai
@@ -99,6 +134,13 @@ langfuse:
   public_key: $(LANGFUSE_PUBLIC_KEY, <YOUR_LANGFUSE_PUBLIC_KEY>)
   secret_key: $(LANGFUSE_SECRET_KEY, <YOUR_LANGFUSE_SECRET_KEY>)
   base_url: $(LANGFUSE_URL, http://localhost:3000)
+
+skill:
+  use_skill: false # if false, don't use skill, if true, use default skill, if str, use the additional skill in the path provided by the str
+  max_skill_list_count: 15  # max number of skills to list
+  enable_skill_list: [] # skills can be used, if empty, all skills are enabled
+  disable_skill_list: [] # skills that are not able to use, if empty, all skills are enabled
+  general_skill_list: [] # skills that are general to use for all stage
 
 # This is the setting for conversation summary
 # Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities

@@ -147,3 +147,17 @@ class AgentBackendBase(object):
         :return: Temperature value.
         """
         return -1.0
+
+    def on_stage_complete(self, stage):
+        """
+        Callback method called when a stage is finished.
+
+        :param stage: The stage that has finished.
+        """
+        pass
+
+    def reset_chat(self, force=False):
+        """
+        Reset the chat state, if applicable.
+        """
+        pass

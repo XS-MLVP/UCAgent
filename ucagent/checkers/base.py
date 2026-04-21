@@ -473,16 +473,120 @@ class NopChecker(Checker):
 class UnityChipBatchTask:
     """Batch task manager for Unity chip verification tasks.
 
-    This class manages a batch of verification tasks, tracking their progress
-    and handling synchronization between source tasks and generated tasks.
+    Manages a work list that is divided into batches and processed
+    incrementally by the LLM.  Each call to ``Checker.do_check()`` inspects
+    the current state, tells the LLM what to do next, and returns ``False``
+    until all items are complete.
+
+    ── Lifecycle ────────────────────────────────────────────────────────────
+
+    Instantiate inside the checker's ``__init__``::
+
+        self.batch_size = N          # required attribute
+        self.batch_task = UnityChipBatchTask("items", self)
+
+    The constructor registers a ``CB_KEY_SET_STAGE`` callback so that when
+    ``Checker.set_stage()`` is called by the framework, ``on_init()`` runs
+    automatically.  ``on_init()`` computes a stable checkpoint path and
+    loads any previously saved state from disk via ``loadpoint_file()``.
+
+    ── Usage Pattern A — stateful, checkpoint-backed ────────────────────────
+
+    For checkers whose source list and generated list are derived afresh on
+    every ``do_check()`` call (e.g. from a file scan or a doc parse)::
+
+        def on_init(self):
+            # Pre-populate source list from data stored in stage manager.
+            self.batch_task.source_task_list = self.smanager_get_value(...)
+            self.batch_task.update_current_tbd()
+            return super().on_init()
+
+        def do_check(self, is_complete=False, **kw):
+            current_source = <derive from external state>
+            current_gen    = <derive from external state>
+            note_msg = []
+            # Reconcile lists; also calls update_tbd_and_cmp() if changed.
+            self.batch_task.sync_source_task(current_source, note_msg, "source changed")
+            self.batch_task.sync_gen_task(current_gen,    note_msg, "gen changed")
+            # Handle batch lifecycle: complete current batch or report progress.
+            # do_complete() calls savepoint_file() and
+            # reset_continue_fail_count_with_batch_pass() automatically.
+            return self.batch_task.do_complete(
+                note_msg, is_complete,
+                "expected location of source items",
+                "expected location of gen items",
+                " extra hint for LLM",
+            )
+
+    ── Usage Pattern B — document-driven with do_complete enrichment ──────
+
+    For checkers that re-derive source and generated lists from a document
+    (the document is the single source of truth) on every ``do_check()``
+    call, use ``sync_source_task`` / ``sync_gen_task`` + ``do_complete()``
+    and enrich the return dict with custom task instructions::
+
+        def on_init(self):
+            source = <scan filesystem>
+            gen    = <parse document for completion markers>
+            self.batch_task.source_task_list = source
+            self.batch_task.gen_task_list    = gen
+            # Retain only still-valid tbd items (in source, not yet done).
+            self.batch_task.tbd_task_list = [
+                f for f in self.batch_task.tbd_task_list
+                if f in source and f not in gen
+            ]
+            self.batch_task.cmp_task_list = []
+            self.batch_task.update_current_tbd()
+            return super().on_init()
+
+        def do_check(self, is_complete=False, **kw):
+            source = <re-derive from filesystem>
+            gen    = <re-derive from document>
+            note_msg = []
+            self.batch_task.sync_source_task(source, note_msg, "source changed")
+            self.batch_task.sync_gen_task(gen,    note_msg, "gen changed")
+
+            passed, result = self.batch_task.do_complete(
+                note_msg, is_complete,
+                "source location", "gen location",
+                " See 'task' field for details.",
+            )
+            if passed:
+                return self._final_validation(**kw)   # custom final check
+
+            # Enrich do_complete result with structured task instructions
+            if isinstance(result, dict) and self.batch_task.tbd_task_list:
+                result["task"] = [<rich analysis steps>]
+            return passed, result
+
+    Key differences from Pattern A:
+    * Source and gen lists are re-derived from the filesystem / document on
+      every call, instead of relying purely on the checkpoint.
+    * The ``on_init()`` override cleans up stale ``tbd_task_list`` items
+      loaded from the checkpoint (items already in gen are removed).
+    * ``do_complete()`` IS still called — its return dict is extended with
+      extra keys (``task``, ``current_batch``, etc.) for richer LLM prompts.
+
+    ── Important notes ───────────────────────────────────────────────────────
+
+    * ``checker.batch_size`` **must** exist before constructing this class.
+    * ``update_current_tbd()`` is a no-op when ``tbd_task_list`` is already
+      non-empty (it never replaces a live batch mid-run).
+    * ``do_complete()`` internally calls ``reset_continue_fail_count_with_batch_pass()``
+      when a batch completes and more remain — this resets the stage fail-counter
+      so multi-batch progress doesn't prematurely exhaust the retry limit.
+    * ``savepoint_file()`` writes the four task lists to a JSON checkpoint under
+      the UCAgent working directory so runs can be inspected and resumed.
     """
 
     def __init__(self, name: str, checker: Checker) -> None:
         """Initialize the batch task manager.
 
         Args:
-            name: Name identifier for the task type.
-            checker: The checker instance associated with these tasks.
+            name: Name identifier for the task type (used in log messages and
+                  checkpoint filenames).
+            checker: The checker instance that owns this batch task.
+                     Must have a ``batch_size`` attribute.
         """
         self.name = name
         self.checker = checker
@@ -490,6 +594,7 @@ class UnityChipBatchTask:
         self.cmp_task_list = []  # Completed task list
         self.source_task_list = []  # Source task list (ground truth)
         self.gen_task_list = []  # Generated task list (actual results)
+        self.checkpoint_file = None
         checker.add_cb(CB_KEY_SET_STAGE, lambda c: self.on_init())
         assert hasattr(checker, "batch_size")
 
@@ -501,6 +606,8 @@ class UnityChipBatchTask:
 
     def savepoint_file(self):
         fpath = self.checkpoint_file
+        if not fpath:
+            return
         fdirname = os.path.dirname(fpath)
         if not os.path.exists(fdirname):
             os.makedirs(fdirname, exist_ok=True)
@@ -516,6 +623,9 @@ class UnityChipBatchTask:
 
     def loadpoint_file(self):
         fpath = self.checkpoint_file
+        if not fpath:
+            warning(f"{self.name} No checkpoint file path, skip loading checkpoint.")
+            return False
         if not os.path.isfile(fpath):
             return False
         try:
@@ -703,13 +813,6 @@ class UnityChipBatchTask:
                 return True, "Complete success."
             return True, {"success": f"All {self.name} are done, call `Complete` to next stage."}
 
-        if is_complete:
-            return False, (
-                f"Not all '{self.name}' in this batch have been completed ({self.get_process_str()}). "
-                f"If the quantity meets the requirements, but still show this error, it's because the '{self.name}' you have implemented is not all essential. "
-                f"{', '.join(self.tbd_task_list)} are still to be done.{exmsg}"
-            )
-
         # Update completed task list
         for task in self.tbd_task_list:
             if task in self.gen_task_list and task not in self.cmp_task_list:
@@ -753,7 +856,10 @@ class UnityChipBatchTask:
 
         # Check if all tasks are done
         if self.update_current_tbd():
-            success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
+            if is_complete:
+                success_msg["success"] += f" All {self.name} are done, complete success."
+            else:
+                success_msg["success"] += f" All {self.name} are done, call `Complete` to next stage."
             return True, success_msg
         else:
             success_msg["success"] += (
@@ -816,7 +922,6 @@ class OrginFileMustExistChecker(Checker):
             self.stage_manager.agent.exit()
             error(f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}.")
             sys.exit(1)
-            assert False, f"File(s) {', '.join(file_not_exist)} do not exist in workspace {self.workspace}."
         return self
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:

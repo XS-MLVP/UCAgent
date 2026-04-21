@@ -5,22 +5,34 @@ from __future__ import annotations
 import logging
 import queue
 import traceback
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .app import VerifyApp
+    from ucagent.verify_pdb import VerifyPDB
 
 
 class ConsoleCapture:
     """Thread-safe stdout/stderr capture using queue.SimpleQueue."""
 
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            vpdb: "VerifyPDB | None" = None,
+            *,
+            record_to_vpdb: bool = True,
+    ) -> None:
         self._queue: queue.SimpleQueue[str] = queue.SimpleQueue()
+        self._history: list[str] = []
+        self._vpdb = vpdb
+        self._record_to_vpdb = record_to_vpdb
 
     def write(self, text: str) -> int:
         if not text:
             return 0
         self._queue.put_nowait(text)
+        self._history.append(text)
+        if self._record_to_vpdb and self._vpdb is not None:
+            self._vpdb.record_console_output(text)
         return len(text)
 
     def flush(self) -> None:
@@ -35,8 +47,50 @@ class ConsoleCapture:
                 break
         return "".join(items)
 
+    def get_history(self) -> str:
+        return "".join(self._history)
+
     def isatty(self) -> bool:
         return False
+
+
+class PersistentConsoleMirror:
+    """Forward stdout/stderr to the real stream while recording shared console history."""
+
+    def __init__(self, vpdb: "VerifyPDB", original: Any) -> None:
+        self._vpdb = vpdb
+        while isinstance(original, PersistentConsoleMirror):
+            original = original._original
+        self._original = original
+        self.encoding = getattr(self._original, "encoding", "utf-8")
+        self.errors = getattr(self._original, "errors", "replace")
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        if self._vpdb.should_record_console_output():
+            self._vpdb.record_console_output(text)
+        return self._original.write(text)
+
+    def flush(self) -> None:
+        flush = getattr(self._original, "flush", None)
+        if callable(flush):
+            flush()
+
+    def isatty(self) -> bool:
+        isatty = getattr(self._original, "isatty", None)
+        if callable(isatty):
+            return bool(isatty())
+        return False
+
+    def fileno(self) -> int:
+        fileno = getattr(self._original, "fileno", None)
+        if callable(fileno):
+            return fileno()
+        raise OSError("Underlying stream does not support fileno()")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._original, name)
 
 
 class UIMsgLogger(logging.Logger):
@@ -47,7 +101,6 @@ class UIMsgLogger(logging.Logger):
     flow. This is necessary because uvicorn's AccessFormatter expects
     specific log record attributes that normal log records don't have.
 
-    This implementation matches verify_ui.py's UIMsgLogger.
     """
 
     def __init__(self, ui: "VerifyApp", level: int | str = logging.INFO) -> None:

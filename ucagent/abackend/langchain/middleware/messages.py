@@ -18,6 +18,7 @@ from langgraph.graph.message import (
 from typing_extensions import override
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
+from langchain.agents.middleware import SummarizationMiddleware
 
 from ucagent.util.functions import fill_dlist_none
 from ucagent.util.log import warning, info
@@ -27,7 +28,6 @@ from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.messages import AIMessage, RemoveMessage, BaseMessage
 from langchain_core.callbacks import BaseCallbackHandler
 from langmem.short_term import SummarizationNode
-from langgraph.prebuilt.chat_agent_executor import AgentState
 from typing import Any, Dict, Union
 from pydantic import BaseModel
 import time
@@ -247,30 +247,74 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         self.summary_data = []
         self.model = model
         self.arbit_summary_data = None
+        self._is_reset_chat = False
+        self._is_reset_force = False
+        self.system_message = None
+
+    def reset_chat(self, force=False):
+        self._is_reset_chat = True
+        self._is_reset_force = force
+        return self
+
+    def set_system_message(self, system_message: SystemMessage):
+        self.system_message = system_message
+        return self
+
+    @override
+    async def abefore_model(self, state, runtime) -> dict[str, Any] | None:
+        return self.before_model(state)
 
     @override
     def before_model(self, state: AgentState[Any]) -> dict[str, Any] | None:
         fix_tool_call_args(state)
         messages = state["messages"]
         role_info = messages[:1]
+        if self.system_message and role_info and role_info[0].type != "system":
+            warning("System message is missing, adding it back to the context.")
+            role_info = [self.system_message]
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
         ret = {}
-        current_token_size = count_tokens_approximately(messages)
-        is_exceed = current_token_size > self.max_tokens
-        if self.arbit_summary_data is None:
+        if self._is_reset_chat:
+            self.summary_data = []
+            # Remove all previous messages except system message and the most recent Human/Tool message
+            tail_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - 2))
+            # Ensure tail_msgs starts with a HumanMessage: some LLM APIs (e.g. Anthropic) require
+            # the first non-system message to be a human/user message. _find_safe_cutoff_point may
+            # backtrack past a HumanMessage to keep AIMessage/ToolMessage pairs together, leaving
+            # tail_msgs starting with an AIMessage which causes "No generations found in stream".
+            humam_msg_index = max(0, tail_index)
+            while humam_msg_index > 0 and not isinstance(llm_input_msgs[humam_msg_index], HumanMessage):
+                humam_msg_index -= 1
+            humam_msg_index = max(0, humam_msg_index)
+            tail_msgs = llm_input_msgs[tail_index:]
+            if humam_msg_index < tail_index:
+                tail_msgs = [llm_input_msgs[humam_msg_index], *tail_msgs]
+            if self._is_reset_force:
+                # find the last HumanMessage
+                force_human_list = -1
+                for i in range(len(tail_msgs)-1, -1, -1):
+                    if isinstance(tail_msgs[i], HumanMessage):
+                        force_human_list = i
+                        break
+                if force_human_list >= 0:
+                    tail_msgs = [tail_msgs[force_human_list]]
+                else:
+                    warning(f"No HumanMessage found in tails messages (size={len(tail_msgs)}), cannot force reset to human message, falling back to normal behavior.")
+            ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + tail_msgs
+            warning(f"Chat reset [force={self._is_reset_force}], all messages ({len(llm_input_msgs) - len(tail_msgs)}) messages are removed except system and the most recent {len(tail_msgs)} messages.")
+            self._is_reset_chat = False
+            self._is_reset_force = False
+        elif self.arbit_summary_data is None:
+            current_token_size = count_tokens_approximately(messages)
+            is_exceed = current_token_size > self.max_tokens
             if len(llm_input_msgs) > self.max_keep_msgs or is_exceed:
                 if (is_exceed):
                     warning(f"Messages token size {current_token_size} exceed max tokens {self.max_tokens}.")
-                # get init start index
-                tail_msgs_start_index = (-self.tail_keep_msgs) % len(llm_input_msgs)
-                start_msg = llm_input_msgs[tail_msgs_start_index]
-                # search for the last not tool message
-                while start_msg.type == "tool" and tail_msgs_start_index > 0:
-                    tail_msgs_start_index -= 1
-                    start_msg = llm_input_msgs[tail_msgs_start_index]
-                tail_msgs = llm_input_msgs[tail_msgs_start_index:]
+                # get tail start index
+                tail_msgs_start_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - self.tail_keep_msgs))
                 if tail_msgs_start_index > 0:
+                    tail_msgs = llm_input_msgs[tail_msgs_start_index:]
                     self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
                     warning(f"Trimmed { tail_msgs_start_index-1 } messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
                     ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + self.summary_data + tail_msgs

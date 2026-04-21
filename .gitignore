@@ -21,6 +21,7 @@ __pycache__/
 *$py.class
 pytest.ini
 .pytest_cache/
+.codex
 
 # C extensions
 *.so
