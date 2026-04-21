@@ -16,47 +16,15 @@ while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root,
     _root = os.path.dirname(_root)
 if _root not in sys.path:
     sys.path.insert(0, _root)
-
-from ucagent.lang.zh.skills.formal.lib import FormalPaths
+from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
+from ucagent.lang.zh.skills.formal.lib.formal_tools import (
+    strip_prop_prefix,
+    extract_rtl_bug_from_analysis_doc,
+    backup_if_exists
+)
 from ucagent.util.log import str_error, str_info
-
-
-
-
-
-def _strip_prop_prefix(prop_name: str) -> str:
-    for prefix in ("A_CK_", "M_CK_", "C_CK_", "CK_", "A_", "M_", "C_"):
-        if prop_name.startswith(prefix):
-            return prop_name[len(prefix):]
-    return prop_name
-
-
-def _extract_rtl_bug_from_analysis_doc(analysis_path: str):
-    if not os.path.exists(analysis_path):
-        return []
-    with open(analysis_path, "r", encoding="utf-8", errors="ignore") as f:
-        content = f.read()
-    fa_pattern = re.compile(
-        r"###\s*<(FA-\d+)>\s*(\S+)\s*\n(.*?)(?=###\s*<(?:TT|FA)-\d+>|^---$|^##\s\d+\.|\Z)",
-        re.DOTALL | re.MULTILINE,
-    )
-    bugs = []
-    for m in fa_pattern.finditer(content):
-        fa_id, prop_name, body = m.group(1), m.group(2), m.group(3)
-        res_match = re.search(r"\*\*解决状态\*\*\s*:\s*(.+)", body)
-        resolution = res_match.group(1).strip().upper() if res_match else ""
-        if resolution == "RTL_BUG":
-            bugs.append((fa_id, prop_name))
-    return sorted(bugs, key=lambda x: x[0])
-
-
-def _backup_if_exists(filepath: str) -> None:
-    if os.path.exists(filepath):
-        shutil.copy2(filepath, filepath + ".bak")
-
-
 def _render_bug_entry(idx: int, fa_id: str, prop_name: str) -> str:
-    ck_part = _strip_prop_prefix(prop_name)
+    ck_part = strip_prop_prefix(prop_name)
     bg_name = f"BG-FORMAL-{idx:03d}-{ck_part.replace('_', '-')}"
 
     return f"""## Failed Property: `{prop_name}`
@@ -119,8 +87,8 @@ def main() -> None:
         print(str_error(f"Error: Analysis doc not found at {res_analysis_path}"))
         return
 
-    rtl_bugs = _extract_rtl_bug_from_analysis_doc(res_analysis_path)
-    _backup_if_exists(res_output_path)
+    rtl_bugs = extract_rtl_bug_from_analysis_doc(res_analysis_path)
+    backup_if_exists(res_output_path)
     os.makedirs(os.path.dirname(res_output_path), exist_ok=True)
 
     lines = [f"# {dut_name} 形式化验证缺陷报告\n"]
@@ -139,7 +107,7 @@ def main() -> None:
             "|------|---------|----------|------|----------|--------|",
         ])
         for i, (fa_id, prop_name) in enumerate(rtl_bugs, start=1):
-            bg_name = f"BG-FORMAL-{i:03d}-{_strip_prop_prefix(prop_name).replace('_', '-')}"
+            bg_name = f"BG-FORMAL-{i:03d}-{strip_prop_prefix(prop_name).replace('_', '-')}"
             lines.append(f"| {i} | {bg_name} | {prop_name} | {fa_id} | [LLM-TODO] | [LLM-TODO] |")
         lines.extend([
             "",

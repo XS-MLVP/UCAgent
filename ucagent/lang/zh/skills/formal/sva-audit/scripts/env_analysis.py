@@ -17,41 +17,23 @@ while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root,
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from ucagent.lang.zh.skills.formal.lib import FormalPaths
+from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
+from ucagent.lang.zh.skills.formal.lib.formal_tools import (
+    parse_avis_log,
+    extract_property_code,
+    backup_if_exists
+)
 from ucagent.util.log import str_error, str_info
-from ucagent.lang.zh.skills.formal.lib import formal_adapter
 
 
 
 
 
-def _parse_avis_log(log_path: str) -> dict:
-    return formal_adapter.parse_log(log_path)
 
-
-def _extract_property_code(checker_content: str, prop_name: str) -> str:
-    if not checker_content:
-        return f"  // Property code unavailable for {prop_name}"
-    pattern = re.compile(
-        rf"(property\s+(?:(?:A|M|C)_)?{re.escape(prop_name)}[\s;].*?endproperty)",
-        re.DOTALL,
-    )
-    match = pattern.search(checker_content)
-    if match:
-        return "\n".join("  " + line for line in match.group(1).split("\n"))
-    for i, line in enumerate(checker_content.split("\n")):
-        if prop_name in line:
-            return "\n".join(checker_content.split("\n")[max(0, i - 2):i + 4])
-    return f"  // Property definition not found for {prop_name}"
-
-
-def _backup_if_exists(filepath: str) -> None:
-    if os.path.exists(filepath):
-        shutil.copy2(filepath, filepath + ".bak")
 
 
 def _render_tt_entry(idx: int, prop_name: str, checker_content: str) -> str:
-    sva_code = _extract_property_code(checker_content, prop_name)
+    sva_code = extract_property_code(checker_content, prop_name)
     return f"""### <TT-{idx:03d}> {prop_name}
 - **属性名**: {prop_name}
 - **SVA 代码**:
@@ -67,7 +49,7 @@ def _render_tt_entry(idx: int, prop_name: str, checker_content: str) -> str:
 
 
 def _render_fa_entry(idx: int, prop_name: str, prop_type: str, checker_content: str) -> str:
-    sva_code = _extract_property_code(checker_content, prop_name)
+    sva_code = extract_property_code(checker_content, prop_name)
     return f"""### <FA-{idx:03d}> {prop_name}
 - **属性名**: {prop_name}
 - **属性类型**: {prop_type}
@@ -90,8 +72,8 @@ def _run_init(dut_name: str, output_dir: str, log_path: str = None, output_path:
     if not os.path.exists(res_log_path):
         return str_error(f"Error: log file not found at {res_log_path}")
 
-    log_result = _parse_avis_log(res_log_path)
-    _backup_if_exists(res_output_path)
+    log_result = parse_avis_log(res_log_path)
+    backup_if_exists(res_output_path)
     os.makedirs(os.path.dirname(res_output_path), exist_ok=True)
 
     checker_content = ""
@@ -170,7 +152,7 @@ def _run_update(dut_name: str, output_dir: str) -> str:
     if not os.path.exists(doc_path):
         return str_error(f"Error: document not found at {doc_path}. Use init mode first.")
 
-    log_result = _parse_avis_log(log_path)
+    log_result = parse_avis_log(log_path)
     current_tt = set(log_result["trivially_true"])
     current_fa = set(log_result["false"]).union(set(log_result["cover_fail"]))
 
@@ -213,7 +195,7 @@ def _run_update(dut_name: str, output_dir: str) -> str:
         fa_additions.append(_render_fa_entry(next_fa_id, prop, ptype, checker_content))
         next_fa_id += 1
 
-    _backup_if_exists(doc_path)
+    backup_if_exists(doc_path)
     with open(doc_path, "a", encoding="utf-8") as f:
         f.write("\n\n")
         if tt_additions:

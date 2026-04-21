@@ -16,68 +16,15 @@ while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root,
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from ucagent.lang.zh.skills.formal.lib import FormalPaths
+from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
 from ucagent.util.log import str_error, str_info
-from ucagent.lang.zh.skills.formal.lib import formal_adapter
-from ucagent.lang.zh.skills.formal.lib import run_formal_verification, summarize_execution
+from ucagent.lang.zh.skills.formal.lib.formal_tools import run_formal_verification, summarize_execution
 
 
 
 
 
-def _run_formal_verification(tcl_path: str, timeout: int) -> dict:
-    exec_dir = os.path.dirname(tcl_path)
-    log_path = os.path.join(exec_dir, formal_adapter.log_filename())
-    cmd = formal_adapter.build_command(tcl_path, exec_dir)
 
-    try:
-        process = subprocess.run(
-            cmd,
-            cwd=exec_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except FileNotFoundError:
-        return {"success": False, "error": f"Command '{cmd[0]}' not found", "stdout": "", "stderr": "", "log_path": log_path, "parsed_log": None}
-    except subprocess.TimeoutExpired:
-        return {"success": False, "error": f"Timeout after {timeout} seconds", "stdout": "", "stderr": "", "log_path": log_path, "parsed_log": None}
-
-    if process.returncode != 0:
-        return {
-            "success": False,
-            "error": f"Return code {process.returncode}",
-            "stdout": process.stdout,
-            "stderr": process.stderr,
-            "log_path": log_path,
-            "parsed_log": None,
-        }
-
-    if not os.path.exists(log_path):
-        return {
-            "success": False,
-            "error": "Log not generated",
-            "stdout": process.stdout,
-            "stderr": process.stderr,
-            "log_path": log_path,
-            "parsed_log": None,
-        }
-
-    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-        log_content = f.read()
-    has_results = formal_adapter.validate_log_has_results(log_content)
-    parsed_log = formal_adapter.parse_log(log_path) if has_results else None
-
-    return {
-        "success": has_results,
-        "error": None if has_results else "No valid results in log",
-        "stdout": process.stdout,
-        "stderr": process.stderr,
-        "log_path": log_path,
-        "parsed_log": parsed_log,
-    }
 
 
 def main() -> None:
@@ -106,7 +53,7 @@ def main() -> None:
         print(result)
         return
 
-    res = _run_formal_verification(tcl_path, args.timeout)
+    res = run_formal_verification(tcl_path, args.timeout)
     if not res["success"]:
         if res["error"] and "not found" in res["error"]:
             result = str_error(f"❌ '{res['error']}', please ensure the tool is installed and in your PATH")
