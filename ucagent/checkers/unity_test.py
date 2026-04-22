@@ -583,16 +583,25 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         self.data_key = data_key
         assert self.data_key, "data_key is required."
         self.batch_size = batch_size
+        self.cached_ck_file_blocks = None
         self.batch_task = UnityChipBatchTask("check_points", self)
 
     def get_template_data(self):
-        return self.batch_task.get_template_data(
+        data = self.batch_task.get_template_data(
             "TOTAL_POINTS", "COMPLETED_POINTS", "LIST_CURRENT_POINTS"
         )
+        data["LIST_CK_FILE_BLOCKS"] = "Error: CK content not find"
+        if self.cached_ck_file_blocks:
+            data["LIST_CK_FILE_BLOCKS"] = fc.merge_file_blocks([{k:self.cached_ck_file_blocks.get(k, ["Error, file content not found"])} for k in data["LIST_CURRENT_POINTS"]])
+        return data
 
     def on_init(self):
         self.batch_task.source_task_list = self.smanager_get_value(self.data_key, [])
         self.batch_task.update_current_tbd()
+        try:
+            _, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 0, return_line_block=True)
+        except Exception as e:
+            warning(f"Error occurred while loading cached doc ck list from '{self.doc_file}': {str(e)}. Will not use cache and re-parse the document.")
         info(f"Load cached doc ck list(size={len(self.batch_task.source_task_list)}) from data key '{self.data_key}'.")
         return super().on_init()
 
@@ -601,7 +610,7 @@ class UnityChipCheckerCoverageGroupBatchImplementation(UnityChipCheckerCoverageG
         basic_pass, groups_or_msg = self.basic_check()
         if not basic_pass:
             return basic_pass, groups_or_msg
-        current_doc_ck_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1)
+        current_doc_ck_list, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_file), "CK", 1, return_line_block=True)
         note_msg = []
         self.batch_task.sync_source_task(
             current_doc_ck_list,
@@ -739,18 +748,22 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if hasattr(self, "batch_task"):
             data = self.batch_task.get_template_data("TOTAL_CKS", "COVERED_CKS", "LIST_CKS_TO_BE_COVERED")
             data["CASE_TESTS_COUNT"] = self.total_tests_count if hasattr(self, "total_tests_count") else "-"
+            data["LIST_CK_FILE_BLOCKS"] = "Error: CK content not find"
+            if hasattr(self, "cached_ck_file_blocks") and self.cached_ck_file_blocks is not None:
+                data["LIST_CK_FILE_BLOCKS"] = fc.merge_file_blocks([{k:self.cached_ck_file_blocks.get(k, ["Error, file content not found"])} for k in data["LIST_CKS_TO_BE_COVERED"]])
             return data
         return {
             "TOTAL_CKS":      "-",
             "COVERED_CKS":    "-",
             "LIST_CKS_TO_BE_COVERED": [],
             "CASE_TESTS_COUNT":    "-",
+            "LIST_CK_FILE_BLOCKS": "-",
         }
 
     def on_init(self):
         self.total_tests_count = 0
         self.batch_task = UnityChipBatchTask("check_points", self)
-        self.batch_task.source_task_list = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
+        self.batch_task.source_task_list, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK", return_line_block=True)
         self.batch_task.update_current_tbd()
         info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
         return super().on_init()

@@ -114,7 +114,7 @@ def _check_ck_paths_against_fc_doc(
     """
     errors: List[str] = []
 
-    ck_klist, _ = fc.nested_keys_as_list(data, "CK", _STATIC_KEYNAMES)
+    ck_klist, _, _ = fc.nested_keys_as_list(data, "CK", _STATIC_KEYNAMES)
     if not ck_klist:
         return errors  # no CK tags in static doc — nothing to cross-check
 
@@ -238,7 +238,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
             }
 
         # ── get all LINK-BUG leaf entries ────────────────────────────────────
-        klist, blist = fc.nested_keys_as_list(data, "LINK-BUG", _STATIC_KEYNAMES)
+        klist, blist, _ = fc.nested_keys_as_list(data, "LINK-BUG", _STATIC_KEYNAMES)
 
         # <BG-STATIC-NULL> has no LINK-BUG child, so it appears in blist.
         # Separate it from genuinely broken entries.
@@ -339,7 +339,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
         # ── FILE tag presence and format ──────────────────────────────────
         # LINK-BUG entries without FILE children appear in file_blist with
         # item[0] == "LINK-BUG"; BG-STATIC-NULL entries have item[0] == "BG-STATIC"
-        file_klist, file_blist = fc.nested_keys_as_list(data, "FILE", _STATIC_KEYNAMES)
+        file_klist, file_blist, _ = fc.nested_keys_as_list(data, "FILE", _STATIC_KEYNAMES)
         for _, path, _ in (item for item in file_blist if item[0] == "LINK-BUG"):
             errors.append(
                 f"LINK-BUG '{path}': missing required <FILE-*> child tag. "
@@ -456,7 +456,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
                 ],
             }
 
-        klist, blist = fc.nested_keys_as_list(data, "LINK-BUG", _STATIC_KEYNAMES)
+        klist, blist, _ = fc.nested_keys_as_list(data, "LINK-BUG", _STATIC_KEYNAMES)
 
         null_entries = [item for item in blist if item[1].split("/")[-1] == _NULL_SENTINEL_KEY]
         real_broken  = [item for item in blist if item[1].split("/")[-1] != _NULL_SENTINEL_KEY]
@@ -543,7 +543,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
             for m in _RE_BRACKET_TAG.finditer(link_key):
                 confirmed_refs.append((m.group(1).upper(), 0))
         # ── FILE tag presence and format ──────────────────────────────────
-        file_klist, file_blist = fc.nested_keys_as_list(data, "FILE", _STATIC_KEYNAMES)
+        file_klist, file_blist, _ = fc.nested_keys_as_list(data, "FILE", _STATIC_KEYNAMES)
         for _, path, _ in (item for item in file_blist if item[0] == "LINK-BUG"):
             errors.append(
                 f"LINK-BUG '{path}': missing required <FILE-*> child tag. "

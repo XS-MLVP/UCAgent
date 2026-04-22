@@ -454,7 +454,7 @@ stage:
             desc: "分批功能点检查函数实现[{COMPLETED_POINTS}/{TOTAL_POINTS}]"
             task:
               - "第1步：理解功能点<FC-*>和检测点<CK-*>的预期行为"
-              - "第2步：实现以下检查点与对应检查方法": "{LIST_CURRENT_POINTS}"
+              - "第2步：需要为以下检查点实现检查函数": "{LIST_CURRENT_POINTS}"
               - "第3步：使用lambda函数实现检查逻辑，传递引用参数(dut对象)"
               - "第4步：如果检查函数过于复杂，lambda函数可以用普通函数替代"
               - "第5步：如果多个检查函数有公共检查部分，也可以把公共部分实现为普通函数"
@@ -465,6 +465,7 @@ stage:
               - " - 确保代码有注释，便于理解和维护"
               - " - 检查函数要使用dut对象引用，不要用值(如dut而不是dut.a.value)"
               - " - 如果没有明确要求，请基于DUT的引脚进行检查，一定不要尝试获取DUT的内部信号状态（内部状态或者功能不属于DUT需要验证的功能点）"
+              - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
             checker:
             - name: batch_coverage_points_implementation_check
               clss: "UnityChipCheckerCoverageGroupBatchImplementation"
@@ -476,7 +477,6 @@ stage:
                 data_key: "COVER_GROUP_DOC_CK_LIST"
             reference_files:
               - "Guide_Doc/dut_function_coverage_def.md"
-              - "{OUT}/{DUT}_functions_and_checks.md"
     output_files:
       - "{OUT}/tests/{DUT}_function_coverage_def.py"
 
@@ -794,7 +794,7 @@ stage:
     need_pass_llm_suggestion: false
     task:
       - "目标：创建测试用例模板(因为该阶段API测试已完成，请排除API测试对应模板创建)，为实际测试做准备"
-      - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md的所有测试点"
+      - "第1步：分析功能文档{OUT}/{DUT}_functions_and_checks.md中的以下测试点": "{LIST_CKS_TO_BE_COVERED}"
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
       - "  - 0) 每个测试文件开头都需要用 from {DUT}_api import * 来导入env(pytest fixture)"
@@ -816,7 +816,7 @@ stage:
       - "  - 该阶段不会生成有效代码行覆盖率数据、测试报告等，因此请忽略相关错误提示"
       - "  - 若存在{OUT}/{DUT}_static_bug_analysis.md，请优先为其中高/中置信度潜在Bug（<BG-STATIC-*>）创建针对性测试用例模板"
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
-      - "分批次创建测试模板来覆盖检测点，当前你至少需要覆盖的测试点有": "{LIST_CKS_TO_BE_COVERED}"
+      - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
     checker:
       - name: no_conftest_file

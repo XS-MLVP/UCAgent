@@ -174,14 +174,14 @@ def str_replace_to(text: str, old: list, new: str) -> str:
 
 
 def nested_keys_as_list(
-    ndata: dict, leaf: str, keynames: List[str], ex_ignore_names=["line"]
+    ndata: dict, leaf: str, keynames: List[str], ex_ignore_names=["line", "pline", "nline"]
 ) -> Tuple[List[str], List[str]]:
     """Convert nested dictionary keys to a list of paths up to a specified leaf node."""
     broken_leaf = []
-
     def _nest_dict_leafs(
         data,
         ret_list,
+        ret_map,
         prefix="",
         stop_key="",
         leaf_key="",
@@ -189,6 +189,7 @@ def nested_keys_as_list(
         parent_key="",
     ):
         child_count = [len(data[k]) for k in data.keys() if not k in ex_ignore_names]
+        is_processed = False
         for key, value in data.items():
             if isinstance(value, dict):
                 new_prefix = f"{prefix}/{key}" if prefix else key
@@ -199,34 +200,40 @@ def nested_keys_as_list(
                     _nest_dict_leafs(
                         value,
                         ret_list,
+                        ret_map,
                         new_prefix,
                         stop_key,
                         leaf_key,
                         ignore_keys,
                         parent_key,
                     )
-            else:
+            elif not is_processed:
                 new_prefix = prefix
                 if key not in ignore_keys:
                     new_prefix = f"{prefix}/{key}" if prefix else key
                 if parent_key == leaf_key:
                     ret_list.append(f"{new_prefix}")
+                    ret_map[new_prefix] = data
+                    is_processed = True
                 else:
                     if child_count and child_count[0] < 1:
                         broken_leaf.append((parent_key, new_prefix, value))
+                        is_processed = True
 
     ret_data = []
+    ret_lblock = OrderedDict()
     stop_keys = keynames + [""]
     stop_key_map = {k: stop_keys[i + 1] for i, k in enumerate(keynames)}
     _nest_dict_leafs(
         ndata,
         ret_data,
+        ret_lblock,
         stop_key=stop_key_map[leaf],
         leaf_key=leaf,
         ignore_keys=keynames + ex_ignore_names,
         parent_key=keynames[0],
     )
-    return ret_data, broken_leaf
+    return ret_data, broken_leaf, ret_lblock
 
 
 def parse_nested_keys(
@@ -243,7 +250,7 @@ def parse_nested_keys(
     assert len(prefix_list) == len(subfix_list), "Prefix and subfix lists must have the same length."
     assert len(prefix_list) == len(keyname_list), "Prefix and keyname lists must have the same length."
     pre_values = [None] * len(prefix_list)
-    key_dict = {}
+    key_dict = OrderedDict()
     def get_pod_next_key(i: int):
         nkey = keyname_list[i + 1] if i < len(keyname_list) - 1 else None
         if i == 0:
@@ -255,6 +262,7 @@ def parse_nested_keys(
     with open(target_file, 'r') as f:
         index = 1
         lines = f.readlines()
+        pre_pod = {}
         for line in lines:
             line = str_remove_blank(line.strip())
             for i, key in enumerate(keyname_list):
@@ -276,7 +284,11 @@ def parse_nested_keys(
                         f"preceded by a '{pre_prf}' tag.\nCurrent line content: {line}"
                     )
                 assert current_key not in pod, f"At line ({index}): '{current_key}' is defined multiple times."
-                pod[current_key] = {"line": index}
+                pline = pre_pod.get("line", index - 5) # default 5 lines before if no previous pod
+                pod[current_key] = {"line": index, "pline": pline, "nline": index + 5} # default 5 more lines for a node
+                if pre_pod:
+                    pre_pod["nline"] = index
+                pre_pod = pod[current_key]
                 if next_key is not None:
                     pod[current_key][next_key] = {}
                 pre_values[i] = pod[current_key]
@@ -512,15 +524,14 @@ def get_toffee_json_test_case(workspace: str, item: dict) -> str:
     return ret
 
 
-def get_unity_chip_doc_marks(
-    path: str, leaf_node: str, mini_leaf_count: int = 0, error_char_list=["*", "?"]
-) -> list:
+def get_unity_chip_doc_marks(path: str, leaf_node: str, mini_leaf_count: int = 0, error_char_list=["*", "?"], return_line_block: bool = False):
     """
     Get the Unity chip documentation marks from a file.
     :param path: Path to the file containing Unity chip documentation.
     :param leaf_node: The leaf node type to consider in the documentation hierarchy.
     :param mini_leaf_count: The minimum number of leaf nodes required.
-    :return: key_name_list.
+    :return: key_name_list
+    :return: key_name_list, key_line_blocks
     """
     keynames = ["FG", "FC", "CK", "BG", "TC"]
     assert leaf_node in keynames, f"Invalid leaf_node '{leaf_node}'. Must be one of {keynames}."
@@ -528,7 +539,7 @@ def get_unity_chip_doc_marks(
     subfix   = [">"]* len(prefix)
     data = parse_nested_keys(path, keynames, prefix, subfix)
     tindex = keynames.index(leaf_node)
-    klist, blist = nested_keys_as_list(data, leaf_node, keynames, ex_ignore_names=["line"])
+    klist, blist, klines = nested_keys_as_list(data, leaf_node, keynames)
     assert len(klist) >= mini_leaf_count, f"Need {mini_leaf_count} {leaf_node} at least, but find {len(klist)}"
     fmsg = ", ".join([f"{b[1]} at line {b[2]} need sub node '<{leaf_node}-*>'" for b in blist])
     assert len(blist) == 0, f"Incomplete label '<{leaf_node}-*>' detected: `{fmsg}`, delete the incomplete labels or fix it according to the format requirements: " + \
@@ -544,7 +555,69 @@ def get_unity_chip_doc_marks(
         invalid_char_keys = ", ".join(invalid_char_keys)
         finded_keys = ", ".join(finded_keys)
         raise ValueError(f"Invalid characters {finded_keys} found in keys: {invalid_char_keys}")
-    return klist
+    if not return_line_block:
+        return klist
+    return klist, get_file_blocks(path, klines)
+
+
+def get_file_blocks(file_path: str, line_info) -> dict:
+    blocks = OrderedDict()
+    with open(file_path, "r") as f:
+        lines = f.read().splitlines()
+        for k, v in line_info.items():
+            blocks[k] = []
+            line = v.get("line", -1)
+            if line < 0:
+                continue
+            pline = v.get("pline", line)
+            nline = v.get("nline", line)
+            nsize = max(1, nline - pline + 1)
+            lnfmt = f"%0" + str(max(len(str(nline)), len(str(pline)))) + "d: %s"
+            for i, l in enumerate(lines[pline - 1: pline - 1 + nsize]):
+                if i == 0 and pline != line:
+                    l = "..."
+                if i == (nsize - 1) and nline != line:
+                    l = "..."
+                blocks[k].append(lnfmt % (i + pline, l))
+    return blocks
+
+
+def merge_file_blocks(blocks: list) -> list:
+    if len(blocks) < 2:
+        return blocks
+    line_content = {}
+    for block in blocks:
+        for lines in block.values():
+            for line in lines:
+                if ": " in line:
+                    n, c = line.split(": ", 1)
+                    if c != "...":
+                        line_content[int(n)] = line
+    recorded_lines = set()
+    result = []
+    for block in blocks:
+        for key, lines in block.items():
+            new_lines = []
+            no_list = []
+            for line in lines:
+                if ": " in line:
+                    n, _ = line.split(": ", 1)
+                    n = int(n)
+                    no_list.append(n)
+                    if n in recorded_lines:
+                        continue
+                    recorded_lines.add(n)
+                    new_lines.append(line_content.get(n, line))
+                else:
+                    new_lines.append(line)
+            if new_lines:
+                mean_value = -1
+                if no_list:
+                    mean_value = no_list[len(no_list) // 2]
+                result.append(({key: new_lines}, mean_value))
+    # sort by mean line number
+    result.sort(key=lambda x: x[1])
+    return [result[0] for result in result]
 
 
 def rm_workspace_prefix(workspace: str, path: str) -> dict:
@@ -971,7 +1044,7 @@ def get_target_from_file(target_file, func_pattern, ex_python_path = [], dtype="
     :param func_pattern: Pattern to match object names. Can be:
                         - Exact string: "func_A1" or "ClassA"
                         - Glob pattern: "func_A*" or "Class*"
-                        - Regex pattern: r"func_[A-Z]\d+" or r"Class[A-Z]+"
+                        - Regex pattern: r"func_[A-Z]\\d+" or r"Class[A-Z]+"
     :param ex_python_path: Additional Python paths to add to sys.path for import.
     :param dtype: Type of objects to retrieve. Options:
                 - "FUNC": Only functions
