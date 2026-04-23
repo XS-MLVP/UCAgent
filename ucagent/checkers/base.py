@@ -33,7 +33,89 @@ class Checker:
     _is_init = False
     _need_human_check = False
     _cb_list = {}
+    _ld_preload_so = None  # Path to .so file for LD_PRELOAD isolation
 
+    def set_ld_preload(self, so_file):
+        """Set the LD_PRELOAD .so file path for isolated execution.
+
+        When set, safe_inspect_funcs() will use a subprocess with LD_PRELOAD
+        for importing files that depend on .so libraries, and _get_pytest_ex_env()
+        will include LD_PRELOAD for pytest subprocess execution.
+        """
+        if so_file:
+            self._ld_preload_so = os.path.abspath(so_file)
+        return self
+
+    def _get_pytest_ex_env(self):
+        """Return environment variables dict for pytest subprocess execution.
+
+        Includes LD_PRELOAD when configured, enabling pytest to load .so libraries.
+        """
+        if self._ld_preload_so:
+            return {"LD_PRELOAD": self._ld_preload_so}
+        return {}
+
+    def safe_inspect_funcs(self, target_file, func_pattern, **kw):
+        """Import-safe function inspection — delegates to subprocess when LD_PRELOAD is needed.
+
+        When _ld_preload_so is set, inspects functions in an isolated subprocess
+        with LD_PRELOAD using the existing 'random_funcs' infrastructure.
+        Otherwise, falls back to direct fc.get_target_from_file().
+
+        Returns:
+            list of dicts: [{"name": str, "args": [str], "source": str}, ...]
+        """
+        if self._ld_preload_so:
+            from ucagent.checkers.scripts.common import run_isolated_check_json
+            passed, result = run_isolated_check_json(
+                checker_type="random_funcs",
+                check_kwargs={
+                    "target_file": target_file,
+                    "workspace": self.workspace,
+                    "func_pattern": func_pattern,
+                },
+                workspace=self.workspace,
+                so_file=self._ld_preload_so,
+                timeout=kw.get("timeout", 30),
+            )
+            if not passed:
+                raise ImportError(result.get("error", "Unknown error during isolated function inspection"))
+            return result.get("functions", [])
+        else:
+            import inspect
+            func_list = fc.get_target_from_file(
+                target_file, func_pattern,
+                ex_python_path=self.workspace,
+                dtype="FUNC"
+            )
+            return [{"name": f.__name__, "args": fc.get_func_arg_list(f), "source": inspect.getsource(f)} for f in func_list]
+
+    def _run_stub_check(self, spec, direct_func):
+        """Run a check function — via isolated subprocess when LD_PRELOAD is needed.
+
+        For static analysis checkers that have get_stub_spec() and call check
+        functions which import .so files. When _ld_preload_so is set, routes
+        through run_isolated_check_json() (subprocess with LD_PRELOAD).
+        Otherwise calls direct_func directly in-process.
+
+        Args:
+            spec: dict from get_stub_spec() with "checker_type" and "check_kwargs"
+            direct_func: The check function to call directly when no LD_PRELOAD needed
+
+        Returns:
+            Tuple[bool, dict]: (success, result)
+        """
+        if self._ld_preload_so:
+            from ucagent.checkers.scripts.common import run_isolated_check_json
+            return run_isolated_check_json(
+                checker_type=spec["checker_type"],
+                check_kwargs=spec["check_kwargs"],
+                workspace=self.workspace,
+                so_file=self._ld_preload_so,
+                timeout=spec["check_kwargs"].get("timeout", 30),
+            )
+        else:
+            return direct_func(**spec["check_kwargs"])
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,
                        CB_KEY_ON_INIT,
@@ -259,6 +341,35 @@ class Checker:
                               and the second element is a message string.
         """
         raise NotImplementedError("This method should be implemented in a subclass.")
+
+    def get_stub_spec(self, workspace: str) -> dict | None:
+        """Get the execution specification for running this checker in an isolated subprocess.
+        
+        Subclasses that support isolated execution (e.g. ones that import DUT code
+        requiring static TLS and LD_PRELOAD) must override this method.
+        
+        Returns:
+            dict: {
+                "checker_type": str,       # e.g., "test_must_pass"
+                "check_kwargs": dict,      # typed arguments for the _check_xxx function
+            }
+            or None if the checker runs inline.
+        """
+        return None
+
+    def adapt_result(self, success: bool, result: dict) -> tuple[bool, object]:
+        """Adapt raw check result from _check_xxx to final format.
+
+        This method is called by both execution paths:
+        - Direct call path: do_check() calls _check_xxx(), then adapt_result()
+        - Isolated path: vstage runs subprocess, then calls adapt_result()
+
+        Default implementation passes through the result unchanged.
+        Subclasses override to add state management (batch_task sync, error mapping, etc.).
+        """
+        if not success:
+            return False, result
+        return True, result.get("result", result)
 
     def __str__(self):
         assert self.do_check.__doc__, f"No description provided for this checker({self.__class__.__name__})."

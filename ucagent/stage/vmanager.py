@@ -396,6 +396,16 @@ class StageManager(object):
         self.force_todo = force_todo
         self.todo_panel = todo_panel
         self.free_pytest_run = UnityChipCheckerTestFree("", cfg.tools.RunTestCases.test_dir, "").set_workspace(workspace)
+        # Build LD_PRELOAD env for free pytest runner (used by RunTestCases tool)
+        self._free_pytest_ld_env = {}
+        check_script_env = getattr(cfg, "check_script_env", None)
+        if check_script_env:
+            from ucagent.checkers.scripts.common import _build_ld_preload
+            ld_preload = _build_ld_preload(check_script_env)
+            self._free_pytest_ld_env = {
+                "LD_PRELOAD": ld_preload,
+                "_LD_PRELOAD_HANDLED": "1"
+            }
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
@@ -821,7 +831,7 @@ class StageManager(object):
             "check_pass": ck_pass,
         })
         if not ck_pass:
-            ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            ret_data["action"] = "Please fix the issues reported in 'check_info' for failed checkers, then use the `Check` tool again to re-validate your work."
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
@@ -1081,7 +1091,10 @@ class StageManager(object):
         Run test cases.
         This tool is used to execute the test cases in the workspace.
         """
-        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail)
+        kw = {}
+        if self._free_pytest_ld_env:
+            kw["pytest_ex_env"] = self._free_pytest_ld_env
+        ret = self.free_pytest_run.do_check(pytest_args, timeout=timeout, return_line_coverage=return_line_coverage, detail=detail, **kw)
         if raw_return:
             return ret
         ret = make_llm_tool_ret(ret[1])

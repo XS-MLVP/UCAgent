@@ -531,6 +531,17 @@ def get_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--check-script-env",
+        dest="check_script_env",
+        type=str,
+        default=None,
+        help=("Path to a shared library (.so) that will be set as LD_PRELOAD before "
+              "running checker subprocesses. Required when the DUT Python package "
+              "embeds a VCS/Verilator .so with static TLS requirements (e.g. "
+              "output/Adder/_tlm_pbsb.so).")
+    )
+
+    parser.add_argument(
         "--web-console-session-host",
         type=str,
         default=None,
@@ -863,6 +874,7 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
+        check_script_env=args.check_script_env,
     )
     if args.web_console_session_host is not None or \
        args.web_console_session_port is not None:
