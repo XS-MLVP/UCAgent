@@ -117,11 +117,14 @@ openai:
 
 # export ANTHROPIC_API_KEY="your-api-key"
 anthropic:
-  model: "$(ANTHROPIC_MODEL: claude-3-7-sonnet-20250219)"
+  model_name: "$(ANTHROPIC_MODEL: claude-3-7-sonnet-20250219)"
+  base_url: "$(ANTHROPIC_BASE_URL: http://<your_anthropic_model_url>/v1)"
+  api_key: "$(ANTHROPIC_AUTH_TOKEN: [your_api_key])"
 
 # export GOOGLE_GENAI_API_KEY="your-api-key"
 google_genai:
   model: "$(GOOGLE_GENAI_MODEL: gemini-2.5-pro)"
+  api_key: "$(GOOGLE_GENAI_API_KEY: [your_api_key])"
 
 embed:
   model_name: "$(EMBED_MODEL: <your_embedding_model_name>)"
