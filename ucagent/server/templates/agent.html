@@ -998,6 +998,25 @@ function _stageTaskJournalValue(payload,detail,task){
   ]);
 }
 
+function _stageTaskLastCheckInfoValue(payload,detail,task){
+  return _stageTaskFirstNonEmpty([
+    payload.last_do_check_info,
+    detail.last_do_check_info,
+    task.last_do_check_info
+  ]);
+}
+
+function _stageTaskLastCheckMarkdown(payload,detail,task){
+  const info=_stageTaskLastCheckInfoValue(payload,detail,task);
+  if(_stageTaskIsEmpty(info))return "## Last Check Results\n\n_None_\n\n";
+  const fail=info.fail??info.last_fail??info.failed??info.failure;
+  const pass=info.pass??info.last_pass??info.passed??info.success;
+  let md="## Last Check Results\n\n";
+  md+=`### Last Fail\n\n${_stageTaskValueMarkdown(fail)}\n\n`;
+  md+=`### Last Pass\n\n${_stageTaskValueMarkdown(pass)}\n\n`;
+  return md;
+}
+
 function _stageTaskDescriptionMarkdown(task,heading){
   if(!task||_stageTaskIsEmpty(task.description))return "";
   let md=`## ${heading}\n\n`;
@@ -1023,6 +1042,7 @@ function _stageTaskDetailToMarkdown(data,stageIndex){
     md+="\n";
   }
   if(task.upper_task)md+=_stageTaskDescriptionMarkdown(task.upper_task,"Upper Task");
+  md+=_stageTaskLastCheckMarkdown(payload,detail,task);
   md+=`## Stage Journal\n\n${_stageTaskValueMarkdown(_stageTaskJournalValue(payload,detail,task))}\n\n`;
   return md.trim()||"(empty task detail)";
 }

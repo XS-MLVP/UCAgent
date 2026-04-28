@@ -106,6 +106,8 @@ class VerifyStage(object):
         self.vmanager = None
         self.meta_data = {}
         self._cached_stage_outcome = None
+        self.last_do_check_info_fail = None
+        self.last_do_check_info_pass = None
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
@@ -446,7 +448,24 @@ class VerifyStage(object):
         """
         return self._hum_check_passed, self._hum_check_msg
 
+    def get_last_do_check_info(self):
+        """
+        Get the last check result info of this stage.
+        """
+        return {
+            "pass": self.last_do_check_info_pass,
+            "fail": self.last_do_check_info_fail,
+        }
+
     def do_check(self, *a, **kwargs):
+        ck_pass, ck_info = self._do_check(*a, **kwargs)
+        if ck_pass:
+            self.last_do_check_info_pass =  ck_info
+        else:
+            self.last_do_check_info_fail = ck_info
+        return ck_pass, ck_info
+
+    def _do_check(self, *a, **kwargs):
         if self.cfg.skill.use_skill and self.skill_list:
             for k,[u,v,w] in self.skill_list.items():
                 if u and v and w:

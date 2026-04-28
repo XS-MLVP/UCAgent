@@ -425,12 +425,18 @@ class PdbCmdApiServer:
             if isinstance(data, dict):
                 stage = pdb.agent.stage_manager.get_stage(index)
                 journal = stage.meta_get_journal() if stage else None
+                last_do_check_info = None
+                get_last_do_check_info = getattr(stage, "get_last_do_check_info", None) if stage else None
+                if callable(get_last_do_check_info):
+                    last_do_check_info = get_last_do_check_info()
                 data["journal"] = journal
                 data["StageJournal"] = journal
+                data["last_do_check_info"] = last_do_check_info
                 detail = data.get("detail")
                 if isinstance(detail, dict):
                     detail["journal"] = journal
                     detail["StageJournal"] = journal
+                    detail["last_do_check_info"] = last_do_check_info
             return data
 
         # ── GET /api/task/{index} ──────────────────────────────────────
