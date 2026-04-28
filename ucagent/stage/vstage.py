@@ -459,10 +459,11 @@ class VerifyStage(object):
 
     def do_check(self, *a, **kwargs):
         ck_pass, ck_info = self._do_check(*a, **kwargs)
+        ck_info_snapshot = copy.deepcopy(ck_info)
         if ck_pass:
-            self.last_do_check_info_pass =  ck_info
+            self.last_do_check_info_pass = ck_info_snapshot
         else:
-            self.last_do_check_info_fail = ck_info
+            self.last_do_check_info_fail = ck_info_snapshot
         return ck_pass, ck_info
 
     def _do_check(self, *a, **kwargs):
