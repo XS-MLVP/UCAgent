@@ -81,6 +81,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-collapse-btn{cursor:pointer;color:var(--text-dim);font-size:10px;width:12px;flex-shrink:0;user-select:none}
 .stage-collapse-btn:hover{color:var(--accent)}
 .stage-text{padding:2px 0;flex:1;min-width:0;word-break:break-word}
+.stage-title-btn{background:none;border:none;color:inherit;font:inherit;font-family:var(--mono);line-height:inherit;text-align:left;cursor:pointer;white-space:pre-wrap;width:100%}
+.stage-title-btn:hover{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
 .stage-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0;margin-left:auto}
 .stage-quick-btn.active-hm{border-color:var(--red);color:var(--red)}
 .stage-quick-btn.active-skip{border-color:var(--yellow);color:var(--yellow)}
@@ -283,12 +285,14 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 #view-md a{color:var(--accent)}
 #view-md blockquote{border-left:3px solid var(--border);padding-left:12px;color:var(--text-dim);margin:8px 0}
 #view-md table{border-collapse:collapse;margin:8px 0;width:100%}
-#view-md th,#view-md td{border:1px solid var(--border);padding:5px 10px;text-align:left}
+#view-md th,#view-md td{border:1px solid var(--border);padding:5px 10px;text-align:left;white-space:normal;word-break:break-word}
 #view-md th{background:var(--bg3);color:var(--text-dim);font-size:12px}
 #view-md img{max-width:100%}
 #view-md ul,#view-md ol{padding-left:22px;margin:4px 0}
 #view-md li{margin:2px 0}
 #view-md hr{border:none;border-top:1px solid var(--border);margin:10px 0}
+.stage-task-meta{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px}
+.stage-task-pill{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:12px;color:var(--text-dim);font-size:11px;line-height:1.4;padding:2px 8px}
 /* ── hljs override ── */
 pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 </style>
@@ -884,6 +888,170 @@ function toggleStageQuickAction(stageIndex,key,currentValue){
   _postStageUpdate({indices:[stageIndex],[key]:!currentValue});
 }
 
+function _stageTaskPayload(data){
+  const payload=(data&&typeof data==="object")?data:{detail:data};
+  const detail=(payload.detail&&typeof payload.detail==="object")?payload.detail:payload;
+  const task=(detail.task&&typeof detail.task==="object")?detail.task:detail;
+  return {payload,detail,task};
+}
+
+function _stageTaskTitle(data,stageIndex){
+  const parts=_stageTaskPayload(data);
+  return parts.task.title||parts.detail.title||`Stage ${stageIndex} Task`;
+}
+
+function _stageTaskIsEmpty(value){
+  if(value===null||value===undefined||value==="")return true;
+  if(Array.isArray(value))return value.length===0;
+  if(typeof value==="object")return Object.keys(value).length===0;
+  return false;
+}
+
+function _stageTaskMdText(value){
+  return esc(String(value??"")).replace(/\r?\n/g," ");
+}
+
+function _stageTaskJsonBlock(value){
+  return "```json\n"+JSON.stringify(value,null,2)+"\n```";
+}
+
+function _stageTaskValueMarkdown(value){
+  if(_stageTaskIsEmpty(value))return "_None_";
+  if(Array.isArray(value)){
+    if(value.every(item=>typeof item==="string")){
+      return value.map(item=>String(item)).join("\n\n");
+    }
+    return value.map(item=>{
+      if(typeof item==="string")return "- "+item;
+      return _stageTaskJsonBlock(item);
+    }).join("\n\n");
+  }
+  if(typeof value==="object")return _stageTaskJsonBlock(value);
+  return String(value);
+}
+
+function _stageTaskCell(value){
+  if(Array.isArray(value)){
+    if(!value.length)return "_None_";
+    return value.map(item=>"`"+String(item).replace(/`/g,"\\`")+"`").join("<br>");
+  }
+  if(value&&typeof value==="object"){
+    return "`"+JSON.stringify(value).replace(/`/g,"\\`").replace(/\|/g,"\\|")+"`";
+  }
+  return _stageTaskMdText(value).replace(/\|/g,"\\|");
+}
+
+function _stageTaskCollectionMarkdown(title,value){
+  if(_stageTaskIsEmpty(value))return "";
+  let md=`## ${title}\n\n`;
+  if(Array.isArray(value)){
+    md+=value.map(item=>"- `"+String(item).replace(/`/g,"\\`")+"`").join("\n")+"\n\n";
+    return md;
+  }
+  if(typeof value==="object"){
+    md+="| Item | Value |\n| --- | --- |\n";
+    for(const [key,val] of Object.entries(value)){
+      md+=`| \`${String(key).replace(/`/g,"\\`").replace(/\|/g,"\\|")}\` | ${_stageTaskCell(val)} |\n`;
+    }
+    return md+"\n";
+  }
+  return md+String(value)+"\n\n";
+}
+
+function _stageTaskStatusMarkdown(payload,detail){
+  const items=[
+    ["Current",payload.is_current],
+    ["Reached",detail.reached],
+    ["Completed",detail.is_completed],
+    ["Check Pass",detail.check_pass],
+    ["Skipped",detail.is_skipped],
+    ["Human Check",detail.needs_human_check],
+    ["Fail Count",detail.fail_count]
+  ].filter(item=>item[1]!==undefined&&item[1]!==null);
+  if(!items.length)return "";
+  let html='<div class="stage-task-meta">';
+  for(const [label,value] of items){
+    html+=`<span class="stage-task-pill">${esc(label)}: ${esc(String(value))}</span>`;
+  }
+  html+="</div>\n\n";
+  return html;
+}
+
+function _stageTaskFirstNonEmpty(values){
+  for(const value of values){
+    if(!_stageTaskIsEmpty(value))return value;
+  }
+  return null;
+}
+
+function _stageTaskJournalValue(payload,detail,task){
+  return _stageTaskFirstNonEmpty([
+    payload.journal,
+    payload.StageJournal,
+    payload.stage_journal,
+    detail.journal,
+    detail.StageJournal,
+    detail.stage_journal,
+    task.journal,
+    task.StageJournal,
+    task.stage_journal
+  ]);
+}
+
+function _stageTaskDescriptionMarkdown(task,heading){
+  if(!task||_stageTaskIsEmpty(task.description))return "";
+  let md=`## ${heading}\n\n`;
+  if(task.title)md+=`**${_stageTaskMdText(task.title)}**\n\n`;
+  md+=_stageTaskValueMarkdown(task.description)+"\n\n";
+  return md;
+}
+
+function _stageTaskDetailToMarkdown(data,stageIndex){
+  const {payload,detail,task}=_stageTaskPayload(data);
+  let md=`# ${_stageTaskMdText(_stageTaskTitle(data,stageIndex))}\n\n`;
+  md+=_stageTaskStatusMarkdown(payload,detail);
+  md+=_stageTaskDescriptionMarkdown(task,"Task");
+  if(task.notes)md+=`## Notes\n\n${_stageTaskValueMarkdown(task.notes)}\n\n`;
+  md+=_stageTaskCollectionMarkdown("Reference Files",task.reference_files);
+  md+=_stageTaskCollectionMarkdown("Output Files",task.output_files);
+  md+=_stageTaskCollectionMarkdown("Skills",task.skill_list);
+  md+=_stageTaskCollectionMarkdown("Checkers",detail.checker);
+  if(detail.last_human_check_result!==undefined||detail.last_human_check_msg){
+    md+="## Last Human Check\n\n";
+    if(detail.last_human_check_result!==undefined)md+=`- Result: ${_stageTaskMdText(detail.last_human_check_result)}\n`;
+    if(detail.last_human_check_msg)md+=`- Message: ${_stageTaskMdText(detail.last_human_check_msg)}\n`;
+    md+="\n";
+  }
+  if(task.upper_task)md+=_stageTaskDescriptionMarkdown(task.upper_task,"Upper Task");
+  md+=`## Stage Journal\n\n${_stageTaskValueMarkdown(_stageTaskJournalValue(payload,detail,task))}\n\n`;
+  return md.trim()||"(empty task detail)";
+}
+
+async function openStageTask(stageIndex){
+  const body=qs("#view-body");
+  qs("#view-title").textContent=`Stage ${stageIndex} Task`;
+  qs("#view-raw-btn").style.display="none";
+  _viewIsRaw=false;
+  body.style.padding="0";
+  body.style.overflow="hidden";
+  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
+  openModal("view-modal");
+  try{
+    const j=await apiFetch("/api/stage/"+stageIndex+"/task");
+    const data=j.data;
+    if(typeof data==="string")throw new Error(data);
+    qs("#view-title").textContent=_stageTaskTitle(data,stageIndex);
+    _viewCurrentPath="";
+    _viewCurrentExt="md";
+    _viewCurrentContent=_stageTaskDetailToMarkdown(data,stageIndex);
+    body.innerHTML='<div id="view-md"></div>';
+    _renderViewMarkdown(_viewCurrentContent);
+  }catch(e){
+    body.innerHTML=`<div style="color:var(--red);padding:20px">${esc(e.message)}</div>`;
+  }
+  _applyStoredModalResize('view-modal');
+}
+
 async function fetchMission(){
   try{
     const j=await apiFetch("/api/mission");
@@ -923,7 +1091,7 @@ async function fetchMission(){
       }
       html+=`<div style="flex:1;min-width:0">`;
       html+=`<div class="stage-row">`;
-      html+=`<div class="stage-text">${_ansiToHtml(stage.text||"")}</div>`;
+      html+=`<button type="button" class="stage-text stage-title-btn" onclick="openStageTask(${stage.index})" title="View stage task detail">${_ansiToHtml(stage.text||"")}</button>`;
       if(canQuickEditFlags){
         html+=`<div class="stage-actions">`;
         html+=`<button class="stage-quick-btn${stage.needs_human_check?" active-hm":""}" onclick="toggleStageQuickAction(${stage.index},'hmcheck_needed',${stage.needs_human_check?'true':'false'})" title="Toggle human check">HM</button>`;

@@ -124,6 +124,7 @@ class PdbCmdApiServer:
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
+    GET  /api/stage/{index}/task       - Get task detail from a stage
     GET  /api/stage/{index}/file       - Get file content from a stage  (?file_path=...)
     GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
     GET  /api/console                  - Captured stdout/stderr ring buffer (?lines=200&strip_ansi=false)
@@ -419,11 +420,32 @@ class PdbCmdApiServer:
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
+        def _task_detail_with_journal(index: int):
+            data = pdb.api_task_detail(index=index)
+            if isinstance(data, dict):
+                stage = pdb.agent.stage_manager.get_stage(index)
+                journal = stage.meta_get_journal() if stage else None
+                data["journal"] = journal
+                data["StageJournal"] = journal
+                detail = data.get("detail")
+                if isinstance(detail, dict):
+                    detail["journal"] = journal
+                    detail["StageJournal"] = journal
+            return data
+
         # ── GET /api/task/{index} ──────────────────────────────────────
         @app.get("/api/task/{index}", summary="Task detail")
         def get_task(index: int):
             try:
-                return {"status": "ok", "data": pdb.api_task_detail(index=index)}
+                return {"status": "ok", "data": _task_detail_with_journal(index)}
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/stage/{index}/task ────────────────────────────────
+        @app.get("/api/stage/{index}/task", summary="Get task detail from a stage")
+        def get_stage_task(index: int):
+            try:
+                return {"status": "ok", "data": _task_detail_with_journal(index)}
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
