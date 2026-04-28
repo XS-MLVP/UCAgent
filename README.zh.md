@@ -379,3 +379,7 @@ make pdf-clean
 ### 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
+
+<div align="center">
+<img src="/.github/group.png"/>
+</div>

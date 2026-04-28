@@ -381,3 +381,7 @@ Output: `ucagent-doc.pdf` can be distributed with version releases.
 ### Contributing
 
 Issues and Pull Requests are welcome!
+
+<div align="center">
+<img src="/.github/group.png"/>
+</div>
