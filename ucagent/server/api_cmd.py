@@ -429,14 +429,24 @@ class PdbCmdApiServer:
                 get_last_do_check_info = getattr(stage, "get_last_do_check_info", None) if stage else None
                 if callable(get_last_do_check_info):
                     last_do_check_info = get_last_do_check_info()
+                llm_suggestions = None
+                if stage:
+                    get_pass_suggestion = getattr(stage, "meta_get_llm_pass_suggestion", None)
+                    get_fail_suggestion = getattr(stage, "meta_get_llm_fail_suggestion", None)
+                    llm_suggestions = {
+                        "pass": get_pass_suggestion() if callable(get_pass_suggestion) else None,
+                        "fail": get_fail_suggestion() if callable(get_fail_suggestion) else None,
+                    }
                 data["journal"] = journal
                 data["StageJournal"] = journal
                 data["last_do_check_info"] = last_do_check_info
+                data["llm_suggestions"] = llm_suggestions
                 detail = data.get("detail")
                 if isinstance(detail, dict):
                     detail["journal"] = journal
                     detail["StageJournal"] = journal
                     detail["last_do_check_info"] = last_do_check_info
+                    detail["llm_suggestions"] = llm_suggestions
             return data
 
         # ── GET /api/task/{index} ──────────────────────────────────────

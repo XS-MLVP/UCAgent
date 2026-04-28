@@ -503,12 +503,14 @@ class StageManager(object):
         if stage is None:
             return error_msg
         try:
-            return self.gen_llm_suggestion(
+            fail_suggestion = self.gen_llm_suggestion(
                 error_msg,
                 stage,
                 self.llm_fail_suggestion,
                 self.stage_need_llm_fail_suggestion,
             )
+            stage.meta_set_llm_fail_suggestion(fail_suggestion)
+            return fail_suggestion
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate fail suggestion failed: {str(e)}")
@@ -553,13 +555,15 @@ class StageManager(object):
         if stage is None:
             return raw_msg
         try:
-            return self.gen_llm_suggestion(
+            pass_suggestion = self.gen_llm_suggestion(
                 raw_msg,
                 stage,
                 self.llm_pass_suggestion,
                 self.stage_need_llm_pass_suggestion,
                 pre_llm_cb = lambda: stage.set_approved(False),
             )
+            stage.meta_set_llm_pass_suggestion(pass_suggestion)
+            return pass_suggestion
         except Exception as e:
             traceback.print_exc()
             warning(f"Generate pass suggestion failed: {str(e)}")

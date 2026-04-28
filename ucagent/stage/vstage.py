@@ -115,13 +115,25 @@ class VerifyStage(object):
         self.hist_ign_list = cfg.hist_ignore_pattern
 
     def meta_set_journal(self, journal):
-        self.meta_data['journal'] = journal
+        self.meta_data['journal'] = copy.deepcopy(journal)
 
     def meta_get_journal(self):
         return self.meta_data.get('journal', None)
 
+    def meta_set_llm_pass_suggestion(self, suggestion):
+        self.meta_data['llm_pass_suggestion'] = copy.deepcopy(suggestion)
+
+    def meta_set_llm_fail_suggestion(self, suggestion):
+        self.meta_data['llm_fail_suggestion'] = copy.deepcopy(suggestion)
+
+    def meta_get_llm_pass_suggestion(self):
+        return self.meta_data.get('llm_pass_suggestion', None)
+
+    def meta_get_llm_fail_suggestion(self):
+        return self.meta_data.get('llm_fail_suggestion', None)
+
     def meta_set_skill_usage(self, skill_usage: Dict[str, Any]):
-        self.meta_data['skill_usage'] = skill_usage
+        self.meta_data['skill_usage'] = copy.deepcopy(skill_usage)
 
     def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
         if skill_name in self.skill_list:

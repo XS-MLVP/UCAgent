@@ -1017,6 +1017,25 @@ function _stageTaskLastCheckMarkdown(payload,detail,task){
   return md;
 }
 
+function _stageTaskLlmSuggestionsValue(payload,detail,task){
+  return _stageTaskFirstNonEmpty([
+    payload.llm_suggestions,
+    detail.llm_suggestions,
+    task.llm_suggestions
+  ]);
+}
+
+function _stageTaskLlmSuggestionsMarkdown(payload,detail,task){
+  const suggestions=_stageTaskLlmSuggestionsValue(payload,detail,task);
+  if(_stageTaskIsEmpty(suggestions))return "## LLM Suggestions\n\n_None_\n\n";
+  const fail=suggestions.fail;
+  const pass=suggestions.pass;
+  let md="## LLM Suggestions\n\n";
+  md+=`### Fail Suggestion\n\n${_stageTaskValueMarkdown(fail)}\n\n`;
+  md+=`### Pass Suggestion\n\n${_stageTaskValueMarkdown(pass)}\n\n`;
+  return md;
+}
+
 function _stageTaskDescriptionMarkdown(task,heading){
   if(!task||_stageTaskIsEmpty(task.description))return "";
   let md=`## ${heading}\n\n`;
@@ -1043,6 +1062,7 @@ function _stageTaskDetailToMarkdown(data,stageIndex){
   }
   if(task.upper_task)md+=_stageTaskDescriptionMarkdown(task.upper_task,"Upper Task");
   md+=_stageTaskLastCheckMarkdown(payload,detail,task);
+  md+=_stageTaskLlmSuggestionsMarkdown(payload,detail,task);
   md+=`## Stage Journal\n\n${_stageTaskValueMarkdown(_stageTaskJournalValue(payload,detail,task))}\n\n`;
   return md.trim()||"(empty task detail)";
 }
