@@ -21,4 +21,5 @@ if current_dir not in sys.path:
 from ucagent.cli import main
 
 if __name__ == "__main__":
+    assert(os.path.abspath())
     main()
