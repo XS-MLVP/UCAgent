@@ -48,6 +48,49 @@ def test_basic_functionality(env):
     assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
 ```
 
+### API 测试函数的参数规范（重要）
+
+以 `test_api_{DUT}_` 为前缀的 **API 测试函数**有严格的参数顺序要求：
+
+| 参数位置 | 参数名 | 说明 |
+|---------|--------|------|
+| 第 1 个 | `env` | pytest fixture，必须 |
+| 第 2 个 | `ref_model` | 参考模型 fixture，若启用 ref_model 则必须（且必须是第二个参数） |
+| 其余 | 任意 | 按需添加其他 pytest fixture 或参数化参数 |
+
+**✅ 正确写法（启用了 ref_model）：**
+
+```python
+def test_api_{DUT}_add_basic(env, ref_model):
+    """测试加法API基础功能"""
+    env.dut.fc_cover["FG-API"].mark_function("FC-ADD", test_api_{DUT}_add_basic, ["CK-ADD-BASIC"])
+    result, carry = api_{DUT}_add(env, 10, 20)
+    expected = ref_model.add(10, 20)
+    assert result == expected, f"预期 {expected}，实际 {result}"
+```
+
+**✅ 正确写法（未启用 ref_model）：**
+
+```python
+def test_api_{DUT}_add_basic(env):
+    """测试加法API基础功能"""
+    env.dut.fc_cover["FG-API"].mark_function("FC-ADD", test_api_{DUT}_add_basic, ["CK-ADD-BASIC"])
+    result, carry = api_{DUT}_add(env, 10, 20)
+    assert result == 30, f"预期 30，实际 {result}"
+```
+
+**❌ 错误写法（参数顺序错误）：**
+
+```python
+# 错误：ref_model 必须是第二个参数
+def test_api_{DUT}_add_basic(ref_model, env): ...
+
+# 错误：第一个参数不是 env
+def test_api_{DUT}_add_basic(dut, env, ref_model): ...
+```
+
+> **注意：** 检查器会自动验证所有 `test_api_{DUT}_*` 函数的参数顺序。若启用了 `ref_model` fixture，则必须将 `ref_model` 作为第二个参数，否则检查将不通过。
+
 ## 覆盖率关联机制
 
 ### 标记语法
@@ -388,6 +431,11 @@ def test_mathematical_properties(env):
 
 
 **注意：**
+- `test_api_{DUT}_*` 函数的参数顺序有严格要求（由检查器自动验证）：
+  - 第 1 个参数必须为 `env`
+  - 若启用了参考模型（ref_model），第 2 个参数必须为 `ref_model`
+  - 正确示例：`def test_api_{DUT}_add_basic(env, ref_model):`
+  - 错误示例：`def test_api_{DUT}_add_basic(ref_model, env):` 或 `def test_api_{DUT}_add_basic(dut, env):`
 - 所有测试函数（test case function）都必须有合理assert：
   - 就算调用函数中有合理的assert，最外层test函数也需要有
   - assert 的基本格式为 assert output == expected_output, description

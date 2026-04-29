@@ -104,7 +104,7 @@ launch:
     - "PASS_SUGGESTION_API_KEY": "$OPENAI_API_KEY"
 
 # Model support: openai, anthropic, google_genai
-model_type: openai
+model_type: $(UC_MODEL_TYPE: openai)
 
 openai:
   model_name: "$(OPENAI_MODEL: <your_chat_model_name>)"
