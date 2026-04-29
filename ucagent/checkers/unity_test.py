@@ -639,7 +639,9 @@ class BaseUnityChipCheckerTestCase(Checker):
 
     def __init__(self, doc_func_check=None, test_dir=None, doc_bug_analysis=None, min_tests=1, timeout=15, ignore_tc_prefix="",
                  data_key=None, ret_std_error=True, ret_std_out=True, batch_size=1000, need_human_check=False,
-                 no_args_check=True, args_pattern=None, args_test_func_prefix=None, **extra_kwargs):
+                 args_check=False, args_pattern=None, args_test_func_prefix=None,
+                 args_error_msg=None,
+                 **extra_kwargs):
         self.doc_func_check = doc_func_check
         self.doc_bug_analysis = doc_bug_analysis
         self.test_dir = test_dir
@@ -653,9 +655,10 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.batch_size = batch_size
         self.run_test = RunUnityChipTest()
         self.set_human_check_needed(need_human_check)
-        self.args_check = not no_args_check
+        self.args_check = args_check
         self.args_pattern = args_pattern
         self.args_test_func_prefix = args_test_func_prefix
+        self.args_error_msg = args_error_msg
 
     def set_workspace(self, workspace: str):
         """
@@ -682,66 +685,44 @@ class BaseUnityChipCheckerTestCase(Checker):
         On failure, report["run_test_success"] is set to False and the failure reasons
         are appended to str_err.
         """
+        if report.get("run_test_success") is False:
+            return report, str_out, str_err
         if not self.args_check or not self.args_pattern:
             return report, str_out, str_err
         test_cases = report.get("tests", {}).get("test_cases", {})
         if not test_cases:
             return report, str_out, str_err
-        # Group function names to check by file (deduplicated), one pass over test_cases
-        file_funcs = {}  # file_rel -> set of func_names to check
-        for tc_key in test_cases:
-            # tc_key format: "path/to/test_file.py::func_name" or "path/to/test_file.py::func_name[param]"
-            parts = tc_key.split("::")
-            if len(parts) < 2:
-                continue
-            file_rel = parts[0]
-            func_name = parts[1].split("[")[0]  # strip parametrize suffix
-            # Apply prefix filter
-            if self.args_test_func_prefix and not func_name.startswith(self.args_test_func_prefix):
-                continue
-            file_funcs.setdefault(file_rel, set()).add(func_name)
+        tc_blocks = fc.tc_list_as_loc_blocks(test_cases.keys(),
+                                             target_tc_prefix=self.args_test_func_prefix)
         failures = []
-        # Read and parse each file exactly once, then check all required functions in it
-        for file_rel, func_names in file_funcs.items():
-            file_path = self.get_path(file_rel)
-            if not os.path.exists(file_path):
-                continue
-            try:
-                with open(file_path, "r", encoding="utf-8") as _f:
-                    source = _f.read()
-                tree = ast.parse(source)
-            except Exception as e:
-                warning(f"[args_check] Failed to parse '{file_rel}': {e}")
-                continue
-            # Build a map of func_name -> FunctionDef node for all functions in this file
-            func_nodes = {}
-            for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef) and node.name in func_names:
-                    func_nodes[node.name] = node
-            for func_name in func_names:
-                func_node = func_nodes.get(func_name)
-                if func_node is None:
+        def check_args(func_code_str):
+            arg_list = fc.get_func_params_regex(func_code_str)
+            warning(f"find mis-match args: {arg_list}")
+            if len(arg_list) < len(self.args_pattern):
+                return False
+            for i, arg_pt in enumerate(self.args_pattern):
+                if not fc.match_pattern_list(arg_list[i],
+                                             arg_pt if isinstance(arg_pt, list) else [arg_pt]):
+                    return False
+            return True
+        for _, v in fc.check_file_block(tc_blocks,
+                                        self.workspace,
+                                        check_args).items():
+            for func_name, is_pass in v.items():
+                if is_pass:
                     continue
-                args = [arg.arg for arg in func_node.args.args]
-                line_no = func_node.lineno
-                for i, expected_arg in enumerate(self.args_pattern):
-                    if expected_arg is None:
-                        continue  # None means no constraint at this position
-                    if i >= len(args):
-                        failures.append(
-                            f"'{func_name}' at {file_rel}:{line_no}: "
-                            f"expected argument[{i}] to be '{expected_arg}', "
-                            f"but the function only has {len(args)} argument(s)."
-                        )
-                    elif args[i] != expected_arg:
-                        failures.append(
-                            f"'{func_name}' at {file_rel}:{line_no}: "
-                            f"argument[{i}] expected '{expected_arg}', got '{args[i]}'."
-                        )
-        if failures:
+                failures.append(func_name)
+        if len(failures) > 0:
             report["run_test_success"] = False
-            failure_msg = "\n[Args Pattern Check Failed]\n" + "\n".join(f"  - {f}" for f in failures)
-            str_err = (str_err or "") + failure_msg
+            max_show = 10
+            error_msg = self.args_error_msg
+            if not error_msg:
+                error_msg = f"do not match the required argument pattern {self.args_pattern}"
+            str_err  = f"Argument name check failed for {len(failures)} test functions. " + \
+                       f"The flollowing test functions have argument names that {error_msg}: {', '.join(failures[:max_show])}" + \
+                       (f", etc." if len(failures) > max_show else "") + \
+                        " Please fix the arguments of those test functions to match the required pattern."
+            str_out = ""
         return report, str_out, str_err
 
     def do_check(self, pytest_args="", timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
@@ -1041,6 +1022,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             pytest_ex_args=targets,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
         )
+        report, str_out, str_err = self._check_test_func_args(report, str_out, str_err)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg

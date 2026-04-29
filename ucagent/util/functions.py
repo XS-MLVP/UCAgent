@@ -692,6 +692,8 @@ def render_template(template: str, kwargs) -> str:
     :param kwargs: Keyword arguments to be used in the template.
     :return: The rendered string.
     """
+    if not isinstance(template, str):
+        return template
     tvalue = template.strip()
     if (tvalue.count("{") == tvalue.count("}") == 1) and \
        (tvalue.startswith("{") and tvalue.endswith("}")):
@@ -1709,6 +1711,31 @@ def check_file_block(file_blocks, workspace, checker=None):
     return ret_map
 
 
+def tc_list_as_loc_blocks(func_list, target_tc_prefix="", ignore_tc_prefix=""):
+    func_file_blocks = {}
+    for tc in func_list:
+        tc_fname, (file_path, line_from, line_to) = parse_test_case_name(tc)
+        tc_name = tc_fname.split("::", 1)[-1]
+        if target_tc_prefix and not tc_name.startswith(target_tc_prefix):
+            continue
+        if ignore_tc_prefix and tc_name.startswith(ignore_tc_prefix):
+            continue
+        if file_path not in func_file_blocks:
+            func_file_blocks[file_path] = {}
+        func_file_blocks[file_path][tc] = [line_from, line_to]
+    return func_file_blocks
+
+
+def parse_test_case_name(tc):
+    # file.py:xx-yy::[ClassName::]test_func
+    tc_file, tc_name = tc.split("::", 1)
+    tc_rfile, line_range = tc_file.split(":")
+    tc_file = tc_rfile.split("/tests/", 1)[-1]
+    a, b = line_range.split("-", 1)
+    assert a.isdigit() and b.isdigit(), f"Invalid line range in test case '{tc}'."
+    return f"{tc_file}::{tc_name}", (tc_rfile, int(a), int(b))
+
+
 def description_mark_function_doc(
     func_list=[], workspace=None, func_RunTestCases=None, timeout_RunTestCases=0
 ):
@@ -1723,14 +1750,6 @@ def description_mark_function_doc(
         "If the test case is redundant, delete it. (See Guide_Doc/dut_test_case.md)"
     )
 
-    def parse_test_case_name(tc):
-        # file.py:xx-yy::[ClassName::]test_func
-        tc_file, tc_name = tc.split("::", 1)
-        tc_rfile, line_range = tc_file.split(":")
-        tc_file = tc_rfile.split("/tests/", 1)[-1]
-        a, b = line_range.split("-", 1)
-        assert a.isdigit() and b.isdigit(), f"Invalid line range in test case '{tc}'."
-        return f"{tc_file}::{tc_name}", (tc_rfile, int(a), int(b))
     if len(func_list) > 0:
         assert workspace is not None, "workspace must be provided if func_list is empty."
         func_file_blocks = {}
@@ -2489,3 +2508,32 @@ def find_most_similar_strings(a: Union[str, List[str]], b: List[str]) -> Union[i
 
 def get_workspace_skill_root(workspace):
     return get_abs_path_cwd_ucagent(workspace, "skills")
+
+
+def get_func_params_regex(source_code: str) -> list[str]:
+    """
+    Extract function parameter names from the source code of a Python function using regular expressions.
+    """
+    pattern = r'def\s+\w+\s*\(([^)]*)\)'
+    match = re.search(pattern, source_code)
+    if not match:
+        return []
+    params_str = match.group(1).strip()
+    if not params_str:
+        return []
+    params = []
+    current = ""
+    bracket_count = 0
+    for char in params_str:
+        if char == ',' and bracket_count == 0:
+            params.append(current.strip())
+            current = ""
+        else:
+            if char in '([{':
+                bracket_count += 1
+            elif char in ')]}':
+                bracket_count -= 1
+            current += char
+    if current:
+        params.append(current.strip())
+    return params
