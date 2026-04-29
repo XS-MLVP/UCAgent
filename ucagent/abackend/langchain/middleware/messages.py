@@ -172,9 +172,37 @@ def fix_tool_call_args(input: Union[Dict[str, Any], BaseModel]) -> Dict[str, Any
         if hasattr(msg, "invalid_tool_calls"):
             msg.invalid_tool_calls = fill_dlist_none(msg.invalid_tool_calls, '{}', "args", ["args"])
 
+def _strip_thinking_blocks(messages):
+    """Remove Anthropic 'thinking' content blocks from AIMessage content.
+
+    When extended thinking is enabled, Anthropic models return AIMessages whose
+    ``content`` is a list that includes dicts of the form
+    ``{'type': 'thinking', 'thinking': '...', 'index': N}``.  LangChain's
+    message-coercion logic does not recognise these dicts (they lack ``role``
+    and ``content`` keys) and raises ``ValueError`` when the messages are
+    reused as model input.  This function strips those blocks so that only
+    ``text``-type content remains.
+    """
+    result = []
+    for msg in messages:
+        if isinstance(msg, AIMessage) and isinstance(msg.content, list):
+            clean_content = [
+                block for block in msg.content
+                if not (isinstance(block, dict) and block.get("type") == "thinking")
+            ]
+            if not clean_content:
+                clean_content = ""
+            msg = msg.model_copy(update={"content": clean_content})
+        result.append(msg)
+    return result
+
+
 def summarize_messages(messages, summarization_size, model):
     """Summarize messages to reduce their token count."""
     from langchain_core.messages import HumanMessage
+    # Strip Anthropic thinking blocks before passing messages to the model to
+    # avoid LangChain message-coercion errors.
+    messages = _strip_thinking_blocks(messages)
     instruction = (f"Summarize the conversation in less than {summarization_size} tokens, keeping the important information and context. Be concise and clear. "
                    "You must follow the rules below:\n"
                    "1. The system message should be preserved as much as possible.\n"
@@ -191,8 +219,17 @@ def summarize_messages(messages, summarization_size, model):
                    )
     warning(f"Summarizing messages({count_tokens_approximately(messages)} tokens, {len(messages)} messages) to reduce context size ...")
     summary_response = model.invoke(messages + [HumanMessage(content=instruction)])
-    warning(f"Summarization done, summary length: {count_tokens_approximately(summary_response.content)} tokens.")
-    return HumanMessage(content=summary_response.content)
+    # The summarization response may itself contain thinking blocks; extract
+    # only the text parts to produce a plain string for the HumanMessage.
+    response_content = summary_response.content
+    if isinstance(response_content, list):
+        text_parts = [
+            block.get("text", "") for block in response_content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        response_content = "".join(text_parts)
+    warning(f"Summarization done, summary length: {count_tokens_approximately(response_content)} tokens.")
+    return HumanMessage(content=response_content)
 
 def remove_messages(messages, max_keep_msgs):
     """Remove older messages to keep the most recent max_keep_msgs messages."""
