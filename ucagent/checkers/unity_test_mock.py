@@ -94,7 +94,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         fail_results = OrderedDict()
         for target_mock, target_tests in task_map.items():
             info(f"Checking mock component test file(s) for '{target_mock}': {', '.join(target_tests)}")
-            ret, msg = self.do_one_check(target_tests, test_dir_full_path, timeout)
+            ret, msg = self.do_one_check(target_tests, test_dir_full_path, timeout, **kw)
             if not ret:
                 fail_results[target_mock] = msg
             else:
@@ -114,7 +114,7 @@ class UnityChipCheckerTestMockTestBatch(Checker):
         return self.batch_task.do_complete(note_msg, is_complete, "", "", "")
 
 
-    def do_one_check(self, test_files, test_dir_full_path, timeout) -> Tuple[bool, object]:
+    def do_one_check(self, test_files, test_dir_full_path, timeout, **kw) -> Tuple[bool, object]:
         if len(test_files) == 0:
             tfiles = ', '.join(self.target_file)
             return False, {"error": f"No test files found with pattern '{tfiles}' in workspace."}
@@ -154,7 +154,8 @@ class UnityChipCheckerTestMockTestBatch(Checker):
             test_dir_full_path,
             pytest_ex_args=" ".join(py_case_files),
             return_stdout=True, return_stderr=True, return_all_checks=True,
-            timeout=timeout
+            timeout=timeout,
+            **kw
         )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:

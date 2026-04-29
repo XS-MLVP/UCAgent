@@ -1761,7 +1761,7 @@ def description_mark_function_doc(
             tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
             tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors. " + \
                     f"Please call RunTestCases('{tc_to_run}') to see detailed errors and verify that function point, test case, and checkpoint names match the documentation."
-            if func_RunTestCases is not None:
+            if callable(func_RunTestCases):
                 warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
                 _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
                 tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors:\n STDOUT:\n{run_msg['STDOUT']}\nSTDERR:\n{run_msg['STDERR']}\n" + \

@@ -77,6 +77,11 @@ class VerifyStage(object):
                 if c.is_human_check_needed():
                     self.need_human_check = True
                     break
+        # Configure LD_PRELOAD isolation for checkers that need it
+        check_script_env = getattr(self.cfg, "check_script_env", None)
+        if check_script_env:
+            for c in self.checker:
+                c.set_ld_preload(check_script_env)
         self.check_size = len(self.checker)
         self.check_info = [None] * self.check_size
         self.fail_count = 0

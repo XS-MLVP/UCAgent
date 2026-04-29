@@ -2,7 +2,7 @@
 """Unity test checker for UCAgent verification."""
 
 import re
-from typing import Tuple
+from typing import Tuple, Optional
 import ucagent.util.functions as fc
 from ucagent.util.config import Config
 from ucagent.util.log import info, warning
@@ -121,35 +121,44 @@ class UnityChipCheckerDutCreation(Checker):
             "ucagent.get_fake_dut":(ucagent_msg, None)
         }
 
+    def get_stub_spec(self, workspace: str) -> dict | None:
+        target_file = getattr(self, "target_file", None)
+        if not target_file or any(ch in target_file for ch in "*?[]"):
+            return None
+        source_code_keys = {k: ("", None) for k in self.source_code_need}
+        return {
+            "checker_type": "dut_creation",
+            "check_kwargs": {
+                "target_file_path": self.get_path(target_file),
+                "workspace": workspace,
+                "source_code_need": source_code_keys,
+            },
+        }
+
+    def adapt_result(self, success, result):
+        if not success:
+            error = result.get("error", "Unknown error")
+            error_key = result.get("error_key")
+            if error_key and error_key in self.source_code_need:
+                msg, tip_func = self.source_code_need[error_key]
+                if tip_func:
+                    msg += f" {tip_func(self.dut_name)}"
+                error = msg
+            return False, {"error": error}
+        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the DUT creation function for correctness."""
+        """Check the DUT creation function for correctness using unified script logic."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"file '{self.target_file}' does not exist."}
-        func_list = fc.get_target_from_file(self.get_path(self.target_file), "create_dut",
-                                            ex_python_path=self.workspace,
-                                            dtype="FUNC")
-        if not func_list:
-            return False, {"error": f"No 'create_dut' functions found in '{self.target_file}'."}
-        if len(func_list) != 1:
-            return False, {"error": f"Multiple 'create_dut' functions found in '{self.target_file}'. Expected only one."}
-        cdut_func = func_list[0]
-        args = fc.get_func_arg_list(cdut_func)
-        # check args
-        if len(args) != 1 or args[0] != "request":
-            return False, {"error": f"The 'create_dut' fixture has only one arg named 'request', but got ({', '.join(args)})."}
-        dut = func_list[0](None)
-        for need_func in ["Step", "StepRis"]:
-            assert hasattr(dut, need_func), f"The 'create_dut' function in '{self.target_file}' did not return a valid DUT instance with '{need_func}' method."
-        # check 'get_coverage_data_path'
-        func_source = inspect.getsource(cdut_func)
-        for k, (v, f) in self.source_code_need.items():
-            message = v
-            if f:
-                message += f" {f(self.dut_name)}"
-            if k not in func_source:
-                return False, {"error":  message}
-        # Additional checks can be implemented here
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+        
+        spec = self.get_stub_spec(self.workspace)
+        if not spec:
+            return False, {"error": "Invalid configuration."}
+            
+        from ucagent.checkers.scripts._check_dut_creation import check_create_dut
+        ret, result = self._run_stub_check(spec, check_create_dut)
+        return self.adapt_result(ret, result)
 
 
 class UnityChipCheckerMockComponent(Checker):
@@ -206,25 +215,44 @@ class UnityChipCheckerBundleWrapper(Checker):
         self.target_file = target_file
         self.min_bundles = min_bundles
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the Bundle wrapper implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." + \
-                           f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. "}
-        bundle_list = fc.get_target_from_file(self.get_path(self.target_file), "*",
-                                              ex_python_path=self.workspace,
-                                              dtype="CLASS")
-        for icls in bundle_list[:]:
-            bases = [base.__name__ for base in icls.__bases__]
-            if "Bundle" not in bases:
-                bundle_list.remove(icls)
-        if len(bundle_list) < self.min_bundles:
+    def get_stub_spec(self, workspace: str) -> dict | None:
+        target_file = getattr(self, "target_file", None)
+        if not target_file or any(ch in target_file for ch in "*?[]"):
+            return None
+        return {
+            "checker_type": "class",
+            "check_kwargs": {
+                "target_file_path": self.get_path(target_file),
+                "workspace": workspace,
+                "class_pattern": "*",
+                "base_class_name": "Bundle",
+                "min_count": self.min_bundles,
+            },
+        }
+
+    def adapt_result(self, success, result):
+        if not success:
+            error = result.get("error", "Unknown error")
+            return False, {"error": error}
+        classes_found = result.get("classes_found", 0)
+        if classes_found < self.min_bundles:
             return False, {
-                "error": f"Insufficient Bundle wrapper coverage: {len(bundle_list)} Bundle classes found, minimum required is {self.min_bundles}. " +\
+                "error": f"Insufficient Bundle wrapper coverage: {classes_found} Bundle classes found, minimum required is {self.min_bundles}. " +
                          f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. " + \
                          f"Please refer to the documentation for more details."
             }
         return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+
+    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+        """Check the Bundle wrapper implementation for correctness using unified script logic."""
+        if not os.path.exists(self.get_path(self.target_file)):
+            return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." +
+                           f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. "}
+        
+        spec = self.get_stub_spec(self.workspace)
+        from ucagent.checkers.scripts._check_class import check_classes
+        ret, result = self._run_stub_check(spec, check_classes)
+        return self.adapt_result(ret, result)
 
 
 class UnityChipCheckerBaseFixture(Checker):
@@ -246,44 +274,57 @@ class UnityChipCheckerBaseFixture(Checker):
         self.source_code_need = {}
         self.source_code_cb = None
 
+    def get_stub_spec(self, workspace: str) -> dict | None:
+        target_file = getattr(self, "target_file", None)
+        if not target_file or any(ch in target_file for ch in "*?[]"):
+            return None
+        return {
+            "checker_type": "fixture",
+            "check_kwargs": {
+                "target_file_path": self.get_path(target_file),
+                "workspace": workspace,
+                "fixture_name": self.fixture_name,
+                "first_arg": self.first_arg or "",
+                "scope": self.scope or "",
+                "min_count": self.min_count,
+                "fix_count": self.fix_count,
+            },
+        }
+
+    def adapt_result(self, success, result):
+        if not success:
+            error = result.get("error", "Unknown error")
+            error_key = result.get("error_key")
+            if error_key and error_key in self.source_code_need:
+                msg, tip_func = self.source_code_need[error_key]
+                if tip_func and hasattr(self, 'dut_name'):
+                    error = msg + " " + tip_func(self.dut_name)
+                else:
+                    error = msg
+            return False, {"error": error}
+        fixtures_found = result.get("fixtures_found", 0)
+        fixture_names = result.get("fixture_names", [])
+        if fixtures_found < self.min_count:
+            return False, {
+                "error": f"Insufficient fixture coverage: {fixtures_found} fixtures found, minimum required is {self.min_count}. "
+                         f"You have defined {fixtures_found} fixtures: {', '.join(fixture_names)} in file '{self.target_file}'."
+            }
+        if self.fix_count > 0 and fixtures_found != self.fix_count:
+            return False, {
+                "error": f"Incorrect fixture count: {fixtures_found} fixtures found, expected exactly {self.fix_count}. "
+                         f"You have defined {fixtures_found} fixtures: {', '.join(fixture_names)} in file '{self.target_file}'."
+            }
+        return True, {"message": f"{self.__class__.__name__} fixture check for {self.target_file} passed."}
+
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
-        """Check the fixture implementation for correctness."""
+        """Check the fixture implementation for correctness using unified script logic."""
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"fixture file '{self.target_file}' does not exist."}
-        fixture_func_list = fc.get_target_from_file(self.get_path(self.target_file), self.fixture_name,
-                                             ex_python_path=self.workspace,
-                                             dtype="FUNC")
-        for fx_func in fixture_func_list:
-            args = fc.get_func_arg_list(fx_func)
-            if self.first_arg is not None and (len(args) < 1 or args[0] != self.first_arg):
-                return False, {"error": f"The '{fx_func.__name__}' fixture's first arg must be '{self.first_arg}', but got ({', '.join(args)})."}
-            if self.last_arg is not None and (len(args) < 1 or args[-1] != self.last_arg):
-                return False, {"error": f"The '{fx_func.__name__}' fixture's last arg must be '{self.last_arg}', but got ({', '.join(args)})."}
-            if not (hasattr(fx_func, '_pytestfixturefunction') or "pytest_fixture" in str(fx_func)):
-                return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' is not decorated with @pytest.fixture()."}
-            scope_value = fc.get_fixture_scope(fx_func)
-            if isinstance(scope_value, str):
-                if scope_value != self.scope:
-                    return False, {"error": f"The '{fx_func.__name__}' fixture in '{self.target_file}' has invalid scope '{scope_value}'. The expected scope is '{self.scope}'."}
-            func_source = inspect.getsource(fx_func)
-            for k, (v, f) in self.source_code_need.items():
-                message = v
-                if f:
-                    message += f" {f(self.dut_name)}"
-                if k not in func_source:
-                    info(f"[{self.__class__.__name__}]Check source code of fixture '{fx_func.__name__}' in file '{self.target_file}': missing '{k}' in source:\n{func_source}\n.")
-                    return False, {"error":  message}
-            if self.source_code_cb:
-                ret, msg = self.source_code_cb(func_source, fx_func)
-                if not ret:
-                    return False, msg
-        if len(fixture_func_list) < self.min_count:
-            return False, {"error": f"Insufficient fixture coverage: {len(fixture_func_list)} fixtures found, minimum required is {self.min_count}. "+\
-                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
-        if self.fix_count > 0 and len(fixture_func_list) != self.fix_count:
-            return False, {"error": f"Incorrect fixture count: {len(fixture_func_list)} fixtures found, expected exactly {self.fix_count}. "+\
-                                    f"You have defined {len(fixture_func_list)} fixtures: {', '.join([f.__name__ for f in fixture_func_list])} in file '{self.target_file}'."}
-        return True, {"message": f"{self.__class__.__name__} fixture check for {self.target_file} passed."}
+        
+        spec = self.get_stub_spec(self.workspace)
+        from ucagent.checkers.scripts._check_fixture import check_fixtures
+        ret, result = self._run_stub_check(spec, check_fixtures)
+        return self.adapt_result(ret, result)
 
 
 class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
@@ -338,11 +379,6 @@ class UnityChipCheckerTestMustPass(Checker):
         self.test_prefix = test_prefix
 
     def set_workspace(self, workspace: str):
-        """
-        Set the workspace for the test case checker.
-
-        :param workspace: The workspace directory to be set.
-        """
         super().set_workspace(workspace)
         self.run_test.set_workspace(workspace)
         return self
@@ -361,20 +397,18 @@ class UnityChipCheckerTestMustPass(Checker):
             if test_dir_full_path not in self.get_path(tfile):
                 error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
                 continue
-            test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
-                                                         ex_python_path=self.workspace,
-                                                         dtype="FUNC")
-            for test_func in test_func_list:
-                if test_func.__name__.startswith(self.test_prefix) is False:
-                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
+            func_infos = self.safe_inspect_funcs(self.get_path(tfile), "test*")
+            for fi in func_infos:
+                fname, fargs = fi["name"], fi["args"]
+                if not fname.startswith(self.test_prefix):
+                    error_cases.append(f"The '{fname}' test function's name must start with '{self.test_prefix}'.")
                     continue
-                args = fc.get_func_arg_list(test_func)
-                if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
-                if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
-            if len(test_func_list) < self.min_file_tests:
-                error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
+                if self.first_arg and (len(fargs) < 1 or fargs[0] != self.first_arg):
+                    error_cases.append(f"The '{fname}' test function's first arg must be '{self.first_arg}', but got ({', '.join(fargs)}).")
+                if self.last_arg and (len(fargs) < 1 or fargs[-1] != self.last_arg):
+                    error_cases.append(f"The '{fname}' test function's last arg must be '{self.last_arg}', but got ({', '.join(fargs)}).")
+            if len(func_infos) < self.min_file_tests:
+                error_cases.append(f"Insufficient testcases: {len(func_infos)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
                                     "Please ensure you have implemented enough test cases (need pytest function based not class based).")
         if len(error_cases) > 0:
             return False, {
@@ -384,15 +418,21 @@ class UnityChipCheckerTestMustPass(Checker):
         # run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(
-            lambda p: self.set_check_process(p, timeout + 10)  # Set the process for the checker
+            lambda p: self.set_check_process(p, timeout + 10)
         )
         py_case_files = [fc.rm_workspace_prefix(test_dir_full_path,
                                                 self.get_path(t)) for t in test_files]
+        env = self._get_pytest_ex_env()
+        if "pytest_ex_env" in kw:
+            env.update(kw.pop("pytest_ex_env"))
+            
         report, str_out, str_err = self.run_test.do(
             test_dir_full_path,
             pytest_ex_args=" ".join(py_case_files),
             return_stdout=True, return_stderr=True, return_all_checks=True,
-            timeout=timeout
+            timeout=timeout,
+            pytest_ex_env=env,
+            **kw
         )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
@@ -425,43 +465,22 @@ class UnityChipCheckerDutApi(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT API implementation for correctness."""
-        if not os.path.exists(self.get_path(self.target_file)):
-            return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
-        func_list = fc.get_target_from_file(self.get_path(self.target_file), f"{self.api_prefix}*",
-                                         ex_python_path=self.workspace,
-                                         dtype="FUNC")
-        failed_apis = []
-        for func in func_list:
-            args = fc.get_func_arg_list(func)
-            if not args or len(args) < 2:
-                failed_apis.append(func)
-                continue
-            if not args[0].startswith("env"):
-                failed_apis.append(func)
-            if not args[-1].startswith("max_cycles"):
-                failed_apis.append(func)
-        if len(failed_apis) > 0:
-            return False, {
-                "error": f"The following API functions in file '{self.target_file}' have invalid or missing arguments. The first arg must be 'env' and the last arg must be 'max_cycles=default_value'",
-                "failed_apis": [f"{func}({', '.join(fc.get_func_arg_list(func))})" for func in failed_apis]
-            }
-        if len(func_list) < self.min_apis:
-            return False, {
-                "error": f"Insufficient DUT API coverage: {len(func_list)} API functions found, minimum required is {self.min_apis}. " + \
-                         f"You need to define APIs like: 'def {self.api_prefix}<API_NAME>(env, ...)'. " + \
-                         f"Review your task details and ensure that the API functions are defined correctly in the target file '{self.target_file}'.",
-            }
-        for func in func_list:
-            if not func.__doc__ or len(func.__doc__.strip()) == 0:
-                return False, {
-                    "error": f"The API function '{func.__name__}' is missing a docstring. Please provide a clear description of its purpose and usage."
-                }
-            for doc_key in ["Args:", "Returns:"]:
-                if doc_key not in func.__doc__:
-                    return False, {
-                        "error": f"The API function '{func.__name__}' is missing the '{doc_key}' section in its docstring."
-                    }
-        return True, {"message": f"{self.__class__.__name__} check for {self.target_file} passed."}
+        spec = self.get_stub_spec(self.workspace)
+        from ucagent.checkers.scripts._check_api_static import check_dut_api_static
+        success, result = self._run_stub_check(spec, check_dut_api_static)
+        return self.adapt_result(success, result)
+
+    def get_stub_spec(self, workspace: str) -> Optional[dict]:
+        """Check the DUT API implementation for correctness in an isolated environment."""
+        return {
+            "checker_type": "api_static",
+            "check_kwargs": {
+                "workspace": workspace,
+                "target_file": self.get_path(self.target_file),
+                "api_prefix": self.api_prefix,
+                "min_apis": self.min_apis,
+            },
+        }
 
 
 class UnityChipCheckerCoverageGroup(Checker):
@@ -679,15 +698,47 @@ class BaseUnityChipCheckerTestCase(Checker):
         self.run_test.set_pre_call_back(
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
+        def _resolve_pytest_args(args):
+            if not args or not self.test_dir: return args
+            if isinstance(args, str):
+                args = args.split()
+            res = []
+            test_dir_abs = self.get_path(self.test_dir)
+            for a in args:
+                if a.startswith("-"):
+                    res.append(a)
+                    continue
+                parts = a.split("::", 1)
+                file_part = parts[0]
+                selector_part = f"::{parts[1]}" if len(parts) > 1 else ""
+                
+                if file_part == "." or os.path.exists(os.path.join(test_dir_abs, file_part)):
+                    res.append(a)
+                elif os.path.isabs(file_part) and os.path.exists(file_part):
+                    res.append(a)
+                elif os.path.exists(os.path.join(test_dir_abs, os.path.basename(file_part))):
+                    res.append(os.path.basename(file_part) + selector_part)
+                else:
+                    res.append(a)
+            return res
+            
+        pytest_args = _resolve_pytest_args(pytest_args)
+        
         timeout = timeout if timeout > 0 else self.timeout
         if self.ignore_tc_prefix:
-            pytest_args = pytest_args if pytest_args else "."
-            pytest_args = pytest_args.split()
+            pytest_args = pytest_args if pytest_args else ["."]
+            if isinstance(pytest_args, str):
+                pytest_args = pytest_args.split()
             pytest_args = ["-k", f"not {self.ignore_tc_prefix}"] + pytest_args
+        env = self._get_pytest_ex_env()
+        if "pytest_ex_env" in kw:
+            env.update(kw.pop("pytest_ex_env"))
+            
         return self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout,
+            pytest_ex_env=env,
             **kw
         )
 
@@ -956,27 +1007,31 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         targets = " ".join(test_files)
         assert isinstance(timeout, int), f"timeout must be an integer. But got {type(timeout)}:{timeout}."
         timeout = timeout if timeout > 0 else self.timeout
+        env = self._get_pytest_ex_env()
+        if "pytest_ex_env" in kw:
+            env.update(kw.pop("pytest_ex_env"))
+            
         report, str_out, str_err = self.run_test.do(
             "", 
             pytest_ex_args=targets,
-            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
+            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout,
+            pytest_ex_env=env,
+            **kw
         )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg
         report_copy = fc.clean_report_with_keys(report)
-        func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
-                                         ex_python_path=self.workspace,
-                                         dtype="FUNC")
-        if len(func_list) == 0:
+        func_infos = self.safe_inspect_funcs(self.get_path(self.target_file_api), f"{self.api_prefix}*")
+        func_names = [fi["name"] for fi in func_infos]
+        if len(func_names) == 0:
             return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'. "+\
                                      "Note: the api name is case-sensitive."}
         test_cases = report.get("tests", {}).get("test_cases", {})
         test_keys = test_cases.keys()
         test_functions = []
         api_un_tested = []
-        for func in func_list:
-            func_name = func.__name__
+        for func_name in func_names:
             for k in test_keys:
                 if func_name in k:
                     test_functions.append(func_name)
@@ -1060,15 +1115,20 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         return re.sub(r":\d+-\d+", "", s)
 
     def on_init(self):
-        self.check_data()
+        success, msg = self.check_data()
+        if not success:
+            warning(f"Initialization warning: {msg}")
         return super().on_init()
 
     def check_data(self):
         if len(self.total_test_cases) == 0 and not self._is_init:
             pre_report = self.smanager_get_value(self.data_key, None)
             if pre_report is None:
-                assert self.pre_report_file is not None, "Need set 'pre_report_file' to load previous test report from a file."
-                assert os.path.exists(self.get_path(self.pre_report_file)), f"Previous report file '{self.pre_report_file}' does not exist."
+                if self.pre_report_file is None:
+                    return False, "Need set 'pre_report_file' to load previous test report from a file."
+                pre_report_path = self.get_path(self.pre_report_file)
+                if not os.path.exists(pre_report_path):
+                    return False, f"Previous report file '{self.pre_report_file}' does not exist. Please completely run the Check of the previous stage to generate this report first."
                 info(f"Loading previous test report from file '{self.pre_report_file}'...")
                 pre_report = fc.load_json_file(self.get_path(self.pre_report_file))
             else:
