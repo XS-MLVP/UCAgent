@@ -123,7 +123,7 @@ anthropic:
 
 # export GOOGLE_GENAI_API_KEY="your-api-key"
 google_genai:
-  model: "$(GOOGLE_GENAI_MODEL: gemini-2.5-pro)"
+  model_name: "$(GOOGLE_GENAI_MODEL: gemini-2.5-pro)"
   api_key: "$(GOOGLE_GENAI_API_KEY: [your_api_key])"
 
 embed:

@@ -73,6 +73,24 @@ class UCAgentLangChainBackend(AgentBackendBase):
     def get_message_manage_node(self):
         return self.message_manage_node
 
+    def _process_msg_content(self, msg):
+        if isinstance(msg, str):
+            return msg
+        if isinstance(msg, dict):
+            key = msg.get("type", "")
+            if not key:
+                return str(msg)
+            v = msg.get(key)
+            if not v:
+                return str(msg)
+            return self._process_msg_content(v)
+        if isinstance(msg, list):
+            str_text = ""
+            for m in msg:
+                str_text += self._process_msg_content(m)
+            return str_text
+        return str(msg)
+
     def do_work_stream(self, instructions, config):
         last_msg_index = None
         fist_ai_message = True
@@ -84,7 +102,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                     fist_ai_message = False
                     self.vagent.message_echo("\n\n================================== AI Message ==================================")
                 msg = data[0]
-                self.vagent.message_echo(msg.content, end="")
+                self.vagent.message_echo(self._process_msg_content(msg.content), end="")
             else:
                 index = len(data["messages"])
                 if index == last_msg_index:
@@ -164,7 +182,8 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return work_config
 
     def model_name(self):
-        return self.model.model_name
+        # ChatOpenAI stores the name as `model_name`; ChatAnthropic uses `model`.
+        return getattr(self.model, "model_name", None) or getattr(self.model, "model", "unknown")
 
     def temperature(self):
         return self.model.temperature

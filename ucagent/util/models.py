@@ -80,6 +80,9 @@ def get_chat_model_google_genai(cfg: Config, callbacks, rate_limiter) -> Any:
             "You can install it with: pip3 install langchain_google_genai"
         )
     kw = cfg.google_genai.as_dict()
+    model_name = kw.pop("model_name")
+    if model_name:
+        kw["model"] = model_name
     if callbacks:
         kw.update(
             {
