@@ -104,6 +104,7 @@ mission:
           - "(4) 通过Complete工具确认完成当前阶段的任务"
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
+        - "如果启用了ref_model fixture，则必须通过ref_model的接口来进行比对验证"
       random:
         - "如果工具Complete出现超时错误，请调大timeout参数重试"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
@@ -734,6 +735,59 @@ stage:
           target_file: "{OUT}/tests/{DUT}_api.py"
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
+
+  - name: reference_model_implementation
+    desc: "参考模型实现"
+    ignore: $(IGNORE_RM_IMP: true)
+    task:
+      - "请参考{OUT}/tests/{DUT}_api.py中的API接口创建DUT参考模型"
+      - "第1步：分析{DUT}的功能和API接口，设计参考模型的结构和接口"
+      - "第2步：实现参考模型，确保其功能与{DUT}的API接口一致，能够正确模拟{DUT}的行为"
+      - "第3步：将参考模型代码写入{OUT}/tests/{DUT}_reference_model.py中，确保代码有注释，便于理解和使用，请使用{DOC_GEN_LANG}编写注释"
+      - "注意："
+      - "  参考模型的主要目的是提供一个功能正确的模型，供后续测试用例进行比对验证，因此参考模型的功能实现需要尽可能完整和正确"
+      - "  参考模型的实现可以相对简单，但必须能够正确模拟{DUT}的核心功能"
+      - "  注意{DUT}相关的文件名，用例名等大小写敏感"
+    output_files:
+      - "{OUT}/tests/{DUT}_reference_model.py"
+      - "{OUT}/tests/test_{DUT}_reference_model.py"
+
+  - name: reference_model_fixture_imp
+    desc: "参考模型fixture实现与测试"
+    ignore: $(IGNORE_RM_IMP: true)
+    task:
+      - "请在{OUT}/tests/{DUT}_api.py实现fixure，名称为ref_model"
+      - "第1步：实现ref_model fixture，负责创建参考模型实例，并在测试结束后进行清理"
+      - "第2步：编写简单的测试用例验证参考模型的功能正确性，测试用例写入文件{OUT}/tests/test_{DUT}_reference_model.py, 测试函数命名格式为test_api_{DUT}_reference_model_<Name>"
+      - "  测试用例的第一个参数为ref_model (pytest fixture)"
+      - "第3步：确保测试用例能够正确验证参考模型的功能，并且所有测试用例都必须通过，请通过RunTestCases('test_{DUT}_reference_model.py')运行测试"
+      - "参考模板如下："
+      - "  @pytest.fixture(scope='function')"
+      - "  def ref_model():"
+      - "      # 创建参考模型实例"
+      - "      model = YourReferenceModel()  # 替换为实际参考模型的创建代码"
+      - "      yield model"
+      - "      # 清理参考模型实例"
+      - "      model.cleanup()  # 替换为实际参考模型的清理代码"
+      - "注意："
+      - "  scope必须设置为function，确保每个测试函数都能获得一个独立的参考模型实例"
+    checker:
+      - name: reference_model_fixture_check
+        clss: "UnityChipCheckerBaseFixture"
+        args:
+          target_file: "{OUT}/tests/{DUT}_api.py"
+          fixture_name: "ref_model"
+      - name: reference_model_test_check
+        clss: "UnityChipCheckerTestMustPass"
+        args:
+          target_file: "{OUT}/tests/test_{DUT}_reference_model.py"
+          test_dir: "{OUT}/tests"
+          test_prefix: "test_api_{DUT}_reference_model_"
+          first_arg: "ref_model"
+    output_files:
+      - "{OUT}/tests/{DUT}_reference_model.py"
+      - "{OUT}/tests/test_{DUT}_reference_model.py"
+
   - name: basic_api_functional_test
     desc: "基础API功能正确性测试"
     task:
@@ -766,6 +820,7 @@ stage:
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
       - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
       - "  - 注意{DUT}相关的文件名，用例名等大小写敏感"
+      - "  - 如果定义了参考模型，请在测试中使用ref_model fixture进行比对验证，如果发现参考模型实现有误，也请及时修正参考模型代码，确保测试通过"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -781,6 +836,9 @@ stage:
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          no_args_check: $(IGNORE_RM_IMP: true)
+          args_pattern: ["env", "ref_model"]
+          args_test_func_prefix: "test_api_{DUT}_"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
@@ -798,7 +856,7 @@ stage:
       - "第2步：根据功能点个数创建一个或者多个测试文件test_<名称>.py，文件名要有意义"
       - "第3步：在测试文件中按以下顺序创建测试函数："
       - "  - 0) 每个测试文件开头都需要用 from {DUT}_api import * 来导入env(pytest fixture)"
-      - "  - 1) 每个测试函数以test_开头，第一个参数为env(pytest fixture)，可以根据需要添加其他参数"
+      - "  - 1) 每个测试函数以test_开头，第一个参数为env(pytest fixture)，如果有ref_model fixture则第二个参数为ref_model，可以根据需要添加其他参数"
       - "  - 2) 每个测试函数的最开始添加功能覆盖标记：env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ', ...])"
       - "  - 3) 添加详细的TODO注释说明要测什么"
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
@@ -834,6 +892,9 @@ stage:
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
+          no_args_check: $(IGNORE_RM_IMP: true)
+          args_pattern: ["env", "ref_model"]
+          args_test_func_prefix: "test_api_{DUT}_"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
@@ -882,7 +943,7 @@ stage:
           - "第2步：将以下空的测试模板填充为可执行代码": "{LIST_CURRENT_CASES}"
           - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
           - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
-          - "第5步：添加断言检查输出是否符合预期（Eg: assert output == excepted_output, error_msg）"
+          - "第5步：添加断言检查输出是否符合预期（Eg: assert output == excepted_output, error_msg），如果有ref_model fixture，可以通过assert output == ref_model.some_function(input)来进行比对验证"
           - "第6步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
           - "第7步：分析测试结果："
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
