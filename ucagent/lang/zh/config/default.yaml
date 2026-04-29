@@ -738,7 +738,7 @@ stage:
 
   - name: reference_model_implementation
     desc: "参考模型实现"
-    ignore: $(IGNORE_RM_IMP: true)
+    ignore: $(IGNORE_REF_MODEL: true)
     task:
       - "请参考{OUT}/tests/{DUT}_api.py中的API接口创建DUT参考模型"
       - "第1步：分析{DUT}的功能和API接口，设计参考模型的结构和接口"
@@ -754,7 +754,7 @@ stage:
 
   - name: reference_model_fixture_imp
     desc: "参考模型fixture实现与测试"
-    ignore: $(IGNORE_RM_IMP: true)
+    ignore: $(IGNORE_REF_MODEL: true)
     task:
       - "请在{OUT}/tests/{DUT}_api.py实现fixure，名称为ref_model"
       - "第1步：实现ref_model fixture，负责创建参考模型实例，并在测试结束后进行清理"
@@ -821,6 +821,7 @@ stage:
       - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
       - "  - 注意{DUT}相关的文件名，用例名等大小写敏感"
       - "  - 如果定义了参考模型，请在测试中使用ref_model fixture进行比对验证，如果发现参考模型实现有误，也请及时修正参考模型代码，确保测试通过"
+      - "是否已启用参考模型": $(NEED_REF_MODEL: false)
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -836,9 +837,10 @@ stage:
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
-          no_args_check: $(IGNORE_RM_IMP: true)
+          args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_api_{DUT}_"
+          args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
@@ -876,6 +878,7 @@ stage:
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
+      - "是否已启用参考模型": $(NEED_REF_MODEL: false)
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -892,9 +895,10 @@ stage:
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
-          no_args_check: $(IGNORE_RM_IMP: true)
+          args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_api_{DUT}_"
+          args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_template.md"
