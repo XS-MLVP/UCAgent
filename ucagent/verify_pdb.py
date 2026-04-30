@@ -3282,3 +3282,10 @@ class VerifyPDB(Pdb):
         except Exception as e:
             echo_y(e)
             echo_r("usage: sleep <seconds>")
+
+    def do_logo_and_version(self, arg):
+        """
+        Show the agent version and logo.
+        """
+        from .version import banner as logo
+        echo(logo)

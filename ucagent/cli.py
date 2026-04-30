@@ -820,6 +820,7 @@ def run() -> None:
             master_cmd = f"connect_master_to {master_addr}{extra_client_opts}"
         init_cmds += [master_cmd]
 
+    init_cmds.append("logo_and_version")
     if args.icmd:
         init_cmds += args.icmd
     
