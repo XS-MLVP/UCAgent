@@ -1,10 +1,35 @@
 # -*- coding: utf-8 -*-
 
 import os
+import re
 import yaml
 from typing import Dict, Any, Optional, Union, List
+from yaml.constructor import SafeConstructor
 from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
 from .log import info
+
+
+_NEGATED_BOOL_PATTERN = re.compile(
+    r"^(?:not[ \t]+|-)(?:yes|no|true|false|on|off)$",
+    re.IGNORECASE,
+)
+
+
+class UCAgentConfigLoader(yaml.SafeLoader):
+    """Safe YAML loader with support for negated boolean scalars."""
+
+
+def _construct_negated_bool(loader, node):
+    scalar_value = loader.construct_scalar(node).strip()
+    if scalar_value.startswith('-'):
+        bool_value = scalar_value[1:]
+    else:
+        bool_value = re.sub(r"^not[ \t]+", "", scalar_value, count=1, flags=re.IGNORECASE)
+    return not SafeConstructor.bool_values[bool_value.lower()]
+
+
+UCAgentConfigLoader.add_implicit_resolver('!negated_bool', _NEGATED_BOOL_PATTERN, ['-', 'n', 'N'])
+UCAgentConfigLoader.add_constructor('!negated_bool', _construct_negated_bool)
 
 class Config:
     """Configuration class for UCAgent settings."""
@@ -283,18 +308,23 @@ def find_file_in_paths(filename, search_paths):
     return None
 
 
+def load_yaml_with_env_vars(file_path):
+    """Load YAML after environment-variable substitution.
+
+    Supports negated boolean scalars like ``not true`` and ``-false``.
+    """
+    with open(file_path, 'r', encoding='utf-8') as file:
+        content = file.read()
+        rendered_content = replace_bash_var(content, os.environ)
+        return yaml.load(rendered_content, Loader=UCAgentConfigLoader)
+
+
 def get_config(config_file=None, cfg_override=None, workspace=None):
     """
     Get the configuration for the agent.
     :param config_file: Path to the configuration file.
     :return: Configuration dictionary.
     """
-    def load_yaml_with_env_vars(file_path):
-        with open(file_path, 'r') as file:
-            content = file.read()
-            rendered_content = replace_bash_var(content, os.environ)
-            return yaml.safe_load(rendered_content)
-
     # ignore repeated loaded configs
     loaded_configs = []
 
