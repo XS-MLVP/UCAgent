@@ -211,8 +211,9 @@ def summarize_messages(messages, summarization_size, model):
                    "4. Record the verification experience you have learned.\n"
                    "5. Record the tools behavior you have learned.\n"
                    "6. Record the tools error handle suggestions you have learned.\n"
-                   "7. Record the important actions you have taken and their outcomes.\n"
-                   "8. Record any other important information and context.\n"
+                   "7. Record the detail(steps,script...) of SKILL you need to use in current stage.\n"
+                   "8. Record the important actions you have taken and their outcomes.\n"
+                   "9. Record any other important information and context.\n"
                    "You need to define the format of the summary which should be friendly to any LLMs.\n"
                    "Note: the first followed message may be the previous summary you provided before, you need to incorporate it into the new summary.\n"
                    "The result you provide should be only the summary, no other explanations or additional information."
@@ -238,6 +239,36 @@ def remove_messages(messages, max_keep_msgs):
     index = (-max_keep_msgs) % len(messages)
     # system messages are not removed
     return messages[index:], [RemoveMessage(id=msg.id) for msg in messages[:index] if msg.type != "system"]
+
+
+def retain_skill_read_messages_as_human(messages, use_skill=False, skill_list=None):
+    """Retain SKILL.md reads as HumanMessage when skill usage is enabled."""
+    if not use_skill or not skill_list:
+        return []
+    pending_tool_call_ids = []
+    rebuilt_messages = []
+    propmt_of_skill = "Use this skill to complete tasks:\n"
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            if msg.content.startswith(propmt_of_skill):
+                rebuilt_messages.append(msg)
+        if isinstance(msg, AIMessage):
+            for tool_call in msg.tool_calls:
+                if tool_call.get("name") != "ReadTextFile":
+                    continue
+                path = tool_call.get("args", {}).get("path", "")
+                if not isinstance(path, str) or not path.endswith("SKILL.md"):
+                    continue
+                tool_call_id = tool_call.get("id")
+                if tool_call_id:
+                    pending_tool_call_ids.append(tool_call_id)
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_call_id = getattr(msg, "tool_call_id", None)
+            if tool_call_id in pending_tool_call_ids:
+                rebuilt_messages.append(HumanMessage(content=propmt_of_skill+msg.content))
+                pending_tool_call_ids.remove(tool_call_id)
+    return rebuilt_messages
 
 class SummarizationAndFixToolCall(SummarizationNode):
     """Custom summarization node that fixes tool call arguments."""
@@ -287,6 +318,7 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
         self._is_reset_chat = False
         self._is_reset_force = False
         self.system_message = None
+        self.vagent = None
 
     def reset_chat(self, force=False):
         self._is_reset_chat = True
@@ -311,6 +343,7 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
             role_info = [self.system_message]
         llm_input_msgs = messages[1:]
         tail_msgs = llm_input_msgs
+        rebuilt_skill_msgs = []
         ret = {}
         if self._is_reset_chat:
             self.summary_data = []
@@ -352,9 +385,20 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
                 tail_msgs_start_index = SummarizationMiddleware._find_safe_cutoff_point(llm_input_msgs, max(0, len(llm_input_msgs) - self.tail_keep_msgs))
                 if tail_msgs_start_index > 0:
                     tail_msgs = llm_input_msgs[tail_msgs_start_index:]
+                    use_skill = bool(getattr(getattr(self.vagent, "cfg", None), "skill", None) and self.vagent.cfg.skill.use_skill)
+                    skill_list = None
+                    if self.vagent and getattr(self.vagent, "stage_manager", None):
+                        current_stage = self.vagent.stage_manager.get_current_stage()
+                        if current_stage is not None:
+                            skill_list = getattr(current_stage, "skill_list", None)
+                    rebuilt_skill_msgs = retain_skill_read_messages_as_human(
+                        llm_input_msgs[:tail_msgs_start_index],
+                        use_skill=use_skill,
+                        skill_list=skill_list,
+                    )
                     self.summary_data = [summarize_messages(self.summary_data + llm_input_msgs[:tail_msgs_start_index], self.max_summary_tokens, self.model)]
                     warning(f"Trimmed { tail_msgs_start_index-1 } messages, kept {len(tail_msgs)} tail messages and 1 summary message.")
-                    ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + self.summary_data + tail_msgs
+                    ret["messages"] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)] + role_info + rebuilt_skill_msgs + self.summary_data + tail_msgs
                 else:
                     tail_msgs = llm_input_msgs
         else:
@@ -364,7 +408,7 @@ class TrimAndSummaryMiddleware(AgentMiddleware):
             self.arbit_summary_data = None
             ret["messages"] = [RemoveMessage(id=msg.id) for msg in tail_msgs]
             tail_msgs = []
-        self.msg_stat.update_message(role_info + self.summary_data + tail_msgs)
+        self.msg_stat.update_message(role_info + rebuilt_skill_msgs + self.summary_data + tail_msgs)
         return ret
     
     def set_arbit_summary(self, summary_text):

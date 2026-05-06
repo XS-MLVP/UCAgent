@@ -879,6 +879,8 @@ stage:
       - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
       - "是否已启用参考模型": $(NEED_REF_MODEL: false)
+    # skill_list:
+    #   - "create-test-case-templates"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -966,7 +968,10 @@ stage:
           - "完成进度：{COMPLETED_CASES}/{TOTAL_CASES}个测试用例已完成"
           - "是否已启用参考模型": $(NEED_REF_MODEL: false)
           - "如果启用了参考模型，请特别关注测试用例的比对验证结果，如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
+        # skill_list:
+        #   - "test-case-implementation-in-batch"
         reference_files:
+          - "{OUT}/tests/{DUT}_function_coverage_def.py"
           - "Guide_Doc/dut_test_case.md"
           - "Guide_Doc/dut_bug_analysis.md"
           - "{OUT}/{DUT}_static_bug_analysis.md"
@@ -1021,6 +1026,8 @@ stage:
       - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/{DUT}_bug_analysis.md中"
       - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
+    # skill_list:
+    #   - "static-bug-validation"
     reference_files:
       - "{OUT}/{DUT}_static_bug_analysis.md"
       - "{OUT}/{DUT}_bug_analysis.md"
