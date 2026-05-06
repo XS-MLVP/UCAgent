@@ -8,3 +8,5 @@ def modified_task_hook(orig_task_method):
     if tasks and isinstance(tasks, list):
         return [tasks[0]]
     return tasks
+
+__all__ = ['setup_vstage']

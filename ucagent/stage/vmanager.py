@@ -709,6 +709,7 @@ class StageManager(object):
                 "title": stage.title(),
                 "reached": stage.is_reached(),
                 "fail_count": stage.fail_count,
+                "skill_list": list(stage.skill_list.keys()) if self.cfg.skill.use_skill else [],
                 "is_skipped": stage.is_skipped(),
                 "time_start": stage.get_time_start_str(),
                 "time_end": stage.get_time_end_str(),

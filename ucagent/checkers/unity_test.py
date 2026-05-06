@@ -765,6 +765,8 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
         free_report = OrderedDict({
             "run_test_success": report.get("run_test_success", False),
             "tests": report.get("tests", {}),
+            "failed_ck": report.get("failed_check_point_list", {}),
+            "failed_tc": report.get("failed_test_case_with_check_point_list",{})
         })
         marked_bins = []
         failed_check_point_list = report.get("failed_check_point_list", [])
