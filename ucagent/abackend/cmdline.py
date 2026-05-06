@@ -147,9 +147,12 @@ class UCAgentCmdLineBackend(AgentBackendBase):
 
     def do_work_values(self, instructions, config):
         assert "messages" in instructions, "Messages not found in instructions."
-        for m in instructions["messages"]:
-            with open(self.MSG_FILE, "w+") as f:
+        msg_size = len(instructions["messages"])
+        with open(self.MSG_FILE, "w+") as f:
+            for i, m in enumerate(instructions["messages"]):
                 f.write(m)
+                if i != msg_size - 1:
+                    f.write("\n\n---------------\n\n")
         cli_cmd = self.cli_cmd_ctx
         if self._call_count == 0 and self.cli_cmd_new:
             cli_cmd = self.cli_cmd_new

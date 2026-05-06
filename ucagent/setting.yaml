@@ -63,6 +63,15 @@ backend:
         - "mkdir -p {CWD}/.iflow/"
         - "cp ~/.iflow/settings.json {CWD}/.iflow/settings.json"
         - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.iflow/settings.json" # modify the mcp port (5000) to the configured port
+  codex:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} --yolo < {MSG_FILE}"
+      cli_cmd_ctx: "codex exec resume --last {UC_ENV_CMD_BACKEND_EX_ARGS} --yolo < {MSG_FILE}"
+      pre_bash_cmd:
+        - "mkdir -p {CWD}/.codex/"
+        - "cp ~/.codex/config.toml {CWD}/.codex/config.toml"
+        - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/.codex/config.toml" # modify the mcp port (5000) to the configured port
 
 mcp_server:
   host: 127.0.0.1
