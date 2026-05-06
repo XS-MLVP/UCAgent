@@ -731,9 +731,6 @@ def run() -> None:
             init_cmds += [f"terminal_api_start {t_host} {t_port}{extra_web_term_opts}"]
         else:
             init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
-
-    if args.tui:
-        init_cmds += ["tui"]
     
     # Handle MCP server commands
     args.override = args.override or {}
@@ -759,6 +756,10 @@ def run() -> None:
     if args.use_skill:
         args.override = args.override or {}
         args.override["skill.use_skill"] = args.use_skill
+
+    # Make sure mcp server is started before tui
+    if args.tui:
+        init_cmds += ["tui"]
 
     template_cfg_overrides = {}
     if args.template_cfg_override:
