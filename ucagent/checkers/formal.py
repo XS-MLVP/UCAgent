@@ -63,13 +63,13 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import (
     IterationTracker,
     log_filename,
     coverage_report_path,
+    parse_coverage,
     required_script_commands,
 )
 
 class BaseFormalChecker(Checker):
     """Base class for formal verification checkers."""
     def __init__(self, dut_name, **kwargs):
-        super().__init__(**kwargs)
         self.dut_name = dut_name
         self.paths = FormalPaths(dut=dut_name)
 
@@ -104,7 +104,7 @@ class BaseFormalChecker(Checker):
             if not res["success"]:
                 return False, {
                     "error": "❌ TCL script execution failed",
-                    "details": f"{res['error']}\\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
+                    "details": f"{res['error']}\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
                     "suggestion": "Please check the TCL script, checker.sv, and wrapper.sv for syntax errors"
                 }, True
                 
@@ -155,7 +155,7 @@ class EnvSyntaxChecker(BaseFormalChecker):
             error_msg = f"SystemVerilog syntax errors in {self.paths.checker}:\n"
             error_msg += "\n".join([f"  - {e}" for e in errors[:10]])  # Cap at 10 errors
             if len(errors) > 10:
-                error_msg += f"\\n  ... and {len(errors) - 10} more errors"
+                error_msg += f"\n  ... and {len(errors) - 10} more errors"
             return self._fail(error_msg, suggestion="Please fix SV syntax errors in checker.sv")
 
         return self._pass("Environment syntax check passed (pyslang validated).")
@@ -183,7 +183,7 @@ class WrapperTimingChecker(BaseFormalChecker):
             errors.append("Wrapper must include 'input rst_n' for formal verification.")
 
         if errors:
-            error_msg = "Wrapper timing check failed:\\n" + "\\n".join(f"  - {e}" for e in errors)
+            error_msg = "Wrapper timing check failed:\n" + "\n".join(f"  - {e}" for e in errors)
             return self._fail(error_msg)
 
         return self._pass("Wrapper timing check passed. Wrapper includes clk and rst_n for formal verification.")
@@ -217,6 +217,8 @@ class PropertyStructureChecker(BaseFormalChecker):
             prop_content = f.read()
             
         implemented_map = extract_property_details(prop_content)
+        import logging
+        logging.error(f"prop_path={prop_path}, prop_len={len(prop_content)}, implemented={implemented_map}")
         if not implemented_map:
             return self._fail("No SVA properties (CK_...) found in implementation file.")
 
@@ -233,7 +235,7 @@ class PropertyStructureChecker(BaseFormalChecker):
 
         # Regex to find: <CK-NAME> or <CK_NAME> (Style: STYLE_STR), allowing optional markdown bold/italic markers
         # Supports both CK- (document-side) and CK_ (legacy) formats
-        spec_items = re.findall(r'<(CK[-_][A-Za-z0-9_-]+)>\\s*[*_]*\\((Style:\\s*[^)]+)\\)[*_]*', spec_content)
+        spec_items = re.findall(r'<(CK[-_][A-Za-z0-9_-]+)>\s*[*_]*\((Style:\s*[^)]+)\)[*_]*', spec_content)
         if not spec_items:
             return self._fail(f"No valid CK tags with (Style: ...) found in spec file {self.paths.spec}.")
 
@@ -292,16 +294,16 @@ class PropertyStructureChecker(BaseFormalChecker):
                 warnings_list.append(f"'{ck_name}' implementation appears to be a vacuous placeholder (... |-> 1'b1).")
 
         if errors:
-            error_msg = f"Property Structure Consistency Check Failed for '{self.paths.checker}':\\n"
-            error_msg += "\\n".join([f"  [ERROR] {e}" for e in errors])
+            error_msg = f"Property Structure Consistency Check Failed for '{self.paths.checker}':\n"
+            error_msg += "\n".join([f"  [ERROR] {e}" for e in errors])
             if warnings_list:
-                error_msg += "\\n" + "\\n".join([f"  [WARN]  {w}" for w in warnings_list])
+                error_msg += "\n" + "\n".join([f"  [WARN]  {w}" for w in warnings_list])
             return self._fail(error_msg)
 
         result = {"message": f"All {len(spec_items)} CKs from spec are correctly implemented."}
         if warnings_list:
             result["warnings"] = warnings_list
-            result["message"] += "\\nWarnings:\\n" + "\\n".join([f"  - {w}" for w in warnings_list])
+            result["message"] += "\nWarnings:\n" + "\n".join([f"  - {w}" for w in warnings_list])
 
         return True, result
 
@@ -352,7 +354,7 @@ class ScriptGenerationChecker(BaseFormalChecker):
             err = res.get("error", "Unknown error")
             return self._fail(
                 "❌ Step 2/2 Failed: FormalMC execution did not produce results",
-                details=f"{err}\\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
+                details=f"{err}\n{summarize_execution(res.get('stdout', ''), res.get('stderr', ''))}",
                 suggestion="Please check the TCL script, checker.sv, and wrapper.sv for syntax errors",
             )
 
@@ -714,7 +716,7 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         """Performs COI coverage check using the tool adapter."""
 
         checker_path = self.paths.checker
-        fanin_path = formal_adapter.coverage_report_path(self.paths.tests)
+        fanin_path = coverage_report_path(self.paths.tests)
 
         # Step 1: Ensure TCL is executed if needed
         # Fallback to checking the main log file's modification time if there is no distinct explicit report
@@ -724,11 +726,11 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         )
         if not exec_success:
             exec_result["suggestion"] = "Please check checker.sv and wrapper.sv for syntax errors"
-            return self._fail(**exec_result)
+            return self._fail(err=exec_result.get("error", ""), details=exec_result.get("details", ""), suggestion=exec_result.get("suggestion", ""))
 
         # Step 2: Parse coverage via adapter
         info(f"🔍 Parsing COI coverage report...")
-        coi = formal_adapter.parse_coverage(self.paths.tests)
+        coi = parse_coverage(self.paths.tests)
 
         overall_pct = coi.get("overall_pct", 0.0)
         uncovered = coi.get("uncovered", [])
@@ -755,7 +757,7 @@ class CoverageAnalysisChecker(BaseFormalChecker):
         else:
             issues = [
                 f"Insufficient COI: {overall_pct:.1f}% < {self.coi_threshold:.0f}%\n"
-                f"  → Check the '{adapter.tool_display_name()}' output to find which logic is not influenced by assertions.\n"
+                f"  → Check the 'FormalMC' output to find which logic is not influenced by assertions.\n"
                 f"  → Typically, you should write assertions monitoring the uncovered signals, or trace to find unused logic."
             ]
             if uncovered:
@@ -956,7 +958,7 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
 # Bug Report Checker  (Stage 10)
 # =============================================================================
 
-class BugReportConsistencyChecker(Checker):
+class BugReportConsistencyChecker(BaseFormalChecker):
     """
     Bug report consistency checker for the formal_execution stage.
 
@@ -965,8 +967,7 @@ class BugReportConsistencyChecker(Checker):
     section has been created for each RTL defect in bug_report.md.
     """
     def __init__(self, dut_name, **kwargs):
-        self.dut_name = dut_name
-        self.paths = FormalPaths(dut=dut_name)
+        super().__init__(dut_name, **kwargs)
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """
@@ -1037,7 +1038,7 @@ class BugReportConsistencyChecker(Checker):
 # Static Bug - Formal Bug Linkage Checker
 # =============================================================================
 
-class StaticFormalBugLinkageChecker(Checker):
+class StaticFormalBugLinkageChecker(BaseFormalChecker):
     """
     Static Bug and Formal Verification Linkage Checker, used for the static_bug_validation stage.
 
@@ -1056,8 +1057,7 @@ class StaticFormalBugLinkageChecker(Checker):
     - False Positive Tag: <LINK-BUG-[BG-NA]>
     """
     def __init__(self, dut_name, **kwargs):
-        self.dut_name = dut_name
-        self.paths = FormalPaths(dut=dut_name)
+        super().__init__(dut_name, **kwargs)
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
         """Performs static bug and formal verification results linkage check"""

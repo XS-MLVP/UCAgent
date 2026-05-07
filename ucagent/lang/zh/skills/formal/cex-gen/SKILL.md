@@ -1,5 +1,5 @@
 ---
-name: counterexample-testgen
+name: cex-gen
 description: 自动解析环境分析文档和 wrapper.sv，为每个 RTL_BUG 生成 Python 测试函数框架，LLM 填写引脚驱动和断言逻辑。
 ---
 

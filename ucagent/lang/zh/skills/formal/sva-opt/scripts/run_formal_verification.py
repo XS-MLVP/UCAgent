@@ -30,7 +30,7 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import run_formal_verificati
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run formal verification by DUT name")
     parser.add_argument("-dut_name", default=os.environ.get("DUT"), help="Top-level DUT module name")
-    parser.add_argument("-timeout", type=int, default=300, help="Timeout in seconds")
+    parser.add_argument("-timeout", type=int, default=3600, help="Timeout in seconds")
     args = parser.parse_args()
 
     if not args.dut_name:
@@ -61,8 +61,8 @@ def main() -> None:
             return
         if res["error"] and "Timeout" in res["error"]:
             result = str_error(
-                f"❌ Verification timed out (>{args.timeout}s), "
-                "please check if constraints are too weak or design state space is too large"
+                f"❌ Verification timed out (>{args.timeout}s). "
+                "Long runs are normal for Formal; increase timeout and wait longer before retrying."
             )
             print(result)
             return

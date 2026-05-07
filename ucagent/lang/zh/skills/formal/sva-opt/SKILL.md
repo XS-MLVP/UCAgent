@@ -1,5 +1,5 @@
 ---
-name: coverage-optimization
+name: sva-opt
 description: 指导解释覆盖率报告并优化未覆盖死角的技能
 ---
 
@@ -15,6 +15,7 @@ description: 指导解释覆盖率报告并优化未覆盖死角的技能
 ### 1. 读取 Checker 反馈
 
 调用 Check → 读取 Checker 返回的 COI 覆盖率数据和未覆盖信号列表。
+Formal 工具的执行时间可能很长，尤其在多时钟域和大状态空间设计上，这是正常现象。不要因为短时间没有输出就频繁中断或重试，优先等待更长时间的结果再做判断。
 
 ### 2. 分析每个未覆盖信号
 
@@ -34,8 +35,10 @@ description: 指导解释覆盖率报告并优化未覆盖死角的技能
 使用 `RunSkillScript` 工具执行以下命令重跑验证，并查看新的 COI：
 
 ```bash
-python3 .ucagent/skills/coverage-optimization/scripts/run_formal_verification.py -dut_name {DUT}
+python3 .ucagent/skills/coverage-optimization/scripts/run_formal_verification.py -dut_name {DUT} -timeout 3600
 ```
+
+如果设计状态空间明显较大，可以将 `-timeout` 继续提高到 7200 或更长，并在提示中明确告诉 LLM 需要等待更久再继续。
 
 ### 5. 完成后调用 Complete
 

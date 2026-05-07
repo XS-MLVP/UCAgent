@@ -1,5 +1,5 @@
 ---
-name: env-analysis
+name: sva-audit
 description: 自动解析 avis.log 生成环境分析文档框架（07_{DUT}_env_analysis.md），预填 TT/FA 条目空壳，LLM 逐条填写分析内容。
 ---
 

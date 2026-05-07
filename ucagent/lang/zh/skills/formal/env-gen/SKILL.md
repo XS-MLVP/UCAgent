@@ -1,5 +1,5 @@
 ---
-name: env-generation
+name: env-gen
 description: Formal 验证环境（Checker & Bind Wrapper）的配置与构建指南
 ---
 

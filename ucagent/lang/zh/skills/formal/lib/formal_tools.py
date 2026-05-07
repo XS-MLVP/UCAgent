@@ -189,7 +189,7 @@ def summarize_execution(stdout: str, stderr: str, max_chars: int = 1500) -> str:
 
 def validate_log_has_results(log_content: str) -> bool:
     return bool(re.search(
-        r"Info-P016:\\s*property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)", 
+        r"Info-P016:\s*property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)",
         log_content,
         re.IGNORECASE
     ))
@@ -240,7 +240,7 @@ def parse_avis_log(log_path: str) -> Dict[str, list]:
     # Strategy 2: fallback to Info-P016 per-line messages
     if not any(result[k] for k in ("pass", "trivially_true", "false")):
         p016_re = re.compile(
-            r"Info-P016:\\s*property\\s+([\\w.]+)\\s+is\\s+"
+            r"Info-P016:\s*property\s+([\w.]+)\s+is\s+"
             r"(TRIVIALLY_TRUE|TRUE|FALSE)",
             re.IGNORECASE,
         )
@@ -434,10 +434,10 @@ def extract_property_details(content: str) -> dict:
     if not content:
         return details
     try:
-        prop_blocks = re.findall(r'property\\s+(CK_[A-Za-z0-9_]+)\\s*;(.*?)\\bendproperty', content, re.DOTALL)
+        prop_blocks = re.findall(r'property\s+(CK_[A-Za-z0-9_]+)\s*;(.*?)\bendproperty', content, re.DOTALL)
         for name, body in prop_blocks:
             details[name] = {'body': body, 'type': None}
-        stmt_matches = re.findall(r'(\\w+)\\s*:\\s*(assert|assume|cover)\\s+property\\s*\\((CK_[A-Za-z0-9_]+)\\)', content)
+        stmt_matches = re.findall(r'(\w+)\s*:\s*(assert|assume|cover)\s+property\s*\((CK_[A-Za-z0-9_]+)\)', content)
         for inst_label, p_type, prop_name in stmt_matches:
             if prop_name in details:
                 details[prop_name]['type'] = p_type

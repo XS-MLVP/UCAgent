@@ -1,5 +1,5 @@
 ---
-name: sva-property-generation
+name: sva-gen
 description: 基于 SVA 规范编写属性检测代码
 ---
 
