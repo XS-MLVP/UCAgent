@@ -186,6 +186,8 @@ stage:
       - "   功能点尽可能细化，检测点要具体"
       - "   检查点需要具有可测性，确保能通过测试用例验证"
       - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
+    # skill_list:
+    #   - "functions-and-checks"
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
@@ -203,6 +205,8 @@ stage:
           - "创建文档框架，先完成分组部分"
           - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等，栈结构可以有<FG-PUSH>、<FG-POP>、<FG-POP-PUSH>等"
           - "注意：必须有<FG-API>分组"
+        # skill_list:
+        #   - "functions-and-checks"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"
@@ -220,6 +224,8 @@ stage:
           - " - 功能点要具体，不能过于笼统"
           - " - 功能点要可测试，确保能通过测试用例验证"
           - " - 如果功能点复杂，需要在该分组标记结束后，再次针对每个复杂功能点利用<FG-*>, <FC-*>, <CK-*>进行单独细化"
+        # skill_list:
+        #   - "functions-and-checks"
         checker:
           - name: function_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -238,6 +244,8 @@ stage:
           - "重要："
           - " - 检查点要具体，不能过于笼统"
           - " - 检查点要可测试，确保能通过测试用例验证"
+        # skill_list:
+        #   - "functions-and-checks"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
