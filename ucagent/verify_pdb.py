@@ -899,11 +899,15 @@ class VerifyPDB(Pdb):
         for i, stage in enumerate(stage_list):
             task_title = stage["title"]
             fail_count = stage["fail_count"]
+            skill_list = stage.get("skill_list", [])
             is_skipped = stage.get("is_skipped", False)
             time_cost = stage.get("time_cost", "")
             vstage = self.agent.stage_manager.get_stage(i)
             is_current_stage = vstage is not None and current_stage is not None and vstage == current_stage
             is_completed_stage = (i < current_index) or (vstage.is_completed() if vstage is not None else stage.get("is_completed", False))
+            skill_msg = ""
+            if self.agent.cfg.skill.use_skill and skill_list:
+                skill_msg = f"[{', '.join(skill_list)}], "
             if time_cost:
                 time_cost = f", {time_cost}"
             color, cend = "", ""
@@ -911,7 +915,7 @@ class VerifyPDB(Pdb):
                 color = f"{L_GREEN}"
             elif i == current_index:
                 color = f"{L_RED}"
-            fail_count_msg = f" ({fail_count} fails{time_cost})"
+            fail_count_msg = f" ({skill_msg}{fail_count} fails{time_cost})"
             if is_skipped:
                 color = f"{L_YELLOW}"
                 task_title += " (skipped)"

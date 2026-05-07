@@ -33,6 +33,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             )
         else:
             raise ValueError(f"Unsupported context_management_strategy: {vagent.context_management_strategy}")
+        message_manage_node.vagent = vagent
         self.message_manage_node = message_manage_node
 
     def set_debug(self, debug):

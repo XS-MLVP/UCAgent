@@ -6,7 +6,7 @@ This module provides tools to list and manage available skills in the workspace.
 import re
 import os
 from pathlib import Path
-from typing import Optional, TypedDict, Any, List
+from typing import Optional, TypedDict, Any, List, Sequence
 import yaml
 from pydantic import Field, BaseModel
 
@@ -164,7 +164,8 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
         │   ├── skill-1-name/
         │   │   ├── SKILL.md    # Required
         │   │   ├── scripts
-        │   │   │   └── hooks.py   # Optional
+        │   │   │   └── __init__.py   # Optional
+        │   │   │   └── script_1.py   # Optional
         ├── skill-2-name/
         │   ├── SKILL.md        # Required
     Args:
@@ -217,7 +218,7 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
                 script_dir = skill_dir / "scripts"
                 if script_dir.exists() and script_dir.is_dir():
                     for f in sorted(script_dir.iterdir()):
-                        if f.is_file() and f.name != '__init__.py' and f.name != 'hooks.py':
+                        if f.is_file() and f.name != '__init__.py':
                             skill_metadata['script'][f.name] = f.resolve().relative_to(workspace_path).as_posix()
                 skills.append(skill_metadata)
 
@@ -228,7 +229,11 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
 
     return skills
 
-def list_skills_in_format(skills: list[SkillMetadata], workspace: str = '.', able_to_list: list = []) -> str:
+def list_skills_in_format(
+    skills: list[SkillMetadata],
+    workspace: str = '.',
+    able_to_list: Optional[Sequence[str]] = None,
+) -> str:
     """Format a list of skills into a readable string.
     Args:
         skills: List of SkillMetadata to format
@@ -246,10 +251,11 @@ def list_skills_in_format(skills: list[SkillMetadata], workspace: str = '.', abl
         except ValueError:
             return str(p)
 
+    allowed_skills = set(able_to_list or [])
     result_lines = []
     count=1
     for skill in skills:
-        if (not able_to_list) or skill['name'] in able_to_list:
+        if skill['name'] in allowed_skills:
             result_lines.append(f"{count}. Skill Name: {skill['name']}")
             result_lines.append(f"   Skill Description: {skill['description']}")
             result_lines.append(f"   Skill Path: {_format_display_path(skill['path'])}")
@@ -299,6 +305,7 @@ class ListSkill(UCTool):
 
         stage_manager = self.agent.stage_manager
         current_stage = stage_manager.get_current_stage()
+        max_skill_list_count = stage_manager.cfg.get_value('skill.max_skill_list_count', 0)
         skills_to_list = []
         skill_names_added = set()  
         # 1. add skills in skill_list
@@ -311,13 +318,19 @@ class ListSkill(UCTool):
         general_skill_list = stage_manager.cfg.get_value('skill.general_skill_list', [])
         if general_skill_list:
             for skill in skills:
+                if max_skill_list_count and len(skills_to_list) >= max_skill_list_count:
+                    break
                 if skill['name'] in general_skill_list and skill['name'] not in skill_names_added:
                     skills_to_list.append(skill)
                     skill_names_added.add(skill['name']) 
 
         # List SKILL with their (name, description and path)
         result_lines = [f"Found {len(skills_to_list)} available skills:"]
-        result_lines += list_skills_in_format(skills_to_list, workspace=self.workspace).split("\n")
+        result_lines += list_skills_in_format(
+            skills_to_list,
+            workspace=self.workspace,
+            able_to_list=[skill["name"] for skill in skills_to_list],
+        ).split("\n")
         result_lines.append("Tip: When the task description matches a skill description, use the `ReadTextFile` tool to read the corresponding skill's SKILL.md file, learn the skill, and apply it.")      
         result= "\n".join(result_lines)
 
@@ -335,6 +348,7 @@ class RunSkillScript(UCTool):
     name: str = "RunSkillScript"
     description: str = (
         "Run the commands in a list declared in the SKILL.md of a skill"
+        "Support multiple commands in the list at once"
     )
     args_schema: Optional[ArgsSchema] = ArgsRunSkillScript
     workspace: str = Field(
