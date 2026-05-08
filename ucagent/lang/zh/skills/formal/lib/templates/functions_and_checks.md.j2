@@ -1,0 +1,26 @@
+# {{ DUT }} 功能点与检测点描述
+
+## DUT 整体功能描述
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+---
+
+## 功能分组与检测点
+
+{% for fg in function_groups %}
+### {{ loop.index }}. {{ fg.name or fg.id }}
+<{{ fg.id }}>
+
+{% for fc in fg.functions %}
+#### {{ fc.description or fc.id }}
+<{{ fc.id }}>
+
+**检测点：**
+{% for ck in fc.check_points %}
+- <{{ ck.id }}> **(Style: {{ ck.style }})** {{ ck.description }}
+{%- endfor %}
+
+{% endfor %}
+---
+{% endfor %}

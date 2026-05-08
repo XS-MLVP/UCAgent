@@ -9,6 +9,8 @@ template_overwrite:
   RTL_PATH: "{DUT}"
   FILE_PATH: "{DUT}"
   OUT_PATH: "{OUT}"
+  LOG_FILE: "avis.log"
+  FANIN_REP: "avis/fanin.rep"
 
 # ---------- Read-only Protected Directories ----------
 un_write_dirs:
@@ -124,7 +126,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/sva-opt/scripts/run_formal_verification.py -dut_name {DUT}` 即时验证，无需等待 Check 触发"
+        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/formal/sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -181,151 +183,83 @@ stage:
 
   # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
-    desc: "功能规格分析与形式化策略定义"
+    desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
     skill_list: ["func-spec"]
     task:
-      - "第1步：打开已经内置了部分标签规范信息的 `{OUT_PATH}/03_{DUT}_functions_and_checks.md` 文档。"
-      - "第2步：请基于 `func-spec` 技能指导规范，在文档中划分大类功能分组（<FG-XXX>），细分到功能规格（<FC-XXX>），最后推导出最小检验单元（<CK-XXX>）。"
-      - "第3步：**强制约束**：你的每一个检测点声明最后，一定必须跟随相应的验证形态指导，从 `(Style: Assume)`, `(Style: Seq)`, `(Style: Comb)`, `(Style: Cover)` 中必须选取且仅能选取一个。"
-      - "第4步：请检查你的 Safety 和 Liveness 是否齐全，且对所有存在死锁、阻截嫌疑的路径增加了 Cover 探测点。"
+      - "目标：基于 DUT 的基础信息，分批次划分功能组(FG)、功能点(FC)和检测点(CK)，通过脚本写入 YAML。"
+      - "**首要行动：加载 `func-spec` 技能并严格按其步骤执行。**"
+      - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
       - "{DUT}/*.md"
       - "{OUT}/02_{DUT}_basic_info.md"
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
     output_files:
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
+      - "{OUT}/.formal_records.yaml"
     stage:
       - name: dut_function_grouping
         desc: "DUT功能分组与层次划分{COUNT_FG}"
         task:
-          - "按照规范指导划分系统状态与业务逻辑分组：<FG-xxx>。"
+          - "按照规范指导划分系统状态与业务逻辑分组：FG-XXX。"
+          - "使用 `update_spec.py -action add_fg` 添加每个功能组。"
+          - "必须包含 `FG-API`（环境约束）和 `FG-COVERAGE`（可达性覆盖）两个功能组。"
         checker:
           - name: group_structure_check
-            clss: "UnityChipCheckerLabelStructure"
+            clss: "ucagent.checkers.formal.FormalSpecJsonChecker"
             args:
-              doc_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-              leaf_node: "FG"
+              dut_name: "{DUT}"
+              check_level: "fg"
       - name: function_point_definition
         desc: "具体功能点识别与定义{COUNT_FC}"
         task:
-          - "将具体业务逻辑拆解到独立的 <FC-xxx> 单元中。"
+          - "将具体业务逻辑拆解到独立的 FC-XXX 单元中。"
+          - "使用 `update_spec.py -action add_fc` 为每个 FG 添加功能点。"
+          - "确保每个 FG 下至少有一个 FC。"
         checker:
           - name: function_point_check
-            clss: "UnityChipCheckerLabelStructure"
+            clss: "ucagent.checkers.formal.FormalSpecJsonChecker"
             args:
-              doc_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-              leaf_node: "FC"
+              dut_name: "{DUT}"
+              check_level: "fc"
       - name: check_point_design
         desc: "检测点设计与定义{COUNT_CK}"
         skill_list: ["func-spec"]
         task:
-          - "目标：为每个具体业务逻辑设计 `<CK-xxx>` 属性检查点。"
-          - "**首要行动**：遵循 `func-spec` 技能步骤，依据 `Guide_Doc/functions_and_checks.md` 中的规范进行设计。"
+          - "目标：为每个具体功能点设计 CK-XXX 属性检查点。"
+          - "使用 `update_spec.py -action add_ck` 为每个 FC 添加检测点。"
+          - "**强制约束**：每个检测点的 style 必须从 `Assume`/`Seq`/`Comb`/`Cover` 中选取。"
+          - "请检查 Safety 和 Liveness 是否齐全，且对所有存在死锁嫌疑的路径增加了 Cover 探测点。"
         checker:
           - name: check_point_check
-            clss: "UnityChipCheckerLabelStructure"
+            clss: "ucagent.checkers.formal.FormalSpecJsonChecker"
             args:
-              doc_file: "{OUT}/03_{DUT}_functions_and_checks.md"
-              leaf_node: "FC"
-              data_key: "COVER_GROUP_DOC_CK_LIST"
-        need_human_check: $(HUMAN_CHECK_CK: false) # Manual check is recommended when verifying complex DUTs
+              dut_name: "{DUT}"
+              check_level: "ck"
+    need_human_check: $(HUMAN_CHECK_CK: false)
 
-  - name: static_bug_analysis
-    desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
-    task:
-      - "目标：逐批次分析RTL源码，结合功能检测点系统排查设计缺陷，将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md"
-      - "当前批次待分析文件": "{CURRENT_FILE_NAMES}"
-      - "分析步骤："
-      - "  第1步：读取当前批次源文件，理解模块功能与架构（模块层次、关键信号、状态机、数据流）"
-      - "  第2步：结合{OUT}/{DUT}_functions_and_checks.md中的功能点与检测点，针对每个<CK-*>逐项审查RTL实现"
-      - "  第3步：系统排查常见设计缺陷："
-      - "    - 状态机逻辑：状态枚举是否完整，转移条件是否正确，是否有孤立/死锁状态，default分支是否缺失"
-      - "    - 边界与溢出：算术运算溢出/下溢、位宽截断、有符号/无符号类型不匹配"
-      - "    - 时序逻辑：复位条件完整性、异步信号同步、竞争冒险、亚稳态"
-      - "    - 接口协议：valid/ready握手时序、数据有效窗口、读写使能逻辑"
-      - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
-      - "  第4步：按格式将发现的潜在Bug记录到{OUT}/{DUT}_static_bug_analysis.md（格式规范参考Guide_Doc/bug_report.md）"
-      - "    - 每条Bug记录包含：<BG-STATIC-NNN-NAME>、<LINK-BUG-[BG-TBD]>、<FILE-path:lines>，及Bug描述、触发条件、修复建议"
-      - "    - 若所有文件都未发现Bug，添加<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>"
-      - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
-      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾维护 '## 批次分析进度' 表格，记录本批次每个文件的分析结果："
-      - "    - 若文档末尾尚无该章节，先创建章节和表格标题行，再追加文件行"
-      - "    - 若章节已存在，直接在已有表格中追加新行"
-      - "    - 表格格式："
-      - "        ## 批次分析进度"
-      - "        | 源文件 | 发现疑似Bug数 | 状态 |"
-      - "        |--------|-------------|------|"
-      - "        | <file>文件路径</file> | N | ✅ 完成 |"
-      - "注意："
-      - "  - 静态分析阶段不运行任何测试，仅通过源码审查发现问题"
-      - "  - <file>标签路径须与源文件路径一致（相对workspace根目录，例如：{DUT}/dut.v）"
-      - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
-      - "  - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/04_{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤"
-    reference_files:
-      - "Guide_Doc/bug_report.md"
-      - "{DUT}/__init__.py"
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
-      - "{OUT}/02_{DUT}_basic_info.md"
-    output_files:
-      - "{OUT}/04_{DUT}_static_bug_analysis.md"
-    checker:
-      - name: static_bug_batch_analysis_check
-        clss: "UnityChipBatchCheckerStaticBug"
-        args:
-          static_doc: "{OUT}/04_{DUT}_static_bug_analysis.md"
-          functions_and_checks_doc: "{OUT}/03_{DUT}_functions_and_checks.md"
-          file_list:
-            - "{RTL_PATH}/**/.vhd*"
-            - "{RTL_PATH}/**/*.v"
-            - "{RTL_PATH}/**/*.sv"
-            - "{RTL_PATH}/**/*.scala"
-          batch_size: 1
-    ignore: $(IGNORE_STATIC_CHECK: true)
     
-  # ========== Stage 4: Verification Environment Generation (Checker & Bind) ==========
-  - name: environment_generation
-    desc: "验证环境生成 (Checker & Bind)"
-    skill_list: ["env-gen"]
-    task:
-      - "目标：生成并配置 Formal 验证的基础环境结构。"
-      - "**首要行动：加载 `env-gen` 技能并按其步骤执行。**"
-    reference_files:
-      - "{OUT}/02_{DUT}_basic_info.md"
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
-      - "Guide_Doc/checker_module.md"
-    output_files:
-      - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/tests/{DUT}_wrapper.sv"
-    checker:
-      - name: env_syntax_check
-        clss: "ucagent.checkers.formal.EnvSyntaxChecker"
-        args:
-          dut_name: "{DUT}"
-      - name: wrapper_timing_check
-        clss: "ucagent.checkers.formal.WrapperTimingChecker"
-        args:
-          dut_name: "{DUT}"
-
-  # ========== Stage 5: SVA Property Generation ==========
+  # ========== Stage 4: SVA Property Implementation ==========
   - name: property_generation
-    desc: "SVA 属性生成"
+    desc: "SVA 属性实现与自动同步"
     skill_list: ["sva-gen"]
     task:
-      - "目标：将 checker.sv 中的 [LLM-TODO] 骨架翻译为完整的 SVA 断言代码。"
-      - "**首要行动：加载 `sva-gen` 技能并按其步骤执行。**"
+      - "目标：将 `.formal_records.yaml` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
+      - "**首要行动：加载 `sva-gen` 技能并严格按其步骤执行。**"
+      - "1. 使用 `update_sva_body.py` 脚本为每个检测点填充逻辑。"
+      - "2. **禁止直接修改 .sv 文件**，系统会自动渲染生成验证环境。"
+      - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
     reference_files:
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
-      - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/sva_property.md"
     output_files:
-      - "{OUT}/tests/{DUT}_checker.sv"
+      - "{OUT}/.formal_records.yaml"
     checker:
       - name: property_structure_check
         clss: "ucagent.checkers.formal.PropertyStructureChecker"
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 6: Verification Script Generation ==========
+
+  # ========== Stage 5: Verification Script Generation ==========
   - name: script_generation
     desc: "验证脚本校验"
     task:
@@ -342,18 +276,19 @@ stage:
         args:
           dut_name: "{DUT}"
 
-  # ========== Stage 7: Verification Environment Debugging and Iterative Fixing ==========
+  # ========== Stage 6: Verification Environment Debugging and Iterative Fixing ==========
   - name: environment_debugging_iteration
     desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
     skill_list:
       - "sva-audit"
     task:
-      - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束，并生成结构化的环境分析文档。"
-      - "本阶段的具体执行规范、文档生成方式及迭代修复步骤已全部内聚于 `sva-audit` 技能中。"
-      - "**首要行动：利用 `SkillList` 工具加载并阅读 `sva-audit` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成文件并执行任务。**"
-      - "迭代中若有新的异常属性，使用 RunSkillScript 执行 `python3 .ucagent/skills/sva-audit/scripts/env_analysis.py -mode update -dut_name {DUT}` 进行增量文档追加。"
-      - "注：如有需要，请自行使用 ReadTextFile 查阅 {RTL_PATH}/{DUT}.v 或 Guide_Doc/sva_property.md。"
+      - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束。"
+      - "**首要行动：加载 `sva-audit` 技能并严格按其步骤执行。**"
+      - "1. **环境纠偏**：如果遇到参数未定义（如 WIDTH）或位宽错误，**禁止手动修改 SV 文件**，必须使用 `update_spec.py` 的 `set_param` 或 `add_signal` 动作更新 YAML。"
+      - "2. **分析填写**：使用 `update_analysis.py` 脚本为每个异常属性填写分析详情。"
+
     reference_files:
+      - "{OUT}/.formal_records.yaml"
       - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
@@ -361,7 +296,6 @@ stage:
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
-      - "{OUT}/07_{DUT}_env_analysis.md"
     checker:
       - name: environment_analysis_check
         clss: "ucagent.checkers.formal.EnvironmentAnalysisChecker"
@@ -369,7 +303,7 @@ stage:
           dut_name: "{DUT}"
           accepted_ratio_threshold: 100.0
 
-  # ========== Stage 8: Coverage Analysis and Assertion Optimization ==========
+  # ========== Stage 7: Coverage Analysis and Assertion Optimization ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
     skill_list: ["sva-opt"]
@@ -379,10 +313,9 @@ stage:
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
+      - "{OUT}/.formal_records.yaml"
     output_files:
       - "{OUT}/tests/{DUT}_checker.sv"
-      - "{OUT}/03_{DUT}_functions_and_checks.md"
     checker:
       - name: property_structure_check
         clss: "ucagent.checkers.formal.PropertyStructureChecker"
@@ -394,19 +327,19 @@ stage:
           dut_name: "{DUT}"
           coi_threshold: 90.0
 
-  # ========== Stage 9: Counterexample Python Test Generation ==========
+
+  # ========== Stage 8: Counterexample Python Test Generation ==========
   - name: counterexample_python_testgen
     desc: "形式化反例 Python 测试用例生成"
     skill_list:
       - "cex-gen"
     task:
-      - "目标：为环境分析文档中判定为 RTL_BUG 的 FALSE 属性，编写引脚级 Python 测试用例复现 Bug。"
-      - "本阶段的具体执行规范、代码框架生成方式及核心校验规则已全部内聚于 `cex-gen` 技能中。"
-      - "**首要行动：利用 `SkillList` 工具加载并阅读 `cex-gen` 技能，然后严格遵循其 `SKILL.md` 中定义的步骤生成框架并执行任务。**"
-      - "注：如需深究 RTL 实现细节，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
+      - "目标：为 RTL_BUG 属性编写引脚级 Python 测试用例复现 Bug。"
+      - "**首要行动：加载 `cex-gen` 技能并完善测试逻辑。**"
+      - "注：Checker 已自动生成 `{OUT}/tests/test_{DUT}_counterexample.py` 骨架，你只需填充引脚驱动和断言。"
     reference_files:
+      - "{OUT}/.formal_records.yaml"
       - "Guide_Doc/counterexample.md"
-      - "{OUT}/07_{DUT}_env_analysis.md"
       - "{OUT}/tests/{DUT}_checker.sv"
       - "{OUT}/tests/{DUT}_wrapper.sv"
       - "{OUT}/tests/{LOG_FILE}"
@@ -418,25 +351,23 @@ stage:
         args:
           dut_name: "{DUT}"
     ignore: $(CEX_CHECK: true)
-  # ========== Stage 10: RTL Defect Analysis and Reporting ==========
-  # (Renumbered from Stage 9 after insertion of counterexample_python_testgen)
+  # ========== Stage 9: RTL Defect Analysis and Reporting ==========
+  # (Renumbered from Stage 10 after merging env-gen into property_generation)
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
     skill_list:
       - "bug-report"
     task:
-      - "目标：对环境分析文档中判定为 RTL_BUG 的属性进行深度分析并生成 BUG 报告。"
-      - "**强制且首要行动：必须首先使用 RunSkillScript 执行 `python3 .ucagent/skills/bug-report/scripts/init_bug_report.py -dut_name {DUT}` 生成 `{OUT}/04_{DUT}_bug_report.md` 骨架。绝对不要手动编写或覆盖！**"
-      - "第1步：执行上述脚本生成报告骨架之后，打开该文档。其内部包含了需要你填写的 `[LLM-TODO]` 空缺。"
-      - "第2步：严格遵循 `bug-report` 技能（位于 `SKILL.md`）的分析指南，逐条完成该文档中的每个 BUG 分析与修复建议填空。"
-      - "注：如需提取源码上下文，请自行使用 ReadTextFile 查阅 {RTL_PATH}/*.v。"
+      - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
+      - "**首要行动：加载 `bug-report` 技能并填充 Bug 详情。**"
+      - "注：Checker 已自动在 .formal_records.yaml 中为所有 RTL_BUG 生成了 Bug 报告骨架，你只需通过 `update_bug.py` 脚本开始填写即可。"
     reference_files:
       - "Guide_Doc/bug_report.md"
-      - "{OUT}/07_{DUT}_env_analysis.md"
+      - "{OUT}/.formal_records.yaml"
       - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{DUT}_checker.sv"
     output_files:
-      - "{OUT}/04_{DUT}_bug_report.md"
+      - "{OUT}/.formal_records.yaml"
     checker:
       - name: bug_report_consistency_check
         clss: "ucagent.checkers.formal.BugReportConsistencyChecker"
@@ -501,7 +432,7 @@ stage:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
       - "{OUT}/tests/{LOG_FILE}"
       - "{OUT}/tests/{FANIN_REP}"
-      - "{OUT}/04_{DUT}_bug_report.md"
+      - "{OUT}/.formal_records.yaml"
       - "{OUT}/tests/test_{DUT}_counterexample.py"
       - "Guide_Doc/formal_summary.md"
     output_files:

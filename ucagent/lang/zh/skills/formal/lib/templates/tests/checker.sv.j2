@@ -1,0 +1,30 @@
+module {{ DUT }}_checker(
+{%- if header_ports %}
+  {{ header_ports | join(',\n  ') }}
+{%- else %}
+  input clk,
+  input rst_n
+{%- endif %}
+);
+
+{%- if parameters %}
+  // Parameters
+{%- for key, value in parameters.items() %}
+  parameter {{ key }} = {{ value }};
+{%- endfor %}
+{%- endif %}
+
+  // Auto-generated checker skeleton from .formal_records.yaml
+  default clocking cb @(posedge clk); endclocking
+  default disable iff (!rst_n);
+
+{% for ck in check_points %}
+  // {{ ck.description }}
+  // Style: {{ ck.style }}{{ "  [AUTO-ADDED]" if ck.is_new else "" }}
+  property {{ ck.prop_name }};
+{{ ck.sva_body | indent(4, first=True) }}
+  endproperty
+  {{ ck.label }}: {{ ck.kind }} property ({{ ck.prop_name }});
+
+{% endfor %}
+endmodule

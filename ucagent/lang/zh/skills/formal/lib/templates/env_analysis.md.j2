@@ -1,0 +1,46 @@
+# {{ DUT }} 形式化验证环境分析报告
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+---
+
+## 1. 验证结果概览
+
+| 类型 | 数量 |
+|------|------|
+{%- for k, v in summary_items %}
+| {{ k }} | {{ v }} |
+{%- endfor %}
+
+---
+
+## 2. TRIVIALLY_TRUE 属性分析
+
+> 共 {{ tt_entries | length }} 个 TRIVIALLY_TRUE 属性需要分析。
+
+{% for e in tt_entries %}
+### <{{ e.id }}> {{ e.prop_name }}
+- **属性名**: {{ e.prop_name }}
+- **根因分类**: {{ e.root_cause or '' }}
+- **关联 Assume**: {{ e.related_assume or 'N/A' }}
+- **分析**: {{ e.analysis }}
+- **修复动作**: {{ e.action or '' }}
+- **修复说明**: {{ e.action_detail }}
+
+{% endfor %}
+
+---
+
+## 3. FALSE 属性分析
+
+> 共 {{ fa_entries | length }} 个 FALSE 属性需要分析。
+
+{% for e in fa_entries %}
+### <{{ e.id }}> {{ e.prop_name }}
+- **属性名**: {{ e.prop_name }}
+- **属性类型**: {{ e.prop_type or '' }}
+- **解决状态**: {{ e.resolution or '' }}
+- **反例/分析**: {{ e.analysis }}
+- **修复说明**: {{ e.action_detail }}
+
+{% endfor %}

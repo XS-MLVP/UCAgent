@@ -1,37 +1,61 @@
 ---
 name: bug-report
-description: 自动解析环境分析文档中的 RTL_BUG 属性，生成 Bug 报告框架（04_{DUT}_bug_report.md），LLM 填写根因分析和修复建议。
+description: 从 analysis 中提取 RTL_BUG 属性，LLM 通过脚本将 Bug 详细信息写入 .formal_records.yaml。
 ---
 
 # Bug 报告生成工作流 (Bug Report)
 
-本技能指导如何生成并填写 Bug 报告文档 `04_{DUT}_bug_report.md`。
+本技能指导如何从验证分析中提取 RTL Bug 并通过 **脚本** 将报告写入 `.formal_records.yaml`。
 
 > **文档格式与归因方法参见 `Guide_Doc/bug_report.md`**
 
 ## 步骤
 
-### 1. 生成报告框架
+### 1. 生成 Bug 骨架
 
-使用 `RunSkillScript` 工具执行以下命令生成报告骨架：
+使用 `RunSkillScript` 执行以下命令，从 analysis 提取 RTL_BUG 并生成骨架：
 
 ```bash
-python3 .ucagent/skills/bug-report/scripts/init_bug_report.py -dut_name {DUT}
+python3 .ucagent/skills/formal/bug-report/scripts/init_bug_report.py
 ```
 
-工具自动从 `07_{DUT}_env_analysis.md` 提取 RTL_BUG，生成报告框架。无 RTL_BUG 时生成无缺陷声明。
+### 2. 查看待填写条目
 
-### 2. 填写分析内容
+```bash
+python3 .ucagent/skills/formal/bug-report/scripts/update_bug.py -action show
+```
 
-打开生成的文档，逐条填写每个 `[LLM-TODO]` 标记处的内容：
-- 所有 `<FG-*>` 和 `<FC-*>` 标签必须来自 `03_{DUT}_functions_and_checks.md`
-- 反例波形解读：按列表结构分点写出触发条件、关键信号值、预期输出和实际输出
-- 如有多个 Bug，先按 `Guide_Doc/bug_report.md` 中的归因方法做聚类分析
+### 3. 填写 Bug 详情
 
-### 3. 完成后调用 Complete
+**禁止直接编辑 YAML**，使用 `RunSkillScript` 调用脚本：
+
+```bash
+python3 .ucagent/skills/formal/bug-report/scripts/update_bug.py \
+  -id BG-FORMAL-001 \
+  -fg_id FG-ARITHMETIC \
+  -fc_id FC-ADD-BASIC \
+  -rtl_file Adder/Adder.v \
+  -rtl_line 10 \
+  -description "sum 位宽错误导致加法结果不完整" \
+  -root_cause "output [WIDTH-2:0] sum 位宽参数错误" \
+  -trigger "当 a + b + cin >= 2^63 时触发" \
+  -expected "sum[63:0] 输出完整的 64 位加法结果" \
+  -actual "sum[62:0] 仅输出 63 位" \
+  -fix "将 Adder.v 第 10 行改为 output [WIDTH-1:0] sum" \
+  -severity HIGH \
+  -confidence HIGH
+```
+
+**severity 枚举值：** `HIGH` / `MEDIUM` / `LOW`
+**confidence 枚举值：** `HIGH` / `MEDIUM` / `LOW`
+
+### 4. 完成后调用 Check
+
+Checker 验证所有字段已填写（非 `[LLM-TODO]`），通过后自动生成 `04_{DUT}_bug_report.md`。
 
 ## 核心规则
 
-1. 每个函数至少一个 assert
-2. 若无 RTL_BUG，生成无缺陷声明即可
-3. 多个 bug 若共享根因，必须在总结表中合并说明（参见 `Guide_Doc/bug_report.md`）
+1. 每个 `RTL_BUG` 属性都必须有对应的 bug 条目
+2. 若无 RTL_BUG，`bugs` 设为空数组 `[]`
+3. `fg_id`、`fc_id` 必须来自 `spec` 中的标签
+4. 多个 bug 若共享根因，必须在各自条目中注明关联

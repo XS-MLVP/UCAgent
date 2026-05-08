@@ -6,13 +6,19 @@ import os
 import re
 import shutil
 import subprocess
-import json
+import yaml
 import time
-from typing import Dict, List, Optional, Tuple, Set
+import hashlib
+from typing import Dict, List, Optional, Tuple, Set, Union
 import psutil
 
 from ucagent.util.log import str_error, str_info, warning, info
+from ucagent.util import diff_ops, functions as fc
 from .formal_paths import FormalPaths
+from .models import (
+    FormalRecords, CheckPoint, FunctionGroup, FunctionPoint, 
+    AnalysisEntry, BugEntry, RunResults, IterationEntry, AnalysisData
+)
 
 __all__ = [
     "tool_display_name",
@@ -24,22 +30,29 @@ __all__ = [
     "validate_log_has_results",
     "extract_blackbox_count",
     "parse_coverage",
-    "parse_env_analysis_doc",
     "extract_rtl_bug_from_analysis_doc",
     "extract_python_test_functions",
     "run_formal_command_sync",
     "strip_prop_prefix",
     "extract_property_code",
     "extract_property_details",
-    "parse_bug_report_properties",
     "extract_static_bugs",
-    "extract_formal_bug_tags",
     "analyze_signal_coverage_usage",
     "run_formal_verification",
     "summarize_execution",
     "backup_if_exists",
     "FormalStageContext",
-    "IterationTracker"
+    # YAML-based utilities
+    "load_records",
+    "save_records",
+    "get_all_ck_from_records",
+    "generate_spec_doc",
+    "generate_env_analysis_doc",
+    "generate_bug_report_doc",
+    "incremental_merge_checker",
+    "auto_scaffold_analysis_entries",
+    "auto_scaffold_bug_entries",
+    "STYLE_PREFIX_MAP",
 ]
 
 # =============================================================================
@@ -66,15 +79,19 @@ def required_script_commands() -> List[str]:
 # =============================================================================
 
 def backup_if_exists(filepath: str) -> None:
-    """Backup file to .bak if it exists."""
-    if os.path.exists(filepath):
-        shutil.copy2(filepath, filepath + ".bak")
+    if os.path.exists(filepath): shutil.copy2(filepath, filepath + ".bak")
 
 def strip_prop_prefix(prop_name: str) -> str:
     for prefix in ("A_CK_", "M_CK_", "C_CK_", "CK_", "A_", "M_", "C_"):
-        if prop_name.startswith(prefix):
-            return prop_name[len(prefix):]
+        if prop_name.startswith(prefix): return prop_name[len(prefix):]
     return prop_name
+
+def get_file_hash(filepath: str) -> str:
+    if not os.path.exists(filepath): return ""
+    sha256 = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""): sha256.update(chunk)
+    return sha256.hexdigest()
 
 # =============================================================================
 # Execution & Subprocess
@@ -85,549 +102,444 @@ def _terminate_process_tree(proc: subprocess.Popen, timeout: int = 5) -> None:
         parent = psutil.Process(proc.pid)
         children = parent.children(recursive=True)
         for child in children:
-            try:
-                child.terminate()
-            except psutil.NoSuchProcess:
-                pass
-        try:
-            parent.terminate()
-        except psutil.NoSuchProcess:
-            pass
+            try: child.terminate()
+            except psutil.NoSuchProcess: pass
+        try: parent.terminate()
+        except psutil.NoSuchProcess: pass
         gone, alive = psutil.wait_procs(children + [parent], timeout=timeout)
         for p in alive:
-            try:
-                p.kill()
-            except psutil.NoSuchProcess:
-                pass
-    except psutil.NoSuchProcess:
-        pass
+            try: p.kill()
+            except psutil.NoSuchProcess: pass
+    except psutil.NoSuchProcess: pass
     except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        try: proc.kill()
+        except Exception: pass
 
 def run_formal_command_sync(cmd: List[str], exec_dir: str, timeout: int = 300, on_start=None) -> Tuple[bool, str, str, str]:
-    stdout_log = ""
-    stderr_log = ""
+    stdout_log, stderr_log = "", ""
     try:
-        worker = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=exec_dir
-        )
-        if on_start:
-            on_start(worker)
-        try:
-            stdout_log, stderr_log = worker.communicate(timeout=timeout)
+        worker = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=exec_dir)
+        if on_start: on_start(worker)
+        try: stdout_log, stderr_log = worker.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             _terminate_process_tree(worker, timeout=5)
             stdout_log, stderr_log = worker.communicate()
             return False, stdout_log, stderr_log, f"Timeout after {timeout} seconds"
-        if worker.returncode != 0:
-            return False, stdout_log, stderr_log, f"Return code {worker.returncode}"
+        if worker.returncode != 0: return False, stdout_log, stderr_log, f"Return code {worker.returncode}"
         return True, stdout_log, stderr_log, ""
-    except FileNotFoundError:
-        return False, "", "", f"Command '{cmd[0]}' not found"
-    except Exception as e:
-        return False, "", "", f"Execution error: {e}"
+    except FileNotFoundError: return False, "", "", f"Command '{cmd[0]}' not found"
+    except Exception as e: return False, "", "", f"Execution error: {e}"
 
-def run_formal_verification(tcl_path: str, timeout: int = 300, on_start=None) -> dict:
-    """Executes formal verification script and returns structured results."""
+def update_records_run_results(records: FormalRecords, log_result: dict, log_path: str) -> None:
+    stats = {"pass_count": len(log_result.get("pass", [])), "tt_count": len(log_result.get("trivially_true", [])), "fail_count": len(log_result.get("false", [])), "cover_pass_count": len(log_result.get("cover_pass", [])), "cover_fail_count": len(log_result.get("cover_fail", []))}
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    iteration = IterationEntry(timestamp=timestamp, pass_count=stats["pass_count"], fail_count=stats["fail_count"], tt_count=stats["tt_count"], cover_pass=stats["cover_pass_count"], cover_fail=stats["cover_fail_count"])
+    if records.run_results:
+        records.run_results.timestamp, records.run_results.log_hash, records.run_results.stats = timestamp, get_file_hash(log_path), stats
+        records.run_results.failing_properties = log_result.get("false", []) + log_result.get("cover_fail", [])
+        records.run_results.tt_properties = log_result.get("trivially_true", [])
+        records.run_results.iteration_history.append(iteration)
+    else:
+        records.run_results = RunResults(timestamp=timestamp, log_hash=get_file_hash(log_path), stats=stats, failing_properties=log_result.get("false", []) + log_result.get("cover_fail", []), tt_properties=log_result.get("trivially_true", []), iteration_history=[iteration])
+
+def run_formal_verification(tcl_path: str, timeout: int = 300, on_start=None, records_path: str = None) -> dict:
     exec_dir = os.path.dirname(tcl_path)
     log_path = os.path.join(exec_dir, log_filename())
     cmd = build_formal_command(tcl_path, exec_dir)
     success, stdout, stderr, err_msg = run_formal_command_sync(cmd, exec_dir, timeout, on_start)
-    if not success:
-        return {
-            "success": False, "error": err_msg, "log_path": log_path,
-            "parsed_log": None, "blackbox_count": 0, "has_results": False,
-            "stdout": stdout, "stderr": stderr
-        }
-    if not os.path.exists(log_path):
-        return {
-            "success": False, "error": "Log not generated", "log_path": log_path,
-            "parsed_log": None, "blackbox_count": 0, "has_results": False,
-            "stdout": stdout, "stderr": stderr
-        }
-    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
-        log_content = f.read()
-    blackbox_count = extract_blackbox_count(log_content)
-    has_results = validate_log_has_results(log_content)
+    if not success: return {"success": False, "error": err_msg, "log_path": log_path, "parsed_log": None, "blackbox_count": 0, "has_results": False, "stdout": stdout, "stderr": stderr}
+    if not os.path.exists(log_path): return {"success": False, "error": "Log not generated", "log_path": log_path, "stdout": stdout, "stderr": stderr}
+    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f: log_content = f.read()
+    blackbox_count, has_results = extract_blackbox_count(log_content), validate_log_has_results(log_content)
     parsed_log = parse_avis_log(log_path) if has_results else None
-    return {
-        "success": has_results,
-        "error": None if has_results else "No valid results in log",
-        "log_path": log_path,
-        "parsed_log": parsed_log,
-        "blackbox_count": blackbox_count,
-        "has_results": has_results,
-        "stdout": stdout,
-        "stderr": stderr
-    }
+    if records_path and parsed_log:
+        try:
+            records = load_records(records_path)
+            if records: update_records_run_results(records, parsed_log, log_path); save_records(records_path, records); info(f"📊 Proactively updated run_results in {os.path.basename(records_path)}")
+        except Exception as e: warning(f"Failed to proactively update records: {e}")
+    return {"success": has_results, "error": None if has_results else "No valid results in log", "log_path": log_path, "parsed_log": parsed_log, "blackbox_count": blackbox_count, "has_results": has_results, "stdout": stdout, "stderr": stderr}
 
 def summarize_execution(stdout: str, stderr: str, max_chars: int = 1500) -> str:
-    """Summarizes stdout and stderr into a single string for LLM consumption, truncating if necessary."""
     def trunc(txt: str) -> str:
-        if not txt: return ""
-        if len(txt) <= max_chars: return txt
-        half = max_chars // 2
-        return txt[:half] + "\\n\\n... [LOG TRUNCATED, SHOWING START AND END] ...\\n\\n" + txt[-half:]
+        if not txt or len(txt) <= max_chars: return txt
+        return txt[:max_chars//2] + "\n\n... [TRUNCATED] ...\n\n" + txt[-max_chars//2:]
     res = []
-    if stderr:
-        res.append(f"--- STDERR ---\\n{trunc(stderr)}")
-    if stdout and "Return code" not in stdout:
-        res.append(f"--- STDOUT ---\\n{trunc(stdout)}")
-    return "\\n".join(res) if res else "(empty)"
-
+    if stderr: res.append(f"--- STDERR ---\n{trunc(stderr)}")
+    if stdout and "Return code" not in stdout: res.append(f"--- STDOUT ---\n{trunc(stdout)}")
+    return "\n".join(res) if res else "(empty)"
 
 # =============================================================================
-# EDA Tool Parsing (Logs & Coverage)
+# EDA Tool Parsing
 # =============================================================================
 
 def validate_log_has_results(log_content: str) -> bool:
-    return bool(re.search(
-        r"Info-P016:\s*property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)",
-        log_content,
-        re.IGNORECASE
-    ))
+    return bool(re.search(r"Info-P016:\s*property .* is (?:TRIVIALLY_)?(?:TRUE|FALSE)", log_content, re.IGNORECASE))
 
 def extract_blackbox_count(log_content: str) -> int:
-    blackbox_stats = re.search(r"blackboxes\\s*:\\s*(\\d+)", log_content, re.IGNORECASE)
-    if blackbox_stats:
-        return int(blackbox_stats.group(1))
-    return 0
+    m = re.search(r"blackboxes\s*:\s*(\d+)", log_content, re.IGNORECASE)
+    return int(m.group(1)) if m else 0
 
 def parse_avis_log(log_path: str) -> Dict[str, list]:
-    result: Dict[str, list] = {
-        "pass": [],
-        "trivially_true": [],
-        "false": [],
-        "cover_pass": [],
-        "cover_fail": [],
-    }
-
-    if not os.path.exists(log_path):
-        return result
-
-    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
-        content = f.read()
-
-    def _is_cover(name: str) -> bool:
-        return name.startswith("C_") or "COVER" in name.upper()
-
-    def _record(prop: str, status: str) -> None:
-        is_cov = _is_cover(prop)
-        if status == "TrivT" or status == "TRIVIALLY_TRUE":
-            if not is_cov:
-                result["trivially_true"].append(prop)
-        elif status in ("Fail", "FALSE"):
-            (result["cover_fail"] if is_cov else result["false"]).append(prop)
-        elif status in ("Pass", "TRUE"):
-            (result["cover_pass"] if is_cov else result["pass"]).append(prop)
-
-    # Strategy 1: summary table (show_prop -summary output)
-    table_re = re.compile(
-        r"^\\s*\\d+\\s+([\\w.]+\\.[\\w.]+)\\s*:\\s*(TrivT|Fail|Pass|Undec)",
-        re.MULTILINE,
-    )
-    for m in table_re.finditer(content):
-        prop = m.group(1).split(".")[-1]
-        _record(prop, m.group(2))
-
-    # Strategy 2: fallback to Info-P016 per-line messages
-    if not any(result[k] for k in ("pass", "trivially_true", "false")):
-        p016_re = re.compile(
-            r"Info-P016:\s*property\s+([\w.]+)\s+is\s+"
-            r"(TRIVIALLY_TRUE|TRUE|FALSE)",
-            re.IGNORECASE,
-        )
-        for m in p016_re.finditer(content):
-            prop = m.group(1).split(".")[-1]
-            _record(prop, m.group(2).upper())
-
-    # Strategy 3: fallback to Info-P014 intermediate results
-    if not any(result[k] for k in ("pass", "trivially_true", "false")):
-        p014_re = re.compile(
-            r"Info-P014:\\s*property\\s+(false|true):\\s+([\\w.]+)",
-            re.IGNORECASE,
-        )
-        for m in p014_re.finditer(content):
-            prop = m.group(2).split(".")[-1]
-            status = "FALSE" if m.group(1).lower() == "false" else "TRUE"
-            _record(prop, status)
-
-    return result
+    res: Dict[str, list] = {"pass": [], "trivially_true": [], "false": [], "cover_pass": [], "cover_fail": []}
+    if not os.path.exists(log_path): return res
+    with open(log_path, "r", encoding="utf-8", errors="ignore") as f: content = f.read()
+    def _is_cover(n: str) -> bool: return n.startswith("C_") or "COVER" in n.upper()
+    def _record(p: str, s: str) -> None:
+        ic = _is_cover(p)
+        if s in ("TrivT", "TRIVIALLY_TRUE"): (res["trivially_true"].append(p) if not ic else None)
+        elif s in ("Fail", "FALSE"): (res["cover_fail"] if ic else res["false"]).append(p)
+        elif s in ("Pass", "TRUE"): (res["cover_pass"] if ic else res["pass"]).append(p)
+    for m in re.finditer(r"^\s*\d+\s+([\w.]+\.[\w.]+)\s*:\s*(TrivT|Fail|Pass|Undec)", content, re.MULTILINE): _record(m.group(1).split(".")[-1], m.group(2))
+    if not any(res[k] for k in ("pass", "trivially_true", "false")):
+        for m in re.finditer(r"Info-P016:\s*property\s+([\w.]+)\s+is\s+(TRIVIALLY_TRUE|TRUE|FALSE)", content, re.IGNORECASE): _record(m.group(1).split(".")[-1], m.group(2).upper())
+    return res
 
 def parse_coverage(tests_dir: str) -> dict:
     empty = {"covered": 0, "total": 0, "pct": 0.0}
-    result = {
-        "inputs": dict(empty), "outputs": dict(empty),
-        "dffs": dict(empty), "nets": dict(empty),
-        "uncovered": [],
-        "overall_pct": 0.0
-    }
-    fanin_path = coverage_report_path(tests_dir)
-    if not fanin_path or not os.path.exists(fanin_path):
-        return result
-
-    with open(fanin_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-
-    _METRIC_RE = re.compile(
-        r'(Inputs?|Outputs?|Dffs?|Nets?)\\s*:\\s*(\\d+)\\s*/\\s*(\\d+)\\s+(\\d+(?:\\.\\d+)?)%',
-        re.IGNORECASE
-    )
-    _NAME_MAP = {
-        'input': 'inputs', 'inputs': 'inputs',
-        'output': 'outputs', 'outputs': 'outputs',
-        'dff': 'dffs', 'dffs': 'dffs',
-        'net': 'nets', 'nets': 'nets',
-    }
-
-    for m in _METRIC_RE.finditer(content):
+    res = {"inputs": dict(empty), "outputs": dict(empty), "dffs": dict(empty), "nets": dict(empty), "uncovered": [], "overall_pct": 0.0}
+    fp = coverage_report_path(tests_dir)
+    if not fp or not os.path.exists(fp): return res
+    with open(fp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+    _NAME_MAP = {'input': 'inputs', 'inputs': 'inputs', 'output': 'outputs', 'outputs': 'outputs', 'dff': 'dffs', 'dffs': 'dffs', 'net': 'nets', 'nets': 'nets'}
+    for m in re.finditer(r'(Inputs?|Outputs?|Dffs?|Nets?)\s*:\s*(\d+)\s*/\s*(\d+)\s+(\d+(?:\.\d+)?)%', content, re.IGNORECASE):
         key = _NAME_MAP.get(m.group(1).lower())
         if key:
-            pct = float(m.group(4))
-            result[key] = {
-                "covered": int(m.group(2)),
-                "total":   int(m.group(3)),
-                "pct":     pct
-            }
-            if key == "nets":
-                result["overall_pct"] = pct
-
-    result["uncovered"] = re.findall(r'^\\s*-\\s+(\\S+)', content, re.MULTILINE)
-    return result
+            pct = float(m.group(4)); res[key] = {"covered": int(m.group(2)), "total": int(m.group(3)), "pct": pct}
+            if key == "nets": res["overall_pct"] = pct
+    res["uncovered"] = re.findall(r'^\s*-\s+(\S+)', content, re.MULTILINE)
+    return res
 
 # =============================================================================
-# Document & Python Parsing
+# Document & SV Parsing
 # =============================================================================
-
-def _extract_field(field_name: str, text: str) -> Optional[str]:
-    pat = re.compile(
-        rf'[-*]*\\s*\\*\\*{re.escape(field_name)}\\*\\*\\s*:\\s*(.*?)(?=\\n\\s*[-*]*\\s*\\*\\*|\\n```|\\Z)',
-        re.DOTALL
-    )
-    m = pat.search(text)
-    return m.group(1).strip() if m else None
-
-def parse_env_analysis_doc(doc_path: str) -> dict:
-    result = {"tt_entries": {}, "fa_entries": {}, "raw_content": ""}
-    if not os.path.exists(doc_path):
-        return result
-    with open(doc_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    result["raw_content"] = content
-    tt_pattern = re.compile(
-        r'###\\s*<(TT-\\d+)>\\s*(\\S+)\\s*\\n(.*?)(?=###\\s*<(?:TT|FA)-\\d+>|^---$|^## \\d+\\.|\\Z)',
-        re.DOTALL | re.MULTILINE
-    )
-    fa_pattern = re.compile(
-        r'###\\s*<(FA-\\d+)>\\s*(\\S+)\\s*\\n(.*?)(?=###\\s*<(?:TT|FA)-\\d+>|^---$|^## \\d+\\.|\\Z)',
-        re.DOTALL | re.MULTILINE
-    )
-    def _parse_entry_body(body: str, is_tt: bool) -> dict:
-        entry = {}
-        entry["prop_name_field"] = _extract_field("属性名", body) or _extract_field("Property", body)
-        if is_tt:
-            entry["root_cause"] = _extract_field("根因分类", body) or _extract_field("Root Cause", body) or ""
-            entry["related_assume"] = _extract_field("关联 Assume", body) or _extract_field("Related Assume", body) or ""
-            entry["action"] = _extract_field("修复动作", body) or _extract_field("Fix Action", body) or ""
-            entry["action_detail"] = _extract_field("修复说明", body) or _extract_field("Fix Detail", body) or ""
-        else:
-            entry["resolution"] = _extract_field("解决状态", body) or _extract_field("Resolution", body) or _extract_field("判定结果", body) or _extract_field("Judgment", body) or ""
-            entry["action_detail"] = _extract_field("修复说明", body) or _extract_field("Fix Detail", body) or ""
-            entry["prop_type"] = _extract_field("属性类型", body) or _extract_field("Property Type", body) or ""
-        entry["analysis"] = _extract_field("分析", body) or _extract_field("Analysis", body) or _extract_field("反例/分析", body) or ""
-        return entry
-    for match in tt_pattern.finditer(content):
-        tt_id = match.group(1).strip()
-        prop_name = match.group(2).strip()
-        entry = _parse_entry_body(match.group(3), is_tt=True)
-        entry["prop_name"] = prop_name
-        entry["id"] = tt_id
-        result["tt_entries"][prop_name] = entry
-    for match in fa_pattern.finditer(content):
-        fa_id = match.group(1).strip()
-        prop_name = match.group(2).strip()
-        entry = _parse_entry_body(match.group(3), is_tt=False)
-        entry["prop_name"] = prop_name
-        entry["id"] = fa_id
-        result["fa_entries"][prop_name] = entry
-    return result
 
 def extract_rtl_bug_from_analysis_doc(analysis_path: str) -> List[Tuple[str, str]]:
-    doc = parse_env_analysis_doc(analysis_path)
-    rtl_bugs = []
-    for prop_name, entry in doc.get("fa_entries", {}).items():
-        if entry.get("resolution", "").strip().upper() == "RTL_BUG":
-            rtl_bugs.append((entry["id"], prop_name))
-    rtl_bugs.sort(key=lambda x: str(x[0]))
-    return rtl_bugs
+    records = load_records(os.path.join(os.path.dirname(analysis_path), ".formal_records.yaml"))
+    if not records or not records.analysis: return []
+    res = [(e.id, e.prop_name) for e in records.analysis.fa_entries if e.resolution and e.resolution.upper() == "RTL_BUG"]
+    res.sort(key=lambda x: str(x[0])); return res
 
-def extract_python_test_functions(test_path: str) -> dict:
-    functions = {}
-    if not os.path.exists(test_path):
-        return functions
-    with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    func_pattern = re.compile(r'^def\\s+(test_cex_\\w+)\\s*\\(', re.MULTILINE)
-    func_matches = list(func_pattern.finditer(content))
-    for idx, match in enumerate(func_matches):
-        func_name = match.group(1)
-        start = match.start()
-        end = func_matches[idx + 1].start() if idx + 1 < len(func_matches) else len(content)
-        func_body = content[start:end]
-        functions[func_name] = {
-            'has_assert': 'assert ' in func_body,
-            'has_finish': 'Finish()' in func_body,
-        }
-    return functions
+def extract_python_test_functions(tp: str) -> dict:
+    fns = {}
+    if not os.path.exists(tp): return fns
+    with open(tp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+    ms = list(re.finditer(r'^def\s+(test_cex_\w+)\s*\(', content, re.MULTILINE))
+    for i, m in enumerate(ms):
+        n, s = m.group(1), m.start(); e = ms[i+1].start() if i+1 < len(ms) else len(content)
+        b = content[s:e]; fns[n] = {'has_assert': 'assert ' in b, 'has_finish': 'Finish()' in b}
+    return fns
 
-def parse_bug_report_properties(content: str) -> Set[str]:
-    report_sections = re.split(r'##\\s*❌?\\s*Failed Property:\\s*`?([\\w.]+)`?', content)
-    reported_props = set()
-    for i in range(1, len(report_sections), 2):
-        prop_name = report_sections[i].strip()
-        short_name = prop_name.split('.')[-1] if '.' in prop_name else prop_name
-        reported_props.add(short_name)
-    return reported_props
-
-def extract_static_bugs(static_path: str) -> dict:
-    result = {"pending": [], "confirmed": [], "false_positive": []}
-    if not os.path.exists(static_path): return result
-    with open(static_path, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    bg_pattern = re.compile(r'(<BG-STATIC-[A-Za-z0-9_-]+>)')
-    bg_matches = bg_pattern.findall(content)
-    link_pattern = re.compile(r'(<LINK-BUG-\\[([^]]+)\\]>)')
-    for bg_id in bg_matches:
-        bg_pos = content.find(bg_id)
-        if bg_pos == -1: continue
-        search_range = content[bg_pos:bg_pos + 500]
-        link_matches = link_pattern.findall(search_range)
-        if link_matches:
-            for full_tag, link_value in link_matches:
-                if link_value == "BG-TBD": result["pending"].append((bg_id, full_tag))
-                elif link_value == "BG-NA": result["false_positive"].append((bg_id, full_tag))
-                else: result["confirmed"].append((bg_id, full_tag))
-    return result
-
-def extract_formal_bug_tags(bug_report_path: str) -> Set[str]:
-    formal_bugs = set()
-    if os.path.exists(bug_report_path):
-        with open(bug_report_path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        bg_pattern = re.compile(r'<(BG-[A-Za-z0-9_-]+)>')
-        formal_bugs.update(bg_pattern.findall(content))
-    return formal_bugs
-
-# =============================================================================
-# SystemVerilog Parsing
-# =============================================================================
+def extract_static_bugs(sp: str) -> dict:
+    res = {"pending": [], "confirmed": [], "false_positive": []}
+    if not os.path.exists(sp): return res
+    with open(sp, 'r', encoding='utf-8', errors='ignore') as f: content = f.read()
+    for bid in re.findall(r'(<BG-STATIC-[A-Za-z0-9_-]+>)', content):
+        p = content.find(bid); lm = re.findall(r'(<LINK-BUG-\[([^]]+)\]>)', content[p:p+500])
+        for ft, lv in lm:
+            if lv == "BG-TBD": res["pending"].append((bid, ft))
+            elif lv == "BG-NA": res["false_positive"].append((bid, ft))
+            else: res["confirmed"].append((bid, ft))
+    return res
 
 def extract_property_details(content: str) -> dict:
     details = {}
-    if not content:
-        return details
+    if not content: return details
     try:
-        prop_blocks = re.findall(r'property\s+(CK_[A-Za-z0-9_]+)\s*;(.*?)\bendproperty', content, re.DOTALL)
-        for name, body in prop_blocks:
-            details[name] = {'body': body, 'type': None}
-        stmt_matches = re.findall(r'(\w+)\s*:\s*(assert|assume|cover)\s+property\s*\((CK_[A-Za-z0-9_]+)\)', content)
-        for inst_label, p_type, prop_name in stmt_matches:
-            if prop_name in details:
-                details[prop_name]['type'] = p_type
+        for n, b in re.findall(r'property\s+(CK_[A-Za-z0-9_]+)\s*;(.*?)\bendproperty', content, re.DOTALL): details[n] = {'body': b, 'type': None}
+        for il, pt, pn in re.findall(r'(\w+)\s*:\s*(assert|assume|cover)\s+property\s*\((CK_[A-Za-z0-9_]+)\)', content):
+            if pn in details: details[pn]['type'] = pt
         return details
-    except Exception as e:
-        warning(f"Failed to extract property details: {e}")
-        return {}
+    except Exception as e: warning(f"Failed to extract property details: {e}"); return {}
 
-def extract_property_code(checker_content: str, prop_name: str) -> str:
-    if not checker_content:
-        return f"  // Property code unavailable for {prop_name}"
-    pattern = re.compile(
-        rf"(property\\s+(?:(?:A|M|C)_)?{re.escape(prop_name)}[\\s;].*?endproperty)",
-        re.DOTALL,
-    )
-    match = pattern.search(checker_content)
-    if match:
-        return "\\n".join("  " + line for line in match.group(1).split("\\n"))
-    pattern_inline = re.compile(
-        rf"(?:assert|assume|cover)\\s+property\\s*\\([^;]*{re.escape(prop_name)}[^;]*\\)\\s*;"
-    )
-    match = pattern_inline.search(checker_content)
-    if match:
-        return f"  {match.group(0)}"
-    core_name = strip_prop_prefix(prop_name)
-    if core_name != prop_name:
-        pattern_core = re.compile(
-            rf"(property\\s+.*?{re.escape(core_name)}.*?;.*?endproperty)",
-            re.DOTALL,
-        )
-        match = pattern_core.search(checker_content)
-        if match:
-            return "\\n".join("  " + line for line in match.group(1).split("\\n"))
-    lines = checker_content.split("\\n")
-    for i, line in enumerate(lines):
-        if prop_name in line and ("assert" in line or "property" in line or ":" in line):
-            return "\\n".join(lines[max(0, i - 3):min(len(lines), i + 6)])
-    for i, line in enumerate(lines):
-        if prop_name in line:
-            return "\\n".join(lines[max(0, i - 2):min(len(lines), i + 4)])
-    return f"  // Property definition not found for {prop_name}"
+def extract_property_code(cc: str, pn: str) -> str:
+    if not cc: return f"  // Property code unavailable for {pn}"
+    m = re.search(rf"(property\s+(?:(?:A|M|C)_)?{re.escape(pn)}[\s;].*?endproperty)", cc, re.DOTALL)
+    if m: return "\n".join("  " + l for l in m.group(1).split("\n"))
+    m = re.search(rf"(?:assert|assume|cover)\s+property\s*\([^;]*{re.escape(pn)}[^;]*\)\s*;", cc)
+    return f"  {m.group(0)}" if m else f"  // Property definition not found for {pn}"
 
-def analyze_signal_coverage_usage(checker_content: str, uncovered: List[str]) -> List[str]:
-    cover_only_signals = []
-    for sig in uncovered[:10]:
-        base_name = re.sub(r'\\[.*?\\]', '', sig).strip()
-        base_name = base_name.replace("checker_inst.", "")
-        if not base_name: continue
-        in_assert = bool(re.search(rf'\\bassert\\s+property\\b.*?{re.escape(base_name)}', checker_content, re.DOTALL)) or \
-                    bool(re.search(rf'{re.escape(base_name)}.*?\\bassert\\s+property\\b', checker_content, re.DOTALL))
-        in_cover = bool(re.search(rf'\\bcover\\s+property\\b.*?{re.escape(base_name)}', checker_content, re.DOTALL))
-        if in_cover and not in_assert:
-            cover_only_signals.append(base_name)
-    if cover_only_signals:
-        unique_sigs = list(dict.fromkeys(cover_only_signals))
-        return [
-            f"⚠️  These uncovered signals appear in cover but NOT in any assert:\\n"
-            + "\\n".join(f"    - {s}" for s in unique_sigs[:10]) + "\\n"
-            f"  Cover properties provide WEAK COI contribution.\\n"
-            f"  → Write assert properties that verify the behavioral correctness of these signals."
-        ]
-    return []
+def analyze_signal_coverage_usage(cc: str, unc: List[str]) -> List[str]:
+    co = []
+    for s in unc[:10]:
+        b = re.sub(r'\[.*?\]', '', s).strip().replace("checker_inst.", "")
+        if b and not re.search(rf'\bassert\s+property\b.*?{re.escape(b)}', cc, re.DOTALL) and re.search(rf'\bcover\s+property\b.*?{re.escape(b)}', cc, re.DOTALL): co.append(b)
+    return [f"⚠️  These signals appear in cover but NOT in any assert:\n" + "\n".join(f"    - {s}" for s in list(dict.fromkeys(co))[:10]) + "\n  Cover properties provide WEAK COI. Write asserts."] if co else []
 
 # =============================================================================
-# Stage Context & Iteration Tracker
+# YAML Records
+# =============================================================================
+
+def load_records(rp: str) -> Optional[FormalRecords]:
+    if os.path.exists(rp):
+        with open(rp, 'r', encoding='utf-8') as f:
+            try:
+                data = yaml.safe_load(f)
+                return FormalRecords.model_validate(data) if data else None
+            except Exception as e: warning(f"Failed to load records from {rp}: {e}")
+    return None
+
+def save_records(rp: str, records: Union[FormalRecords, dict]) -> None:
+    os.makedirs(os.path.dirname(rp), exist_ok=True)
+    d = records.model_dump(exclude_none=True) if isinstance(records, FormalRecords) else records
+    with open(rp, 'w', encoding='utf-8') as f: yaml.safe_dump(d, f, indent=2, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+def get_all_ck_from_records(records: FormalRecords) -> list:
+    items = []
+    if records.spec:
+        for fg in records.spec.function_groups:
+            for fc in fg.functions:
+                for ck in fc.check_points: items.append((ck.id, ck.style, ck.description))
+    return items
+
+def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) -> bool:
+    if not records.analysis: records.analysis = AnalysisData(); ch = True
+    else: ch = False
+    ct, cf = set(lr.get("trivially_true", [])), set(lr.get("false", [])) | set(lr.get("cover_fail", []))
+    et, ef = {e.prop_name for e in records.analysis.tt_entries}, {e.prop_name for e in records.analysis.fa_entries}
+    nt, nf = sorted(ct - et), sorted(cf - ef)
+    if nt:
+        next_id = max((int(e.id.split("-")[1]) for e in records.analysis.tt_entries), default=0) + 1
+        for p in nt: records.analysis.tt_entries.append(AnalysisEntry(id=f"TT-{next_id:03d}", prop_name=p, sva_code=extract_property_code(cc, p), root_cause="[LLM-TODO]", action="[LLM-TODO]")); next_id += 1; ch = True
+    if nf:
+        next_id = max((int(e.id.split("-")[1]) for e in records.analysis.fa_entries), default=0) + 1
+        for p in nf: records.analysis.fa_entries.append(AnalysisEntry(id=f"FA-{next_id:03d}", prop_name=p, prop_type="cover" if p in lr.get("cover_fail", []) else "assert", sva_code=extract_property_code(cc, p), resolution="[LLM-TODO]")); next_id += 1; ch = True
+    return ch
+
+def auto_scaffold_bug_entries(records: FormalRecords) -> bool:
+    if not records.analysis: return False
+    rtl_bugs = [e for e in records.analysis.fa_entries if e.resolution and e.resolution.upper() == "RTL_BUG"]
+    if not rtl_bugs: return False
+    if records.bugs is None: records.bugs = []; ch = True
+    else: ch = False
+    ex = {b.property for b in records.bugs}
+    for e in rtl_bugs:
+        if e.prop_name not in ex: records.bugs.append(BugEntry(id=f"BG-FORMAL-{len(records.bugs) + 1:03d}", property=e.prop_name, ck_id=f"CK-{strip_prop_prefix(e.prop_name).replace('_', '-')}")); ch = True
+    return ch
+
+import jinja2
+
+def _indent_string(s: str, width: int, first: bool = False) -> str:
+    lines = s.split('\n')
+    res = []
+    for i, line in enumerate(lines):
+        if i == 0 and not first:
+            res.append(line)
+        else:
+            res.append(' ' * width + line)
+    return '\n'.join(res)
+
+# =============================================================================
+# YAML → Markdown
+# =============================================================================
+
+STYLE_PREFIX_MAP = {"assume": "M_CK_", "comb": "A_CK_", "seq": "A_CK_", "cover": "C_CK_"}
+
+def _render_to_file(template_name: str, context: dict, output_path: str) -> None:
+    try:
+        # Templates are now stored privately in lib/templates
+        lib_dir = os.path.dirname(os.path.abspath(__file__))
+        tp = os.path.join(lib_dir, "templates", template_name + ".j2")
+        
+        if not os.path.exists(tp):
+            from ucagent.util.log import error
+            error(f"Template not found at {tp}")
+            return
+
+        with open(tp, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+        
+        env = jinja2.Environment(keep_trailing_newline=True)
+        # Add indent filter for SV code
+        def indent_filter(s, width, first=False):
+            lines = s.split('\n')
+            res = []
+            for i, line in enumerate(lines):
+                if i == 0 and not first:
+                    res.append(line)
+                else:
+                    res.append(' ' * width + line)
+            return '\n'.join(res)
+        env.filters['indent'] = indent_filter
+        
+        template = env.from_string(template_content)
+        rendered = template.render(**context)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(rendered)
+    except Exception as e:
+        from ucagent.util.log import error
+        error(f"Failed to render template {template_name}: {e}")
+
+def generate_spec_doc(records: FormalRecords, op: str) -> None:
+    context = {
+        "DUT": records.dut,
+        "function_groups": records.spec.function_groups if records.spec else []
+    }
+    _render_to_file("functions_and_checks.md", context, op)
+
+def generate_env_analysis_doc(records: FormalRecords, lp: dict, op: str) -> None:
+    summary_items = [
+        ("Assert Pass", len(lp.get("pass", []))),
+        ("Assert TRIVIALLY_TRUE", len(lp.get("trivially_true", []))),
+        ("Assert Fail", len(lp.get("false", []))),
+        ("Cover Pass", len(lp.get("cover_pass", []))),
+        ("Cover Fail", len(lp.get("cover_fail", [])))
+    ]
+    a = records.analysis
+    context = {
+        "DUT": records.dut,
+        "summary_items": summary_items,
+        "tt_entries": a.tt_entries if a else [],
+        "fa_entries": a.fa_entries if a else []
+    }
+    _render_to_file("env_analysis.md", context, op)
+
+def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
+    context = {
+        "DUT": records.dut,
+        "bugs": records.bugs or []
+    }
+    _render_to_file("bug_report.md", context, op)
+
+# =============================================================================
+# YAML → SV Merging
+# =============================================================================
+
+def _ck_to_sv_names(ck_id: str, style: str) -> tuple:
+    pn = ck_id.replace("-", "_")
+    p = STYLE_PREFIX_MAP.get(style.lower(), "A_CK_")
+    l = p + (pn[3:] if pn.startswith("CK_") else pn)
+    k = {"assume": "assume", "cover": "cover"}.get(style.lower(), "assert")
+    return pn, l, k
+
+def update_records_sva_body(records: FormalRecords, im: dict) -> bool:
+    c = False
+    if not records.spec: return False
+    for fg in records.spec.function_groups:
+        for fc in fg.functions:
+            for ck in fc.check_points:
+                n = ck.id.replace("-", "_")
+                if n in im:
+                    b = im[n]["body"].strip()
+                    if ck.sva_body != b: ck.sva_body = b; c = True
+    return c
+
+def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: Optional[List[Tuple[str, str]]] = None, mode: str = "full") -> str:
+    # 1. Prepare common data
+    check_points_data = []
+    if records.spec:
+        for fg in records.spec.function_groups:
+            for fc in fg.functions:
+                for ck in fc.check_points:
+                    pn, l, k = _ck_to_sv_names(ck.id, ck.style)
+                    check_points_data.append({
+                        "id": ck.id,
+                        "prop_name": pn,
+                        "label": l,
+                        "kind": k,
+                        "style": ck.style,
+                        "description": ck.description,
+                        "sva_body": ck.sva_body if ck.sva_body else "    1'b1; // [LLM-TODO] Fill SVA body",
+                    })
+
+    # 2. Case: Full Rendering (Stages 3-5)
+    if mode == "full" or not os.path.exists(sv_path):
+        hp = []
+        if port_info:
+            if not any(n == "clk" for n, _ in port_info): hp.append("input clk")
+            if not any(n == "rst_n" for n, _ in port_info): hp.append("input rst_n")
+            for n, pd in port_info:
+                if n not in ("clk", "rst_n"): hp.append(re.sub(r"^(input|output|inout)\s+", "input ", pd.strip()))
+        else: hp = ["input clk", "input rst_n"]
+
+        context = {
+            "DUT": records.dut,
+            "header_ports": hp,
+            "check_points": check_points_data,
+            "parameters": records.spec.parameters if records.spec else None,
+            "whitebox_signals": records.spec.whitebox_signals if records.spec else None,
+            "extra_config": records.extra_config
+        }
+        _render_to_file("tests/checker.sv", context, sv_path)
+        with open(sv_path, 'r', encoding='utf-8') as f: return f.read()
+
+    # 3. Case: Append Mode (Stages 6-7)
+    with open(sv_path, 'r', encoding='utf-8') as f: 
+        sc = f.read()
+
+    # Identify existing properties to avoid duplication
+    exi = set(re.findall(r'property\s+([A-Za-z0-9_]+)\s*;', sc))
+
+    new_nbs = []
+    for ck in check_points_data:
+        if ck["prop_name"] not in exi:
+            snippet = f"\n  // {ck['description']}\n" \
+                      f"  // Style: {ck['style']}  [AUTO-ADDED]\n" \
+                      f"  property {ck['prop_name']};\n" \
+                      f"{_indent_string(ck['sva_body'], 4, first=True)}\n" \
+                      f"  endproperty\n" \
+                      f"  {ck['label']}: {ck['kind']} property ({ck['prop_name']});\n"
+            new_nbs.append(snippet)
+
+    if new_nbs:
+        # Insert before the last endmodule
+        if "endmodule" in sc:
+            parts = sc.rsplit("endmodule", 1)
+            sc = parts[0] + "\n" + "\n".join(new_nbs) + "\nendmodule" + parts[1]
+            with open(sv_path, 'w', encoding='utf-8') as f: 
+                f.write(sc)
+            info(f"Append mode: Added {len(new_nbs)} new properties to {sv_path}")
+        else:
+            warning(f"Could not find 'endmodule' in {sv_path}, skipping append.")
+
+    return sc
+
+
+
+
+# =============================================================================
+# Stage Context
 # =============================================================================
 
 class FormalStageContext:
     """Caches parsed verification data and shares it across checkers."""
     _SMANAGER_KEY = "_formal_stage_context"
-
-    def __init__(self):
-        self._log_cache = {}
+    def __init__(self, workspace: str = None):
         self._checker_cache = {}
-        self._doc_cache = {}
-
-    def get_analysis_doc_parsed(self, doc_path: str) -> dict:
-        if self._is_stale(self._doc_cache, doc_path):
-            result = parse_env_analysis_doc(doc_path)
-            self._doc_cache[doc_path] = {
-                "mtime": os.path.getmtime(doc_path) if os.path.exists(doc_path) else 0,
-                "data": result,
-            }
-        return self._doc_cache[doc_path]["data"]
+        self._workspace = workspace
 
     @classmethod
-    def get_or_create(cls, checker_instance, *_args):
-        if getattr(checker_instance, 'stage_manager', None) is not None:
+    def get_or_create(cls, ci, *_args):
+        ws = getattr(ci, 'workspace', None)
+        if getattr(ci, 'stage_manager', None):
             try:
-                ctx = checker_instance.smanager_get_value(cls._SMANAGER_KEY)
-                if ctx is not None:
+                ctx = ci.smanager_get_value(cls._SMANAGER_KEY)
+                if ctx:
+                    if ws and ctx._workspace is None: ctx._workspace = ws
                     return ctx
-            except (RuntimeError, AttributeError):
-                pass
-        ctx = cls()
-        if getattr(checker_instance, 'stage_manager', None) is not None:
-            try:
-                checker_instance.smanager_set_value(cls._SMANAGER_KEY, ctx)
-            except (RuntimeError, AttributeError):
-                pass
+            except (RuntimeError, AttributeError): pass
+        ctx = cls(workspace=ws)
+        if getattr(ci, 'stage_manager', None):
+            try: ci.smanager_set_value(cls._SMANAGER_KEY, ctx)
+            except (RuntimeError, AttributeError): pass
         return ctx
 
-    def _is_stale(self, cache_dict: dict, path: str) -> bool:
-        if path not in cache_dict: return True
-        if not os.path.exists(path): return True
-        return os.path.getmtime(path) > cache_dict[path]["mtime"]
+    def _is_stale(self, p: str) -> bool:
+        if not self._workspace or not os.path.exists(p): return True
+        try: return os.path.relpath(p, self._workspace) in set(diff_ops.get_dirty_files(self._workspace))
+        except Exception: return True
 
-    def get_parsed_log(self, log_path: str) -> dict:
-        if self._is_stale(self._log_cache, log_path):
-            self._log_cache[log_path] = {
-                "mtime": os.path.getmtime(log_path) if os.path.exists(log_path) else 0,
-                "data": parse_avis_log(log_path),
-            }
-        return self._log_cache[log_path]["data"]
+    def get_checker_content(self, cp: str) -> str:
+        if cp not in self._checker_cache or self._is_stale(cp):
+            c = ""
+            if os.path.exists(cp):
+                with open(cp, 'r', encoding='utf-8', errors='ignore') as f: c = f.read()
+            self._checker_cache[cp] = c
+        return self._checker_cache[cp]
 
-    def get_checker_content(self, checker_path: str) -> str:
-        if self._is_stale(self._checker_cache, checker_path):
-            content = ""
-            if os.path.exists(checker_path):
-                with open(checker_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read()
-            self._checker_cache[checker_path] = {
-                "mtime": os.path.getmtime(checker_path) if os.path.exists(checker_path) else 0,
-                "content": content,
-            }
-        return self._checker_cache[checker_path]["content"]
+    def invalidate(self, p: str = None):
+        if p is None: self._checker_cache.clear()
+        else: self._checker_cache.pop(p, None)
 
-    def invalidate(self, path: str = None):
-        if path is None:
-            self._log_cache.clear()
-            self._checker_cache.clear()
-            self._doc_cache.clear()
-        else:
-            self._log_cache.pop(path, None)
-            self._checker_cache.pop(path, None)
-            self._doc_cache.pop(path, None)
-
-    def get_rtl_bug_properties(self, analysis_path: str) -> list:
-        try:
-            return [prop for _, prop in extract_rtl_bug_from_analysis_doc(analysis_path)]
-        except Exception:
-            return []
-
-class IterationTracker:
-    """Tracks verification iterations and checks for convergence."""
-    def __init__(self, dut_name, log_file):
-        self.dut_name = dut_name
-        self.log_file = log_file
-
-    def get_log_path(self) -> str:
-        return os.path.join(os.path.dirname(self.log_file), f".{self.dut_name}_iteration_history.json")
-
-    def record_iteration(self, stats: dict) -> list:
-        log_path = self.get_log_path()
-        history = []
-        if os.path.exists(log_path):
-            try:
-                with open(log_path, "r") as f:
-                    history = json.load(f)
-            except Exception: pass
-        entry = {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "pass_count": stats.get("pass_count", 0),
-            "fail_count": stats.get("fail_count", 0),
-            "tt_count": stats.get("tt_count", 0),
-            "cover_pass": stats.get("cover_pass", 0),
-            "cover_fail": stats.get("cover_fail", 0),
-        }
-        history.append(entry)
-        try:
-            with open(log_path, "w") as f:
-                json.dump(history, f, indent=2, ensure_ascii=False)
-        except Exception: pass
-        return history
-
-    def check_convergence(self, history: list) -> tuple:
-        if len(history) < 2: return True, ""
-        prev, curr = history[-2], history[-1]
-        prev_fail = prev.get("fail_count", 0) + prev.get("cover_fail", 0)
-        curr_fail = curr.get("fail_count", 0) + curr.get("cover_fail", 0)
-        prev_pass = prev.get("pass_count", 0) + prev.get("cover_pass", 0)
-        curr_pass = curr.get("pass_count", 0) + curr.get("cover_pass", 0)
-        curr_tt, prev_tt = curr.get("tt_count", 0), prev.get("tt_count", 0)
-
-        msgs = []
-        if curr_pass < prev_pass: msgs.append(f"⚠️  REGRESSION: Pass count decreased ({prev_pass} → {curr_pass}). Consider reverting the last modification.")
-        if curr_fail >= prev_fail and curr_tt >= prev_tt and len(history) >= 3:
-            prev2_fail = history[-3].get("fail_count", 0) + history[-3].get("cover_fail", 0)
-            if prev2_fail <= prev_fail: msgs.append(f"⚠️  STAGNATION: Fail count has not decreased for 3 consecutive iterations. Try a different fix strategy.")
-        if curr_fail > prev_fail: msgs.append(f"⚠️  DEGRADATION: Fail count increased ({prev_fail} → {curr_fail}). The last modification may have introduced new failures.")
-
-        is_ok = not any("REGRESSION" in m for m in msgs)
-        return is_ok, "\\n".join(msgs)
+    def get_rtl_bug_properties(self, ap: str) -> list:
+        try: return [p for _, p in extract_rtl_bug_from_analysis_doc(ap)]
+        except Exception: return []

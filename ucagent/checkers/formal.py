@@ -40,9 +40,9 @@ import os
 import re
 import time
 
-import pyslang
 from ucagent.checkers.base import Checker
 from ucagent.util.log import info, warning
+
 
 # Shared utilities – single source of truth
 from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
@@ -55,16 +55,19 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import (
     extract_rtl_bug_from_analysis_doc,
     extract_static_bugs,
     summarize_execution,
-    parse_env_analysis_doc,
     extract_python_test_functions,
-    parse_bug_report_properties,
     analyze_signal_coverage_usage,
     FormalStageContext,
-    IterationTracker,
     log_filename,
     coverage_report_path,
     parse_coverage,
     required_script_commands,
+    load_records,
+    get_all_ck_from_records,
+    update_records_sva_body,
+    save_records,
+    auto_scaffold_analysis_entries,
+    auto_scaffold_bug_entries,
 )
 
 class BaseFormalChecker(Checker):
@@ -79,28 +82,37 @@ class BaseFormalChecker(Checker):
     def _fail(self, err: str, details: str = "", suggestion: str = "") -> tuple[bool, dict]:
         return False, {"error": err, "details": details, "suggestion": suggestion}
 
-    def _ensure_tcl_executed(self, target_log_path: str, dep_paths: list, tcl_script_path: str, timeout: int = 300) -> tuple[bool, dict, bool]:
+    def _ensure_tcl_executed(self, dep_paths: list, tcl_script_path: str, timeout: int = 300) -> tuple[bool, dict, bool]:
         """
-        Ensures that the TCL script is executed if any dependency file is newer than the target log file.
+        Ensures that the TCL script is re-executed if any dependency file
+        has uncommitted changes (detected via git dirty-file list).
+
+        When source files (checker.sv, wrapper.sv) are dirty, re-running the
+        EDA tool is mandatory and the log is guaranteed to be regenerated.
+
         Returns: (is_success, error_result_or_none, was_executed)
         """
         need_rerun = False
         rerun_reason = ""
 
-        if not os.path.exists(target_log_path):
-            need_rerun = True
-            rerun_reason = f"{os.path.basename(target_log_path)} does not exist, TCL execution required"
-        else:
-            log_mtime = os.path.getmtime(target_log_path)
+        # Check if any dependency file has uncommitted changes
+        try:
+            from ucagent.util import diff_ops
+            dirty_files = set(diff_ops.get_dirty_files(self.workspace))
             for dep in dep_paths:
-                if os.path.exists(dep) and os.path.getmtime(dep) > log_mtime:
+                rel_dep = os.path.relpath(dep, self.workspace)
+                if rel_dep in dirty_files:
                     need_rerun = True
-                    rerun_reason = f"{os.path.basename(dep)} has been updated (newer than {os.path.basename(target_log_path)}), verification needs to be re-executed"
+                    rerun_reason = f"{os.path.basename(dep)} has uncommitted changes"
                     break
+        except (ValueError, Exception):
+            # Not a git repo or workspace not set — fallback: always rerun
+            need_rerun = True
+            rerun_reason = "Git status unavailable, running verification to be safe"
 
         if need_rerun:
             info(f"🚀 {rerun_reason}, executing TCL script...")
-            res = run_formal_verification(tcl_script_path, timeout)
+            res = run_formal_verification(tcl_script_path, timeout, records_path=self.paths.records_yaml)
             if not res["success"]:
                 return False, {
                     "error": "❌ TCL script execution failed",
@@ -113,91 +125,131 @@ class BaseFormalChecker(Checker):
         return True, {}, need_rerun
 
 
+class FormalSpecJsonChecker(BaseFormalChecker):
 
+    """Validates the spec structure in .formal_records.yaml."""
 
-class EnvSyntaxChecker(BaseFormalChecker):
-    """Validates the SystemVerilog syntax of the environment file.
+    _VALID_STYLES = {"assume", "comb", "seq", "cover"}
 
-    Enhancements (compared to previous version):
-    - Uses pyslang for true SV syntax parsing validation.
-    - Checks if the module name follows the {dut}_checker format.
-    """
+    def __init__(self, dut_name, check_level="ck", **kwargs):
+        super().__init__(dut_name, **kwargs)
+        self._counts = {"fg": 0, "fc": 0, "ck": 0}
+        self._check_level = check_level.lower() if check_level else "ck"
+
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Checks the environment file for valid SystemVerilog module syntax."""
-        path = self.paths.checker
-        if not os.path.exists(path):
-            return self._fail(f"Environment file {self.paths.checker} not found.")
+        """Validates the formal specification structure and content."""
+        records_path = self.paths.records_yaml
+        if not os.path.exists(records_path):
+            return self._fail(
+                f"❌ .formal_records.yaml not found at {records_path}",
+                suggestion=(
+                    "Use RunSkillScript to call update_spec.py to create spec entries. "
+                    "See func-spec skill for details."
+                ),
+            )
 
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        records = load_records(records_path)
+        if not records or not records.spec:
+            return self._fail(
+                "❌ Spec structure missing in .formal_records.yaml",
+                suggestion="Use update_spec.py -action add_fg to create function groups.",
+            )
 
-        # Verify module name follows convention (optional but recommended)
-        module_match = re.search(r'\bmodule\s+(\w+)', content)
-        if module_match:
-            module_name = module_match.group(1)
-            if not module_name.endswith('_checker'):
-                # Warning, not error — the module might have a valid alternative name
-                info(f"Warning: checker module name '{module_name}' does not end with '_checker'")
-
-        # Use pyslang for real syntax validation
-        errors = []
-        try:
-            tree = pyslang.SyntaxTree.fromText(content)
-            # Check for syntax diagnostics
-            for diag in tree.diagnostics:
-                diag_str = str(diag).strip()
-                if diag_str:
-                    errors.append(diag_str)
-        except Exception as e:
-            errors.append(f"pyslang parse error: {e}")
-
-        if errors:
-            error_msg = f"SystemVerilog syntax errors in {self.paths.checker}:\n"
-            error_msg += "\n".join([f"  - {e}" for e in errors[:10]])  # Cap at 10 errors
-            if len(errors) > 10:
-                error_msg += f"\n  ... and {len(errors) - 10} more errors"
-            return self._fail(error_msg, suggestion="Please fix SV syntax errors in checker.sv")
-
-        return self._pass("Environment syntax check passed (pyslang validated).")
-
-
-
-class WrapperTimingChecker(BaseFormalChecker):
-    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Checks if wrapper includes clk and rst_n for formal verification."""
-        wrapper_path = self.paths.wrapper
-        if not os.path.exists(wrapper_path):
-            return self._fail(f"Wrapper file {self.paths.wrapper} not found.")
-
-        # Read wrapper content
-        with open(wrapper_path, 'r', encoding='utf-8') as f:
-            wrapper_content = f.read()
+        groups = records.spec.function_groups
+        if not groups:
+            return self._fail("❌ spec.function_groups is empty. Define at least one function group (FG).")
 
         errors = []
+        fg_ids = set()
+        fc_count = 0
+        ck_count = 0
 
-        # Check if wrapper has clk and rst_n
-        if not re.search(r'input\s+clk', wrapper_content):
-            errors.append("Wrapper must include 'input clk' for formal verification.")
+        for fg in groups:
+            fg_id = fg.id
+            if not fg_id:
+                errors.append("A function group is missing 'id' field.")
+                continue
+            fg_ids.add(fg_id)
 
-        if not re.search(r'input\s+rst_n', wrapper_content):
-            errors.append("Wrapper must include 'input rst_n' for formal verification.")
+            functions = fg.functions
+
+            # FC-level checks (fc and ck levels)
+            if self._check_level in ("fc", "ck"):
+                if not functions:
+                    errors.append(f"{fg_id}: No functions (FC) defined.")
+                    continue
+
+            for fc in functions:
+                fc_id = fc.id
+                if not fc_id:
+                    errors.append(f"{fg_id}: A function is missing 'id' field.")
+                    continue
+                fc_count += 1
+
+                # CK-level checks (ck level only)
+                if self._check_level == "ck":
+                    cks = fc.check_points
+                    if not cks:
+                        errors.append(f"{fc_id}: No check_points (CK) defined.")
+                        continue
+
+                    for ck in cks:
+                        ck_id = ck.id
+                        style = ck.style
+                        if not ck_id:
+                            errors.append(f"{fc_id}: A check_point is missing 'id' field.")
+                            continue
+                        if not ck_id.startswith("CK-"):
+                            errors.append(f"{ck_id}: CK id must start with 'CK-'.")
+                        if style.lower() not in self._VALID_STYLES:
+                            errors.append(
+                                f"{ck_id}: Invalid style '{style}'. "
+                                f"Must be one of: {', '.join(sorted(self._VALID_STYLES))}"
+                            )
+                        ck_count += 1
+                else:
+                    # Count CKs for display even if not validating
+                    ck_count += len(fc.check_points)
+
+        # FG-API is required at ck level
+        if self._check_level == "ck":
+            if not any(fid.startswith("FG-API") for fid in fg_ids):
+                errors.append("Missing required 'FG-API' function group (环境约束).")
+
+        self._counts = {"fg": len(fg_ids), "fc": fc_count, "ck": ck_count}
 
         if errors:
-            error_msg = "Wrapper timing check failed:\n" + "\n".join(f"  - {e}" for e in errors)
-            return self._fail(error_msg)
+            return self._fail(
+                f"❌ Spec structure validation failed ({len(errors)} issues)",
+                details="\n".join(f"  - {e}" for e in errors),
+            )
 
-        return self._pass("Wrapper timing check passed. Wrapper includes clk and rst_n for formal verification.")
+        # Auto-generate Spec Markdown doc only at ck level (final sub-stage)
+        if self._check_level == "ck":
+            try:
+                from ucagent.lang.zh.skills.formal.lib.formal_tools import generate_spec_doc
+                generate_spec_doc(records, self.paths.spec)
+                info(f"Auto-generated spec doc: {self.paths.spec}")
+            except Exception as e:
+                info(f"Warning: Could not auto-generate spec doc: {e}")
+
+        level_label = {"fg": "FG", "fc": "FG+FC", "ck": "FG+FC+CK"}[self._check_level]
+        return self._pass(
+            f"Spec structure valid ({level_label}): {len(fg_ids)} FG, {fc_count} FC, {ck_count} CK"
+        )
 
 
+    def get_template_data(self):
+        return {
+            "COUNT_FG": f"[FG:{self._counts['fg']}]" if self._counts["fg"] else "",
+            "COUNT_FC": f"[FC:{self._counts['fc']}]" if self._counts["fc"] else "",
+            "COUNT_CK": f"[CK:{self._counts['ck']}]" if self._counts["ck"] else "",
+        }
 
 
 
 class PropertyStructureChecker(BaseFormalChecker):
-    """Validates the consistency of SVA property structure with the specification document.
-
-    Enhancements (compared to previous version):
-    - For Comb-style properties, checks if temporal operators are misused.
-    """
+    """Validates the consistency of SVA property structure with the specification document."""
 
     # Temporal operators that must NOT appear in Comb-style properties
     _TEMPORAL_OPS = (
@@ -207,106 +259,76 @@ class PropertyStructureChecker(BaseFormalChecker):
     )
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Performs structured validation of SVA properties against spec requirements."""
-        prop_path = self.paths.checker
-        if not os.path.exists(prop_path):
-            return self._fail(f"Property file {self.paths.checker} not found.")
+        """Validates that SVA properties are defined in YAML and then renders SV files."""
+        records_path = self.paths.records_yaml
+        if not os.path.exists(records_path):
+            return self._fail(f"Records file {records_path} not found.")
 
-        # Parse Property Implementation
-        with open(prop_path, 'r', encoding='utf-8') as f:
-            prop_content = f.read()
-            
-        implemented_map = extract_property_details(prop_content)
-        import logging
-        logging.error(f"prop_path={prop_path}, prop_len={len(prop_content)}, implemented={implemented_map}")
-        if not implemented_map:
-            return self._fail("No SVA properties (CK_...) found in implementation file.")
-
-        if not self.paths.spec:
-            return self._pass(f"Found {len(implemented_map)} properties. No spec file provided for consistency check.")
-
-        spec_path = self.paths.spec
-        if not os.path.exists(spec_path):
-            return self._fail(f"Spec file {self.paths.spec} not found.")
-
-        # Parse Spec Requirements
-        with open(spec_path, 'r', encoding='utf-8') as f:
-            spec_content = f.read()
-
-        # Regex to find: <CK-NAME> or <CK_NAME> (Style: STYLE_STR), allowing optional markdown bold/italic markers
-        # Supports both CK- (document-side) and CK_ (legacy) formats
-        spec_items = re.findall(r'<(CK[-_][A-Za-z0-9_-]+)>\s*[*_]*\((Style:\s*[^)]+)\)[*_]*', spec_content)
-        if not spec_items:
-            return self._fail(f"No valid CK tags with (Style: ...) found in spec file {self.paths.spec}.")
+        records = load_records(records_path)
+        if not records or not records.spec:
+            return self._fail("No spec found in records.")
 
         errors = []
-        warnings_list = []
+        ck_count = 0
+        implemented_count = 0
 
-        for ck_name_raw, style_str in spec_items:
-            style = style_str.lower()
+        for fg in records.spec.function_groups:
+            for fc_item in fg.functions:
+                for ck in fc_item.check_points:
+                    ck_count += 1
+                    body = ck.sva_body or ""
+                    if body and "[LLM-TODO]" not in body and "1'b1;" not in body:
+                        implemented_count += 1
+                    else:
+                        errors.append(f"Missing or placeholder SVA implementation in YAML for '{ck.id}'")
 
-            # Normalize: convert document-side CK- format to code-side CK_ format
-            # e.g., CK-DATA-STABILITY -> CK_DATA_STABILITY
-            ck_name = ck_name_raw.replace('-', '_')
-
-            # Check for Existence
-            if ck_name not in implemented_map:
-                errors.append(f"Missing implementation for '{ck_name_raw}' ({style_str})")
-                continue
-
-            impl = implemented_map[ck_name]
-
-            # 1. Check Keyword Consistency (Type Check)
-            if 'assume' in style and impl['type'] != 'assume':
-                errors.append(f"'{ck_name}' is marked as 'Assume' in spec, but implemented as '{impl['type'] or 'unknown'}'")
-            elif 'cover' in style and impl['type'] != 'cover':
-                errors.append(f"'{ck_name}' is marked as 'Cover' in spec, but implemented as '{impl['type'] or 'unknown'}'")
-            elif ('comb' in style or 'seq' in style) and impl['type'] not in ['assert', None]:
-                # If it's Comb/Seq but uses assume/cover, it's an error
-                if impl['type'] in ['assume', 'cover']:
-                    errors.append(f"'{ck_name}' is marked as assertion style ({style_str}), but implemented as '{impl['type']}'")
-
-            # 2. Comb-style temporal operator check (NEW)
-            if 'comb' in style and impl['body']:
-                for op in self._TEMPORAL_OPS:
-                    if op in impl['body']:
-                        errors.append(
-                            f"'{ck_name}' is Comb style but contains temporal operator '{op}'. "
-                            f"Comb properties must be purely combinational."
-                        )
-                        break  # one error per property is enough
-
-            # 3. Check Symbolic Indexing Usage (Advanced Feature Check)
-            if 'symbolic' in style:
-                # Must use fv_idx or fv_mon_
-                if not re.search(r'fv_(idx|mon_)', impl['body']):
-                    errors.append(f"'{ck_name}' is marked as 'Symbolic', but its implementation does not use 'fv_idx' or 'fv_mon_' signals.")
-
-            # 4. Unfilled scaffold / placeholder detection (hard error for Stage 5)
-            # Matches: `1; // TODO` or bare `true;` that formal_tools.py emits as skeleton
-            if re.search(r'^\s*(1|1\'b1|true)\s*;\s*(?://.*)?$', impl['body'], re.MULTILINE) or "[LLM-TODO]" in impl['body']:
-                errors.append(
-                    f"'{ck_name}' contains an unfilled scaffold body ('1; // TODO' or [LLM-TODO]). "
-                    f"Please implement the actual property expression before running verification."
-                )
-            # 5. Vacuous implication (warning)
-            elif re.search(r'\|->\s*(1\'b1|1|true)\s*;', impl['body']):
-                warnings_list.append(f"'{ck_name}' implementation appears to be a vacuous placeholder (... |-> 1'b1).")
 
         if errors:
-            error_msg = f"Property Structure Consistency Check Failed for '{self.paths.checker}':\n"
-            error_msg += "\n".join([f"  [ERROR] {e}" for e in errors])
-            if warnings_list:
-                error_msg += "\n" + "\n".join([f"  [WARN]  {w}" for w in warnings_list])
-            return self._fail(error_msg)
+            return self._fail(
+                f"❌ SVA Implementation incomplete ({implemented_count}/{ck_count} implemented)",
+                details="\n".join(f"  - {e}" for e in errors),
+                suggestion="Use 'update_sva_body.py' skill to fill 'sva_body' for each checkpoint in YAML."
+            )
 
-        result = {"message": f"All {len(spec_items)} CKs from spec are correctly implemented."}
-        if warnings_list:
-            result["warnings"] = warnings_list
-            result["message"] += "\nWarnings:\n" + "\n".join([f"  - {w}" for w in warnings_list])
+        # Determine Rendering Mode based on stage name
+        # Stages 3-5 (foundational) use 'full', Stage 6+ (iterative) use 'append'
+        mode = "full"
+        stage_name = getattr(self.stage, "name", "").lower()
+        if any(s in stage_name for s in ["debugging", "optimization", "audit", "iteration"]):
+            mode = "append"
 
-        return True, result
+        # All CKs have implementation in YAML -> Trigger Rendering
+        try:
+            import subprocess
+            env_script = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "..", "lang", "zh", "skills", "formal", "sva-gen",
+                "scripts", "generate_formal_env.py"
+            )
+            env_script = os.path.normpath(env_script)
+            if os.path.exists(env_script):
+                result = subprocess.run(
+                    ["python3", env_script, "--mode", mode],
+                    capture_output=True, text=True,
+                    env={**os.environ, "DUT": self.dut_name},
+                    timeout=30,
+                )
 
+                if result.returncode == 0:
+                    info(f"Successfully rendered checker/wrapper artifacts from YAML.")
+                else:
+                    return self._fail(f"Render failed: {result.stderr[:200]}")
+            else:
+                return self._fail(f"Render script not found at {env_script}")
+        except Exception as e:
+            return self._fail(f"Error during rendering: {e}")
+
+        return self._pass(
+            f"✅ All {ck_count} SVA properties implemented in YAML and rendered to SV files."
+        )
+
+    def get_template_data(self):
+        return {}
 
 
 # =============================================================================
@@ -314,18 +336,9 @@ class PropertyStructureChecker(BaseFormalChecker):
 # =============================================================================
 
 class ScriptGenerationChecker(BaseFormalChecker):
-    """
-    Integrated checker for the script_generation stage.
-
-    Runs two checks in order:
-      1. TCL script keyword validation (read_design / prove / def_clk / def_rst must exist).
-      2. FormalMC execution — runs the TCL script and validates that at least one
-         property result (TRUE/FALSE) appears in the output log.
-
-    Note: PropertyStructureChecker already ran in Stage 5; it is NOT repeated here.
-    """
+    """Integrated checker for the script_generation stage."""
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """Validates TCL syntax then runs formal verification."""
+        """Validates the formal verification script (TCL)."""
 
         # --- Step 1: TCL keyword check ---
         info("📝 Step 1/2: Checking TCL script keywords...")
@@ -348,7 +361,8 @@ class ScriptGenerationChecker(BaseFormalChecker):
         # --- Step 2: Execute formal verification ---
         info("🚀 Step 2/2: Executing TCL script and validating...")
         res = run_formal_verification(tcl_path, timeout,
-                                      on_start=lambda w: self.set_check_process(w, timeout))
+                                      on_start=lambda w: self.set_check_process(w, timeout),
+                                      records_path=self.paths.records_yaml)
 
         if not res["success"]:
             err = res.get("error", "Unknown error")
@@ -380,26 +394,7 @@ class ScriptGenerationChecker(BaseFormalChecker):
 
 
 class EnvironmentAnalysisChecker(BaseFormalChecker):
-    """Validates the environment analysis document against log results.
-
-    Implements a dual-source validation strategy:
-      1. **avis.log** → Source of truth for TRIVIALLY_TRUE / FALSE property lists.
-      2. **07_{DUT}_env_analysis.md** → Structured analysis document produced by LLM,
-         and the single source of truth for RTL bug classification.
-
-    Note: ``checker_file`` is accepted only for mtime-based rerun detection
-    (re-execute TCL when source files change).  Its content is NOT parsed.
-
-    Pass conditions (ALL must be satisfied):
-      - Every TRIVIALLY_TRUE property has a corresponding <TT-NNN> entry in the doc.
-      - Every FALSE property (assert + cover) has a <FA-NNN> entry in the doc.
-      - ACCEPTED ratio for TRIVIALLY_TRUE does not exceed the configured threshold.
-      - All required fields are filled in each TT/FA entry (no [LLM-TODO] placeholders).
-      - Each FA entry must have a valid resolution status.
-      - Properties marked as ENV_PENDING (environment issue identified but not yet fixed)
-        will block the checker until they are fixed and updated to ENV_FIXED.
-      - Iteration convergence: fail count should not increase across consecutive checks.
-    """
+    """Validates the environment analysis document against log results."""
 
     VALID_TT_ROOT_CAUSES = {"ASSUME_TOO_STRONG", "SIGNAL_CONSTANT", "WRAPPER_ERROR", "DESIGN_EXPECTED"}
     VALID_TT_ACTIONS = {"FIXED", "ACCEPTED"}
@@ -418,27 +413,44 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
     def _validate_completeness(self, tt_props, false_props, cover_fail, tt_entries, fa_entries):
         """Validate that every abnormal log property has a corresponding doc entry.
 
+        Uses strip_prop_prefix() to normalize both sides before comparison,
+        so 'A_CK_X', 'CK_X', and 'M_CK_X' all match the same core name.
+
         Returns a list of error strings (empty if all complete).
         """
         errors = []
 
+        # Build normalized lookup: core_name -> original entry key
+        tt_core = {strip_prop_prefix(k): k for k in tt_entries}
+        fa_core = {strip_prop_prefix(k): k for k in fa_entries}
+
         # 6a: every TT prop must have a <TT-*> entry
-        missing_tt = [p for p in tt_props if p not in tt_entries]
+        missing_tt = [p for p in tt_props if strip_prop_prefix(p) not in tt_core]
         if missing_tt:
             errors.append(
                 f"❌ {len(missing_tt)} TRIVIALLY_TRUE properties missing analysis in document:\n"
                 + "\n".join(f"  - {p} (needs a <TT-NNN> entry)" for p in missing_tt)
+                + f"\n  Log properties (normalized): {[strip_prop_prefix(p) for p in tt_props]}"
+                + f"\n  Doc entries (normalized):     {list(tt_core.keys())}"
             )
 
         # 6b: every FALSE prop must have a <FA-*> entry
-        missing_fa = [p for p in (false_props + cover_fail) if p not in fa_entries]
+        missing_fa = [p for p in (false_props + cover_fail) if strip_prop_prefix(p) not in fa_core]
         if missing_fa:
             errors.append(
                 f"❌ {len(missing_fa)} FALSE properties missing analysis in document:\n"
                 + "\n".join(f"  - {p} (needs a <FA-NNN> entry)" for p in missing_fa)
+                + f"\n  Log properties (normalized): {[strip_prop_prefix(p) for p in (false_props + cover_fail)]}"
+                + f"\n  Doc entries (normalized):     {list(fa_core.keys())}"
             )
 
         return errors
+
+    @staticmethod
+    def _is_unfilled(value: str) -> bool:
+        """Check if a field value is an unfilled scaffold placeholder."""
+        v = value.strip()
+        return not v or v == "[LLM-TODO]" or v.startswith("[LLM-TODO")
 
     def _validate_entry_quality(self, tt_entries, fa_entries):
         """Validate field completeness, enum values, ACCEPTED ratio, and ENV_PENDING gate.
@@ -465,41 +477,44 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                     f"Review and fix the underlying assume constraints."
                 )
 
-        # 6d: Field completeness and enum validity
+        # 6d: Field completeness, [LLM-TODO] detection, and enum validity
+        _TT_REQUIRED = ["root_cause", "action", "analysis"]
+        _TT_LABELS = {"root_cause": "根因分类", "action": "修复动作", "analysis": "分析"}
         for prop, entry in tt_entries.items():
-            root_cause = entry.get("root_cause", "").strip()
-            action     = entry.get("action",     "").strip()
-            analysis   = entry.get("analysis",   "").strip()
+            for field_key in _TT_REQUIRED:
+                val = entry.get(field_key, "")
+                if val is None or self._is_unfilled(str(val)):
+                    errors.append(
+                        f"❌ <TT> entry '{prop}': field '{_TT_LABELS[field_key]}' "
+                        f"is unfilled. Fill this in .formal_records.yaml → analysis.tt_entries."
+                    )
 
-            if not root_cause:
-                errors.append(f"❌ <TT> entry '{prop}' missing '根因分类' field")
-            elif root_cause.upper() not in self.VALID_TT_ROOT_CAUSES:
-                warnings.append(
-                    f"⚠️  <TT> entry '{prop}' has unknown root cause: '{root_cause}'. "
-                    f"Valid values: {self.VALID_TT_ROOT_CAUSES}"
-                )
-            if not action:
-                errors.append(f"❌ <TT> entry '{prop}' missing '修复动作' field")
-            elif action.upper() not in self.VALID_TT_ACTIONS:
-                errors.append(
-                    f"❌ <TT> entry '{prop}' has invalid action: '{action}'. "
-                    f"Valid values: {self.VALID_TT_ACTIONS}"
-                )
-            if not analysis:
-                errors.append(f"❌ <TT> entry '{prop}' missing '分析' field")
+            root_cause = entry.get("root_cause")
+            action     = entry.get("action")
+            if root_cause and not self._is_unfilled(str(root_cause)):
+                if str(root_cause).upper() not in self.VALID_TT_ROOT_CAUSES:
+                    warnings.append(
+                        f"⚠️  <TT> entry '{prop}' has unknown root cause: '{root_cause}'."
+                    )
+            if action and not self._is_unfilled(str(action)):
+                if str(action).upper() not in self.VALID_TT_ACTIONS:
+                    errors.append(f"❌ <TT> entry '{prop}' has invalid action: '{action}'.")
 
+        _FA_REQUIRED = ["resolution", "analysis"]
+        _FA_LABELS = {"resolution": "解决状态", "analysis": "分析/反例"}
         for prop, entry in fa_entries.items():
-            resolution = entry.get("resolution", "").strip()
-            analysis   = entry.get("analysis", "").strip()
-            if not resolution:
-                errors.append(f"❌ <FA> entry '{prop}' missing '解决状态' field")
-            elif resolution.upper() not in self.VALID_FA_RESOLUTIONS:
-                errors.append(
-                    f"❌ <FA> entry '{prop}' has invalid resolution: '{resolution}'. "
-                    f"Valid values: {self.VALID_FA_RESOLUTIONS}"
-                )
-            if not analysis:
-                errors.append(f"❌ <FA> entry '{prop}' missing '分析/反例' field")
+            for field_key in _FA_REQUIRED:
+                val = entry.get(field_key, "")
+                if val is None or self._is_unfilled(str(val)):
+                    errors.append(
+                        f"❌ <FA> entry '{prop}': field '{_FA_LABELS[field_key]}' "
+                        f"is unfilled. Fill this in .formal_records.yaml → analysis.fa_entries."
+                    )
+
+            resolution = entry.get("resolution")
+            if resolution and not self._is_unfilled(str(resolution)):
+                if str(resolution).upper() not in self.VALID_FA_RESOLUTIONS:
+                    errors.append(f"❌ <FA> entry '{prop}' has invalid resolution: '{resolution}'.")
 
         # 6e: ENV_PENDING resolution gate
         unresolved_env = [
@@ -520,98 +535,107 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
     # Main check
     # -------------------------------------------------------------------------
     def do_check(self, timeout=300, **kwargs) -> tuple:
-        """Perform tri-source environment analysis validation."""
+        """Validates the formal environment analysis report."""
         log_path = self.paths.log
         checker_path = self.paths.checker
         analysis_path = self.paths.analysis
         wrapper_path = self.paths.wrapper
 
-        # Step 0: Check if re-execution needed
+        # Step 0: Ensure TCL is executed (updates records.run_results)
         exec_success, exec_result, was_rerun = self._ensure_tcl_executed(
-            log_path, [checker_path, wrapper_path], self.paths.tcl, timeout
+            [checker_path, wrapper_path], self.paths.tcl, timeout
         )
         if not exec_success:
             return self._fail(**exec_result)
 
-        # Step 1: Parse avis.log and emit diagnostic report (formerly EnvironmentDebuggingChecker)
-        info("🔍 Parsing verification log...")
-        ctx = FormalStageContext.get_or_create(self)
-        if was_rerun:
-            ctx.invalidate(log_path)
-        raw = ctx.get_parsed_log(log_path)
-        tt_props = raw.get("trivially_true", [])
-        false_props = raw.get("false", [])
-        cover_fail = raw.get("cover_fail", [])
-        parsed = {
-            "pass": raw.get("pass", []),
-            "cover_pass": raw.get("cover_pass", []),
-        }
-        all_abnormal_assert = tt_props + false_props
-        all_abnormal = all_abnormal_assert + cover_fail
+        # Step 1: Load records (which now contains proactive run_results)
+        records_path = self.paths.records_yaml
+        records = load_records(records_path)
+        if not records or not records.run_results:
+            return self._fail("❌ No run results found in .formal_records.yaml. Ensure TCL has been executed.")
 
-        # --- Diagnostic report (always emitted, same info EnvironmentDebuggingChecker used to provide) ---
-        checker_content = ctx.get_checker_content(checker_path)
+        run_res = records.run_results
+        tt_props = run_res.tt_properties
+        all_fail = run_res.failing_properties
+        # Distinguish between failing asserts and failing covers
+        false_props = [p for p in all_fail if not (p.startswith("C_") or "COVER" in p.upper())]
+        cover_fail = [p for p in all_fail if (p.startswith("C_") or "COVER" in p.upper())]
+        
+        # Reconstruct parsed log dict for downstream tools
+        log_result_dict = {
+            "pass": [], # We don't track passing ones explicitly in run_results for space
+            "trivially_true": tt_props,
+            "false": false_props,
+            "cover_pass": [], 
+            "cover_fail": cover_fail,
+        }
+
+        info(f"🔍 Analysis data loaded from YAML (Timestamp: {run_res.timestamp})")
+
+        # --- Diagnostic output ---
+        checker_content = FormalStageContext.get_or_create(self).get_checker_content(checker_path)
         if tt_props:
-            tt_list = "\n".join(f"  - {p}" for p in tt_props)
-            info(
-                f"⚠️  {len(tt_props)} TRIVIALLY_TRUE properties (env over-constrained):\n{tt_list}\n"
-                "Fix: relax assume constraints or check wrapper.sv signal mapping."
-            )
-        if false_props or cover_fail:
-            all_fail = false_props + cover_fail
+            info(f"⚠️  {len(tt_props)} TRIVIALLY_TRUE properties detected.")
+        if all_fail:
             for prop in all_fail:
                 code = extract_property_code(checker_content, prop)
                 info(f"❌ FALSE: {prop}\n  SVA code:\n{code}")
-            info("Hint: classify each FALSE property as RTL_BUG or ENV_ISSUE in 07_env_analysis.md.")
 
-        # Step 2: Record iteration stats
-        stats = {
-            "pass_count": len(parsed["pass"]),
-            "fail_count": len(false_props),
-            "tt_count": len(tt_props),
-            "cover_pass": len(parsed["cover_pass"]),
-            "cover_fail": len(cover_fail),
+        # Step 2: Convergence Check
+        history = run_res.iteration_history
+        conv_msg = ""
+        if len(history) >= 2:
+            prev, curr = history[-2], history[-1]
+            prev_fail = prev.fail_count + prev.cover_fail
+            curr_fail = curr.fail_count + curr.cover_fail
+            prev_pass = prev.pass_count + prev.cover_pass
+            curr_pass = curr.pass_count + curr.cover_pass
+            
+            if curr_pass < prev_pass:
+                conv_msg += f"⚠️  REGRESSION: Pass count decreased ({prev_pass} → {curr_pass}).\n"
+            if curr_fail > prev_fail:
+                conv_msg += f"⚠️  DEGRADATION: Fail count increased ({prev_fail} → {curr_fail}).\n"
+            if curr_fail >= prev_fail and len(history) >= 3:
+                # Basic stagnation check
+                p2_fail = history[-3].fail_count + history[-3].cover_fail
+                if p2_fail <= prev_fail:
+                    conv_msg += "⚠️  STAGNATION: Fail count has not decreased for 3 iterations.\n"
+
+        # --- Auto Scaffolding: YAML analysis entries ---
+        # Note: raw log_result converted back to dict for the helper if needed, 
+        # or update helper to accept RunResults.
+        log_result_dict = {
+            "trivially_true": tt_props,
+            "false": false_props,
+            "cover_fail": cover_fail
         }
-        tracker = IterationTracker(self.dut_name, self.paths.log)
-        history = tracker.record_iteration(stats)
+        if auto_scaffold_analysis_entries(records, log_result_dict, checker_content):
+            save_records(records_path, records)
+            info("🏗️ Automatically scaffolded [LLM-TODO] entries in .formal_records.yaml")
 
-        # Step 3: Check convergence
-        conv_ok, conv_msg = tracker.check_convergence(history)
+        # Step 4-5: Load entries for validation
+        json_has_analysis = False
+        tt_entries = {}
+        fa_entries = {}
+        
+        if records.analysis:
+            json_has_analysis = True
+            tt_entries = {e.prop_name: e.model_dump() for e in records.analysis.tt_entries}
+            fa_entries = {e.prop_name: e.model_dump() for e in records.analysis.fa_entries}
 
-        # Step 4: Check if analysis document exists
-        if not os.path.exists(analysis_path):
+        if not json_has_analysis:
             summary_lines = [
-                f"📊 Log Summary: {len(parsed['pass'])} pass, {len(tt_props)} TT, "
-                f"{len(false_props)} assert fail, {len(cover_fail)} cover fail",
+                f"📊 Log Summary: {run_res.stats.get('pass_count')} pass, {run_res.stats.get('tt_count')} TT, "
+                f"{run_res.stats.get('fail_count')} assert fail, {run_res.stats.get('cover_fail_count')} cover fail",
             ]
-            if conv_msg:
-                summary_lines.append(f"\n{conv_msg}")
+            if conv_msg: summary_lines.append(f"\n{conv_msg}")
 
             return False, {
-                "error": "❌ Environment analysis document not found",
-                "details": (
-                    f"Please create '{self.paths.analysis}' following the template "
-                    f"'Guide_Doc/env_analysis.md'.\n\n"
-                    f"The document must contain analysis entries for:\n"
-                    f"  - {len(tt_props)} TRIVIALLY_TRUE properties (each needs a <TT-NNN> entry)\n"
-                    f"  - {len(false_props)} FALSE assert properties (each needs a <FA-NNN> entry)\n"
-                    f"  - {len(cover_fail)} FALSE cover properties (each needs a <FA-NNN> entry)\n\n"
-                    f"Problematic properties:\n"
-                    + "\n".join(f"  [TT] {p}" for p in tt_props)
-                    + ("\n" if tt_props else "")
-                    + "\n".join(f"  [FAIL-Assert] {p}" for p in false_props)
-                    + ("\n" if false_props else "")
-                    + "\n".join(f"  [FAIL-Cover] {p}" for p in cover_fail)
-                ),
+                "error": "❌ Environment analysis not found in .formal_records.yaml",
+                "details": f"Run sva-audit to fill analysis entries.",
                 "log_summary": "\n".join(summary_lines),
                 "iteration": len(history),
             }
-
-        # Step 5: Parse analysis document using Context Cache
-        info("📄 Parsing environment analysis document...")
-        doc = ctx.get_analysis_doc_parsed(analysis_path)
-        tt_entries = doc["tt_entries"]
-        fa_entries = doc["fa_entries"]
 
 
         # Step 6: Dual-source validation (log × analysis doc)
@@ -627,10 +651,10 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
         # Build report
         report = {
             "log_summary": {
-                "assert_pass": len(parsed["pass"]),
+                "assert_pass": run_res.stats.get("pass_count", 0),
                 "assert_trivially_true": len(tt_props),
                 "assert_fail": len(false_props),
-                "cover_pass": len(parsed["cover_pass"]),
+                "cover_pass": run_res.stats.get("cover_pass_count", 0),
                 "cover_fail": len(cover_fail),
             },
             "doc_summary": {
@@ -653,7 +677,14 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
             )
             return False, report
 
-        # All checks passed
+        # All checks passed — auto-regenerate markdown from YAML
+        try:
+            from ucagent.lang.zh.skills.formal.lib.formal_tools import generate_env_analysis_doc
+            generate_env_analysis_doc(records, log_result_dict, self.paths.analysis)
+            info(f"Auto-regenerated analysis doc: {self.paths.analysis}")
+        except Exception as e:
+            info(f"Warning: Could not regenerate analysis doc: {e}")
+
         # Build summary
         tt_fixed = sum(1 for e in tt_entries.values()
                        if e.get("action", "").strip().upper() == "FIXED")
@@ -690,39 +721,22 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
 # =============================================================================
 
 class CoverageAnalysisChecker(BaseFormalChecker):
-    """
-    Coverage analysis checker for the coverage_analysis_and_optimization stage.
+    """Coverage analysis checker for the coverage_analysis_and_optimization stage."""
 
-    Only parses fanin.rep and extracts four COI (Cone of Influence) coverage metrics:
-      Inputs / Outputs / Dffs / Nets
-    Dff COI (register coverage) and Net COI (combinational logic coverage) are formal verification 
-    equivalents to "line coverage" in simulation, and both must meet the threshold.
-
-    Auto-rerun logic:
-      If checker.sv is newer than fanin.rep (or fanin.rep does not exist), 
-      it automatically re-executes the TCL script to refresh the coverage data.
-
-    fanin.rep format example:
-         Inputs :     3 / 3      100%
-        Outputs :     4 / 4      100%
-           Dffs :    10 / 10     100%
-           Nets :    30 / 30     100%
-    """
     def __init__(self, dut_name, **kwargs):
         super().__init__(dut_name, **kwargs)
         self.coi_threshold = float(kwargs.get("coi_threshold", 100.0))
 
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
-        """Performs COI coverage check using the tool adapter."""
+        """Validates formal verification COI coverage."""
+
 
         checker_path = self.paths.checker
         fanin_path = coverage_report_path(self.paths.tests)
 
-        # Step 1: Ensure TCL is executed if needed
-        # Fallback to checking the main log file's modification time if there is no distinct explicit report
-        tracking_path = fanin_path or os.path.join(self.paths.tests, log_filename())
+        # Step 1: Ensure TCL is executed if dependency files changed
         exec_success, exec_result, was_rerun = self._ensure_tcl_executed(
-            tracking_path, [checker_path], self.paths.tcl, timeout
+            [checker_path], self.paths.tcl, timeout
         )
         if not exec_success:
             exec_result["suggestion"] = "Please check checker.sv and wrapper.sv for syntax errors"
@@ -813,29 +827,41 @@ class CoverageAnalysisChecker(BaseFormalChecker):
 # =============================================================================
 
 class CounterexampleTestgenChecker(BaseFormalChecker):
-    """Validates generated Python counterexample test cases for the
-    counterexample_python_testgen stage.
-
-    Checks:
-    1. Test file exists.
-    2. If RTL_BUG properties exist in the analysis document, each must have a
-       corresponding ``test_cex_`` function in the test file.
-    3. Each test function must contain at least one ``assert`` statement
-       and a ``dut.Finish()`` call.
-    4. If no RTL_BUG properties exist, the test file should contain a
-       "no defects" comment.
-    """
+    """Validates generated Python counterexample test cases."""
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Validates counterexample test file against RTL_BUG properties from analysis doc."""
+        """Validates that counterexample test cases are correctly generated."""
         analysis_path = self.paths.analysis
         test_path = self.paths.test_file
 
         # Step 1: Extract RTL bugs from analysis document
-        # We can extract from parse tree cleanly
         ctx = FormalStageContext.get_or_create(self)
         rtl_bugs = ctx.get_rtl_bug_properties(analysis_path)
         info(f"Found {len(rtl_bugs)} RTL_BUG properties from analysis document")
+
+        # --- Auto Scaffolding: Counterexample test file ---
+        if rtl_bugs and not os.path.exists(test_path):
+            try:
+                import subprocess
+                cex_script = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "..", "lang", "zh", "skills", "formal", "cex-gen",
+                    "scripts", "init_test_file.py"
+                )
+                cex_script = os.path.normpath(cex_script)
+                if os.path.exists(cex_script):
+                    result = subprocess.run(
+                        ["python3", cex_script],
+                        capture_output=True, text=True,
+                        env={**os.environ, "DUT": self.dut_name},
+                        timeout=30,
+                    )
+                    if result.returncode == 0:
+                        info(f"🏗️ Automatically scaffolded counterexample test file: {test_path}")
+                    else:
+                        info(f"Warning: cex-gen init script returned {result.returncode}: {result.stderr[:200]}")
+            except Exception as e:
+                warning(f"Failed to auto-scaffold counterexample test file: {e}")
 
         # Step 2: Check test file existence
         if not os.path.exists(test_path):
@@ -892,16 +918,15 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
         # Build a mapping from normalized CK name to test function
         covered_bugs = set()
         for bug_prop in rtl_bugs:
-            # Normalize: A_CK_XXX -> ck_xxx
-            normalized = bug_prop.lower()
-            if normalized.startswith('a_'):
-                normalized = normalized[2:]
+            # Normalize: A_CK_XXX -> ck_xxx (strip prefix then lowercase)
+            normalized = strip_prop_prefix(bug_prop).lower()
 
-            # Check if any test function name contains the normalized property name
+            # Exact matching: test function name must end with the normalized property name
+            # e.g., test_cex_ck_core_arith_result should match ck_core_arith_result
             found = False
             for func_name in impl_functions:
-                # test_cex_ck_xxx should contain ck_xxx
-                if normalized in func_name:
+                func_suffix = func_name.lower().removeprefix('test_cex_')
+                if func_suffix == normalized or func_name.lower().endswith('_' + normalized):
                     found = True
                     covered_bugs.add(bug_prop)
                     break
@@ -959,77 +984,107 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
 # =============================================================================
 
 class BugReportConsistencyChecker(BaseFormalChecker):
-    """
-    Bug report consistency checker for the formal_execution stage.
+    """Bug report consistency checker for the formal_execution stage."""
 
-    Extracts all properties judged as RTL_BUG from the environment analysis
-    document (07_{DUT}_env_analysis.md), and validates that a corresponding
-    section has been created for each RTL defect in bug_report.md.
-    """
     def __init__(self, dut_name, **kwargs):
         super().__init__(dut_name, **kwargs)
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """
-        Validates the consistency between the bug report and RTL defects.
-        Extracts RTL_BUG properties from the analysis document,
-        and verifies that bug_report.md has a section for each defect.
-        """
-        analysis_path = self.paths.analysis
+        """Validates the consistency of the formal verification bug report."""
 
-        # Step 1: Extract RTL defects from analysis document
-        ctx = FormalStageContext.get_or_create(self)
-        rtl_defects = ctx.get_rtl_bug_properties(analysis_path)
+        records_path = self.paths.records_yaml
+        if not os.path.exists(records_path):
+            return self._fail(
+                "❌ .formal_records.yaml not found",
+                suggestion="Run previous stages to create .formal_records.yaml.",
+            )
+
+        records = load_records(records_path)
+        if not records:
+            return self._fail(f"❌ .formal_records.yaml not found at {records_path}")
+
+        # --- Auto Scaffolding: YAML bug entries ---
+        try:
+            if auto_scaffold_bug_entries(records):
+                save_records(records_path, records)
+                info("🏗️ Automatically scaffolded [LLM-TODO] bug entries in .formal_records.yaml")
+        except Exception as e:
+            warning(f"Failed to auto-scaffold bug entries: {e}")
+
+        # Step 1: Extract RTL defects from analysis
+        if not records or not records.analysis:
+            return self._fail("❌ No analysis in .formal_records.yaml. Run sva-audit first.")
+
+        if not isinstance(records.analysis, dict):
+            fa_list = records.analysis.fa_entries
+            rtl_defects = [e.prop_name for e in fa_list if e.resolution and e.resolution.upper() == "RTL_BUG"]
+        else:
+            fa_list = records.analysis.get("fa_entries", [])
+            rtl_defects = [e["prop_name"] for e in fa_list if e.get("resolution", "").upper() == "RTL_BUG"]
             
-        info(f"Extracted {len(rtl_defects)} RTL_BUG properties from analysis document")
+        info(f"Extracted {len(rtl_defects)} RTL_BUG properties")
 
         if not rtl_defects:
             return True, {
                 "message": "✅ No RTL defects to report",
-                "note": "No properties judged as RTL_BUG in the analysis document"
+                "note": "No properties judged as RTL_BUG",
             }
 
-        # Step 2: Check if bug report exists
-        bug_report_path = self.paths.bug_report
-        if not os.path.exists(bug_report_path):
+        # Step 2: Extract reported bugs
+        if not records.bugs:
             return self._fail(
-                "❌ Bug report file does not exist",
-                details=f"Please create '{self.paths.bug_report}' and write reports for the following {len(rtl_defects)} RTL defects: {', '.join(rtl_defects)}",
+                "❌ No bugs field in .formal_records.yaml",
+                details=f"Run bug-report to fill bugs for: {', '.join(rtl_defects)}",
             )
 
-        with open(bug_report_path, 'r', encoding='utf-8') as f:
-            bug_report_content = f.read()
+        reported_props = [b.property for b in records.bugs]
 
-        # Step 3: Parse bug report to extract recorded properties
-        reported_props = parse_bug_report_properties(bug_report_content)
-        
-        if not reported_props and "## Failed Property:" in bug_report_content:
-            return self._fail(
-                "❌ Bug report format is incorrect",
-                details="No valid properties found. Expected template: ## Failed Property: `A_CK_XXX`",
-            )
+        # Step 3: Compare using normalized names
+        defect_core = {strip_prop_prefix(d): d for d in rtl_defects}
+        report_core = {strip_prop_prefix(r): r for r in reported_props}
 
-        # Step 4: Compare RTL defects with bug report
-        missing_in_report = [d for d in rtl_defects if d not in reported_props]
-        extra_in_report = [r for r in reported_props if r not in rtl_defects]
+        missing = [defect_core[k] for k in defect_core if k not in report_core]
+        extra = [report_core[k] for k in report_core if k not in defect_core]
 
-        # Step 5: Generate check results
-        if missing_in_report or extra_in_report:
+        if missing or extra:
             issues = []
-            if missing_in_report:
-                issues.append(f"Missing reports for RTL defects ({len(missing_in_report)}): {', '.join(missing_in_report)}")
-            if extra_in_report:
-                issues.append(f"Extra properties in the report ({len(extra_in_report)}): {', '.join(extra_in_report)}")
+            if missing:
+                issues.append(f"Missing reports ({len(missing)}): {', '.join(missing)}")
+            if extra:
+                issues.append(f"Extra reports ({len(extra)}): {', '.join(extra)}")
+            return self._fail("❌ Bug report inconsistent", details="\n".join(issues))
 
+        # Step 4: Check for unfilled [LLM-TODO] fields in bugs
+        _BUG_REQUIRED = ["description", "root_cause", "trigger", "expected", "actual", "fix", "severity", "confidence"]
+        unfilled_errors = []
+        for bug in records.bugs:
+            bug_id = bug.id
+            bug_dict = bug.model_dump()
+            for field_key in _BUG_REQUIRED:
+                val = str(bug_dict.get(field_key, "")).strip()
+                if not val or val == "[LLM-TODO]" or val.startswith("[LLM-TODO"):
+                    unfilled_errors.append(
+                        f"❌ Bug '{bug_id}' ({bug.property}): "
+                        f"field '{field_key}' is unfilled (value: '{val}'). "
+                        f"Fill this field in .formal_records.yaml → bugs."
+                    )
+        if unfilled_errors:
             return self._fail(
-                "❌ Bug report is inconsistent with RTL defects",
-                details="\n".join(issues),
-                suggestion=f"Missing: {missing_in_report}, Extra: {extra_in_report}",
+                f"❌ Bug report has {len(unfilled_errors)} unfilled fields",
+                details="\n".join(unfilled_errors),
             )
+
+        # Step 5: Auto-regenerate markdown from JSON on pass
+        try:
+            from ucagent.lang.zh.skills.formal.lib.formal_tools import generate_bug_report_doc
+            generate_bug_report_doc(records, self.paths.bug_report)
+            info(f"Auto-regenerated bug report: {self.paths.bug_report}")
+        except Exception as e:
+            info(f"Warning: Could not regenerate bug report: {e}")
 
         return True, {
-            "message": f"✅ Bug report consistency check passed: {len(rtl_defects)} RTL defects have been recorded",
-            "rtl_defects": rtl_defects
+            "message": f"✅ Bug report check passed: {len(rtl_defects)} RTL defects reported",
+            "rtl_defects": rtl_defects,
         }
 
 
@@ -1039,28 +1094,14 @@ class BugReportConsistencyChecker(BaseFormalChecker):
 # =============================================================================
 
 class StaticFormalBugLinkageChecker(BaseFormalChecker):
-    """
-    Static Bug and Formal Verification Linkage Checker, used for the static_bug_validation stage.
+    """Static Bug and Formal Verification Linkage Checker."""
 
-    Workflow:
-    1. Parse the static bug analysis document to extract all <BG-STATIC-*> entries and their <LINK-BUG-[BG-TBD]> tags.
-    2. Parse the formal verification results (avis.log and bug_report.md).
-    3. Check if all <LINK-BUG-[BG-TBD]> tags have been correctly replaced with:
-       - Specific bug tags (e.g., <LINK-BUG-[BG-SUM-WIDTH-001]>).
-       - Or false positive tags (<LINK-BUG-[BG-NA]>).
-    4. Pass condition: No <LINK-BUG-[BG-TBD]> remains in the document.
-
-    Tag Formats:
-    - Static Bug Entry: <BG-STATIC-001-NAME>
-    - Pending Linkage Tag: <LINK-BUG-[BG-TBD]>
-    - Confirmed Tag: <LINK-BUG-[BG-SUM-WIDTH-001]> or <LINK-BUG-[BG-XXX][BG-YYY]>
-    - False Positive Tag: <LINK-BUG-[BG-NA]>
-    """
     def __init__(self, dut_name, **kwargs):
         super().__init__(dut_name, **kwargs)
 
     def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
-        """Performs static bug and formal verification results linkage check"""
+        """Validates the linkage between static bugs and formal verification results."""
+
 
         static_path = self.paths.static_doc
         bug_report_path = self.paths.bug_report

@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 """Run formal verification and print parsed summary."""
 
-import argparse
-import os
-import subprocess
-import sys
-
 import os
 import sys
 
@@ -16,42 +11,32 @@ while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root,
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+import argparse
 from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
 from ucagent.util.log import str_error, str_info
 from ucagent.lang.zh.skills.formal.lib.formal_tools import run_formal_verification, summarize_execution
 
 
-
-
-
-
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run formal verification by DUT name")
-    parser.add_argument("-dut_name", default=os.environ.get("DUT"), help="Top-level DUT module name")
+    parser = argparse.ArgumentParser(description="Run formal verification")
     parser.add_argument("-timeout", type=int, default=3600, help="Timeout in seconds")
     args = parser.parse_args()
 
-    if not args.dut_name:
-        print(str_error("Missing DUT name. Please provide -dut_name or set DUT environment variable."))
-        return
-    output_dir = os.environ.get("OUT")
-    if not output_dir:
-        print(str_error("Missing OUT environment variable."))
+    paths = FormalPaths()
+    if paths.dut == "N/A":
+        print(str_error("Cannot determine DUT. Set DUT env var or ensure .formal_records.yaml exists."))
         return
 
-
-
-    paths = FormalPaths(dut=args.dut_name)
     tcl_path = paths.tcl
     if not os.path.exists(tcl_path):
         result = str_error(
             f"TCL script does not exist: {tcl_path}\n"
-            f"Please run GenerateFormalScript first to generate {args.dut_name}_formal.tcl"
+            f"Please run env-gen first to generate {paths.dut}_formal.tcl"
         )
         print(result)
         return
+
+
 
     res = run_formal_verification(tcl_path, args.timeout)
     if not res["success"]:
