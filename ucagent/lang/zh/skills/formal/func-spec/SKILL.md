@@ -1,5 +1,5 @@
 ---
-name: functional-spec
+name: func-spec
 description: 提取和分析被测模块(DUT)的功能规格和形式化检测点
 ---
 

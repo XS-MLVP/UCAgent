@@ -10,3 +10,4 @@ from .file_linemap import *
 from .increment import *
 from .unity_test_mock import *
 from .static_bug import *
+from .formal import *
