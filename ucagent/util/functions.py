@@ -768,7 +768,7 @@ def find_files_by_glob(workspace, pattern):
     ret = set()
 
     def __find(p):
-        for f in glob.glob(os.path.join(abs_workspace, "**", p), recursive=True):
+        for f in glob.glob(os.path.join(abs_workspace, p), recursive=True):
             ret.add(f.removeprefix(abs_workspace + os.sep))
 
     for p in pattern:
