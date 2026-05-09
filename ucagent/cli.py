@@ -544,8 +544,51 @@ def get_args() -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
 
+    parser.add_argument(
+        "--check-env",
+        action="append",
+        default=[],
+        type=str,
+        help="Environment variables for checker subprocesses, e.g. --check-env LD_PRELOAD=path/to/lib.so"
+    )
+
     args = parser.parse_args()
     return args
+
+
+def parse_check_env(check_env_args: list, cwd: str = None) -> dict:
+    """Parse --check-env KEY=VALUE arguments into a dictionary.
+
+    For LD_PRELOAD values, relative paths are resolved to absolute paths
+    based on the provided cwd (or os.getcwd()).
+
+    Args:
+        check_env_args: List of "KEY=VALUE" strings from CLI.
+        cwd: Working directory for resolving relative paths.
+
+    Returns:
+        Dictionary of environment variable name -> value.
+    """
+    if cwd is None:
+        cwd = os.getcwd()
+    env = {}
+    for arg in check_env_args:
+        if "=" not in arg:
+            continue
+        key, value = arg.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        # Resolve relative paths for LD_PRELOAD
+        if key == "LD_PRELOAD":
+            parts = []
+            for p in value.split(":"):
+                p = p.strip()
+                if p and not os.path.isabs(p):
+                    p = os.path.abspath(os.path.join(cwd, p))
+                parts.append(p)
+            value = ":".join(parts)
+        env[key] = value
+    return env
 
 
 def upgrade(extra_pip_args: str = "") -> None:
@@ -836,6 +879,9 @@ def run() -> None:
         for tool_str in args.ex_tools:
             ex_tools.extend(get_list_from_str(tool_str))
 
+    # Parse check-env arguments
+    check_env = parse_check_env(args.check_env)
+
     # Create and configure the agent
     agent = VerifyAgent(
         workspace=args.workspace,
@@ -865,6 +911,7 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
+        check_env=check_env,
     )
     if args.web_console_session_host is not None or \
        args.web_console_session_port is not None:

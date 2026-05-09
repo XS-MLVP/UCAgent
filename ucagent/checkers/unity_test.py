@@ -123,6 +123,14 @@ class UnityChipCheckerDutCreation(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT creation function for correctness."""
+        if self.has_ld_preload:
+            scn = {k: v[0] if isinstance(v, tuple) else v for k, v in self.source_code_need.items()}
+            return self._run_in_subprocess("dut_creation", {
+                "target_file_path": self.get_path(self.target_file),
+                "workspace": self.workspace,
+                "source_code_need": scn,
+                "dut_name": self.dut_name,
+            }, timeout=max(timeout, 30))
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"file '{self.target_file}' does not exist."}
         func_list = fc.get_target_from_file(self.get_path(self.target_file), "create_dut",
@@ -159,6 +167,13 @@ class UnityChipCheckerMockComponent(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the Mock component implementation for correctness."""
+        if self.has_ld_preload:
+            return self._run_in_subprocess("mock", {
+                "workspace": self.workspace,
+                "target_file_pattern": self.target_file,
+                "min_mock": self.min_mock,
+                "checker_class_name": self.__class__.__name__,
+            }, timeout=max(timeout, 30))
         class_count = 0
         mock_file_list = fc.find_files_by_pattern(self.workspace, self.target_file)
         for mock_file in mock_file_list:
@@ -208,6 +223,13 @@ class UnityChipCheckerBundleWrapper(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the Bundle wrapper implementation for correctness."""
+        if self.has_ld_preload:
+            return self._run_in_subprocess("bundle", {
+                "target_file_path": self.get_path(self.target_file),
+                "workspace": self.workspace,
+                "min_bundles": self.min_bundles,
+                "checker_class_name": self.__class__.__name__,
+            }, timeout=max(timeout, 30))
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"Bundle wrapper file '{self.target_file}' does not exist." + \
                            f"You need to define Bundle wrappers like: 'class <Name>(Bundle):' in the target file: {self.target_file}. "}
@@ -248,6 +270,21 @@ class UnityChipCheckerBaseFixture(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the fixture implementation for correctness."""
+        if self.has_ld_preload:
+            scn = {k: v[0] if isinstance(v, tuple) else v for k, v in self.source_code_need.items()} if self.source_code_need else None
+            return self._run_in_subprocess("fixture", {
+                "target_file_path": self.get_path(self.target_file),
+                "workspace": self.workspace,
+                "fixture_name": self.fixture_name,
+                "first_arg": self.first_arg,
+                "last_arg": self.last_arg,
+                "scope": self.scope,
+                "min_count": self.min_count,
+                "fix_count": self.fix_count,
+                "source_code_need": scn,
+                "dut_name": self.dut_name,
+                "checker_class_name": self.__class__.__name__,
+            }, timeout=max(timeout, 30))
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"fixture file '{self.target_file}' does not exist."}
         fixture_func_list = fc.get_target_from_file(self.get_path(self.target_file), self.fixture_name,
@@ -349,38 +386,55 @@ class UnityChipCheckerTestMustPass(Checker):
 
     def do_check(self, timeout, **kw) -> Tuple[bool, object]:
         """Check the ptest test implementation for correctness."""
-        test_dir_full_path = self.get_path(self.test_dir)
-        if not os.path.exists(test_dir_full_path):
-            return False, {"error": f"test directory '{self.test_dir}' does not exist in workspace."}
-        test_files = fc.find_files_by_pattern(self.workspace, self.target_file_list)
-        if len(test_files) == 0:
-            tfiles = ', '.join(self.target_file_list)
-            return False, {"error": f"target test files '{tfiles}' does not exist."}
-        error_cases = []
-        for tfile in test_files:
-            if test_dir_full_path not in self.get_path(tfile):
-                error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
-                continue
-            test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
-                                                         ex_python_path=self.workspace,
-                                                         dtype="FUNC")
-            for test_func in test_func_list:
-                if test_func.__name__.startswith(self.test_prefix) is False:
-                    error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
+        if self.has_ld_preload:
+            # Static check via subprocess, then run pytest with LD_PRELOAD
+            ok, result = self._run_in_subprocess("test_must_pass", {
+                "target_file_list": self.target_file_list,
+                "workspace": self.workspace,
+                "test_dir": self.test_dir,
+                "test_prefix": self.test_prefix,
+                "first_arg": self.first_arg,
+                "last_arg": self.last_arg,
+                "min_file_tests": self.min_file_tests,
+            }, timeout=max(timeout, 30))
+            if not ok:
+                return ok, result
+            # Static check passed in subprocess, skip to pytest execution
+            test_dir_full_path = self.get_path(self.test_dir)
+            test_files = fc.find_files_by_pattern(self.workspace, self.target_file_list)
+        else:
+            test_dir_full_path = self.get_path(self.test_dir)
+            if not os.path.exists(test_dir_full_path):
+                return False, {"error": f"test directory '{self.test_dir}' does not exist in workspace."}
+            test_files = fc.find_files_by_pattern(self.workspace, self.target_file_list)
+            if len(test_files) == 0:
+                tfiles = ', '.join(self.target_file_list)
+                return False, {"error": f"target test files '{tfiles}' does not exist."}
+            error_cases = []
+            for tfile in test_files:
+                if test_dir_full_path not in self.get_path(tfile):
+                    error_cases.append(f"The test file '{tfile}' is not under the test directory '{self.test_dir}'.")
                     continue
-                args = fc.get_func_arg_list(test_func)
-                if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
-                if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
-                    error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
-            if len(test_func_list) < self.min_file_tests:
-                error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
-                                    "Please ensure you have implemented enough test cases (need pytest function based not class based).")
-        if len(error_cases) > 0:
-            return False, {
-                "error": "Check test functions failed.",
-                "details": error_cases
-            }
+                test_func_list = fc.get_target_from_file(self.get_path(tfile), f"test*",
+                                                             ex_python_path=self.workspace,
+                                                             dtype="FUNC")
+                for test_func in test_func_list:
+                    if test_func.__name__.startswith(self.test_prefix) is False:
+                        error_cases.append(f"The '{test_func.__name__}' test function's name must start with '{self.test_prefix}'.")
+                        continue
+                    args = fc.get_func_arg_list(test_func)
+                    if self.first_arg and (len(args) < 1 or args[0] != self.first_arg):
+                        error_cases.append(f"The '{test_func.__name__}' test function's first arg must be '{self.first_arg}', but got ({', '.join(args)}).")
+                    if self.last_arg and (len(args) < 1 or args[-1] != self.last_arg):
+                        error_cases.append(f"The '{test_func.__name__}' test function's last arg must be '{self.last_arg}', but got ({', '.join(args)}).")
+                if len(test_func_list) < self.min_file_tests:
+                    error_cases.append(f"Insufficient testcases: {len(test_func_list)} test functions found, minimum required is {self.min_file_tests} in file '{tfile}'. "+
+                                        "Please ensure you have implemented enough test cases (need pytest function based not class based).")
+            if len(error_cases) > 0:
+                return False, {
+                    "error": "Check test functions failed.",
+                    "details": error_cases
+                }
         # run test
         timeout = timeout if timeout > 0 else self.timeout
         self.run_test.set_pre_call_back(
@@ -392,7 +446,8 @@ class UnityChipCheckerTestMustPass(Checker):
             test_dir_full_path,
             pytest_ex_args=" ".join(py_case_files),
             return_stdout=True, return_stderr=True, return_all_checks=True,
-            timeout=timeout
+            timeout=timeout,
+            pytest_ex_env=self._check_env if self.has_ld_preload else {},
         )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
@@ -425,6 +480,14 @@ class UnityChipCheckerDutApi(Checker):
 
     def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check the DUT API implementation for correctness."""
+        if self.has_ld_preload:
+            return self._run_in_subprocess("api_static", {
+                "target_file_path": self.get_path(self.target_file),
+                "workspace": self.workspace,
+                "api_prefix": self.api_prefix,
+                "min_apis": self.min_apis,
+                "checker_class_name": self.__class__.__name__,
+            }, timeout=max(timeout, 30))
         if not os.path.exists(self.get_path(self.target_file)):
             return False, {"error": f"DUT API file '{self.target_file}' does not exist."}
         func_list = fc.get_target_from_file(self.get_path(self.target_file), f"{self.api_prefix}*",
@@ -743,10 +806,14 @@ class BaseUnityChipCheckerTestCase(Checker):
             pytest_args = pytest_args if pytest_args else "."
             pytest_args = pytest_args.split()
             pytest_args = ["-k", f"not {self.ignore_tc_prefix}"] + pytest_args
+        _extra_env = kw.pop("pytest_ex_env", {})
+        _pytest_env = self._check_env.copy() if self.has_ld_preload else {}
+        _pytest_env.update(_extra_env)
         report, str_out, str_err = self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
             return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout,
+            pytest_ex_env=_pytest_env,
             **kw
         )
         report, str_out, str_err = self._check_test_func_args(report, str_out, str_err)
@@ -839,7 +906,9 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             Tuple[bool, str]: A tuple where the first element is a boolean indicating success or failure,
                               and the second element is a message string.
         """
-        pytest_ex_env={"UC_IS_IMP_TEMPLATE":"true"}
+        pytest_ex_env = kw.pop("pytest_ex_env", {})
+        if not self.has_ld_preload:
+            pytest_ex_env["UC_IS_IMP_TEMPLATE"] = "true"
         report, str_out, str_err = super().do_check(pytest_ex_env=pytest_ex_env, timeout=timeout, **kw)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
@@ -1022,16 +1091,34 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         report, str_out, str_err = self.run_test.do(
             "", 
             pytest_ex_args=targets,
-            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout
+            return_stdout=True, return_stderr=True, return_all_checks=True, timeout=timeout,
+            pytest_ex_env=self._check_env if self.has_ld_preload else {},
         )
         report, str_out, str_err = self._check_test_func_args(report, str_out, str_err)
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg
         report_copy = fc.clean_report_with_keys(report)
-        func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
-                                         ex_python_path=self.workspace,
-                                         dtype="FUNC")
+        if self.has_ld_preload:
+            # In LD_PRELOAD mode, use subprocess to get API function names
+            ok, result = self._run_in_subprocess("api_static", {
+                "target_file_path": self.get_path(self.target_file_api),
+                "workspace": self.workspace,
+                "api_prefix": self.api_prefix,
+                "min_apis": 1,
+                "checker_class_name": self.__class__.__name__,
+            }, timeout=30)
+            if not ok:
+                return False, result
+            # Create lightweight stubs with __name__ for coverage matching
+            api_func_names = result.get("func_names", [])
+            class _FuncStub:
+                def __init__(self, name): self.__name__ = name
+            func_list = [_FuncStub(n) for n in api_func_names]
+        else:
+            func_list = fc.get_target_from_file(self.get_path(self.target_file_api), f"{self.api_prefix}*",
+                                             ex_python_path=self.workspace,
+                                             dtype="FUNC")
         if len(func_list) == 0:
             return False, {"error": f"No DUT API functions with prefix '{self.api_prefix}' found in '{self.target_file_api}'. "+\
                                      "Note: the api name is case-sensitive."}
