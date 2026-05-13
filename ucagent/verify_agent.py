@@ -346,6 +346,8 @@ class VerifyAgent:
         self.original_sigint = signal.getsignal(signal.SIGINT)
         self._sigint_count = 0
         self._exit_on_completion = exit_on_completion
+        self._exit_on_completion_pending = False
+        self._exit_on_completion_queued = False
         self._is_work_busy = False
         self.handle_sigint()
 
@@ -655,7 +657,17 @@ class VerifyAgent:
     def try_exit_on_completion(self):
         if self._exit_on_completion:
             self.set_break(False)
-            self.pdb.add_cmds(["sleep 5"] + ["quit"] * 3)
+            if self.is_work_busy():
+                self._exit_on_completion_pending = True
+                return
+            self._queue_exit_on_completion()
+
+    def _queue_exit_on_completion(self):
+        if self._exit_on_completion_queued:
+            return
+        self._exit_on_completion_pending = False
+        self._exit_on_completion_queued = True
+        self.pdb.add_cmds(["sleep 5"] + ["quit"] * 3)
 
     def get_work_config(self):
         return self.backend.get_work_config()
@@ -839,11 +851,15 @@ class VerifyAgent:
         """Perform the work using the agent."""
         self._is_work_busy = True
         self._tool__call_error = []
-        if self.stream_output:
-            self.do_work_stream(instructions, config)
-        else:
-            self.do_work_values(instructions, config)
-        self._is_work_busy = False
+        try:
+            if self.stream_output:
+                self.do_work_stream(instructions, config)
+            else:
+                self.do_work_values(instructions, config)
+        finally:
+            self._is_work_busy = False
+            if self._exit_on_completion_pending:
+                self._queue_exit_on_completion()
 
     def is_work_busy(self):
         """Check if the agent is currently busy with work."""

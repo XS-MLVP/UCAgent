@@ -416,10 +416,33 @@ class VerifyPDB(Pdb):
         if isinstance(cmds, str):
             cmds = [cmds]
         if self._in_tui:
+            if any(self._is_exit_command(cmd) for cmd in cmds):
+                self._queue_post_tui_cmds(cmds)
+                tui_app = self._tui_app
+                quit_action = getattr(tui_app, "action_quit", None) if tui_app is not None else None
+                if callable(quit_action):
+                    try:
+                        tui_app.call_from_thread(quit_action)
+                    except RuntimeError as e:
+                        if "App is not running" not in str(e):
+                            raise
+                return
             tui_app = self._tui_app
             if tui_app is not None:
-                for cmd in cmds:
-                    tui_app.call_from_thread(tui_app.key_handler.process_command, cmd)
+                for index, cmd in enumerate(cmds):
+                    try:
+                        tui_app.call_from_thread(
+                            tui_app.key_handler.process_command, cmd
+                        )
+                    except RuntimeError as e:
+                        if "App is not running" not in str(e):
+                            raise
+                        cmds = cmds[index:]
+                        if self.init_cmd is None:
+                            self.init_cmd = cmds
+                        else:
+                            self.init_cmd.extend(cmds)
+                        break
             else:
                 if self.init_cmd is None:
                     self.init_cmd = cmds
@@ -433,6 +456,17 @@ class VerifyPDB(Pdb):
             # cmdqueue at the top of its loop – executing our commands.
             self._api_wakeup = True
             os.kill(os.getpid(), signal.SIGINT)
+
+    @staticmethod
+    def _is_exit_command(cmd: str) -> bool:
+        return cmd.strip().lower() in ("q", "quit", "exit")
+
+    def _queue_post_tui_cmds(self, cmds) -> None:
+        queued_cmds = list(cmds)
+        if self.init_cmd is None:
+            self.init_cmd = queued_cmds
+        else:
+            self.init_cmd.extend(queued_cmds)
 
     def _sigint_handler(self, signum, frame):
         """

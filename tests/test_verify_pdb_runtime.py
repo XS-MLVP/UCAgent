@@ -10,9 +10,10 @@ import time
 import pytest
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.verify_pdb import VerifyPDB
+from ucagent.verify_agent import VerifyAgent
 from ucagent.util.log import info
 
 
@@ -134,3 +135,101 @@ def test_info_output_outside_command_is_recorded(probe_pdb):
     rendered = probe_pdb.render_console_entries_since(0)
     assert "INFO" in rendered
     assert "shared info output" in rendered
+
+
+def test_add_cmds_falls_back_when_tui_app_stopped(probe_pdb):
+    class _DeadKeyHandler:
+        def process_command(self, _cmd):
+            raise AssertionError("stopped app should not process commands")
+
+    class _DeadApp:
+        key_handler = _DeadKeyHandler()
+
+        def call_from_thread(self, *_args, **_kwargs):
+            raise RuntimeError("App is not running")
+
+    probe_pdb._in_tui = True
+    probe_pdb._tui_app = _DeadApp()
+
+    probe_pdb.add_cmds(["sleep 5", "quit"])
+
+    assert probe_pdb.init_cmd == ["sleep 5", "quit"]
+
+
+def test_add_cmds_with_exit_in_tui_defers_to_pdb_queue(probe_pdb):
+    class _KeyHandler:
+        def process_command(self, _cmd):
+            raise AssertionError("exit batches should not be executed inside the TUI")
+
+    class _App:
+        def __init__(self):
+            self.key_handler = _KeyHandler()
+            self.quit_requested = 0
+
+        def call_from_thread(self, func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        def action_quit(self):
+            self.quit_requested += 1
+
+    app = _App()
+    probe_pdb._in_tui = True
+    probe_pdb._tui_app = app
+
+    probe_pdb.add_cmds(["sleep 5", "quit", "quit"])
+
+    assert probe_pdb.init_cmd == ["sleep 5", "quit", "quit"]
+    assert app.quit_requested == 1
+
+
+def test_add_cmds_with_exit_handles_stopped_tui_app(probe_pdb):
+    class _KeyHandler:
+        def process_command(self, _cmd):
+            raise AssertionError("stopped app should not process commands")
+
+    class _DeadApp:
+        def __init__(self):
+            self.key_handler = _KeyHandler()
+
+        def call_from_thread(self, *_args, **_kwargs):
+            raise RuntimeError("App is not running")
+
+        def action_quit(self):
+            raise AssertionError("stopped app should not quit synchronously")
+
+    probe_pdb._in_tui = True
+    probe_pdb._tui_app = _DeadApp()
+
+    probe_pdb.add_cmds(["sleep 5", "quit"])
+
+    assert probe_pdb.init_cmd == ["sleep 5", "quit"]
+
+
+def test_exit_on_completion_defers_until_work_finishes():
+    class _PdbRecorder:
+        def __init__(self):
+            self.cmds = []
+
+        def add_cmds(self, cmds):
+            self.cmds.append(cmds)
+
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._exit_on_completion = True
+    agent._exit_on_completion_pending = False
+    agent._exit_on_completion_queued = False
+    agent._is_work_busy = False
+    agent._need_break = True
+    agent.stream_output = False
+    agent.pdb = _PdbRecorder()
+
+    def do_work_values(_instructions, _config):
+        assert agent.is_work_busy()
+        agent.try_exit_on_completion()
+        assert agent.pdb.cmds == []
+
+    agent.do_work_values = do_work_values
+
+    agent.do_work({}, {})
+
+    assert agent._need_break is False
+    assert agent.pdb.cmds == [["sleep 5", "quit", "quit", "quit"]]
