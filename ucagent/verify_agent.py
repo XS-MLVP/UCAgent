@@ -77,6 +77,7 @@ class VerifyAgent:
         no_history: bool = False,
         enable_context_manage_tools: bool = False,
         exit_on_completion: bool = False,
+        check_env: dict = None,
     ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -128,6 +129,7 @@ class VerifyAgent:
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
+        self.check_env = check_env or {}
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
@@ -199,6 +201,7 @@ class VerifyAgent:
                 self.tool_search_text,
             ],
             reference_files=reference_files,
+            check_env=self.check_env,
         )
         self._default_system_prompt = (
             sys_tips if sys_tips else self.get_default_system_prompt()

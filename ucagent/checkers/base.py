@@ -33,6 +33,41 @@ class Checker:
     _is_init = False
     _need_human_check = False
     _cb_list = {}
+    _check_env = {}
+
+    def set_check_env(self, env: dict):
+        """Set environment variables for isolated checker subprocesses."""
+        self._check_env = dict(env) if env else {}
+
+    @property
+    def has_ld_preload(self) -> bool:
+        """True when LD_PRELOAD is configured in check_env."""
+        return bool(self._check_env.get("LD_PRELOAD"))
+
+    def _run_in_subprocess(self, checker_type: str, check_kwargs: dict, timeout: int = 30):
+        """Route checker execution to an isolated subprocess when LD_PRELOAD is set.
+
+        The subprocess runs with LD_PRELOAD in its environment so that
+        DUT shared libraries are properly loaded by ld.so before Python
+        import. The cwd is set to the directory containing the .so file
+        so that VCS can find its simulation database.
+
+        Args:
+            checker_type: Registry key for the checker (e.g. "dut_creation").
+            check_kwargs: Arguments to pass to the checker function.
+            timeout: Maximum execution time in seconds.
+
+        Returns:
+            Tuple[bool, dict]: (success, result)
+        """
+        from ucagent.checkers.scripts.common import run_isolated_check_json
+        return run_isolated_check_json(
+            checker_type=checker_type,
+            check_kwargs=check_kwargs,
+            workspace=self.workspace,
+            check_env=self._check_env,
+            timeout=timeout,
+        )
 
     def add_cb(self, key, cb):
         assert key in [CB_KEY_SET_WORKSPACE,

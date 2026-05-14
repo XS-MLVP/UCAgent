@@ -113,7 +113,11 @@ class RunPyTest(UCTool):
                 else:
                     raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
 
-        cmd = ["pytest", "-s", *self.get_pytest_args(), *test_target]
+        # Support command prefix (e.g. "bsub -Is -q normal") for job schedulers
+        # Usage: --check-env "pytest-prefix=bsub -Is -q normal"
+        cmd_prefix = env.pop("pytest-prefix", "").strip()
+        cmd = [*cmd_prefix.split(), "pytest", "-s", *self.get_pytest_args(), *test_target] if cmd_prefix else \
+              ["pytest", "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(

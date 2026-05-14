@@ -386,6 +386,7 @@ class StageManager(object):
             stage_unskip_list=None,
             tool_inspect_file=None,
             reference_files=None,
+            check_env=None,
     ):
         """
         Initialize the StageManager with an empty list of stages.
@@ -404,9 +405,11 @@ class StageManager(object):
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+        self.check_env = check_env or {}
 
     def init_stage(self):
         from ucagent.stage import VerifyStage
+        self.free_pytest_run.set_check_env(self.check_env)
         self.root_stage = get_root_stage(self.cfg, self.workspace, self.tool_read_text)
         self.stages = self.root_stage.get_substages()
         if self.reference_files:
@@ -444,6 +447,9 @@ class StageManager(object):
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
+            # Inject check_env into all checkers
+            for c in s.checker:
+                c.set_check_env(self.check_env)
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].on_init()
         self.last_check_info = {}
