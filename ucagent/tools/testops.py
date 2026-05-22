@@ -149,7 +149,7 @@ class RunPyTest(UCTool):
                 ret_stderr += e.stderr
             return False, ret_stdout, ret_stderr + f"\nCalledProcessError: {e}"
         except Exception as e:
-            return False, "Test Fail", ret_stderr + f"\Exception: {e}"
+            return False, "Test Fail", ret_stderr + f"\nException: {e}"
 
     def _run(self,
              test_dir_or_file: str,

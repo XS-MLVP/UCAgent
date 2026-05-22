@@ -13,15 +13,30 @@ import argparse
 import bdb
 from typing import Dict, List, Any, Optional
 import tempfile
+import traceback
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
-    sys.path.append(parent_dir)
+    sys.path.insert(0, parent_dir)
 os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), ".ucagent/__pycache__")
 
 from ucagent.version import __version__
+
+
+def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    for i, arg in enumerate(raw_args):
+        if arg == "--web-console-capture-path":
+            if i + 1 < len(raw_args):
+                return raw_args[i + 1]
+            return ""
+        if arg.startswith("--web-console-capture-path="):
+            return arg.split("=", 1)[1]
+    return ""
+
 
 class CheckAction(argparse.Action):
     """Custom action for --check flag that exits after checking."""
@@ -549,6 +564,13 @@ def get_args() -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
 
+    parser.add_argument(
+        "--web-console-capture-path",
+        type=str,
+        default="",
+        help=argparse.SUPPRESS,
+    )
+
     args = parser.parse_args()
     return args
 
@@ -661,7 +683,7 @@ def run() -> None:
        args.web_console_session_port is None:
         from ucagent.server.api_terminal import _serve_web_console
         try:
-            return _serve_web_console()
+            return _serve_web_console(sys.argv)
         except Exception as e:
             print(f"Failed to start Web UI: {e}")
             sys.exit(1)
@@ -907,9 +929,20 @@ def main() -> None:
         print("\nUCAgent interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        import traceback
         print(f"UCAgent encountered an error: {e}")
-        traceback.print_exc()
+        formatted = traceback.format_exc()
+        print(formatted, end="")
+        capture_path = _extract_web_console_capture_path().strip()
+        if capture_path:
+            try:
+                os.makedirs(os.path.dirname(os.path.abspath(capture_path)), exist_ok=True)
+                with open(capture_path, "a", encoding="utf-8", errors="replace") as fh:
+                    fh.write(f"UCAgent encountered an error: {e}\n")
+                    fh.write(formatted)
+                    if not formatted.endswith("\n"):
+                        fh.write("\n")
+            except OSError:
+                pass
         sys.exit(1)
     print("UCAgent is exited.")
 

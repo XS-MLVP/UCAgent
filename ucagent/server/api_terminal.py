@@ -33,8 +33,10 @@ import logging
 import os
 import pathlib
 import signal
+import select
 import struct
 import sys
+import tempfile
 import threading
 import time
 import shlex
@@ -85,6 +87,20 @@ def _extract_web_console_spec(argv: Optional[List[str]] = None) -> str:
                 return raw_args[i + 1]
             return ""
         if arg.startswith("--web-console="):
+            return arg.split("=", 1)[1]
+    return ""
+
+
+def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
+    """Extract internal web-console capture path from argv."""
+    source_argv = list(sys.argv if argv is None else argv)
+    raw_args = source_argv[1:]
+    for i, arg in enumerate(raw_args):
+        if arg == "--web-console-capture-path":
+            if i + 1 < len(raw_args):
+                return raw_args[i + 1]
+            return ""
+        if arg.startswith("--web-console-capture-path="):
             return arg.split("=", 1)[1]
     return ""
 
@@ -147,19 +163,116 @@ def _resolve_web_console_bind(spec: str) -> tuple[str, int, str]:
     )
 
 
+def _read_web_console_capture(path: str, max_bytes: int = 256 * 1024) -> str:
+    """Read the tail of the captured PTY output as text."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            if size > max_bytes:
+                f.seek(-max_bytes, os.SEEK_END)
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _tail_text_lines(text: str, max_lines: int = 100) -> str:
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        lines = lines[-max_lines:]
+    return "\n".join(lines)
+
+
+def _web_console_output_looks_abnormal(output: str) -> bool:
+    markers = (
+        "Traceback (most recent call last)",
+        "UCAgent encountered an error:",
+        "Failed to start Web UI:",
+        "AssertionError",
+    )
+    return any(marker in output for marker in markers)
+
+
+def _print_web_console_abnormal_exit_output(
+    exit_code: Optional[int],
+    capture_path: str,
+) -> bool:
+    """Replay abnormal child-process output to the parent terminal.
+
+    ``--web-console`` runs the real CLI inside a PTY so its stdout/stderr are
+    normally visible only in the browser.  When startup fails before the
+    browser is useful, replay the captured tail so command-line users still see
+    the exception and traceback.
+    """
+    output = _read_web_console_capture(capture_path)
+    if not output:
+        return False
+
+    abnormal = (
+        (exit_code is not None and exit_code != 0)
+        or _web_console_output_looks_abnormal(output)
+    )
+    if not abnormal:
+        return False
+
+    print(
+        f"\nCommand exited abnormally with code {exit_code if exit_code is not None else 'unknown'}."
+        "\nCaptured web-console output:",
+        file=sys.stderr,
+    )
+    print(_tail_text_lines(output.rstrip(), 100), file=sys.stderr)
+    return True
+
+
+def _get_web_console_exit_code(server: "PdbWebTermServer") -> Optional[int]:
+    if server._process_exit_code is not None:
+        return server._process_exit_code
+    if server._process is not None:
+        return server._process.poll()
+    return None
+
+
 def _serve_web_console(argv: Optional[List[str]] = None) -> None:
     """Serve the UCAgent TUI in a browser via a PTY-based web terminal."""
     command = _build_web_console_command(argv)
     web_console_spec = _extract_web_console_spec(argv)
+    requested_capture_path = _extract_web_console_capture_path(argv).strip()
     host, port, password = _resolve_web_console_bind(web_console_spec)
-    server = PdbWebTermServer(
-        command + f" --web-console-session-host={host} --web-console-session-port={port}",
-        host=host,
-        port=port,
-        password=password,
-        title="UCAgent Terminal",
-    )
-    server.start_blocking()
+    cleanup_capture = False
+    if requested_capture_path:
+        capture_path = os.path.abspath(requested_capture_path)
+        os.makedirs(os.path.dirname(capture_path), exist_ok=True)
+        open(capture_path, "ab").close()
+    else:
+        capture = tempfile.NamedTemporaryFile(
+            prefix="ucagent_web_console_", suffix=".log", delete=False
+        )
+        capture_path = capture.name
+        capture.close()
+        cleanup_capture = True
+    exit_code: Optional[int] = None
+    replayed_abnormal = False
+    try:
+        server = PdbWebTermServer(
+            command + f" --web-console-session-host={host} --web-console-session-port={port}",
+            host=host,
+            port=port,
+            password=password,
+            title="UCAgent Terminal",
+            process_output_capture_path=capture_path,
+        )
+        server.start_blocking()
+        exit_code = _get_web_console_exit_code(server)
+        replayed_abnormal = _print_web_console_abnormal_exit_output(exit_code, capture_path)
+    finally:
+        if cleanup_capture:
+            try:
+                os.unlink(capture_path)
+            except OSError:
+                pass
+    if exit_code not in (None, 0):
+        sys.exit(exit_code if exit_code > 0 else 1)
+    if replayed_abnormal:
+        sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Shared ring-buffer for recent output (so reconnecting clients can scroll
@@ -488,6 +601,7 @@ class PdbWebTermServer:
         title: str = "UCAgent Terminal",
         env: Optional[Dict[str, str]] = None,
         console_input_callback: Optional[Callable[[str], None]] = None,
+        process_output_capture_path: Optional[str] = None,
     ) -> None:
         self.command = command
         self.host = host
@@ -501,6 +615,8 @@ class PdbWebTermServer:
         self._process: Optional[_ManagedProcess] = None
         self._output_ring = _OutputRing()
         self._reader_task: Optional[asyncio.Task] = None
+        self._process_output_capture_path = process_output_capture_path
+        self._process_exit_code: Optional[int] = None
 
         # Console mode state
         self._console_cb = console_input_callback
@@ -1007,19 +1123,52 @@ class PdbWebTermServer:
         assert self._process is not None
         loop = asyncio.get_event_loop()
         fd = self._process.master_fd
-
-        while self._process.alive:
+        capture_file = None
+        if self._process_output_capture_path:
             try:
-                data = await loop.run_in_executor(None, self._blocking_read, fd)
+                capture_file = open(self._process_output_capture_path, "ab")
             except OSError:
-                break
-            if not data:
-                break
-            self._output_ring.append(data)
-            await self._broadcast(data)
+                capture_file = None
+
+        try:
+            while self._process.alive:
+                try:
+                    data = await loop.run_in_executor(None, self._blocking_read, fd)
+                except OSError:
+                    break
+                if not data:
+                    if self._process.poll() is None:
+                        await asyncio.sleep(0.05)
+                        continue
+                    break
+                self._output_ring.append(data)
+                if capture_file is not None:
+                    try:
+                        capture_file.write(data)
+                        capture_file.flush()
+                    except OSError:
+                        capture_file = None
+                await self._broadcast(data)
+
+            for data in self._drain_fd(fd):
+                self._output_ring.append(data)
+                if capture_file is not None:
+                    try:
+                        capture_file.write(data)
+                        capture_file.flush()
+                    except OSError:
+                        capture_file = None
+                await self._broadcast(data)
+        finally:
+            if capture_file is not None:
+                try:
+                    capture_file.close()
+                except OSError:
+                    pass
 
         # Process ended
         exit_code = self._process.poll()
+        self._process_exit_code = exit_code
         msg = json.dumps({"type": "exit", "code": exit_code or 0})
         await self._broadcast_text(msg)
 
@@ -1032,6 +1181,26 @@ class PdbWebTermServer:
             return os.read(fd, 4096)
         except OSError:
             return b""
+
+    @staticmethod
+    def _drain_fd(fd: int, timeout_s: float = 0.25) -> List[bytes]:
+        chunks: List[bytes] = []
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                ready, _, _ = select.select([fd], [], [], 0.02)
+            except (OSError, ValueError):
+                break
+            if not ready:
+                continue
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+        return chunks
 
     async def _broadcast(self, data: bytes) -> None:
         async with self._clients_lock:

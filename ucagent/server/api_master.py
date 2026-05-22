@@ -127,6 +127,50 @@ def _tail_file(path: str, max_lines: int = 200) -> str:
     return "".join(dq)
 
 
+def _tail_files(paths: List[str], max_lines: int = 200) -> str:
+    dq: Deque[str] = collections.deque(maxlen=max_lines)
+    for path in paths:
+        if not path or not os.path.isfile(path):
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                dq.append(line)
+    return "".join(dq)
+
+
+def _file_contains_any(path: str, markers: Tuple[str, ...]) -> bool:
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if any(marker in line for marker in markers):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def _task_stderr_tail(task: Dict[str, Any], max_lines: int = 200) -> str:
+    stderr_log = task.get("stderr_log_path", "")
+    web_console_log = task.get("web_console_log_path", "")
+    if _file_contains_any(web_console_log, (
+        "Traceback (most recent call last)",
+        "UCAgent encountered an error:",
+        "Failed to start Web UI:",
+        "AssertionError",
+    )):
+        return _tail_files([stderr_log, web_console_log], max_lines=max_lines)
+    return _tail_file(stderr_log, max_lines=max_lines)
+
+
+def _task_logs_for_display(task: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "stdout": _tail_file(task.get("stdout_log_path", "")),
+        "stderr": _task_stderr_tail(task),
+    }
+
+
 def _mask_secret(value: str) -> str:
     if value is None:
         return ""
@@ -1291,6 +1335,7 @@ class PdbMasterApiServer:
         task_id = secrets.token_hex(8)
         stdout_log = os.path.join(self._logs_dir, f"{task_id}.stdout.log")
         stderr_log = os.path.join(self._logs_dir, f"{task_id}.stderr.log")
+        web_console_log = os.path.join(self._logs_dir, f"{task_id}.web_console.log")
         task = {
             "task_id": task_id,
             "task_name": data.get("task_name", "") or task_id,
@@ -1317,12 +1362,14 @@ class PdbMasterApiServer:
             "picker_exit_code": None,
             "stdout_log_path": stdout_log,
             "stderr_log_path": stderr_log,
+            "web_console_log_path": web_console_log,
             "cmd_api": data.get("cmd_api", {}),
             "terminal_api": data.get("terminal_api", {}),
             "web_console": data.get("web_console", {}),
         }
         pathlib.Path(stdout_log).touch()
         pathlib.Path(stderr_log).touch()
+        pathlib.Path(web_console_log).touch()
         with self._tasks_lock:
             self._tasks[task_id] = task
         if task["workspace_id"]:
@@ -1445,6 +1492,7 @@ class PdbMasterApiServer:
         if not export_cmd_spec:
             export_cmd_spec = f"{cmd_api['host']}:{cmd_api['port']} {cmd_api['password']}"
         add_value("--export-cmd-api", export_cmd_spec)
+        add_value("--web-console-capture-path", req.get("web_console_capture_path"))
 
         argv.extend([str(v) for v in req.get("extra_args", []) if str(v).strip()])
 
@@ -1505,16 +1553,59 @@ class PdbMasterApiServer:
             except Exception:
                 pass
 
-    def _close_task_runtime(self, task_id: str) -> None:
+    def _close_task_runtime(self, task_id: str, join_timeout: float = 5.0) -> None:
         runtime = self._task_runtime.pop(task_id, None)
+        if not runtime:
+            return
+        current_thread = threading.current_thread()
+        for key in ("stdout_thread", "stderr_thread"):
+            thread = runtime.get(key)
+            if thread is not None and thread is not current_thread:
+                try:
+                    thread.join(timeout=join_timeout)
+                except RuntimeError:
+                    pass
+        for key in ("stdout_log", "stderr_log"):
+            fh = runtime.get(key)
+            try:
+                fh.flush()
+            except Exception:
+                pass
+            try:
+                fh.close()
+            except Exception:
+                pass
+
+    def _flush_task_runtime_logs(self, task_id: str) -> None:
+        runtime = self._task_runtime.get(task_id)
         if not runtime:
             return
         for key in ("stdout_log", "stderr_log"):
             fh = runtime.get(key)
             try:
-                fh.close()
+                fh.flush()
             except Exception:
                 pass
+
+    def _drain_finished_task_runtime(self, task: Dict[str, Any]) -> None:
+        runtime = self._task_runtime.get(task.get("task_id"))
+        if not runtime:
+            return
+        proc = runtime.get("process")
+        if proc is not None and proc.poll() is not None:
+            self._close_task_runtime(task["task_id"])
+            task["exit_code"] = proc.returncode
+            task["finished_at"] = task.get("finished_at") or _now()
+            task["process_status"] = (
+                "stopped"
+                if task.get("process_status") == "stopping" or proc.returncode == 0
+                else "failed"
+            )
+            task["cmd_api"]["status"] = "stopped"
+            task["terminal_api"]["status"] = "stopped"
+            self._mark_dirty()
+        else:
+            self._flush_task_runtime_logs(task["task_id"])
 
     def _probe_child_service(self, svc: Dict[str, Any]) -> bool:
         if not svc.get("enabled"):
@@ -1748,6 +1839,9 @@ class PdbMasterApiServer:
             task["finished_at"] = _now()
             return task
 
+        if web_console.get("enabled"):
+            req["web_console_capture_path"] = task["web_console_log_path"]
+
         resolved_command, env = self._build_ucagent_command(req, prepared, cmd_api)
         task["resolved_command"] = resolved_command
         task["process_status"] = "starting"
@@ -1756,12 +1850,12 @@ class PdbMasterApiServer:
         task["started_at"] = _now()
         code = proc.poll()
         if code is not None:
+            self._close_task_runtime(task["task_id"])
             task["process_status"] = "failed" if code != 0 else "stopped"
             task["exit_code"] = code
             task["finished_at"] = _now()
             task["cmd_api"]["status"] = "stopped"
             task["terminal_api"]["status"] = "stopped"
-            self._close_task_runtime(task["task_id"])
         else:
             task["cmd_api"]["status"] = "starting"
             if not task["terminal_api"].get("enabled"):
@@ -1791,11 +1885,13 @@ class PdbMasterApiServer:
         if isinstance(data.get("web_console"), dict):
             data["web_console"].pop("password", None)
         if include_logs:
-            data["stdout_tail"] = _tail_file(task.get("stdout_log_path", ""))
-            data["stderr_tail"] = _tail_file(task.get("stderr_log_path", ""))
+            logs = _task_logs_for_display(task)
+            data["stdout_tail"] = logs["stdout"]
+            data["stderr_tail"] = logs["stderr"]
         else:
             data.pop("stdout_log_path", None)
             data.pop("stderr_log_path", None)
+            data.pop("web_console_log_path", None)
         return data
 
     def _build_proxy_headers(self, password: str, original_headers: Dict[str, str]) -> Dict[str, str]:
@@ -2798,10 +2894,12 @@ class PdbMasterApiServer:
                 task = self._get_task(task_id)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
+            self._drain_finished_task_runtime(task)
+            logs = _task_logs_for_display(task)
             return {
                 "status": "ok",
-                "stdout": _tail_file(task.get("stdout_log_path", "")),
-                "stderr": _tail_file(task.get("stderr_log_path", "")),
+                "stdout": logs["stdout"],
+                "stderr": logs["stderr"],
             }
 
         @app.post("/api/task/{task_id}/stop", summary="Stop managed task", dependencies=[Depends(_check_password)])

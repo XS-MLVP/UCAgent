@@ -428,9 +428,22 @@ function renderDynamicLaunchSettings(config) {
     `);
   }
   container.innerHTML = parts.join('');
+  syncSkillPathControl();
+}
+
+function syncSkillPathControl() {
+  const useSkill = document.querySelector('[data-launch-key="use_skill"]');
+  const extraSkillPath = document.querySelector('[data-launch-key="extra_skill_path"]');
+  if (!extraSkillPath) return;
+  const enabled = !!(useSkill && useSkill.checked);
+  if (!enabled) {
+    extraSkillPath.value = '';
+  }
+  extraSkillPath.disabled = !enabled;
 }
 
 function collectDynamicLaunchOptions() {
+  syncSkillPathControl();
   const fields = [...document.querySelectorAll('[data-launch-key]')];
   const options = {};
   for (const field of fields) {
@@ -464,6 +477,9 @@ function collectDynamicLaunchOptions() {
       continue;
     }
     options[key] = field.value;
+  }
+  if (!options.use_skill) {
+    options.extra_skill_path = '';
   }
   return options;
 }
@@ -1710,6 +1726,9 @@ document.addEventListener('change', async (event) => {
       return;
     }
     if (target.matches('[data-launch-key]')) {
+      if (target.dataset.launchKey === 'use_skill') {
+        syncSkillPathControl();
+      }
       updateLaunchState();
     }
   } catch (error) {
@@ -1744,6 +1763,9 @@ document.addEventListener('input', (event) => {
     return;
   }
   if (event.target.matches('[data-launch-key]')) {
+    if (event.target.dataset.launchKey === 'use_skill') {
+      syncSkillPathControl();
+    }
     updateLaunchState();
   }
 });
