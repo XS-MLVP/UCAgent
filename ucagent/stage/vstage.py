@@ -42,6 +42,7 @@ class VerifyStage(object):
                  checker,
                  reference_files,
                  skill_list,
+                 force_use_skill,
                  output_files,
                  prefix = "",
                  skip=False,
@@ -86,7 +87,8 @@ class VerifyStage(object):
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
-        self.skill_list = {k:[False,False,False] for k in skill_list}
+        self.skill_list = {k:[False,False,False] for k in skill_list} if self.cfg.skill.use_skill else {}
+        self.force_use_skill = force_use_skill
         self.output_files = output_files
         self.tool_read_text = tool_read_text
         if self.tool_read_text is not None:
@@ -113,6 +115,9 @@ class VerifyStage(object):
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
         self.hist_tgt_dir = os.path.join(self.hist_sav_dir, self.hist_src_dir)
         self.hist_ign_list = cfg.hist_ignore_pattern
+
+        if not self.cfg.skill.use_skill and skill_list and force_use_skill:
+            raise ValueError(f"Enable the arg(--use-skill) to use skill, or remove the skill_list and force_use_skill specified in stage '{self.name}'.")
 
     def meta_set_journal(self, journal):
         self.meta_data['journal'] = copy.deepcopy(journal)
@@ -649,6 +654,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         skill_list = stage.get_value('skill_list', [])
+        force_use_skill = stage.get_value('force_use_skill', False)
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
@@ -678,6 +684,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             checker=checker,
             reference_files=reference_files,
             skill_list=skill_list,
+            force_use_skill=force_use_skill,
             output_files=output_files,
             tool_read_text=tool_read_text,
             substages=substages,
@@ -699,6 +706,7 @@ def get_root_stage(cfg, workspace, tool_read_text):
         checker=[],
         reference_files=[],
         skill_list=[],
+        force_use_skill=False,
         output_files=[],
     )
     root.substages = parse_vstage(cfg, cfg.stage, workspace, tool_read_text)

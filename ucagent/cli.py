@@ -219,13 +219,18 @@ def get_args() -> argparse.Namespace:
         help="Emulate configuration process only, without really run the stages"
     )
 
-    # SKILL argument
+    # SKILL arguments
     parser.add_argument(
         "--use-skill",
-        nargs='?',
-        const=True,
+        action="store_true",
         default=False,
-        help="Enable use skill. Optionally specify a path to additional skills directory (e.g., --use-skill=/path/to/skills)"
+        help="Enable skill support"
+    )
+    parser.add_argument(
+        "--extra-skill-path",
+        type=str,
+        default=None,
+        help="Path to an additional skills directory. Requires '--use-skill'."
     )
      # Miscellaneous arguments
     parser.add_argument(
@@ -753,9 +758,13 @@ def run() -> None:
     if args.backend:
         args.override["backend.key_name"] = args.backend
 
+    if args.extra_skill_path and not args.use_skill:
+        raise ValueError("--extra-skill-path requires --use-skill is True")
+
     if args.use_skill:
         args.override = args.override or {}
         args.override["skill.use_skill"] = args.use_skill
+        args.override["skill.extra_skill_path"] = args.extra_skill_path or ""
 
     # Make sure mcp server is started before tui
     if args.tui:

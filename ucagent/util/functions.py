@@ -2452,8 +2452,8 @@ def copy_skill_files(cfg, workspace, root_dir):
     default_skill_path = os.path.join(root_dir,"lang",cfg.lang,"skills")
     src_paths.append(default_skill_path)
     # additional skills path
-    if isinstance(cfg.skill.use_skill, str):
-        extra_skills_path = os.path.abspath(cfg.skill.use_skill)
+    if cfg.skill.extra_skill_path:
+        extra_skills_path = os.path.abspath(cfg.skill.extra_skill_path)
         src_paths.append(extra_skills_path)
     # Copy skills to workspace
     for src_path in src_paths:

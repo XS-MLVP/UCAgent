@@ -994,13 +994,15 @@ function buildCommandPreview() {
   if (dynamicOptions.tui) args.push('--tui');
   if (dynamicOptions.loop) args.push('-l');
   if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
+  if (dynamicOptions.use_skill) args.push('--use-skill');
+  if (dynamicOptions.extra_skill_path) args.push('--extra-skill-path', dynamicOptions.extra_skill_path);
   const backend = document.getElementById('backend').value.trim();
   if (backend) args.push('--backend', backend);
   const masterOverride = document.getElementById('master-override').value.trim();
   args.push('--master', masterOverride || '<current master>');
   args.push('--export-cmd-api', '<auto>');
   if (compileCurrent && compile?.doc_dir) args.push('--guid-doc-path', compile.doc_dir);
-  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools']);
+  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path']);
   for (const [key, value] of Object.entries(dynamicOptions)) {
     if (consumedKeys.has(key)) continue;
     if (key === 'extra_args' && Array.isArray(value) && value.length) {
