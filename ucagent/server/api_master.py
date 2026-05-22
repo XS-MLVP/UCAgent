@@ -1371,11 +1371,10 @@ class PdbMasterApiServer:
         add_flag("--force-todo", req.get("force_todo"))
         add_flag("--use-todo-tools", req.get("use_todo_tools"))
         add_flag("--emulate-config", req.get("emulate_config"))
-        if req.get("use_skill") not in (None, False, ""):
-            if req.get("use_skill") is True:
-                argv.append("--use-skill")
-            else:
-                add_value("--use-skill", req.get("use_skill"))
+        if req.get("use_skill"):
+            argv.append("--use-skill")
+        if req.get("extra_skill_path"):
+            add_value("--extra-skill-path", req.get("extra_skill_path"))
         add_value("--seed", req.get("seed"))
         add_flag("--tui", req.get("tui"))
         web_console = req.get("web_console")

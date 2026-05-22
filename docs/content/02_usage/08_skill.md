@@ -187,19 +187,15 @@ __all__ = ["setup_vstage"]
 - 启用技能机制
 - 把 UCAgent 默认技能拷贝到当前工作区的 `.ucagent/skills/` 目录下
 
-也可以额外指定一个技能目录：
+可以额外指定一个技能目录：
 
 ```bash
---use-skill=/path/to/extra-skills
+--extra-skill-path=/path/to/extra-skills
 ```
 
 含义：
-
-- 启用技能机制
-- 拷贝默认技能
-- 再额外拷贝指定路径下的技能到工作区 `.ucagent/skills/` 目录
-
-如果未声明 `--use-skill`，则技能功能默认关闭。
+- 额外拷贝指定路径下的技能到工作区 `.ucagent/skills/` 目录
+- 仅当设置--use-skill 参数时才能添加该参数，否则报错
 
 ## 技能在工作区中的位置
 
@@ -207,7 +203,7 @@ __all__ = ["setup_vstage"]
 
 ## 阶段级技能配置
 
-可在工作流阶段配置 `skill_list`，声明本阶段必须使用的技能。
+可在工作流阶段配置 `skill_list`和`force_use_skill`参数，声明本阶段必须使用的技能。
 
 示例：
 
@@ -216,14 +212,16 @@ stages:
   - name: example-stage
     skill_list:
       - "static-bug-analysis"
+    force_use_skill: False
 ```
 
 含义：
 
-- 当前阶段必须使用 `static-bug-analysis`
+- 当前阶段使用 `static-bug-analysis` 技能
 - UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
+- `force_use_skill` 参数为 True 时意味着强制使用
 
-如果阶段配置了 `skill_list`，但启动时没有开启 `--use-skill`，则会报错。
+如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但启动时没有开启 `--use-skill`，则会报错。
 
 ## 技能使用流程
 
