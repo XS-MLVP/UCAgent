@@ -158,6 +158,8 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             cli_cmd = self.cli_cmd_new
         self._call_count += 1
         self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
-                                             UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
+                                             UC_ENV_CMD_BACKEND_EX_ARGS  =os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS",   ""),
+                                             UC_ENV_CMD_BACKEND_EX_ARGS_N=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
+                                             UC_ENV_CMD_BACKEND_EX_ARGS_C=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),
                                              CWD=self.CWD,
                                              PORT=self._get_mcp_port()))

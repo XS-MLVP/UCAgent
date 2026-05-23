@@ -13,8 +13,8 @@ backend:
   claude:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -p < {MSG_FILE}"
-      cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} --dangerously-skip-permissions -c -p < {MSG_FILE}"
+      cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --dangerously-skip-permissions -p < {MSG_FILE}"
+      cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --dangerously-skip-permissions -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.claude/"
         - "cp ~/.claude/.mcp.json {CWD}/.mcp.json" # Add a project-scoped server claude mcp add --scope project ...., then backup the config to ~/.claude/.mcp.json
@@ -22,16 +22,16 @@ backend:
   opencode:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} < {MSG_FILE}"
-      cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} -c < {MSG_FILE}"
+      cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
+      cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
       pre_bash_cmd:
         - "cp ~/.config/opencode/opencode.json {CWD}/opencode.json" # You need to setup opencode config first
         - "sed -i \"s/5000\\/mcp/{PORT}\\/mcp/\" {CWD}/opencode.json" # modify the server port (5000) to the configured port
   copilot:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} --allow-all-tools < {MSG_FILE}"
-      cli_cmd_ctx: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} --allow-all-tools --continue < {MSG_FILE}"
+      cli_cmd_new: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --allow-all-tools < {MSG_FILE}"
+      cli_cmd_ctx: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --allow-all-tools --continue < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.copilot/"
         - "cp ~/.copilot/mcp-config.json {CWD}/.copilot/mcp-config.json"
@@ -39,8 +39,8 @@ backend:
   qwen:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} -y -p < {MSG_FILE}"
-      cli_cmd_ctx: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} -y -c -p < {MSG_FILE}"
+      cli_cmd_new: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} -y -p < {MSG_FILE}"
+      cli_cmd_ctx: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.qwen/"
         - "cp ~/.qwen/settings.json {CWD}/.qwen/settings.json"
@@ -48,8 +48,8 @@ backend:
   kilo:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} < {MSG_FILE}"
-      cli_cmd_ctx: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} -c < {MSG_FILE}"
+      cli_cmd_new: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
+      cli_cmd_ctx: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.kilocode/"
         - "cp ~/.kilocode/cli/global/settings/mcp_settings.json {CWD}/.kilocode/mcp.json"
@@ -57,8 +57,8 @@ backend:
   iflow: # FIXME: too complex to parse the session id
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -y -o {CWD}/.iflow/s_int.json -p < {MSG_FILE}"
-      cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} -y -o {CWD}/.iflow/s_lst.json -r `jq < {CWD}/.iflow/s_int.json '.\"session-id\"'|sed 's/\"//g'` -p < {MSG_FILE}"
+      cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} -y -o {CWD}/.iflow/s_int.json -p < {MSG_FILE}"
+      cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y -o {CWD}/.iflow/s_lst.json -r `jq < {CWD}/.iflow/s_int.json '.\"session-id\"'|sed 's/\"//g'` -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.iflow/"
         - "cp ~/.iflow/settings.json {CWD}/.iflow/settings.json"
@@ -66,8 +66,8 @@ backend:
   codex:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
-      cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} --yolo < {MSG_FILE}"
-      cli_cmd_ctx: "codex exec resume --last {UC_ENV_CMD_BACKEND_EX_ARGS} --yolo < {MSG_FILE}"
+      cli_cmd_new: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --yolo < {MSG_FILE}"
+      cli_cmd_ctx: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.codex/"
         - "echo \"\n[mcp_servers.ucagent]\nurl = 'http://127.0.0.1:{PORT}/mcp'\ntool_timeout_sec=600000000000\n\" > {CWD}/.codex/config.toml"
