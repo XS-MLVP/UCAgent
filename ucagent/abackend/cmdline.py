@@ -29,6 +29,11 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.max_continue_fails = max_continue_fails
         self._fail_count = 0
 
+    def _get_assets_path(self):
+        current_path = os.path.dirname(os.path.abspath(__file__))
+        asset_path = os.path.join(current_path, "../assets")
+        return os.path.abspath(asset_path)
+
     def _echo_message(self, txt):
         self.vagent.message_echo(txt)
 
@@ -126,6 +131,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self._call_count = 0
         for cmd in self.pre_bash_cmd:
             formatted_cmd = cmd.format(CWD=self.CWD,
+                                       ASSETS=self._get_assets_path(),
                                        UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
                                        PORT=self._get_mcp_port())
             self.process_bash_cmd(formatted_cmd)
@@ -158,6 +164,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             cli_cmd = self.cli_cmd_new
         self._call_count += 1
         self.process_bash_cmd(cli_cmd.format(MSG_FILE=self.MSG_FILE,
+                                             ASSETS=self._get_assets_path(),
                                              UC_ENV_CMD_BACKEND_EX_ARGS  =os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS",   ""),
                                              UC_ENV_CMD_BACKEND_EX_ARGS_N=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
                                              UC_ENV_CMD_BACKEND_EX_ARGS_C=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),

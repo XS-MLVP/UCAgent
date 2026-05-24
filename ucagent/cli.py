@@ -393,7 +393,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--gen-instruct-file", "-gif",
         type=str,
-        default=None,
+        default="AGENTS.md",
         help="Generate instruction file at the specified workspace path. If the file exists, it will be overwritten. eg: --gen-instruct-file GEMINI.md"
     )
 
