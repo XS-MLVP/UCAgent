@@ -94,9 +94,13 @@ launch:
   cluster:
     image: "ucagent:latest"           # container image used by docker, docker_swarm, and k8s launch modes
     container_command: "ucagent"      # command inside the image; local python/cli prefix is replaced with this command
-    public_host: "127.0.0.1"          # host used by the master to proxy published Docker/Swarm ports
+    master_ip:                        # master address used by launched tasks for each launch mode
+      - process: "127.0.0.1"
+      - docker: "host.docker.internal"
+      - docker_swarm: "ucagent_master"
+      - k8s: "ucagent_master"
     docker_network: ""
-    docker_extra_args: []
+    docker_extra_args: ["--rm"]
     swarm_extra_args: []
     k8s_namespace: "default"
     k8s_image_pull_policy: "IfNotPresent"
