@@ -22,6 +22,7 @@ import re
 import secrets
 import queue
 import shutil
+import shlex
 import signal
 import socket
 import subprocess
@@ -85,6 +86,28 @@ _RTL_SOURCE_EXTS = {".v", ".sv", ".vh", ".svh", ".scala"}
 _FILELIST_EXTS = {".v", ".sv", ".vh", ".svh"}
 _RTL_SPECIAL_FILES = {"filelist.txt"}
 _PROXY_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+_LAUNCH_MODES = ("process", "docker", "docker_swarm", "k8s")
+_LAUNCH_MODE_ALIASES = {
+    "": "process",
+    "local": "process",
+    "subprocess": "process",
+    "process": "process",
+    "docker": "docker",
+    "container": "docker",
+    "swarm": "docker_swarm",
+    "docker-swarm": "docker_swarm",
+    "docker_swarm": "docker_swarm",
+    "docker swarm": "docker_swarm",
+    "k8s": "k8s",
+    "kubernetes": "k8s",
+}
+_LAUNCH_MODE_LABELS = {
+    "process": "Process",
+    "docker": "Docker",
+    "docker_swarm": "Docker Swarm",
+    "k8s": "Kubernetes",
+}
+_CONTAINER_LAUNCH_MODES = {"docker", "docker_swarm", "k8s"}
 
 
 def _strip_ansi(text: str) -> str:
@@ -242,6 +265,47 @@ def _merge_launch_default_args(req: Dict[str, Any], default_args: Dict[str, Any]
         elif isinstance(current, (list, tuple)) and not current:
             merged[key] = value
     return merged
+
+
+def _plain_config_value(obj: Any) -> Any:
+    if hasattr(obj, "as_dict"):
+        obj = obj.as_dict()
+    if isinstance(obj, dict):
+        return {k: _plain_config_value(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_plain_config_value(v) for v in obj]
+    return obj
+
+
+def _normalize_launch_mode(value: Any) -> str:
+    raw = str(value or "").strip().lower().replace("-", "_")
+    mode = _LAUNCH_MODE_ALIASES.get(raw, raw)
+    if mode not in _LAUNCH_MODES:
+        raise ValueError(
+            f"Unsupported launch_mode '{value}'. Supported values: {', '.join(_LAUNCH_MODES)}"
+        )
+    return mode
+
+
+def _normalize_launch_mode_list(value: Any) -> List[str]:
+    if value in (None, ""):
+        raw_items: List[Any] = ["process"]
+    elif isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = [value]
+    modes: List[str] = []
+    for item in raw_items:
+        mode = _normalize_launch_mode(item)
+        if mode not in modes:
+            modes.append(mode)
+    return modes or ["process"]
+
+
+def _valid_env_name(name: str) -> bool:
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(name or "")))
 
 
 def _parse_web_terminal_spec(spec: str) -> Tuple[str, int, str]:
@@ -1336,11 +1400,14 @@ class PdbMasterApiServer:
         stdout_log = os.path.join(self._logs_dir, f"{task_id}.stdout.log")
         stderr_log = os.path.join(self._logs_dir, f"{task_id}.stderr.log")
         web_console_log = os.path.join(self._logs_dir, f"{task_id}.web_console.log")
+        launch_mode = _normalize_launch_mode(data.get("launch_mode", "process"))
         task = {
             "task_id": task_id,
             "task_name": data.get("task_name", "") or task_id,
             "client_id": data.get("client_id", ""),
             "workspace_id": data.get("workspace_id", ""),
+            "launch_mode": launch_mode,
+            "cluster": data.get("cluster", {}),
             "workspace_dir": data.get("workspace_dir", ""),
             "dut_name": data.get("dut_name", ""),
             "selected_module": data.get("selected_module", ""),
@@ -1537,6 +1604,513 @@ class PdbMasterApiServer:
         runtime["stderr_thread"].start()
         return proc
 
+    def _run_control_command(self, cmd: List[str], timeout: float = 10.0) -> Tuple[int, str, str]:
+        try:
+            proc = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+            )
+            return proc.returncode, proc.stdout or "", proc.stderr or ""
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+            stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+            return 124, stdout, stderr or f"Command timed out after {timeout}s"
+        except OSError as exc:
+            return 127, "", str(exc)
+
+    def _append_task_log(self, path: str, message: str) -> None:
+        if not path:
+            return
+        try:
+            with open(path, "a", encoding="utf-8", errors="replace") as fh:
+                fh.write(message)
+                if message and not message.endswith("\n"):
+                    fh.write("\n")
+        except OSError as exc:
+            warning(f"Failed to append task log '{path}': {exc}")
+
+    def _launch_cluster_config(self) -> Dict[str, Any]:
+        cfg = _plain_config_value(self.cfg.get_value("launch.cluster", {}) or {})
+        if not isinstance(cfg, dict):
+            cfg = {}
+        return {
+            "image": str(cfg.get("image") or os.environ.get("UCAGENT_LAUNCH_IMAGE") or "ucagent:latest"),
+            "container_command": cfg.get("container_command") or "ucagent",
+            "public_host": str(cfg.get("public_host") or os.environ.get("UCAGENT_LAUNCH_PUBLIC_HOST") or "127.0.0.1"),
+            "docker_network": str(cfg.get("docker_network") or ""),
+            "docker_extra_args": cfg.get("docker_extra_args") if isinstance(cfg.get("docker_extra_args"), list) else [],
+            "swarm_extra_args": cfg.get("swarm_extra_args") if isinstance(cfg.get("swarm_extra_args"), list) else [],
+            "k8s_namespace": str(cfg.get("k8s_namespace") or "default"),
+            "k8s_image_pull_policy": str(cfg.get("k8s_image_pull_policy") or "IfNotPresent"),
+            "k8s_service_account": str(cfg.get("k8s_service_account") or ""),
+            "k8s_node_selector": cfg.get("k8s_node_selector") if isinstance(cfg.get("k8s_node_selector"), dict) else {},
+            "k8s_tolerations": cfg.get("k8s_tolerations") if isinstance(cfg.get("k8s_tolerations"), list) else [],
+            "k8s_resources": cfg.get("k8s_resources") if isinstance(cfg.get("k8s_resources"), dict) else {},
+            "extra_mounts": cfg.get("extra_mounts") if isinstance(cfg.get("extra_mounts"), list) else [],
+        }
+
+    def _docker_available(self) -> Tuple[bool, str]:
+        if not shutil.which("docker"):
+            return False, "docker CLI was not found"
+        code, stdout, stderr = self._run_control_command(["docker", "info"], timeout=3.0)
+        if code != 0:
+            return False, (stderr or stdout or "docker daemon is not reachable").strip()
+        return True, "Docker daemon is reachable"
+
+    def _docker_swarm_available(self) -> Tuple[bool, str]:
+        docker_ok, docker_msg = self._docker_available()
+        if not docker_ok:
+            return False, docker_msg
+        code, stdout, stderr = self._run_control_command(
+            ["docker", "info", "--format", "{{.Swarm.LocalNodeState}}"],
+            timeout=3.0,
+        )
+        if code != 0:
+            return False, (stderr or stdout or "failed to inspect Docker Swarm state").strip()
+        state = stdout.strip().lower()
+        if state != "active":
+            return False, f"Docker Swarm is not active (state: {state or 'unknown'})"
+        return True, "Docker Swarm is active"
+
+    def _k8s_available(self) -> Tuple[bool, str]:
+        if not shutil.which("kubectl"):
+            return False, "kubectl CLI was not found"
+        code, stdout, stderr = self._run_control_command(
+            ["kubectl", "cluster-info", "--request-timeout=3s"],
+            timeout=5.0,
+        )
+        if code != 0:
+            return False, (stderr or stdout or "Kubernetes cluster is not reachable").strip()
+        return True, "Kubernetes cluster is reachable"
+
+    def _launch_mode_options(self) -> List[Dict[str, Any]]:
+        docker_ok, docker_msg = self._docker_available()
+        swarm_ok, swarm_msg = self._docker_swarm_available() if docker_ok else (False, docker_msg)
+        k8s_ok, k8s_msg = self._k8s_available()
+        raw_options = [
+            {"value": "process", "name": _LAUNCH_MODE_LABELS["process"], "enabled": True, "reason": "Always available"},
+            {"value": "docker", "name": _LAUNCH_MODE_LABELS["docker"], "enabled": docker_ok, "reason": docker_msg},
+            {"value": "docker_swarm", "name": _LAUNCH_MODE_LABELS["docker_swarm"], "enabled": swarm_ok, "reason": swarm_msg},
+            {"value": "k8s", "name": _LAUNCH_MODE_LABELS["k8s"], "enabled": k8s_ok, "reason": k8s_msg},
+        ]
+        enabled_modes = self._enabled_launch_modes()
+        enabled_set = set(enabled_modes)
+        options_by_value = {item["value"]: item for item in raw_options}
+        ordered_values = [mode for mode in enabled_modes if mode in options_by_value]
+        ordered_values.extend([item["value"] for item in raw_options if item["value"] not in ordered_values])
+        options = []
+        for value in ordered_values:
+            item = dict(options_by_value[value])
+            item["configured"] = value in enabled_set
+            if not item["configured"]:
+                item["enabled"] = False
+                item["reason"] = "Not enabled by launch.default_args.launch_mode"
+            options.append(item)
+        return options
+
+    def _enabled_launch_modes(self) -> List[str]:
+        default_args = _plain_config_value(self.cfg.get_value("launch.default_args", {}) or {})
+        raw_modes: Any = ["process"]
+        if isinstance(default_args, dict):
+            raw_modes = default_args.get("launch_mode", ["process"])
+        return _normalize_launch_mode_list(raw_modes)
+
+    def _ensure_launch_mode_supported(self, launch_mode: str) -> None:
+        if launch_mode == "process":
+            return
+        for item in self._launch_mode_options():
+            if item["value"] == launch_mode:
+                if item["enabled"]:
+                    return
+                raise ValueError(f"Launch mode '{launch_mode}' is not available: {item['reason']}")
+        raise ValueError(f"Launch mode '{launch_mode}' is not configured")
+
+    def _cluster_public_host(self, launch_mode: str) -> str:
+        if launch_mode == "k8s":
+            return "127.0.0.1"
+        public_host = self._launch_cluster_config().get("public_host") or "127.0.0.1"
+        if str(public_host).strip().lower() in {"0.0.0.0", "::", "[::]"}:
+            return "127.0.0.1"
+        return str(public_host).strip() or "127.0.0.1"
+
+    def _launch_bind_host(self, launch_mode: str, host: str) -> str:
+        raw = str(host or "").strip() or "127.0.0.1"
+        if launch_mode in _CONTAINER_LAUNCH_MODES and raw.lower() in _LOCAL_HOSTS:
+            return "0.0.0.0"
+        return raw
+
+    def _service_base_url(self, launch_mode: str, bind_host: str, port: int) -> str:
+        host = bind_host
+        if launch_mode in _CONTAINER_LAUNCH_MODES:
+            host = self._cluster_public_host(launch_mode)
+        if str(host).strip().lower() in {"0.0.0.0", "::", "[::]", ""}:
+            host = "127.0.0.1"
+        return f"http://{host}:{port}"
+
+    def _container_command(self, resolved_command: List[str]) -> List[str]:
+        cfg = self._launch_cluster_config()
+        configured = cfg.get("container_command") or "ucagent"
+        if isinstance(configured, list):
+            prefix = [str(item) for item in configured if str(item).strip()]
+        else:
+            prefix = shlex.split(str(configured)) if str(configured).strip() else ["ucagent"]
+        if len(resolved_command) >= 2:
+            return prefix + [str(item) for item in resolved_command[2:]]
+        return prefix + [str(item) for item in resolved_command]
+
+    def _cluster_mounts(self, prepared: Dict[str, Any]) -> List[Tuple[str, str]]:
+        cfg = self._launch_cluster_config()
+        mounts: List[Tuple[str, str]] = []
+        seen = set()
+
+        def add_mount(source: Any, target: Any = None) -> None:
+            src = os.path.abspath(str(source or "").strip())
+            dst = str(target or source or "").strip()
+            if not src or not dst or not os.path.exists(src):
+                return
+            key = (src, dst)
+            if key in seen:
+                return
+            seen.add(key)
+            mounts.append((src, dst))
+
+        add_mount(prepared.get("workspace_dir"))
+        for item in cfg.get("extra_mounts") or []:
+            if isinstance(item, dict):
+                add_mount(item.get("source") or item.get("src"), item.get("target") or item.get("dst"))
+            elif isinstance(item, str) and ":" in item:
+                source, target = item.split(":", 1)
+                add_mount(source, target)
+        return mounts
+
+    def _cluster_ports(
+        self,
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        ports = []
+        seen = set()
+
+        def add(name: str, svc: Dict[str, Any]) -> None:
+            if not svc.get("enabled"):
+                return
+            try:
+                port = int(svc.get("port"))
+            except (TypeError, ValueError):
+                return
+            if port in seen:
+                return
+            seen.add(port)
+            ports.append({"name": name, "host_port": port, "container_port": port})
+
+        add("cmd-api", cmd_api)
+        add("terminal-api", terminal_api)
+        add("web-console", web_console)
+        return ports
+
+    def _write_docker_env_file(self, task: Dict[str, Any], env: Dict[str, str]) -> str:
+        path = os.path.join(self._logs_dir, f"{task['task_id']}.docker.env")
+        lines = []
+        for key, value in sorted((env or {}).items()):
+            key = str(key)
+            if not _valid_env_name(key):
+                continue
+            escaped = str(value).replace("\\", "\\\\").replace("\n", "\\n")
+            lines.append(f"{key}={escaped}")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines))
+            fh.write("\n")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return path
+
+    def _cluster_env(self, env: Dict[str, str], requested_env: Dict[str, Any]) -> Dict[str, str]:
+        selected: Dict[str, str] = {}
+        configured = self.cfg.get_value("launch.default_env", []) or []
+        if hasattr(configured, "as_dict"):
+            configured = configured.as_dict()
+        for entry in configured if isinstance(configured, list) else []:
+            if hasattr(entry, "as_dict"):
+                entry = entry.as_dict()
+            if isinstance(entry, str):
+                key = entry.strip()
+            elif isinstance(entry, dict) and len(entry) == 1:
+                key = str(next(iter(entry.keys()))).strip()
+            else:
+                continue
+            if key and key in env:
+                selected[key] = str(env[key])
+        for key, value in (requested_env or {}).items():
+            selected[str(key)] = str(value)
+        selected.setdefault("PYTHONUNBUFFERED", "1")
+        return selected
+
+    def _start_external_log_capture(self, task: Dict[str, Any], cmd: List[str]) -> None:
+        stdout_log = open(task["stdout_log_path"], "a", encoding="utf-8", buffering=1)
+        stderr_log = open(task["stderr_log_path"], "a", encoding="utf-8", buffering=1)
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            self._append_task_log(task["stderr_log_path"], f"Failed to start log capture: {exc}")
+            try:
+                stdout_log.close()
+                stderr_log.close()
+            except OSError:
+                pass
+            return
+        runtime = self._task_runtime.setdefault(task["task_id"], {})
+        runtime.update({
+            "log_process": proc,
+            "stdout_log": stdout_log,
+            "stderr_log": stderr_log,
+            "stdout_thread": threading.Thread(
+                target=self._pipe_task_log,
+                args=(task["task_id"], proc.stdout, stdout_log, "stdout"),
+                daemon=True,
+                name=f"task-{task['task_id']}-external-stdout",
+            ),
+            "stderr_thread": threading.Thread(
+                target=self._pipe_task_log,
+                args=(task["task_id"], proc.stderr, stderr_log, "stderr"),
+                daemon=True,
+                name=f"task-{task['task_id']}-external-stderr",
+            ),
+        })
+        runtime["stdout_thread"].start()
+        runtime["stderr_thread"].start()
+
+    def _start_task_docker(
+        self,
+        task: Dict[str, Any],
+        env: Dict[str, str],
+        prepared: Dict[str, Any],
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        cfg = self._launch_cluster_config()
+        name = f"ucagent-{task['task_id']}"
+        cluster_env = self._cluster_env(env, task.get("env") or {})
+        env_file = self._write_docker_env_file(task, cluster_env)
+        cmd = ["docker", "run", "-d", "--name", name, "--env-file", env_file]
+        network = str(cfg.get("docker_network") or "").strip()
+        if network:
+            cmd.extend(["--network", network])
+        for source, target in self._cluster_mounts(prepared):
+            cmd.extend(["-v", f"{source}:{target}"])
+        picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
+        cmd.extend(["--workdir", picker_workspace])
+        for port in self._cluster_ports(cmd_api, terminal_api, web_console):
+            cmd.extend(["-p", f"{port['host_port']}:{port['container_port']}"])
+        cmd.extend([str(item) for item in cfg.get("docker_extra_args") or [] if str(item).strip()])
+        cmd.append(str(cfg["image"]))
+        cmd.extend(self._container_command(task["resolved_command"]))
+        code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
+        if code != 0:
+            raise ValueError(f"docker run failed: {(stderr or stdout).strip()}")
+        container_id = stdout.strip()
+        task["cluster"] = {
+            "mode": "docker",
+            "kind": "container",
+            "name": name,
+            "id": container_id,
+            "image": cfg["image"],
+        }
+        self._append_task_log(task["stdout_log_path"], f"Started Docker container {name} {container_id}")
+        self._start_external_log_capture(task, ["docker", "logs", "-f", name])
+        return task["cluster"]
+
+    def _start_task_docker_swarm(
+        self,
+        task: Dict[str, Any],
+        env: Dict[str, str],
+        prepared: Dict[str, Any],
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        cfg = self._launch_cluster_config()
+        name = f"ucagent-{task['task_id']}"
+        cmd = [
+            "docker", "service", "create",
+            "--name", name,
+            "--detach=true",
+            "--replicas", "1",
+            "--restart-condition", "none",
+        ]
+        for source, target in self._cluster_mounts(prepared):
+            cmd.extend(["--mount", f"type=bind,source={source},target={target}"])
+        picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
+        cmd.extend(["--workdir", picker_workspace])
+        cluster_env = self._cluster_env(env, task.get("env") or {})
+        for key, value in sorted(cluster_env.items()):
+            key = str(key)
+            if _valid_env_name(key):
+                cmd.extend(["--env", f"{key}={value}"])
+        for port in self._cluster_ports(cmd_api, terminal_api, web_console):
+            cmd.extend(["--publish", f"published={port['host_port']},target={port['container_port']}"])
+        cmd.extend([str(item) for item in cfg.get("swarm_extra_args") or [] if str(item).strip()])
+        cmd.append(str(cfg["image"]))
+        cmd.extend(self._container_command(task["resolved_command"]))
+        code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
+        if code != 0:
+            raise ValueError(f"docker service create failed: {(stderr or stdout).strip()}")
+        service_id = stdout.strip()
+        task["cluster"] = {
+            "mode": "docker_swarm",
+            "kind": "service",
+            "name": name,
+            "id": service_id,
+            "image": cfg["image"],
+        }
+        self._append_task_log(task["stdout_log_path"], f"Started Docker Swarm service {name} {service_id}")
+        self._start_external_log_capture(task, ["docker", "service", "logs", "-f", "--raw", name])
+        return task["cluster"]
+
+    def _k8s_manifest(
+        self,
+        task: Dict[str, Any],
+        env: Dict[str, str],
+        prepared: Dict[str, Any],
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        cfg = self._launch_cluster_config()
+        name = f"ucagent-{task['task_id']}"
+        command = self._container_command(task["resolved_command"])
+        cluster_env = self._cluster_env(env, task.get("env") or {})
+        ports = [
+            {"name": item["name"][:15], "containerPort": item["container_port"]}
+            for item in self._cluster_ports(cmd_api, terminal_api, web_console)
+        ]
+        volume_mounts = []
+        volumes = []
+        for index, (source, target) in enumerate(self._cluster_mounts(prepared), start=1):
+            vol_name = f"workspace-{index}"
+            volumes.append({"name": vol_name, "hostPath": {"path": source, "type": "Directory"}})
+            volume_mounts.append({"name": vol_name, "mountPath": target})
+        container = {
+            "name": "ucagent",
+            "image": cfg["image"],
+            "imagePullPolicy": cfg["k8s_image_pull_policy"],
+            "command": command[:1],
+            "args": command[1:],
+            "env": [
+                {"name": str(key), "value": str(value)}
+                for key, value in sorted(cluster_env.items())
+                if _valid_env_name(str(key))
+            ],
+            "ports": ports,
+            "volumeMounts": volume_mounts,
+        }
+        if cfg.get("k8s_resources"):
+            container["resources"] = cfg["k8s_resources"]
+        spec: Dict[str, Any] = {
+            "restartPolicy": "Never",
+            "containers": [container],
+            "volumes": volumes,
+        }
+        if cfg.get("k8s_service_account"):
+            spec["serviceAccountName"] = cfg["k8s_service_account"]
+        if cfg.get("k8s_node_selector"):
+            spec["nodeSelector"] = cfg["k8s_node_selector"]
+        if cfg.get("k8s_tolerations"):
+            spec["tolerations"] = cfg["k8s_tolerations"]
+        return {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "app": "ucagent",
+                    "ucagent-task-id": task["task_id"],
+                },
+            },
+            "spec": spec,
+        }
+
+    def _start_k8s_port_forwards(self, task: Dict[str, Any]) -> None:
+        cluster = task.get("cluster") or {}
+        if task.get("launch_mode") != "k8s" or not cluster.get("name"):
+            return
+        runtime = self._task_runtime.setdefault(task["task_id"], {})
+        existing = runtime.get("port_forward_processes") or []
+        if existing and any(proc.poll() is None for proc in existing):
+            return
+        cfg = self._launch_cluster_config()
+        namespace = cluster.get("namespace") or cfg["k8s_namespace"]
+        processes = []
+        for port in cluster.get("ports") or []:
+            host_port = int(port["host_port"])
+            container_port = int(port["container_port"])
+            cmd = [
+                "kubectl", "port-forward",
+                "-n", namespace,
+                f"pod/{cluster['name']}",
+                f"{host_port}:{container_port}",
+                "--address", "127.0.0.1",
+            ]
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                processes.append(proc)
+            except OSError as exc:
+                self._append_task_log(task["stderr_log_path"], f"Failed to start kubectl port-forward: {exc}")
+        runtime["port_forward_processes"] = processes
+
+    def _start_task_k8s(
+        self,
+        task: Dict[str, Any],
+        env: Dict[str, str],
+        prepared: Dict[str, Any],
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        cfg = self._launch_cluster_config()
+        manifest = self._k8s_manifest(task, env, prepared, cmd_api, terminal_api, web_console)
+        manifest_path = os.path.join(self._logs_dir, f"{task['task_id']}.k8s-pod.json")
+        with open(manifest_path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, ensure_ascii=False, indent=2)
+        namespace = cfg["k8s_namespace"]
+        cmd = ["kubectl", "apply", "-n", namespace, "-f", manifest_path]
+        code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
+        if code != 0:
+            raise ValueError(f"kubectl apply failed: {(stderr or stdout).strip()}")
+        name = manifest["metadata"]["name"]
+        task["cluster"] = {
+            "mode": "k8s",
+            "kind": "pod",
+            "name": name,
+            "namespace": namespace,
+            "image": cfg["image"],
+            "manifest_path": manifest_path,
+            "ports": self._cluster_ports(cmd_api, terminal_api, web_console),
+        }
+        self._append_task_log(task["stdout_log_path"], f"Started Kubernetes pod {namespace}/{name}")
+        self._start_k8s_port_forwards(task)
+        self._start_external_log_capture(task, [
+            "kubectl", "logs", "-f", "-n", namespace, f"pod/{name}", "--all-containers=true"
+        ])
+        return task["cluster"]
+
     def _pipe_task_log(self, task_id: str, stream: Any, log_fh: Any, stream_name: str) -> None:
         try:
             for line in iter(stream.readline, ""):
@@ -1557,6 +2131,31 @@ class PdbMasterApiServer:
         runtime = self._task_runtime.pop(task_id, None)
         if not runtime:
             return
+        for key in ("log_process",):
+            proc = runtime.get(key)
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                except OSError:
+                    pass
+        for proc in runtime.get("port_forward_processes") or []:
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                except OSError:
+                    pass
         current_thread = threading.current_thread()
         for key in ("stdout_thread", "stderr_thread"):
             thread = runtime.get(key)
@@ -1575,6 +2174,70 @@ class PdbMasterApiServer:
                 fh.close()
             except Exception:
                 pass
+
+    def _cluster_alive_status(self, task: Dict[str, Any]) -> Tuple[bool, Optional[int], str]:
+        mode = task.get("launch_mode", "process")
+        cluster = task.get("cluster") or {}
+        name = str(cluster.get("name") or "").strip()
+        if mode == "docker":
+            if not name:
+                return False, None, "missing docker container name"
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", name],
+                timeout=3.0,
+            )
+            if code != 0:
+                return False, None, (stderr or stdout).strip()
+            parts = stdout.strip().split()
+            running = bool(parts and parts[0].lower() == "true")
+            exit_code = None
+            if len(parts) > 1:
+                try:
+                    exit_code = int(parts[1])
+                except ValueError:
+                    exit_code = None
+            return running, exit_code, stdout.strip()
+        if mode == "docker_swarm":
+            if not name:
+                return False, None, "missing docker service name"
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "service", "ps", name, "--no-trunc", "--format", "{{.CurrentState}}"],
+                timeout=3.0,
+            )
+            if code != 0:
+                return False, None, (stderr or stdout).strip()
+            current = stdout.strip().lower()
+            if "running" in current or "preparing" in current or "starting" in current:
+                return True, None, stdout.strip()
+            if "complete" in current or "shutdown" in current:
+                return False, 0, stdout.strip()
+            if "failed" in current or "rejected" in current:
+                return False, 1, stdout.strip()
+            return False, None, stdout.strip()
+        if mode == "k8s":
+            if not name:
+                return False, None, "missing Kubernetes pod name"
+            namespace = str(cluster.get("namespace") or self._launch_cluster_config()["k8s_namespace"])
+            code, stdout, stderr = self._run_control_command(
+                [
+                    "kubectl", "get", "pod", name,
+                    "-n", namespace,
+                    "-o", "jsonpath={.status.phase} {.status.containerStatuses[0].state.terminated.exitCode}",
+                ],
+                timeout=4.0,
+            )
+            if code != 0:
+                return False, None, (stderr or stdout).strip()
+            parts = stdout.strip().split()
+            phase = parts[0] if parts else ""
+            exit_code = None
+            if len(parts) > 1:
+                try:
+                    exit_code = int(parts[1])
+                except ValueError:
+                    exit_code = None
+            return phase in {"Pending", "Running"}, exit_code, phase
+        return False, None, ""
 
     def _flush_task_runtime_logs(self, task_id: str) -> None:
         runtime = self._task_runtime.get(task_id)
@@ -1627,6 +2290,7 @@ class PdbMasterApiServer:
         agents = self._snapshot_agents()
         with self._tasks_lock:
             for task in self._tasks.values():
+                launch_mode = task.get("launch_mode", "process")
                 pid = task.get("pid")
                 pid_str = str(pid) if pid not in (None, "") else ""
                 task_workspace = os.path.abspath(str(task.get("workspace_dir") or ""))
@@ -1634,7 +2298,13 @@ class PdbMasterApiServer:
                 runtime = self._task_runtime.get(task["task_id"])
                 alive = False
                 exit_code = task.get("exit_code")
-                if runtime and runtime.get("process") is not None:
+                if launch_mode in _CONTAINER_LAUNCH_MODES:
+                    alive, cluster_exit_code, _cluster_detail = self._cluster_alive_status(task)
+                    if cluster_exit_code is not None:
+                        exit_code = cluster_exit_code
+                    if launch_mode == "k8s" and alive:
+                        self._start_k8s_port_forwards(task)
+                elif runtime and runtime.get("process") is not None:
                     code = runtime["process"].poll()
                     alive = code is None
                     if code is not None:
@@ -1719,6 +2389,21 @@ class PdbMasterApiServer:
             default_args = default_args.as_dict()
         if isinstance(default_args, dict):
             req = _merge_launch_default_args(req, default_args)
+        enabled_launch_modes = self._enabled_launch_modes()
+        requested_launch_mode = req.get("launch_mode", req.get("launch_type", req.get("runtime", None)))
+        if isinstance(requested_launch_mode, (list, tuple, set)):
+            requested_launch_mode = next(iter(requested_launch_mode), None)
+        launch_mode = (
+            _normalize_launch_mode(requested_launch_mode)
+            if requested_launch_mode not in (None, "")
+            else enabled_launch_modes[0]
+        )
+        if launch_mode not in enabled_launch_modes:
+            raise ValueError(
+                f"Launch mode '{launch_mode}' is not enabled. Enabled launch modes: {', '.join(enabled_launch_modes)}"
+            )
+        req["launch_mode"] = launch_mode
+        self._ensure_launch_mode_supported(launch_mode)
         if not str(req.get("client_id") or "").strip():
             req["client_id"] = uuid.uuid4().hex
         workspace_id = req.get("workspace_id", "")
@@ -1772,10 +2457,10 @@ class PdbMasterApiServer:
         )
         cmd_api = {
             "enabled": True,
-            "host": cmd_api_host,
+            "host": self._launch_bind_host(launch_mode, cmd_api_host),
             "port": cmd_api_port,
             "password": cmd_api_password or secrets.token_hex(8),
-            "base_url_internal": f"http://{cmd_api_host}:{cmd_api_port}",
+            "base_url_internal": self._service_base_url(launch_mode, cmd_api_host, cmd_api_port),
             "status": "starting",
         }
         req["export_cmd_api"] = f"{cmd_api['host']}:{cmd_api['port']} {cmd_api['password']}"
@@ -1787,12 +2472,13 @@ class PdbMasterApiServer:
             # Use cmd_api password if web terminal password is not provided
             if not term_password:
                 term_password = cmd_api["password"]
+            req["web_terminal"] = f"{self._launch_bind_host(launch_mode, term_host)}:{term_port} {term_password}"
             terminal_api = {
                 "enabled": True,
-                "host": term_host,
+                "host": self._launch_bind_host(launch_mode, term_host),
                 "port": term_port,
                 "password": term_password,
-                "base_url_internal": f"http://{term_host}:{term_port}",
+                "base_url_internal": self._service_base_url(launch_mode, term_host, term_port),
                 "status": "starting",
             }
         web_console = {"enabled": False, "status": "stopped"}
@@ -1803,13 +2489,13 @@ class PdbMasterApiServer:
             if not wc_password:
                 wc_password = cmd_api["password"]
             # Build command line argument with space-separated format
-            req["web_console"] = f"{wc_host}:{wc_port} {wc_password}"
+            req["web_console"] = f"{self._launch_bind_host(launch_mode, wc_host)}:{wc_port} {wc_password}"
             web_console = {
                 "enabled": True,
-                "host": wc_host,
+                "host": self._launch_bind_host(launch_mode, wc_host),
                 "port": wc_port,
                 "password": wc_password,
-                "base_url_internal": f"http://{wc_host}:{wc_port}",
+                "base_url_internal": self._service_base_url(launch_mode, wc_host, wc_port),
                 "status": "starting",
             }
 
@@ -1817,6 +2503,7 @@ class PdbMasterApiServer:
             "task_name": req.get("task_name") or selected_module,
             "client_id": req.get("client_id", ""),
             "workspace_id": workspace_id,
+            "launch_mode": launch_mode,
             "workspace_dir": prepared["workspace_dir"],
             "dut_name": prepared["dut_name"],
             "selected_module": selected_module,
@@ -1845,11 +2532,33 @@ class PdbMasterApiServer:
         resolved_command, env = self._build_ucagent_command(req, prepared, cmd_api)
         task["resolved_command"] = resolved_command
         task["process_status"] = "starting"
-        proc = self._start_task_process(task, env)
-        task["pid"] = proc.pid
+        try:
+            if launch_mode == "process":
+                proc = self._start_task_process(task, env)
+                task["pid"] = proc.pid
+            elif launch_mode == "docker":
+                self._start_task_docker(task, env, prepared, cmd_api, terminal_api, web_console)
+                proc = None
+            elif launch_mode == "docker_swarm":
+                self._start_task_docker_swarm(task, env, prepared, cmd_api, terminal_api, web_console)
+                proc = None
+            elif launch_mode == "k8s":
+                self._start_task_k8s(task, env, prepared, cmd_api, terminal_api, web_console)
+                proc = None
+            else:
+                raise ValueError(f"Unsupported launch mode '{launch_mode}'")
+        except Exception as exc:
+            task["process_status"] = "failed"
+            task["exit_code"] = task.get("exit_code")
+            task["finished_at"] = _now()
+            task["cmd_api"]["status"] = "stopped"
+            task["terminal_api"]["status"] = "stopped"
+            self._append_task_log(task["stderr_log_path"], f"Launch failed in {launch_mode} mode: {exc}")
+            self._mark_dirty()
+            raise
         task["started_at"] = _now()
-        code = proc.poll()
-        if code is not None:
+        code = proc.poll() if proc is not None else None
+        if proc is not None and code is not None:
             self._close_task_runtime(task["task_id"])
             task["process_status"] = "failed" if code != 0 else "stopped"
             task["exit_code"] = code
@@ -1864,6 +2573,30 @@ class PdbMasterApiServer:
         return task
 
     def _terminate_task(self, task: Dict[str, Any], force: bool = False) -> None:
+        launch_mode = task.get("launch_mode", "process")
+        if launch_mode == "docker":
+            name = str((task.get("cluster") or {}).get("name") or "").strip()
+            if name:
+                cmd = ["docker", "rm", "-f", name] if force else ["docker", "stop", name]
+                self._run_control_command(cmd, timeout=15.0)
+            return
+        if launch_mode == "docker_swarm":
+            name = str((task.get("cluster") or {}).get("name") or "").strip()
+            if name:
+                self._run_control_command(["docker", "service", "rm", name], timeout=15.0)
+            return
+        if launch_mode == "k8s":
+            cluster = task.get("cluster") or {}
+            name = str(cluster.get("name") or "").strip()
+            namespace = str(cluster.get("namespace") or self._launch_cluster_config()["k8s_namespace"])
+            if name:
+                grace = "0" if force else "30"
+                self._run_control_command(
+                    ["kubectl", "delete", "pod", name, "-n", namespace, "--grace-period", grace, "--ignore-not-found=true"],
+                    timeout=20.0,
+                )
+            self._close_task_runtime(task["task_id"], join_timeout=1.0)
+            return
         pid = task.get("pid")
         if not pid:
             return
@@ -2407,17 +3140,9 @@ class PdbMasterApiServer:
 
         @app.get("/api/launch/config", summary="Get launch default configuration", dependencies=[Depends(_check_password)])
         def launch_config():
-            def to_dict(obj):
-                if hasattr(obj, "as_dict"):
-                    obj = obj.as_dict()
-                if isinstance(obj, dict):
-                    return {k: to_dict(v) for k, v in obj.items()}
-                if isinstance(obj, list):
-                    return [to_dict(v) for v in obj]
-                return obj
-            default_args = to_dict(self.cfg.get_value("launch.default_args", {}) or {})
+            default_args = _plain_config_value(self.cfg.get_value("launch.default_args", {}) or {})
             workspace_root = self.cfg.get_value("launch.workspace_root", "/tmp/") or "/tmp/"
-            backend_cfg = to_dict(self.cfg.get_value("backend", {}) or {})
+            backend_cfg = _plain_config_value(self.cfg.get_value("backend", {}) or {})
             backend_key_name = backend_cfg.get("key_name", "") if isinstance(backend_cfg, dict) else ""
             backend_options = []
             if isinstance(backend_cfg, dict):
@@ -2426,12 +3151,32 @@ class PdbMasterApiServer:
                         continue
                     if isinstance(backend_cfg.get(key), dict):
                         backend_options.append({"name": key, "value": key})
+            launch_modes = self._launch_mode_options()
+            enabled_launch_modes = self._enabled_launch_modes()
+            default_launch_mode = enabled_launch_modes[0] if enabled_launch_modes else "process"
+            if isinstance(default_args, dict):
+                try:
+                    enabled_launch_modes = _normalize_launch_mode_list(default_args.get("launch_mode", ["process"]))
+                except ValueError:
+                    enabled_launch_modes = ["process"]
+                default_args["launch_mode"] = enabled_launch_modes
+            first_available = next(
+                (item["value"] for item in launch_modes if item["value"] in enabled_launch_modes and item["enabled"]),
+                "",
+            )
+            if first_available:
+                default_launch_mode = first_available
+            elif not any(item["value"] == default_launch_mode and item["enabled"] for item in launch_modes):
+                default_launch_mode = "process"
             return {
                 "status": "ok",
                 "workspace_root": workspace_root,
                 "default_args": default_args,
                 "backend_key_name": backend_key_name,
                 "backend_options": backend_options,
+                "launch_modes": launch_modes,
+                "default_launch_mode": default_launch_mode,
+                "cluster": self._launch_cluster_config(),
             }
 
         @app.get("/api/launch/env-preview", summary="Preview inherited launch environment", dependencies=[Depends(_check_password)])
@@ -2913,6 +3658,12 @@ class PdbMasterApiServer:
             task["process_status"] = "stopping"
             force = bool((body or {}).get("force"))
             self._terminate_task(task, force=force)
+            if task.get("launch_mode") in _CONTAINER_LAUNCH_MODES:
+                task["finished_at"] = task.get("finished_at") or _now()
+                task["exit_code"] = task.get("exit_code")
+                task["process_status"] = "stopped"
+                task["cmd_api"]["status"] = "stopped"
+                task["terminal_api"]["status"] = "stopped"
             self._mark_dirty()
             return {"status": "ok", "task": self._task_public(task)}
 

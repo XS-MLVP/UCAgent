@@ -78,6 +78,7 @@ launch:
   file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
   workspace_root: /tmp/               # base directory for creating launch workspaces
   default_args:
+    launch_mode: ["process", "docker", "docker_swarm", "k8s"]
     output: "unity_test"              # output directory name
     stream_output: true               # -s flag
     human: true                       # -hm flag
@@ -90,6 +91,20 @@ launch:
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
       UT: "default.yaml"
+  cluster:
+    image: "ucagent:latest"           # container image used by docker, docker_swarm, and k8s launch modes
+    container_command: "ucagent"      # command inside the image; local python/cli prefix is replaced with this command
+    public_host: "127.0.0.1"          # host used by the master to proxy published Docker/Swarm ports
+    docker_network: ""
+    docker_extra_args: []
+    swarm_extra_args: []
+    k8s_namespace: "default"
+    k8s_image_pull_policy: "IfNotPresent"
+    k8s_service_account: ""
+    k8s_node_selector: {}
+    k8s_tolerations: []
+    k8s_resources: {}
+    extra_mounts: []                  # optional bind mounts, e.g. [{source: /host/path, target: /container/path}]
   default_env:
     - "OPENAI_MODEL"
     - "OPENAI_API_KEY"
