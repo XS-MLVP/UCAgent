@@ -232,12 +232,20 @@
           <select id="backend"></select>
         </div>
         <div>
+          <label>Launch Mode</label>
+          <select id="launch-mode"></select>
+        </div>
+        <div>
           <label>Output Directory</label>
           <input id="output" value="unity_test">
         </div>
         <div>
           <label>Master Override</label>
           <input id="master-override" placeholder="host:port [access_key]">
+        </div>
+        <div class="full-span">
+          <label>Launch Mode Availability</label>
+          <div id="launch-mode-status" class="status">Checking launch modes...</div>
         </div>
       </div>
       <div id="dynamic-launch-settings" class="stack"></div>
@@ -300,7 +308,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode']);
 
 const state = {
   workspace: null,
@@ -319,6 +327,8 @@ const state = {
   configOptions: [],
   backendOptions: [],
   backendKeyName: '',
+  launchModes: [],
+  defaultLaunchMode: 'process',
   envExpanded: false,
   envMaxVisible: 3,
   launching: false,
@@ -1408,6 +1418,7 @@ async function launchTask() {
     main_verilog_path: mainFile.stored_path,
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
+    launch_mode: document.getElementById('launch-mode').value || 'process',
     output: document.getElementById('output').value.trim() || 'unity_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
@@ -1487,6 +1498,40 @@ function renderBackendSelect() {
   }
 }
 
+function renderLaunchModeSelect() {
+  const select = document.getElementById('launch-mode');
+  if (!select) return;
+  const modes = state.launchModes.length
+    ? state.launchModes
+    : [{ value: 'process', name: 'Process', enabled: true, reason: 'Always available' }];
+  select.innerHTML = modes.map((mode) => `
+    <option value="${esc(mode.value)}" ${mode.enabled ? '' : 'disabled'} title="${esc(mode.reason || '')}">
+      ${esc(mode.name)}${mode.enabled ? '' : ' (unavailable)'}
+    </option>
+  `).join('');
+  const preferred = state.defaultLaunchMode || 'process';
+  if (modes.some((mode) => mode.value === preferred && mode.enabled)) {
+    select.value = preferred;
+  } else {
+    const firstEnabled = modes.find((mode) => mode.enabled);
+    select.value = firstEnabled ? firstEnabled.value : 'process';
+  }
+  renderLaunchModeStatus();
+}
+
+function renderLaunchModeStatus() {
+  const selected = document.getElementById('launch-mode')?.value || 'process';
+  const mode = state.launchModes.find((item) => item.value === selected);
+  const available = state.launchModes.length ? state.launchModes : [{ value: 'process', name: 'Process', enabled: true, reason: 'Always available' }];
+  const lines = available.map((item) => {
+    const marker = item.enabled ? 'available' : 'unavailable';
+    const detail = item.reason ? ` - ${esc(item.reason)}` : '';
+    return `<code>${esc(item.name)}</code>: ${marker}${detail}`;
+  });
+  const kind = mode && !mode.enabled ? 'warn' : '';
+  setStatus('launch-mode-status', kind, lines.join('<br>'));
+}
+
 async function initPage() {
   try {
     resetCompileConsole();
@@ -1494,7 +1539,10 @@ async function initPage() {
     state.launchConfig = configData.default_args || {};
     state.backendOptions = configData.backend_options || [];
     state.backendKeyName = configData.backend_key_name || '';
+    state.launchModes = configData.launch_modes || [];
+    state.defaultLaunchMode = configData.default_launch_mode || state.launchConfig.launch_mode || 'process';
     renderBackendSelect();
+    renderLaunchModeSelect();
     applyLaunchConfig(state.launchConfig);
 
     const wsData = await createWorkspace();
@@ -1539,13 +1587,17 @@ function applyLaunchConfig(config) {
     'dut-name': config.dut_name,
     'output': config.output,
     'master-override': config.master,
+    'launch-mode': config.launch_mode,
   };
   for (const [id, value] of Object.entries(fields)) {
     const el = document.getElementById(id);
     if (el && value !== undefined && value !== null && value !== '') {
-      el.value = value;
+      if (id !== 'launch-mode' || [...el.options].some((option) => option.value === value && !option.disabled)) {
+        el.value = value;
+      }
     }
   }
+  renderLaunchModeStatus();
 }
 
 document.addEventListener('click', async (event) => {
@@ -1720,8 +1772,11 @@ document.addEventListener('change', async (event) => {
       return;
     }
     if ([
-      'task-name', 'dut-name', 'config-path', 'backend', 'output', 'master-override',
+      'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
     ].includes(target.id)) {
+      if (target.id === 'launch-mode') {
+        renderLaunchModeStatus();
+      }
       updateLaunchState();
       return;
     }
@@ -1757,8 +1812,11 @@ document.addEventListener('input', (event) => {
     return;
   }
   if ([
-    'task-name', 'dut-name', 'config-path', 'backend', 'output', 'master-override',
+    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
   ].includes(event.target.id)) {
+    if (event.target.id === 'launch-mode') {
+      renderLaunchModeStatus();
+    }
     updateLaunchState();
     return;
   }
