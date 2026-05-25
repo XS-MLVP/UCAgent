@@ -1,0 +1,94 @@
+# -*- coding: utf-8 -*-
+"""Run formal verification and print parsed summary."""
+
+import os
+import sys
+
+# Bootstrap: Add UCAgent project root to sys.path so we can import 'ucagent'.
+_root = os.path.dirname(os.path.abspath(__file__))
+while _root != os.path.dirname(_root) and not os.path.exists(os.path.join(_root, "ucagent", "__init__.py")):
+    _root = os.path.dirname(_root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+import argparse
+from ucagent.lang.zh.skills.formal.lib.formal_paths import FormalPaths
+from ucagent.util.log import str_error, str_info
+from ucagent.lang.zh.skills.formal.lib.formal_tools import run_formal_verification, summarize_execution
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run formal verification")
+    parser.add_argument("-timeout", type=int, default=3600, help="Timeout in seconds")
+    args = parser.parse_args()
+
+    paths = FormalPaths()
+    if paths.dut == "N/A":
+        print(str_error("Cannot determine DUT. Set DUT env var or ensure .formal_records.yaml exists."))
+        return
+
+    tcl_path = paths.tcl
+    if not os.path.exists(tcl_path):
+        result = str_error(
+            f"TCL script does not exist: {tcl_path}\n"
+            f"Please run env-gen first to generate {paths.dut}_formal.tcl"
+        )
+        print(result)
+        return
+
+
+
+    res = run_formal_verification(tcl_path, args.timeout)
+    if not res["success"]:
+        if res["error"] and "not found" in res["error"]:
+            result = str_error(f"❌ '{res['error']}', please ensure the tool is installed and in your PATH")
+            print(result)
+            return
+        if res["error"] and "Timeout" in res["error"]:
+            result = str_error(
+                f"❌ Verification timed out (>{args.timeout}s). "
+                "Long runs are normal for Formal; increase timeout and wait longer before retrying."
+            )
+            print(result)
+            return
+        stderr = res.get("stderr", "")
+        stdout = res.get("stdout", "")
+        msg = f"❌ Formal verification execution failed: {res['error']}"
+        if stderr:
+            msg += f"\n--- STDERR ---\n{stderr[:1500]}"
+        if stdout:
+            msg += f"\n--- STDOUT ---\n{stdout[:1500]}"
+        result = str_error(msg)
+        print(result)
+        return
+
+    parsed = res["parsed_log"]
+    if not parsed:
+        print(str_error("❌ Verification completed but no property results found in log"))
+        return
+
+    lines = [
+        f"✅ Execution completed, log: {res['log_path']}",
+        "",
+        "📊 Verification Results Summary:",
+        f"  Assert Pass        : {len(parsed['pass'])}",
+        f"  Assert TRIVIALLY_TRUE : {len(parsed['trivially_true'])}",
+        f"  Assert Fail        : {len(parsed['false'])}",
+        f"  Cover  Pass        : {len(parsed['cover_pass'])}",
+        f"  Cover  Fail        : {len(parsed['cover_fail'])}",
+    ]
+    if parsed["false"]:
+        lines.extend([f"\n❌ Failed Assert Properties ({len(parsed['false'])}):"] + [f"  - {p}" for p in parsed["false"]])
+    if parsed["trivially_true"]:
+        lines.extend([
+            f"\n⚠️  TRIVIALLY_TRUE Properties ({len(parsed['trivially_true'])} - environment over-constrained):"
+        ] + [f"  - {p}" for p in parsed["trivially_true"]])
+    if parsed["cover_fail"]:
+        lines.extend([f"\n⚠️  Failed Cover Properties ({len(parsed['cover_fail'])}):"] + [f"  - {p}" for p in parsed["cover_fail"]])
+
+    result = str_info("\n".join(lines))
+    print(result)
+
+
+if __name__ == "__main__":
+    main()

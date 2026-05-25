@@ -1,0 +1,57 @@
+module {{ DUT }}_wrapper(
+  input clk,
+  input rst_n
+);
+
+{%- if parameters %}
+  // Parameters
+{%- for key, value in parameters.items() %}
+  parameter {{ key }} = {{ value }};
+{%- endfor %}
+{%- endif %}
+
+  // Auto-generated symbolic signals
+{% for decl in internal_decls %}
+  {{ decl }};
+{%- endfor %}
+
+{%- if whitebox_signals %}
+  // Manual whitebox signals
+{%- for sig in whitebox_signals %}
+  {{ sig.rstrip(';') }};
+{%- endfor %}
+{%- endif %}
+
+  assign rst = ~rst_n;
+{%- if whitebox_signals %}
+{%- for sig in whitebox_signals %}
+{%- set sig_name = sig.rstrip(';').split()[-1] %}
+  assign {{ sig_name }} = u_dut.{{ sig_name }};
+{%- endfor %}
+{%- endif %}
+
+  {{ DUT }} 
+{%- if parameters %}
+  #(
+  {%- for key, value in parameters.items() %}
+    .{{ key }}({{ key }}){{ "," if not loop.last }}
+  {%- endfor %}
+  ) 
+{%- endif %}
+  u_dut (
+    {{ dut_connections | join(',\n    ') }}
+  );
+
+  {{ DUT }}_checker 
+{%- if parameters %}
+  #(
+  {%- for key, value in parameters.items() %}
+    .{{ key }}({{ key }}){{ "," if not loop.last }}
+  {%- endfor %}
+  ) 
+{%- endif %}
+  u_checker (
+    {{ checker_connections | join(',\n    ') }}
+  );
+
+endmodule

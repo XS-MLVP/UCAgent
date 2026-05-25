@@ -1,0 +1,28 @@
+# {{ DUT }} 形式化验证缺陷报告
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+本报告记录了 {{ bugs | length }} 个 RTL 缺陷。
+
+---
+
+{% for b in bugs %}
+## Failed Property: `{{ b.property }}`
+
+### <{{ b.fg_id }}> 关联的功能组
+### <{{ b.fc_id }}> 关联的功能点
+### <{{ b.id }}> {{ b.description }}
+<{{ b.ck_id }}>
+
+**FILE-RTL文件路径**: {{ b.rtl_file }}:{{ b.rtl_line }}
+**问题描述**: {{ b.description }}
+**根本原因**: {{ b.root_cause }}
+**触发条件**: {{ b.trigger }}
+**预期行为**: {{ b.expected }}
+**实际行为**: {{ b.actual }}
+**修复建议**: {{ b.fix }}
+**影响范围**: {{ b.severity }}
+**置信度**: {{ b.confidence }}
+
+---
+{% endfor %}

@@ -242,6 +242,7 @@ class VerifyStage(object):
                 setattr(self, method_name, hooked_method)
             self.add_hook = add_hook
             skills_dir = fc.get_workspace_skill_root(self.workspace)
+            print(f"DEBUG: stage={self.name}, skill_list={self.skill_list}")
             for skill_name in self.skill_list.keys():
                 script_dir = os.path.join(fc.find_skill_dir_by_name(skills_dir, skill_name), "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")
