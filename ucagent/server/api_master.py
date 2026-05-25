@@ -277,6 +277,45 @@ def _plain_config_value(obj: Any) -> Any:
     return obj
 
 
+def _normalize_cluster_master_ip_config(value: Any) -> Any:
+    env_host = str(os.environ.get("UCAGENT_LAUNCH_MASTER_IP") or "").strip()
+    if env_host:
+        return env_host
+    default_hosts = {
+        "process": "127.0.0.1",
+        "docker": "host.docker.internal",
+        "docker_swarm": "ucagent_master",
+        "k8s": "ucagent_master",
+    }
+    if isinstance(value, dict):
+        hosts = dict(default_hosts)
+        for key, host in value.items():
+            try:
+                mode = _normalize_launch_mode(key)
+            except ValueError:
+                continue
+            host = str(host or "").strip()
+            if host:
+                hosts[mode] = host
+        return hosts
+    if isinstance(value, list):
+        hosts = dict(default_hosts)
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            for key, host in item.items():
+                try:
+                    mode = _normalize_launch_mode(key)
+                except ValueError:
+                    continue
+                host = str(host or "").strip()
+                if host:
+                    hosts[mode] = host
+        return hosts
+    host = str(value or "").strip()
+    return host or default_hosts
+
+
 def _normalize_launch_mode(value: Any) -> str:
     raw = str(value or "").strip().lower().replace("-", "_")
     mode = _LAUNCH_MODE_ALIASES.get(raw, raw)
@@ -369,6 +408,42 @@ def _merge_runtime_service_info(current: Optional[Dict[str, Any]], reported: Opt
             continue
         merged[key] = value
     return merged
+
+
+def _fix_reported_tcp_url(url: str, client_ip: str) -> str:
+    if not url or not client_ip:
+        return url
+    raw = str(url).strip()
+
+    def _port_and_tail(netloc: str, tail: str) -> str:
+        if netloc.startswith("["):
+            end = netloc.find("]")
+            rest = netloc[end + 1:] if end >= 0 else ""
+            return rest + tail if rest.startswith(":") else tail
+        if ":" in netloc:
+            return ":" + netloc.rsplit(":", 1)[1] + tail
+        return tail
+
+    m = re.match(r"^(https?://)([^/?#]+)(.*)$", raw)
+    if m:
+        return m.group(1) + client_ip + _port_and_tail(m.group(2), m.group(3))
+    m = re.match(r"^([^/?#]+)(.*)$", raw)
+    if m:
+        return client_ip + _port_and_tail(m.group(1), m.group(2))
+    return raw
+
+
+def _sync_reported_service_tcp_url(service: Dict[str, Any], client_ip: str) -> Dict[str, Any]:
+    service = _copy_jsonable(service or {})
+    if service.get("tcp_url"):
+        service["tcp_url"] = _fix_reported_tcp_url(str(service["tcp_url"]), client_ip)
+    if service.get("base_url_internal"):
+        service["base_url_internal"] = _fix_reported_tcp_url(str(service["base_url_internal"]), client_ip)
+    if service.get("host") and client_ip:
+        service["host"] = client_ip
+    if service.get("host") and service.get("port") and not service.get("tcp_url"):
+        service["tcp_url"] = f"{service['host']}:{service['port']}"
+    return service
 
 
 def _is_text_file(path: str) -> bool:
@@ -1544,7 +1619,9 @@ class PdbMasterApiServer:
         if not master_spec:
             if not self.tcp:
                 raise ValueError("Current master has no TCP listener; cannot auto-connect launched task")
-            host_port = f"127.0.0.1:{self.port}"
+            launch_mode = _normalize_launch_mode(req.get("launch_mode", "process"))
+            master_host = self._cluster_master_ip(launch_mode)
+            host_port = f"{master_host}:{self.port}"
             if self.access_key:
                 master_spec = f"{host_port} {self.access_key}"
             else:
@@ -1639,7 +1716,7 @@ class PdbMasterApiServer:
         return {
             "image": str(cfg.get("image") or os.environ.get("UCAGENT_LAUNCH_IMAGE") or "ucagent:latest"),
             "container_command": cfg.get("container_command") or "ucagent",
-            "public_host": str(cfg.get("public_host") or os.environ.get("UCAGENT_LAUNCH_PUBLIC_HOST") or "127.0.0.1"),
+            "master_ip": _normalize_cluster_master_ip_config(cfg.get("master_ip")),
             "docker_network": str(cfg.get("docker_network") or ""),
             "docker_extra_args": cfg.get("docker_extra_args") if isinstance(cfg.get("docker_extra_args"), list) else [],
             "swarm_extra_args": cfg.get("swarm_extra_args") if isinstance(cfg.get("swarm_extra_args"), list) else [],
@@ -1728,13 +1805,14 @@ class PdbMasterApiServer:
                 raise ValueError(f"Launch mode '{launch_mode}' is not available: {item['reason']}")
         raise ValueError(f"Launch mode '{launch_mode}' is not configured")
 
-    def _cluster_public_host(self, launch_mode: str) -> str:
-        if launch_mode == "k8s":
+    def _cluster_master_ip(self, launch_mode: str) -> str:
+        master_ip = self._launch_cluster_config().get("master_ip") or "127.0.0.1"
+        if isinstance(master_ip, dict):
+            mode = _normalize_launch_mode(launch_mode)
+            master_ip = master_ip.get(mode) or master_ip.get("process") or "127.0.0.1"
+        if str(master_ip).strip().lower() in {"0.0.0.0", "::", "[::]"}:
             return "127.0.0.1"
-        public_host = self._launch_cluster_config().get("public_host") or "127.0.0.1"
-        if str(public_host).strip().lower() in {"0.0.0.0", "::", "[::]"}:
-            return "127.0.0.1"
-        return str(public_host).strip() or "127.0.0.1"
+        return str(master_ip).strip() or "127.0.0.1"
 
     def _launch_bind_host(self, launch_mode: str, host: str) -> str:
         raw = str(host or "").strip() or "127.0.0.1"
@@ -1744,8 +1822,6 @@ class PdbMasterApiServer:
 
     def _service_base_url(self, launch_mode: str, bind_host: str, port: int) -> str:
         host = bind_host
-        if launch_mode in _CONTAINER_LAUNCH_MODES:
-            host = self._cluster_public_host(launch_mode)
         if str(host).strip().lower() in {"0.0.0.0", "::", "[::]", ""}:
             host = "127.0.0.1"
         return f"http://{host}:{port}"
@@ -1811,6 +1887,30 @@ class PdbMasterApiServer:
         add("terminal-api", terminal_api)
         add("web-console", web_console)
         return ports
+
+    def _published_ports(
+        self,
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        return []
+
+    def _docker_extra_args(self, cfg: Dict[str, Any]) -> List[str]:
+        args = [str(item) for item in cfg.get("docker_extra_args") or [] if str(item).strip()]
+        if self._cluster_master_ip("docker") == "host.docker.internal":
+            has_host_mapping = any(
+                arg == "--add-host=host.docker.internal:host-gateway"
+                or (
+                    arg == "--add-host"
+                    and index + 1 < len(args)
+                    and args[index + 1] == "host.docker.internal:host-gateway"
+                )
+                for index, arg in enumerate(args)
+            )
+            if not has_host_mapping:
+                args.insert(0, "--add-host=host.docker.internal:host-gateway")
+        return args
 
     def _write_docker_env_file(self, task: Dict[str, Any], env: Dict[str, str]) -> str:
         path = os.path.join(self._logs_dir, f"{task['task_id']}.docker.env")
@@ -1912,9 +2012,9 @@ class PdbMasterApiServer:
             cmd.extend(["-v", f"{source}:{target}"])
         picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
         cmd.extend(["--workdir", picker_workspace])
-        for port in self._cluster_ports(cmd_api, terminal_api, web_console):
+        for port in self._published_ports(cmd_api, terminal_api, web_console):
             cmd.extend(["-p", f"{port['host_port']}:{port['container_port']}"])
-        cmd.extend([str(item) for item in cfg.get("docker_extra_args") or [] if str(item).strip()])
+        cmd.extend(self._docker_extra_args(cfg))
         cmd.append(str(cfg["image"]))
         cmd.extend(self._container_command(task["resolved_command"]))
         code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
@@ -1959,7 +2059,7 @@ class PdbMasterApiServer:
             key = str(key)
             if _valid_env_name(key):
                 cmd.extend(["--env", f"{key}={value}"])
-        for port in self._cluster_ports(cmd_api, terminal_api, web_console):
+        for port in self._published_ports(cmd_api, terminal_api, web_console):
             cmd.extend(["--publish", f"published={port['host_port']},target={port['container_port']}"])
         cmd.extend([str(item) for item in cfg.get("swarm_extra_args") or [] if str(item).strip()])
         cmd.append(str(cfg["image"]))
@@ -1994,7 +2094,7 @@ class PdbMasterApiServer:
         cluster_env = self._cluster_env(env, task.get("env") or {})
         ports = [
             {"name": item["name"][:15], "containerPort": item["container_port"]}
-            for item in self._cluster_ports(cmd_api, terminal_api, web_console)
+            for item in self._published_ports(cmd_api, terminal_api, web_console)
         ]
         volume_mounts = []
         volumes = []
@@ -2013,9 +2113,10 @@ class PdbMasterApiServer:
                 for key, value in sorted(cluster_env.items())
                 if _valid_env_name(str(key))
             ],
-            "ports": ports,
             "volumeMounts": volume_mounts,
         }
+        if ports:
+            container["ports"] = ports
         if cfg.get("k8s_resources"):
             container["resources"] = cfg["k8s_resources"]
         spec: Dict[str, Any] = {
@@ -2102,7 +2203,7 @@ class PdbMasterApiServer:
             "namespace": namespace,
             "image": cfg["image"],
             "manifest_path": manifest_path,
-            "ports": self._cluster_ports(cmd_api, terminal_api, web_console),
+            "ports": self._published_ports(cmd_api, terminal_api, web_console),
         }
         self._append_task_log(task["stdout_log_path"], f"Started Kubernetes pod {namespace}/{name}")
         self._start_k8s_port_forwards(task)
@@ -2279,11 +2380,58 @@ class PdbMasterApiServer:
             kwargs: Dict[str, Any] = {"timeout": 1.5}
             if svc.get("password"):
                 kwargs["auth"] = ("", svc["password"])
-            url = svc["base_url_internal"].rstrip("/") + "/api/status"
+            base = svc.get("base_url_internal", "")
+            if not base:
+                return False
+            url = base.rstrip("/") + "/api/status"
             resp = requests.get(url, **kwargs)
             return resp.ok
         except Exception:
             return False
+
+    def _agent_for_task_unlocked(self, task: Dict[str, Any], agents: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        task_client_id = str(task.get("client_id") or "").strip()
+        pid = task.get("pid")
+        pid_str = str(pid) if pid not in (None, "") else ""
+        task_workspace = os.path.abspath(task.get("workspace_dir", "")) if task.get("workspace_dir") else ""
+        for agent in agents:
+            agent_id = str(agent.get("id") or "").strip()
+            if task_client_id and agent_id == task_client_id:
+                return agent
+            extra = agent.get("extra") or {}
+            agent_pid = extra.get("pid")
+            agent_pid_str = str(agent_pid) if agent_pid not in (None, "") else ""
+            agent_workspace = str(extra.get("workspace") or "").strip()
+            agent_workspace_abs = os.path.abspath(agent_workspace) if agent_workspace else ""
+            if (pid_str and agent_pid_str == pid_str) or (task_workspace and agent_workspace_abs == task_workspace):
+                return agent
+        return None
+
+    def _merge_task_agent_runtime_info(self, task: Dict[str, Any], agent: Dict[str, Any]) -> bool:
+        changed = False
+        cmd_api_tcp = str(agent.get("cmd_api_tcp") or "").strip()
+        if cmd_api_tcp:
+            merged_cmd_api = _merge_runtime_service_info(task.get("cmd_api"), {"base_url_internal": cmd_api_tcp})
+            if merged_cmd_api != (task.get("cmd_api") or {}):
+                task["cmd_api"] = merged_cmd_api
+                changed = True
+        reported_terminal_api = agent.get("terminal_api") or {}
+        merged_terminal_api = _merge_runtime_service_info(task.get("terminal_api"), reported_terminal_api)
+        if merged_terminal_api != (task.get("terminal_api") or {}):
+            task["terminal_api"] = merged_terminal_api
+            changed = True
+        reported_web_console = agent.get("web_console") or {}
+        merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
+        if merged_web_console != (task.get("web_console") or {}):
+            task["web_console"] = merged_web_console
+            changed = True
+        return changed
+
+    def _refresh_task_runtime_info_from_agent(self, task: Dict[str, Any]) -> None:
+        with self._agents_lock:
+            agent = self._agent_for_task_unlocked(task, list(self._agents.values()))
+        if agent and self._merge_task_agent_runtime_info(task, agent):
+            self._mark_dirty()
 
     def _refresh_task_states(self) -> None:
         now = _now()
@@ -2292,10 +2440,19 @@ class PdbMasterApiServer:
             for task in self._tasks.values():
                 launch_mode = task.get("launch_mode", "process")
                 pid = task.get("pid")
-                pid_str = str(pid) if pid not in (None, "") else ""
-                task_workspace = os.path.abspath(str(task.get("workspace_dir") or ""))
-                task_client_id = str(task.get("client_id") or "").strip()
                 runtime = self._task_runtime.get(task["task_id"])
+                matched_agent = self._agent_for_task_unlocked(task, agents)
+                matched_agent_id = str((matched_agent or {}).get("id") or "").strip()
+                if matched_agent and self._merge_task_agent_runtime_info(task, matched_agent):
+                    self._mark_dirty()
+                registered = bool(matched_agent_id)
+                if task.get("registered_to_master") != registered:
+                    task["registered_to_master"] = registered
+                    self._mark_dirty()
+                if task.get("registered_agent_id") != matched_agent_id:
+                    task["registered_agent_id"] = matched_agent_id
+                    self._mark_dirty()
+
                 alive = False
                 exit_code = task.get("exit_code")
                 if launch_mode in _CONTAINER_LAUNCH_MODES:
@@ -2313,7 +2470,14 @@ class PdbMasterApiServer:
                     alive = _is_pid_alive(pid)
 
                 if task["process_status"] in {"starting", "running", "stopping"}:
+                    cmd_ok = self._probe_child_service(task["cmd_api"])
+                    term_ok = self._probe_child_service(task["terminal_api"])
+                    term_enabled = bool((task.get("terminal_api") or {}).get("enabled"))
+                    if registered or cmd_ok:
+                        alive = True
                     if not alive:
+                        if launch_mode in _CONTAINER_LAUNCH_MODES and exit_code is None:
+                            continue
                         task["finished_at"] = task.get("finished_at") or now
                         task["exit_code"] = exit_code
                         task["process_status"] = "stopped" if task["process_status"] == "stopping" or exit_code == 0 else "failed"
@@ -2322,9 +2486,6 @@ class PdbMasterApiServer:
                         self._close_task_runtime(task["task_id"])
                         self._mark_dirty()
                     else:
-                        cmd_ok = self._probe_child_service(task["cmd_api"])
-                        term_ok = self._probe_child_service(task["terminal_api"])
-                        term_enabled = bool((task.get("terminal_api") or {}).get("enabled"))
                         new_cmd_status = "running" if cmd_ok else "unavailable"
                         if term_enabled:
                             new_term_status = "running" if term_ok else "unavailable"
@@ -2339,48 +2500,6 @@ class PdbMasterApiServer:
                         if task["process_status"] == "starting" and cmd_ok and (term_ok or not term_enabled):
                             task["process_status"] = "running"
                             self._mark_dirty()
-
-                matched_agent_id = ""
-                for agent in agents:
-                    agent_id = str(agent.get("id") or "").strip()
-                    if task_client_id and agent_id == task_client_id:
-                        matched_agent_id = agent_id
-                        reported_terminal_api = agent.get("terminal_api") or {}
-                        merged_terminal_api = _merge_runtime_service_info(task.get("terminal_api"), reported_terminal_api)
-                        if merged_terminal_api != (task.get("terminal_api") or {}):
-                            task["terminal_api"] = merged_terminal_api
-                            self._mark_dirty()
-                        reported_web_console = agent.get("web_console") or {}
-                        merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
-                        if merged_web_console != (task.get("web_console") or {}):
-                            task["web_console"] = merged_web_console
-                            self._mark_dirty()
-                        break
-                    extra = agent.get("extra") or {}
-                    agent_pid = extra.get("pid")
-                    agent_pid_str = str(agent_pid) if agent_pid not in (None, "") else ""
-                    agent_workspace = str(extra.get("workspace") or "").strip()
-                    agent_workspace_abs = os.path.abspath(agent_workspace) if agent_workspace else ""
-                    if (pid_str and agent_pid_str == pid_str) or (task_workspace and agent_workspace_abs == task_workspace):
-                        matched_agent_id = agent.get("id", "")
-                        reported_terminal_api = agent.get("terminal_api") or {}
-                        merged_terminal_api = _merge_runtime_service_info(task.get("terminal_api"), reported_terminal_api)
-                        if merged_terminal_api != (task.get("terminal_api") or {}):
-                            task["terminal_api"] = merged_terminal_api
-                            self._mark_dirty()
-                        reported_web_console = agent.get("web_console") or {}
-                        merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
-                        if merged_web_console != (task.get("web_console") or {}):
-                            task["web_console"] = merged_web_console
-                            self._mark_dirty()
-                        break
-                registered = bool(matched_agent_id)
-                if task.get("registered_to_master") != registered:
-                    task["registered_to_master"] = registered
-                    self._mark_dirty()
-                if task.get("registered_agent_id") != matched_agent_id:
-                    task["registered_agent_id"] = matched_agent_id
-                    self._mark_dirty()
 
     def _run_task_launch(self, req: Dict[str, Any]) -> Dict[str, Any]:
         req = dict(req)
@@ -2764,6 +2883,7 @@ class PdbMasterApiServer:
         return matched[0]
 
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
+        self._refresh_task_runtime_info_from_agent(task)
         cmd_api = task.get("cmd_api") or {}
         base = cmd_api.get("base_url_internal", "")
         if not base:
@@ -2772,18 +2892,26 @@ class PdbMasterApiServer:
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
     def _terminal_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
+        self._refresh_task_runtime_info_from_agent(task)
         terminal_api = task.get("terminal_api") or {}
-        base = terminal_api.get("base_url_internal", "")
+        base = terminal_api.get("tcp_url", "") or terminal_api.get("base_url_internal", "")
         if not base:
             raise ValueError("Terminal API base URL not available")
+        if not base.startswith("http"):
+            base = f"http://{base}"
         base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
     def _web_console_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
+        self._refresh_task_runtime_info_from_agent(task)
         web_console = task.get("web_console") or {}
-        base = web_console.get("base_url_internal", "")
+        base = web_console.get("tcp_url", "") or web_console.get("base_url_internal", "")
+        if not base and web_console.get("host") and web_console.get("port"):
+            base = f"{web_console['host']}:{web_console['port']}"
         if not base:
             raise ValueError("Web console base URL not available")
+        if not base.startswith("http"):
+            base = f"http://{base}"
         base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
@@ -2872,13 +3000,11 @@ class PdbMasterApiServer:
             if not _secrets.compare_digest(pwd.encode("utf-8"), password.encode("utf-8")):
                 raise PermissionError("Authentication required")
 
-        def _fix_cmd_api_url(url: str, client_ip: str) -> str:
-            if not url or not client_ip:
-                return url
-            m = re.match(r"^(https?://)([^:/]+)((?::\d+)?.*)$", url)
-            if m and m.group(2).strip().lower() in _LOCAL_HOSTS:
-                return m.group(1) + client_ip + m.group(3)
-            return url
+        def _fix_tcp_url(url: str, client_ip: str) -> str:
+            return _fix_reported_tcp_url(url, client_ip)
+
+        def _sync_service_tcp_url(service: Dict[str, Any], client_ip: str) -> Dict[str, Any]:
+            return _sync_reported_service_tcp_url(service, client_ip)
 
         class StopTaskBody(BaseModel):
             force: bool = False
@@ -2938,7 +3064,7 @@ class PdbMasterApiServer:
             with self._agents_lock:
                 existing = self._agents.get(agent_id, {})
                 is_new = not existing
-                tcp_url = _fix_cmd_api_url(str(body.get("cmd_api_tcp") or ""), client_ip)
+                tcp_url = _fix_tcp_url(str(body.get("cmd_api_tcp") or ""), client_ip)
                 current_stage_index = int(body.get("current_stage_index", -1) or -1)
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
                 
@@ -2947,14 +3073,15 @@ class PdbMasterApiServer:
                 web_console = {}
                 if isinstance(raw_web_console, str) and raw_web_console.strip():
                     # If web_console is a string (address), convert to object
+                    fixed_web_console_url = _fix_tcp_url(raw_web_console.strip(), client_ip)
                     web_console = {
                         "enabled": True,
-                        "tcp_url": raw_web_console.strip(),
-                        "host": raw_web_console.strip().split(":")[0] if ":" in raw_web_console else raw_web_console.strip(),
-                        "port": int(raw_web_console.strip().split(":")[1]) if ":" in raw_web_console else 8000
+                        "tcp_url": fixed_web_console_url,
+                        "host": fixed_web_console_url.strip().split(":")[0] if ":" in fixed_web_console_url else fixed_web_console_url.strip(),
+                        "port": int(fixed_web_console_url.strip().split(":")[1]) if ":" in fixed_web_console_url else 8000
                     }
                 elif isinstance(raw_web_console, dict):
-                    web_console = _copy_jsonable(raw_web_console)
+                    web_console = _sync_service_tcp_url(raw_web_console, client_ip)
                     # Ensure enabled field exists
                     if "enabled" not in web_console:
                         web_console["enabled"] = bool(web_console.get("tcp_url") or web_console.get("base_url_internal") or web_console.get("port"))
@@ -2970,14 +3097,15 @@ class PdbMasterApiServer:
                 terminal_api = {}
                 if isinstance(raw_terminal_api, str) and raw_terminal_api.strip():
                     # If terminal_api is a string (address), convert to object
+                    fixed_terminal_url = _fix_tcp_url(raw_terminal_api.strip(), client_ip)
                     terminal_api = {
                         "enabled": True,
-                        "tcp_url": raw_terminal_api.strip(),
-                        "host": raw_terminal_api.strip().split(":")[0] if ":" in raw_terminal_api else raw_terminal_api.strip(),
-                        "port": int(raw_terminal_api.strip().split(":")[1]) if ":" in raw_terminal_api else 8818
+                        "tcp_url": fixed_terminal_url,
+                        "host": fixed_terminal_url.strip().split(":")[0] if ":" in fixed_terminal_url else fixed_terminal_url.strip(),
+                        "port": int(fixed_terminal_url.strip().split(":")[1]) if ":" in fixed_terminal_url else 8818
                     }
                 elif isinstance(raw_terminal_api, dict):
-                    terminal_api = _copy_jsonable(raw_terminal_api)
+                    terminal_api = _sync_service_tcp_url(raw_terminal_api, client_ip)
                     # Ensure enabled field exists
                     if "enabled" not in terminal_api:
                         terminal_api["enabled"] = bool(terminal_api.get("tcp_url") or terminal_api.get("base_url_internal") or terminal_api.get("port"))
@@ -3977,11 +4105,11 @@ class PdbMasterApiServer:
                 return
 
             terminal_api = task.get("terminal_api") or {}
-            base_url = terminal_api.get("base_url_internal", "")
-            if not base_url:
+            try:
+                target_url = self._terminal_proxy_url(task, "ws").replace("http://", "ws://")
+            except Exception:
                 await websocket.close(code=4503)
                 return
-            target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             upstream_headers = self._build_ws_proxy_headers(terminal_api.get("password", ""), dict(websocket.headers))
@@ -4303,11 +4431,11 @@ class PdbMasterApiServer:
                 await websocket.close(code=4503)
                 return
 
-            base_url = web_console.get("base_url_internal", "")
-            if not base_url:
+            try:
+                target_url = self._web_console_proxy_url(task, "ws").replace("http://", "ws://")
+            except Exception:
                 await websocket.close(code=4503)
                 return
-            target_url = base_url.replace("http://", "ws://").rstrip("/") + "/ws"
             if websocket.url.query:
                 target_url += "?" + urlencode(dict(websocket.query_params))
             upstream_headers = self._build_ws_proxy_headers(web_console.get("password", ""), dict(websocket.headers))
