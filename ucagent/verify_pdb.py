@@ -2013,6 +2013,7 @@ class VerifyPDB(Pdb):
                 host=host, port=port, sock=sock, tcp=tcp, offline_timeout=offline_timeout,
                 workspace=self.agent.workspace,
                 access_key=access_key, password=password,
+                cfg=self.agent.cfg,
             )
             ok, msg = self._master_api_server.start()
         except Exception as e:

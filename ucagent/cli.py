@@ -391,9 +391,10 @@ def get_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--override", 
+        action="append",
         type=get_override_dict, 
-        default=None, 
-        help="Override configuration settings in the format A.B.C=value"
+        default=[],
+        help="Override configuration settings in the format A.B.C=value (can be used multiple times)"
     )
     
     # Execution mode arguments
@@ -773,6 +774,10 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+    merged_override = {}
+    for override in args.override or []:
+        merged_override.update(override)
+    args.override = merged_override
     return args
 
 

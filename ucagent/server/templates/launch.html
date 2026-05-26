@@ -1561,7 +1561,7 @@ async function initPage() {
     state.backendOptions = configData.backend_options || [];
     state.backendKeyName = configData.backend_key_name || '';
     state.launchModes = configData.launch_modes || [];
-    state.defaultLaunchMode = configData.default_launch_mode || state.launchConfig.launch_mode || 'process';
+    state.defaultLaunchMode = configData.default_launch_mode || 'process';
     renderBackendSelect();
     renderLaunchModeSelect();
     applyLaunchConfig(state.launchConfig);
@@ -1608,7 +1608,6 @@ function applyLaunchConfig(config) {
     'dut-name': config.dut_name,
     'output': config.output,
     'master-override': config.master,
-    'launch-mode': config.launch_mode,
   };
   for (const [id, value] of Object.entries(fields)) {
     const el = document.getElementById(id);

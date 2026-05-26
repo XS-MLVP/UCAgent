@@ -500,6 +500,7 @@ class PdbMasterApiServer:
         workspace: str = "",
         access_key: str = "",
         password: str = "",
+        cfg: Any = None,
     ) -> None:
         try:
             import fastapi  # noqa: F401
@@ -527,7 +528,7 @@ class PdbMasterApiServer:
         self.access_key = access_key
         self.password = password
 
-        self.cfg = get_config(workspace=self.workspace)
+        self.cfg = cfg if cfg is not None else get_config(workspace=self.workspace)
 
         self._db_dir = get_abs_path_cwd_ucagent(self.workspace, "master_db")
         os.makedirs(self._db_dir, exist_ok=True)

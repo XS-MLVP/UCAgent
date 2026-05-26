@@ -11,6 +11,7 @@ from ucagent.server.api_master import (
     _task_logs_for_display,
     _task_stderr_tail,
 )
+from ucagent.util.config import Config
 
 
 def test_master_launch_workspace_defaults_to_master_workspace():
@@ -22,6 +23,22 @@ def test_master_launch_workspace_defaults_to_master_workspace():
         assert ws["base_root"] == os.path.abspath(master_ws)
         assert ws["workspace_dir"].startswith(os.path.abspath(master_ws) + os.sep)
         assert os.path.basename(ws["workspace_dir"]).startswith("ucagent_launch_")
+
+
+def test_master_server_uses_passed_config_for_launch_defaults():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "file_browser_roots": [],
+                "default_args": {"launch_mode": "docker_swarm"},
+                "cluster": {"image": "123123123"},
+            },
+        }).freeze()
+
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+        assert server._enabled_launch_modes() == ["docker_swarm"]
+        assert server._launch_cluster_config()["image"] == "123123123"
 
 
 def test_cluster_mounts_keep_master_source_host_path(monkeypatch):

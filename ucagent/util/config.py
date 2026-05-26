@@ -241,7 +241,7 @@ class Config:
         keys = key.split('.')
         current = self
         for k in keys[:-1]:
-            if not self.has_attr(k):
+            if not current.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
         setattr(current, keys[-1], value)
@@ -257,7 +257,7 @@ class Config:
         keys = key.split('.')
         current = self
         for k in keys[:-1]:
-            if not self.has_attr(k):
+            if not current.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
         if not current.has_attr(keys[-1]):
