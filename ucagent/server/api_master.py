@@ -670,6 +670,42 @@ class PdbMasterApiServer:
             raise ValueError("Path traversal is not allowed")
         return candidate
 
+    def _compiled_workspace_dir(self, ws: Dict[str, Any]) -> str:
+        compile_info = ws.get("compile") or {}
+        if compile_info.get("status") != "success":
+            raise ValueError("DUT workspace is not ready. Compile DUT successfully before downloading.")
+        workspace_dir = os.path.abspath(ws.get("workspace_dir", ""))
+        picker_workspace = os.path.abspath(
+            compile_info.get("picker_workspace") or ws.get("picker_workspace") or os.path.join(workspace_dir, "workspace")
+        )
+        if not (picker_workspace == workspace_dir or picker_workspace.startswith(workspace_dir + os.sep)):
+            raise ValueError("Compiled workspace path is outside the launch workspace")
+        if not os.path.isdir(picker_workspace):
+            raise ValueError("Compiled workspace directory not found")
+        return picker_workspace
+
+    def _create_compiled_workspace_archive(self, ws: Dict[str, Any], archive_stem: str = "") -> Tuple[str, str, str]:
+        picker_workspace = self._compiled_workspace_dir(ws)
+        archive_stem = _safe_name(
+            archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
+            "workspace",
+        )
+        temp_dir = tempfile.mkdtemp(prefix="ucagent_workspace_archive_")
+        base_name = os.path.join(temp_dir, archive_stem)
+        archive_path = shutil.make_archive(
+            base_name,
+            "gztar",
+            root_dir=os.path.dirname(picker_workspace),
+            base_dir=os.path.basename(picker_workspace),
+        )
+        return archive_path, f"{archive_stem}.tar.gz", temp_dir
+
+    def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str) -> str:
+        if not self.tcp:
+            raise ValueError("Current master has no TCP listener; cannot provide workspace archive URL")
+        host = self._cluster_master_ip(launch_mode)
+        return f"http://{host}:{self.port}/api/workspace/{archive_ref}.tar.gz"
+
     def _snapshot_agents(self) -> List[Dict[str, Any]]:
         with self._agents_lock:
             return [dict(v) for v in self._agents.values()]
@@ -682,6 +718,22 @@ class PdbMasterApiServer:
             if self._normalize_workspace_locked(ws):
                 self._mark_dirty()
             return ws
+
+    def _get_workspace_by_id_or_dirname(self, workspace_ref: str) -> Dict[str, Any]:
+        try:
+            return self._get_workspace(workspace_ref)
+        except KeyError:
+            pass
+        with self._workspaces_lock:
+            for ws in self._workspaces.values():
+                if (
+                    os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))) == workspace_ref
+                    or str(ws.get("task_id") or "").strip() == workspace_ref
+                ):
+                    if self._normalize_workspace_locked(ws):
+                        self._mark_dirty()
+                    return ws
+        raise KeyError(f"Workspace '{workspace_ref}' not found")
 
     def _get_task(self, task_id: str) -> Dict[str, Any]:
         with self._tasks_lock:
@@ -1528,7 +1580,13 @@ class PdbMasterApiServer:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         cli_path = self._master_source_cli_path() or os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
         picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
-        argv = [sys.executable, cli_path, picker_workspace, prepared["dut_name"]]
+        launch_mode = _normalize_launch_mode(req.get("launch_mode", "process"))
+        if req.get("use_zip_workspace", True):
+            archive_ref = str(req.get("task_id") or req.get("workspace_id") or "").strip()
+            workspace_arg = self._workspace_archive_download_url(archive_ref, launch_mode)
+        else:
+            workspace_arg = picker_workspace
+        argv = [sys.executable, cli_path, workspace_arg, prepared["dut_name"]]
 
         def add_flag(flag: str, enabled: Any) -> None:
             if enabled:
@@ -1546,6 +1604,7 @@ class PdbMasterApiServer:
                 add_value(flag, value)
 
         add_value("--config", req.get("config"))
+        add_value("--workspace-base", req.get("workspace_base"))
         add_value("--template-dir", req.get("template_dir"))
         add_flag("--template-overwrite", req.get("template_overwrite"))
         add_list("--template-cfg-override", req.get("template_cfg_override", []))
@@ -1646,6 +1705,10 @@ class PdbMasterApiServer:
         env_updates = req.get("env") or {}
         env_updates.update(self._launch_default_env_updates())
         env.update({str(k): str(v) for k, v in env_updates.items()})
+        if self.access_key:
+            env["UCAGENT_WORKSPACE_ARCHIVE_KEY"] = self.access_key
+        if self.password:
+            env["UCAGENT_WORKSPACE_ARCHIVE_PASSWORD"] = self.password
         return argv, env
 
     def _start_task_process(self, task: Dict[str, Any], env: Dict[str, str]) -> subprocess.Popen:
@@ -1922,7 +1985,8 @@ class PdbMasterApiServer:
             seen.add(key)
             mounts.append((src, dst))
 
-        add_mount(prepared.get("workspace_dir"))
+        if not (prepared.get("use_zip_workspace") is True):
+            add_mount(prepared.get("workspace_dir"))
         source_host_path = self._master_source_host_path()
         if source_host_path:
             add_mount(source_host_path, _MASTER_SOURCE_CONTAINER_PATH, require_exists=False)
@@ -1942,12 +2006,13 @@ class PdbMasterApiServer:
         mode: str,
     ) -> Dict[str, Any]:
         cfg = self._launch_cluster_config()
+        use_zip_workspace = prepared.get("use_zip_workspace") is True
         context = {
             "cfg": cfg,
             "name": f"ucagent-{task['task_id']}",
             "env": self._cluster_env(env, task.get("env") or {}),
             "mounts": self._cluster_mounts(prepared),
-            "picker_workspace": prepared.get("picker_workspace") or prepared["workspace_dir"],
+            "picker_workspace": "/tmp" if use_zip_workspace else (prepared.get("picker_workspace") or prepared["workspace_dir"]),
             "command": self._container_command(task["resolved_command"]),
         }
         self._append_cluster_launch_debug(
@@ -2439,8 +2504,9 @@ class PdbMasterApiServer:
         pod_spec: Dict[str, Any] = {
             "restartPolicy": "Never",
             "containers": [container],
-            "volumes": volumes,
         }
+        if volumes:
+            pod_spec["volumes"] = volumes
         if cfg.get("k8s_service_account"):
             pod_spec["serviceAccountName"] = cfg["k8s_service_account"]
         if cfg.get("k8s_node_selector"):
@@ -2979,6 +3045,7 @@ class PdbMasterApiServer:
             "generated_filelist": bool(compile_info.get("generated_filelist")),
             "copied_files": list(compile_info.get("copied_files") or []),
             "config_path": compile_info.get("config_path", ""),
+            "use_zip_workspace": bool(req.get("use_zip_workspace", True)),
         }
 
         compiled_config = str(compile_info.get("config_path") or "").strip()
@@ -3055,6 +3122,7 @@ class PdbMasterApiServer:
         task["picker_command"] = list(compile_info.get("picker_command") or [])
         task["picker_exit_code"] = compile_info.get("picker_exit_code")
         task["picker_status"] = compile_info.get("status", "not_started")
+        req["task_id"] = task["task_id"]
         self._mark_dirty()
 
         if task["picker_status"] != "success":
@@ -3417,6 +3485,24 @@ class PdbMasterApiServer:
         async def _check_access_key(x_access_key: str = _Header(default="")):
             if access_key and x_access_key != access_key:
                 raise HTTPException(status_code=403, detail="Invalid or missing access key.")
+
+        async def _check_access_key_query(key: str = Query(default=""), x_access_key: str = _Header(default="")):
+            if access_key and key != access_key and x_access_key != access_key:
+                raise HTTPException(status_code=403, detail="Invalid or missing access key.")
+
+        async def _check_workspace_archive_access(
+            key: str = Query(default=""),
+            x_access_key: str = _Header(default=""),
+            credentials: Optional[HTTPBasicCredentials] = Depends(security),
+        ):
+            if access_key and (key == access_key or x_access_key == access_key):
+                return
+            if password and credentials is not None and _secrets.compare_digest(
+                credentials.password.encode("utf-8"), password.encode("utf-8")
+            ):
+                return
+            if access_key or password:
+                raise HTTPException(status_code=403, detail="Invalid or missing workspace archive credentials.")
 
         async def _check_password(credentials: Optional[HTTPBasicCredentials] = Depends(security)):
             if not password:
@@ -3810,6 +3896,10 @@ class PdbMasterApiServer:
             ws = self._create_workspace()
             return {"status": "ok", "workspace": self._workspace_public(ws)}
 
+        @app.get("/api/workspace/{workspace_id}.tar.gz", summary="Download compiled DUT workspace archive", dependencies=[Depends(_check_workspace_archive_access)])
+        def workspace_download_compiled_archive(workspace_id: str):
+            return _workspace_download_compiled(workspace_id)
+
         @app.get("/api/workspace/{workspace_id}", summary="Workspace detail", dependencies=[Depends(_check_password)])
         def get_workspace(workspace_id: str):
             try:
@@ -3956,6 +4046,28 @@ class PdbMasterApiServer:
             if not os.path.isfile(abs_path):
                 raise HTTPException(status_code=404, detail="File not found")
             return FileResponse(abs_path, filename=os.path.basename(abs_path))
+
+        def _workspace_download_compiled(workspace_id: str):
+            from starlette.background import BackgroundTask
+            from fastapi.responses import FileResponse
+
+            try:
+                ws = self._get_workspace_by_id_or_dirname(workspace_id)
+                archive_path, filename, temp_dir = self._create_compiled_workspace_archive(ws, workspace_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return FileResponse(
+                archive_path,
+                filename=filename,
+                media_type="application/gzip",
+                background=BackgroundTask(shutil.rmtree, temp_dir, ignore_errors=True),
+            )
+
+        @app.get("/api/workspace/{workspace_id}/download", summary="Download compiled DUT workspace", dependencies=[Depends(_check_password)])
+        def workspace_download_compiled(workspace_id: str):
+            return _workspace_download_compiled(workspace_id)
 
         @app.post("/api/workspace/{workspace_id}/verilog/modules", summary="Parse module names from a Verilog file", dependencies=[Depends(_check_password)])
         def workspace_parse_modules(workspace_id: str, body: Dict[str, Any] = Body(default_factory=dict)):

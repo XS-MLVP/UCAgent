@@ -201,6 +201,7 @@
       <div class="stage-note">Compile prepares <code>{DUT}_RTL</code>, <code>{DUT}_Doc</code>, runs <code>picker export</code>, and copies the verification-needs file into the generated DUT package as <code>README.md</code>.</div>
       <div class="actions">
         <button type="button" class="btn btn-primary" id="compile-dut-btn" data-action="compile-dut" disabled>Compile DUT</button>
+        <button type="button" class="btn" id="download-workspace-btn" data-action="download-workspace" disabled>Download Workspace</button>
       </div>
       <div id="compile-status" class="status">The DUT has not been compiled yet.</div>
       <div id="compile-summary" class="summary-box muted">Compile after selecting the target module.</div>
@@ -308,7 +309,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base']);
 
 const state = {
   workspace: null,
@@ -626,6 +627,15 @@ function setCompileButton(label, disabled) {
   btn.disabled = disabled;
 }
 
+function setDownloadWorkspaceButton(enabled) {
+  const btn = document.getElementById('download-workspace-btn');
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.title = enabled
+    ? 'Download the compiled DUT workspace as tar.gz'
+    : 'Compile the current DUT selection before downloading.';
+}
+
 function setLaunchButton(label, disabled) {
   const btn = document.getElementById('launch-btn');
   if (!btn) return;
@@ -857,6 +867,7 @@ function renderCompileState() {
   const desiredDut = getDesiredDutName();
   const compileLabel = selectedModule ? `Compile ${selectedModule}` : 'Compile DUT';
   setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule);
+  setDownloadWorkspaceButton(isCompileCurrent());
   const summary = document.getElementById('compile-summary');
   if (!selectedModule) {
     setStatus('compile-status', '', 'Select a parsed module before compiling the DUT.');
@@ -1000,7 +1011,10 @@ function buildCommandPreview() {
   const compile = getCompileInfo();
   const compileCurrent = isCompileCurrent();
   const dynamicOptions = collectDynamicLaunchOptions();
-  const workspacePath = state.workspace.workspace_dir + '/workspace';
+  const useZipWorkspace = state.launchConfig?.use_zip_workspace !== false;
+  const workspacePath = useZipWorkspace
+    ? `/api/workspace/${state.workspaceId}.tar.gz`
+    : state.workspace.workspace_dir + '/workspace';
   const args = [
     'ucagent',
     workspacePath,
@@ -1008,6 +1022,9 @@ function buildCommandPreview() {
     '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
     '--output', document.getElementById('output').value.trim() || 'unity_test',
   ];
+  if (useZipWorkspace && state.launchConfig?.workspace_base) {
+    args.push('--workspace-base', state.launchConfig.workspace_base);
+  }
   if (dynamicOptions.stream_output) args.push('-s');
   if (dynamicOptions.human) args.push('-hm');
   if (dynamicOptions.tui) args.push('--tui');
@@ -1021,7 +1038,7 @@ function buildCommandPreview() {
   args.push('--master', masterOverride || '<current master>');
   args.push('--export-cmd-api', '<auto>');
   if (compileCurrent && compile?.doc_dir) args.push('--guid-doc-path', compile.doc_dir);
-  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path']);
+  const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path', 'use_zip_workspace', 'workspace_base']);
   for (const [key, value] of Object.entries(dynamicOptions)) {
     if (consumedKeys.has(key)) continue;
     if (key === 'extra_args' && Array.isArray(value) && value.length) {
@@ -1394,6 +1411,15 @@ async function compileDut() {
   }
 }
 
+function downloadWorkspace() {
+  if (!state.workspaceId || !isCompileCurrent()) {
+    updateLaunchState();
+    return;
+  }
+  const url = `/api/workspace/${encodeURIComponent(state.workspaceId)}/download`;
+  window.location.href = url;
+}
+
 async function launchTask() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
@@ -1415,6 +1441,8 @@ async function launchTask() {
     output: document.getElementById('output').value.trim() || 'unity_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
+    use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
+    workspace_base: state.launchConfig?.workspace_base || '',
     ...dynamicOptions,
   };
   state.launching = true;
@@ -1681,6 +1709,10 @@ document.addEventListener('click', async (event) => {
     }
     if (action === 'compile-dut') {
       await compileDut();
+      return;
+    }
+    if (action === 'download-workspace') {
+      downloadWorkspace();
       return;
     }
     if (action === 'launch-task') {

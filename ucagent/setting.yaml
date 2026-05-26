@@ -87,6 +87,8 @@ launch:
     loop: true                        # -l flag
     use_skill: false
     extra_skill_path: ""
+    use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
+    workspace_base: "/tmp/ucagent_workspace_base" # default --workspace-base for launched tasks using zipped workspace
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
       UT: "default.yaml"
