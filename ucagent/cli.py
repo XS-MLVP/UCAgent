@@ -4,7 +4,7 @@
 UCAgent Command Line Interface
 
 This module provides the command line interface for UCAgent, 
-wrapping the functionality from verify.py into a proper CLI module.
+wrapping the functionality from verify_agent.py into a proper CLI module.
 """
 
 import os
@@ -12,6 +12,7 @@ import sys
 import argparse
 import bdb
 import base64
+import ntpath
 import posixpath
 import shutil
 import tarfile
@@ -37,6 +38,57 @@ def info(*k, **w):
 
 class WorkspaceArchiveError(ValueError):
     """Raised when a workspace archive cannot be downloaded, extracted, or validated."""
+
+
+def _normalize_archive_member_path(name: str) -> str:
+    raw = name or ""
+    raw_parts = raw.split("/")
+    normalized = posixpath.normpath(raw)
+    if (
+        "\\" in raw
+        or normalized in ("", ".")
+        or ".." in raw_parts
+        or normalized.startswith("../")
+        or normalized == ".."
+        or posixpath.isabs(normalized)
+        or ntpath.isabs(raw)
+    ):
+        raise WorkspaceArchiveError(f"Unsafe archive entry path: {name}")
+    parts = normalized.split("/")
+    if not parts or parts[0] != "workspace":
+        raise WorkspaceArchiveError(
+            "Invalid workspace archive layout: archive root must contain a direct 'workspace' directory"
+        )
+    return normalized
+
+
+def _validate_archive_symlink(member: tarfile.TarInfo, normalized_name: str) -> None:
+    linkname = member.linkname or ""
+    if (
+        not linkname
+        or "\\" in linkname
+        or posixpath.isabs(linkname)
+        or ntpath.isabs(linkname)
+    ):
+        raise WorkspaceArchiveError(f"Unsafe archive symlink target: {member.name} -> {linkname}")
+
+    target = posixpath.normpath(posixpath.join(posixpath.dirname(normalized_name), linkname))
+    if (
+        target in ("", ".", "..")
+        or target.startswith("../")
+        or posixpath.isabs(target)
+        or not (target == "workspace" or target.startswith("workspace/"))
+    ):
+        raise WorkspaceArchiveError(f"Unsafe archive symlink target: {member.name} -> {linkname}")
+
+
+def _extractall_workspace_archive(tf: tarfile.TarFile, extract_dir: str) -> None:
+    data_filter = getattr(tarfile, "data_filter", None)
+    extractall_kwargs = getattr(tarfile.TarFile.extractall, "__kwdefaults__", {}) or {}
+    if data_filter is not None and "filter" in extractall_kwargs:
+        tf.extractall(extract_dir, filter=data_filter)
+    else:
+        tf.extractall(extract_dir)
 
 
 def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
@@ -130,17 +182,12 @@ def _safe_extract_workspace_archive(archive_path: str, extract_dir: str, dut_nam
             has_workspace_root = False
             for member in members:
                 name = member.name or ""
-                normalized = posixpath.normpath(name)
-                if normalized in ("", ".") or normalized.startswith("../") or normalized == ".." or posixpath.isabs(normalized):
-                    raise WorkspaceArchiveError(f"Unsafe archive entry path: {name}")
-                parts = normalized.split("/")
-                if not parts or parts[0] != "workspace":
-                    raise WorkspaceArchiveError(
-                        "Invalid workspace archive layout: archive root must contain a direct 'workspace' directory"
-                    )
-                if member.issym() or member.islnk():
-                    raise WorkspaceArchiveError(f"Unsupported archive link entry: {name}")
-                if not (member.isdir() or member.isfile()):
+                normalized = _normalize_archive_member_path(name)
+                if member.islnk():
+                    raise WorkspaceArchiveError(f"Unsupported archive hard link entry: {name}")
+                if member.issym():
+                    _validate_archive_symlink(member, normalized)
+                elif not (member.isdir() or member.isfile()):
                     raise WorkspaceArchiveError(f"Unsupported archive entry type: {name}")
                 if member.isdir() and normalized == "workspace":
                     has_workspace_root = True
@@ -150,7 +197,7 @@ def _safe_extract_workspace_archive(archive_path: str, extract_dir: str, dut_nam
                 raise WorkspaceArchiveError(
                     "Invalid workspace archive layout: missing root 'workspace' directory"
                 )
-            tf.extractall(extract_dir)
+            _extractall_workspace_archive(tf, extract_dir)
     except WorkspaceArchiveError:
         raise
     except tarfile.TarError as exc:
