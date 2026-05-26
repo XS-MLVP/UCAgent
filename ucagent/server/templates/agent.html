@@ -373,6 +373,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <div id="fm-bar">
       <span id="breadcrumb"></span>
       <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
+      <button class="fm-btn" onclick="downloadWorkspace()" title="Download whole workspace as DUT tar.gz">&#8681; Workspace</button>
       <button class="fm-btn" onclick="openNewFile()">&#43; New File</button>
       <button class="fm-btn primary" onclick="openUpload()">&#8679; Upload</button>
     </div>
@@ -1489,6 +1490,7 @@ function _renderFiles(entries){
         <td class="col-size">—</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
+          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')" title="Download as tar.gz">&#8681;</button>
           <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
         </td>
@@ -1746,6 +1748,13 @@ function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURI
 function downloadFile(path){
   const a=document.createElement("a");
   a.href="/api/file/download?path="+encodeURIComponent(path);
+  a.download="";
+  a.click();
+}
+
+function downloadWorkspace(){
+  const a=document.createElement("a");
+  a.href="/api/workspace/download";
   a.download="";
   a.click();
 }
