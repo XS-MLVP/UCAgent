@@ -24,6 +24,8 @@ os.environ['PYTHONPYCACHEPREFIX'] = os.path.join(os.path.expanduser('~'), ".ucag
 
 from ucagent.version import __version__
 
+def info(*k, **w):
+    print(*k, **w)
 
 def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
     source_argv = list(sys.argv if argv is None else argv)
@@ -71,7 +73,7 @@ class HookMessageAction(argparse.Action):
             need_agent_exit=self.need_agent_exit,
         )
         if msg:
-            print(msg.strip())
+            info(msg.strip())
             sys.exit(0)
         parser.exit(1)
 
@@ -481,13 +483,13 @@ def get_args() -> argparse.Namespace:
         "--as-master-persist",
         type=str,
         nargs="?",
-        const="/tmp/ucagent_master_persist",
+        const="/tmp/ucagent_master",
         default=None,
         metavar="path",
         help=(
             "Use persistent workspace directory when running as master (instead of temporary directory). "
             "If path is provided, use it as the workspace directory. "
-            "If no path is provided, default to /tmp/ucagent_master_persist."
+            "If no path is provided, default to /tmp/ucagent_master."
         )
     )
 
@@ -578,8 +580,8 @@ def get_args() -> argparse.Namespace:
 def upgrade(extra_pip_args: str = "") -> None:
     import subprocess
     exargs = extra_pip_args.split() if extra_pip_args.strip() else []
-    print(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
-    print(f"Python executable: {sys.executable}")
+    info(f"Upgrading UCAgent from GitHub main branch using Python {sys.version.split()[0]}...")
+    info(f"Python executable: {sys.executable}")
     for url in ["https://github.com/XS-MLVP",
                 "https://www.gitlink.org.cn/XS-MLVP",
                 "https://gitee.com/mirrors/"
@@ -587,21 +589,21 @@ def upgrade(extra_pip_args: str = "") -> None:
         try:
             # Use the same Python interpreter that is currently running
             source_url = f'git+{url}/UCAgent@main'
-            print(f"Trying to upgrade from {source_url} ...")
+            info(f"Trying to upgrade from {source_url} ...")
             cmd = [sys.executable, '-m', 'pip', 'install', '--timeout', '5', '--upgrade',
                 source_url] + exargs
-            print(f"Running command: {' '.join(cmd)}")
+            info(f"Running command: {' '.join(cmd)}")
             result = subprocess.run(
                 cmd,
                 check=True,
                 text=True
             )
-            print("\nUCAgent upgraded successfully!")
-            print("Please restart your terminal or run 'hash -r' to refresh the command cache.")
+            info("\nUCAgent upgraded successfully!")
+            info("Please restart your terminal or run 'hash -r' to refresh the command cache.")
             sys.exit(0)
         except Exception as e:
-            print(f"\nUnexpected error during upgrade: {e}")
-            print(f"Failed to upgrade UCAgent from {url}. Trying next source...")
+            info(f"\nUnexpected error during upgrade: {e}")
+            info(f"Failed to upgrade UCAgent from {url}. Trying next source...")
     sys.exit(1)
 
 
@@ -633,9 +635,9 @@ def do_check() -> None:
     """Check current default configurations."""
     import glob
     def echo_g(msg: str):
-        print(f"\033[92m{msg}\033[0m")
+        info(f"\033[92m{msg}\033[0m")
     def echo_r(msg: str):
-        print(f"\033[91m{msg}\033[0m")
+        info(f"\033[91m{msg}\033[0m")
     def check_exist(msg, file_path: str, indent=0):
         indent_str = '  ' * indent
         file_list = glob.glob(file_path)  # expand wildcards
@@ -685,7 +687,7 @@ def run() -> None:
         try:
             return _serve_web_console(sys.argv)
         except Exception as e:
-            print(f"Failed to start Web UI: {e}")
+            info(f"Failed to start Web UI: {e}")
             sys.exit(1)
 
     # --as-master with no positional args → spin up a fake DUT under /tmp or persistent directory
@@ -696,19 +698,19 @@ def run() -> None:
             os.makedirs(args.workspace, exist_ok=True)
             args.dut = "empty"
             args.human = True
-            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
         else:
             # Use temporary directory
             temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_master_")
             args.workspace = temp_dir.name
             args.dut = "empty"
             args.human = True
-            args.config = "empty.yaml"  # use a minimal config to avoid unnecessary errors
             args._temp_dir = temp_dir
+        if args.config is None:
+            args.config = "empty.yaml"
 
     if args.emulate_config:
         if args.config is None:
-            print("Error: --emulate-config requires --config argument")
+            info("Error: --emulate-config requires --config argument")
             sys.exit(1)
         temp_dir = tempfile.TemporaryDirectory(prefix="ucagent_emulate_")
         args.workspace = temp_dir.name
@@ -717,7 +719,7 @@ def run() -> None:
         os.makedirs(dut_path, exist_ok=True)
         open(os.path.join(dut_path, "__init__.py"), "w+").close()
         args._temp_dir = temp_dir
-        print(f"Check config file: {args.config}")
+        info(f"Check config file: {args.config}")
 
     # Validate required positional args for normal (non-as-master) usage
     if args.workspace is None or args.dut is None:
@@ -915,7 +917,7 @@ def run() -> None:
         else:
             agent.run()
     except AssertionError as e:
-        print(f"Fail: {e}")
+        info(f"Fail: {e}")
         sys.exit(1)
 
 
@@ -926,12 +928,12 @@ def main() -> None:
     except bdb.BdbQuit:
         pass
     except KeyboardInterrupt:
-        print("\nUCAgent interrupted by user.")
+        info("\nUCAgent interrupted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"UCAgent encountered an error: {e}")
+        info(f"UCAgent encountered an error: {e}")
         formatted = traceback.format_exc()
-        print(formatted, end="")
+        info(formatted, end="")
         capture_path = _extract_web_console_capture_path().strip()
         if capture_path:
             try:
@@ -944,7 +946,7 @@ def main() -> None:
             except OSError:
                 pass
         sys.exit(1)
-    print("UCAgent is exited.")
+    info("UCAgent is exited.")
 
 
 if __name__ == "__main__":

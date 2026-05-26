@@ -33,6 +33,8 @@ dependencies = [
     "textual>=7.3.0",
     "fastapi>=0.135.0",
     "uvicorn[standard]>=0.42.0",
+    "docker>=7.1.0",
+    "kubernetes>=33.1.0",
 ]
 dynamic = ["version"]
 

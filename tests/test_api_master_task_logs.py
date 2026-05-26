@@ -13,6 +13,81 @@ from ucagent.server.api_master import (
 )
 
 
+def test_master_launch_workspace_defaults_to_master_workspace():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        ws = server._create_workspace()
+
+        assert ws["base_root"] == os.path.abspath(master_ws)
+        assert ws["workspace_dir"].startswith(os.path.abspath(master_ws) + os.sep)
+        assert os.path.basename(ws["workspace_dir"]).startswith("ucagent_launch_")
+
+
+def test_cluster_mounts_keep_master_source_host_path(monkeypatch):
+    with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"
+        monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_host_path)
+
+        mounts = server._cluster_mounts({"workspace_dir": task_ws})
+
+        assert (os.path.abspath(task_ws), os.path.abspath(task_ws)) in mounts
+        assert (source_host_path, "/UCAgent") in mounts
+
+
+def test_master_source_overrides_process_launch_cli(monkeypatch):
+    with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as source_ws:
+        source_cli = os.path.join(source_ws, "ucagent", "cli.py")
+        os.makedirs(os.path.dirname(source_cli))
+        open(source_cli, "w", encoding="utf-8").close()
+        monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_ws)
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        argv, _env = server._build_ucagent_command(
+            {},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "127.0.0.1", "port": 8765, "password": "pw"},
+        )
+
+        assert argv[1] == source_cli
+
+
+def test_task_launch_command_preserves_human_mode():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        argv, _env = server._build_ucagent_command(
+            {"human": True, "launch_mode": "docker_swarm"},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+        )
+
+        assert "--human" in argv
+
+
+def test_master_source_overrides_container_launch_cli(monkeypatch):
+    with tempfile.TemporaryDirectory() as master_ws:
+        source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"
+        monkeypatch.setenv("UCAGENT_MASTER_SOURCE", source_host_path)
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
+
+        assert command[:2] == ["python3", "/UCAgent/ucagent/cli.py"]
+        assert command[2:] == ["/work", "Adder"]
+
+
+def test_master_source_empty_does_not_override_container_launch(monkeypatch):
+    with tempfile.TemporaryDirectory() as master_ws:
+        monkeypatch.delenv("UCAGENT_MASTER_SOURCE", raising=False)
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
+
+        assert command[:3] == ["ucagent", "/work", "Adder"]
+
+
 def test_master_task_log_capture_drains_fast_failed_process():
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
         server = PdbMasterApiServer(workspace=master_ws)

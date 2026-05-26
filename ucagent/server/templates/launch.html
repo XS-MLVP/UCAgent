@@ -644,14 +644,7 @@ function setLaunchResponse(data, options = {}) {
 }
 
 async function createWorkspace() {
-  const workspaceRoot = (state.launchConfig && state.launchConfig.workspace_root) || '/tmp';
   const attempts = [
-    () => api('/api/workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_root: workspaceRoot }),
-    }),
-    () => api(`/api/workspace?workspace_root=${encodeURIComponent(workspaceRoot)}`, { method: 'POST' }),
     () => api('/api/workspace', { method: 'POST' }),
   ];
   let lastError = null;

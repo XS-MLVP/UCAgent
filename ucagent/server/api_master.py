@@ -108,6 +108,8 @@ _LAUNCH_MODE_LABELS = {
     "k8s": "Kubernetes",
 }
 _CONTAINER_LAUNCH_MODES = {"docker", "docker_swarm", "k8s"}
+_MASTER_SOURCE_CONTAINER_PATH = "/UCAgent"
+_K8S_JOB_STATUS_JSONPATH = "{.status.active} {.status.succeeded} {.status.failed}"
 
 
 def _strip_ansi(text: str) -> str:
@@ -827,8 +829,8 @@ class PdbMasterApiServer:
         self._mark_dirty()
         return self._workspace_public(self._get_workspace(workspace_id))
 
-    def _create_workspace(self, base_root: str = "/tmp") -> Dict[str, Any]:
-        base_root = os.path.abspath(base_root or "/tmp")
+    def _create_workspace(self) -> Dict[str, Any]:
+        base_root = self.workspace
         os.makedirs(base_root, exist_ok=True)
         ws_dir = tempfile.mkdtemp(prefix="ucagent_launch_", dir=base_root)
         workspace_id = secrets.token_hex(8)
@@ -850,28 +852,8 @@ class PdbMasterApiServer:
         self._mark_dirty()
         return ws
 
-    def _write_launch_status(self, ws_dir: str, status: str) -> None:
-        status_file = os.path.join(ws_dir, _LAUNCH_STATUS_FILE)
-        status_data = {
-            "status": status,
-            "updated_at": _now(),
-        }
-        try:
-            with open(status_file, "w", encoding="utf-8") as fh:
-                json.dump(status_data, fh)
-        except Exception:
-            pass
-
-    def _read_launch_status(self, ws_dir: str) -> Dict[str, Any]:
-        status_file = os.path.join(ws_dir, _LAUNCH_STATUS_FILE)
-        try:
-            with open(status_file, "r", encoding="utf-8") as fh:
-                return json.load(fh)
-        except Exception:
-            return {"status": "unknown", "updated_at": 0}
-
-    def _cleanup_stale_workspaces(self, base_root: str = "/tmp") -> int:
-        base_root = os.path.abspath(base_root or "/tmp")
+    def _cleanup_stale_workspaces(self) -> int:
+        base_root = self.workspace
         if not os.path.isdir(base_root):
             return 0
         cleaned = 0
@@ -891,9 +873,29 @@ class PdbMasterApiServer:
                 try:
                     shutil.rmtree(ws_dir)
                     cleaned += 1
-                except Exception:
-                    pass
+                except OSError as exc:
+                    warning(f"Failed to clean stale launch workspace '{ws_dir}': {exc}")
         return cleaned
+
+    def _write_launch_status(self, ws_dir: str, status: str) -> None:
+        status_file = os.path.join(ws_dir, _LAUNCH_STATUS_FILE)
+        status_data = {
+            "status": status,
+            "updated_at": _now(),
+        }
+        try:
+            with open(status_file, "w", encoding="utf-8") as fh:
+                json.dump(status_data, fh)
+        except Exception:
+            pass
+
+    def _read_launch_status(self, ws_dir: str) -> Dict[str, Any]:
+        status_file = os.path.join(ws_dir, _LAUNCH_STATUS_FILE)
+        try:
+            with open(status_file, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return {"status": "unknown", "updated_at": 0}
 
     def _record_workspace_file(
         self,
@@ -1524,7 +1526,7 @@ class PdbMasterApiServer:
 
     def _build_ucagent_command(self, req: Dict[str, Any], prepared: Dict[str, Any], cmd_api: Dict[str, Any]) -> Tuple[List[str], Dict[str, str]]:
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        cli_path = os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
+        cli_path = self._master_source_cli_path() or os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
         picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
         argv = [sys.executable, cli_path, picker_workspace, prepared["dut_name"]]
 
@@ -1698,6 +1700,37 @@ class PdbMasterApiServer:
         except OSError as exc:
             return 127, "", str(exc)
 
+    def _docker_cli_available(self) -> bool:
+        return shutil.which("docker") is not None
+
+    def _docker_sdk_client(self) -> Any:
+        try:
+            import docker
+        except ImportError as exc:
+            raise RuntimeError("docker CLI was not found and Docker SDK for Python is not installed") from exc
+        try:
+            return docker.from_env()
+        except Exception as exc:
+            raise RuntimeError(f"failed to initialize Docker SDK client: {exc}") from exc
+
+    def _k8s_cli_available(self) -> bool:
+        return shutil.which("kubectl") is not None
+
+    def _k8s_sdk_clients(self) -> Tuple[Any, Any]:
+        try:
+            from kubernetes import client as k8s_client
+            from kubernetes import config as k8s_config
+        except ImportError as exc:
+            raise RuntimeError("kubectl CLI was not found and Kubernetes Python client is not installed") from exc
+        try:
+            try:
+                k8s_config.load_incluster_config()
+            except Exception:
+                k8s_config.load_kube_config()
+            return k8s_client, k8s_client.CoreV1Api()
+        except Exception as exc:
+            raise RuntimeError(f"failed to initialize Kubernetes Python client: {exc}") from exc
+
     def _append_task_log(self, path: str, message: str) -> None:
         if not path:
             return
@@ -1730,38 +1763,55 @@ class PdbMasterApiServer:
         }
 
     def _docker_available(self) -> Tuple[bool, str]:
-        if not shutil.which("docker"):
-            return False, "docker CLI was not found"
-        code, stdout, stderr = self._run_control_command(["docker", "info"], timeout=3.0)
-        if code != 0:
-            return False, (stderr or stdout or "docker daemon is not reachable").strip()
-        return True, "Docker daemon is reachable"
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(["docker", "info"], timeout=3.0)
+            if code != 0:
+                return False, (stderr or stdout or "docker daemon is not reachable").strip()
+            return True, "Docker daemon is reachable via docker CLI"
+        try:
+            client = self._docker_sdk_client()
+            client.ping()
+            return True, "Docker daemon is reachable via Docker SDK"
+        except Exception as exc:
+            return False, str(exc)
 
     def _docker_swarm_available(self) -> Tuple[bool, str]:
         docker_ok, docker_msg = self._docker_available()
         if not docker_ok:
             return False, docker_msg
-        code, stdout, stderr = self._run_control_command(
-            ["docker", "info", "--format", "{{.Swarm.LocalNodeState}}"],
-            timeout=3.0,
-        )
-        if code != 0:
-            return False, (stderr or stdout or "failed to inspect Docker Swarm state").strip()
-        state = stdout.strip().lower()
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "info", "--format", "{{.Swarm.LocalNodeState}}"],
+                timeout=3.0,
+            )
+            if code != 0:
+                return False, (stderr or stdout or "failed to inspect Docker Swarm state").strip()
+            state = stdout.strip().lower()
+        else:
+            try:
+                info = self._docker_sdk_client().info()
+                state = str(((info.get("Swarm") or {}).get("LocalNodeState")) or "").strip().lower()
+            except Exception as exc:
+                return False, f"failed to inspect Docker Swarm state via Docker SDK: {exc}"
         if state != "active":
             return False, f"Docker Swarm is not active (state: {state or 'unknown'})"
         return True, "Docker Swarm is active"
 
     def _k8s_available(self) -> Tuple[bool, str]:
-        if not shutil.which("kubectl"):
-            return False, "kubectl CLI was not found"
-        code, stdout, stderr = self._run_control_command(
-            ["kubectl", "cluster-info", "--request-timeout=3s"],
-            timeout=5.0,
-        )
-        if code != 0:
-            return False, (stderr or stdout or "Kubernetes cluster is not reachable").strip()
-        return True, "Kubernetes cluster is reachable"
+        if self._k8s_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                ["kubectl", "cluster-info", "--request-timeout=3s"],
+                timeout=5.0,
+            )
+            if code != 0:
+                return False, (stderr or stdout or "Kubernetes cluster is not reachable").strip()
+            return True, "Kubernetes cluster is reachable via kubectl"
+        try:
+            _k8s_client, core = self._k8s_sdk_clients()
+            core.list_namespace(limit=1)
+            return True, "Kubernetes cluster is reachable via Kubernetes Python client"
+        except Exception as exc:
+            return False, str(exc)
 
     def _launch_mode_options(self) -> List[Dict[str, Any]]:
         docker_ok, docker_msg = self._docker_available()
@@ -1826,9 +1876,26 @@ class PdbMasterApiServer:
             host = "127.0.0.1"
         return f"http://{host}:{port}"
 
+    def _master_source_host_path(self) -> str:
+        raw = str(os.environ.get("UCAGENT_MASTER_SOURCE", "") or "").strip()
+        if not raw:
+            return ""
+        return os.path.abspath(raw)
+
+    def _master_source_cli_path(self) -> str:
+        source_host_path = self._master_source_host_path()
+        if not source_host_path:
+            return ""
+        return os.path.join(source_host_path, "ucagent", "cli.py")
+
+    def _master_source_container_cli_path(self) -> str:
+        return os.path.join(_MASTER_SOURCE_CONTAINER_PATH, "ucagent", "cli.py")
+
     def _container_command(self, resolved_command: List[str]) -> List[str]:
         cfg = self._launch_cluster_config()
         configured = cfg.get("container_command") or "ucagent"
+        if self._master_source_host_path():
+            configured = ["python3", self._master_source_container_cli_path()]
         if isinstance(configured, list):
             prefix = [str(item) for item in configured if str(item).strip()]
         else:
@@ -1842,10 +1909,12 @@ class PdbMasterApiServer:
         mounts: List[Tuple[str, str]] = []
         seen = set()
 
-        def add_mount(source: Any, target: Any = None) -> None:
+        def add_mount(source: Any, target: Any = None, *, require_exists: bool = True) -> None:
             src = os.path.abspath(str(source or "").strip())
             dst = str(target or source or "").strip()
-            if not src or not dst or not os.path.exists(src):
+            if not src or not dst:
+                return
+            if require_exists and not os.path.exists(src):
                 return
             key = (src, dst)
             if key in seen:
@@ -1854,6 +1923,9 @@ class PdbMasterApiServer:
             mounts.append((src, dst))
 
         add_mount(prepared.get("workspace_dir"))
+        source_host_path = self._master_source_host_path()
+        if source_host_path:
+            add_mount(source_host_path, _MASTER_SOURCE_CONTAINER_PATH, require_exists=False)
         for item in cfg.get("extra_mounts") or []:
             if isinstance(item, dict):
                 add_mount(item.get("source") or item.get("src"), item.get("target") or item.get("dst"))
@@ -1861,6 +1933,54 @@ class PdbMasterApiServer:
                 source, target = item.split(":", 1)
                 add_mount(source, target)
         return mounts
+
+    def _cluster_launch_context(
+        self,
+        task: Dict[str, Any],
+        env: Dict[str, str],
+        prepared: Dict[str, Any],
+        mode: str,
+    ) -> Dict[str, Any]:
+        cfg = self._launch_cluster_config()
+        context = {
+            "cfg": cfg,
+            "name": f"ucagent-{task['task_id']}",
+            "env": self._cluster_env(env, task.get("env") or {}),
+            "mounts": self._cluster_mounts(prepared),
+            "picker_workspace": prepared.get("picker_workspace") or prepared["workspace_dir"],
+            "command": self._container_command(task["resolved_command"]),
+        }
+        self._append_cluster_launch_debug(
+            task,
+            mode,
+            context["name"],
+            cfg["image"],
+            context["command"],
+            context["mounts"],
+        )
+        return context
+
+    def _set_cluster_record(
+        self,
+        task: Dict[str, Any],
+        mode: str,
+        kind: str,
+        name: str,
+        image: Any,
+        cluster_id: str = "",
+        **extra: Any,
+    ) -> Dict[str, Any]:
+        cluster = {
+            "mode": mode,
+            "kind": kind,
+            "name": name,
+            "image": image,
+        }
+        if cluster_id:
+            cluster["id"] = cluster_id
+        cluster.update(extra)
+        task["cluster"] = cluster
+        return cluster
 
     def _cluster_ports(
         self,
@@ -1991,6 +2111,153 @@ class PdbMasterApiServer:
         runtime["stdout_thread"].start()
         runtime["stderr_thread"].start()
 
+    def _start_stream_log_capture(self, task: Dict[str, Any], stream_factory: Any, label: str) -> None:
+        stdout_log = open(task["stdout_log_path"], "a", encoding="utf-8", buffering=1)
+        stderr_log = open(task["stderr_log_path"], "a", encoding="utf-8", buffering=1)
+        stop_event = threading.Event()
+
+        def run() -> None:
+            try:
+                for chunk in stream_factory():
+                    if stop_event.is_set():
+                        break
+                    if chunk is None:
+                        continue
+                    if isinstance(chunk, bytes):
+                        text = chunk.decode("utf-8", errors="replace")
+                    else:
+                        text = str(chunk)
+                    stdout_log.write(text)
+                    if text and not text.endswith("\n"):
+                        stdout_log.write("\n")
+            except Exception as exc:
+                stderr_log.write(f"{label} log capture failed: {exc}\n")
+            finally:
+                try:
+                    stdout_log.flush()
+                    stderr_log.flush()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(
+            target=run,
+            daemon=True,
+            name=f"task-{task['task_id']}-{label}-logs",
+        )
+        runtime = self._task_runtime.setdefault(task["task_id"], {})
+        runtime.update({
+            "log_stop_event": stop_event,
+            "stdout_log": stdout_log,
+            "stderr_log": stderr_log,
+            "stdout_thread": thread,
+        })
+        thread.start()
+
+    def _docker_sdk_log_capture(self, task: Dict[str, Any], kind: str, name: str) -> None:
+        def stream_factory() -> Any:
+            client = self._docker_sdk_client()
+            if kind == "container":
+                return client.containers.get(name).logs(stream=True, follow=True, stdout=True, stderr=True)
+            return client.api.service_logs(name, follow=True, stdout=True, stderr=True)
+
+        self._start_stream_log_capture(task, stream_factory, f"docker-{kind}")
+
+    def _k8s_sdk_log_capture(self, task: Dict[str, Any], namespace: str, pod_name: str) -> None:
+        def stream_factory() -> Any:
+            _k8s_client, core = self._k8s_sdk_clients()
+            name = pod_name
+            deadline = time.time() + 60.0
+            while not name and time.time() < deadline:
+                name = self._k8s_pod_name_for_job(namespace, str((task.get("cluster") or {}).get("name") or ""))
+                if not name:
+                    time.sleep(1.0)
+            if not name:
+                raise RuntimeError("Kubernetes job did not create a pod within 60s")
+            return core.read_namespaced_pod_log(
+                name=name,
+                namespace=namespace,
+                follow=True,
+                _preload_content=False,
+            ).stream()
+
+        self._start_stream_log_capture(task, stream_factory, "k8s")
+
+    def _k8s_pod_name_for_job(self, namespace: str, job_name: str) -> str:
+        _k8s_client, core = self._k8s_sdk_clients()
+        pods = core.list_namespaced_pod(namespace=namespace, label_selector=f"job-name={job_name}")
+        items = pods.items or []
+        if not items:
+            return ""
+        return str(items[0].metadata.name or "")
+
+    def _append_cluster_launch_debug(
+        self,
+        task: Dict[str, Any],
+        mode: str,
+        name: str,
+        image: Any,
+        command: List[str],
+        mounts: List[Tuple[str, str]],
+    ) -> None:
+        self._append_task_log(
+            task["stdout_log_path"],
+            (
+                f"Cluster launch debug: mode={mode} name={name} image={image}\n"
+                f"  command={shlex.join([str(item) for item in command])}\n"
+                f"  mounts={json.dumps([{'source': s, 'target': t} for s, t in mounts], ensure_ascii=False)}"
+            ),
+        )
+
+    def _docker_swarm_task_detail(self, name: str) -> str:
+        if not name:
+            return ""
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                [
+                    "docker", "service", "ps", name, "--no-trunc",
+                    "--format", "ID={{.ID}} Name={{.Name}} Node={{.Node}} Desired={{.DesiredState}} Current={{.CurrentState}} Error={{.Error}} Image={{.Image}}",
+                ],
+                timeout=5.0,
+            )
+            return (stdout or stderr).strip() if code == 0 else (stderr or stdout).strip()
+        try:
+            service = self._docker_sdk_client().services.get(name)
+            lines = []
+            for item in service.tasks():
+                status = item.get("Status") or {}
+                spec = item.get("Spec") or {}
+                container = spec.get("ContainerSpec") or {}
+                lines.append(
+                    "ID={id} Node={node} Desired={desired} State={state} Message={message} Error={error} Image={image}".format(
+                        id=item.get("ID", ""),
+                        node=item.get("NodeID", ""),
+                        desired=item.get("DesiredState", ""),
+                        state=status.get("State", ""),
+                        message=status.get("Message", ""),
+                        error=status.get("Err", ""),
+                        image=container.get("Image", ""),
+                    )
+                )
+            return "\n".join(lines)
+        except Exception as exc:
+            return str(exc)
+
+    def _cluster_job_status(self, active: int, succeeded: int, failed: int) -> Tuple[bool, Optional[int], str]:
+        detail = f"active={active} succeeded={succeeded} failed={failed}"
+        if active > 0:
+            return True, None, detail
+        if succeeded > 0:
+            return False, 0, detail
+        if failed > 0:
+            return False, 1, detail
+        return True, None, detail
+
+    def _int_or_zero(self, value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
     def _start_task_docker(
         self,
         task: Dict[str, Any],
@@ -2000,34 +2267,55 @@ class PdbMasterApiServer:
         terminal_api: Dict[str, Any],
         web_console: Dict[str, Any],
     ) -> Dict[str, Any]:
-        cfg = self._launch_cluster_config()
-        name = f"ucagent-{task['task_id']}"
-        cluster_env = self._cluster_env(env, task.get("env") or {})
-        env_file = self._write_docker_env_file(task, cluster_env)
+        context = self._cluster_launch_context(task, env, prepared, "docker")
+        cfg = context["cfg"]
+        name = context["name"]
+        if not self._docker_cli_available():
+            client = self._docker_sdk_client()
+            network = str(cfg.get("docker_network") or "").strip() or None
+            volumes = {
+                source: {"bind": target, "mode": "rw"}
+                for source, target in context["mounts"]
+            }
+            ports = {
+                f"{port['container_port']}/tcp": port["host_port"]
+                for port in self._published_ports(cmd_api, terminal_api, web_console)
+            } or None
+            container = client.containers.run(
+                image=str(cfg["image"]),
+                command=context["command"],
+                name=name,
+                detach=True,
+                environment=context["env"],
+                network=network,
+                volumes=volumes,
+                working_dir=context["picker_workspace"],
+                ports=ports,
+                remove="--rm" in self._docker_extra_args(cfg),
+            )
+            self._set_cluster_record(task, "docker", "container", name, cfg["image"], cluster_id=container.id)
+            self._append_task_log(task["stdout_log_path"], f"Started Docker container {name} {container.id}")
+            self._docker_sdk_log_capture(task, "container", name)
+            return task["cluster"]
+
+        env_file = self._write_docker_env_file(task, context["env"])
         cmd = ["docker", "run", "-d", "--name", name, "--env-file", env_file]
         network = str(cfg.get("docker_network") or "").strip()
         if network:
             cmd.extend(["--network", network])
-        for source, target in self._cluster_mounts(prepared):
+        for source, target in context["mounts"]:
             cmd.extend(["-v", f"{source}:{target}"])
-        picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
-        cmd.extend(["--workdir", picker_workspace])
+        cmd.extend(["--workdir", context["picker_workspace"]])
         for port in self._published_ports(cmd_api, terminal_api, web_console):
             cmd.extend(["-p", f"{port['host_port']}:{port['container_port']}"])
         cmd.extend(self._docker_extra_args(cfg))
         cmd.append(str(cfg["image"]))
-        cmd.extend(self._container_command(task["resolved_command"]))
+        cmd.extend(context["command"])
         code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
         if code != 0:
             raise ValueError(f"docker run failed: {(stderr or stdout).strip()}")
         container_id = stdout.strip()
-        task["cluster"] = {
-            "mode": "docker",
-            "kind": "container",
-            "name": name,
-            "id": container_id,
-            "image": cfg["image"],
-        }
+        self._set_cluster_record(task, "docker", "container", name, cfg["image"], cluster_id=container_id)
         self._append_task_log(task["stdout_log_path"], f"Started Docker container {name} {container_id}")
         self._start_external_log_capture(task, ["docker", "logs", "-f", name])
         return task["cluster"]
@@ -2041,40 +2329,69 @@ class PdbMasterApiServer:
         terminal_api: Dict[str, Any],
         web_console: Dict[str, Any],
     ) -> Dict[str, Any]:
-        cfg = self._launch_cluster_config()
-        name = f"ucagent-{task['task_id']}"
+        context = self._cluster_launch_context(task, env, prepared, "docker_swarm")
+        cfg = context["cfg"]
+        name = context["name"]
+        if not self._docker_cli_available():
+            client = self._docker_sdk_client()
+            mounts = [
+                {"Type": "bind", "Source": source, "Target": target}
+                for source, target in context["mounts"]
+            ]
+            task_template = {
+                "ContainerSpec": {
+                    "Image": str(cfg["image"]),
+                    "Command": context["command"],
+                    "Env": [
+                        f"{key}={value}"
+                        for key, value in sorted(context["env"].items())
+                        if _valid_env_name(str(key))
+                    ],
+                    "Mounts": mounts,
+                    "Dir": context["picker_workspace"],
+                },
+                "RestartPolicy": {"Condition": "none"},
+            }
+            network = str(cfg.get("docker_network") or "").strip()
+            networks = [network] if network else None
+            service_data = client.api.create_service(
+                task_template=task_template,
+                name=name,
+                networks=networks,
+                mode={"ReplicatedJob": {"TotalCompletions": 1, "MaxConcurrent": 1}},
+            )
+            service_id = str(service_data.get("ID") or "")
+            self._set_cluster_record(task, "docker_swarm", "job", name, cfg["image"], cluster_id=service_id)
+            self._append_task_log(task["stdout_log_path"], f"Started Docker Swarm service {name} {service_id}")
+            self._docker_sdk_log_capture(task, "service", name)
+            return task["cluster"]
+
         cmd = [
             "docker", "service", "create",
             "--name", name,
             "--detach=true",
+            "--mode", "replicated-job",
             "--replicas", "1",
             "--restart-condition", "none",
         ]
-        for source, target in self._cluster_mounts(prepared):
+        network = str(cfg.get("docker_network") or "").strip()
+        if network:
+            cmd.extend(["--network", network])
+        for source, target in context["mounts"]:
             cmd.extend(["--mount", f"type=bind,source={source},target={target}"])
-        picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
-        cmd.extend(["--workdir", picker_workspace])
-        cluster_env = self._cluster_env(env, task.get("env") or {})
-        for key, value in sorted(cluster_env.items()):
+        cmd.extend(["--workdir", context["picker_workspace"]])
+        for key, value in sorted(context["env"].items()):
             key = str(key)
             if _valid_env_name(key):
                 cmd.extend(["--env", f"{key}={value}"])
-        for port in self._published_ports(cmd_api, terminal_api, web_console):
-            cmd.extend(["--publish", f"published={port['host_port']},target={port['container_port']}"])
         cmd.extend([str(item) for item in cfg.get("swarm_extra_args") or [] if str(item).strip()])
         cmd.append(str(cfg["image"]))
-        cmd.extend(self._container_command(task["resolved_command"]))
+        cmd.extend(context["command"])
         code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
         if code != 0:
             raise ValueError(f"docker service create failed: {(stderr or stdout).strip()}")
         service_id = stdout.strip()
-        task["cluster"] = {
-            "mode": "docker_swarm",
-            "kind": "service",
-            "name": name,
-            "id": service_id,
-            "image": cfg["image"],
-        }
+        self._set_cluster_record(task, "docker_swarm", "job", name, cfg["image"], cluster_id=service_id)
         self._append_task_log(task["stdout_log_path"], f"Started Docker Swarm service {name} {service_id}")
         self._start_external_log_capture(task, ["docker", "service", "logs", "-f", "--raw", name])
         return task["cluster"]
@@ -2088,17 +2405,17 @@ class PdbMasterApiServer:
         terminal_api: Dict[str, Any],
         web_console: Dict[str, Any],
     ) -> Dict[str, Any]:
-        cfg = self._launch_cluster_config()
-        name = f"ucagent-{task['task_id']}"
-        command = self._container_command(task["resolved_command"])
-        cluster_env = self._cluster_env(env, task.get("env") or {})
+        context = self._cluster_launch_context(task, env, prepared, "k8s")
+        cfg = context["cfg"]
+        name = context["name"]
+        command = context["command"]
         ports = [
             {"name": item["name"][:15], "containerPort": item["container_port"]}
             for item in self._published_ports(cmd_api, terminal_api, web_console)
         ]
         volume_mounts = []
         volumes = []
-        for index, (source, target) in enumerate(self._cluster_mounts(prepared), start=1):
+        for index, (source, target) in enumerate(context["mounts"], start=1):
             vol_name = f"workspace-{index}"
             volumes.append({"name": vol_name, "hostPath": {"path": source, "type": "Directory"}})
             volume_mounts.append({"name": vol_name, "mountPath": target})
@@ -2110,7 +2427,7 @@ class PdbMasterApiServer:
             "args": command[1:],
             "env": [
                 {"name": str(key), "value": str(value)}
-                for key, value in sorted(cluster_env.items())
+                for key, value in sorted(context["env"].items())
                 if _valid_env_name(str(key))
             ],
             "volumeMounts": volume_mounts,
@@ -2119,20 +2436,20 @@ class PdbMasterApiServer:
             container["ports"] = ports
         if cfg.get("k8s_resources"):
             container["resources"] = cfg["k8s_resources"]
-        spec: Dict[str, Any] = {
+        pod_spec: Dict[str, Any] = {
             "restartPolicy": "Never",
             "containers": [container],
             "volumes": volumes,
         }
         if cfg.get("k8s_service_account"):
-            spec["serviceAccountName"] = cfg["k8s_service_account"]
+            pod_spec["serviceAccountName"] = cfg["k8s_service_account"]
         if cfg.get("k8s_node_selector"):
-            spec["nodeSelector"] = cfg["k8s_node_selector"]
+            pod_spec["nodeSelector"] = cfg["k8s_node_selector"]
         if cfg.get("k8s_tolerations"):
-            spec["tolerations"] = cfg["k8s_tolerations"]
+            pod_spec["tolerations"] = cfg["k8s_tolerations"]
         return {
-            "apiVersion": "v1",
-            "kind": "Pod",
+            "apiVersion": "batch/v1",
+            "kind": "Job",
             "metadata": {
                 "name": name,
                 "labels": {
@@ -2140,12 +2457,29 @@ class PdbMasterApiServer:
                     "ucagent-task-id": task["task_id"],
                 },
             },
-            "spec": spec,
+            "spec": {
+                "backoffLimit": 0,
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": "ucagent",
+                            "ucagent-task-id": task["task_id"],
+                        },
+                    },
+                    "spec": pod_spec,
+                },
+            },
         }
 
     def _start_k8s_port_forwards(self, task: Dict[str, Any]) -> None:
         cluster = task.get("cluster") or {}
         if task.get("launch_mode") != "k8s" or not cluster.get("name"):
+            return
+        if not self._k8s_cli_available():
+            self._append_task_log(
+                task["stderr_log_path"],
+                "kubectl was not found; Kubernetes Python client fallback does not start local port-forward processes.",
+            )
             return
         runtime = self._task_runtime.setdefault(task["task_id"], {})
         existing = runtime.get("port_forward_processes") or []
@@ -2153,6 +2487,17 @@ class PdbMasterApiServer:
             return
         cfg = self._launch_cluster_config()
         namespace = cluster.get("namespace") or cfg["k8s_namespace"]
+        name = str(cluster.get("name") or "").strip()
+        pod_ref = f"pod/{name}"
+        if cluster.get("kind") == "job":
+            code, stdout, stderr = self._run_control_command(
+                ["kubectl", "get", "pods", "-n", namespace, "-l", f"job-name={name}", "-o", "jsonpath={.items[0].metadata.name}"],
+                timeout=4.0,
+            )
+            if code != 0 or not stdout.strip():
+                self._append_task_log(task["stderr_log_path"], f"Failed to find pod for Kubernetes job {namespace}/{name}: {(stderr or stdout).strip()}")
+                return
+            pod_ref = f"pod/{stdout.strip()}"
         processes = []
         for port in cluster.get("ports") or []:
             host_port = int(port["host_port"])
@@ -2160,7 +2505,7 @@ class PdbMasterApiServer:
             cmd = [
                 "kubectl", "port-forward",
                 "-n", namespace,
-                f"pod/{cluster['name']}",
+                pod_ref,
                 f"{host_port}:{container_port}",
                 "--address", "127.0.0.1",
             ]
@@ -2187,28 +2532,51 @@ class PdbMasterApiServer:
     ) -> Dict[str, Any]:
         cfg = self._launch_cluster_config()
         manifest = self._k8s_manifest(task, env, prepared, cmd_api, terminal_api, web_console)
-        manifest_path = os.path.join(self._logs_dir, f"{task['task_id']}.k8s-pod.json")
+        manifest_path = os.path.join(self._logs_dir, f"{task['task_id']}.k8s-job.json")
         with open(manifest_path, "w", encoding="utf-8") as fh:
             json.dump(manifest, fh, ensure_ascii=False, indent=2)
         namespace = cfg["k8s_namespace"]
+        if not self._k8s_cli_available():
+            _k8s_client, _core = self._k8s_sdk_clients()
+            batch = _k8s_client.BatchV1Api()
+            try:
+                batch.create_namespaced_job(namespace=namespace, body=manifest)
+            except Exception as exc:
+                raise ValueError(f"Kubernetes Python client job create failed: {exc}") from exc
+            name = manifest["metadata"]["name"]
+            self._set_cluster_record(
+                task,
+                "k8s",
+                "job",
+                name,
+                cfg["image"],
+                namespace=namespace,
+                manifest_path=manifest_path,
+                ports=self._published_ports(cmd_api, terminal_api, web_console),
+            )
+            self._append_task_log(task["stdout_log_path"], f"Started Kubernetes job {namespace}/{name}")
+            self._k8s_sdk_log_capture(task, namespace, "")
+            return task["cluster"]
+
         cmd = ["kubectl", "apply", "-n", namespace, "-f", manifest_path]
         code, stdout, stderr = self._run_control_command(cmd, timeout=30.0)
         if code != 0:
             raise ValueError(f"kubectl apply failed: {(stderr or stdout).strip()}")
         name = manifest["metadata"]["name"]
-        task["cluster"] = {
-            "mode": "k8s",
-            "kind": "pod",
-            "name": name,
-            "namespace": namespace,
-            "image": cfg["image"],
-            "manifest_path": manifest_path,
-            "ports": self._published_ports(cmd_api, terminal_api, web_console),
-        }
-        self._append_task_log(task["stdout_log_path"], f"Started Kubernetes pod {namespace}/{name}")
+        self._set_cluster_record(
+            task,
+            "k8s",
+            "job",
+            name,
+            cfg["image"],
+            namespace=namespace,
+            manifest_path=manifest_path,
+            ports=self._published_ports(cmd_api, terminal_api, web_console),
+        )
+        self._append_task_log(task["stdout_log_path"], f"Started Kubernetes job {namespace}/{name}")
         self._start_k8s_port_forwards(task)
         self._start_external_log_capture(task, [
-            "kubectl", "logs", "-f", "-n", namespace, f"pod/{name}", "--all-containers=true"
+            "kubectl", "logs", "-f", "-n", namespace, f"job/{name}", "--all-containers=true"
         ])
         return task["cluster"]
 
@@ -2245,6 +2613,12 @@ class PdbMasterApiServer:
                         pass
                 except OSError:
                     pass
+        stop_event = runtime.get("log_stop_event")
+        if stop_event is not None:
+            try:
+                stop_event.set()
+            except Exception:
+                pass
         for proc in runtime.get("port_forward_processes") or []:
             if proc is not None and proc.poll() is None:
                 try:
@@ -2283,6 +2657,16 @@ class PdbMasterApiServer:
         if mode == "docker":
             if not name:
                 return False, None, "missing docker container name"
+            if not self._docker_cli_available():
+                try:
+                    container = self._docker_sdk_client().containers.get(name)
+                    container.reload()
+                    state = container.attrs.get("State") or {}
+                    running = bool(state.get("Running"))
+                    exit_code = state.get("ExitCode")
+                    return running, int(exit_code) if exit_code is not None else None, str(state.get("Status") or "")
+                except Exception as exc:
+                    return False, None, str(exc)
             code, stdout, stderr = self._run_control_command(
                 ["docker", "inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", name],
                 timeout=3.0,
@@ -2301,6 +2685,21 @@ class PdbMasterApiServer:
         if mode == "docker_swarm":
             if not name:
                 return False, None, "missing docker service name"
+            if not self._docker_cli_available():
+                try:
+                    service = self._docker_sdk_client().services.get(name)
+                    tasks = service.tasks()
+                    states = [str(((item.get("Status") or {}).get("State")) or "").lower() for item in tasks]
+                    detail = ", ".join(states)
+                    if any(state in {"running", "preparing", "starting", "pending", "assigned"} for state in states):
+                        return True, None, detail
+                    if any(state in {"failed", "rejected"} for state in states):
+                        return False, 1, detail
+                    if any(state in {"complete", "shutdown"} for state in states):
+                        return False, 0, detail
+                    return False, None, detail
+                except Exception as exc:
+                    return False, None, str(exc)
             code, stdout, stderr = self._run_control_command(
                 ["docker", "service", "ps", name, "--no-trunc", "--format", "{{.CurrentState}}"],
                 timeout=3.0,
@@ -2317,27 +2716,36 @@ class PdbMasterApiServer:
             return False, None, stdout.strip()
         if mode == "k8s":
             if not name:
-                return False, None, "missing Kubernetes pod name"
+                return False, None, "missing Kubernetes job name"
             namespace = str(cluster.get("namespace") or self._launch_cluster_config()["k8s_namespace"])
+            if not self._k8s_cli_available():
+                try:
+                    _k8s_client, _core = self._k8s_sdk_clients()
+                    job = _k8s_client.BatchV1Api().read_namespaced_job(name=name, namespace=namespace)
+                    status = job.status
+                    return self._cluster_job_status(
+                        self._int_or_zero(status.active if status else 0),
+                        self._int_or_zero(status.succeeded if status else 0),
+                        self._int_or_zero(status.failed if status else 0),
+                    )
+                except Exception as exc:
+                    return False, None, str(exc)
             code, stdout, stderr = self._run_control_command(
                 [
-                    "kubectl", "get", "pod", name,
+                    "kubectl", "get", "job", name,
                     "-n", namespace,
-                    "-o", "jsonpath={.status.phase} {.status.containerStatuses[0].state.terminated.exitCode}",
+                    "-o", f"jsonpath={_K8S_JOB_STATUS_JSONPATH}",
                 ],
                 timeout=4.0,
             )
             if code != 0:
                 return False, None, (stderr or stdout).strip()
             parts = stdout.strip().split()
-            phase = parts[0] if parts else ""
-            exit_code = None
-            if len(parts) > 1:
-                try:
-                    exit_code = int(parts[1])
-                except ValueError:
-                    exit_code = None
-            return phase in {"Pending", "Running"}, exit_code, phase
+            return self._cluster_job_status(
+                self._int_or_zero(parts[0] if len(parts) > 0 else 0),
+                self._int_or_zero(parts[1] if len(parts) > 1 else 0),
+                self._int_or_zero(parts[2] if len(parts) > 2 else 0),
+            )
         return False, None, ""
 
     def _flush_task_runtime_logs(self, task_id: str) -> None:
@@ -2481,6 +2889,15 @@ class PdbMasterApiServer:
                         task["finished_at"] = task.get("finished_at") or now
                         task["exit_code"] = exit_code
                         task["process_status"] = "stopped" if task["process_status"] == "stopping" or exit_code == 0 else "failed"
+                        if launch_mode == "docker_swarm" and not task.get("cluster_debug_logged"):
+                            cluster_name = str((task.get("cluster") or {}).get("name") or "").strip()
+                            detail = self._docker_swarm_task_detail(cluster_name)
+                            if detail:
+                                self._append_task_log(
+                                    task["stderr_log_path"],
+                                    f"Docker Swarm task detail for {cluster_name}:\n{detail}",
+                                )
+                            task["cluster_debug_logged"] = True
                         task["cmd_api"]["status"] = "stopped"
                         task["terminal_api"]["status"] = "stopped"
                         self._close_task_runtime(task["task_id"])
@@ -2520,7 +2937,7 @@ class PdbMasterApiServer:
         if launch_mode not in enabled_launch_modes:
             raise ValueError(
                 f"Launch mode '{launch_mode}' is not enabled. Enabled launch modes: {', '.join(enabled_launch_modes)}"
-            )
+        )
         req["launch_mode"] = launch_mode
         self._ensure_launch_mode_supported(launch_mode)
         if not str(req.get("client_id") or "").strip():
@@ -2696,13 +3113,29 @@ class PdbMasterApiServer:
         if launch_mode == "docker":
             name = str((task.get("cluster") or {}).get("name") or "").strip()
             if name:
-                cmd = ["docker", "rm", "-f", name] if force else ["docker", "stop", name]
-                self._run_control_command(cmd, timeout=15.0)
+                if self._docker_cli_available():
+                    cmd = ["docker", "rm", "-f", name] if force else ["docker", "stop", name]
+                    self._run_control_command(cmd, timeout=15.0)
+                else:
+                    try:
+                        container = self._docker_sdk_client().containers.get(name)
+                        if force:
+                            container.remove(force=True)
+                        else:
+                            container.stop(timeout=15)
+                    except Exception as exc:
+                        self._append_task_log(task["stderr_log_path"], f"Failed to stop Docker container via SDK: {exc}")
             return
         if launch_mode == "docker_swarm":
             name = str((task.get("cluster") or {}).get("name") or "").strip()
             if name:
-                self._run_control_command(["docker", "service", "rm", name], timeout=15.0)
+                if self._docker_cli_available():
+                    self._run_control_command(["docker", "service", "rm", name], timeout=15.0)
+                else:
+                    try:
+                        self._docker_sdk_client().services.get(name).remove()
+                    except Exception as exc:
+                        self._append_task_log(task["stderr_log_path"], f"Failed to remove Docker Swarm service via SDK: {exc}")
             return
         if launch_mode == "k8s":
             cluster = task.get("cluster") or {}
@@ -2710,10 +3143,21 @@ class PdbMasterApiServer:
             namespace = str(cluster.get("namespace") or self._launch_cluster_config()["k8s_namespace"])
             if name:
                 grace = "0" if force else "30"
-                self._run_control_command(
-                    ["kubectl", "delete", "pod", name, "-n", namespace, "--grace-period", grace, "--ignore-not-found=true"],
-                    timeout=20.0,
-                )
+                if self._k8s_cli_available():
+                    self._run_control_command(
+                        ["kubectl", "delete", "job", name, "-n", namespace, "--grace-period", grace, "--ignore-not-found=true"],
+                        timeout=20.0,
+                    )
+                else:
+                    try:
+                        _k8s_client, _core = self._k8s_sdk_clients()
+                        body = _k8s_client.V1DeleteOptions(
+                            grace_period_seconds=int(grace),
+                            propagation_policy="Background",
+                        )
+                        _k8s_client.BatchV1Api().delete_namespaced_job(name=name, namespace=namespace, body=body)
+                    except Exception as exc:
+                        self._append_task_log(task["stderr_log_path"], f"Failed to delete Kubernetes job via SDK: {exc}")
             self._close_task_runtime(task["task_id"], join_timeout=1.0)
             return
         pid = task.get("pid")
@@ -3269,7 +3713,6 @@ class PdbMasterApiServer:
         @app.get("/api/launch/config", summary="Get launch default configuration", dependencies=[Depends(_check_password)])
         def launch_config():
             default_args = _plain_config_value(self.cfg.get_value("launch.default_args", {}) or {})
-            workspace_root = self.cfg.get_value("launch.workspace_root", "/tmp/") or "/tmp/"
             backend_cfg = _plain_config_value(self.cfg.get_value("backend", {}) or {})
             backend_key_name = backend_cfg.get("key_name", "") if isinstance(backend_cfg, dict) else ""
             backend_options = []
@@ -3298,7 +3741,6 @@ class PdbMasterApiServer:
                 default_launch_mode = "process"
             return {
                 "status": "ok",
-                "workspace_root": workspace_root,
                 "default_args": default_args,
                 "backend_key_name": backend_key_name,
                 "backend_options": backend_options,
@@ -3364,12 +3806,8 @@ class PdbMasterApiServer:
             }
 
         @app.post("/api/workspace", summary="Create launch workspace", dependencies=[Depends(_check_password)])
-        def create_workspace(
-            body: Dict[str, Any] = Body(default_factory=dict),
-            workspace_root: str = Query("/tmp"),
-        ):
-            root = str(body.get("workspace_root") or workspace_root or "/tmp").strip() or "/tmp"
-            ws = self._create_workspace(root)
+        def create_workspace():
+            ws = self._create_workspace()
             return {"status": "ok", "workspace": self._workspace_public(ws)}
 
         @app.get("/api/workspace/{workspace_id}", summary="Workspace detail", dependencies=[Depends(_check_password)])
