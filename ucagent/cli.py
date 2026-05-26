@@ -11,9 +11,16 @@ import os
 import sys
 import argparse
 import bdb
+import base64
+import posixpath
+import shutil
+import tarfile
 from typing import Dict, List, Any, Optional
 import tempfile
 import traceback
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +34,11 @@ from ucagent.version import __version__
 def info(*k, **w):
     print(*k, **w)
 
+
+class WorkspaceArchiveError(ValueError):
+    """Raised when a workspace archive cannot be downloaded, extracted, or validated."""
+
+
 def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
     source_argv = list(sys.argv if argv is None else argv)
     raw_args = source_argv[1:]
@@ -38,6 +50,179 @@ def _extract_web_console_capture_path(argv: Optional[List[str]] = None) -> str:
         if arg.startswith("--web-console-capture-path="):
             return arg.split("=", 1)[1]
     return ""
+
+
+def _is_workspace_archive_source(workspace: str) -> bool:
+    raw = str(workspace or "").strip()
+    if not raw:
+        return False
+    parsed = urlparse(raw)
+    if parsed.scheme in ("http", "https"):
+        return parsed.path.lower().endswith(".tar.gz")
+    return raw.lower().endswith(".tar.gz")
+
+
+def _archive_name_from_source(source: str) -> str:
+    parsed = urlparse(source)
+    if parsed.scheme in ("http", "https"):
+        name = posixpath.basename(parsed.path)
+    else:
+        name = os.path.basename(source)
+    if not name.lower().endswith(".tar.gz"):
+        raise WorkspaceArchiveError(
+            f"Workspace archive must be a .tar.gz file or http(s) .tar.gz URL: {source}"
+        )
+    stem = name[:-7]
+    cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem).strip("._-")
+    if not cleaned:
+        raise WorkspaceArchiveError(f"Cannot infer extraction directory name from workspace archive: {source}")
+    return cleaned
+
+
+def _download_workspace_archive(source_url: str, archive_path: str) -> None:
+    parsed = urlparse(source_url)
+    headers = {"User-Agent": f"UCAgent/{__version__}"}
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    access_keys = query.pop("key", [])
+    if access_keys and access_keys[0]:
+        headers["X-Access-Key"] = access_keys[0]
+    elif os.environ.get("UCAGENT_WORKSPACE_ARCHIVE_KEY"):
+        headers["X-Access-Key"] = os.environ["UCAGENT_WORKSPACE_ARCHIVE_KEY"]
+    if os.environ.get("UCAGENT_WORKSPACE_ARCHIVE_PASSWORD"):
+        token = base64.b64encode(f":{os.environ['UCAGENT_WORKSPACE_ARCHIVE_PASSWORD']}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
+    clean_query = urlencode([(key, value) for key, values in query.items() for value in values])
+    request_url = urlunparse(parsed._replace(query=clean_query))
+    display_url = urlunparse(parsed._replace(query=clean_query))
+    request = Request(request_url, headers=headers)
+    try:
+        with urlopen(request, timeout=60) as response:
+            status = getattr(response, "status", 200)
+            if status and int(status) >= 400:
+                raise WorkspaceArchiveError(f"Failed to download workspace archive: HTTP {status} {display_url}")
+            with open(archive_path, "wb") as fh:
+                shutil.copyfileobj(response, fh)
+    except HTTPError as exc:
+        raise WorkspaceArchiveError(
+            f"Failed to download workspace archive from {display_url}: HTTP {exc.code} {exc.reason}"
+        ) from exc
+    except URLError as exc:
+        raise WorkspaceArchiveError(
+            f"Failed to download workspace archive from {display_url}: {exc.reason}"
+        ) from exc
+    except TimeoutError as exc:
+        raise WorkspaceArchiveError(f"Timed out downloading workspace archive from {display_url}") from exc
+    except OSError as exc:
+        raise WorkspaceArchiveError(
+            f"Failed to save downloaded workspace archive to {archive_path}: {exc}"
+        ) from exc
+    if not os.path.isfile(archive_path) or os.path.getsize(archive_path) == 0:
+        raise WorkspaceArchiveError(f"Downloaded workspace archive is empty: {display_url}")
+
+
+def _safe_extract_workspace_archive(archive_path: str, extract_dir: str, dut_name: str) -> str:
+    workspace_dir = os.path.join(extract_dir, "workspace")
+    try:
+        with tarfile.open(archive_path, "r:gz") as tf:
+            members = tf.getmembers()
+            if not members:
+                raise WorkspaceArchiveError("Workspace archive is empty")
+            has_workspace_root = False
+            for member in members:
+                name = member.name or ""
+                normalized = posixpath.normpath(name)
+                if normalized in ("", ".") or normalized.startswith("../") or normalized == ".." or posixpath.isabs(normalized):
+                    raise WorkspaceArchiveError(f"Unsafe archive entry path: {name}")
+                parts = normalized.split("/")
+                if not parts or parts[0] != "workspace":
+                    raise WorkspaceArchiveError(
+                        "Invalid workspace archive layout: archive root must contain a direct 'workspace' directory"
+                    )
+                if member.issym() or member.islnk():
+                    raise WorkspaceArchiveError(f"Unsupported archive link entry: {name}")
+                if not (member.isdir() or member.isfile()):
+                    raise WorkspaceArchiveError(f"Unsupported archive entry type: {name}")
+                if member.isdir() and normalized == "workspace":
+                    has_workspace_root = True
+                if normalized == "workspace" or normalized.startswith("workspace/"):
+                    has_workspace_root = True
+            if not has_workspace_root:
+                raise WorkspaceArchiveError(
+                    "Invalid workspace archive layout: missing root 'workspace' directory"
+                )
+            tf.extractall(extract_dir)
+    except WorkspaceArchiveError:
+        raise
+    except tarfile.TarError as exc:
+        raise WorkspaceArchiveError(f"Invalid or unreadable .tar.gz workspace archive: {archive_path}: {exc}") from exc
+    except OSError as exc:
+        raise WorkspaceArchiveError(f"Failed to extract workspace archive to {extract_dir}: {exc}") from exc
+
+    if not os.path.isdir(workspace_dir):
+        raise WorkspaceArchiveError(
+            f"Invalid workspace archive layout: extracted directory is missing '{workspace_dir}'"
+        )
+    dut_path = os.path.join(workspace_dir, dut_name)
+    if not os.path.isdir(dut_path):
+        raise WorkspaceArchiveError(
+            f"Invalid workspace archive layout: expected DUT directory '{dut_name}' under '{workspace_dir}'"
+        )
+    return workspace_dir
+
+
+def _prepare_workspace_archive_source(workspace: str, dut_name: str, workspace_base: str) -> str:
+    parsed = urlparse(str(workspace or ""))
+    if parsed.scheme in ("http", "https") and not _is_workspace_archive_source(workspace):
+        raise WorkspaceArchiveError(f"Remote workspace URL must point to a .tar.gz archive: {workspace}")
+    if not _is_workspace_archive_source(workspace):
+        return workspace
+    if not dut_name:
+        raise WorkspaceArchiveError("DUT name is required when workspace is a .tar.gz archive")
+
+    archive_name = _archive_name_from_source(workspace)
+    base_dir = os.path.abspath(os.path.expanduser(workspace_base or "/tmp/ucagent_workspace_base"))
+    extract_dir = os.path.join(base_dir, archive_name)
+    marker_path = os.path.join(extract_dir, ".ucagent_archive_extract")
+    try:
+        os.makedirs(base_dir, exist_ok=True)
+    except OSError as exc:
+        raise WorkspaceArchiveError(f"Failed to create --workspace-base directory '{base_dir}': {exc}") from exc
+
+    if os.path.exists(extract_dir):
+        if os.path.isfile(marker_path):
+            try:
+                shutil.rmtree(extract_dir)
+            except OSError as exc:
+                raise WorkspaceArchiveError(f"Failed to clean previous extracted workspace '{extract_dir}': {exc}") from exc
+        else:
+            raise WorkspaceArchiveError(
+                f"Extraction target already exists and was not created by UCAgent: {extract_dir}. "
+                "Remove it or choose another --workspace-base."
+            )
+    try:
+        os.makedirs(extract_dir, exist_ok=False)
+        with tempfile.TemporaryDirectory(prefix="ucagent_workspace_archive_") as tmp_dir:
+            archive_path = workspace
+            if parsed.scheme in ("http", "https"):
+                archive_path = os.path.join(tmp_dir, f"{archive_name}.tar.gz")
+                _download_workspace_archive(workspace, archive_path)
+            else:
+                archive_path = os.path.abspath(os.path.expanduser(workspace))
+                if not os.path.isfile(archive_path):
+                    raise WorkspaceArchiveError(f"Workspace archive file not found: {archive_path}")
+            effective_workspace = _safe_extract_workspace_archive(archive_path, extract_dir, dut_name)
+    except Exception:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        raise
+
+    try:
+        with open(marker_path, "w", encoding="utf-8") as fh:
+            fh.write(f"source={workspace}\nworkspace={effective_workspace}\n")
+    except OSError:
+        pass
+    info(f"Workspace archive extracted to: {extract_dir}")
+    info(f"Effective workspace: {effective_workspace}")
+    return effective_workspace
 
 
 class CheckAction(argparse.Action):
@@ -148,7 +333,10 @@ def get_args() -> argparse.Namespace:
         type=str,
         nargs="?",
         default=None,
-        help="Workspace directory to run the agent in. Optional when '--as-master/--upgrade' is used."
+        help=(
+            "Workspace directory, local .tar.gz archive, or http(s) .tar.gz URL to run the agent in. "
+            "Optional when '--as-master/--upgrade' is used."
+        )
     )
     parser.add_argument(
         "dut",
@@ -156,6 +344,17 @@ def get_args() -> argparse.Namespace:
         nargs="?",
         default=None,
         help="DUT name (sub-directory name in workspace), e.g., DualPort, Adder, ALU. Optional when '--as-master/--upgrade' is used."
+    )
+    parser.add_argument(
+        "--workspace-base",
+        type=str,
+        default="/tmp/ucagent_workspace_base",
+        help=(
+            "Base directory used when workspace is a .tar.gz archive or an http(s) .tar.gz URL. "
+            "The archive is extracted under this directory and the effective workspace becomes "
+            "<workspace-base>/<archive-name>/workspace. Defaults to /tmp/ucagent_workspace_base "
+            "and is created automatically if missing."
+        )
     )
     
     # Configuration arguments
@@ -727,6 +926,8 @@ def run() -> None:
         _p = _argparse.ArgumentParser(prog="ucagent")
         _p.error("the following arguments are required: workspace, dut")
 
+    args.workspace = _prepare_workspace_archive_source(args.workspace, args.dut, args.workspace_base)
+
     from ucagent.verify_agent import VerifyAgent
     from ucagent.util.log import init_log_logger, init_msg_logger
     from ucagent.util.functions import append_python_path, find_available_port
@@ -927,6 +1128,9 @@ def main() -> None:
         run()
     except bdb.BdbQuit:
         pass
+    except WorkspaceArchiveError as e:
+        info(f"Workspace archive error: {e}")
+        sys.exit(1)
     except KeyboardInterrupt:
         info("\nUCAgent interrupted by user.")
         sys.exit(1)
