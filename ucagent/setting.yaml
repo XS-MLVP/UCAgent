@@ -76,9 +76,8 @@ master_api:
 
 launch:
   file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
-  workspace_root: /tmp/               # base directory for creating launch workspaces
   default_args:
-    launch_mode: ["process", "docker", "docker_swarm", "k8s"]
+    launch_mode: ["process"]          # full support: ["process", "docker", "docker_swarm", "k8s"]
     output: "unity_test"              # output directory name
     stream_output: true               # -s flag
     human: true                       # -hm flag
@@ -92,14 +91,14 @@ launch:
     configs:                          # predefined config options for dropdown
       UT: "default.yaml"
   cluster:
-    image: "ucagent:latest"           # container image used by docker, docker_swarm, and k8s launch modes
-    container_command: "ucagent"      # command inside the image; local python/cli prefix is replaced with this command
-    master_ip:                        # master address used by launched tasks for each launch mode
+    image: "ghcr.nju.edu.cn/xs-mlvp/ucagent:latest" # container image used by docker, docker_swarm, and k8s launch modes
+    container_command: "ucagent"                    # command inside the image; local python/cli prefix is replaced with this command
+    master_ip:                                      # master address used by launched tasks for each launch mode
       - process: "127.0.0.1"
       - docker: "host.docker.internal"
       - docker_swarm: "ucagent_master"
       - k8s: "ucagent_master"
-    docker_network: ""
+    docker_network: "ucagent_net"
     docker_extra_args: ["--rm"]
     swarm_extra_args: []
     k8s_namespace: "default"
