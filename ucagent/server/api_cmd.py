@@ -138,7 +138,8 @@ class PdbCmdApiServer:
     POST /api/file/rename              - Rename file or directory  body: {"path":"...","new_name":"..."}
     POST /api/file/edit                - Save/overwrite text file  body: {"path":"...","content":"..."}
     DELETE /api/file                   - Delete file or empty directory  (?path=...)
-    GET  /api/file/download            - Download file as attachment  (?path=...)
+    GET  /api/file/download            - Download file or directory as attachment  (?path=...)
+    GET  /api/workspace/download       - Download whole workspace as {DUT}.tar.gz
     POST /api/file/upload              - Upload file (multipart)  (?path=target_dir)
     GET  /workspace/{path}             - Serve workspace files as static assets (redirects to dashboard for root)
     GET  /static/{path}                - Serve bundled static assets
@@ -234,11 +235,14 @@ class PdbCmdApiServer:
         import os
         import pathlib
         import shutil
+        import tarfile
+        import tempfile
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastapi")
             from fastapi import FastAPI, File, HTTPException, Query, UploadFile
             from fastapi.responses import FileResponse, HTMLResponse, Response
+            from starlette.background import BackgroundTask
         from pydantic import BaseModel
 
         app = FastAPI(
@@ -322,6 +326,32 @@ class PdbCmdApiServer:
             root = _workspace_root()
             rel = os.path.relpath(abs_path, root)
             return "" if rel == "." else rel
+
+        def _archive_dir_response(abs_dir: str, archive_base: str, filename: str):
+            fd, archive_path = tempfile.mkstemp(
+                prefix=f"{archive_base}.",
+                suffix=".tar.gz",
+            )
+            os.close(fd)
+            try:
+                with tarfile.open(archive_path, "w:gz") as tar:
+                    tar.add(abs_dir, arcname=archive_base, recursive=True)
+            except Exception:
+                try:
+                    os.remove(archive_path)
+                except OSError:
+                    pass
+                raise
+            return FileResponse(
+                path=archive_path,
+                filename=filename,
+                media_type="application/gzip",
+                background=BackgroundTask(os.remove, archive_path),
+            )
+
+        def _safe_archive_base(name: str, default: str = "workspace") -> str:
+            base = pathlib.Path(str(name or "").strip()).name
+            return base or default
 
         def _fmt_size(n: int) -> str:
             for unit in ("B", "KB", "MB", "GB"):
@@ -823,14 +853,24 @@ class PdbCmdApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/file/download ─────────────────────────────────────
-        @app.get("/api/file/download", summary="Download a file as attachment")
+        @app.get("/api/file/download", summary="Download a file or directory as attachment")
         def download_file(
             path: str = Query(..., description="Relative path within workspace")
         ):
             try:
                 abs_path = _safe_abs(path)
-                if not os.path.isfile(abs_path):
-                    raise HTTPException(status_code=404, detail=f"File '{path}' not found")
+                if not os.path.exists(abs_path):
+                    raise HTTPException(status_code=404, detail=f"Path '{path}' not found")
+                if os.path.isdir(abs_path):
+                    archive_base = _safe_archive_base(
+                        os.path.basename(os.path.normpath(abs_path)),
+                        "workspace",
+                    )
+                    return _archive_dir_response(
+                        abs_path,
+                        archive_base,
+                        f"{archive_base}.tar.gz",
+                    )
                 filename = os.path.basename(abs_path)
                 media_type, _ = mimetypes.guess_type(abs_path)
                 return FileResponse(
@@ -841,6 +881,20 @@ class PdbCmdApiServer:
                 )
             except HTTPException:
                 raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/workspace/download ────────────────────────────────
+        @app.get("/api/workspace/download", summary="Download the whole workspace as {DUT}.tar.gz")
+        def download_workspace():
+            try:
+                dut_name = getattr(pdb.agent, "dut_name", "") or "workspace"
+                archive_base = _safe_archive_base(dut_name, "workspace")
+                return _archive_dir_response(
+                    _workspace_root(),
+                    archive_base,
+                    f"{archive_base}.tar.gz",
+                )
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
