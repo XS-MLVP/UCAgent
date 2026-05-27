@@ -188,7 +188,7 @@ swarm_master: swarm_init
 		$(SWARM_MASTER_UCAGENT_MOUNT) \
 		--workdir /workspace/ucagent \
 		$(SWARM_IMAGE) \
-		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=\'docker_swarm\'  $(ARGS)"
+		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=docker_swarm $(ARGS)"
 	@echo "Waiting for $(SWARM_MASTER_SERVICE) to start..."
 	@for i in $$(seq 1 30); do \
 		replicas=$$(docker service ls --filter name=$(SWARM_MASTER_SERVICE) --format '{{.Replicas}}' | head -n 1); \

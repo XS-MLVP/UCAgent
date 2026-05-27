@@ -339,7 +339,12 @@ def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
             assert value.endswith('"') or value.endswith("'"), "Value must be enclosed in quotes"
             value = value[1:-1]  # Remove quotes
         else:
-            value = eval(value)  # Evaluate the value to convert it to the appropriate type
+            try:
+                value = eval(value)  # Evaluate the value to convert it to the appropriate type
+            except NameError:
+                value = value.strip()  # If eval fails, keep it as a string
+            except Exception:
+                raise ValueError(f"Invalid override value: {value}")
         overrides[key.strip()] = value
     return overrides
 
