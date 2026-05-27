@@ -186,7 +186,7 @@ swarm_master: swarm_init
 		--mount type=bind,source=$(abspath $(SWARM_MASTER_PERSIST)),target=$(SWARM_MASTER_PERSIST) \
 		--mount type=bind,source=$(SWARM_DOCKER_SOCK),target=$(SWARM_DOCKER_SOCK) \
 		$(SWARM_MASTER_UCAGENT_MOUNT) \
-		--workdir /workspace/ucagent \
+		--workdir /workspace/UCAgent \
 		$(SWARM_IMAGE) \
 		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=docker_swarm $(ARGS)"
 	@echo "Waiting for $(SWARM_MASTER_SERVICE) to start..."

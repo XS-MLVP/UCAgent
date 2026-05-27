@@ -23,7 +23,7 @@ Docker 环境已包含 UCAgent 所有必需的验证工具（Verilator、SWIG、
 docker pull ghcr.io/xs-mlvp/ucagent:latest
 
 docker run -it --rm --name ucagent-server \
-  -w /workspace/ucagent/examples/Formal \
+  -w /workspace/UCAgent/examples/Formal \
   --network host \
   ghcr.io/xs-mlvp/ucagent:latest
 ```
@@ -54,7 +54,7 @@ docker exec -it ucagent-server bash
 
 MCP Server 地址：`http://localhost:5000/mcp`，超时建议设置 300 秒以上。
 
-之后进入 `/workspace/ucagent/examples/Formal/output` 目录，启动 Code Agent，输入如下提示词：
+之后进入 `/workspace/UCAgent/examples/Formal/output` 目录，启动 Code Agent，输入如下提示词：
 > 请通过工具 `RoleInfo` 获取你的角色信息和基本指导，然后完成任务。请使用工具 `ReadTextFile` 读取文件。你需要在当前工作目录进行文件操作，不要超出该目录。
 
 ### WebUI 界面

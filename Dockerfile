@@ -15,22 +15,15 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex && \
     codex --version
 
 # Set working directory
-WORKDIR /workspace/ucagent
+WORKDIR /workspace/UCAgent
 
 # Copy project files
-COPY requirements.txt pyproject.toml ./
+COPY . .
 COPY examples/Formal/requirements.txt ./requirements-formal.txt
-COPY ucagent/ ./ucagent/
-COPY examples/ ./examples/
-COPY config.yaml ./
-COPY ucagent.py ./
-COPY Makefile ./
-COPY README.en.md README.zh.md ./
-COPY LICENSE ./
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/workspace/ucagent
+    PYTHONPATH=/workspace/UCAgent
 
 # Install UCAgent and dependencies into the image.
 RUN python3 -m pip install . && \
