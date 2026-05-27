@@ -15,17 +15,17 @@ backend:
     args:
       cli_cmd_new: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} --dangerously-skip-permissions -p < {MSG_FILE}"
       cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --dangerously-skip-permissions -c -p < {MSG_FILE}"
-      pre_bash_cmd:
-        - "cp {ASSETS}/mcp_claude.json {CWD}/.mcp.json"
-        - "sed -i '' 's|5000/mcp|{PORT}/mcp|g' {CWD}/.mcp.json"
+      render_files:
+        "{ASSETS}/mcp_claude.json": "{CWD}/.mcp.json"
+
   opencode:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
       cli_cmd_new: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} < {MSG_FILE}"
       cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
-      pre_bash_cmd:
-        - "cp {ASSETS}/mcp_opencode.json {CWD}/opencode.json" # You need to setup opencode config first
-        - "sed -i '' 's|5000/mcp|{PORT}/mcp|g' {CWD}/opencode.json" # modify the server port (5000) to the configured port
+      render_files:
+        "{ASSETS}/mcp_opencode.json": "{CWD}/opencode.json"
+
   copilot:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -33,8 +33,9 @@ backend:
       cli_cmd_ctx: "copilot {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --allow-all-tools --continue < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.copilot/"
-        - "cp {ASSETS}/mcp_copilot.json {CWD}/.copilot/mcp-config.json"
-        - "sed -i '' 's|5000/mcp|{PORT}/mcp|g' {CWD}/.copilot/mcp-config.json" # modify the mcp port (5000) to the configured port
+      render_files:
+        "{ASSETS}/mcp_copilot.json": "{CWD}/.copilot/mcp-config.json"
+
   qwen:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -42,8 +43,19 @@ backend:
       cli_cmd_ctx: "qwen {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y -c -p < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.qwen/"
-        - "cp {ASSETS}/mcp_qwen.json {CWD}/.qwen/settings.json"
-        - "sed -i '' 's|5000/mcp|{PORT}/mcp|g' {CWD}/.qwen/settings.json" # modify the mcp port (5000) to the configured port
+      render_files:
+        "{ASSETS}/mcp_qwen.json": "{CWD}/.qwen/settings.json"
+
+  iflow:
+    clss: ucagent.abackend.UCAgentCmdLineBackend
+    args:
+      cli_cmd_new: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_N} -y < {MSG_FILE}"
+      cli_cmd_ctx: "iflow {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -y < {MSG_FILE}"
+      pre_bash_cmd:
+        - "mkdir -p {CWD}/.iflow/"
+      render_files:
+        "{ASSETS}/mcp_iflow.json": "{CWD}/.iflow/settings.json"
+
   kilo:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -51,8 +63,9 @@ backend:
       cli_cmd_ctx: "kilo run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.kilo/"
-        - "cp {ASSETS}/mcp_kilo.json {CWD}/.kilo/kilo.jsonc"
-        - "sed -i '' 's|5000/mcp|{PORT}/mcp|g' {CWD}/.kilo/kilo.jsonc" # modify the mcp port (5000) to the configured port
+      render_files:
+        "{ASSETS}/mcp_kilo.json": "{CWD}/.kilo/kilo.jsonc"
+
   codex:
     clss: ucagent.abackend.UCAgentCmdLineBackend
     args:
@@ -60,7 +73,8 @@ backend:
       cli_cmd_ctx: "codex exec {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} resume --last --yolo < {MSG_FILE}"
       pre_bash_cmd:
         - "mkdir -p {CWD}/.codex/"
-        - "echo \"\n[mcp_servers.ucagent]\nurl = 'http://127.0.0.1:{PORT}/mcp'\ntool_timeout_sec=600000000000\n\" > {CWD}/.codex/config.toml"
+      render_files:
+        "{ASSETS}/mcp_codex.toml": "{CWD}/.codex/config.toml"
 
 mcp_server:
   host: 127.0.0.1

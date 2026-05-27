@@ -31,6 +31,7 @@ dependencies = [
     "pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master",
     "toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master",
     "textual>=7.3.0",
+    "Jinja2>=3.1.6",
     "fastapi>=0.135.0",
     "uvicorn[standard]>=0.42.0",
     "docker>=7.1.0",

@@ -1,0 +1,9 @@
+
+{
+  "mcpServers": {
+    "unitytest": {
+      "httpUrl": "http://127.0.0.1:{{PORT}}/mcp",
+      "timeout": 600000000000
+    }
+  }
+}

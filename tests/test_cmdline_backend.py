@@ -7,17 +7,20 @@ import shlex
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.abackend.cmdline import UCAgentCmdLineBackend
 
 
 class _FakeAgent:
-    def __init__(self) -> None:
+    def __init__(self, workspace=None) -> None:
         self._break = False
         self.messages = []
+        self.workspace = workspace or current_dir
+        self.pdb = SimpleNamespace(_mcp_server=None)
 
     def message_echo(self, txt: str) -> None:
         self.messages.append(txt)
@@ -54,3 +57,33 @@ def test_process_bash_cmd_interrupts_silent_process():
     assert return_code != 0
     assert output_lines == []
     assert backend._fail_count == 0
+
+
+def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template_file = template_dir / "mcp.json"
+    template_file.write_text(
+        '{"url": "http://127.0.0.1:{{PORT}}/mcp", "model": "{{OPENAI_MODEL}}"}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+
+    agent = _FakeAgent(workspace=str(workspace))
+    config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
+    backend = UCAgentCmdLineBackend(
+        agent,
+        config=config,
+        cli_cmd_ctx="",
+        render_files={str(template_file): "{CWD}/nested/config.json"},
+    )
+
+    backend.init()
+
+    rendered_file = workspace / "nested" / "config.json"
+    assert rendered_file.read_text(encoding="utf-8") == (
+        '{"url": "http://127.0.0.1:5678/mcp", "model": "test-model"}'
+    )

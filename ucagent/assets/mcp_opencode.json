@@ -3,7 +3,7 @@
   "mcp": {
     "unitytest": {
       "type": "remote",
-      "url": "http://127.0.0.1:5000/mcp",
+      "url": "http://127.0.0.1:{{PORT}}/mcp",
       "enabled": true,
       "timeout": 600000000
     }

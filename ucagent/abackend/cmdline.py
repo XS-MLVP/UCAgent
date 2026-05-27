@@ -2,6 +2,7 @@
 
 
 from .base import AgentBackendBase
+from jinja2 import Environment, FileSystemLoader
 from ucagent.util.log import warning, info
 from ucagent.util.functions import get_abs_path_cwd_ucagent
 import os
@@ -17,7 +18,9 @@ class UCAgentCmdLineBackend(AgentBackendBase):
 
     def __init__(self, vagent, config,
                  cli_cmd_ctx, cli_cmd_new=None,
-                 pre_bash_cmd=None, post_bash_cmd=None, abort_pattern=None,
+                 pre_bash_cmd=None,
+                 render_files=None,
+                 post_bash_cmd=None, abort_pattern=None,
                  max_continue_fails=20,
                  **kwargs):
         super().__init__(vagent, config, **kwargs)
@@ -28,6 +31,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.abort_pattern = abort_pattern or []
         self.max_continue_fails = max_continue_fails
         self._fail_count = 0
+        self.render_files = render_files or {}
 
     def _get_assets_path(self):
         current_path = os.path.dirname(os.path.abspath(__file__))
@@ -123,6 +127,42 @@ class UCAgentCmdLineBackend(AgentBackendBase):
             except Exception:
                 pass
 
+    def _get_dft_ctx(self):
+        ctx = os.environ.copy()
+        ctx.update({
+            "ASSETS": self._get_assets_path(),
+            "CWD": self.CWD,
+            "PORT": self._get_mcp_port(),
+            "UC_ENV_CMD_BACKEND_EX_ARGS": os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
+            "UC_ENV_CMD_BACKEND_EX_ARGS_N": os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_N", ""),
+            "UC_ENV_CMD_BACKEND_EX_ARGS_C": os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS_C", ""),
+        })
+        return ctx
+
+    def _get_fmt_str(self, template):
+        return template.format(**self._get_dft_ctx())
+
+    def render_config_files(self):
+        if not self.render_files:
+            return
+        context = self._get_dft_ctx()
+        for src, dst in self.render_files.items():
+            src_path = self._get_fmt_str(src)
+            dst_path = self._get_fmt_str(dst)
+            env = Environment(
+                loader=FileSystemLoader(os.path.dirname(src_path)),
+                trim_blocks=True,
+                lstrip_blocks=True,
+            )
+            tmp = env.get_template(os.path.basename(src_path))
+            dist_path = os.path.dirname(dst_path)
+            if dist_path and not os.path.exists(dist_path):
+                os.makedirs(dist_path, exist_ok=True)
+            with open(dst_path, "w", encoding="utf-8") as f:
+                f.write(tmp.render(context))
+            info(f"Rendered config file from {src_path} to {dst_path}.")
+        info("All config files rendered.")
+
     def init(self):
         self.CWD = self.vagent.workspace
         self.MSG_FILE = get_abs_path_cwd_ucagent(self.CWD, "cmdline.txt")
@@ -135,6 +175,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                                        UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
                                        PORT=self._get_mcp_port())
             self.process_bash_cmd(formatted_cmd)
+        self.render_config_files()
 
     def model_name(self):
         return self.config.backend.key_name

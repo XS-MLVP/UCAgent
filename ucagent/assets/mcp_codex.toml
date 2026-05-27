@@ -1,0 +1,17 @@
+model_provider = "ucagent"
+model = "{{OPENAI_MODEL|default("gpt-5.5")}}"
+model_reasoning_effort = "xhigh"
+network_access = "enabled"
+disable_response_storage = true
+windows_wsl_setup_acknowledged = true
+model_verbosity = "high"
+personality = "pragmatic"
+
+[model_providers.ucagent]
+name = "ucagent"
+base_url = "{{OPENAI_API_BASE}}"
+wire_api = "responses"
+
+[mcp_servers.ucagent]
+url = 'http://127.0.0.1:{{PORT}}/mcp'
+tool_timeout_sec=600000000000
