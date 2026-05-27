@@ -453,7 +453,17 @@ function syncSkillPathControl() {
   extraSkillPath.disabled = !enabled;
 }
 
+function syncBackendMcpFileToolsOption() {
+  const backend = document.getElementById('backend')?.value.trim().toLowerCase();
+  const noFileTools = document.querySelector('[data-launch-key="mcp_server_no_file_tools"]');
+  if (!backend || !noFileTools) return;
+  if (backend !== 'langchain') {
+    noFileTools.checked = true;
+  }
+}
+
 function collectDynamicLaunchOptions() {
+  syncBackendMcpFileToolsOption();
   syncSkillPathControl();
   const fields = [...document.querySelectorAll('[data-launch-key]')];
   const options = {};
@@ -1519,6 +1529,23 @@ function renderBackendSelect() {
   }
 }
 
+function setSelectValueIfAvailable(id, value) {
+  const select = document.getElementById(id);
+  if (!select || value === undefined || value === null || value === '') return false;
+  const targetValue = String(value);
+  const option = [...select.options].find((item) => item.value === targetValue && !item.disabled);
+  if (!option) return false;
+  select.value = targetValue;
+  return true;
+}
+
+function firstLaunchModeValue(value) {
+  if (Array.isArray(value)) {
+    return value.length ? value[0] : '';
+  }
+  return value ?? '';
+}
+
 function renderLaunchModeSelect() {
   const select = document.getElementById('launch-mode');
   if (!select) return;
@@ -1617,6 +1644,10 @@ function applyLaunchConfig(config) {
       }
     }
   }
+  setSelectValueIfAvailable('backend', config.backend);
+  setSelectValueIfAvailable('config-path', config.config);
+  setSelectValueIfAvailable('launch-mode', firstLaunchModeValue(config.launch_mode));
+  syncBackendMcpFileToolsOption();
   renderLaunchModeStatus();
 }
 
@@ -1798,6 +1829,9 @@ document.addEventListener('change', async (event) => {
     if ([
       'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
     ].includes(target.id)) {
+      if (target.id === 'backend') {
+        syncBackendMcpFileToolsOption();
+      }
       if (target.id === 'launch-mode') {
         renderLaunchModeStatus();
       }
@@ -1838,6 +1872,9 @@ document.addEventListener('input', (event) => {
   if ([
     'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
   ].includes(event.target.id)) {
+    if (event.target.id === 'backend') {
+      syncBackendMcpFileToolsOption();
+    }
     if (event.target.id === 'launch-mode') {
       renderLaunchModeStatus();
     }

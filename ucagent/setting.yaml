@@ -96,6 +96,7 @@ launch:
     stream_output: true               # -s flag
     human: true                       # -hm flag
     tui: true                         # --tui flag
+    backend: "langchain"              # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
     mcp_server_no_file_tools: false
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag
