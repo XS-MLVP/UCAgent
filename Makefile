@@ -155,13 +155,12 @@ swarm_init:
 	docker image inspect $(SWARM_IMAGE) 1>/dev/null
 
 swarm_clean:
-	@if docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; then \
-		echo "Removing existing Docker Swarm service $(SWARM_MASTER_SERVICE)..."; \
-		docker service rm $(SWARM_MASTER_SERVICE) >/dev/null; \
-		while docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; do sleep 1; done; \
-		echo "Stop all containers..."; \
-		docker ps|awk '{print $$1}'|grep -v CON|xargs docker stop; \
-	fi
+	@echo "Removing existing Docker Swarm services with name prefix $(SWARM_MASTER_SERVICE)...";
+	@sid=`docker service list|grep ucagent|awk '{print $$1}'|xargs`; if [ -n "$$sid" ]; then echo "stop service $$sid"; docker service rm $$sid; fi;
+	@docker service ls
+	@echo "Stop all containers...";
+	@did=`docker ps|grep ucagent|awk '{print $$1}'|xargs`; if [ -n "$$did" ]; then echo "stop container $$did"; docker stop $$did; fi;
+	@docker ps -a
 
 swarm_master: swarm_init
 	@mkdir -p $(SWARM_MASTER_PERSIST)
@@ -179,6 +178,9 @@ swarm_master: swarm_init
 		--constraint node.role==manager \
 		--network $(SWARM_NETWORK) \
 		--env DOCKER_HOST=unix://$(SWARM_DOCKER_SOCK) \
+		--env OPENAI_MODEL=$(OPENAI_MODEL) \
+		--env OPENAI_API_KEY=$(OPENAI_API_KEY) \
+		--env OPENAI_API_BASE=$(OPENAI_API_BASE) \
 		$(SWARM_MASTER_SOURCE_ENV) \
 		--publish published=$(SWARM_MASTER_PORT),target=$(SWARM_MASTER_PORT) \
 		--mount type=bind,source=$(abspath $(SWARM_MASTER_PERSIST)),target=$(SWARM_MASTER_PERSIST) \
