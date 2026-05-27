@@ -105,6 +105,60 @@ def test_master_source_empty_does_not_override_container_launch(monkeypatch):
         assert command[:3] == ["ucagent", "/work", "Adder"]
 
 
+def test_swarm_task_cmd_proxy_uses_service_dns_over_agent_task_ip():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = server._create_task_record(
+            {
+                "task_name": "swarm",
+                "launch_mode": "docker_swarm",
+                "cmd_api": {
+                    "enabled": True,
+                    "status": "running",
+                    "port": 8765,
+                    "password": "pw",
+                    "base_url_internal": "http://127.0.0.1:8765",
+                },
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        task["cluster"] = {"mode": "docker_swarm", "name": "ucagent-test-task"}
+        task["client_id"] = "agent-1"
+
+        changed = server._merge_task_agent_runtime_info(task, {"id": "agent-1", "cmd_api_tcp": "http://10.0.1.109:8765"})
+
+        assert changed
+        assert task["cmd_api"]["tcp_url"] == "http://10.0.1.109:8765"
+        assert task["cmd_api"]["base_url_internal"] == "http://127.0.0.1:8765"
+        assert server._cmd_proxy_url(task, "api/status") == "http://ucagent-test-task:8765/api/status"
+
+
+def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = server._create_task_record(
+            {
+                "task_name": "process",
+                "launch_mode": "process",
+                "cmd_api": {
+                    "enabled": True,
+                    "status": "running",
+                    "port": 8765,
+                    "password": "pw",
+                    "base_url_internal": "http://127.0.0.1:8765",
+                },
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+
+        server._merge_task_agent_runtime_info(task, {"cmd_api_tcp": "http://10.0.1.109:8765"})
+
+        assert task["cmd_api"]["base_url_internal"] == "http://10.0.1.109:8765"
+        assert server._cmd_proxy_url(task, "api/status") == "http://10.0.1.109:8765/api/status"
+
+
 def test_master_task_log_capture_drains_fast_failed_process():
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
         server = PdbMasterApiServer(workspace=master_ws)

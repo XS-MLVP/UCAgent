@@ -558,6 +558,7 @@ class PdbMasterApiServer:
         self._monitor_thread: Optional[threading.Thread] = None
         self._monitor_stop = threading.Event()
         self._online_cache: Dict[str, bool] = {}
+        self._proxy_session = None
         self._dirty = False
         self._last_saved = 0.0
 
@@ -1777,6 +1778,13 @@ class PdbMasterApiServer:
         except Exception as exc:
             raise RuntimeError(f"failed to initialize Docker SDK client: {exc}") from exc
 
+    def _docker_sdk_network_attachment(self, network: str) -> Any:
+        try:
+            from docker.types import NetworkAttachmentConfig
+        except ImportError:
+            return network
+        return NetworkAttachmentConfig(target=network)
+
     def _k8s_cli_available(self) -> bool:
         return shutil.which("kubectl") is not None
 
@@ -2013,6 +2021,7 @@ class PdbMasterApiServer:
             "name": f"ucagent-{task['task_id']}",
             "env": self._cluster_env(env, task.get("env") or {}),
             "mounts": self._cluster_mounts(prepared),
+            "network": str(cfg.get("docker_network") or "").strip(),
             "picker_workspace": "/tmp" if use_zip_workspace else (prepared.get("picker_workspace") or prepared["workspace_dir"]),
             "command": self._container_command(task["resolved_command"]),
         }
@@ -2023,6 +2032,7 @@ class PdbMasterApiServer:
             cfg["image"],
             context["command"],
             context["mounts"],
+            context["network"],
         )
         return context
 
@@ -2264,13 +2274,15 @@ class PdbMasterApiServer:
         image: Any,
         command: List[str],
         mounts: List[Tuple[str, str]],
+        network: str = "",
     ) -> None:
         self._append_task_log(
             task["stdout_log_path"],
             (
                 f"Cluster launch debug: mode={mode} name={name} image={image}\n"
                 f"  command={shlex.join([str(item) for item in command])}\n"
-                f"  mounts={json.dumps([{'source': s, 'target': t} for s, t in mounts], ensure_ascii=False)}"
+                f"  mounts={json.dumps([{'source': s, 'target': t} for s, t in mounts], ensure_ascii=False)}\n"
+                f"  network={network or '<none>'}"
             ),
         )
 
@@ -2418,15 +2430,23 @@ class PdbMasterApiServer:
                 },
                 "RestartPolicy": {"Condition": "none"},
             }
-            network = str(cfg.get("docker_network") or "").strip()
-            networks = [network] if network else None
+            network = context["network"]
+            if network:
+                task_template["Networks"] = [self._docker_sdk_network_attachment(network)]
             service_data = client.api.create_service(
                 task_template=task_template,
                 name=name,
-                networks=networks,
                 mode={"ReplicatedJob": {"TotalCompletions": 1, "MaxConcurrent": 1}},
             )
             service_id = str(service_data.get("ID") or "")
+            if network:
+                inspect_data = client.api.inspect_service(service_id)
+                attached_networks = [
+                    str(item.get("Target") or item.get("NetworkID") or "")
+                    for item in ((inspect_data.get("Spec") or {}).get("TaskTemplate") or {}).get("Networks", [])
+                ]
+                if not attached_networks:
+                    raise ValueError(f"Docker Swarm service {name} was created without configured network '{network}'")
             self._set_cluster_record(task, "docker_swarm", "job", name, cfg["image"], cluster_id=service_id)
             self._append_task_log(task["stdout_log_path"], f"Started Docker Swarm service {name} {service_id}")
             self._docker_sdk_log_capture(task, "service", name)
@@ -2440,7 +2460,7 @@ class PdbMasterApiServer:
             "--replicas", "1",
             "--restart-condition", "none",
         ]
-        network = str(cfg.get("docker_network") or "").strip()
+        network = context["network"]
         if network:
             cmd.extend(["--network", network])
         for source, target in context["mounts"]:
@@ -2846,7 +2866,7 @@ class PdbMasterApiServer:
         else:
             self._flush_task_runtime_logs(task["task_id"])
 
-    def _probe_child_service(self, svc: Dict[str, Any]) -> bool:
+    def _probe_child_service(self, svc: Dict[str, Any], task: Optional[Dict[str, Any]] = None) -> bool:
         if not svc.get("enabled"):
             return False
         try:
@@ -2855,7 +2875,7 @@ class PdbMasterApiServer:
             kwargs: Dict[str, Any] = {"timeout": 1.5}
             if svc.get("password"):
                 kwargs["auth"] = ("", svc["password"])
-            base = svc.get("base_url_internal", "")
+            base = self._task_service_base_url(task, svc) if task else str(svc.get("base_url_internal") or "").strip()
             if not base:
                 return False
             url = base.rstrip("/") + "/api/status"
@@ -2863,6 +2883,29 @@ class PdbMasterApiServer:
             return resp.ok
         except Exception:
             return False
+
+    def _task_swarm_service_base_url(self, task: Dict[str, Any], svc: Dict[str, Any]) -> str:
+        if task.get("launch_mode") != "docker_swarm":
+            return ""
+        cluster = task.get("cluster") or {}
+        name = str(cluster.get("name") or "").strip()
+        if not name:
+            return ""
+        try:
+            port = int(svc.get("port"))
+        except (TypeError, ValueError):
+            return ""
+        return f"http://{name}:{port}"
+
+    def _task_service_base_url(self, task: Dict[str, Any], svc: Dict[str, Any]) -> str:
+        base = self._task_swarm_service_base_url(task, svc)
+        if not base:
+            base = str(svc.get("base_url_internal") or svc.get("tcp_url") or "").strip()
+        if not base and svc.get("host") and svc.get("port"):
+            base = f"{svc['host']}:{svc['port']}"
+        if base and not base.startswith("http"):
+            base = f"http://{base}"
+        return base.rstrip("/")
 
     def _agent_for_task_unlocked(self, task: Dict[str, Any], agents: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         task_client_id = str(task.get("client_id") or "").strip()
@@ -2886,7 +2929,10 @@ class PdbMasterApiServer:
         changed = False
         cmd_api_tcp = str(agent.get("cmd_api_tcp") or "").strip()
         if cmd_api_tcp:
-            merged_cmd_api = _merge_runtime_service_info(task.get("cmd_api"), {"base_url_internal": cmd_api_tcp})
+            reported_cmd_api = {"tcp_url": cmd_api_tcp}
+            if task.get("launch_mode") != "docker_swarm":
+                reported_cmd_api["base_url_internal"] = cmd_api_tcp
+            merged_cmd_api = _merge_runtime_service_info(task.get("cmd_api"), reported_cmd_api)
             if merged_cmd_api != (task.get("cmd_api") or {}):
                 task["cmd_api"] = merged_cmd_api
                 changed = True
@@ -2945,8 +2991,8 @@ class PdbMasterApiServer:
                     alive = _is_pid_alive(pid)
 
                 if task["process_status"] in {"starting", "running", "stopping"}:
-                    cmd_ok = self._probe_child_service(task["cmd_api"])
-                    term_ok = self._probe_child_service(task["terminal_api"])
+                    cmd_ok = self._probe_child_service(task["cmd_api"], task)
+                    term_ok = self._probe_child_service(task["terminal_api"], task)
                     term_enabled = bool((task.get("terminal_api") or {}).get("enabled"))
                     if registered or cmd_ok:
                         alive = True
@@ -3398,34 +3444,25 @@ class PdbMasterApiServer:
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
         cmd_api = task.get("cmd_api") or {}
-        base = cmd_api.get("base_url_internal", "")
+        base = self._task_service_base_url(task, cmd_api)
         if not base:
             raise ValueError("CMD API base URL not available")
-        base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
     def _terminal_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
         terminal_api = task.get("terminal_api") or {}
-        base = terminal_api.get("tcp_url", "") or terminal_api.get("base_url_internal", "")
+        base = self._task_service_base_url(task, terminal_api)
         if not base:
             raise ValueError("Terminal API base URL not available")
-        if not base.startswith("http"):
-            base = f"http://{base}"
-        base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
     def _web_console_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
         web_console = task.get("web_console") or {}
-        base = web_console.get("tcp_url", "") or web_console.get("base_url_internal", "")
-        if not base and web_console.get("host") and web_console.get("port"):
-            base = f"{web_console['host']}:{web_console['port']}"
+        base = self._task_service_base_url(task, web_console)
         if not base:
             raise ValueError("Web console base URL not available")
-        if not base.startswith("http"):
-            base = f"http://{base}"
-        base = base.rstrip("/")
         return f"{base}/{subpath.lstrip('/')}" if subpath else f"{base}/"
 
     def _agent_cmd_proxy_url(self, agent: Dict[str, Any], subpath: str) -> str:
@@ -3482,6 +3519,49 @@ class PdbMasterApiServer:
         access_key = self.access_key
         password = self.password
         security = HTTPBasic(auto_error=False)
+        proxy_timeout = aiohttp.ClientTimeout(total=120, connect=3, sock_connect=3, sock_read=120)
+
+        async def _proxy_http_request(
+            request: Request,
+            target_url: str,
+            headers: Dict[str, str],
+            html_rewrites: Dict[str, str],
+            failure_label: str,
+        ) -> Response:
+            body = await request.body()
+            session = self._proxy_session
+            if session is None or session.closed:
+                connector = aiohttp.TCPConnector(limit=256, limit_per_host=64, ttl_dns_cache=30, keepalive_timeout=30)
+                session = aiohttp.ClientSession(connector=connector, timeout=proxy_timeout)
+                self._proxy_session = session
+            last_exc: Optional[BaseException] = None
+            for attempt in range(3):
+                try:
+                    async with session.request(
+                        request.method,
+                        target_url,
+                        data=body or None,
+                        headers=headers,
+                        allow_redirects=False,
+                    ) as resp:
+                        raw = await resp.read()
+                        content_type = resp.headers.get("Content-Type", "")
+                        if "text/html" in content_type and html_rewrites:
+                            text = raw.decode("utf-8", errors="replace")
+                            text = _rewrite_html(text, html_rewrites)
+                            raw = text.encode("utf-8")
+                        response_headers = {}
+                        for key, value in resp.headers.items():
+                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
+                                continue
+                            response_headers[key] = value
+                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
+                except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientOSError, asyncio.TimeoutError) as exc:
+                    last_exc = exc
+                    if attempt >= 2:
+                        break
+                    await asyncio.sleep(0.15 * (attempt + 1))
+            raise HTTPException(status_code=502, detail=f"Failed to proxy {failure_label}: {last_exc}") from last_exc
 
         async def _check_access_key(x_access_key: str = _Header(default="")):
             if access_key and x_access_key != access_key:
@@ -4373,33 +4453,22 @@ class PdbMasterApiServer:
             if request.url.query:
                 target_url += "?" + request.url.query
             headers = self._build_proxy_headers(task["cmd_api"].get("password", ""), dict(request.headers))
-            body = await request.body()
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
-                        raw = await resp.read()
-                        content_type = resp.headers.get("Content-Type", "")
-                        if "text/html" in content_type:
-                            text = raw.decode("utf-8", errors="replace")
-                            text = _rewrite_html(text, {
-                                '"/api/': f'"/task/{task_id}/cmd/api/',
-                                "'/api/": f"'/task/{task_id}/cmd/api/",
-                                '"/workspace': f'"/task/{task_id}/cmd/workspace',
-                                "'/workspace": f"'/task/{task_id}/cmd/workspace",
-                                '"/static/': f'"/task/{task_id}/cmd/static/',
-                                "'/static/": f"'/task/{task_id}/cmd/static/",
-                                '"/surfer': f'"/task/{task_id}/cmd/surfer',
-                                "'/surfer": f"'/task/{task_id}/cmd/surfer",
-                            })
-                            raw = text.encode("utf-8")
-                        response_headers = {}
-                        for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
-                                continue
-                            response_headers[key] = value
-                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
-                except Exception as exc:
-                    raise HTTPException(status_code=502, detail=f"Failed to proxy CMD API: {exc}") from exc
+            return await _proxy_http_request(
+                request,
+                target_url,
+                headers,
+                {
+                    '"/api/': f'"/task/{task_id}/cmd/api/',
+                    "'/api/": f"'/task/{task_id}/cmd/api/",
+                    '"/workspace': f'"/task/{task_id}/cmd/workspace',
+                    "'/workspace": f"'/task/{task_id}/cmd/workspace",
+                    '"/static/': f'"/task/{task_id}/cmd/static/',
+                    "'/static/": f"'/task/{task_id}/cmd/static/",
+                    '"/surfer': f'"/task/{task_id}/cmd/surfer',
+                    "'/surfer": f"'/task/{task_id}/cmd/surfer",
+                },
+                "CMD API",
+            )
 
         @app.api_route("/agent/{agent_id}/cmd", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
         @app.api_route("/agent/{agent_id}/cmd/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
@@ -4426,33 +4495,22 @@ class PdbMasterApiServer:
             # Agent CMD API may not have password, use empty string if none
             password = agent.get("cmd_api_password", "")
             headers = self._build_proxy_headers(password, dict(request.headers))
-            body = await request.body()
-            async with aiohttp.ClientSession() as session:
-                try:
-                    async with session.request(request.method, target_url, data=body or None, headers=headers, allow_redirects=False) as resp:
-                        raw = await resp.read()
-                        content_type = resp.headers.get("Content-Type", "")
-                        if "text/html" in content_type:
-                            text = raw.decode("utf-8", errors="replace")
-                            text = _rewrite_html(text, {
-                                '"/api/': f'"/agent/{agent_id}/cmd/api/',
-                                "'/api/": f"'/agent/{agent_id}/cmd/api/",
-                                '"/workspace': f'"/agent/{agent_id}/cmd/workspace',
-                                "'/workspace": f"'/agent/{agent_id}/cmd/workspace",
-                                '"/static/': f'"/agent/{agent_id}/cmd/static/',
-                                "'/static/": f"'/agent/{agent_id}/cmd/static/",
-                                '"/surfer': f'"/agent/{agent_id}/cmd/surfer',
-                                "'/surfer": f"'/agent/{agent_id}/cmd/surfer",
-                            })
-                            raw = text.encode("utf-8")
-                        response_headers = {}
-                        for key, value in resp.headers.items():
-                            if key.lower() in {"content-length", "transfer-encoding", "content-encoding", "connection", "www-authenticate"}:
-                                continue
-                            response_headers[key] = value
-                        return Response(content=raw, status_code=resp.status, headers=response_headers, media_type=None)
-                except Exception as exc:
-                    raise HTTPException(status_code=502, detail=f"Failed to proxy Agent CMD API: {exc}") from exc
+            return await _proxy_http_request(
+                request,
+                target_url,
+                headers,
+                {
+                    '"/api/': f'"/agent/{agent_id}/cmd/api/',
+                    "'/api/": f"'/agent/{agent_id}/cmd/api/",
+                    '"/workspace': f'"/agent/{agent_id}/cmd/workspace',
+                    "'/workspace": f"'/agent/{agent_id}/cmd/workspace",
+                    '"/static/': f'"/agent/{agent_id}/cmd/static/',
+                    "'/static/": f"'/agent/{agent_id}/cmd/static/",
+                    '"/surfer': f'"/agent/{agent_id}/cmd/surfer',
+                    "'/surfer": f"'/agent/{agent_id}/cmd/surfer",
+                },
+                "Agent CMD API",
+            )
 
         @app.api_route("/task/{task_id}/terminal", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
         @app.api_route("/task/{task_id}/terminal/{subpath:path}", methods=_PROXY_METHODS, dependencies=[Depends(_check_password)], include_in_schema=False)
@@ -5190,6 +5248,17 @@ class PdbMasterApiServer:
         self._monitor_stop.set()
         self._monitor_thread = None
         self._online_cache.clear()
+        session = self._proxy_session
+        self._proxy_session = None
+        if session is not None and not session.closed:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(session.close())
+                else:
+                    loop.run_until_complete(session.close())
+            except Exception:
+                pass
         if self._dirty:
             self._save_db()
         if self.sock:

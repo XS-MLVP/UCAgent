@@ -154,6 +154,15 @@ swarm_init:
 	fi
 	docker image inspect $(SWARM_IMAGE) 1>/dev/null
 
+swarm_clean:
+	@if docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; then \
+		echo "Removing existing Docker Swarm service $(SWARM_MASTER_SERVICE)..."; \
+		docker service rm $(SWARM_MASTER_SERVICE) >/dev/null; \
+		while docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; do sleep 1; done; \
+		echo "Stop all containers..."; \
+		docker ps|awk '{print $$1}'|grep -v CON|xargs docker stop; \
+	fi
+
 swarm_master: swarm_init
 	@mkdir -p $(SWARM_MASTER_PERSIST)
 	@if docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; then \
@@ -177,7 +186,7 @@ swarm_master: swarm_init
 		$(SWARM_MASTER_UCAGENT_MOUNT) \
 		--workdir /workspace/ucagent \
 		$(SWARM_IMAGE) \
-		sh -c 'tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) $(ARGS)'
+		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=\'docker_swarm\'  $(ARGS)"
 	@echo "Waiting for $(SWARM_MASTER_SERVICE) to start..."
 	@for i in $$(seq 1 30); do \
 		replicas=$$(docker service ls --filter name=$(SWARM_MASTER_SERVICE) --format '{{.Replicas}}' | head -n 1); \
