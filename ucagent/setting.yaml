@@ -17,6 +17,7 @@ backend:
       cli_cmd_ctx: "claude {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} --dangerously-skip-permissions -c -p < {MSG_FILE}"
       render_files:
         "{ASSETS}/mcp_claude.json": "{CWD}/.mcp.json"
+      cfg_bash_enable: false
 
   opencode:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -25,6 +26,7 @@ backend:
       cli_cmd_ctx: "opencode run {UC_ENV_CMD_BACKEND_EX_ARGS} {UC_ENV_CMD_BACKEND_EX_ARGS_C} -c < {MSG_FILE}"
       render_files:
         "{ASSETS}/mcp_opencode.json": "{CWD}/opencode.json"
+      cfg_bash_enable: false
 
   copilot:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -35,6 +37,7 @@ backend:
         - "mkdir -p {CWD}/.copilot/"
       render_files:
         "{ASSETS}/mcp_copilot.json": "{CWD}/.copilot/mcp-config.json"
+      cfg_bash_enable: false
 
   qwen:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -45,6 +48,7 @@ backend:
         - "mkdir -p {CWD}/.qwen/"
       render_files:
         "{ASSETS}/mcp_qwen.json": "{CWD}/.qwen/settings.json"
+      cfg_bash_enable: false
 
   iflow:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -55,6 +59,7 @@ backend:
         - "mkdir -p {CWD}/.iflow/"
       render_files:
         "{ASSETS}/mcp_iflow.json": "{CWD}/.iflow/settings.json"
+      cfg_bash_enable: false
 
   kilo:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -65,6 +70,7 @@ backend:
         - "mkdir -p {CWD}/.kilo/"
       render_files:
         "{ASSETS}/mcp_kilo.json": "{CWD}/.kilo/kilo.jsonc"
+      cfg_bash_enable: false
 
   codex:
     clss: ucagent.abackend.UCAgentCmdLineBackend
@@ -75,6 +81,10 @@ backend:
         - "mkdir -p {CWD}/.codex/"
       render_files:
         "{ASSETS}/mcp_codex.toml": "{CWD}/.codex/config.toml"
+      cfg_bash_cmd:
+        - "mkdir -p ~/.codex"
+        - "cp {CWD}/.codex/config.toml ~/.codex/config.toml"
+      cfg_bash_enable: false
 
 mcp_server:
   host: 127.0.0.1

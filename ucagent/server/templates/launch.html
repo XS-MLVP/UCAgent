@@ -310,6 +310,8 @@ const TAG_OPTIONS = [
 ];
 
 const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base']);
+const CFG_BASH_OVERRIDE_FLAG = '--override';
+const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 
 const state = {
   workspace: null,
@@ -333,6 +335,7 @@ const state = {
   envExpanded: false,
   envMaxVisible: 3,
   launching: false,
+  autoCfgBashOverrideValue: '',
 };
 
 function makeId(prefix) {
@@ -373,7 +376,11 @@ function launchSettingLabel(key) {
 function renderDynamicLaunchSettings(config) {
   const container = document.getElementById('dynamic-launch-settings');
   if (!container) return;
-  const entries = Object.entries(config || {}).filter(([key]) => !FIXED_LAUNCH_KEYS.has(key));
+  const normalizedConfig = { ...(config || {}) };
+  if (!Object.prototype.hasOwnProperty.call(normalizedConfig, 'extra_args')) {
+    normalizedConfig.extra_args = [];
+  }
+  const entries = Object.entries(normalizedConfig).filter(([key]) => !FIXED_LAUNCH_KEYS.has(key));
   if (!entries.length) {
     container.innerHTML = '';
     return;
@@ -459,6 +466,74 @@ function syncBackendMcpFileToolsOption() {
   if (!backend || !noFileTools) return;
   if (backend !== 'langchain') {
     noFileTools.checked = true;
+  }
+}
+
+function getExtraArgsField() {
+  return document.querySelector('[data-launch-key="extra_args"]');
+}
+
+function getExtraArgLines(field) {
+  return String(field?.value || '').split('\n').map((item) => item.trim()).filter(Boolean);
+}
+
+function findExtraArgPair(lines, flag, valuePattern) {
+  const matcher = valuePattern instanceof RegExp
+    ? (value) => valuePattern.test(value)
+    : (value) => value === valuePattern;
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    if (lines[index] === flag && matcher(lines[index + 1])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function getCfgBashOverrideValue(backend) {
+  const name = String(backend || '').trim();
+  return name ? `backend.${name}.args.cfg_bash_enable=True` : '';
+}
+
+function shouldUseCfgBashOverride() {
+  const backend = document.getElementById('backend')?.value.trim() || '';
+  const launchMode = document.getElementById('launch-mode')?.value || 'process';
+  return Boolean(backend) && backend.toLowerCase() !== 'langchain' && launchMode !== 'process';
+}
+
+function syncCfgBashOverrideExtraArgs() {
+  const field = getExtraArgsField();
+  if (!field) return;
+  const backend = document.getElementById('backend')?.value.trim() || '';
+  const desiredValue = getCfgBashOverrideValue(backend);
+  const shouldAdd = shouldUseCfgBashOverride() && Boolean(desiredValue);
+  const lines = getExtraArgLines(field);
+  let changed = false;
+
+  if (state.autoCfgBashOverrideValue) {
+    const oldIndex = findExtraArgPair(lines, CFG_BASH_OVERRIDE_FLAG, state.autoCfgBashOverrideValue);
+    if (oldIndex >= 0 && (!shouldAdd || state.autoCfgBashOverrideValue !== desiredValue)) {
+      lines.splice(oldIndex, 2);
+      changed = true;
+      state.autoCfgBashOverrideValue = '';
+    } else if (oldIndex < 0) {
+      state.autoCfgBashOverrideValue = '';
+    }
+  }
+
+  if (shouldAdd) {
+    const existingExactIndex = findExtraArgPair(lines, CFG_BASH_OVERRIDE_FLAG, desiredValue);
+    const existingEditedIndex = findExtraArgPair(lines, CFG_BASH_OVERRIDE_FLAG, CFG_BASH_OVERRIDE_PATTERN);
+    if (existingExactIndex < 0 && existingEditedIndex < 0) {
+      lines.push(CFG_BASH_OVERRIDE_FLAG, desiredValue);
+      changed = true;
+      state.autoCfgBashOverrideValue = desiredValue;
+    }
+  } else {
+    state.autoCfgBashOverrideValue = '';
+  }
+
+  if (changed) {
+    field.value = lines.join('\n');
   }
 }
 
@@ -1648,6 +1723,7 @@ function applyLaunchConfig(config) {
   setSelectValueIfAvailable('config-path', config.config);
   setSelectValueIfAvailable('launch-mode', firstLaunchModeValue(config.launch_mode));
   syncBackendMcpFileToolsOption();
+  syncCfgBashOverrideExtraArgs();
   renderLaunchModeStatus();
 }
 
@@ -1831,9 +1907,11 @@ document.addEventListener('change', async (event) => {
     ].includes(target.id)) {
       if (target.id === 'backend') {
         syncBackendMcpFileToolsOption();
+        syncCfgBashOverrideExtraArgs();
       }
       if (target.id === 'launch-mode') {
         renderLaunchModeStatus();
+        syncCfgBashOverrideExtraArgs();
       }
       updateLaunchState();
       return;
@@ -1874,9 +1952,11 @@ document.addEventListener('input', (event) => {
   ].includes(event.target.id)) {
     if (event.target.id === 'backend') {
       syncBackendMcpFileToolsOption();
+      syncCfgBashOverrideExtraArgs();
     }
     if (event.target.id === 'launch-mode') {
       renderLaunchModeStatus();
+      syncCfgBashOverrideExtraArgs();
     }
     updateLaunchState();
     return;

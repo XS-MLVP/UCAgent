@@ -20,6 +20,8 @@ class UCAgentCmdLineBackend(AgentBackendBase):
                  cli_cmd_ctx, cli_cmd_new=None,
                  pre_bash_cmd=None,
                  render_files=None,
+                 cfg_bash_cmd=None,
+                 cfg_bash_enable=False,
                  post_bash_cmd=None, abort_pattern=None,
                  max_continue_fails=20,
                  **kwargs):
@@ -32,6 +34,8 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         self.max_continue_fails = max_continue_fails
         self._fail_count = 0
         self.render_files = render_files or {}
+        self.cfg_bash_cmd = cfg_bash_cmd or []
+        self.cfg_bash_enable = cfg_bash_enable
 
     def _get_assets_path(self):
         current_path = os.path.dirname(os.path.abspath(__file__))
@@ -170,12 +174,12 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         os.makedirs(self.cmdline_dir, exist_ok=True)
         self._call_count = 0
         for cmd in self.pre_bash_cmd:
-            formatted_cmd = cmd.format(CWD=self.CWD,
-                                       ASSETS=self._get_assets_path(),
-                                       UC_ENV_CMD_BACKEND_EX_ARGS=os.environ.get("UC_ENV_CMD_BACKEND_EX_ARGS", ""),
-                                       PORT=self._get_mcp_port())
-            self.process_bash_cmd(formatted_cmd)
+            self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
         self.render_config_files()
+        if self.cfg_bash_enable:
+            for cmd in self.cfg_bash_cmd:
+                self.process_bash_cmd(cmd.format(**self._get_dft_ctx()))
+        info("Init cmdline backend complete")
 
     def model_name(self):
         return self.config.backend.key_name
