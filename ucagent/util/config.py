@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, Union, List
 from yaml.constructor import SafeConstructor
 from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
 from .log import info
+import base64
 
 
 _NEGATED_BOOL_PATTERN = re.compile(
@@ -233,7 +234,8 @@ class Config:
 
     def set_value(self, key, value):
         """
-        Set a value in the configuration.
+        Set a value in the configuration. Support extending list with string value
+            if the original value is a list and the new value is a string with '+' prefix.
         :param key: Key of the value to set. eg a.b.c
         :param value: Value to set.
         :return: self
@@ -244,8 +246,26 @@ class Config:
             if not current.has_attr(k):
                 raise AttributeError(f"Configuration does not have attribute '{k}'")
             current = getattr(current, k)
-        setattr(current, keys[-1], value)
+        target_key = keys[-1]
+        value = self._str_b64_decode(value)
+        old_value = getattr(current, target_key, None)
+        if isinstance(old_value, list) and isinstance(value, str):
+            if value.startswith('+'):
+                value = old_value + [value[1:]]
+        setattr(current, target_key, value)
         return self
+
+    def _str_b64_decode(self, value):
+        if not isinstance(value, str):
+            return value
+        base64_prefix = "base64@"
+        if not value.startswith(base64_prefix):
+            return value
+        try:
+            decoded_bytes = base64.b64decode(value[len(base64_prefix):])
+            return decoded_bytes.decode('utf-8')
+        except Exception as e:
+            raise ValueError(f"Failed to decode base64 string: {e}")
 
     def get_value(self, key, default=None):
         """

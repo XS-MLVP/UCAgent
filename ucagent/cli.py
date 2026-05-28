@@ -12,6 +12,7 @@ import sys
 import argparse
 import bdb
 import base64
+import ast
 import ntpath
 import posixpath
 import shutil
@@ -333,18 +334,16 @@ def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
         return {}
     overrides = {}
     for item in override_str.split(","):
-        key, value = item.split("=")
+        key, value = item.split("=", 1)
         value = value.strip()
         if value.startswith('"') or value.startswith("'"):
             assert value.endswith('"') or value.endswith("'"), "Value must be enclosed in quotes"
             value = value[1:-1]  # Remove quotes
         else:
             try:
-                value = eval(value)  # Evaluate the value to convert it to the appropriate type
-            except NameError:
-                value = value.strip()  # If eval fails, keep it as a string
-            except Exception:
-                raise ValueError(f"Invalid override value: {value}")
+                value = ast.literal_eval(value)  # Convert Python literals while leaving raw strings alone.
+            except (ValueError, SyntaxError):
+                value = value.strip()
         overrides[key.strip()] = value
     return overrides
 

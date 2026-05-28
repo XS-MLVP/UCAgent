@@ -3322,6 +3322,35 @@ class VerifyPDB(Pdb):
             echo_y(e)
             echo_r("usage: sleep <seconds>")
 
+    def do_config_detail(self, arg):
+        """
+        Show detailed configuration of the agent.
+        """
+        key = arg.strip()
+        if not key:
+            config = self.agent.cfg.as_dict()
+        else:
+            config = self.agent.cfg.get_value(key)
+        echo_g(f"Agent Configuration: {key}")
+        echo_g(yam_str(config))
+
+    def complete_config_detail(self, text, line, begidx, endidx):
+        """
+        Auto-complete the config_detail command.
+        """
+        data = self.agent.cfg.as_dict()
+        nested_keys = []
+        def extract_keys(d, prefix=""):
+            for k, v in d.items():
+                full_key = f"{prefix}.{k}" if prefix else k
+                nested_keys.append(full_key)
+                if isinstance(v, dict):
+                    extract_keys(v, full_key)
+        extract_keys(data)
+        if not text:
+            return nested_keys
+        return [k for k in nested_keys if k.startswith(text.strip())]
+
     def do_logo_and_version(self, arg):
         """
         Show the agent version and logo.

@@ -10,7 +10,7 @@ from unittest import mock
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.cli import get_args
+from ucagent.cli import get_args, get_override_dict
 from ucagent.util.config import Config, load_yaml_with_env_vars
 
 
@@ -68,6 +68,23 @@ plain_text: not enabled
 
         self.assertEqual(args.override["launch.default_args.launch_mode"], "docker_swarm")
         self.assertEqual(args.override["launch.cluster.image"], "123123123")
+
+    def test_override_accepts_unquoted_base64_value_with_padding(self):
+        override = get_override_dict(
+            "backend.codex.cfg_bash_cmd=base64@K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg=="
+        )
+
+        self.assertEqual(
+            override["backend.codex.cfg_bash_cmd"],
+            "base64@K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg==",
+        )
+
+    def test_override_still_parses_literal_values(self):
+        override = get_override_dict("a.b=123,c.d=True,e.f=['x']")
+
+        self.assertEqual(override["a.b"], 123)
+        self.assertIs(override["c.d"], True)
+        self.assertEqual(override["e.f"], ["x"])
 
 
 if __name__ == '__main__':
