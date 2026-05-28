@@ -241,6 +241,10 @@
           <input id="output" value="unity_test">
         </div>
         <div>
+          <label>Workspace Base</label>
+          <input id="workspace-base" placeholder="Base directory for zipped workspace extraction">
+        </div>
+        <div>
           <label>Master Override</label>
           <input id="master-override" placeholder="host:port [access_key]">
         </div>
@@ -326,6 +330,7 @@ const state = {
   modules: [],
   envRows: [],
   manualConfigPath: false,
+  manualWorkspaceBase: false,
   launchConfig: null,
   configOptions: [],
   backendOptions: [],
@@ -1097,6 +1102,7 @@ function buildCommandPreview() {
   const compileCurrent = isCompileCurrent();
   const dynamicOptions = collectDynamicLaunchOptions();
   const useZipWorkspace = state.launchConfig?.use_zip_workspace !== false;
+  const workspaceBase = document.getElementById('workspace-base')?.value.trim() || '';
   const workspacePath = useZipWorkspace
     ? `/api/workspace/${state.workspaceId}.tar.gz`
     : state.workspace.workspace_dir + '/workspace';
@@ -1107,8 +1113,8 @@ function buildCommandPreview() {
     '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
     '--output', document.getElementById('output').value.trim() || 'unity_test',
   ];
-  if (useZipWorkspace && state.launchConfig?.workspace_base) {
-    args.push('--workspace-base', state.launchConfig.workspace_base);
+  if (useZipWorkspace && workspaceBase) {
+    args.push('--workspace-base', workspaceBase);
   }
   if (dynamicOptions.stream_output) args.push('-s');
   if (dynamicOptions.human) args.push('-hm');
@@ -1522,12 +1528,12 @@ async function launchTask() {
     main_verilog_path: mainFile.stored_path,
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
-    launch_mode: document.getElementById('launch-mode').value || 'process',
+    launch_mode: getSelectedLaunchMode(),
     output: document.getElementById('output').value.trim() || 'unity_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
     use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
-    workspace_base: state.launchConfig?.workspace_base || '',
+    workspace_base: document.getElementById('workspace-base')?.value.trim() || '',
     ...dynamicOptions,
   };
   state.launching = true;
@@ -1621,6 +1627,48 @@ function firstLaunchModeValue(value) {
   return value ?? '';
 }
 
+function normalizeLaunchModeKey(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+function resolveWorkspaceBaseForLaunchMode(config, launchMode) {
+  const raw = config?.workspace_base;
+  if (raw === undefined || raw === null) return '';
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const resolved = resolveWorkspaceBaseForLaunchMode({ workspace_base: item }, launchMode);
+      if (resolved) return resolved;
+    }
+    return '';
+  }
+  if (typeof raw === 'object') {
+    const desiredMode = normalizeLaunchModeKey(launchMode || 'process');
+    let fallback = '';
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === '*') {
+        fallback = value ?? '';
+        continue;
+      }
+      if (normalizeLaunchModeKey(key) === desiredMode) {
+        return value ?? '';
+      }
+    }
+    return fallback;
+  }
+  return raw;
+}
+
+function applyWorkspaceBaseDefault(force = false) {
+  const input = document.getElementById('workspace-base');
+  if (!input) return;
+  if (!force && state.manualWorkspaceBase) return;
+  input.value = resolveWorkspaceBaseForLaunchMode(state.launchConfig, getSelectedLaunchMode());
+}
+
+function getSelectedLaunchMode() {
+  return document.getElementById('launch-mode')?.value || state.defaultLaunchMode || 'process';
+}
+
 function renderLaunchModeSelect() {
   const select = document.getElementById('launch-mode');
   if (!select) return;
@@ -1643,7 +1691,7 @@ function renderLaunchModeSelect() {
 }
 
 function renderLaunchModeStatus() {
-  const selected = document.getElementById('launch-mode')?.value || 'process';
+  const selected = getSelectedLaunchMode();
   const mode = state.launchModes.find((item) => item.value === selected);
   const available = state.launchModes.length ? state.launchModes : [{ value: 'process', name: 'Process', enabled: true, reason: 'Always available' }];
   const lines = available.map((item) => {
@@ -1722,6 +1770,7 @@ function applyLaunchConfig(config) {
   setSelectValueIfAvailable('backend', config.backend);
   setSelectValueIfAvailable('config-path', config.config);
   setSelectValueIfAvailable('launch-mode', firstLaunchModeValue(config.launch_mode));
+  applyWorkspaceBaseDefault(true);
   syncBackendMcpFileToolsOption();
   syncCfgBashOverrideExtraArgs();
   renderLaunchModeStatus();
@@ -1903,7 +1952,7 @@ document.addEventListener('change', async (event) => {
       return;
     }
     if ([
-      'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
+      'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override',
     ].includes(target.id)) {
       if (target.id === 'backend') {
         syncBackendMcpFileToolsOption();
@@ -1911,6 +1960,7 @@ document.addEventListener('change', async (event) => {
       }
       if (target.id === 'launch-mode') {
         renderLaunchModeStatus();
+        applyWorkspaceBaseDefault();
         syncCfgBashOverrideExtraArgs();
       }
       updateLaunchState();
@@ -1948,14 +1998,18 @@ document.addEventListener('input', (event) => {
     return;
   }
   if ([
-    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'master-override',
+    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override',
   ].includes(event.target.id)) {
+    if (event.target.id === 'workspace-base') {
+      state.manualWorkspaceBase = true;
+    }
     if (event.target.id === 'backend') {
       syncBackendMcpFileToolsOption();
       syncCfgBashOverrideExtraArgs();
     }
     if (event.target.id === 'launch-mode') {
       renderLaunchModeStatus();
+      applyWorkspaceBaseDefault();
       syncCfgBashOverrideExtraArgs();
     }
     updateLaunchState();
