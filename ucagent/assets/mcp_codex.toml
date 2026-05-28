@@ -11,6 +11,7 @@ personality = "pragmatic"
 name = "ucagent"
 base_url = "{{OPENAI_API_BASE}}"
 wire_api = "responses"
+env_key = "OPENAI_API_KEY"
 
 [mcp_servers.ucagent]
 url = 'http://127.0.0.1:{{PORT}}/mcp'
