@@ -22,7 +22,22 @@ def test_master_launch_workspace_defaults_to_master_workspace():
 
         assert ws["base_root"] == os.path.abspath(master_ws)
         assert ws["workspace_dir"].startswith(os.path.abspath(master_ws) + os.sep)
-        assert os.path.basename(ws["workspace_dir"]).startswith("ucagent_launch_")
+        assert os.path.basename(ws["workspace_dir"]) == ws["workspace_id"]
+        assert ws["task_id"] == ws["workspace_id"]
+
+
+def test_task_record_reuses_launch_workspace_task_id():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        ws = server._create_workspace()
+        task = server._create_task_record({
+            "task_id": ws["task_id"],
+            "workspace_id": ws["workspace_id"],
+        })
+
+        assert task["task_id"] == ws["task_id"]
+        assert server._get_workspace(ws["workspace_id"])["task_id"] == task["task_id"]
 
 
 def test_master_server_uses_passed_config_for_launch_defaults():

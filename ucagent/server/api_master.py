@@ -886,8 +886,17 @@ class PdbMasterApiServer:
     def _create_workspace(self) -> Dict[str, Any]:
         base_root = self.workspace
         os.makedirs(base_root, exist_ok=True)
-        ws_dir = tempfile.mkdtemp(prefix="ucagent_launch_", dir=base_root)
-        workspace_id = secrets.token_hex(8)
+        with self._workspaces_lock:
+            existing_workspace_ids = set(self._workspaces.keys())
+        with self._tasks_lock:
+            existing_task_ids = set(self._tasks.keys())
+        while True:
+            workspace_id = secrets.token_hex(8)
+            if workspace_id in existing_workspace_ids or workspace_id in existing_task_ids:
+                continue
+            ws_dir = os.path.join(base_root, workspace_id)
+            if not os.path.exists(ws_dir):
+                break
         picker_workspace = os.path.join(ws_dir, "workspace")
         os.makedirs(picker_workspace, exist_ok=True)
         self._write_launch_status(ws_dir, "created")
@@ -898,7 +907,7 @@ class PdbMasterApiServer:
             "base_root": base_root,
             "created_at": _now(),
             "files": [],
-            "task_id": "",
+            "task_id": workspace_id,
             "compile": {},
         }
         with self._workspaces_lock:
@@ -913,10 +922,13 @@ class PdbMasterApiServer:
         cleaned = 0
         now = _now()
         for entry in os.listdir(base_root):
-            if not entry.startswith("ucagent_launch_"):
-                continue
             ws_dir = os.path.join(base_root, entry)
             if not os.path.isdir(ws_dir):
+                continue
+            if not entry.startswith("ucagent_launch_") and not (
+                re.fullmatch(r"[0-9a-f]{16}", entry)
+                and os.path.isfile(os.path.join(ws_dir, _LAUNCH_STATUS_FILE))
+            ):
                 continue
             status = self._read_launch_status(ws_dir)
             status_val = status.get("status", "unknown")
@@ -1527,7 +1539,15 @@ class PdbMasterApiServer:
         }
 
     def _create_task_record(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        task_id = secrets.token_hex(8)
+        task_id = _safe_name(str(data.get("task_id") or "").strip(), "")
+        requested_task_id = bool(task_id)
+        with self._tasks_lock:
+            if requested_task_id and task_id in self._tasks:
+                raise ValueError(f"Task '{task_id}' already exists")
+            while not task_id:
+                candidate = secrets.token_hex(8)
+                if candidate not in self._tasks:
+                    task_id = candidate
         stdout_log = os.path.join(self._logs_dir, f"{task_id}.stdout.log")
         stderr_log = os.path.join(self._logs_dir, f"{task_id}.stderr.log")
         web_console_log = os.path.join(self._logs_dir, f"{task_id}.web_console.log")
@@ -1569,6 +1589,10 @@ class PdbMasterApiServer:
         pathlib.Path(stderr_log).touch()
         pathlib.Path(web_console_log).touch()
         with self._tasks_lock:
+            if task_id in self._tasks:
+                if requested_task_id:
+                    raise ValueError(f"Task '{task_id}' already exists")
+                raise ValueError("Generated duplicate task id")
             self._tasks[task_id] = task
         if task["workspace_id"]:
             with self._workspaces_lock:
@@ -3150,6 +3174,7 @@ class PdbMasterApiServer:
             }
 
         task = self._create_task_record({
+            "task_id": str(ws.get("task_id") or workspace_id).strip(),
             "task_name": req.get("task_name") or selected_module,
             "client_id": req.get("client_id", ""),
             "workspace_id": workspace_id,
