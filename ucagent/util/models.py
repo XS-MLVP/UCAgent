@@ -26,12 +26,12 @@ def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:
             "Please install langchain_openai to use OpenAI chat model. "
             "You can install it with: pip3 install langchain_openai"
         )
-    kw = dict(
-        openai_api_key=cfg.openai.openai_api_key,
-        openai_api_base=cfg.openai.openai_api_base,
-        model=cfg.openai.model_name,
-        seed=cfg.seed,
-    )
+    kw = cfg.openai.as_dict()
+    model_name = kw.pop("model_name")
+    if model_name:
+        kw["model"] = model_name
+    if "seed" not in kw:
+        kw["seed"] = cfg.seed
     if callbacks:
         kw.update({"callbacks": callbacks, "streaming": True})
     if rate_limiter:
