@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+from unittest.mock import patch
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
@@ -118,6 +119,94 @@ def test_master_source_empty_does_not_override_container_launch(monkeypatch):
         command = server._container_command(["/usr/bin/python3", "/old/ucagent/cli.py", "/work", "Adder"])
 
         assert command[:3] == ["ucagent", "/work", "Adder"]
+
+
+def test_docker_host_master_keeps_host_gateway_and_publishes_task_ports():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "cluster": {
+                    "image": "ucagent:test",
+                    "master_ip": [{"docker": "host.docker.internal"}],
+                    "docker_network": "ucagent_net",
+                },
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        task = {"task_id": "task1", "stdout_log_path": os.path.join(master_ws, "stdout.log")}
+        open(task["stdout_log_path"], "w", encoding="utf-8").close()
+
+        with patch.object(server, "_ensure_docker_task_network") as ensure_network, \
+                patch.object(server, "_current_docker_container_id", return_value=""), \
+                patch.object(server, "_running_inside_container", return_value=False):
+            master_host = server._prepare_docker_task_network("docker", "ucagent_net", task)
+
+        assert master_host == ""
+        ensure_network.assert_called_once_with("docker", "ucagent_net")
+        assert server._workspace_archive_download_url("ws1", "docker") == "http://host.docker.internal:8800/api/workspace/ws1.tar.gz"
+
+        argv, _env = server._build_ucagent_command(
+            {"launch_mode": "docker", "use_zip_workspace": True, "task_id": "ws1"},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+        )
+
+        master_index = argv.index("--master")
+        assert argv[master_index + 1] == "host.docker.internal:8800"
+        assert server._docker_extra_args(server._launch_cluster_config())[0] == "--add-host=host.docker.internal:host-gateway"
+        assert server._published_ports(
+            {"enabled": True, "port": 8765},
+            {"enabled": True, "port": 8818},
+            {"enabled": True, "port": 8000},
+            "docker",
+            "",
+        ) == [
+            {"name": "cmd-api", "host_port": 8765, "container_port": 8765},
+            {"name": "terminal-api", "host_port": 8818, "container_port": 8818},
+            {"name": "web-console", "host_port": 8000, "container_port": 8000},
+        ]
+
+
+def test_docker_container_master_uses_configured_network_alias_for_task():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "cluster": {
+                    "image": "ucagent:test",
+                    "master_ip": [{"docker": "ucagent_master"}],
+                    "docker_network": "ucagent_net",
+                },
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        task = {"task_id": "task1", "stdout_log_path": os.path.join(master_ws, "stdout.log")}
+        open(task["stdout_log_path"], "w", encoding="utf-8").close()
+
+        with patch.object(server, "_ensure_docker_task_network"), \
+                patch.object(server, "_current_docker_container_id", return_value="abcdef123456"), \
+                patch.object(server, "_docker_container_networks", return_value=({"ucagent_net": {"Aliases": ["ucagent_master"]}}, "")):
+            master_host = server._prepare_docker_task_network("docker", "ucagent_net", task)
+
+        assert master_host == "ucagent_master"
+        assert server._workspace_archive_download_url("ws1", "docker", master_host) == "http://ucagent_master:8800/api/workspace/ws1.tar.gz"
+
+        argv, _env = server._build_ucagent_command(
+            {"launch_mode": "docker", "use_zip_workspace": True, "task_id": "ws1"},
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "0.0.0.0", "port": 8765, "password": "pw"},
+            master_host,
+        )
+
+        master_index = argv.index("--master")
+        assert argv[master_index + 1] == "ucagent_master:8800"
+        assert argv[2] == "http://ucagent_master:8800/api/workspace/ws1.tar.gz"
+        assert server._published_ports(
+            {"enabled": True, "port": 8765},
+            {"enabled": True, "port": 8818},
+            {"enabled": True, "port": 8000},
+            "docker",
+            master_host,
+        ) == []
 
 
 def test_swarm_task_cmd_proxy_uses_service_dns_over_agent_task_ip():

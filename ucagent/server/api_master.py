@@ -702,10 +702,10 @@ class PdbMasterApiServer:
         )
         return archive_path, f"{archive_stem}.tar.gz", temp_dir
 
-    def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str) -> str:
+    def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str, master_host: str = "") -> str:
         if not self.tcp:
             raise ValueError("Current master has no TCP listener; cannot provide workspace archive URL")
-        host = self._cluster_master_ip(launch_mode)
+        host = str(master_host or "").strip() or self._cluster_master_ip(launch_mode)
         return f"http://{host}:{self.port}/api/workspace/{archive_ref}.tar.gz"
 
     def _snapshot_agents(self) -> List[Dict[str, Any]]:
@@ -1602,14 +1602,20 @@ class PdbMasterApiServer:
         self._mark_dirty()
         return task
 
-    def _build_ucagent_command(self, req: Dict[str, Any], prepared: Dict[str, Any], cmd_api: Dict[str, Any]) -> Tuple[List[str], Dict[str, str]]:
+    def _build_ucagent_command(
+        self,
+        req: Dict[str, Any],
+        prepared: Dict[str, Any],
+        cmd_api: Dict[str, Any],
+        master_host: str = "",
+    ) -> Tuple[List[str], Dict[str, str]]:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         cli_path = self._master_source_cli_path() or os.path.normpath(os.path.join(current_dir, "..", "cli.py"))
         picker_workspace = prepared.get("picker_workspace") or prepared["workspace_dir"]
         launch_mode = _normalize_launch_mode(req.get("launch_mode", "process"))
         if req.get("use_zip_workspace", True):
             archive_ref = str(req.get("task_id") or req.get("workspace_id") or "").strip()
-            workspace_arg = self._workspace_archive_download_url(archive_ref, launch_mode)
+            workspace_arg = self._workspace_archive_download_url(archive_ref, launch_mode, master_host)
         else:
             workspace_arg = picker_workspace
         argv = [sys.executable, cli_path, workspace_arg, prepared["dut_name"]]
@@ -1707,8 +1713,8 @@ class PdbMasterApiServer:
             if not self.tcp:
                 raise ValueError("Current master has no TCP listener; cannot auto-connect launched task")
             launch_mode = _normalize_launch_mode(req.get("launch_mode", "process"))
-            master_host = self._cluster_master_ip(launch_mode)
-            host_port = f"{master_host}:{self.port}"
+            master_host_for_task = str(master_host or "").strip() or self._cluster_master_ip(launch_mode)
+            host_port = f"{master_host_for_task}:{self.port}"
             if self.access_key:
                 master_spec = f"{host_port} {self.access_key}"
             else:
@@ -1808,6 +1814,260 @@ class PdbMasterApiServer:
         except ImportError:
             return network
         return NetworkAttachmentConfig(target=network)
+
+    def _docker_swarm_local_state(self) -> str:
+        if self._docker_cli_available():
+            code, stdout, _stderr = self._run_control_command(
+                ["docker", "info", "--format", "{{.Swarm.LocalNodeState}}"],
+                timeout=3.0,
+            )
+            return stdout.strip().lower() if code == 0 else ""
+        try:
+            info = self._docker_sdk_client().info()
+            return str(((info.get("Swarm") or {}).get("LocalNodeState")) or "").strip().lower()
+        except Exception:
+            return ""
+
+    def _docker_network_inspect_data(self, network: str) -> Tuple[Dict[str, Any], str]:
+        network = str(network or "").strip()
+        if not network:
+            return {}, "network name is empty"
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "network", "inspect", network],
+                timeout=5.0,
+            )
+            if code != 0:
+                return {}, (stderr or stdout or f"Docker network '{network}' was not found").strip()
+            try:
+                data = json.loads(stdout)
+                if isinstance(data, list) and data:
+                    return data[0], ""
+                if isinstance(data, dict):
+                    return data, ""
+            except json.JSONDecodeError as exc:
+                return {}, f"failed to parse docker network inspect output for '{network}': {exc}"
+            return {}, f"docker network inspect returned no data for '{network}'"
+        try:
+            network_obj = self._docker_sdk_client().networks.get(network)
+            return dict(network_obj.attrs or {}), ""
+        except Exception as exc:
+            return {}, str(exc)
+
+    def _ensure_docker_task_network(self, mode: str, network: str) -> Dict[str, Any]:
+        network = str(network or "").strip()
+        if not network:
+            return {}
+        info, error = self._docker_network_inspect_data(network)
+        if not info:
+            create_overlay = mode == "docker_swarm" or self._docker_swarm_local_state() == "active"
+            if self._docker_cli_available():
+                cmd = ["docker", "network", "create"]
+                if create_overlay:
+                    cmd.extend(["--driver", "overlay", "--attachable"])
+                cmd.append(network)
+                code, stdout, stderr = self._run_control_command(cmd, timeout=15.0)
+                if code != 0:
+                    raise ValueError(f"failed to create Docker network '{network}': {(stderr or stdout).strip() or error}")
+            else:
+                try:
+                    kwargs = {"driver": "overlay", "attachable": True} if create_overlay else {"driver": "bridge"}
+                    self._docker_sdk_client().networks.create(network, **kwargs)
+                except Exception as exc:
+                    raise ValueError(f"failed to create Docker network '{network}' via Docker SDK: {exc}") from exc
+            info, error = self._docker_network_inspect_data(network)
+            if not info:
+                raise ValueError(f"Docker network '{network}' is unavailable after create: {error}")
+        if mode == "docker_swarm":
+            driver = str(info.get("Driver") or "").lower()
+            scope = str(info.get("Scope") or "").lower()
+            if driver != "overlay" or scope != "swarm":
+                raise ValueError(
+                    f"Docker network '{network}' is {driver or 'unknown'}/{scope or 'unknown'}, "
+                    "expected overlay/swarm for Docker Swarm launch mode"
+                )
+        return info
+
+    def _docker_inspect_container_id(self, candidate: str) -> str:
+        candidate = str(candidate or "").strip().lstrip("/")
+        if not candidate:
+            return ""
+        if self._docker_cli_available():
+            code, stdout, _stderr = self._run_control_command(
+                ["docker", "inspect", "--type", "container", "-f", "{{.Id}}", candidate],
+                timeout=3.0,
+            )
+            return stdout.strip() if code == 0 else ""
+        try:
+            container = self._docker_sdk_client().containers.get(candidate)
+            return str(container.id or (container.attrs or {}).get("Id") or "").strip()
+        except Exception:
+            return ""
+
+    def _running_inside_container(self) -> bool:
+        if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
+            return True
+        for path in ("/proc/self/cgroup", "/proc/self/mountinfo"):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            if re.search(r"(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])", text):
+                return True
+            if any(marker in text for marker in ("/docker/", "/kubepods/", "/containerd/")):
+                return True
+        return False
+
+    def _current_docker_container_id(self) -> str:
+        explicit = [
+            os.environ.get("UCAGENT_MASTER_CONTAINER_ID", ""),
+            os.environ.get("UCAGENT_MASTER_CONTAINER", ""),
+        ]
+        candidates: List[str] = [str(item).strip() for item in explicit if str(item or "").strip()]
+        cgroup_candidates: List[str] = []
+        for path in ("/proc/self/cgroup", "/proc/self/mountinfo"):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            cgroup_candidates.extend(re.findall(r"(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])", text))
+        if self._running_inside_container():
+            candidates.extend(cgroup_candidates)
+            candidates.append(os.environ.get("HOSTNAME", ""))
+            try:
+                with open("/etc/hostname", "r", encoding="utf-8", errors="replace") as fh:
+                    candidates.append(fh.read().strip())
+            except OSError:
+                pass
+        seen = set()
+        for candidate in candidates:
+            candidate = str(candidate or "").strip()
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            container_id = self._docker_inspect_container_id(candidate)
+            if container_id:
+                return container_id
+        return ""
+
+    def _docker_container_networks(self, container_id: str) -> Tuple[Dict[str, Any], str]:
+        container_id = str(container_id or "").strip()
+        if not container_id:
+            return {}, "container id is empty"
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", container_id],
+                timeout=5.0,
+            )
+            if code != 0:
+                return {}, (stderr or stdout or f"failed to inspect Docker container '{container_id}'").strip()
+            try:
+                data = json.loads(stdout or "{}")
+                return data if isinstance(data, dict) else {}, ""
+            except json.JSONDecodeError as exc:
+                return {}, f"failed to parse Docker container network data: {exc}"
+        try:
+            container = self._docker_sdk_client().containers.get(container_id)
+            networks = (((container.attrs or {}).get("NetworkSettings") or {}).get("Networks") or {})
+            return dict(networks), ""
+        except Exception as exc:
+            return {}, str(exc)
+
+    def _docker_network_aliases_for_master(self, mode: str) -> List[str]:
+        aliases: List[str] = ["ucagent_master"]
+        host = self._cluster_master_ip(mode).strip()
+        host_l = host.lower()
+        if (
+            host
+            and host_l not in {"host.docker.internal", "localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+            and not re.match(r"^\d+(?:\.\d+){3}$", host)
+            and re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$", host)
+        ):
+            aliases.insert(0, host)
+        deduped: List[str] = []
+        for alias in aliases:
+            if alias not in deduped:
+                deduped.append(alias)
+        return deduped
+
+    def _docker_master_network_host(self, mode: str, container_id: str, network_data: Dict[str, Any]) -> str:
+        aliases = [
+            str(item).strip()
+            for item in (network_data.get("Aliases") or [])
+            if str(item or "").strip()
+        ]
+        preferred = self._docker_network_aliases_for_master(mode)
+        for alias in preferred:
+            if alias in aliases:
+                return alias
+        container_id = str(container_id or "").strip()
+        short_id = container_id[:12]
+        for alias in aliases:
+            if alias and alias not in {container_id, short_id}:
+                return alias
+        return aliases[0] if aliases else short_id
+
+    def _ensure_master_on_docker_network(self, mode: str, network: str, task: Optional[Dict[str, Any]] = None) -> str:
+        network = str(network or "").strip()
+        if not network:
+            return ""
+        container_id = self._current_docker_container_id()
+        if not container_id:
+            if self._running_inside_container():
+                raise ValueError(
+                    "master appears to be running inside a container, but its Docker container id could not be resolved. "
+                    "Set UCAGENT_MASTER_CONTAINER_ID or run the master container with Docker socket access so task "
+                    f"containers can join the same Docker network '{network}'."
+                )
+            if task is not None:
+                self._append_task_log(
+                    task["stdout_log_path"],
+                    f"Master is not running inside a Docker container; task will use configured master address {self._cluster_master_ip(mode)}.",
+                )
+            return ""
+        networks, error = self._docker_container_networks(container_id)
+        if network in networks:
+            aliases = set(str(item) for item in ((networks.get(network) or {}).get("Aliases") or []))
+            missing_aliases = [alias for alias in self._docker_network_aliases_for_master(mode) if alias not in aliases]
+            if missing_aliases and task is not None:
+                self._append_task_log(
+                    task["stdout_log_path"],
+                    f"Master container is already on Docker network '{network}' but is missing preferred aliases: {', '.join(missing_aliases)}.",
+                )
+            return self._docker_master_network_host(mode, container_id, networks.get(network) or {})
+        aliases = self._docker_network_aliases_for_master(mode)
+        if self._docker_cli_available():
+            cmd = ["docker", "network", "connect"]
+            for alias in aliases:
+                cmd.extend(["--alias", alias])
+            cmd.extend([network, container_id])
+            code, stdout, stderr = self._run_control_command(cmd, timeout=15.0)
+            if code != 0:
+                raise ValueError(
+                    f"failed to connect master container to Docker network '{network}': "
+                    f"{(stderr or stdout).strip() or error}"
+                )
+        else:
+            try:
+                network_obj = self._docker_sdk_client().networks.get(network)
+                network_obj.connect(container_id, aliases=aliases)
+            except Exception as exc:
+                raise ValueError(f"failed to connect master container to Docker network '{network}' via Docker SDK: {exc}") from exc
+        if task is not None:
+            self._append_task_log(
+                task["stdout_log_path"],
+                f"Connected master container to Docker network '{network}' with aliases: {', '.join(aliases)}.",
+            )
+        return aliases[0] if aliases else container_id[:12]
+
+    def _prepare_docker_task_network(self, mode: str, network: str, task: Optional[Dict[str, Any]] = None) -> str:
+        network = str(network or "").strip()
+        if not network:
+            return ""
+        self._ensure_docker_task_network(mode, network)
+        return self._ensure_master_on_docker_network(mode, network, task)
 
     def _k8s_cli_available(self) -> bool:
         return shutil.which("kubectl") is not None
@@ -2045,7 +2305,7 @@ class PdbMasterApiServer:
             "name": f"ucagent-{task['task_id']}",
             "env": self._cluster_env(env, task.get("env") or {}),
             "mounts": self._cluster_mounts(prepared),
-            "network": str(cfg.get("docker_network") or "").strip(),
+            "network": str(cfg.get("docker_network") or "").strip() if mode in {"docker", "docker_swarm"} else "",
             "picker_workspace": "/tmp" if use_zip_workspace else (prepared.get("picker_workspace") or prepared["workspace_dir"]),
             "command": self._container_command(task["resolved_command"]),
         }
@@ -2113,8 +2373,14 @@ class PdbMasterApiServer:
         cmd_api: Dict[str, Any],
         terminal_api: Dict[str, Any],
         web_console: Dict[str, Any],
+        launch_mode: str = "docker",
+        master_host_for_task: str = "",
     ) -> List[Dict[str, Any]]:
-        return []
+        if launch_mode != "docker":
+            return []
+        if master_host_for_task:
+            return []
+        return self._cluster_ports(cmd_api, terminal_api, web_console)
 
     def _docker_extra_args(self, cfg: Dict[str, Any]) -> List[str]:
         args = [str(item) for item in cfg.get("docker_extra_args") or [] if str(item).strip()]
@@ -2310,6 +2576,25 @@ class PdbMasterApiServer:
             ),
         )
 
+    def _append_docker_connectivity_debug(
+        self,
+        task: Dict[str, Any],
+        launch_mode: str,
+        master_host_for_task: str,
+        cmd_api: Dict[str, Any],
+        terminal_api: Dict[str, Any],
+        web_console: Dict[str, Any],
+    ) -> None:
+        published = self._published_ports(cmd_api, terminal_api, web_console, launch_mode, master_host_for_task)
+        self._append_task_log(
+            task["stdout_log_path"],
+            (
+                "Docker connectivity debug: "
+                f"master_host_for_task={master_host_for_task or self._cluster_master_ip(launch_mode)} "
+                f"published_ports={json.dumps(published, ensure_ascii=False)}"
+            ),
+        )
+
     def _docker_swarm_task_detail(self, name: str) -> str:
         if not name:
             return ""
@@ -2368,6 +2653,7 @@ class PdbMasterApiServer:
         cmd_api: Dict[str, Any],
         terminal_api: Dict[str, Any],
         web_console: Dict[str, Any],
+        master_host_for_task: str = "",
     ) -> Dict[str, Any]:
         context = self._cluster_launch_context(task, env, prepared, "docker")
         cfg = context["cfg"]
@@ -2381,7 +2667,7 @@ class PdbMasterApiServer:
             }
             ports = {
                 f"{port['container_port']}/tcp": port["host_port"]
-                for port in self._published_ports(cmd_api, terminal_api, web_console)
+                for port in self._published_ports(cmd_api, terminal_api, web_console, "docker", master_host_for_task)
             } or None
             container = client.containers.run(
                 image=str(cfg["image"]),
@@ -2408,7 +2694,7 @@ class PdbMasterApiServer:
         for source, target in context["mounts"]:
             cmd.extend(["-v", f"{source}:{target}"])
         cmd.extend(["--workdir", context["picker_workspace"]])
-        for port in self._published_ports(cmd_api, terminal_api, web_console):
+        for port in self._published_ports(cmd_api, terminal_api, web_console, "docker", master_host_for_task):
             cmd.extend(["-p", f"{port['host_port']}:{port['container_port']}"])
         cmd.extend(self._docker_extra_args(cfg))
         cmd.append(str(cfg["image"]))
@@ -2521,7 +2807,7 @@ class PdbMasterApiServer:
         command = context["command"]
         ports = [
             {"name": item["name"][:15], "containerPort": item["container_port"]}
-            for item in self._published_ports(cmd_api, terminal_api, web_console)
+            for item in self._published_ports(cmd_api, terminal_api, web_console, "k8s")
         ]
         volume_mounts = []
         volumes = []
@@ -2663,7 +2949,7 @@ class PdbMasterApiServer:
                 cfg["image"],
                 namespace=namespace,
                 manifest_path=manifest_path,
-                ports=self._published_ports(cmd_api, terminal_api, web_console),
+                ports=self._published_ports(cmd_api, terminal_api, web_console, "k8s"),
             )
             self._append_task_log(task["stdout_log_path"], f"Started Kubernetes job {namespace}/{name}")
             self._k8s_sdk_log_capture(task, namespace, "")
@@ -2682,7 +2968,7 @@ class PdbMasterApiServer:
             cfg["image"],
             namespace=namespace,
             manifest_path=manifest_path,
-            ports=self._published_ports(cmd_api, terminal_api, web_console),
+            ports=self._published_ports(cmd_api, terminal_api, web_console, "k8s"),
         )
         self._append_task_log(task["stdout_log_path"], f"Started Kubernetes job {namespace}/{name}")
         self._start_k8s_port_forwards(task)
@@ -3205,7 +3491,22 @@ class PdbMasterApiServer:
         if web_console.get("enabled"):
             req["web_console_capture_path"] = task["web_console_log_path"]
 
-        resolved_command, env = self._build_ucagent_command(req, prepared, cmd_api)
+        master_host_for_task = ""
+        if launch_mode in {"docker", "docker_swarm"}:
+            network = str(self._launch_cluster_config().get("docker_network") or "").strip()
+            network_master_host = self._prepare_docker_task_network(launch_mode, network, task)
+            if launch_mode == "docker" and network_master_host:
+                master_host_for_task = network_master_host
+            self._append_docker_connectivity_debug(
+                task,
+                launch_mode,
+                master_host_for_task,
+                cmd_api,
+                terminal_api,
+                web_console,
+            )
+
+        resolved_command, env = self._build_ucagent_command(req, prepared, cmd_api, master_host_for_task)
         task["resolved_command"] = resolved_command
         task["process_status"] = "starting"
         try:
@@ -3213,7 +3514,7 @@ class PdbMasterApiServer:
                 proc = self._start_task_process(task, env)
                 task["pid"] = proc.pid
             elif launch_mode == "docker":
-                self._start_task_docker(task, env, prepared, cmd_api, terminal_api, web_console)
+                self._start_task_docker(task, env, prepared, cmd_api, terminal_api, web_console, master_host_for_task)
                 proc = None
             elif launch_mode == "docker_swarm":
                 self._start_task_docker_swarm(task, env, prepared, cmd_api, terminal_api, web_console)
