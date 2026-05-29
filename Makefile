@@ -10,6 +10,7 @@ SWARM_MASTER_SERVICE ?= ucagent_master
 SWARM_MASTER_PORT ?= 8800
 SWARM_MASTER_PERSIST ?= /tmp/ucagent_master
 SWARM_DOCKER_SOCK ?= /var/run/docker.sock
+SWARM_MASTER_HOST ?=
 SWARM_LOCAL_UCAGENT_DIR := $(CURDIR)
 MASTER_IP ?= 127.0.0.1
 
@@ -152,7 +153,10 @@ swarm_init:
 	else \
 		docker network create --driver overlay --attachable $(SWARM_NETWORK); \
 	fi
-	docker image inspect $(SWARM_IMAGE) 1>/dev/null
+	@if ! docker image inspect $(SWARM_IMAGE) >/dev/null 2>&1; then \
+		echo "Pulling Docker image $(SWARM_IMAGE)..."; \
+		docker pull $(SWARM_IMAGE); \
+	fi
 
 swarm_clean:
 	@echo "Removing existing Docker Swarm services with name prefix $(SWARM_MASTER_SERVICE)...";
@@ -169,7 +173,7 @@ swarm_master: swarm_init
 		docker service rm $(SWARM_MASTER_SERVICE) >/dev/null; \
 		while docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; do sleep 1; done; \
 	fi
-	docker service create \
+	@docker service create \
 		--name $(SWARM_MASTER_SERVICE) \
 		--hostname $(SWARM_MASTER_SERVICE) \
 		--detach=true \
@@ -178,9 +182,25 @@ swarm_master: swarm_init
 		--constraint node.role==manager \
 		--network $(SWARM_NETWORK) \
 		--env DOCKER_HOST=unix://$(SWARM_DOCKER_SOCK) \
-		--env OPENAI_MODEL=$(OPENAI_MODEL) \
-		--env OPENAI_API_KEY=$(OPENAI_API_KEY) \
-		--env OPENAI_API_BASE=$(OPENAI_API_BASE) \
+		--env UCAGENT_LAUNCH_IMAGE=$(SWARM_IMAGE) \
+		--env UCAGENT_LAUNCH_MASTER_IP=$(SWARM_MASTER_SERVICE) \
+		--env OPENAI_MODEL \
+		--env OPENAI_API_KEY \
+		--env OPENAI_API_BASE \
+		--env EMBED_MODEL \
+		--env EMBED_OPENAI_API_KEY \
+		--env EMBED_OPENAI_API_BASE \
+		--env UC_MODEL_TYPE \
+		--env ANTHROPIC_BASE_URL \
+		--env ANTHROPIC_AUTH_TOKEN \
+		--env ANTHROPIC_MODEL \
+		--env ANTHROPIC_BIG_MODEL \
+		--env ANTHROPIC_SML_MODEL \
+		--env GOOGLE_GENAI_API_KEY \
+		--env GOOGLE_GENAI_MODEL \
+		--env UC_ENV_CMD_BACKEND_EX_ARGS \
+		--env UC_ENV_CMD_BACKEND_EX_ARGS_N \
+		--env UC_ENV_CMD_BACKEND_EX_ARGS_C \
 		$(SWARM_MASTER_SOURCE_ENV) \
 		--publish published=$(SWARM_MASTER_PORT),target=$(SWARM_MASTER_PORT) \
 		--mount type=bind,source=$(abspath $(SWARM_MASTER_PERSIST)),target=$(SWARM_MASTER_PERSIST) \
@@ -188,13 +208,25 @@ swarm_master: swarm_init
 		$(SWARM_MASTER_UCAGENT_MOUNT) \
 		--workdir /workspace/UCAgent \
 		$(SWARM_IMAGE) \
-		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=docker_swarm $(ARGS)"
+		sh -c "tail -f /dev/null | $(SWARM_MASTER_CMD) --as-master-persist $(SWARM_MASTER_PERSIST) --as-master 0.0.0.0:$(SWARM_MASTER_PORT) --override launch.default_args.launch_mode=docker_swarm --override launch.cluster.docker_network=$(SWARM_NETWORK) --override launch.cluster.master_ip=$(SWARM_MASTER_SERVICE) $(ARGS)"
 	@echo "Waiting for $(SWARM_MASTER_SERVICE) to start..."
 	@for i in $$(seq 1 30); do \
 		replicas=$$(docker service ls --filter name=$(SWARM_MASTER_SERVICE) --format '{{.Replicas}}' | head -n 1); \
 		if [ "$$replicas" = "1/1" ]; then \
+			host="$(SWARM_MASTER_HOST)"; \
+			if [ -z "$$host" ]; then \
+				host=$$(docker node inspect self --format '{{.Status.Addr}}' 2>/dev/null | head -n 1); \
+			fi; \
+			if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
+				host=$$(docker info --format '{{.Swarm.NodeAddr}}' 2>/dev/null); \
+			fi; \
+			if [ -z "$$host" ] || [ "$$host" = "<no value>" ]; then \
+				host=$$(hostname -I 2>/dev/null | awk '{print $$1}'); \
+			fi; \
+			if [ -z "$$host" ]; then host=127.0.0.1; fi; \
 			echo "Docker Swarm master is running: http://$(SWARM_MASTER_SERVICE):$(SWARM_MASTER_PORT) on network $(SWARM_NETWORK)"; \
-			echo "Published on host: http://127.0.0.1:$(SWARM_MASTER_PORT)"; \
+			echo "Published on host: http://$$host:$(SWARM_MASTER_PORT)"; \
+			echo "Override the printed host with: make swarm_master SWARM_MASTER_HOST=<reachable-ip-or-dns>"; \
 			exit 0; \
 		fi; \
 		sleep 1; \
