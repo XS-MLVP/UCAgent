@@ -113,6 +113,7 @@ launch:
     use_skill: false
     extra_skill_path: ""
     use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
+    picker_args: []                   # additional picker export arguments used by Compile DUT
     workspace_base:                   # default --workspace-base for launched tasks using zipped workspace
       "process": "/tmp/ucagent_workspace_base"
       "*": "{WORKSPACE}"

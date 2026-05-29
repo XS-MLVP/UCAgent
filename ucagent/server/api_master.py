@@ -57,7 +57,7 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
 _TEXT_EXTS = {
     ".txt", ".md", ".rst", ".py", ".js", ".ts", ".css", ".html", ".htm",
     ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".sh",
-    ".bash", ".zsh", ".fish", ".v", ".sv", ".svh", ".vh", ".vhd", ".vhdl",
+    ".bash", ".zsh", ".fish", ".v", ".sv", ".svh", ".vh", ".f", ".vhd", ".vhdl",
     ".c", ".h", ".cpp", ".hpp", ".java", ".rs", ".go", ".rb", ".php",
     ".xml", ".csv", ".log", ".env", ".gitignore", ".makefile", ".mk",
     ".scala", ".lua", ".r", ".m", ".tex", ".bib", ".diff", ".patch",
@@ -84,6 +84,7 @@ _CATEGORY_LABELS = {
 }
 _RTL_SOURCE_EXTS = {".v", ".sv", ".vh", ".svh", ".scala"}
 _FILELIST_EXTS = {".v", ".sv", ".vh", ".svh"}
+_PICKER_F_EXTS = {".f"}
 _RTL_SPECIAL_FILES = {"filelist.txt"}
 _PROXY_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 _LAUNCH_MODES = ("process", "docker", "docker_swarm", "k8s")
@@ -453,6 +454,18 @@ def _is_text_file(path: str) -> bool:
     return ext in _TEXT_EXTS
 
 
+def _is_picker_f_file(path: str) -> bool:
+    return pathlib.Path(path or "").suffix.lower() in _PICKER_F_EXTS
+
+
+def _path_is_under(root: str, path: str) -> bool:
+    if not root or not path:
+        return False
+    root_abs = os.path.abspath(root)
+    path_abs = os.path.abspath(path)
+    return path_abs == root_abs or path_abs.startswith(root_abs + os.sep)
+
+
 def _category_label(category: str) -> str:
     return _CATEGORY_LABELS.get(category, _CATEGORY_LABELS["misc"])
 
@@ -472,7 +485,31 @@ def _is_rtl_workspace_file(name: str, category: str) -> bool:
         return True
     if lower_name in _RTL_SPECIAL_FILES:
         return True
-    return suffix in _RTL_SOURCE_EXTS or suffix in _FILELIST_EXTS
+    return suffix in _RTL_SOURCE_EXTS or suffix in _FILELIST_EXTS or suffix in _PICKER_F_EXTS
+
+
+def _normalize_arg_list(value: Any) -> List[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            return [item for item in shlex.split(value) if item]
+        except ValueError:
+            return [item.strip() for item in value.split() if item.strip()]
+    if isinstance(value, (list, tuple)):
+        result: List[str] = []
+        for item in value:
+            if item in (None, ""):
+                continue
+            if isinstance(item, (list, tuple)):
+                result.extend(_normalize_arg_list(item))
+            else:
+                text = str(item).strip()
+                if text:
+                    result.append(text)
+        return result
+    text = str(value).strip()
+    return [text] if text else []
 
 
 def _default_launch_root() -> str:
@@ -773,7 +810,7 @@ class PdbMasterApiServer:
                 item["original_name"] = os.path.basename(stored_path) or "file"
                 changed = True
             if root:
-                relpath = os.path.relpath(stored_path, root) if stored_path else ""
+                relpath = os.path.relpath(stored_path, root) if stored_path and _path_is_under(root, stored_path) else ""
                 relpath = "" if relpath == "." else relpath
                 if item.get("stored_relpath") != relpath:
                     item["stored_relpath"] = relpath
@@ -803,12 +840,15 @@ class PdbMasterApiServer:
             "doc_dir": compile_info.get("doc_dir", ""),
             "dut_dir": compile_info.get("dut_dir", ""),
             "filelist_path": compile_info.get("filelist_path", ""),
+            "source_f_filelist_paths": list(compile_info.get("source_f_filelist_paths") or []),
+            "f_filelist_paths": list(compile_info.get("f_filelist_paths") or []),
             "generated_filelist": bool(compile_info.get("generated_filelist")),
             "config_path": compile_info.get("config_path", ""),
             "readme_path": compile_info.get("readme_path", ""),
             "compiled_at": compile_info.get("compiled_at", 0),
             "copied_files": list(compile_info.get("copied_files") or []),
             "picker_command": list(compile_info.get("picker_command") or []),
+            "picker_extra_args": list(compile_info.get("picker_extra_args") or []),
             "picker_exit_code": compile_info.get("picker_exit_code"),
             "picker_stdout": compile_info.get("picker_stdout", ""),
             "picker_stderr": compile_info.get("picker_stderr", ""),
@@ -826,6 +866,10 @@ class PdbMasterApiServer:
         suffix = pathlib.Path(name).suffix.lower()
         exists = bool(stored_path and os.path.isfile(stored_path))
         size = os.path.getsize(stored_path) if exists else 0
+        workspace_dir = ws.get("workspace_dir", "")
+        stored_relpath = item.get("stored_relpath", "")
+        if not stored_relpath and stored_path and _path_is_under(workspace_dir, stored_path):
+            stored_relpath = os.path.relpath(stored_path, workspace_dir)
         return {
             "item_id": item.get("item_id", ""),
             "name": name,
@@ -835,12 +879,13 @@ class PdbMasterApiServer:
             "source": item.get("source", ""),
             "source_path": item.get("source_path", ""),
             "stored_path": stored_path,
-            "stored_relpath": item.get("stored_relpath", ""),
+            "stored_relpath": stored_relpath,
             "created_at": item.get("created_at", 0),
             "size": size,
             "exists": exists,
             "file_type": suffix or "file",
             "is_text": _is_text_file(stored_path) if exists else False,
+            "external_ref": bool(stored_path and not _path_is_under(workspace_dir, stored_path)),
         }
 
     def _workspace_public(self, ws: Dict[str, Any]) -> Dict[str, Any]:
@@ -973,13 +1018,19 @@ class PdbMasterApiServer:
         stored_path: str,
         original_name: str,
     ) -> Dict[str, Any]:
+        workspace_dir = self._get_workspace(workspace_id)["workspace_dir"]
+        stored_relpath = (
+            os.path.relpath(stored_path, workspace_dir)
+            if _path_is_under(workspace_dir, stored_path)
+            else ""
+        )
         item = {
             "item_id": secrets.token_hex(8),
             "category": category,
             "source": source,
             "source_path": src_path,
             "stored_path": stored_path,
-            "stored_relpath": os.path.relpath(stored_path, self._get_workspace(workspace_id)["workspace_dir"]),
+            "stored_relpath": stored_relpath,
             "original_name": original_name,
             "created_at": _now(),
         }
@@ -1017,6 +1068,15 @@ class PdbMasterApiServer:
         )
 
     def _store_existing_file(self, workspace_id: str, category: str, source_path: str) -> Dict[str, Any]:
+        if _is_picker_f_file(source_path):
+            return self._record_workspace_file(
+                workspace_id,
+                category=category,
+                source="server",
+                src_path=source_path,
+                stored_path=os.path.abspath(source_path),
+                original_name=os.path.basename(source_path),
+            )
         with open(source_path, "rb") as fh:
             data = fh.read()
         return self._store_file_bytes(
@@ -1056,7 +1116,7 @@ class PdbMasterApiServer:
                 })
         return entries
 
-    def _select_main_item(self, ws: Dict[str, Any], main_verilog_path: str = "") -> Dict[str, Any]:
+    def _select_main_item(self, ws: Dict[str, Any], main_verilog_path: str = "") -> Optional[Dict[str, Any]]:
         if main_verilog_path:
             item = self._find_workspace_item(ws, main_verilog_path)
             if item is None:
@@ -1065,7 +1125,7 @@ class PdbMasterApiServer:
         for item in reversed(ws.get("files", [])):
             if item.get("category") == "main_verilog":
                 return item
-        raise ValueError("No main Verilog file found in workspace")
+        return None
 
     def _select_workspace_item_by_category(self, ws: Dict[str, Any], category: str) -> Optional[Dict[str, Any]]:
         for item in reversed(ws.get("files", [])):
@@ -1090,6 +1150,8 @@ class PdbMasterApiServer:
         *,
         effective_dut: str,
         main_verilog_path: str = "",
+        selected_module: str = "",
+        picker_extra_args: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         ws = self._get_workspace(workspace_id)
         root = ws["workspace_dir"]
@@ -1098,15 +1160,35 @@ class PdbMasterApiServer:
         rtl_dir, doc_dir, dut_dir = self._reset_compiled_workspace_dirs(picker_workspace, dut)
 
         main_item = self._select_main_item(ws, main_verilog_path)
+        f_items = [
+            item for item in ws.get("files", [])
+            if _is_picker_f_file(item.get("stored_path") or item.get("original_name") or "")
+        ]
+        if main_item is None and not f_items:
+            raise ValueError("No main Verilog file or .f file found in workspace")
+        if not str(selected_module or "").strip():
+            raise ValueError("'selected_module' is required")
         copied: List[str] = []
         main_target = ""
         filelist_path = ""
+        source_f_filelist_paths: List[str] = []
+        f_filelist_paths: List[str] = []
         rtl_sources: List[str] = []
         config_path = ""
         for item in ws.get("files", []):
             src = item["stored_path"]
             cat = item.get("category", "misc")
             filename = os.path.basename(src)
+            is_f_file = _is_picker_f_file(filename)
+            if is_f_file:
+                source_f_abs = os.path.abspath(src)
+                if os.path.isfile(source_f_abs) and source_f_abs not in source_f_filelist_paths:
+                    source_f_filelist_paths.append(source_f_abs)
+            if is_f_file and item.get("source") == "server":
+                f_abs = os.path.abspath(src)
+                if os.path.isfile(f_abs) and f_abs not in f_filelist_paths:
+                    f_filelist_paths.append(f_abs)
+                continue
             if _is_rtl_workspace_file(filename, cat):
                 target_dir = rtl_dir
             else:
@@ -1118,17 +1200,21 @@ class PdbMasterApiServer:
             copied.append(target)
             if target_dir == rtl_dir and pathlib.Path(target).suffix.lower() in _FILELIST_EXTS:
                 rtl_sources.append(target)
-            if os.path.abspath(src) == os.path.abspath(main_item["stored_path"]):
+            if is_f_file:
+                f_abs = os.path.abspath(target)
+                if f_abs not in f_filelist_paths:
+                    f_filelist_paths.append(f_abs)
+            if main_item is not None and os.path.abspath(src) == os.path.abspath(main_item["stored_path"]):
                 main_target = target
             if filename.lower() == "filelist.txt":
                 filelist_path = target
             if cat == "config" and not config_path:
                 config_path = os.path.relpath(target, root)
 
-        if not main_target:
+        if main_item is not None and not main_target:
             raise ValueError("Failed to locate copied main Verilog file")
         generated_filelist = False
-        if not filelist_path:
+        if main_target and not filelist_path:
             deps = [path for path in rtl_sources if os.path.abspath(path) != os.path.abspath(main_target)]
             if deps:
                 filelist_path = os.path.join(rtl_dir, "filelist.txt")
@@ -1136,6 +1222,16 @@ class PdbMasterApiServer:
                     fh.write("\n".join(sorted(os.path.abspath(path) for path in deps)) + "\n")
                 copied.append(filelist_path)
                 generated_filelist = True
+        picker_command = self._build_picker_command(
+            workspace_dir=root,
+            picker_workspace=picker_workspace,
+            dut_name=dut,
+            selected_module=selected_module,
+            main_verilog_path=main_target,
+            filelist_path=filelist_path,
+            f_filelist_paths=f_filelist_paths,
+            picker_extra_args=picker_extra_args or [],
+        )
         return {
             "workspace_dir": root,
             "picker_workspace": picker_workspace,
@@ -1143,12 +1239,16 @@ class PdbMasterApiServer:
             "rtl_dir": rtl_dir,
             "dut_dir": dut_dir,
             "doc_dir": doc_dir,
-            "source_main_verilog_path": main_item["stored_path"],
+            "source_main_verilog_path": main_item["stored_path"] if main_item is not None else "",
             "main_verilog_path": main_target,
             "filelist_path": filelist_path,
+            "source_f_filelist_paths": source_f_filelist_paths,
+            "f_filelist_paths": f_filelist_paths,
             "generated_filelist": generated_filelist,
             "copied_files": copied,
             "config_path": config_path,
+            "picker_extra_args": list(picker_extra_args or []),
+            "picker_command": picker_command,
         }
 
     def _copy_requirement_readme(self, ws: Dict[str, Any], dut_dir: str) -> str:
@@ -1163,6 +1263,20 @@ class PdbMasterApiServer:
         shutil.copy2(src, readme_path)
         return readme_path
 
+    def _default_picker_args(self) -> List[str]:
+        default_args = _plain_config_value(self.cfg.get_value("launch.default_args", {}) or {})
+        if not isinstance(default_args, dict):
+            return []
+        picker_args = _normalize_arg_list(default_args.get("picker_args"))
+        if picker_args:
+            return picker_args
+        return _normalize_arg_list(default_args.get("picker_extra_args"))
+
+    def _effective_picker_args(self, picker_extra_args: Any = None) -> List[str]:
+        if picker_extra_args is None:
+            return self._default_picker_args()
+        return _normalize_arg_list(picker_extra_args)
+
     def _compile_workspace_dut(
         self,
         workspace_id: str,
@@ -1170,12 +1284,16 @@ class PdbMasterApiServer:
         effective_dut: str,
         selected_module: str,
         main_verilog_path: str = "",
+        picker_extra_args: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         ws = self._get_workspace(workspace_id)
+        picker_args = self._effective_picker_args(picker_extra_args)
         prepared = self._prepare_workspace_layout(
             workspace_id,
             effective_dut=effective_dut,
+            selected_module=selected_module,
             main_verilog_path=main_verilog_path,
+            picker_extra_args=picker_args,
         )
         picker = self._run_picker(
             workspace_dir=prepared["workspace_dir"],
@@ -1184,6 +1302,8 @@ class PdbMasterApiServer:
             selected_module=selected_module,
             main_verilog_path=prepared["main_verilog_path"],
             filelist_path=prepared["filelist_path"],
+            f_filelist_paths=prepared["f_filelist_paths"],
+            picker_extra_args=prepared["picker_extra_args"],
         )
         readme_path = ""
         if picker["success"]:
@@ -1199,12 +1319,15 @@ class PdbMasterApiServer:
             "doc_dir": prepared["doc_dir"],
             "dut_dir": prepared["dut_dir"],
             "filelist_path": prepared["filelist_path"],
+            "source_f_filelist_paths": prepared["source_f_filelist_paths"],
+            "f_filelist_paths": prepared["f_filelist_paths"],
             "generated_filelist": prepared["generated_filelist"],
             "config_path": prepared.get("config_path", ""),
             "readme_path": readme_path,
             "compiled_at": _now(),
             "copied_files": prepared["copied_files"],
             "picker_command": picker["command"],
+            "picker_extra_args": prepared["picker_extra_args"],
             "picker_exit_code": picker["exit_code"],
             "picker_stdout": picker["stdout"],
             "picker_stderr": picker["stderr"],
@@ -1226,6 +1349,8 @@ class PdbMasterApiServer:
         selected_module: str,
         main_verilog_path: str,
         filelist_path: str = "",
+        f_filelist_paths: Optional[List[str]] = None,
+        picker_extra_args: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         cmd = self._build_picker_command(
             workspace_dir=workspace_dir,
@@ -1234,6 +1359,8 @@ class PdbMasterApiServer:
             selected_module=selected_module,
             main_verilog_path=main_verilog_path,
             filelist_path=filelist_path,
+            f_filelist_paths=f_filelist_paths or [],
+            picker_extra_args=picker_extra_args or [],
         )
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=workspace_dir)
         already_exists = self._picker_create_conflict(picker_workspace, dut_name, result.stdout + result.stderr)
@@ -1257,12 +1384,14 @@ class PdbMasterApiServer:
         selected_module: str,
         main_verilog_path: str,
         filelist_path: str = "",
+        f_filelist_paths: Optional[List[str]] = None,
+        picker_extra_args: Optional[List[str]] = None,
     ) -> List[str]:
         fst_path = os.path.join(picker_workspace, dut_name, f"{dut_name}.fst")
-        cmd = [
-            "picker",
-            "export",
-            main_verilog_path,
+        cmd = ["picker", "export"]
+        if main_verilog_path:
+            cmd.append(main_verilog_path)
+        cmd.extend([
             "--rw",
             "1",
             "--sname",
@@ -1272,9 +1401,13 @@ class PdbMasterApiServer:
             "-c",
             "-w",
             fst_path,
-        ]
+        ])
         if filelist_path and os.path.isfile(filelist_path):
             cmd.extend(["--fs", filelist_path])
+        for f_path in f_filelist_paths or []:
+            if f_path and os.path.isfile(f_path):
+                cmd.extend(["--filelist", os.path.abspath(f_path)])
+        cmd.extend([arg for arg in (picker_extra_args or []) if str(arg).strip()])
         return cmd
 
     def _picker_create_conflict(self, picker_workspace: str, dut_name: str, output: str) -> bool:
@@ -1306,30 +1439,39 @@ class PdbMasterApiServer:
             "result": runtime.get("result"),
         }
 
-    def _run_compile_job(self, workspace_id: str, effective_dut: str, selected_module: str, main_verilog_path: str) -> None:
+    def _run_compile_job(
+        self,
+        workspace_id: str,
+        effective_dut: str,
+        selected_module: str,
+        main_verilog_path: str,
+        picker_extra_args: Optional[List[str]] = None,
+    ) -> None:
         prepared: Dict[str, Any] = {}
         picker: Dict[str, Any] = {"command": [], "exit_code": None, "stdout": "", "stderr": "", "success": False}
         try:
+            picker_args = self._effective_picker_args(picker_extra_args)
             prepared = self._prepare_workspace_layout(
                 workspace_id,
                 effective_dut=effective_dut,
+                selected_module=selected_module,
                 main_verilog_path=main_verilog_path,
+                picker_extra_args=picker_args,
             )
             self._append_compile_log(
                 workspace_id,
-                f"Prepared workspace layout:\n  RTL: {prepared['rtl_dir']}\n  DOC: {prepared['doc_dir']}\n  DUT: {prepared['dut_dir']}\n",
+                (
+                    f"Prepared workspace layout:\n"
+                    f"  RTL: {prepared['rtl_dir']}\n"
+                    f"  DOC: {prepared['doc_dir']}\n"
+                    f"  DUT: {prepared['dut_dir']}\n"
+                    f"  Picker: {shlex.join(prepared['picker_command'])}\n"
+                ),
                 "info",
             )
 
             def _run_once() -> Dict[str, Any]:
-                cmd = self._build_picker_command(
-                    workspace_dir=prepared["workspace_dir"],
-                    picker_workspace=prepared["picker_workspace"],
-                    dut_name=prepared["dut_name"],
-                    selected_module=selected_module,
-                    main_verilog_path=prepared["main_verilog_path"],
-                    filelist_path=prepared["filelist_path"],
-                )
+                cmd = list(prepared["picker_command"])
                 proc = subprocess.Popen(
                     cmd,
                     cwd=prepared["workspace_dir"],
@@ -1407,12 +1549,15 @@ class PdbMasterApiServer:
                 "doc_dir": prepared["doc_dir"],
                 "dut_dir": prepared["dut_dir"],
                 "filelist_path": prepared["filelist_path"],
+                "source_f_filelist_paths": prepared["source_f_filelist_paths"],
+                "f_filelist_paths": prepared["f_filelist_paths"],
                 "generated_filelist": prepared["generated_filelist"],
                 "config_path": prepared.get("config_path", ""),
                 "readme_path": readme_path,
                 "compiled_at": _now(),
                 "copied_files": prepared["copied_files"],
                 "picker_command": picker["command"],
+                "picker_extra_args": prepared["picker_extra_args"],
                 "picker_exit_code": picker["exit_code"],
                 "picker_stdout": picker["stdout"],
                 "picker_stderr": picker["stderr"],
@@ -1441,7 +1586,14 @@ class PdbMasterApiServer:
                     runtime["finished_at"] = _now()
                     runtime["error"] = str(exc)
 
-    def _start_compile_job(self, workspace_id: str, effective_dut: str, selected_module: str, main_verilog_path: str) -> Dict[str, Any]:
+    def _start_compile_job(
+        self,
+        workspace_id: str,
+        effective_dut: str,
+        selected_module: str,
+        main_verilog_path: str,
+        picker_extra_args: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         with self._compile_runtime_lock:
             existing = self._compile_runtime.get(workspace_id)
             if existing and existing.get("status") == "running":
@@ -1460,7 +1612,7 @@ class PdbMasterApiServer:
             self._compile_runtime[workspace_id] = runtime
         thread = threading.Thread(
             target=self._run_compile_job,
-            args=(workspace_id, effective_dut, selected_module, main_verilog_path),
+            args=(workspace_id, effective_dut, selected_module, main_verilog_path, picker_extra_args),
             daemon=True,
             name=f"compile-{workspace_id}",
         )
@@ -1476,15 +1628,20 @@ class PdbMasterApiServer:
         selected_module: str,
         main_verilog_path: str,
         filelist_path: str = "",
+        f_filelist_paths: Optional[List[str]] = None,
+        picker_extra_args: Optional[List[str]] = None,
+        command: Optional[List[str]] = None,
     ):
-        cmd = self._build_picker_command(
+        cmd = list(command or self._build_picker_command(
             workspace_dir=workspace_dir,
             picker_workspace=picker_workspace,
             dut_name=dut_name,
             selected_module=selected_module,
             main_verilog_path=main_verilog_path,
             filelist_path=filelist_path,
-        )
+            f_filelist_paths=f_filelist_paths or [],
+            picker_extra_args=picker_extra_args or [],
+        ))
         proc = subprocess.Popen(
             cmd,
             cwd=workspace_dir,
@@ -3375,10 +3532,23 @@ class PdbMasterApiServer:
             raise ValueError("'selected_module' is required")
         effective_dut = (req.get("dut_name") or "").strip() or selected_module
         compile_info = dict((ws.get("compile") or {}))
+        current_f_filelists = sorted(
+            os.path.abspath(item.get("stored_path", ""))
+            for item in ws.get("files", [])
+            if _is_picker_f_file(item.get("stored_path") or item.get("original_name") or "")
+        )
+        compiled_f_filelists = sorted(
+            os.path.abspath(str(path))
+            for path in (compile_info.get("source_f_filelist_paths") or compile_info.get("f_filelist_paths") or [])
+            if str(path or "").strip()
+        )
+        requested_picker_args = self._effective_picker_args(req.get("picker_args", req.get("picker_extra_args", None)))
         compile_matches = (
             compile_info.get("status") == "success"
             and compile_info.get("dut_name") == _safe_name(effective_dut, "DUT")
             and compile_info.get("selected_module") == selected_module
+            and compiled_f_filelists == current_f_filelists
+            and list(compile_info.get("picker_extra_args") or []) == requested_picker_args
             and (
                 not req.get("main_verilog_path")
                 or os.path.abspath(str(compile_info.get("main_verilog_path") or "")) == os.path.abspath(str(req.get("main_verilog_path") or ""))
@@ -3399,6 +3569,8 @@ class PdbMasterApiServer:
             "dut_dir": compile_info.get("dut_dir", ""),
             "main_verilog_path": compile_info.get("compiled_main_verilog_path", ""),
             "filelist_path": compile_info.get("filelist_path", ""),
+            "source_f_filelist_paths": list(compile_info.get("source_f_filelist_paths") or []),
+            "f_filelist_paths": list(compile_info.get("f_filelist_paths") or []),
             "generated_filelist": bool(compile_info.get("generated_filelist")),
             "copied_files": list(compile_info.get("copied_files") or []),
             "config_path": compile_info.get("config_path", ""),
@@ -4420,6 +4592,25 @@ class PdbMasterApiServer:
                 ws = self._get_workspace(workspace_id)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
+            item_id = str(path or "").strip()
+            item_by_id = self._find_workspace_item_by_id(ws, item_id)
+            if item_by_id is not None:
+                stored_path = item_by_id.get("stored_path", "")
+                with self._workspaces_lock:
+                    ws_locked = self._workspaces.get(workspace_id)
+                    if ws_locked is not None:
+                        ws_locked["files"] = [
+                            item for item in ws_locked.get("files", [])
+                            if item.get("item_id") != item_id
+                        ]
+                        self._clear_workspace_compile_locked(ws_locked)
+                if stored_path and _path_is_under(ws["workspace_dir"], stored_path) and os.path.exists(stored_path):
+                    if os.path.isdir(stored_path):
+                        shutil.rmtree(stored_path)
+                    else:
+                        os.unlink(stored_path)
+                self._mark_dirty()
+                return {"status": "ok"}
             try:
                 abs_path = self._safe_under_root(ws["workspace_dir"], path)
             except ValueError as exc:
@@ -4446,10 +4637,14 @@ class PdbMasterApiServer:
                 ws = self._get_workspace(workspace_id)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-            try:
-                abs_path = self._safe_under_root(ws["workspace_dir"], path)
-            except ValueError as exc:
-                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            item = self._find_workspace_item_by_id(ws, str(path or "").strip())
+            if item is not None:
+                abs_path = item.get("stored_path", "")
+            else:
+                try:
+                    abs_path = self._safe_under_root(ws["workspace_dir"], path)
+                except ValueError as exc:
+                    raise HTTPException(status_code=403, detail=str(exc)) from exc
             if not os.path.isfile(abs_path):
                 raise HTTPException(status_code=404, detail="File not found")
             return FileResponse(abs_path, filename=os.path.basename(abs_path))
@@ -4487,6 +4682,8 @@ class PdbMasterApiServer:
                 item = self._select_main_item(ws, file_path)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if item is None:
+                raise HTTPException(status_code=400, detail="No main Verilog file found in workspace")
             try:
                 with open(item["stored_path"], "r", encoding="utf-8", errors="replace") as fh:
                     modules = _parse_module_names(fh.read())
@@ -4506,6 +4703,7 @@ class PdbMasterApiServer:
                     effective_dut=str(body.get("dut_name") or "").strip() or selected_module,
                     selected_module=selected_module,
                     main_verilog_path=str(body.get("main_verilog_path") or ""),
+                    picker_extra_args=body.get("picker_args", body.get("picker_extra_args", None)),
                 )
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -4529,6 +4727,7 @@ class PdbMasterApiServer:
                 raise HTTPException(status_code=400, detail="'selected_module' is required")
             effective_dut = str(body.get("dut_name") or "").strip() or selected_module
             main_verilog_path = str(body.get("main_verilog_path") or "")
+            picker_extra_args = self._effective_picker_args(body.get("picker_args", body.get("picker_extra_args", None)))
 
             def emit(event: Dict[str, Any]) -> bytes:
                 return (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
@@ -4538,11 +4737,16 @@ class PdbMasterApiServer:
                     prepared = self._prepare_workspace_layout(
                         workspace_id,
                         effective_dut=effective_dut,
+                        selected_module=selected_module,
                         main_verilog_path=main_verilog_path,
+                        picker_extra_args=picker_extra_args,
                     )
                     yield emit({
                         "type": "info",
-                        "message": f"Prepared workspace layout: RTL={prepared['rtl_dir']} DOC={prepared['doc_dir']}",
+                        "message": (
+                            f"Prepared workspace layout: RTL={prepared['rtl_dir']} DOC={prepared['doc_dir']}\n"
+                            f"Picker: {shlex.join(prepared['picker_command'])}"
+                        ),
                     })
                     picker = yield from self._stream_picker_run(
                         workspace_dir=prepared["workspace_dir"],
@@ -4551,6 +4755,9 @@ class PdbMasterApiServer:
                         selected_module=selected_module,
                         main_verilog_path=prepared["main_verilog_path"],
                         filelist_path=prepared["filelist_path"],
+                        f_filelist_paths=prepared["f_filelist_paths"],
+                        picker_extra_args=prepared["picker_extra_args"],
+                        command=prepared["picker_command"],
                     )
                     if self._picker_create_conflict(prepared["picker_workspace"], prepared["dut_name"], picker["stdout"] + picker["stderr"]):
                         yield emit({
@@ -4565,6 +4772,9 @@ class PdbMasterApiServer:
                             selected_module=selected_module,
                             main_verilog_path=prepared["main_verilog_path"],
                             filelist_path=prepared["filelist_path"],
+                            f_filelist_paths=prepared["f_filelist_paths"],
+                            picker_extra_args=prepared["picker_extra_args"],
+                            command=prepared["picker_command"],
                         )
                     readme_path = ""
                     if picker["success"]:
@@ -4580,12 +4790,15 @@ class PdbMasterApiServer:
                         "doc_dir": prepared["doc_dir"],
                         "dut_dir": prepared["dut_dir"],
                         "filelist_path": prepared["filelist_path"],
+                        "source_f_filelist_paths": prepared["source_f_filelist_paths"],
+                        "f_filelist_paths": prepared["f_filelist_paths"],
                         "generated_filelist": prepared["generated_filelist"],
                         "config_path": prepared.get("config_path", ""),
                         "readme_path": readme_path,
                         "compiled_at": _now(),
                         "copied_files": prepared["copied_files"],
                         "picker_command": picker["command"],
+                        "picker_extra_args": prepared["picker_extra_args"],
                         "picker_exit_code": picker["exit_code"],
                         "picker_stdout": picker["stdout"],
                         "picker_stderr": picker["stderr"],
@@ -4624,6 +4837,7 @@ class PdbMasterApiServer:
                 str(body.get("dut_name") or "").strip() or selected_module,
                 selected_module,
                 str(body.get("main_verilog_path") or ""),
+                body.get("picker_args", body.get("picker_extra_args", None)),
             )
             return {"status": "ok", "runtime": runtime}
 

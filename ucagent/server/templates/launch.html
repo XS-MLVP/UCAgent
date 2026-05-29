@@ -119,8 +119,8 @@
         <button type="button" class="btn" id="toggle-browser-btn" data-action="toggle-browser">Select On Server</button>
       </div>
       <input id="upload-files-input" type="file" multiple style="display:none">
-      <div id="file-gate-status" class="status warn">Tag at least one file as <code>Main RTL</code> and one file as <code>Verification Needs</code> to unlock the next step.</div>
-      <div class="stage-note">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>.</div>
+      <div id="file-gate-status" class="status warn">Tag at least one file as <code>Main RTL</code> or add one <code>.f</code> file, then tag one file as <code>Verification Needs</code> to unlock the next step.</div>
+      <div class="stage-note">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>. Server-selected <code>.f</code> files stay in place and are passed to picker by absolute path.</div>
 
       <div id="browser-shell" class="browser-shell">
         <div class="browser-panel">
@@ -176,15 +176,16 @@
 
     <div class="stage-card">
       <div class="stage-title"><span class="stage-no">2</span><h2>Select Main RTL Module</h2></div>
-      <div id="module-gate-note" class="summary-box muted">The module selector unlocks only after the file list contains both <code>Main RTL</code> and <code>Verification Needs</code>.</div>
+      <div id="module-gate-note" class="summary-box muted">The module input unlocks only after the file list contains <code>Main RTL</code> or a <code>.f</code> file, plus <code>Verification Needs</code>.</div>
       <div class="grid3">
         <div>
-          <label>Main RTL File</label>
-          <div id="main-file-display" class="status">No file is currently tagged as Main RTL.</div>
+          <label>Main RTL / Filelist</label>
+          <div id="main-file-display" class="status">No Main RTL or .f filelist is available.</div>
         </div>
         <div>
-          <label>Available Modules</label>
-          <select id="selected-module" disabled></select>
+          <label>Main RTL Module</label>
+          <input id="selected-module" list="module-options" disabled placeholder="Select or type module name">
+          <datalist id="module-options"></datalist>
         </div>
         <div>
           <label>Module Actions</label>
@@ -199,12 +200,22 @@
     <div class="stage-card">
       <div class="stage-title"><span class="stage-no">3</span><h2>Compile DUT</h2></div>
       <div class="stage-note">Compile prepares <code>{DUT}_RTL</code>, <code>{DUT}_Doc</code>, runs <code>picker export</code>, and copies the verification-needs file into the generated DUT package as <code>README.md</code>.</div>
+      <div class="grid">
+        <div class="full-span">
+          <label>Picker Arguments</label>
+          <textarea id="picker-args" rows="2" placeholder="Extra picker export args, e.g. --sim vcs&#10;--vflag -Wall"></textarea>
+        </div>
+      </div>
       <div class="actions">
         <button type="button" class="btn btn-primary" id="compile-dut-btn" data-action="compile-dut" disabled>Compile DUT</button>
         <button type="button" class="btn" id="download-workspace-btn" data-action="download-workspace" disabled>Download Workspace</button>
       </div>
       <div id="compile-status" class="status">The DUT has not been compiled yet.</div>
       <div id="compile-summary" class="summary-box muted">Compile after selecting the target module.</div>
+      <div>
+        <label>Picker Command Preview</label>
+        <pre id="picker-preview" class="status mono">Waiting for required inputs...</pre>
+      </div>
       <div>
         <label>Compile Console</label>
         <div id="compile-console" class="console-box muted">Compile logs will stream here.</div>
@@ -313,7 +324,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args']);
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 
@@ -770,8 +781,27 @@ function hasRequirementFile() {
   return getFiles().some((item) => item.category === 'requirement');
 }
 
+function isFFile(filename) {
+  return String(filename || '').toLowerCase().endsWith('.f');
+}
+
+function getPickerFFilelists() {
+  return getFiles().filter((item) => isFFile(item.name || item.stored_path || item.source_path));
+}
+
+function hasPickerFFilelist() {
+  return getPickerFFilelists().length > 0;
+}
+
+function currentFFilelistPaths() {
+  return getPickerFFilelists().map((item) => {
+    if (item.source === 'server') return item.stored_path || item.source_path || item.name;
+    return (item.stored_path || item.name || '').trim();
+  }).filter(Boolean).sort();
+}
+
 function isNextStepUnlocked() {
-  return Boolean(getMainFile()) && hasRequirementFile();
+  return (Boolean(getMainFile()) || hasPickerFFilelist()) && hasRequirementFile();
 }
 
 function isVerilogFile(filename) {
@@ -791,6 +821,9 @@ function isConfigFile(filename) {
 
 function autoSelectCategory(filename) {
   const files = getFiles();
+  if (isFFile(filename)) {
+    return 'rtl_extra';
+  }
   if (isVerilogFile(filename)) {
     const hasMainRtl = files.some((item) => item.category === 'main_verilog');
     return hasMainRtl ? 'rtl_extra' : 'main_verilog';
@@ -817,6 +850,9 @@ function buildCategoryCounts(files) {
 }
 
 function autoSelectCategoryWithCounts(filename, counts) {
+  if (isFFile(filename)) {
+    return 'rtl_extra';
+  }
   if (isVerilogFile(filename)) {
     return counts.main_verilog ? 'rtl_extra' : 'main_verilog';
   }
@@ -840,6 +876,10 @@ function assignAutoCategories(filenames) {
 
 function getSelectedModule() {
   return document.getElementById('selected-module').value.trim();
+}
+
+function getPickerArgs() {
+  return parseExtraArgs(document.getElementById('picker-args')?.value || '');
 }
 
 function syncModuleDerivedFields(moduleName) {
@@ -866,11 +906,14 @@ function isCompileCurrent() {
   const compile = getCompileInfo();
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if (!compile || compile.status !== 'success' || !mainFile || !selectedModule) return false;
+  if (!compile || compile.status !== 'success' || !selectedModule) return false;
+  const currentMainPath = mainFile ? mainFile.stored_path : '';
   return (
     compile.selected_module === selectedModule &&
-    compile.main_verilog_path === mainFile.stored_path &&
-    compile.dut_name === normalizeDutName(getDesiredDutName())
+    compile.main_verilog_path === currentMainPath &&
+    compile.dut_name === normalizeDutName(getDesiredDutName()) &&
+    JSON.stringify([...(compile.source_f_filelist_paths || compile.f_filelist_paths || [])].sort()) === JSON.stringify(currentFFilelistPaths()) &&
+    JSON.stringify(compile.picker_extra_args || []) === JSON.stringify(getPickerArgs())
   );
 }
 
@@ -914,8 +957,8 @@ function renderFileTable() {
       <td>${esc(formatBytes(file.size))}</td>
       <td>
         <div class="actions">
-          <a class="btn" href="/api/workspace/${encodeURIComponent(state.workspaceId)}/file/download?path=${encodeURIComponent(file.stored_relpath)}" target="_blank">Download</a>
-          <button type="button" class="btn btn-danger" data-action="delete-file" data-path="${enc(file.stored_relpath)}">Delete</button>
+          <a class="btn" href="/api/workspace/${encodeURIComponent(state.workspaceId)}/file/download?path=${encodeURIComponent(file.stored_relpath || file.item_id)}" target="_blank">Download</a>
+          <button type="button" class="btn btn-danger" data-action="delete-file" data-path="${enc(file.stored_relpath || file.item_id)}">Delete</button>
         </div>
       </td>
     </tr>
@@ -924,31 +967,41 @@ function renderFileTable() {
 
 function renderGateState() {
   const mainFile = getMainFile();
+  const fFilelists = getPickerFFilelists();
+  const hasRtlInput = Boolean(mainFile) || fFilelists.length > 0;
   const hasRequirement = hasRequirementFile();
-  const unlocked = Boolean(mainFile) && hasRequirement;
+  const unlocked = hasRtlInput && hasRequirement;
   if (unlocked) {
     setStatus('file-gate-status', 'ok', 'Required tags are present. You can continue to module selection and DUT compilation.');
   } else {
     const missing = [];
-    if (!mainFile) missing.push('<code>Main RTL</code>');
+    if (!hasRtlInput) missing.push('<code>Main RTL</code> or <code>.f</code> file');
     if (!hasRequirement) missing.push('<code>Verification Needs</code>');
     setStatus('file-gate-status', 'warn', `The next step is locked. Missing required tag(s): ${missing.join(', ')}.`);
   }
   const mainDisplay = document.getElementById('main-file-display');
   if (mainFile) {
     mainDisplay.className = 'status ok';
-    mainDisplay.innerHTML = `<code>${esc(mainFile.name)}</code>`;
+    const fText = fFilelists.length
+      ? `<br><span class="muted">.f: ${fFilelists.map((item) => `<code>${esc(item.name)}</code>`).join(', ')}</span>`
+      : '';
+    mainDisplay.innerHTML = `<code>${esc(mainFile.name)}</code>${fText}`;
+  } else if (fFilelists.length) {
+    mainDisplay.className = 'status ok';
+    mainDisplay.innerHTML = `Using .f filelist(s): ${fFilelists.map((item) => `<code>${esc(item.name)}</code>`).join(', ')}`;
   } else {
     mainDisplay.className = 'status';
-    mainDisplay.textContent = 'No file is currently tagged as Main RTL.';
+    mainDisplay.textContent = 'No Main RTL or .f filelist is available.';
   }
   document.getElementById('selected-module').disabled = !unlocked;
   document.getElementById('parse-modules-btn').disabled = !unlocked || !mainFile;
   document.getElementById('compile-dut-btn').disabled = !unlocked || !getSelectedModule();
   document.getElementById('module-gate-note').className = `summary-box${unlocked ? '' : ' muted'}`;
   document.getElementById('module-gate-note').innerHTML = unlocked
-    ? 'The required file tags are present. Refresh modules whenever the <code>Main RTL</code> row changes.'
-    : 'The module selector unlocks only after the file list contains both <code>Main RTL</code> and <code>Verification Needs</code>.';
+    ? (mainFile
+      ? 'The required file tags are present. Refresh modules whenever the <code>Main RTL</code> row changes, or type a module name manually.'
+      : 'The required file tags are present. Type the target module name manually for the <code>.f</code> filelist flow.')
+    : 'The module input unlocks only after the file list contains <code>Main RTL</code> or a <code>.f</code> file, plus <code>Verification Needs</code>.';
 }
 
 function renderCompileState() {
@@ -959,10 +1012,11 @@ function renderCompileState() {
   setCompileButton(compileLabel, !isNextStepUnlocked() || !selectedModule);
   setDownloadWorkspaceButton(isCompileCurrent());
   const summary = document.getElementById('compile-summary');
+  document.getElementById('picker-preview').textContent = buildPickerPreview();
   if (!selectedModule) {
-    setStatus('compile-status', '', 'Select a parsed module before compiling the DUT.');
+    setStatus('compile-status', '', 'Select or type a module before compiling the DUT.');
     summary.className = 'summary-box muted';
-    summary.innerHTML = 'Compile after selecting the target module.';
+    summary.innerHTML = 'Compile after setting the target module.';
     return;
   }
   if (!compile || !compile.status) {
@@ -980,6 +1034,8 @@ function renderCompileState() {
       `Doc Dir: <code>${esc(compile.doc_dir || '-')}</code>`,
       `Package Dir: <code>${esc(compile.dut_dir || '-')}</code>`,
       `Filelist: <code>${esc(compile.filelist_path || '(none)')}</code>${compile.generated_filelist ? ' (generated)' : ''}`,
+      `.f Filelists: ${compile.f_filelist_paths?.length ? compile.f_filelist_paths.map((item) => `<code>${esc(item)}</code>`).join(', ') : '<code>(none)</code>'}`,
+      `Picker Args: ${compile.picker_extra_args?.length ? `<code>${esc(compile.picker_extra_args.join(' '))}</code>` : '<code>(none)</code>'}`,
       `README: <code>${esc(compile.readme_path || '(not copied)')}</code>`,
     ].join('<br>');
     return;
@@ -1094,6 +1150,72 @@ function getEmptyEnvRows() {
   });
 }
 
+function shellJoin(args) {
+  return (args || []).map((arg) => {
+    const text = String(arg ?? '');
+    if (!text) return "''";
+    return /^[A-Za-z0-9_/:=.,@%+-]+$/.test(text)
+      ? text
+      : `'${text.replace(/'/g, `'\\''`)}'`;
+  }).join(' ');
+}
+
+function getGeneratedTextFilelistPath(dutName) {
+  const mainFile = getMainFile();
+  if (!mainFile) return '';
+  const deps = getFiles().filter((item) => {
+    if (item.item_id === mainFile.item_id) return false;
+    if (!isVerilogFile(item.name || item.stored_path || '')) return false;
+    return ['main_verilog', 'rtl_extra', 'source_extra'].includes(item.category) || item.name === 'filelist.txt';
+  });
+  return deps.length ? `${state.workspace.workspace_dir}/workspace/${normalizeDutName(dutName)}_RTL/filelist.txt` : '';
+}
+
+function compiledRtlPath(file, dutName) {
+  return `${state.workspace.workspace_dir}/workspace/${normalizeDutName(dutName)}_RTL/${(file.stored_path || file.name || '').split('/').pop()}`;
+}
+
+function buildPickerArgs(selectedModule = getSelectedModule(), dutName = getDesiredDutName()) {
+  if (!state.workspace) return [];
+  const mainFile = getMainFile();
+  const dut = normalizeDutName(dutName || selectedModule || 'DUT');
+  const pickerWorkspace = `${state.workspace.workspace_dir}/workspace`;
+  const args = ['picker', 'export'];
+  if (mainFile) {
+    args.push(compiledRtlPath(mainFile, dut));
+  }
+  args.push(
+    '--rw', '1',
+    '--sname', selectedModule || '<module>',
+    '--tdir', `${pickerWorkspace}/`,
+    '-c',
+    '-w', `${pickerWorkspace}/${dut}/${dut}.fst`,
+  );
+  const textFilelist = getFiles().find((item) => String(item.name || '').toLowerCase() === 'filelist.txt');
+  const generatedFilelist = getGeneratedTextFilelistPath(dut);
+  if (textFilelist) {
+    args.push('--fs', compiledRtlPath(textFilelist, dut));
+  } else if (generatedFilelist) {
+    args.push('--fs', generatedFilelist);
+  }
+  for (const file of getPickerFFilelists()) {
+    if (file.source === 'server') {
+      args.push('--filelist', file.stored_path || file.source_path || file.name);
+    } else {
+      args.push('--filelist', compiledRtlPath(file, dut));
+    }
+  }
+  args.push(...getPickerArgs());
+  return args;
+}
+
+function buildPickerPreview() {
+  if (!state.workspace) return 'Waiting for workspace creation...';
+  if (!isNextStepUnlocked()) return 'Waiting for Main RTL or .f filelist plus Verification Needs...';
+  if (!getSelectedModule()) return 'Waiting for Main RTL Module...';
+  return shellJoin(buildPickerArgs());
+}
+
 function buildCommandPreview() {
   if (!state.workspace) return 'Waiting for workspace creation...';
   const selectedModule = getSelectedModule();
@@ -1168,9 +1290,9 @@ function updateLaunchState() {
     setStatus('launch-readiness', 'ok', 'The launch request is ready. Review the command preview and launch when appropriate.');
   } else {
     const reasons = [];
-    if (!getMainFile()) reasons.push('tag one file as Main RTL');
+    if (!getMainFile() && !hasPickerFFilelist()) reasons.push('tag one file as Main RTL or add a .f file');
     if (!hasRequirementFile()) reasons.push('tag one file as Verification Needs');
-    if (!getSelectedModule()) reasons.push('choose a parsed module');
+    if (!getSelectedModule()) reasons.push('select or type a module');
     if (getSelectedModule() && !isCompileCurrent()) reasons.push('compile the current DUT selection');
     if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
     setStatus('launch-readiness', 'warn', `Launch is blocked. Please ${reasons.join(', ')}.`);
@@ -1191,6 +1313,8 @@ async function refreshWorkspace(options = {}) {
   syncWorkspace(data.workspace);
   if (options.autoParseModules && isNextStepUnlocked() && getMainFile()) {
     await parseModules(true);
+  } else {
+    updateLaunchState();
   }
 }
 
@@ -1410,8 +1534,16 @@ async function parseModules(auto = false) {
   const mainFile = getMainFile();
   if (!mainFile) {
     state.modules = [];
-    document.getElementById('selected-module').innerHTML = '';
-    if (!auto) setStatus('module-status', 'err', 'Tag exactly one Verilog/SystemVerilog file as Main RTL first.');
+    document.getElementById('module-options').innerHTML = '';
+    if (!auto) {
+      setStatus(
+        'module-status',
+        hasPickerFFilelist() ? 'warn' : 'err',
+        hasPickerFFilelist()
+          ? 'No Main RTL file is tagged. Type the module name manually for the .f filelist flow.'
+          : 'Tag exactly one Verilog/SystemVerilog file as Main RTL first, or add a .f file and type the module name manually.'
+      );
+    }
     updateLaunchState();
     return;
   }
@@ -1426,22 +1558,22 @@ async function parseModules(auto = false) {
       body: JSON.stringify({ file_path: mainFile.stored_path }),
     });
     state.modules = data.modules || [];
-    const select = document.getElementById('selected-module');
-    const previous = select.value;
-    select.innerHTML = state.modules.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+    const input = document.getElementById('selected-module');
+    const previous = input.value;
+    document.getElementById('module-options').innerHTML = state.modules.map((name) => `<option value="${esc(name)}"></option>`).join('');
     if (state.modules.length) {
       if (previous && state.modules.includes(previous)) {
-        select.value = previous;
+        input.value = previous;
       }
-      if (!select.value) select.value = state.modules[0];
-      syncModuleDerivedFields(select.value);
+      if (!input.value) input.value = state.modules[0];
+      syncModuleDerivedFields(input.value);
       setStatus('module-status', 'ok', `Available modules: ${esc(state.modules.join(', '))}`);
     } else {
-      setStatus('module-status', 'warn', 'No modules were found in the current Main RTL file.');
+      setStatus('module-status', 'warn', 'No modules were found in the current Main RTL file. Type the module name manually.');
     }
   } catch (error) {
     state.modules = [];
-    document.getElementById('selected-module').innerHTML = '';
+    document.getElementById('module-options').innerHTML = '';
     if (!auto) setStatus('module-status', 'err', error.message);
   }
   updateLaunchState();
@@ -1449,7 +1581,8 @@ async function parseModules(auto = false) {
 
 function clearModuleState(message) {
   state.modules = [];
-  document.getElementById('selected-module').innerHTML = '';
+  document.getElementById('selected-module').value = '';
+  document.getElementById('module-options').innerHTML = '';
   setStatus('module-status', '', message);
   updateLaunchState();
 }
@@ -1457,7 +1590,7 @@ function clearModuleState(message) {
 async function compileDut() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if (!mainFile || !selectedModule || !hasRequirementFile()) {
+  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile()) {
     updateLaunchState();
     return;
   }
@@ -1469,7 +1602,8 @@ async function compileDut() {
     body: JSON.stringify({
       dut_name: document.getElementById('dut-name').value.trim(),
       selected_module: selectedModule,
-      main_verilog_path: mainFile.stored_path,
+      main_verilog_path: mainFile ? mainFile.stored_path : '',
+      picker_args: getPickerArgs(),
     }),
   });
   let cursor = 0;
@@ -1514,7 +1648,7 @@ function downloadWorkspace() {
 async function launchTask() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if (!mainFile || !selectedModule || !hasRequirementFile() || !isCompileCurrent()) {
+  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent()) {
     updateLaunchState();
     return;
   }
@@ -1525,7 +1659,8 @@ async function launchTask() {
     task_name: document.getElementById('task-name').value.trim(),
     dut_name: document.getElementById('dut-name').value.trim(),
     selected_module: selectedModule,
-    main_verilog_path: mainFile.stored_path,
+    main_verilog_path: mainFile ? mainFile.stored_path : '',
+    picker_args: getPickerArgs(),
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
@@ -1733,7 +1868,7 @@ async function initPage() {
 
     const envData = await api('/api/launch/env-preview');
     applyEnvDefaults(envData.items || []);
-    clearModuleState('Tag one file as Main RTL and one file as Verification Needs to unlock module parsing.');
+    clearModuleState('Tag one file as Main RTL, or add a .f file and type the module name manually. Verification Needs is also required.');
     updateLaunchState();
   } catch (error) {
     setStatus('workspace-status', 'err', error.message);
@@ -1758,6 +1893,9 @@ function applyLaunchConfig(config) {
     'dut-name': config.dut_name,
     'output': config.output,
     'master-override': config.master,
+    'picker-args': Array.isArray(config.picker_args || config.picker_extra_args)
+      ? (config.picker_args || config.picker_extra_args).join('\n')
+      : (config.picker_args ?? config.picker_extra_args),
   };
   for (const [id, value] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -1827,8 +1965,8 @@ document.addEventListener('click', async (event) => {
       if (!confirm(`Delete workspace file: ${path}?`)) return;
       await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
       await refreshWorkspace();
-      if (!getMainFile()) {
-        clearModuleState('The current Main RTL file is missing. Tag a new Main RTL file and refresh modules.');
+      if (!getMainFile() && !hasPickerFFilelist()) {
+        clearModuleState('The current RTL input is missing. Tag a Main RTL file or add a .f file.');
       }
       return;
     }
@@ -1914,8 +2052,8 @@ document.addEventListener('change', async (event) => {
         body: JSON.stringify({ item_id: target.dataset.itemId, category: target.value }),
       });
       syncWorkspace(data.workspace);
-      if (!getMainFile()) {
-        clearModuleState('Tag one file as Main RTL and one file as Verification Needs to unlock module parsing.');
+      if (!getMainFile() && !hasPickerFFilelist()) {
+        clearModuleState('Tag one file as Main RTL, or add a .f file and type the module name manually. Verification Needs is also required.');
       } else if (isNextStepUnlocked() && (target.value === 'main_verilog' || !state.modules.length)) {
         await parseModules(true);
       } else {
@@ -1952,7 +2090,7 @@ document.addEventListener('change', async (event) => {
       return;
     }
     if ([
-      'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override',
+      'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args',
     ].includes(target.id)) {
       if (target.id === 'backend') {
         syncBackendMcpFileToolsOption();
@@ -1998,8 +2136,11 @@ document.addEventListener('input', (event) => {
     return;
   }
   if ([
-    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override',
+    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args', 'selected-module',
   ].includes(event.target.id)) {
+    if (event.target.id === 'selected-module') {
+      syncModuleDerivedFields(event.target.value);
+    }
     if (event.target.id === 'workspace-base') {
       state.manualWorkspaceBase = true;
     }
