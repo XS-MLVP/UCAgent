@@ -17,7 +17,7 @@ import ntpath
 import posixpath
 import shutil
 import tarfile
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 import tempfile
 import traceback
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -321,20 +321,38 @@ class UpgradeAction(argparse.Action):
         parser.exit()
 
 
-def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
+OverrideDict = Dict[str, Any]
+OverrideValues = Union[OverrideDict, List[OverrideDict]]
+
+
+def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) -> List[OverrideDict]:
+    if overrides is None:
+        result: List[OverrideDict] = []
+    elif isinstance(overrides, list):
+        result = list(overrides)
+    else:
+        result = [overrides]
+    result.append({key: value})
+    return result
+
+
+def get_override_dict(override_str: Optional[str]) -> OverrideValues:
     """Parse override string into dictionary.
 
     Args:
         override_str: String containing override settings in format A.B.C=value
 
     Returns:
-        Dict containing parsed override settings
+        Dict containing parsed override settings, or a list of dicts when
+        one override string contains repeated keys.
     """
     if override_str is None:
         return {}
-    overrides = {}
+    overrides: List[OverrideDict] = []
+    seen = set()
     for item in override_str.split(","):
         key, value = item.split("=", 1)
+        key = key.strip()
         value = value.strip()
         if value.startswith('"') or value.startswith("'"):
             assert value.endswith('"') or value.endswith("'"), "Value must be enclosed in quotes"
@@ -344,7 +362,10 @@ def get_override_dict(override_str: Optional[str]) -> Dict[str, Any]:
                 value = ast.literal_eval(value)  # Convert Python literals while leaving raw strings alone.
             except (ValueError, SyntaxError):
                 value = value.strip()
-        overrides[key.strip()] = value
+        overrides.append({key: value})
+        seen.add(key)
+    if len(overrides) == len(seen):
+        return {key: value for override in overrides for key, value in override.items()}
     return overrides
 
 
@@ -825,9 +846,12 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
-    merged_override = {}
+    merged_override = []
     for override in args.override or []:
-        merged_override.update(override)
+        if isinstance(override, list):
+            merged_override.extend(override)
+        else:
+            merged_override.append(override)
     args.override = merged_override
     return args
 
@@ -1019,7 +1043,7 @@ def run() -> None:
             init_cmds += [f"terminal_api_start {addr_part}{extra_web_term_opts}"]
     
     # Handle MCP server commands
-    args.override = args.override or {}
+    args.override = args.override or []
     if args.mcp_server_port == -1:
         args.mcp_server_port = find_available_port()
     mcp_cmd = None
@@ -1030,22 +1054,19 @@ def run() -> None:
     if mcp_cmd is not None:
         init_cmds += [f"{mcp_cmd} {args.mcp_server_host} {args.mcp_server_port}"]
     if args.mcp_server_port is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.port"] = args.mcp_server_port
+        args.override = _append_override(args.override, "mcp_server.port", args.mcp_server_port)
     if args.mcp_server_host is not None:
-        args.override = args.override or {}
-        args.override["mcp_server.host"] = args.mcp_server_host
+        args.override = _append_override(args.override, "mcp_server.host", args.mcp_server_host)
 
     if args.backend:
-        args.override["backend.key_name"] = args.backend
+        args.override = _append_override(args.override, "backend.key_name", args.backend)
 
     if args.extra_skill_path and not args.use_skill:
         raise ValueError("--extra-skill-path requires --use-skill is True")
 
     if args.use_skill:
-        args.override = args.override or {}
-        args.override["skill.use_skill"] = args.use_skill
-        args.override["skill.extra_skill_path"] = args.extra_skill_path or ""
+        args.override = _append_override(args.override, "skill.use_skill", args.use_skill)
+        args.override = _append_override(args.override, "skill.extra_skill_path", args.extra_skill_path or "")
 
     # Make sure mcp server is started before tui
     if args.tui:

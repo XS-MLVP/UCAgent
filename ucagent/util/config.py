@@ -303,8 +303,13 @@ class Config:
         """
         if values is None:
             return self
-        for key, value in values.items():
-            self.set_value(key, value)
+        if not isinstance(values, list):
+            values = [values]
+        for v in values:
+            if not isinstance(v, dict):
+                raise TypeError("Configuration override values must be a dict or a list of dicts.")
+            for key, value in v.items():
+                self.set_value(key, value)
         return self
 
 

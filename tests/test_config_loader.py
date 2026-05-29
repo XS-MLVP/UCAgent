@@ -53,7 +53,7 @@ plain_text: not enabled
 
         self.assertEqual(cfg.get_value("launch.default_args.launch_mode"), "docker_swarm")
 
-    def test_repeated_cli_overrides_are_merged(self):
+    def test_repeated_cli_overrides_keep_order(self):
         argv = [
             "ucagent.py",
             "--as-master",
@@ -66,8 +66,54 @@ plain_text: not enabled
         with mock.patch("sys.argv", argv):
             args = get_args()
 
-        self.assertEqual(args.override["launch.default_args.launch_mode"], "docker_swarm")
-        self.assertEqual(args.override["launch.cluster.image"], "123123123")
+        self.assertEqual(
+            args.override,
+            [
+                {"launch.default_args.launch_mode": "docker_swarm"},
+                {"launch.cluster.image": "123123123"},
+            ],
+        )
+
+    def test_repeated_keys_in_one_override_return_multiple_dicts(self):
+        override = get_override_dict("a.b=+x,a.b=+y,c.d=True")
+
+        self.assertEqual(
+            override,
+            [
+                {"a.b": "+x"},
+                {"a.b": "+y"},
+                {"c.d": True},
+            ],
+        )
+
+    def test_repeated_keys_across_cli_overrides_keep_order(self):
+        argv = [
+            "ucagent.py",
+            "--as-master",
+            "--override",
+            "a.b=x",
+            "--override",
+            "a.b=",
+        ]
+
+        with mock.patch("sys.argv", argv):
+            args = get_args()
+
+        self.assertEqual(args.override, [{"a.b": "x"}, {"a.b": ""}])
+
+    def test_set_values_applies_override_list_in_order(self):
+        cfg = Config({
+            "a": {
+                "b": [],
+            },
+        })
+
+        cfg.set_values([
+            {"a.b": "+x"},
+            {"a.b": "+y"},
+        ])
+
+        self.assertEqual(cfg.get_value("a.b"), ["x", "y"])
 
     def test_override_accepts_unquoted_base64_value_with_padding(self):
         override = get_override_dict(
