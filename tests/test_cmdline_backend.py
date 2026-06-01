@@ -87,3 +87,40 @@ def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monke
     assert rendered_file.read_text(encoding="utf-8") == (
         '{"url": "http://127.0.0.1:5678/mcp", "model": "test-model"}'
     )
+
+
+def test_codex_template_includes_env_key_only_when_openai_api_key_exists(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    template_file = os.path.abspath(
+        os.path.join(current_dir, "..", "ucagent", "assets", "mcp_codex.toml")
+    )
+    config = SimpleNamespace(mcp_server=SimpleNamespace(port=5678))
+
+    monkeypatch.setenv("OPENAI_MODEL", "test-model")
+    monkeypatch.setenv("OPENAI_API_BASE", "http://example.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    agent = _FakeAgent(workspace=str(workspace))
+    backend = UCAgentCmdLineBackend(
+        agent,
+        config=config,
+        cli_cmd_ctx="",
+        render_files={template_file: "{CWD}/with-key.toml"},
+    )
+    backend.init()
+
+    with_key = (workspace / "with-key.toml").read_text(encoding="utf-8")
+    assert 'env_key = "OPENAI_API_KEY"' in with_key
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    backend = UCAgentCmdLineBackend(
+        agent,
+        config=config,
+        cli_cmd_ctx="",
+        render_files={template_file: "{CWD}/without-key.toml"},
+    )
+    backend.init()
+
+    without_key = (workspace / "without-key.toml").read_text(encoding="utf-8")
+    assert 'env_key = "OPENAI_API_KEY"' not in without_key
