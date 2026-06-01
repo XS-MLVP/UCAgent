@@ -99,6 +99,34 @@ def test_task_launch_command_preserves_human_mode():
         assert "--human" in argv
 
 
+def test_launch_request_env_overrides_default_env():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "default_env": [
+                    {"ENABLE_LLM_PASS_SUGGESTION": True},
+                    {"PASS_SUGGESTION_MODEL": "default-model"},
+                    "OPENAI_API_KEY",
+                ],
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+        _argv, env = server._build_ucagent_command(
+            {
+                "env": {
+                    "ENABLE_LLM_PASS_SUGGESTION": "False",
+                    "PASS_SUGGESTION_MODEL": "web-model",
+                },
+            },
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "127.0.0.1", "port": 8765, "password": "pw"},
+        )
+
+        assert env["ENABLE_LLM_PASS_SUGGESTION"] == "False"
+        assert env["PASS_SUGGESTION_MODEL"] == "web-model"
+
+
 def test_master_source_overrides_container_launch_cli(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws:
         source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"

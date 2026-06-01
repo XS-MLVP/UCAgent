@@ -1891,8 +1891,8 @@ class PdbMasterApiServer:
         argv.extend([str(v) for v in req.get("extra_args", []) if str(v).strip()])
 
         env = os.environ.copy()
-        env_updates = req.get("env") or {}
-        env_updates.update(self._launch_default_env_updates())
+        env_updates = self._launch_default_env_updates()
+        env_updates.update(req.get("env") or {})
         env.update({str(k): str(v) for k, v in env_updates.items()})
         if self.access_key:
             env["UCAGENT_WORKSPACE_ARCHIVE_KEY"] = self.access_key
