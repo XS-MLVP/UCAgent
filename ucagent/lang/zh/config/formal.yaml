@@ -126,7 +126,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/formal/sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
+        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/formal/fm-sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
@@ -184,10 +184,10 @@ stage:
   # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
-    skill_list: ["func-spec"]
+    skill_list: ["fm-func-spec"]
     task:
       - "目标：基于 DUT 的基础信息，分批次划分功能组(FG)、功能点(FC)和检测点(CK)，通过脚本写入 YAML。"
-      - "**首要行动：加载 `func-spec` 技能并严格按其步骤执行。**"
+      - "**首要行动：加载 `fm-func-spec` 技能并严格按其步骤执行。**"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
       - "{DUT}/*.md"
@@ -222,7 +222,7 @@ stage:
               check_level: "fc"
       - name: check_point_design
         desc: "检测点设计与定义{COUNT_CK}"
-        skill_list: ["func-spec"]
+        skill_list: ["fm-func-spec"]
         task:
           - "目标：为每个具体功能点设计 CK-XXX 属性检查点。"
           - "使用 `update_spec.py -action add_ck` 为每个 FC 添加检测点。"
@@ -240,10 +240,10 @@ stage:
   # ========== Stage 4: SVA Property Implementation ==========
   - name: property_generation
     desc: "SVA 属性实现与自动同步"
-    skill_list: ["sva-gen"]
+    skill_list: ["fm-sva-gen"]
     task:
       - "目标：将 `.formal_records.yaml` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
-      - "**首要行动：加载 `sva-gen` 技能并严格按其步骤执行。**"
+      - "**首要行动：加载 `fm-sva-gen` 技能并严格按其步骤执行。**"
       - "1. 使用 `update_sva_body.py` 脚本为每个检测点填充逻辑。"
       - "2. **禁止直接修改 .sv 文件**，系统会自动渲染生成验证环境。"
       - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
@@ -280,10 +280,10 @@ stage:
   - name: environment_debugging_iteration
     desc: "验证环境调试与迭代修复{MAX_ITERATION: 5}"
     skill_list:
-      - "sva-audit"
+      - "fm-sva-audit"
     task:
       - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束。"
-      - "**首要行动：加载 `sva-audit` 技能并严格按其步骤执行。**"
+      - "**首要行动：加载 `fm-sva-audit` 技能并严格按其步骤执行。**"
       - "1. **环境纠偏**：如果遇到参数未定义（如 WIDTH）或位宽错误，**禁止手动修改 SV 文件**，必须使用 `update_spec.py` 的 `set_param` 或 `add_signal` 动作更新 YAML。"
       - "2. **分析填写**：使用 `update_analysis.py` 脚本为每个异常属性填写分析详情。"
 
@@ -306,10 +306,10 @@ stage:
   # ========== Stage 7: Coverage Analysis and Assertion Optimization ==========
   - name: coverage_analysis_and_optimization
     desc: "覆盖率分析与断言优化"
-    skill_list: ["sva-opt"]
+    skill_list: ["fm-sva-opt"]
     task:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
-      - "**首要行动：加载 `sva-opt` 技能并按其步骤执行。**"
+      - "**首要行动：加载 `fm-` 技能并按其步骤执行。**"
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -332,10 +332,10 @@ stage:
   - name: counterexample_python_testgen
     desc: "形式化反例 Python 测试用例生成"
     skill_list:
-      - "cex-gen"
+      - "fm-cex-gen"
     task:
       - "目标：为 RTL_BUG 属性编写引脚级 Python 测试用例复现 Bug。"
-      - "**首要行动：加载 `cex-gen` 技能并完善测试逻辑。**"
+      - "**首要行动：加载 `fm-cex-gen` 技能并完善测试逻辑。**"
       - "注：Checker 已自动生成 `{OUT}/tests/test_{DUT}_counterexample.py` 骨架，你只需填充引脚驱动和断言。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -356,10 +356,10 @@ stage:
   - name: formal_execution
     desc: "RTL缺陷分析与报告"
     skill_list:
-      - "bug-report"
+      - "fm-bug-report"
     task:
       - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
-      - "**首要行动：加载 `bug-report` 技能并填充 Bug 详情。**"
+      - "**首要行动：加载 `fm-bug-report` 技能并填充 Bug 详情。**"
       - "注：Checker 已自动在 .formal_records.yaml 中为所有 RTL_BUG 生成了 Bug 报告骨架，你只需通过 `update_bug.py` 脚本开始填写即可。"
     reference_files:
       - "Guide_Doc/bug_report.md"
