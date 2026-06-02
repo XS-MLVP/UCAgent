@@ -212,14 +212,14 @@ stages:
   - name: example-stage
     skill_list:
       - "static-bug-analysis"
-    force_use_skill: False
+    force_use_skill: True
 ```
 
 含义：
 
 - 当前阶段使用 `static-bug-analysis` 技能
 - UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
-- `force_use_skill` 参数为 True 时意味着强制使用
+- `force_use_skill` 参数为 True 时意味着强制使用，默认为False
 
 如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但启动时没有开启 `--use-skill`，则会报错。
 

@@ -1,5 +1,5 @@
 ---
-name: sva-gen
+name: fm-sva-gen
 description: 在 YAML 中编写 SVA 属性检测代码
 ---
 
@@ -29,12 +29,12 @@ UCAgent 采用 **YAML 作为唯一事实来源 (SSOT)** 的架构。
 使用 `update_sva_body.py` 脚本将代码注入 YAML。
 
 ```bash
-python3 .ucagent/skills/formal/sva-gen/scripts/update_sva_body.py <CK-ID> "<SVA_CODE_BODY>"
+python3 .ucagent/skills/formal/fm-sva-gen/scripts/update_sva_body.py <CK-ID> "<SVA_CODE_BODY>"
 ```
 
 **示例：**
 ```bash
-python3 .ucagent/skills/formal/sva-gen/scripts/update_sva_body.py CK-ADD-CORE-EQUATION "##0 ({cout, sum} == a + b + cin);"
+python3 .ucagent/skills/formal/fm-sva-gen/scripts/update_sva_body.py CK-ADD-CORE-EQUATION "##0 ({cout, sum} == a + b + cin);"
 ```
 
 ### 3. 调用 Check 工具验证

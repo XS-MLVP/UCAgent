@@ -1,5 +1,5 @@
 ---
-name: functions-and-checks
+name: ut-functions-and-checks
 description: 功能规格分析与测试点定义阶段及其子阶段专属技能,用于指导{DUT}_functions_and_checks.md的写入工作
 ---
 

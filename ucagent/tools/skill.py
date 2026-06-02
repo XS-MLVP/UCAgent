@@ -5,6 +5,7 @@ This module provides tools to list and manage available skills in the workspace.
 
 import re
 import os
+import shlex
 from pathlib import Path
 from typing import Optional, TypedDict, Any, List, Sequence
 import yaml
@@ -337,12 +338,13 @@ class ListSkill(UCTool):
         return result
     
 class ArgsRunSkillScript(BaseModel):
-    commands: List[str] = Field(description="A list of commands declared in the SKILL.md of a skill."\
-                                            "Each command must meet the following format:"\
-                                            "python3 script -ARG1 VALUE1 -ARG2 VALUE2 ... -ARGN VALUEN"\
-                                            "python3 can be change to other execution based on the type of script"
-                                            "script is the path of the script to be executed"
-                                            "followed by a list of arguments, where each argument is prefixed with a hyphen (-) and followed by its corresponding value.")
+    commands: List[List[str]] = Field(description="A list of commands to execute the skill script by RunSkillScript."\
+                                                   "Each command is a 4-element string array: [runner, skill_name, skill_script, args]."\
+                                                   "runner is the executable, such as python3, based on the type of skill_script."\
+                                                   "skill_name is the name of an available skill."\
+                                                   "skill_script is the script filename with extension, not a path."\
+                                                   "args is a single string of command arguments, for example: -ARG1 'VALUE1' -ARG2 'VALUE2'."\
+                                                   "Multiple commands can be provided in the list at once.")
 
 class RunSkillScript(UCTool):
     name: str = "RunSkillScript"
@@ -368,20 +370,63 @@ class RunSkillScript(UCTool):
         self.agent = agent
         return self
 
-    def _run(self, commands: List[str]) -> str:
+    def _run(self, commands: List[List[str]]) -> str:
         """Execute a skill script command.
         Returns:
             The output of the command execution.
         """
+        skills_path = Path(fc.get_workspace_skill_root(self.workspace))
+        if not skills_path.exists():
+            raise ValueError(f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace.")
+        skills = _list_skills(self.workspace)
+        skill_by_name = {skill["name"]: skill for skill in skills}
+
         env= os.environ.copy()
         env["DUT"] = str(self.agent.cfg._temp_cfg["DUT"])
         env["OUT"] = str(self.agent.cfg._temp_cfg["OUT"])
         run_result=""
-        for command in commands:
+        for index, command in enumerate(commands, start=1):
+            if len(command) != 4:
+                return f"Command {index} invalid: expected [runner, skill_name, skill_script, args], got {len(command)} elements."
+
+            runner, skill_name, skill_script, args = command
+            if not all(isinstance(item, str) for item in command):
+                return f"Command {index} invalid: runner, skill_name, skill_script, and args must all be strings."
+
+            runner = runner.strip()
+            skill_name = skill_name.strip()
+            skill_script = skill_script.strip()
+            if not runner:
+                return f"Command {index} invalid: runner is empty."
+            if len(shlex.split(runner)) != 1:
+                return f"Command {index} invalid: runner must be a single executable string."
+            if not skill_name:
+                return f"Command {index} invalid: skill_name is empty."
+            if not skill_script:
+                return f"Command {index} invalid: skill_script is empty."
+            if Path(skill_script).name != skill_script:
+                return f"Command {index} invalid: skill_script must be a filename, not a path: {skill_script}"
+
+            skill = skill_by_name.get(skill_name)
+            if not skill:
+                return f"Command {index} invalid: skill not found: {skill_name}"
+
+            scripts = skill.get("script", {})
+            script_path = scripts.get(skill_script)
+            if not script_path:
+                available_scripts = ", ".join(sorted(scripts.keys())) or "none"
+                return f"Command {index} invalid: script '{skill_script}' is not under skill '{skill_name}'. Available scripts: {available_scripts}"
+
+            try:
+                parsed_args = shlex.split(args)
+            except ValueError as e:
+                return f"Command {index} invalid: failed to parse args: {e}"
+
+            argv = [runner, script_path, *parsed_args]
             try:
                 process = subprocess.run(
-                    command,
-                    shell=True,
+                    argv,
+                    shell=False,
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -393,7 +438,7 @@ class RunSkillScript(UCTool):
             except subprocess.CalledProcessError as e:
                 return f"Command failed with exit code {e.returncode}:\n{e.stdout}"
             except FileNotFoundError:
-                return f"Command not found: {command.split()[0]}"
+                return f"Command not found: {runner}"
         return run_result
 
 __all__ = ["ListSkill", "RunSkillScript"]
