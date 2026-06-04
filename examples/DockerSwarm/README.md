@@ -78,7 +78,7 @@ ANTHROPIC_MODEL=$OPENAI_MODEL
 
 ```bash
 make swarm_master \
-  ARGS="--backend codex --override launch.default_args.backend=codex"
+  ARGS="--override launch.default_args.backend=codex"
 ```
 
 该命令会创建名为 `ucagent_master` 的 Docker Swarm service，将 Master Web UI
@@ -87,9 +87,7 @@ make swarm_master \
 
 其中 `ARGS` 会追加到 master 的 `ucagent` 启动命令：
 
-- `--backend codex` 设置 master 自身运行使用的 backend。
-- `--override launch.default_args.backend=codex` 设置 Web UI 启动新任务时的
-  默认 backend。
+- `--override launch.default_args.backend=codex` 设置 Web UI 启动新任务时的默认 backend。
 
 启动成功后，终端会打印外部访问地址。若自动推导出的地址不可从浏览器访问，
 可以显式指定：
@@ -97,7 +95,7 @@ make swarm_master \
 ```bash
 make swarm_master \
   SWARM_MASTER_HOST=<reachable-manager-ip-or-dns> \
-  ARGS="--backend codex --override launch.default_args.backend=codex"
+  ARGS="--override launch.default_args.backend=codex"
 ```
 
 ## 4. 查看和清理
@@ -124,13 +122,7 @@ docker swarm leave --force
 
 ## 注意事项
 
-- `make swarm_master` 需要访问 `/var/run/docker.sock`，因为 master 会通过
-  Docker Swarm 创建 worker service。
+- `make swarm_master` 需要访问 `/var/run/docker.sock`，因为 master 会通过Docker Swarm 创建worker service。
 - Master service 默认约束在 manager 节点运行。
 - 浏览器访问地址应使用 manager 节点可达 IP 或 DNS，不一定是 `127.0.0.1`。
-- Swarm overlay 网络内部，worker agent 通过 service name
-  `ucagent_master` 访问 master。
-- `ARGS="--backend codex --override launch.default_args.backend=codex"` 用于设置
-  master 自身 backend 和 Web UI 默认任务 backend；也可以把 `codex` 换成
-  `claude`、`qwen`、`opencode`、`kilo` 等其它已配置 backend。
 - `ARGS="..."` 可继续追加其它 UCAgent CLI 参数。
