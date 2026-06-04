@@ -56,7 +56,8 @@ skill-name/
 
 - 技能目录名推荐直接作为技能名使用
 - `scripts/__init__.py` 可选；如果存在且实现了 `setup_vstage(stage)`，可用于给当前阶段注册 hook
-- `scripts/` 下除 `__init__.py` 外的文件会被当作可执行脚本列出，供 `RunSkillScript` 使用
+- `scripts/script_runner.json` 可选，用于为脚本添加对应的runner，目前内置支持`python3`和`bash`，其他脚本文件需要在该json文件中执行对应的runner，json格式为"script":"runner"
+- `scripts/` 下除 `__init__.py` 和`script_runner.json`外的文件会被当作可执行脚本列出，供 `RunSkillScript` 使用
 
 ## SKILL.md 规范
 
@@ -77,7 +78,7 @@ metadata:
 
 # 技能说明
 
-这里写技能目标、执行步骤、注意事项、脚本说明等内容。
+技能目标、执行步骤、注意事项、脚本说明等内容。
 ```
 
 ### 2. 字段说明
@@ -190,11 +191,11 @@ __all__ = ["setup_vstage"]
 可以额外指定一个技能目录：
 
 ```bash
---extra-skill-path=/path/to/extra-skills
+--extra-skill-path=extra_skill_dir/sub_dir/skill-a
 ```
 
 含义：
-- 额外拷贝指定路径下的技能到工作区 `.ucagent/skills/` 目录
+- 额外拷贝指定路径下的技能`skill-a`到工作区 `.ucagent/skills/ext` 目录下，目录结构为`.ucagent/skills/ext/sub_dir/skill-a`，会忽略最外层的技能目录`extra_skill_dir`
 - 仅当设置--use-skill 参数时才能添加该参数，否则报错
 
 ## 技能在工作区中的位置
@@ -211,13 +212,13 @@ __all__ = ["setup_vstage"]
 stages:
   - name: example-stage
     skill_list:
-      - "static-bug-analysis"
+      - "unitytest/static-bug-analysis"
     force_use_skill: True
 ```
 
 含义：
 
-- 当前阶段使用 `static-bug-analysis` 技能
+- 当前阶段使用 `unitytest/static-bug-analysis` 技能
 - UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
 - `force_use_skill` 参数为 True 时意味着强制使用，默认为False
 
@@ -268,8 +269,8 @@ stages:
 
 特点：
 
-- `commands` 为字符串数组
-- 支持一次执行多条命令
+- `command` 为3元素数组，3个元素分别为[skill_name,skill_script,args]
+- 支持一次执行多条命令，也就是以`command`为元素构成的数组
 - 按顺序逐条执行
 - 某条失败后直接返回错误，不会继续后续命令
 
@@ -278,8 +279,8 @@ stages:
 ```json
 {
   "commands": [
-    "python3 skills/static-bug-analysis/scripts/recordbug.py -FILE 'a.py:10-20' -BG 'BG-STATIC-001-NULL'",
-    "python3 skills/static-bug-analysis/scripts/recordbug.py -FILE 'b.py:5-9' -BG 'BG-STATIC-002-STATE'"
+    ["unitytest/static-bug-analysis","recordbug.py","-FILE 'a.py:10-20' -BG 'BG-STATIC-001-NULL'"],
+    ["unitytest/static-bug-analysis","recordbug.py","-FILE 'b.py:5-9' -BG 'BG-STATIC-002-STATE'"]
   ]
 }
 ```
@@ -307,7 +308,7 @@ stages:
 
 ```json
 {
-  "static-bug-analysis": {
+  "unitytest/static-bug-analysis": {
     "list": true,
     "read": true,
     "use": true
@@ -365,9 +366,9 @@ metadata:
 以如下参数记录信息:
 `value1`:参数1的含义
 `value2`:参数2的含义
-使用 `RunSkillScript` 执行`generate.py`脚本：
+使用 `RunSkillScript` 执行`recordbug.py`脚本：
 
-`python3 skills/example-skill/scripts/generate.py -ARG1 'value1' -ARG2 'value2'`
+`["unitytest/static-bug-analysis","recordbug.py","-FILE 'a.py:10-20' -BG 'BG-STATIC-001-NULL'"]`
 
 ## 注意事项
 

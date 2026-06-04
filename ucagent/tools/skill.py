@@ -5,7 +5,10 @@ This module provides tools to list and manage available skills in the workspace.
 
 import re
 import os
+import json
 import shlex
+import shutil
+import copy
 from pathlib import Path
 from typing import Optional, TypedDict, Any, List, Sequence
 import yaml
@@ -13,7 +16,7 @@ from pydantic import Field, BaseModel
 
 import subprocess
 from .uctool import UCTool, ArgsSchema, EmptyArgs
-from ucagent.util.log import warning,info
+from ucagent.util.log import warning
 import ucagent.util.functions as fc
 
 # Security: Maximum size for SKILL.md files to prevent DoS attacks (10MB)
@@ -23,14 +26,53 @@ MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
 # Agent Skills specification constraints (https://agentskills.io/specification)
 MAX_SKILL_NAME_LENGTH = 64
 MAX_SKILL_DESCRIPTION_LENGTH = 1024
+SCRIPT_RUNNER_CONFIG = "script_runner.json"
+SCRIPT_NON_EXECUTABLE_FILES = {"__init__.py", SCRIPT_RUNNER_CONFIG}
+DEFAULT_SCRIPT_RUNNERS = {
+    ".py": "python3",
+    ".sh": "bash",
+    ".bash": "bash",
+}
+_SKILL_LIST_CACHE: dict[str, list["SkillMetadata"]] = {}
 
 class SkillMetadata(TypedDict):
     """Metadata for a skill."""
-    name: str  # Skill identifier (max 64 chars, lowercase alphanumeric and hyphens)
+    name: str  # Skill identifier, relative to the workspace skill root
     description: str  # What the skill does (max 1024 chars)
     path: str  # Path to the SKILL.md file
     metadata: dict[str, str] # Additional metadata from SKILL.md frontmatter
     script: dict # Path to the skill script
+
+
+def _get_script_runner(workspace: str, script_path: str) -> str:
+    """Get a script runner by extension or script_runner.json."""
+    script_file = Path(script_path)
+    script_abs_path = script_file if script_file.is_absolute() else Path(workspace) / script_file
+    runner = DEFAULT_SCRIPT_RUNNERS.get(script_file.suffix)
+
+    if runner is None:
+        config_path = script_abs_path.parent / SCRIPT_RUNNER_CONFIG
+        if not config_path.exists():
+            raise ValueError(f"Cannot get runner for script '{script_file.name}': {config_path} not found.")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in {config_path}: {e}") from e
+        except OSError as e:
+            raise ValueError(f"Failed to read {config_path}: {e}") from e
+        if not isinstance(config, dict):
+            raise ValueError(f"Invalid {config_path}: expected a JSON object.")
+        runner = config.get(script_file.name)
+
+    if not isinstance(runner, str) or not runner.strip():
+        raise ValueError(f"Invalid runner for script '{script_file.name}': runner must be a non-empty string.")
+    runner = runner.strip()
+    if len(shlex.split(runner)) != 1:
+        raise ValueError(f"Invalid runner for script '{script_file.name}': runner must be a single executable.")
+    if shutil.which(runner) is None:
+        raise ValueError(f"Invalid runner for script '{script_file.name}': executable not found: {runner}")
+    return runner
 
 
 def _validate_skill_name(name: str, directory_name: str) -> tuple[bool, str]:
@@ -155,7 +197,7 @@ def _parse_skill_metadata(
     )
 
 
-def _list_skills(workspace: str) -> list[SkillMetadata]:
+def _scan_skills(workspace: str) -> list[SkillMetadata]:
     """List all skills from a directory.
     Scans directory recursively for SKILL.md files, reads their content,
     parses YAML frontmatter, and returns skill metadata.
@@ -180,6 +222,7 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
     workspace_path = Path(workspace).resolve()
     source_path = fc.get_workspace_skill_root(workspace)
     base_path = Path(source_path)
+    base_path_resolved = base_path.resolve()
 
     # Check if source path exists
     if not base_path.exists():
@@ -215,11 +258,12 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
                 directory_name=skill_dir.name
             )
             if skill_metadata:
+                skill_metadata['name'] = skill_dir.resolve().relative_to(base_path_resolved).as_posix()
                 skill_metadata['script'] = {}
                 script_dir = skill_dir / "scripts"
                 if script_dir.exists() and script_dir.is_dir():
                     for f in sorted(script_dir.iterdir()):
-                        if f.is_file() and f.name != '__init__.py':
+                        if f.is_file() and f.name not in SCRIPT_NON_EXECUTABLE_FILES:
                             skill_metadata['script'][f.name] = f.resolve().relative_to(workspace_path).as_posix()
                 skills.append(skill_metadata)
 
@@ -229,6 +273,14 @@ def _list_skills(workspace: str) -> list[SkillMetadata]:
         warning(f"Error scanning skills directory {source_path}: {e}")
 
     return skills
+
+
+def _list_skills(workspace: str) -> list[SkillMetadata]:
+    """List skills from a workspace, using a per-process cache."""
+    workspace_key = Path(workspace).resolve().as_posix()
+    if workspace_key not in _SKILL_LIST_CACHE:
+        _SKILL_LIST_CACHE[workspace_key] = copy.deepcopy(_scan_skills(workspace))
+    return copy.deepcopy(_SKILL_LIST_CACHE[workspace_key])
 
 def list_skills_in_format(
     skills: list[SkillMetadata],
@@ -241,7 +293,7 @@ def list_skills_in_format(
         workspace: Path to the workspace directory
         able_to_list: List of skill names that are able to be listed
     Returns:
-        A formatted string listing each skill's name, description, and path
+        A formatted string listing each skill's path-style name, description, and path
     """
     def _format_display_path(path_value: str) -> str:
         p = Path(path_value)
@@ -308,7 +360,7 @@ class ListSkill(UCTool):
         current_stage = stage_manager.get_current_stage()
         max_skill_list_count = stage_manager.cfg.get_value('skill.max_skill_list_count', 0)
         skills_to_list = []
-        skill_names_added = set()  
+        skill_names_added = set()
         # 1. add skills in skill_list
         if current_stage and current_stage.skill_list:
             for skill in skills:
@@ -325,24 +377,24 @@ class ListSkill(UCTool):
                     skills_to_list.append(skill)
                     skill_names_added.add(skill['name']) 
 
-        # List SKILL with their (name, description and path)
+        # List SKILL with their path-style name, description and path
         result_lines = [f"Found {len(skills_to_list)} available skills:"]
         result_lines += list_skills_in_format(
             skills_to_list,
             workspace=self.workspace,
             able_to_list=[skill["name"] for skill in skills_to_list],
         ).split("\n")
-        result_lines.append("Tip: When the task description matches a skill description, use the `ReadTextFile` tool to read the corresponding skill's SKILL.md file, learn the skill, and apply it.")      
+        result_lines.append("Tip: When the task description matches a skill description, use the `ReadTextFile` tool to read the corresponding skill's SKILL.md file, learn the skill, and apply it.")
         result= "\n".join(result_lines)
 
         return result
-    
+
 class ArgsRunSkillScript(BaseModel):
     commands: List[List[str]] = Field(description="A list of commands to execute the skill script by RunSkillScript."\
-                                                   "Each command is a 4-element string array: [runner, skill_name, skill_script, args]."\
-                                                   "runner is the executable, such as python3, based on the type of skill_script."\
-                                                   "skill_name is the name of an available skill."\
+                                                   "Each command is a 3-element string array: [skill_name, skill_script, args]."\
+                                                   "skill_name is the path-style name of an available skill, such as unitytest/functions-and-checks."\
                                                    "skill_script is the script filename with extension, not a path."\
+                                                   "The runner is inferred from the script extension, or from script_runner.json in the script directory."\
                                                    "args is a single string of command arguments, for example: -ARG1 'VALUE1' -ARG2 'VALUE2'."\
                                                    "Multiple commands can be provided in the list at once.")
 
@@ -377,29 +429,24 @@ class RunSkillScript(UCTool):
         """
         skills_path = Path(fc.get_workspace_skill_root(self.workspace))
         if not skills_path.exists():
-            raise ValueError(f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace.")
+            return f"Skill directory not found: {skills_path}. You need to start UCAgent with arg(--use-skill) to copy skills into the workspace."
         skills = _list_skills(self.workspace)
-        skill_by_name = {skill["name"]: skill for skill in skills}
+        skill_by_path_name = {skill["name"]: skill for skill in skills}
 
         env= os.environ.copy()
         env["DUT"] = str(self.agent.cfg._temp_cfg["DUT"])
         env["OUT"] = str(self.agent.cfg._temp_cfg["OUT"])
         run_result=""
         for index, command in enumerate(commands, start=1):
-            if len(command) != 4:
-                return f"Command {index} invalid: expected [runner, skill_name, skill_script, args], got {len(command)} elements."
+            if len(command) != 3:
+                return f"Command {index} invalid: expected [skill_name, skill_script, args], got {len(command)} elements."
 
-            runner, skill_name, skill_script, args = command
+            skill_name, skill_script, args = command
             if not all(isinstance(item, str) for item in command):
-                return f"Command {index} invalid: runner, skill_name, skill_script, and args must all be strings."
+                return f"Command {index} invalid: skill_name, skill_script, and args must all be strings."
 
-            runner = runner.strip()
             skill_name = skill_name.strip()
             skill_script = skill_script.strip()
-            if not runner:
-                return f"Command {index} invalid: runner is empty."
-            if len(shlex.split(runner)) != 1:
-                return f"Command {index} invalid: runner must be a single executable string."
             if not skill_name:
                 return f"Command {index} invalid: skill_name is empty."
             if not skill_script:
@@ -407,7 +454,7 @@ class RunSkillScript(UCTool):
             if Path(skill_script).name != skill_script:
                 return f"Command {index} invalid: skill_script must be a filename, not a path: {skill_script}"
 
-            skill = skill_by_name.get(skill_name)
+            skill = skill_by_path_name.get(skill_name)
             if not skill:
                 return f"Command {index} invalid: skill not found: {skill_name}"
 
@@ -415,13 +462,17 @@ class RunSkillScript(UCTool):
             script_path = scripts.get(skill_script)
             if not script_path:
                 available_scripts = ", ".join(sorted(scripts.keys())) or "none"
-                return f"Command {index} invalid: script '{skill_script}' is not under skill '{skill_name}'. Available scripts: {available_scripts}"
+                return (
+                    f"Command {index} invalid: script '{skill_script}' is not under skill "
+                    f"'{skill_name}'. Available scripts: {available_scripts}"
+                )
 
             try:
                 parsed_args = shlex.split(args)
             except ValueError as e:
                 return f"Command {index} invalid: failed to parse args: {e}"
 
+            runner = _get_script_runner(self.workspace, script_path)
             argv = [runner, script_path, *parsed_args]
             try:
                 process = subprocess.run(
@@ -437,8 +488,8 @@ class RunSkillScript(UCTool):
                 run_result+=process.stdout
             except subprocess.CalledProcessError as e:
                 return f"Command failed with exit code {e.returncode}:\n{e.stdout}"
-            except FileNotFoundError:
-                return f"Command not found: {runner}"
+            except FileNotFoundError as e:
+                raise ValueError(f"Command {index} runner not found: {runner}") from e
         return run_result
 
 __all__ = ["ListSkill", "RunSkillScript"]

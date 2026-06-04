@@ -1,5 +1,5 @@
 ---
-name: ut-static-bug-validation
+name: static-bug-validation
 description: 静态分析Bug验证与动态关联阶段专属技能,用于指导建立静态 Bug 与动态 Bug 的标签级追踪链接
 ---
 

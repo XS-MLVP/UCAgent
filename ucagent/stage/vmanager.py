@@ -151,8 +151,8 @@ class ToolSetSkillUsage(ManagerTool):
         "3. **use**: Whether completion of the current stage task followed the method steps in SKILL.md, or executed any specified code in that file\n"
         "**Returned dictionary format example**:\n"
         "{\n"
-        "  'skill_name_1': {'list': True, 'read': True, 'use': False},\n"
-        "  'skill_name_2': {'list': True, 'read': False, 'use': False}\n"
+        "  'unitytest/ut-functions-and-checks': {'list': True, 'read': True, 'use': False},\n"
+        "  'ext/custom/skill-name': {'list': True, 'read': False, 'use': False}\n"
         "}\n"
     )
     args_schema: Optional[ArgsSchema] = ArgSkillUsage
@@ -754,8 +754,9 @@ class StageManager(object):
         if current_stage.skill_list:
             for skill_name in current_stage.skill_list:
                 skill_root = fc.get_workspace_skill_root(self.workspace)
-                skill_dir = fc.find_skill_dir_by_name(skill_root, skill_name)
-                if not skill_dir:
+                skill_root_abs = os.path.abspath(skill_root)
+                skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
+                if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs or not os.path.isdir(skill_dir):
                     raise ValueError(f"Skill '{skill_name}' is not found in workspace. ")
                 if skill_name not in skill_usage:
                     return f"You must use skill '{skill_name}' in current stage, using tool `ListSkill` to list and use it."

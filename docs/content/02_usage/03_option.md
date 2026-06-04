@@ -115,8 +115,8 @@ ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 | --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以"点号路径=值"覆盖配置；字符串需引号，其它按 Python 字面量解析 |
 | --gen-instruct-file     | -gif | file                       | 无         | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path         |      | path（可多次）             | 无         | 使用自定义 Guide_Doc 目录（默认使用内置拷贝）                   |
-| --use-skill             |      | bool                     | 否         | 启用技能 SKILL；不添加参数为关闭 |
-| --extra-skill-path             |      | [path]                     | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL，仅当设置--use-skill参数时才能添加该参数 |
+| --use-skill             |      | bool                       | 否         | 启用技能 SKILL；不添加参数为关闭 |
+| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL，仅当设置--use-skill参数时才能添加该参数 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --emulate-config        |      | flag                       | 否         | 仅模拟配置过程，不实际运行各阶段                                |
 

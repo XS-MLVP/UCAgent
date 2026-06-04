@@ -87,7 +87,28 @@ class VerifyStage(object):
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
-        self.skill_list = {k:[False,False,False] for k in skill_list} if self.cfg.skill.use_skill else {}
+        if self.cfg.skill.use_skill:
+            if skill_list is None:
+                skill_list = []
+            if not isinstance(skill_list, list):
+                raise ValueError(f"Stage '{self.name}' skill_list must be a list.")
+            validated_skill_list = []
+            skill_root_abs = os.path.abspath(fc.get_workspace_skill_root(workspace))
+            for skill_name in skill_list:
+                if not isinstance(skill_name, str):
+                    raise ValueError(f"Stage '{self.name}' skill_list item must be a string: {skill_name}")
+                skill_name = skill_name.strip()
+                if not skill_name:
+                    raise ValueError(f"Stage '{self.name}' skill_list contains an empty skill name.")
+                skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
+                if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs:
+                    raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is outside the workspace skill directory.")
+                if not os.path.isdir(skill_dir) or not os.path.isfile(os.path.join(skill_dir, "SKILL.md")):
+                    raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is not found in workspace.")
+                validated_skill_list.append(skill_name)
+            self.skill_list = {k:[False,False,False] for k in validated_skill_list}
+        else:
+            self.skill_list = {}
         self.force_use_skill = force_use_skill
         self.output_files = output_files
         self.tool_read_text = tool_read_text
@@ -242,13 +263,18 @@ class VerifyStage(object):
                 setattr(self, method_name, hooked_method)
             self.add_hook = add_hook
             skills_dir = fc.get_workspace_skill_root(self.workspace)
+            skills_dir_abs = os.path.abspath(skills_dir)
             print(f"DEBUG: stage={self.name}, skill_list={self.skill_list}")
             for skill_name in self.skill_list.keys():
-                script_dir = os.path.join(fc.find_skill_dir_by_name(skills_dir, skill_name), "scripts")
+                skill_dir = os.path.abspath(os.path.join(skills_dir_abs, skill_name))
+                if os.path.commonpath([skills_dir_abs, skill_dir]) != skills_dir_abs:
+                    warning(f"Skill '{skill_name}' is outside workspace skill root, skipping setup_vstage.")
+                    continue
+                script_dir = os.path.join(skill_dir, "scripts")
                 init_file = os.path.join(script_dir, "__init__.py")
                 if os.path.isdir(script_dir) and os.path.isfile(init_file) and os.path.getsize(init_file) > 0:
                     try:
-                        safe_module_name = f"ucskill_{skill_name.replace('-', '_')}"
+                        safe_module_name = "ucskill_" + "".join(c if c.isalnum() or c == "_" else "_" for c in skill_name)
                         spec = importlib.util.spec_from_file_location(safe_module_name, init_file)
                         skill_mod = importlib.util.module_from_spec(spec)
                         sys.modules[safe_module_name] = skill_mod
@@ -368,7 +394,9 @@ class VerifyStage(object):
         if self.is_skill_path(file_path):
             abs_path = os.path.abspath(self.workspace + os.path.sep + file_path)
             if os.path.basename(abs_path) == "SKILL.md":
-                skill_name = os.path.basename(os.path.dirname(abs_path))
+                skill_root = os.path.abspath(fc.get_workspace_skill_root(self.workspace))
+                skill_dir = os.path.dirname(abs_path)
+                skill_name = os.path.relpath(skill_dir, skill_root).replace(os.path.sep, "/")
                 if skill_name in self.skill_list:
                     self.set_usage_skill_list(skill_name, read=True)
                     info(f"[{self.__class__.__name__}.{self.name}] Skill {skill_name} has been read by the LLM.")
