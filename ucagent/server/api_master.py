@@ -47,6 +47,11 @@ except ImportError:  # pragma: no cover - optional dependency checked at runtime
 from ucagent.util.config import get_config
 from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent, is_port_free
 from ucagent.util.log import echo_g, warning
+from ucagent.util.workspace_archive import (
+    WorkspaceArchiveError,
+    create_workspace_archive,
+    extract_workspace_root_archive,
+)
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
@@ -141,6 +146,21 @@ def _now() -> float:
 def _safe_name(name: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip())
     return cleaned or fallback
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
 
 
 def _tail_file(path: str, max_lines: int = 200) -> str:
@@ -729,21 +749,181 @@ class PdbMasterApiServer:
             archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
             "workspace",
         )
-        temp_dir = tempfile.mkdtemp(prefix="ucagent_workspace_archive_")
-        base_name = os.path.join(temp_dir, archive_stem)
-        archive_path = shutil.make_archive(
-            base_name,
-            "gztar",
-            root_dir=os.path.dirname(picker_workspace),
-            base_dir=os.path.basename(picker_workspace),
-        )
-        return archive_path, f"{archive_stem}.tar.gz", temp_dir
+        return create_workspace_archive(picker_workspace, archive_stem=archive_stem, root_name="workspace")
 
     def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str, master_host: str = "") -> str:
         if not self.tcp:
             raise ValueError("Current master has no TCP listener; cannot provide workspace archive URL")
         host = str(master_host or "").strip() or self._cluster_master_ip(launch_mode)
         return f"http://{host}:{self.port}/api/workspace/{archive_ref}.tar.gz"
+
+    def _sync_workspace_back_enabled(self) -> bool:
+        default_args = _plain_config_value(self.cfg.get_value("launch.default_args", {}) or {})
+        if isinstance(default_args, dict) and "use_zip_workspace" in default_args:
+            return _as_bool(default_args.get("use_zip_workspace"), True)
+        return _as_bool(self.cfg.get_value("launch.default_args.use_zip_workspace", True), True)
+
+    def _task_uses_zip_workspace(self, task: Dict[str, Any]) -> bool:
+        structured = task.get("cli_args_structured") or {}
+        if isinstance(structured, dict) and "use_zip_workspace" in structured:
+            return _as_bool(structured.get("use_zip_workspace"), True)
+        return True
+
+    def _resolve_workspace_sync_target(self, agent_id: str) -> Dict[str, Any]:
+        agent_id = str(agent_id or "").strip()
+        if not agent_id:
+            raise ValueError("'agent_id' is required")
+        with self._agents_lock:
+            agents = list(self._agents.values())
+            agent = next((item for item in agents if str(item.get("id") or "").strip() == agent_id), None)
+        with self._tasks_lock:
+            tasks = list(self._tasks.values())
+
+        def task_sort_key(task: Dict[str, Any]) -> float:
+            try:
+                return float(task.get("started_at") or task.get("created_at") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        matched_tasks: List[Dict[str, Any]] = []
+        for task in sorted(tasks, key=task_sort_key, reverse=True):
+            if str(task.get("client_id") or "").strip() == agent_id:
+                matched_tasks.append(task)
+                continue
+            if str(task.get("registered_agent_id") or "").strip() == agent_id:
+                matched_tasks.append(task)
+                continue
+            if agent is not None and self._agent_for_task_unlocked(task, [agent]) is not None:
+                matched_tasks.append(task)
+        if not matched_tasks:
+            raise ValueError(f"No managed task is associated with agent '{agent_id}'")
+
+        task = matched_tasks[0]
+        if not self._task_uses_zip_workspace(task):
+            raise ValueError("The matched task was launched with a shared workspace; sync-back is not needed")
+        workspace_id = str(task.get("workspace_id") or "").strip()
+        if not workspace_id:
+            raise ValueError(f"Task '{task.get('task_id')}' has no workspace_id")
+        ws = self._get_workspace(workspace_id)
+        target_dir = self._compiled_workspace_dir(ws)
+        return {
+            "agent": agent,
+            "task": task,
+            "workspace": ws,
+            "target_dir": target_dir,
+        }
+
+    def _workspace_sync_status(self, agent_id: str = "") -> Dict[str, Any]:
+        agent_id = str(agent_id or "").strip()
+        data: Dict[str, Any] = {
+            "enabled": False,
+            "use_zip_workspace": self._sync_workspace_back_enabled(),
+            "agent_id": agent_id,
+            "reason": "",
+        }
+        if not data["use_zip_workspace"]:
+            data["reason"] = "Disabled because launch.default_args.use_zip_workspace is false"
+            return data
+        if not agent_id:
+            data["enabled"] = True
+            data["reason"] = "Sync-back is globally available for zip workspace launches"
+            return data
+        try:
+            target = self._resolve_workspace_sync_target(agent_id)
+        except (KeyError, ValueError) as exc:
+            data["reason"] = str(exc)
+            return data
+        task = target["task"]
+        ws = target["workspace"]
+        data.update({
+            "enabled": True,
+            "reason": "Sync-back is available",
+            "task_id": task.get("task_id", ""),
+            "workspace_id": ws.get("workspace_id", ""),
+            "target_dir": target["target_dir"],
+            "dut_name": task.get("dut_name", ""),
+            "selected_module": task.get("selected_module", ""),
+        })
+        return data
+
+    def _remove_path(self, path: str) -> None:
+        if os.path.islink(path) or os.path.isfile(path):
+            os.unlink(path)
+        elif os.path.isdir(path):
+            shutil.rmtree(path)
+
+    def _replace_directory(self, source_dir: str, target_dir: str) -> None:
+        source_dir = os.path.abspath(source_dir)
+        target_dir = os.path.abspath(target_dir)
+        if not os.path.isdir(source_dir):
+            raise ValueError(f"Source directory not found: {source_dir}")
+        if os.path.exists(target_dir) and not os.path.isdir(target_dir):
+            raise ValueError(f"Sync target exists but is not a directory: {target_dir}")
+        parent = os.path.dirname(target_dir)
+        os.makedirs(parent, exist_ok=True)
+        base = os.path.basename(target_dir.rstrip(os.sep)) or "workspace"
+        token = secrets.token_hex(6)
+        tmp_target = os.path.join(parent, f".{base}.sync-{token}.new")
+        backup_target = os.path.join(parent, f".{base}.sync-{token}.bak")
+        moved_old = False
+        try:
+            if os.path.exists(tmp_target):
+                self._remove_path(tmp_target)
+            shutil.move(source_dir, tmp_target)
+            if os.path.exists(target_dir) or os.path.islink(target_dir):
+                os.rename(target_dir, backup_target)
+                moved_old = True
+            os.rename(tmp_target, target_dir)
+        except Exception:
+            if os.path.exists(tmp_target) or os.path.islink(tmp_target):
+                self._remove_path(tmp_target)
+            if moved_old and not (os.path.exists(target_dir) or os.path.islink(target_dir)) and (
+                os.path.exists(backup_target) or os.path.islink(backup_target)
+            ):
+                os.rename(backup_target, target_dir)
+            raise
+        else:
+            if moved_old and (os.path.exists(backup_target) or os.path.islink(backup_target)):
+                self._remove_path(backup_target)
+
+    def _restore_workspace_archive_to_target(self, archive_path: str, target_dir: str) -> None:
+        staging_dir = tempfile.mkdtemp(prefix="ucagent_workspace_sync_")
+        try:
+            extracted_root = extract_workspace_root_archive(archive_path, staging_dir, root_name="workspace")
+            self._replace_directory(extracted_root, target_dir)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    def _sync_workspace_archive_back(self, agent_id: str, archive_path: str, archive_size: int = 0) -> Dict[str, Any]:
+        if not self._sync_workspace_back_enabled():
+            raise ValueError("Workspace sync-back is disabled because launch.default_args.use_zip_workspace is false")
+        target = self._resolve_workspace_sync_target(agent_id)
+        task = target["task"]
+        ws = target["workspace"]
+        target_dir = target["target_dir"]
+        self._restore_workspace_archive_to_target(archive_path, target_dir)
+        sync_info = {
+            "agent_id": str(agent_id or "").strip(),
+            "task_id": task.get("task_id", ""),
+            "workspace_id": ws.get("workspace_id", ""),
+            "target_dir": target_dir,
+            "archive_size": int(archive_size or 0),
+            "synced_at": _now(),
+        }
+        with self._workspaces_lock:
+            ws_locked = self._workspaces.get(ws.get("workspace_id"))
+            if ws_locked is not None:
+                ws_locked["last_sync_back"] = dict(sync_info)
+        with self._tasks_lock:
+            task_locked = self._tasks.get(task.get("task_id"))
+            if task_locked is not None:
+                task_locked["workspace_sync_back"] = dict(sync_info)
+        self._mark_dirty()
+        _master_log(
+            f"Workspace sync-back from agent '{agent_id}' restored task '{sync_info['task_id']}' "
+            f"to {target_dir}"
+        )
+        return sync_info
 
     def _snapshot_agents(self) -> List[Dict[str, Any]]:
         with self._agents_lock:
@@ -4156,6 +4336,66 @@ class PdbMasterApiServer:
                 },
             }
 
+        @app.get("/api/capabilities", summary="Client-facing master capabilities", dependencies=[Depends(_check_access_key)])
+        def capabilities(agent_id: str = Query(default="")):
+            return {
+                "status": "ok",
+                "capabilities": {
+                    "workspace_sync_back": self._workspace_sync_status(agent_id),
+                },
+            }
+
+        @app.get("/api/workspace-sync/status", summary="Workspace sync-back status", dependencies=[Depends(_check_access_key)])
+        def workspace_sync_status(agent_id: str = Query(default="")):
+            return {"status": "ok", "data": self._workspace_sync_status(agent_id)}
+
+        @app.post("/api/workspace-sync/back", summary="Sync a client workspace archive back to master", dependencies=[Depends(_check_access_key)])
+        async def workspace_sync_back(request: Request):
+            temp_dir = tempfile.mkdtemp(prefix="ucagent_workspace_sync_upload_")
+            archive_path = os.path.join(temp_dir, "workspace.tar.gz")
+            try:
+                try:
+                    form = await request.form()
+                except Exception as exc:
+                    raise HTTPException(status_code=400, detail=f"Failed to parse upload form: {exc}") from exc
+
+                agent_id = str(
+                    form.get("agent_id")
+                    or request.query_params.get("agent_id")
+                    or request.headers.get("X-UCAgent-Agent-Id", "")
+                ).strip()
+                upload_file = None
+                for key in ("archive", "file", "workspace"):
+                    candidate = form.get(key)
+                    if hasattr(candidate, "read"):
+                        upload_file = candidate
+                        break
+                if upload_file is None:
+                    raise HTTPException(status_code=400, detail="Missing uploaded workspace archive")
+                if not agent_id:
+                    raise HTTPException(status_code=400, detail="'agent_id' is required")
+
+                size = 0
+                with open(archive_path, "wb") as fh:
+                    while True:
+                        chunk = await upload_file.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        fh.write(chunk)
+                if size <= 0:
+                    raise HTTPException(status_code=400, detail="Uploaded workspace archive is empty")
+                sync_info = self._sync_workspace_archive_back(agent_id, archive_path, archive_size=size)
+                return {"status": "ok", "sync": sync_info}
+            except HTTPException:
+                raise
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except (WorkspaceArchiveError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
         @app.post("/api/register", summary="Register or heartbeat", dependencies=[Depends(_check_access_key)])
         def register(body: Dict[str, Any] = Body(default_factory=dict), request: Request = None):
             agent_id = str(body.get("id") or "").strip()
@@ -4251,7 +4491,13 @@ class PdbMasterApiServer:
             if is_new or bool(body.get("force")):
                 action = "rejoined" if bool(body.get("force")) else "joined"
                 _master_log(f"Agent '{agent_id}' {action} host={str(body.get('host') or '?')}")
-            return {"status": "ok", "message": f"Agent '{agent_id}' registered."}
+            return {
+                "status": "ok",
+                "message": f"Agent '{agent_id}' registered.",
+                "capabilities": {
+                    "workspace_sync_back": self._workspace_sync_status(agent_id),
+                },
+            }
 
         @app.get("/api/agents", summary="List all agents", dependencies=[Depends(_check_password)])
         def list_agents(
@@ -5868,6 +6114,19 @@ class PdbMasterClient:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._force_next = False
+        self._last_capabilities: Dict[str, Any] = {}
+
+    def _headers(self) -> Dict[str, str]:
+        return {"X-Access-Key": self.access_key} if self.access_key else {}
+
+    @staticmethod
+    def _response_detail(resp: Any) -> str:
+        try:
+            data = resp.json()
+            detail = data.get("detail") or data.get("message") or data
+            return detail if isinstance(detail, str) else json.dumps(detail, ensure_ascii=False)
+        except Exception:
+            return (getattr(resp, "text", "") or "").strip()[:500]
 
     def _build_payload(self) -> dict:
         from ucagent.version import __version__
@@ -5965,7 +6224,7 @@ class PdbMasterClient:
 
         register_url = f"{self.master_url}/api/register"
         connected = False
-        headers = {"X-Access-Key": self.access_key} if self.access_key else {}
+        headers = self._headers()
         while not self._stop_event.is_set():
             try:
                 payload = self._build_payload()
@@ -5979,6 +6238,8 @@ class PdbMasterClient:
                         self._kicked = True
                         self._running = False
                         return
+                    if isinstance(data.get("capabilities"), dict):
+                        self._last_capabilities = data["capabilities"]
                     if not connected:
                         _master_log(f"[MasterClient] (Re)connected to master {self.master_url} as '{self.agent_id}'")
                     connected = True
@@ -6025,9 +6286,106 @@ class PdbMasterClient:
         self._thread = None
         return True, f"Disconnected from master {self.master_url}"
 
+    def workspace_sync_status(self) -> Tuple[bool, str, Dict[str, Any]]:
+        if self._kicked:
+            return False, f"This agent was removed from master {self.master_url}", {}
+        if self._auth_failed:
+            return False, f"Access key was rejected by master {self.master_url}", {}
+        if not self._running:
+            return False, "Not connected to master", {}
+        import requests
+
+        url = f"{self.master_url}/api/workspace-sync/status"
+        try:
+            resp = requests.get(
+                url,
+                params={"agent_id": self.agent_id},
+                timeout=15,
+                headers=self._headers(),
+            )
+        except Exception as exc:
+            self._connected = False
+            return False, f"Failed to query workspace sync-back status from {self.master_url}: {exc}", {}
+        if resp.status_code == 403:
+            self._auth_failed = True
+            self._running = False
+            self._connected = False
+            return False, f"Access key was rejected by master {self.master_url} (HTTP 403)", {}
+        if not resp.ok:
+            return False, f"Master returned HTTP {resp.status_code}: {self._response_detail(resp)}", {}
+        try:
+            data = resp.json()
+        except Exception as exc:
+            return False, f"Invalid workspace sync-back status response: {exc}", {}
+        self._connected = True
+        status = data.get("data") or {}
+        if not isinstance(status, dict):
+            return False, "Invalid workspace sync-back status payload", {}
+        self._last_capabilities["workspace_sync_back"] = status
+        if not status.get("enabled"):
+            return False, str(status.get("reason") or "Workspace sync-back is not available"), status
+        return True, str(status.get("reason") or "Workspace sync-back is available"), status
+
+    def sync_workspace_back(self, workspace_dir: str = "", reason: str = "manual") -> Tuple[bool, str]:
+        ok, msg, status = self.workspace_sync_status()
+        if not ok:
+            return False, msg
+        agent = getattr(self.pdb, "agent", None)
+        workspace = os.path.abspath(workspace_dir or getattr(agent, "workspace", "") or "")
+        if not workspace or not os.path.isdir(workspace):
+            return False, f"Workspace directory not found: {workspace or '<empty>'}"
+
+        import requests
+
+        archive_stem = _safe_name(str(status.get("task_id") or self.agent_id or "workspace"), "workspace")
+        temp_dir = ""
+        try:
+            archive_path, filename, temp_dir = create_workspace_archive(
+                workspace,
+                archive_stem=archive_stem,
+                root_name="workspace",
+            )
+            url = f"{self.master_url}/api/workspace-sync/back"
+            with open(archive_path, "rb") as fh:
+                resp = requests.post(
+                    url,
+                    data={"agent_id": self.agent_id, "reason": reason},
+                    files={"archive": (filename, fh, "application/gzip")},
+                    timeout=(15, 600),
+                    headers=self._headers(),
+                )
+        except Exception as exc:
+            return False, f"Failed to upload workspace archive to {self.master_url}: {exc}"
+        finally:
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        if resp.status_code == 403:
+            self._auth_failed = True
+            self._running = False
+            self._connected = False
+            return False, f"Access key was rejected by master {self.master_url} (HTTP 403)"
+        if not resp.ok:
+            return False, f"Master returned HTTP {resp.status_code}: {self._response_detail(resp)}"
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        sync = data.get("sync") if isinstance(data, dict) else {}
+        if isinstance(sync, dict) and sync.get("workspace_id"):
+            return (
+                True,
+                f"Workspace synced back to master {self.master_url} "
+                f"(task={sync.get('task_id')}, workspace={sync.get('workspace_id')})",
+            )
+        return True, f"Workspace synced back to master {self.master_url}"
+
     @property
     def is_running(self) -> bool:
         return self._running and self._thread is not None and self._thread.is_alive()
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
 
     @property
     def is_kicked(self) -> bool:

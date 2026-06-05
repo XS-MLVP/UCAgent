@@ -2481,6 +2481,51 @@ class VerifyPDB(Pdb):
             line = sep.join(f"{r[c]:<{widths[c]}}" for c in cols)
             _color.get(r["status"], echo_y)(line)
 
+    def do_sync_workspace_back(self, arg):
+        """
+        Upload the current workspace archive back to connected master(s).
+
+        Usage: sync_workspace_back [master_url]
+
+          sync_workspace_back
+          sync_workspace_back http://192.168.1.10:8800
+        """
+        if not self._master_clients:
+            echo_y("Workspace sync-back is unavailable: not connected to any master.")
+            echo_y("Use 'connect_master_to <host> [port]' first.")
+            return
+
+        target_url = (arg or "").strip().rstrip("/")
+        clients = []
+        if target_url:
+            client = self._master_clients.get(target_url)
+            if client is None and not target_url.startswith("http"):
+                client = self._master_clients.get(f"http://{target_url}")
+                if client is not None:
+                    target_url = f"http://{target_url}"
+            if client is None:
+                echo_y(f"No master connection found for '{target_url}'.")
+                echo_y("Use 'connect_master_list' to see active connections.")
+                return
+            clients = [(target_url, client)]
+        else:
+            clients = list(self._master_clients.items())
+
+        success_count = 0
+        for url, client in clients:
+            if not getattr(client, "is_running", False):
+                echo_y(f"Workspace sync-back skipped for {url}: master client is not running.")
+                continue
+            echo_g(f"Syncing workspace back to {url} ...")
+            ok, msg = client.sync_workspace_back(reason="manual")
+            if ok:
+                success_count += 1
+                echo_g(msg)
+            else:
+                echo_r(msg)
+        if success_count == 0:
+            echo_y("Workspace sync-back did not run on any master.")
+
     def do_list_demo_cmds(self, arg):
         """
         List all available demo commands.
