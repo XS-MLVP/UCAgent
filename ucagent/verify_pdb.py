@@ -110,6 +110,10 @@ class VerifyPDB(Pdb):
         self._running_commands_lock = threading.RLock()
         self._running_commands_local = threading.local()
         self._running_command_seq = 0
+        self._workspace_cwd = self._normalize_path(
+            getattr(self.agent, "workspace", None) or os.getcwd()
+        )
+        self._command_cwd = self._workspace_cwd
         set_console_sync_handler(self.record_console_output)
         self._install_persistent_console_mirror()
 
@@ -503,6 +507,65 @@ class VerifyPDB(Pdb):
             # Do nothing when empty line is entered
             pass
 
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        return os.path.abspath(os.path.expanduser(path))
+
+    def _workspace_realpath(self) -> str:
+        return os.path.realpath(self._workspace_cwd)
+
+    def _is_under_workspace(self, path: str) -> bool:
+        try:
+            workspace = self._workspace_realpath()
+            candidate = os.path.realpath(self._normalize_path(path))
+            return os.path.commonpath([workspace, candidate]) == workspace
+        except ValueError:
+            return False
+
+    def _resolve_command_path(self, path: str) -> str:
+        expanded = os.path.expanduser(path)
+        if os.path.isabs(expanded):
+            return self._normalize_path(expanded)
+        return self._normalize_path(os.path.join(self._command_cwd, expanded))
+
+    def _workspace_relpath(self, path: str) -> str:
+        relpath = os.path.relpath(path, self._workspace_cwd)
+        return "." if relpath == "." else relpath
+
+    def _complete_command_cwd_file(self, text: str, *, dirs_only: bool = False) -> list[str]:
+        text = text.strip()
+        search_root = self._command_cwd
+        prefix = ""
+
+        if text:
+            expanded = os.path.expanduser(text)
+            if os.path.isabs(expanded):
+                full_path = self._normalize_path(expanded)
+            else:
+                full_path = self._normalize_path(os.path.join(self._command_cwd, expanded))
+            if text.endswith("/"):
+                search_root = full_path
+            else:
+                search_root, prefix = os.path.split(full_path)
+
+        if not self._is_under_workspace(search_root) or not os.path.isdir(search_root):
+            return []
+
+        results = []
+        for name in os.listdir(search_root):
+            if not name.startswith(prefix):
+                continue
+            full_path = os.path.join(search_root, name)
+            is_dir = os.path.isdir(full_path)
+            if dirs_only and not is_dir:
+                continue
+            suffix = "/" if is_dir else ""
+            if text and os.path.dirname(text):
+                results.append(os.path.join(os.path.dirname(text), name) + suffix)
+            else:
+                results.append(name + suffix)
+        return results
+
     def api_complite_workspace_file(self, text):
         """Auto-complete workspace files
 
@@ -559,18 +622,18 @@ class VerifyPDB(Pdb):
 
     def do_ls(self, arg):
         """
-        List the current workspace directory.
+        List the current command working directory.
         """
         file_name = arg.strip()
-        full_path = os.path.abspath(os.path.join(self.agent.workspace, file_name))
-        if not full_path.startswith(os.path.abspath(self.agent.workspace)):
+        full_path = self._command_cwd if not file_name else self._resolve_command_path(file_name)
+        if not self._is_under_workspace(full_path):
             echo_y(f"Path '{file_name}' is outside the workspace.")
             return
         if not os.path.exists(full_path):
             echo_y(f"Path '{file_name}' does not exist.")
             return
         if not os.path.isdir(full_path):
-            echo(file_name)
+            echo(self._workspace_relpath(full_path))
             return
         for file in os.listdir(full_path):
             if os.path.isdir(os.path.join(full_path, file)):
@@ -582,7 +645,7 @@ class VerifyPDB(Pdb):
         """
         Auto-complete the list_workspace command.
         """
-        return self.api_complite_workspace_file(text)
+        return self._complete_command_cwd_file(text)
 
     def do_continue(self, arg):
         """
@@ -2454,12 +2517,12 @@ class VerifyPDB(Pdb):
             return False, "Directory path cannot be empty."
         if dir_path.startswith("/"):
             dir_path = dir_path[1:]
-        abspath = os.path.abspath(os.path.join(self.agent.workspace, dir_path))
-        if not abspath.startswith(os.path.abspath(self.agent.workspace)):
+        abspath = os.path.abspath(os.path.join(self._workspace_cwd, dir_path))
+        if not self._is_under_workspace(abspath):
             return False, f"Path '{dir_path}' is outside the workspace."
         if not os.path.exists(abspath):
             return False, f"Path '{dir_path}' does not exist."
-        return True, os.path.relpath(abspath, self.agent.workspace)
+        return True, os.path.relpath(abspath, self._workspace_cwd)
 
     def do_add_write_path(self, arg):
         """
@@ -2581,17 +2644,75 @@ class VerifyPDB(Pdb):
             echo("  Type 'help <command>' for detailed help on a specific command.")
             echo("  Use Ctrl+C to interrupt execution and return to the prompt.")
 
+    def _set_command_cwd(self, dir_path: str, *, reset_dot: bool) -> None:
+        target = (
+            self._workspace_cwd
+            if reset_dot and dir_path == "."
+            else self._resolve_command_path(dir_path)
+        )
+        if not self._is_under_workspace(target):
+            echo_r(f"Path '{dir_path}' is outside the workspace.")
+            return
+        if not os.path.exists(target):
+            echo_r(f"Path '{dir_path}' does not exist.")
+            return
+        if not os.path.isdir(target):
+            echo_r(f"Path '{dir_path}' is not a directory.")
+            return
+
+        self._command_cwd = target
+        echo_g(f"Command working directory: {self._command_cwd}")
+
+    def do_chcwd(self, arg):
+        """
+        Change the command working directory within the workspace.
+        Usage: chcwd <workspace-subdir|.>
+
+        The command working directory is used by VerifyPDB file commands and
+        bash commands. It does not modify agent.workspace. Use "chcwd ." to
+        switch back to the workspace root.
+        """
+        dir_path = arg.strip()
+        if not dir_path:
+            echo_g(f"Command working directory: {self._command_cwd}")
+            return
+
+        self._set_command_cwd(dir_path, reset_dot=True)
+
+    def complete_chcwd(self, text, line, begidx, endidx):
+        """
+        Auto-complete the chcwd command.
+        """
+        return self._complete_command_cwd_file(text, dirs_only=True)
+
+    def do_cd(self, arg):
+        """
+        Change the command working directory within the workspace.
+        Usage: cd [dir]
+
+        Without an argument, switch back to the workspace root. Unlike chcwd,
+        "cd ." keeps the current command working directory.
+        """
+        dir_path = arg.strip() or "."
+        reset_dot = not arg.strip()
+        self._set_command_cwd(dir_path, reset_dot=reset_dot)
+
+    def complete_cd(self, text, line, begidx, endidx):
+        """
+        Auto-complete the cd command.
+        """
+        return self._complete_command_cwd_file(text, dirs_only=True)
+
     def do_pwd(self, arg):
         """
         Show current working directory and workspace information.
         """
-        current_dir = os.getcwd()
+        current_dir = self._command_cwd
         echo_g(f"Current working directory: {current_dir}")
         
-        if hasattr(self.agent, 'workspace') and self.agent.workspace:
-            echo_g(f"Agent workspace: {self.agent.workspace}")
-            if current_dir != self.agent.workspace:
-                echo_y("Note: Current directory differs from agent workspace")
+        echo_g(f"Agent workspace: {self._workspace_cwd}")
+        if current_dir != self._workspace_cwd:
+            echo_y("Note: Command working directory differs from agent workspace")
         
         if hasattr(self.agent, 'dut_name') and self.agent.dut_name:
             echo_g(f"DUT name: {self.agent.dut_name}")
@@ -2649,17 +2770,17 @@ class VerifyPDB(Pdb):
         echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
         echo(f"Executing as bash command: {line}")
         try:
-            # Change to agent's workspace directory before executing
-            original_cwd = os.getcwd()
-            if hasattr(self.agent, 'workspace') and self.agent.workspace:
-                os.chdir(self.agent.workspace)
-                echo(f"Working directory: {self.agent.workspace}")
+            if not os.path.isdir(self._command_cwd):
+                echo_r(f"Working directory does not exist: {self._command_cwd}")
+                return
+            echo(f"Working directory: {self._command_cwd}")
             # Execute the command using subprocess
             result = subprocess.run(
                 line, 
                 shell=True, 
                 capture_output=True, 
                 text=True, 
+                cwd=self._command_cwd,
                 timeout=30  # 30 second timeout to prevent hanging
             )
             # Display the output
@@ -2675,12 +2796,6 @@ class VerifyPDB(Pdb):
             echo_r(f"Command '{line}' timed out after 30 seconds")
         except Exception as e:
             echo_r(f"Error executing command '{line}': {str(e)}")
-        finally:
-            # Restore original working directory
-            try:
-                os.chdir(original_cwd)
-            except Exception:
-                pass
 
     def api_load_toffee_report(self, path, workspace):
         """
