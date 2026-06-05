@@ -117,6 +117,60 @@ class VerifyPDB(Pdb):
         set_console_sync_handler(self.record_console_output)
         self._install_persistent_console_mirror()
 
+    def _local_master_client_url(self):
+        s = self._master_api_server
+        if s is None or not s.is_running or not getattr(s, "tcp", False):
+            return "", ""
+        host = getattr(s, "host", "") or "127.0.0.1"
+        if host in ("0.0.0.0", "::", "[::]"):
+            host = "127.0.0.1"
+        return f"http://{host}:{s.port}", getattr(s, "access_key", "")
+
+    def _ensure_self_master_client(self):
+        if self._cmd_api_server is None or not self._cmd_api_server.is_running:
+            return
+        master_url, access_key = self._local_master_client_url()
+        if not master_url:
+            return
+        existing = self._master_clients.get(master_url)
+        if existing is not None and existing.is_running:
+            if getattr(existing, "agent_id", "") == "self":
+                return
+            existing.stop()
+        try:
+            from ucagent.server import PdbMasterClient
+            client = PdbMasterClient(
+                self,
+                master_url=master_url,
+                agent_id="self",
+                interval=5.0,
+                reconnect_interval=10.0,
+                access_key=access_key,
+            )
+            ok, msg = client.start()
+        except Exception as exc:
+            echo_y(f"Failed to register local CMD API to local master as 'self': {exc}")
+            return
+        if ok:
+            self._master_clients[master_url] = client
+            echo_g(msg)
+        else:
+            echo_y(msg)
+
+    def _stop_self_master_client(self):
+        master_url, _ = self._local_master_client_url()
+        if not master_url:
+            return
+        client = self._master_clients.get(master_url)
+        if client is None or getattr(client, "agent_id", "") != "self":
+            return
+        ok, msg = client.stop()
+        if ok:
+            self._master_clients.pop(master_url, None)
+            echo_g(msg)
+        else:
+            echo_y(msg)
+
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
         with self._console_state_lock:
@@ -1731,6 +1785,7 @@ class VerifyPDB(Pdb):
             if passwd:
                 echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             echo_g(msg)
+            self._ensure_self_master_client()
         else:
             echo_r(msg)
 
@@ -1744,6 +1799,7 @@ class VerifyPDB(Pdb):
             return
         ok, msg = self._cmd_api_server.stop()
         if ok:
+            self._stop_self_master_client()
             echo_g(msg)
         else:
             echo_r(msg)
@@ -2088,6 +2144,7 @@ class VerifyPDB(Pdb):
             if password:
                 echo_g(f"  Password   : set (dashboard/API requires HTTP Basic Auth)")
             echo_g(msg)
+            self._ensure_self_master_client()
         else:
             echo_r(msg)
 
@@ -2099,6 +2156,7 @@ class VerifyPDB(Pdb):
         if self._master_api_server is None or not self._master_api_server.is_running:
             echo_y("Master API server is not running.")
             return
+        self._stop_self_master_client()
         ok, msg = self._master_api_server.stop()
         if ok:
             echo_g(msg)

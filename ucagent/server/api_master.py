@@ -4119,6 +4119,42 @@ class PdbMasterApiServer:
         matched.sort(key=lambda item: item.get("created_at", 0), reverse=True)
         return matched[0]
 
+    def _task_completed_sub_workspace(self, task: Optional[Dict[str, Any]]) -> str:
+        if not task:
+            return ""
+        candidate = ""
+        sync_info = task.get("workspace_sync_back") or {}
+        if isinstance(sync_info, dict):
+            candidate = str(sync_info.get("target_dir") or "").strip()
+        if not candidate:
+            workspace_id = str(task.get("workspace_id") or "").strip()
+            if workspace_id:
+                try:
+                    with self._workspaces_lock:
+                        ws = self._workspaces.get(workspace_id)
+                        ws = dict(ws) if ws else None
+                    if ws:
+                        candidate = self._compiled_workspace_dir(ws)
+                except (KeyError, ValueError, OSError):
+                    candidate = ""
+        if not candidate:
+            return ""
+        candidate = os.path.abspath(candidate)
+        info_path = os.path.join(candidate, ".ucagent", "ucagent_info.json")
+        if not os.path.isfile(info_path):
+            return ""
+        base = os.path.abspath(self.workspace)
+        if not _path_is_under(base, candidate):
+            return ""
+        rel = os.path.relpath(candidate, base)
+        return "" if rel == "." else rel
+
+    def _task_is_finished(self, task: Optional[Dict[str, Any]]) -> bool:
+        if not task:
+            return False
+        status = str(task.get("process_status") or "").strip().lower()
+        return status in {"stopped", "failed"} or bool(task.get("finished_at"))
+
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
         cmd_api = task.get("cmd_api") or {}
@@ -4502,6 +4538,7 @@ class PdbMasterApiServer:
         @app.get("/api/agents", summary="List all agents", dependencies=[Depends(_check_password)])
         def list_agents(
             include_offline: bool = True,
+            include_self: bool = True,
             strip_ansi: bool = True,
             page: int = 1,
             page_size: int = 20,
@@ -4516,12 +4553,17 @@ class PdbMasterApiServer:
             with self._agents_lock:
                 data = []
                 for agent in self._agents.values():
+                    if not include_self and str(agent.get("id") or "") == "self":
+                        continue
                     st = self._agent_status(agent)
                     if not include_offline and st == "offline":
                         continue
                     tl = agent.get("task_list") or {}
                     raw_mi = agent.get("mission_info_ansi", "")
                     launch_task = self._launched_task_for_agent_id(agent["id"])
+                    launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
+                    launch_task_finished = self._task_is_finished(launch_task)
+                    completed_sub_workspace = self._task_completed_sub_workspace(launch_task)
                     data.append({
                         "id": agent["id"],
                         "host": agent["host"],
@@ -4545,6 +4587,9 @@ class PdbMasterApiServer:
                         "task_list": agent.get("task_list"),
                         "launch": bool(launch_task),
                         "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
+                        "launch_task_status": launch_task_status,
+                        "launch_task_finished": launch_task_finished,
+                        "completed_sub_workspace": completed_sub_workspace,
                         "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else f"/agent/{agent['id']}/cmd/",
                     })
                 reverse = sort_desc
@@ -4553,6 +4598,8 @@ class PdbMasterApiServer:
                 else:
                     data.sort(key=lambda a: a.get(sort_by, ""), reverse=reverse)
                 total_count = len(data)
+                online_count = sum(1 for item in data if item.get("status") == "online")
+                offline_count = sum(1 for item in data if item.get("status") == "offline")
                 total_pages = (total_count + page_size - 1) // page_size
                 if total_pages and page > total_pages:
                     page = total_pages
@@ -4561,6 +4608,8 @@ class PdbMasterApiServer:
             return {
                 "status": "ok",
                 "count": total_count,
+                "online_count": online_count,
+                "offline_count": offline_count,
                 "page": page,
                 "page_size": page_size,
                 "total_pages": total_pages,
@@ -4579,6 +4628,9 @@ class PdbMasterApiServer:
             tl = agent.get("task_list") or {}
             raw_mi = agent.get("mission_info_ansi", "")
             launch_task = self._launched_task_for_agent_id(agent["id"])
+            launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
+            launch_task_finished = self._task_is_finished(launch_task)
+            completed_sub_workspace = self._task_completed_sub_workspace(launch_task)
             data = {
                 "id": agent["id"],
                 "host": agent["host"],
@@ -4602,7 +4654,10 @@ class PdbMasterApiServer:
                 "task_list": agent.get("task_list"),
                 "launch": bool(launch_task),
                 "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
-                "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else "",
+                "launch_task_status": launch_task_status,
+                "launch_task_finished": launch_task_finished,
+                "completed_sub_workspace": completed_sub_workspace,
+                "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else f"/agent/{agent['id']}/cmd/",
             }
             return {"status": "ok", "agent_status": st, "data": data}
 
@@ -5248,6 +5303,8 @@ class PdbMasterApiServer:
                     "'/api/": f"'/task/{task_id}/cmd/api/",
                     '"/workspace': f'"/task/{task_id}/cmd/workspace',
                     "'/workspace": f"'/task/{task_id}/cmd/workspace",
+                    '"/complete': f'"/task/{task_id}/cmd/complete',
+                    "'/complete": f"'/task/{task_id}/cmd/complete",
                     '"/static/': f'"/task/{task_id}/cmd/static/',
                     "'/static/": f"'/task/{task_id}/cmd/static/",
                     '"/surfer': f'"/task/{task_id}/cmd/surfer',
@@ -5290,6 +5347,8 @@ class PdbMasterApiServer:
                     "'/api/": f"'/agent/{agent_id}/cmd/api/",
                     '"/workspace': f'"/agent/{agent_id}/cmd/workspace',
                     "'/workspace": f"'/agent/{agent_id}/cmd/workspace",
+                    '"/complete': f'"/agent/{agent_id}/cmd/complete',
+                    "'/complete": f"'/agent/{agent_id}/cmd/complete",
                     '"/static/': f'"/agent/{agent_id}/cmd/static/',
                     "'/static/": f"'/agent/{agent_id}/cmd/static/",
                     '"/surfer': f'"/agent/{agent_id}/cmd/surfer',

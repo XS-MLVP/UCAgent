@@ -127,6 +127,9 @@ class PdbCmdApiServer:
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
+    GET  /api/sub_workspaces           - List UCAgent sub-workspace summaries (?page=1&page_size=20)
+    GET  /api/sub_workspace            - Get one sub-workspace summary (?path=... or ?task_id=...)
+    DELETE /api/sub_workspace          - Delete a sub-workspace and optional wrapper dirs (?path=...)
     GET  /api/stage/{index}/task       - Get task detail from a stage
     GET  /api/stage/{index}/file       - Get file content from a stage  (?file_path=...)
     GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
@@ -445,6 +448,20 @@ class PdbCmdApiServer:
             except Exception:
                 return str(value)
 
+        def _fmt_timestamp(value) -> str:
+            if value in (None, ""):
+                return ""
+            try:
+                return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(value)))
+            except Exception:
+                return str(value)
+
+        def _safe_int(value, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
         def _format_sub_status(workspace_root: str, info: dict) -> str:
             stage_items = _stage_items_from_info(info)
             stage_index = info.get("stage_index", 0)
@@ -522,6 +539,187 @@ class PdbCmdApiServer:
                     "current_task": current_task,
                     "last_check_result": {},
                 },
+            }
+
+        def _sub_workspace_lifecycle(info: dict) -> str:
+            all_completed = bool(info.get("all_completed", False))
+            is_exit = bool(info.get("is_agent_exit", False))
+            if bool(info.get("is_wait_human_check", False)) and not all_completed and not is_exit:
+                return "waiting"
+            if all_completed:
+                return "completed"
+            if is_exit:
+                return "exited"
+            return "running"
+
+        def _sub_workspace_summary(workspace_root: str, current_root: Optional[str] = None) -> dict:
+            info_path = _ucagent_info_path(workspace_root)
+            try:
+                info_stat = os.stat(info_path)
+                info_ctime = getattr(info_stat, "st_birthtime", info_stat.st_ctime)
+                info_mtime = info_stat.st_mtime
+            except OSError:
+                info_ctime = None
+                info_mtime = None
+
+            load_error = ""
+            try:
+                info = _load_ucagent_info_for_workspace(workspace_root)
+            except Exception as exc:
+                info = {}
+                load_error = str(exc)
+
+            stage_items = _stage_items_from_info(info)
+            total_stages = len(stage_items)
+            raw_stage_index = _safe_int(info.get("stage_index", 0), 0)
+            all_completed = bool(info.get("all_completed", False))
+            if all_completed:
+                completed_stages = total_stages
+                current_stage_index = None
+            else:
+                completed_stages = 0
+                for index, detail in stage_items:
+                    if bool(detail.get("is_completed", False)) or index < raw_stage_index:
+                        completed_stages += 1
+                current_stage_index = raw_stage_index if 0 <= raw_stage_index < total_stages else None
+            progress_percent = 100 if all_completed and total_stages == 0 else 0
+            if total_stages > 0:
+                progress_percent = round(min(max(completed_stages, 0), total_stages) * 100 / total_stages)
+
+            current_stage_name = ""
+            if current_stage_index is not None:
+                stage_map = {index: detail for index, detail in stage_items}
+                detail = stage_map.get(current_stage_index, {})
+                task = detail.get("task", {}) if isinstance(detail.get("task", {}), dict) else {}
+                current_stage_name = task.get("title") or detail.get("title") or f"Stage {current_stage_index}"
+
+            time_begin = info.get("time_begin")
+            time_end = info.get("time_end")
+            run_time = ""
+            if time_begin is not None:
+                try:
+                    run_until = float(time_end) if time_end is not None else time.time()
+                    run_time = fmt_time_deta(run_until - float(time_begin))
+                except Exception:
+                    run_time = ""
+
+            workspace_stat = None
+            try:
+                workspace_stat = os.stat(workspace_root)
+            except OSError:
+                pass
+
+            current_root = current_root or _base_workspace_root()
+            rel_to_current = os.path.relpath(os.path.abspath(workspace_root), os.path.abspath(current_root))
+            if rel_to_current == ".":
+                rel_to_current = ""
+
+            lifecycle = _sub_workspace_lifecycle(info)
+            return {
+                "path": _rel_to_base(workspace_root),
+                "path_in_current": rel_to_current,
+                "name": os.path.basename(os.path.normpath(workspace_root)),
+                "workspace": workspace_root,
+                "info_path": info_path,
+                "info_ctime": info_ctime,
+                "info_ctime_str": _fmt_timestamp(info_ctime),
+                "info_mtime": info_mtime,
+                "info_mtime_str": _fmt_timestamp(info_mtime),
+                "dir_mtime": workspace_stat.st_mtime if workspace_stat else None,
+                "mission_name": _sub_mission_name(workspace_root, info),
+                "stage_index": raw_stage_index,
+                "current_stage_index": current_stage_index,
+                "current_stage_name": current_stage_name,
+                "completed_stages": completed_stages,
+                "total_stages": total_stages,
+                "progress_percent": progress_percent,
+                "progress_label": f"{completed_stages}/{total_stages}" if total_stages else ("done" if all_completed else "0/0"),
+                "all_completed": all_completed,
+                "is_agent_exit": bool(info.get("is_agent_exit", False)),
+                "is_wait_human_check": bool(info.get("is_wait_human_check", False)),
+                "is_running": lifecycle == "running",
+                "lifecycle": lifecycle,
+                "time_begin": time_begin,
+                "time_begin_str": _fmt_timestamp(time_begin),
+                "time_end": time_end,
+                "time_end_str": _fmt_timestamp(time_end),
+                "run_time": run_time,
+                "version": info.get("version", ""),
+                "seed": info.get("seed", ""),
+                "load_error": load_error,
+            }
+
+        def _iter_sub_workspace_roots(current_root: str, max_depth: int = 2) -> list[str]:
+            base = _base_workspace_root()
+            current_root = os.path.abspath(current_root)
+            max_depth = max(1, min(int(max_depth or 2), 2))
+            roots = []
+            seen = set()
+
+            def _walk(parent: str, depth: int) -> None:
+                if depth > max_depth:
+                    return
+                try:
+                    names = sorted(os.listdir(parent))
+                except OSError:
+                    return
+                for name in names:
+                    full = os.path.join(parent, name)
+                    if not os.path.isdir(full):
+                        continue
+                    if not _is_under(current_root, full) or not _is_under(base, full):
+                        continue
+                    real = os.path.realpath(full)
+                    if _is_ucagent_workspace(full) and real != os.path.realpath(base) and real not in seen:
+                        roots.append(os.path.abspath(full))
+                        seen.add(real)
+                    if depth < max_depth:
+                        _walk(full, depth + 1)
+
+            _walk(current_root, 1)
+            return roots
+
+        def _workspace_contains_sub_workspace(root: str) -> bool:
+            root = os.path.abspath(root)
+            for dirpath, dirnames, _ in os.walk(root):
+                if ".ucagent" in dirnames and os.path.isfile(_ucagent_info_path(dirpath)):
+                    return True
+                if ".git" in dirnames:
+                    dirnames.remove(".git")
+            return False
+
+        def _delete_sub_workspace_tree(workspace_root: str, cleanup_parents: bool = True) -> dict:
+            base = _base_workspace_root()
+            workspace_root = os.path.abspath(workspace_root)
+            if os.path.realpath(workspace_root) == os.path.realpath(base):
+                raise HTTPException(status_code=400, detail="The base workspace cannot be deleted")
+            if not _is_under(base, workspace_root):
+                raise HTTPException(status_code=403, detail="Sub workspace must be under the current workspace")
+            if not _is_ucagent_workspace(workspace_root):
+                raise HTTPException(status_code=400, detail=f"'{_rel_to_base(workspace_root)}' is not a UCAgent workspace")
+
+            summary = _sub_workspace_summary(workspace_root)
+            deleted_paths = [_rel_to_base(workspace_root)]
+            shutil.rmtree(workspace_root)
+
+            cleaned_parent_paths = []
+            parent = os.path.dirname(workspace_root)
+            while cleanup_parents and _is_under(base, parent) and os.path.realpath(parent) != os.path.realpath(base):
+                if _is_ucagent_workspace(parent):
+                    break
+                if _workspace_contains_sub_workspace(parent):
+                    break
+                rel_parent = _rel_to_base(parent)
+                shutil.rmtree(parent)
+                cleaned_parent_paths.append(rel_parent)
+                deleted_paths.append(rel_parent)
+                parent = os.path.dirname(parent)
+
+            return {
+                "deleted_path": _rel_to_base(workspace_root),
+                "deleted_paths": deleted_paths,
+                "cleaned_parent_paths": cleaned_parent_paths,
+                "summary": summary,
             }
 
         def _sub_stage_detail_with_journal(workspace_root: str, info: dict, index: int):
@@ -766,13 +964,19 @@ class PdbCmdApiServer:
             mime, _ = mimetypes.guess_type(path)
             return bool(mime and mime.startswith("text/"))
 
-        # ── HTML dashboard template (loaded from templates/agent.html) ────
-        _TMPL_PATH = pathlib.Path(__file__).resolve().parent / "templates" / "agent.html"
-        _HTML = _TMPL_PATH.read_text(encoding="utf-8")
+        # ── HTML dashboard templates ─────────────────────────────────────
+        _TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent / "templates"
+        _HTML = (_TEMPLATE_DIR / "agent.html").read_text(encoding="utf-8")
+        _COMPLETE_HTML = (_TEMPLATE_DIR / "complete.html").read_text(encoding="utf-8")
         # ── index: HTML dashboard ───────────────────────────────────────
         @app.get("/", summary="HTML dashboard", response_class=HTMLResponse)
         def index():
             return HTMLResponse(content=_HTML)
+
+        @app.get("/complete", summary="Sub-workspace completion dashboard", response_class=HTMLResponse)
+        @app.get("/complete/", include_in_schema=False, response_class=HTMLResponse)
+        def complete_page():
+            return HTMLResponse(content=_COMPLETE_HTML)
 
         @app.get("/api/ui-meta", summary="UI metadata")
         def get_ui_meta():
@@ -1012,6 +1216,182 @@ class PdbCmdApiServer:
                 _output_dir = os.path.abspath(pdb.agent.output_dir)
                 output_dir_rel = os.path.relpath(_output_dir, _workspace)
                 return {"status": "ok", "data": data, "output_dir": output_dir_rel}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/sub_workspaces ────────────────────────────────────
+        @app.get("/api/sub_workspaces", summary="List UCAgent sub-workspace summaries")
+        def list_sub_workspaces(
+            request: Request,
+            page: int = Query(default=1, ge=1, description="Page number (1-based)"),
+            page_size: int = Query(default=20, ge=1, le=100, description="Rows per page"),
+            q: str = Query(default="", description="Filter by path, mission, stage, or lifecycle"),
+            state: str = Query(default="all", description="Lifecycle filter: all/running/waiting/completed/exited"),
+            sort_by: str = Query(default="info_mtime", description="Sort field"),
+            sort_desc: bool = Query(default=True, description="Sort descending"),
+        ):
+            try:
+                current_root, current_rel, _ = _request_workspace(request)
+                items = [
+                    _sub_workspace_summary(root, current_root=current_root)
+                    for root in _iter_sub_workspace_roots(current_root, max_depth=2)
+                ]
+                state_counts = collections.Counter(item.get("lifecycle", "unknown") for item in items)
+                total_count = len(items)
+
+                q_norm = (q or "").strip().lower()
+                if q_norm:
+                    def _match(item: dict) -> bool:
+                        haystack = " ".join(str(item.get(key, "")) for key in (
+                            "path",
+                            "path_in_current",
+                            "name",
+                            "mission_name",
+                            "current_stage_name",
+                            "lifecycle",
+                        )).lower()
+                        return q_norm in haystack
+                    items = [item for item in items if _match(item)]
+
+                state_norm = (state or "all").strip().lower()
+                valid_states = {"all", "running", "waiting", "completed", "exited"}
+                if state_norm not in valid_states:
+                    state_norm = "all"
+                if state_norm != "all":
+                    items = [item for item in items if item.get("lifecycle") == state_norm]
+
+                valid_sort = {
+                    "path",
+                    "mission_name",
+                    "current_stage_name",
+                    "lifecycle",
+                    "info_ctime",
+                    "info_mtime",
+                    "progress_percent",
+                    "completed_stages",
+                    "total_stages",
+                    "time_begin",
+                    "time_end",
+                }
+                if sort_by not in valid_sort:
+                    sort_by = "info_mtime"
+
+                def _sort_key(item: dict):
+                    value = item.get(sort_by)
+                    if value is None:
+                        return -1 if sort_by in {"info_ctime", "info_mtime", "progress_percent", "completed_stages", "total_stages", "time_begin", "time_end"} else ""
+                    if isinstance(value, str):
+                        return value.lower()
+                    return value
+
+                items.sort(key=_sort_key, reverse=bool(sort_desc))
+                filtered_count = len(items)
+                total_pages = (filtered_count + page_size - 1) // page_size if filtered_count else 0
+                if total_pages and page > total_pages:
+                    page = total_pages
+                start = (page - 1) * page_size
+                page_items = items[start:start + page_size]
+                return {
+                    "status": "ok",
+                    "count": filtered_count,
+                    "data": page_items,
+                    "summary": {
+                        "total": total_count,
+                        "filtered": filtered_count,
+                        "returned": len(page_items),
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": total_pages,
+                        "max_depth": 2,
+                        "base_workspace": _base_workspace_root(),
+                        "current_workspace": current_root,
+                        "current_workspace_path": current_rel,
+                        "state_counts": dict(state_counts),
+                    },
+                }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── DELETE /api/sub_workspace ──────────────────────────────────
+        @app.get("/api/sub_workspace", summary="Get a UCAgent sub workspace summary")
+        def get_sub_workspace(
+            path: str = Query(default="", description="Sub-workspace path relative to the base workspace"),
+            task_id: str = Query(default="", description="Managed task id used to locate a synced-back workspace"),
+            workspace_id: str = Query(default="", description="Managed workspace id used to locate a synced-back workspace"),
+        ):
+            try:
+                raw_path = (path or "").strip()
+                if raw_path:
+                    workspace_root, _, is_sub_workspace = _resolve_sub_workspace(raw_path)
+                    if not is_sub_workspace:
+                        raise HTTPException(status_code=400, detail="The base workspace is not a sub workspace")
+                    return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                refs = []
+                for raw_ref in (workspace_id, task_id):
+                    ref = str(raw_ref or "").strip().strip("/")
+                    if ref and ref not in refs:
+                        refs.append(ref)
+                if not refs:
+                    raise HTTPException(status_code=400, detail="'path' or 'task_id' is required")
+
+                for ref in refs:
+                    for candidate in (os.path.join(ref, "workspace"), ref):
+                        try:
+                            workspace_root, _, is_sub_workspace = _resolve_sub_workspace(candidate)
+                        except HTTPException:
+                            continue
+                        if is_sub_workspace:
+                            return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                for workspace_root in _iter_sub_workspace_roots(_base_workspace_root(), max_depth=2):
+                    rel = _rel_to_base(workspace_root)
+                    try:
+                        info = _load_ucagent_info_for_workspace(workspace_root)
+                    except Exception:
+                        info = {}
+                    parent = os.path.basename(os.path.dirname(workspace_root))
+                    name = os.path.basename(workspace_root)
+                    if any(
+                        ref
+                        and (
+                            rel == ref
+                            or rel.startswith(ref + os.sep)
+                            or parent == ref
+                            or name == ref
+                            or str(info.get("task_id") or "").strip() == ref
+                            or str(info.get("workspace_id") or "").strip() == ref
+                        )
+                        for ref in refs
+                    ):
+                        return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                raise HTTPException(status_code=404, detail=f"Sub workspace for '{refs[0]}' not found")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── DELETE /api/sub_workspace ──────────────────────────────────
+        @app.delete("/api/sub_workspace", summary="Delete a UCAgent sub workspace")
+        def delete_sub_workspace(
+            path: str = Query(..., description="Sub-workspace path relative to the base workspace"),
+            cleanup_parents: bool = Query(default=True, description="Delete non-workspace parent dirs when they contain no other sub workspace"),
+        ):
+            try:
+                workspace_root, _, is_sub_workspace = _resolve_sub_workspace(path)
+                if not is_sub_workspace:
+                    raise HTTPException(status_code=400, detail="The base workspace cannot be deleted")
+                data = _delete_sub_workspace_tree(workspace_root, cleanup_parents=cleanup_parents)
+                return {
+                    "status": "ok",
+                    "message": f"Deleted '{data['deleted_path']}'",
+                    "data": data,
+                }
             except HTTPException:
                 raise
             except Exception as exc:

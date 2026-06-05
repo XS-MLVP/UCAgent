@@ -78,6 +78,7 @@
   .filter-select{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
     color:var(--text);padding:7px 10px;font-size:13px;font-family:var(--font);cursor:pointer}
   .filter-select:focus{outline:none;border-color:var(--accent)}
+  .header-toggle{color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer}
   /* ── Table ───────────────────────────────────────────────────────────── */
   .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
   table{width:100%;border-collapse:collapse;table-layout:auto}
@@ -174,10 +175,17 @@
   <div class="header-actions" id="uc-shell-header-actions">
     <a href="/launch/" class="btn btn-secondary btn-sm">Launch</a>
     <a href="/task/" class="btn btn-secondary btn-sm">Task</a>
-    <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Display offline agents (not removed from database)">
+    <a id="completed-task-btn" href="/agent/self/cmd/complete/" class="btn btn-secondary btn-sm" style="display:none">Completed Task</a>
+    <label class="header-toggle" title="Display the local self client in the agent list and statistics">
+      <input type="checkbox" id="show-self-client" style="accent-color:var(--accent)"> Show self
+    </label>
+    <label class="header-toggle" title="Display delete controls">
+      <input type="checkbox" id="show-delete-controls" style="accent-color:var(--accent)"> Show delete
+    </label>
+    <label class="header-toggle" title="Display offline agents (not removed from database)">
       <input type="checkbox" id="show-offline" checked style="accent-color:var(--accent)"> Show offline
     </label>
-    <label style="color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Automatically delete agents that have been offline for the configured duration">
+    <label class="header-toggle" title="Automatically delete agents that have been offline for the configured duration">
       <input type="checkbox" id="auto-delete-offline" style="accent-color:var(--accent)"> Auto-delete offline
     </label>
     <button class="btn btn-ghost btn-sm" onclick="openSettings()" title="Configure auto-delete settings">⚙ Settings</button>
@@ -340,9 +348,14 @@ let _currentPage = 1;         // current page number (1-indexed)
 let _pageSize = 20;           // items per page
 let _totalPages = 1;          // total pages (from server)
 let _totalCount = 0;          // total count (from server)
+let _onlineCount = 0;         // online count (from server)
+let _offlineCount = 0;        // offline count (from server)
 let _sortBy = 'last_seen';    // current sort field: id, host, status, last_seen, first_seen, current_stage_index
 let _sortDesc = true;         // sort descending by default
 let _isSearching = false;     // whether user is searching (if true, use client-side filtering)
+let _showSelfClient = false;
+let _showDeleteControls = false;
+let _selfAgent = null;
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, ok = true) {
   const c = document.getElementById('toast-container');
@@ -357,6 +370,7 @@ async function fetchAgents() {
   try {
     const params = new URLSearchParams({
       'include_offline': 'true',
+      'include_self': _showSelfClient ? 'true' : 'false',
       'strip_ansi': 'false',
       'page': _currentPage,
       'page_size': _pageSize,
@@ -373,6 +387,9 @@ async function fetchAgents() {
     _currentPage = d.page || 1;
     _totalPages = d.total_pages || 1;
     _totalCount = d.count || 0;
+    _onlineCount = d.online_count || 0;
+    _offlineCount = d.offline_count || 0;
+    await fetchSelfAgentInfo();
   } catch (e) {
     console.error('Fetch error:', e);
   }
@@ -381,35 +398,130 @@ async function fetchAgents() {
   renderTable();
 }
 function updateStats() {
-  const online  = _allAgents.filter(a => a.status === 'online').length;
-  const offline = _allAgents.filter(a => a.status === 'offline').length;
   document.getElementById('stat-total').textContent   = _totalCount;
-  document.getElementById('stat-online').textContent  = online;
-  document.getElementById('stat-offline').textContent = offline;
+  document.getElementById('stat-online').textContent  = _onlineCount;
+  document.getElementById('stat-offline').textContent = _offlineCount;
 }
-
-async function openCmdApi(agentId) {
+async function fetchSelfAgentInfo() {
+  try {
+    const r = await fetch('/api/agent/self?strip_ansi=true');
+    if (!r.ok) {
+      _selfAgent = null;
+      updateCompletedTaskButton();
+      return;
+    }
+    const d = await r.json();
+    _selfAgent = d.data || null;
+  } catch {
+    _selfAgent = null;
+  }
+  updateCompletedTaskButton();
+}
+function updateCompletedTaskButton() {
+  const btn = document.getElementById('completed-task-btn');
+  if (!btn) return;
+  if (selfCmdApiAvailable()) {
+    btn.style.display = '';
+    btn.href = '/agent/self/cmd/complete/';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+function selfCmdApiAvailable() {
+  return Boolean(_selfAgent && _selfAgent.cmd_api_tcp && _selfAgent.status === 'online');
+}
+function updateDeleteControlsUi() {
+  const selectAllBtn = document.getElementById('select-all-btn');
+  const batchBtn = document.getElementById('batch-delete-btn');
+  const headerCb = document.getElementById('header-checkbox');
+  if (selectAllBtn) selectAllBtn.style.display = _showDeleteControls ? '' : 'none';
+  if (batchBtn) batchBtn.style.display = _showDeleteControls ? '' : 'none';
+  if (headerCb) headerCb.style.display = _showDeleteControls ? '' : 'none';
+  if (!_showDeleteControls) _selectedIds.clear();
+  updateBatchBtn();
+}
+function taskOpenUrl(agent) {
+  if (!agent) return '';
+  if (agent.launch && agent.launch_task_id && !agent.launch_task_finished) {
+    return agent.cmd_api_proxy || `/task/${encodeURIComponent(agent.launch_task_id)}/cmd/`;
+  }
+  if (agent.launch && agent.launch_task_finished) return '';
+  return agent.cmd_api_proxy || '';
+}
+function completedWorkspaceUrl(path) {
+  if (path) {
+    return `/agent/self/cmd/?sub_worspace=${encodeURIComponent(path)}`;
+  }
+  return '';
+}
+async function resolveCompletedWorkspacePath(agent) {
+  const path = agent && agent.completed_sub_workspace;
+  const raw = String(path || '').trim();
+  const taskId = String((agent && agent.launch_task_id) || '').trim();
+  if (!raw && !taskId) return '';
+  const params = new URLSearchParams();
+  if (raw) params.set('path', raw);
+  if (taskId) params.set('task_id', taskId);
+  const url = `/agent/self/cmd/api/sub_workspace?${params.toString()}`;
+  const r = await fetch(url);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.status !== 'ok') {
+    throw new Error(d.detail || d.message || 'Completed workspace not available');
+  }
+  return (d.data && d.data.path) || raw;
+}
+function detailOpenTarget(agent) {
+  if (!agent) return '';
+  if (agent.launch && agent.launch_task_finished) {
+    if (agent.completed_sub_workspace) {
+      return `/agent/self/cmd/?sub_worspace=${encodeURIComponent(agent.completed_sub_workspace)}`;
+    }
+    return '';
+  }
+  return agent.cmd_api_proxy || '';
+}
+function canOpenAgent(agent) {
+  if (!agent) return false;
+  if (agent.launch && agent.launch_task_finished) {
+    return Boolean((agent.completed_sub_workspace || agent.launch_task_id) && selfCmdApiAvailable());
+  }
+  if (agent.launch) return Boolean(taskOpenUrl(agent));
+  return Boolean(agent.cmd_api_tcp && taskOpenUrl(agent));
+}
+function openButtonTitle(agent) {
+  if (agent && agent.launch && agent.launch_task_finished) return 'Open completed workspace';
+  if (agent && agent.launch) return 'Open task CMD API';
+  return 'Open CMD API';
+}
+async function openAgent(agentId) {
   const agent = (_allAgents || []).find((item) => item.id === agentId);
   if (!agent) {
     toast(`Agent ${agentId} not found`, false);
     return;
   }
-  const proxy = agent.cmd_api_proxy || '';
-  const direct = agent.cmd_api_tcp || '';
-  if (proxy) {
-    try {
-      const resp = await fetch(`${proxy.replace(/\/$/, '')}/api/status`, { method: 'GET' });
-      if (resp.ok) {
-        window.open(proxy, '_blank');
-        return;
-      }
-    } catch {}
-  }
-  if (direct) {
-    window.open(direct, '_blank');
+  const proxy = taskOpenUrl(agent);
+  if (agent.launch && agent.launch_task_finished && !selfCmdApiAvailable()) {
+    toast('Self CMD API not running', false);
     return;
   }
-  toast('CMD API not running', false);
+  if (agent.launch && agent.launch_task_finished) {
+    try {
+      const resolvedPath = await resolveCompletedWorkspacePath(agent);
+      window.open(completedWorkspaceUrl(resolvedPath), '_blank');
+    } catch (e) {
+      toast(e.message || 'Completed workspace not available', false);
+    }
+    return;
+  }
+  if (proxy) {
+    window.open(proxy, '_blank');
+    return;
+  }
+  if (agent.launch && agent.launch_task_finished) {
+    toast('Completed workspace not available', false);
+  } else {
+    toast('CMD API not running', false);
+  }
 }
 // ── Auto-delete offline agents ─────────────────────────────────────────────
 function checkAutoDeleteOffline() {
@@ -421,6 +533,7 @@ function checkAutoDeleteOffline() {
   _lastAutoDeleteCheck = now;
   // Find offline agents that have been offline for more than threshold
   const toDelete = _allAgents.filter(a => {
+    if (a.id === 'self') return false;
     if (a.status !== 'offline') return false;
     const lastSeen = a.last_seen || 0;
     const offlineTime = now - lastSeen;
@@ -434,7 +547,7 @@ function checkAutoDeleteOffline() {
 }
 async function batchDeleteSilent(ids) {
   let ok = 0, fail = 0;
-  for (const id of ids) {
+  for (const id of ids.filter(item => item !== 'self')) {
     try {
       const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (r.ok) { ok++; _allAgents = _allAgents.filter(a => a.id !== id); _selectedIds.delete(id); }
@@ -457,6 +570,7 @@ function getVisible() {
   if (q) {
     _isSearching = true;
     let result = _allAgents.filter(a => {
+      if (!_showSelfClient && a.id === 'self') return false;
       if (!showOff && a.status === 'offline') return false;
       if (filter === 'online'  && a.status !== 'online')  return false;
       if (filter === 'offline' && a.status !== 'offline') return false;
@@ -496,6 +610,7 @@ function getVisible() {
     // No search: return server-paginated results (already sorted by backend)
     // But still apply status filter since backend returns all statuses
     return _allAgents.filter(a => {
+      if (!_showSelfClient && a.id === 'self') return false;
       if (!showOff && a.status === 'offline') return false;
       if (filter === 'online'  && a.status !== 'online')  return false;
       if (filter === 'offline' && a.status !== 'offline') return false;
@@ -527,6 +642,7 @@ function renderTable() {
   // clean up selected ids that are no longer visible
   const visibleIds = new Set(visible.map(a => a.id));
   for (const id of [..._selectedIds]) { if (!visibleIds.has(id)) _selectedIds.delete(id); }
+  if (!_showDeleteControls) _selectedIds.clear();
   updateBatchBtn();
   if (pageItems.length === 0) {
       tbody.innerHTML = '<tr class="empty-row"><td colspan="14"><div style="display:flex;flex-direction:column;align-items:center;gap:12px"><div>No agents found.</div><a href="/launch/" class="btn btn-primary" style="text-decoration:none;font-size:24px;padding:6px 18px" title="Launch a new managed task">＋</a></div></td></tr>';
@@ -543,8 +659,9 @@ function renderTable() {
     const done   = a.is_mission_complete;
     const checked = _selectedIds.has(a.id) ? 'checked' : '';
     const rowClass = st ? '' : 'style="opacity:.6"';
+    const canDelete = _showDeleteControls && a.id !== 'self';
     return `<tr ${rowClass}>
-      <td><input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/></td>
+      <td>${canDelete ? `<input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/>` : ''}</td>
       <td><span class="id-cell" title="${esc(a.id)}">${esc(a.id)}</span></td>
       <td><span class="host-cell" title="${esc(a.host)}">${esc(a.host || '—')}</span></td>
       <td><span class="badge ${st ? 'badge-online' : 'badge-offline'}">${esc(a.status)}</span></td>
@@ -565,14 +682,13 @@ function renderTable() {
       <td style="white-space:nowrap;display:flex;gap:4px">
         <button class="btn btn-ghost btn-sm" onclick="openDetail('${esc(a.id)}')">👁 Detail</button>
         ${(()=> {
-          const proxy = a.cmd_api_proxy || '';
-          const direct = a.cmd_api_tcp || '';
-          if (!proxy && !direct) {
-            return '<button class="btn btn-ghost btn-sm" disabled title="CMD API not running" style="opacity:.35;cursor:not-allowed">📡 API</button>';
+          if (!canOpenAgent(a)) {
+            const title = a.launch && a.launch_task_finished ? 'Completed workspace not available' : 'CMD API not running';
+            return `<button class="btn btn-ghost btn-sm" disabled title="${esc(title)}" style="opacity:.35;cursor:not-allowed">Open</button>`;
           }
-          return `<button class="btn btn-secondary btn-sm" type="button" onclick="openCmdApi('${esc(a.id)}')" style="text-decoration:none" title="Open CMD API">📡 API</button>`;
+          return `<button class="btn btn-secondary btn-sm" type="button" onclick="openAgent('${esc(a.id)}')" style="text-decoration:none" title="${esc(openButtonTitle(a))}">Open</button>`;
         })()}
-        <button class="btn btn-danger btn-sm" onclick="confirmDelete('${esc(a.id)}')">🗑</button>
+        ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${esc(a.id)}')">🗑</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -598,7 +714,8 @@ function prevPage() {
   if (_currentPage > 1) {
     _currentPage--;
     localStorage.setItem('master-current-page', String(_currentPage));
-    renderTable();
+    if (!_isSearching) fetchAgents();
+    else renderTable();
   }
 }
 function nextPage() {
@@ -607,7 +724,8 @@ function nextPage() {
   if (_currentPage < pages) {
     _currentPage++;
     localStorage.setItem('master-current-page', String(_currentPage));
-    renderTable();
+    if (!_isSearching) fetchAgents();
+    else renderTable();
   }
 }
 function onPageSizeChange() {
@@ -616,7 +734,8 @@ function onPageSizeChange() {
   _currentPage = 1;
   localStorage.setItem('master-page-size', String(_pageSize));
   localStorage.setItem('master-current-page', '1');
-  renderTable();
+  if (!_isSearching) fetchAgents();
+  else renderTable();
 }
 function onSortChange() {
   const select = document.getElementById('sort-by');
@@ -662,9 +781,10 @@ function onSearchChange() {
   if (q && !_isSearching) {
     _isSearching = true;
     // Fetch all data (large page_size) for client-side search filtering
-    const params = new URLSearchParams({
-      'include_offline': 'true',
-      'strip_ansi': 'false',
+	    const params = new URLSearchParams({
+	      'include_offline': 'true',
+	      'include_self': _showSelfClient ? 'true' : 'false',
+	      'strip_ansi': 'false',
       'page': 1,
       'page_size': 10000,  // Get many results for searching
       'sort_by': _sortBy,
@@ -688,30 +808,50 @@ function onSearchChange() {
 }
 // ── Select / batch ─────────────────────────────────────────────────────────
 function onRowCheckbox(cb) {
+  if (!_showDeleteControls) {
+    cb.checked = false;
+    updateBatchBtn();
+    syncHeaderCheckbox();
+    return;
+  }
   const id = cb.dataset.id;
+  if (id === 'self') {
+    cb.checked = false;
+    _selectedIds.delete(id);
+    updateBatchBtn();
+    syncHeaderCheckbox();
+    return;
+  }
   if (cb.checked) _selectedIds.add(id);
   else _selectedIds.delete(id);
   updateBatchBtn();
   syncHeaderCheckbox();
 }
 function onHeaderCheckboxChange() {
+  if (!_showDeleteControls) return;
   const hc = document.getElementById('header-checkbox');
-  getVisible().forEach(a => { if (hc.checked) _selectedIds.add(a.id); else _selectedIds.delete(a.id); });
+  getVisible().forEach(a => {
+    if (a.id === 'self') return;
+    if (hc.checked) _selectedIds.add(a.id); else _selectedIds.delete(a.id);
+  });
   renderTable();
 }
 function toggleSelectAll() {
-  const vis = getVisible();
+  if (!_showDeleteControls) return;
+  const vis = getVisible().filter(a => a.id !== 'self');
   const allSel = vis.every(a => _selectedIds.has(a.id));
   vis.forEach(a => { if (allSel) _selectedIds.delete(a.id); else _selectedIds.add(a.id); });
   renderTable();
 }
 function syncHeaderCheckbox() {
-  const vis = getVisible();
+  const vis = _showDeleteControls ? getVisible().filter(a => a.id !== 'self') : [];
   const hc  = document.getElementById('header-checkbox');
   hc.checked       = vis.length > 0 && vis.every(a => _selectedIds.has(a.id));
   hc.indeterminate = !hc.checked && vis.some(a => _selectedIds.has(a.id));
 }
 function updateBatchBtn() {
+  if (!_showDeleteControls) _selectedIds.clear();
+  _selectedIds.delete('self');
   const n   = _selectedIds.size;
   const btn = document.getElementById('batch-delete-btn');
   btn.disabled = n === 0;
@@ -756,6 +896,8 @@ function openDetail(id) {
   if (!a) return;
   _currentDetailId = id;
   document.getElementById('detail-modal-title').textContent = `Agent: ${id}`;
+  const detailDeleteBtn = document.getElementById('detail-delete-btn');
+  if (detailDeleteBtn) detailDeleteBtn.style.display = (_showDeleteControls && id !== 'self') ? '' : 'none';
   const fields = [
     ['ID',           a.id],
     ['Host',         a.host],
@@ -766,6 +908,9 @@ function openDetail(id) {
     ['Progress',     a.total_stage_count > 0 ? `${a.current_stage_index}/${a.total_stage_count}` : '—'],
     ['Run Time',     a.run_time || '—'],
     ['Complete',     a.is_mission_complete ? 'Yes ✓' : 'No'],
+    ['Launch Task',  a.launch_task_id || '—'],
+    ['Task Status',  a.launch_task_status || '—'],
+    ['Completed Workspace', a.completed_sub_workspace || '—'],
     ['MCP Running',  a.mcp_running ? 'Yes' : 'No'],
     ['Break',        a.is_break    ? 'Yes' : 'No'],
     ['Last CMD',     a.last_cmd || '—'],
@@ -773,10 +918,10 @@ function openDetail(id) {
     ['First Seen',   a.first_seen  ? new Date(a.first_seen  * 1000).toLocaleString() : '—'],
     ['Last Seen',    a.last_seen   ? new Date(a.last_seen   * 1000).toLocaleString() : '—'],
   ];
-  const cmdApiTarget = a.cmd_api_proxy || a.cmd_api_tcp || '';
-  const cmdApiHtml = cmdApiTarget
-    ? `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value"><a href="${esc(cmdApiTarget)}" target="_blank" style="color:var(--accent)" onclick="event.preventDefault();openCmdApi('${esc(a.id)}')">📡 ${esc(cmdApiTarget)}</a></div></div>`
-    : `<div class="detail-field"><div class="detail-field-label">CMD API</div><div class="detail-field-value" style="color:var(--text-dim)">📡 —</div></div>`;
+  const cmdApiTarget = detailOpenTarget(a);
+  const cmdApiHtml = canOpenAgent(a)
+    ? `<div class="detail-field"><div class="detail-field-label">Open</div><div class="detail-field-value"><a href="${esc(cmdApiTarget)}" target="_blank" style="color:var(--accent)" onclick="event.preventDefault();openAgent('${esc(a.id)}')">${esc(cmdApiTarget || 'Open')}</a></div></div>`
+    : `<div class="detail-field"><div class="detail-field-label">Open</div><div class="detail-field-value" style="color:var(--text-dim)">—</div></div>`;
   const grid = fields.map(([k, v]) =>
     `<div class="detail-field"><div class="detail-field-label">${esc(k)}</div><div class="detail-field-value">${esc(String(v))}</div></div>`
   ).join('') + cmdApiHtml;
@@ -852,7 +997,7 @@ function closeDetailModal() {
   _currentDetailId = null;
 }
 function confirmDeleteFromDetail() {
-  if (_currentDetailId) { closeDetailModal(); confirmDelete(_currentDetailId); }
+  if (_currentDetailId && _currentDetailId !== 'self') { closeDetailModal(); confirmDelete(_currentDetailId); }
 }
 // ── Settings modal ─────────────────────────────────────────────────────────
 function openSettings() {
@@ -927,15 +1072,28 @@ document.getElementById('confirm-yes-btn').addEventListener('click', () => {
   if (_confirmCallback) { const cb = _confirmCallback; closeConfirm(); cb(); }
 });
 function confirmDelete(id) {
+  if (!_showDeleteControls) {
+    toast('Enable Show delete first', false);
+    return;
+  }
+  if (id === 'self') {
+    toast('The self client cannot be deleted here', false);
+    return;
+  }
   showConfirm('Delete agent', `Remove agent "${id}" from the master?`, () => deleteAgent(id));
 }
 function confirmBatchDelete() {
-  const ids = [..._selectedIds];
+  if (!_showDeleteControls) return;
+  const ids = [..._selectedIds].filter(id => id !== 'self');
   if (ids.length === 0) return;
   showConfirm('Batch delete', `Delete ${ids.length} selected agent(s)?`, () => batchDelete(ids));
 }
 // ── Delete API ─────────────────────────────────────────────────────────────
 async function deleteAgent(id) {
+  if (id === 'self') {
+    toast('The self client cannot be deleted here', false);
+    return;
+  }
   try {
     const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
     const d = await r.json();
@@ -943,7 +1101,7 @@ async function deleteAgent(id) {
       toast(`Deleted: ${id}`);
       _allAgents = _allAgents.filter(a => a.id !== id);
       _selectedIds.delete(id);
-      updateStats(); renderTable();
+      fetchAgents();
     } else {
       toast(`Error: ${d.detail || r.statusText}`, false);
     }
@@ -951,7 +1109,7 @@ async function deleteAgent(id) {
 }
 async function batchDelete(ids) {
   let ok = 0, fail = 0;
-  for (const id of ids) {
+  for (const id of ids.filter(item => item !== 'self')) {
     try {
       const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (r.ok) { ok++; _allAgents = _allAgents.filter(a => a.id !== id); _selectedIds.delete(id); }
@@ -959,7 +1117,7 @@ async function batchDelete(ids) {
     } catch { fail++; }
   }
   toast(`Deleted ${ok} agent(s)${fail ? `, ${fail} failed` : ''}.`, fail === 0);
-  updateStats(); renderTable();
+  fetchAgents();
 }
 // ── Countdown + auto-refresh ───────────────────────────────────────────────
 function startCountdown() {
@@ -976,6 +1134,19 @@ function startCountdown() {
 function refreshNow() { clearInterval(_countdownTimer); fetchAgents().then(startCountdown); }
 // ── Show-offline toggle ────────────────────────────────────────────────────
 document.getElementById('show-offline').addEventListener('change', renderTable);
+document.getElementById('show-self-client').addEventListener('change', e => {
+  _showSelfClient = e.target.checked;
+  localStorage.setItem('master-show-self-client', _showSelfClient ? '1' : '0');
+  _currentPage = 1;
+  localStorage.setItem('master-current-page', '1');
+  fetchAgents();
+});
+document.getElementById('show-delete-controls').addEventListener('change', e => {
+  _showDeleteControls = e.target.checked;
+  localStorage.setItem('master-show-delete-controls', _showDeleteControls ? '1' : '0');
+  updateDeleteControlsUi();
+  renderTable();
+});
 // ── Auto-delete toggle ─────────────────────────────────────────────────
 document.getElementById('auto-delete-offline').addEventListener('change', e => {
   const checked = e.target.checked;
@@ -1031,6 +1202,13 @@ const savedPage = localStorage.getItem('master-current-page');
 if (savedPage) {
   _currentPage = parseInt(savedPage);
 }
+const savedShowSelf = localStorage.getItem('master-show-self-client');
+_showSelfClient = savedShowSelf === '1';
+document.getElementById('show-self-client').checked = _showSelfClient;
+const savedShowDelete = localStorage.getItem('master-show-delete-controls');
+_showDeleteControls = savedShowDelete === '1';
+document.getElementById('show-delete-controls').checked = _showDeleteControls;
+updateDeleteControlsUi();
 // Restore auto-delete check interval from localStorage
 const savedInterval = localStorage.getItem('master-auto-delete-check-interval');
 if (savedInterval) {
@@ -1046,6 +1224,7 @@ const savedAutoDelete = localStorage.getItem('master-auto-delete-offline');
 if (savedAutoDelete === '1') {
   document.getElementById('auto-delete-offline').checked = true;
 }
+fetchSelfAgentInfo();
 fetchAgents().then(startCountdown);
 </script>
 <script src="/static/share/ucagent-shell.js"></script>
