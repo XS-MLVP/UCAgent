@@ -161,6 +161,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #breadcrumb{flex:1;font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
 #breadcrumb span{cursor:pointer;color:var(--accent)}#breadcrumb span:hover{text-decoration:underline}
 #breadcrumb .sep{color:var(--text-dim);margin:0 2px}
+#workspace-mode-label{font-family:var(--mono);font-size:11px;color:var(--yellow);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fm-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px;white-space:nowrap}
 .fm-btn:hover{border-color:var(--accent);color:var(--accent)}
 .fm-btn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
@@ -372,6 +373,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div id="fm">
     <div id="fm-bar">
       <span id="breadcrumb"></span>
+      <span id="workspace-mode-label"></span>
+      <button class="fm-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change Workspace</button>
+      <button class="fm-btn danger" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit Workspace</button>
       <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
       <button class="fm-btn" onclick="downloadWorkspace()" title="Download whole workspace as DUT tar.gz">&#8681; Workspace</button>
       <button class="fm-btn" onclick="openNewFile()">&#43; New File</button>
@@ -573,10 +577,20 @@ let _editPath = "";
 let _uploadFiles = [];
 let _selectedStages = new Set();
 let _stageActionBusy = false;
+let _lastFileMeta = {};
+const _initialParams = new URLSearchParams(window.location.search);
+let _subWorkspace = _normalizeSubWorkspacePath(_initialParams.get("sub_worspace") || _initialParams.get("sub_workspace") || "");
 
 /* ── helpers ── */
 function qs(s){return document.querySelector(s)}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function jsq(s){return String(s??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g," ")}
+function _normalizeSubWorkspacePath(path){
+  const raw=String(path||"").trim();
+  if(!raw)return "";
+  if(raw.startsWith("/"))return raw.replace(/\/+$/g,"");
+  return raw.replace(/^\/+|\/+$/g,"");
+}
 function closeModal(id){qs("#"+id).classList.add("hidden")}
 function openModal(id){
   qs("#"+id).classList.remove("hidden");
@@ -607,8 +621,40 @@ function resetUiLayout(){
   location.reload();
 }
 
+function _updateSubWorkspaceUrl(){
+  const url=new URL(window.location.href);
+  url.searchParams.delete("sub_workspace");
+  if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
+  else url.searchParams.delete("sub_worspace");
+  window.history.replaceState(null,"",url.pathname+url.search+url.hash);
+}
+
+function _withSubWorkspaceParam(path){
+  if(!_subWorkspace)return path;
+  try{
+    const u=new URL(path,window.location.origin);
+    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/"))){
+      u.searchParams.set("sub_worspace",_subWorkspace);
+      return u.pathname+u.search+u.hash;
+    }
+  }catch(e){}
+  const sep=String(path).includes("?")?"&":"?";
+  return path+sep+"sub_worspace="+encodeURIComponent(_subWorkspace);
+}
+
+function _workspaceFileUrl(path){
+  return _withSubWorkspaceParam("/workspace/"+path.split("/").map(encodeURIComponent).join("/"));
+}
+
+function _workspaceBaseFileUrl(path){
+  const target=String(path||"").replace(/^\/+/g,"");
+  const subRoot=String(_lastFileMeta.sub_workspace||"").replace(/^\/+|\/+$/g,"");
+  const basePath=subRoot?subRoot+"/"+target:target;
+  return "/workspace/"+basePath.split("/").map(encodeURIComponent).join("/");
+}
+
 async function apiFetch(path,opts){
-  const r=await fetch(path,opts);
+  const r=await fetch(_withSubWorkspaceParam(path),opts);
   const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
   if(!r.ok||j.status==="error") throw new Error(j.detail||j.message||"Request failed");
   return j;
@@ -860,6 +906,7 @@ function _setStageFeatureVisibility(enableFail,enablePass){
 }
 
 async function _postStageUpdate(payload){
+  if(_subWorkspace)return;
   if(_stageActionBusy)return;
   _stageActionBusy=true;
   _updateStageSelectionUi();
@@ -1109,7 +1156,7 @@ async function fetchMission(){
     let html=`<div class="mission-name">${esc(missionName)}</div>`;
     for(const stage of stages){
       const canEditFlags=!!stage.can_edit_flags;
-      const canQuickEditFlags=canEditFlags||!!stage.is_current;
+      const canQuickEditFlags=!_subWorkspace&&(canEditFlags||!!stage.is_current);
       const outcome=stage.out_come;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
@@ -1413,6 +1460,50 @@ async function fetchTools(){
   }catch(e){qs("#tools-list").textContent="(unavailable)";}
 }
 
+async function _syncConsoleWorkspace(){
+  try{
+    await apiFetch("/api/cmd",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({cmd:"chcwd ."})
+    });
+  }catch(e){}
+}
+
+function _refreshWorkspaceViews(){
+  _selectedStages.clear();
+  fetchStatus();
+  fetchMission();
+  fetchTools();
+  fetchFiles("");
+  fetchChangedFiles();
+  fetchPdbStatus();
+}
+
+function changeWorkspace(path){
+  const next=_normalizeSubWorkspacePath(path);
+  if(!next||next===_subWorkspace)return;
+  _subWorkspace=next;
+  _curPath="";
+  _updateSubWorkspaceUrl();
+  _refreshWorkspaceViews();
+  _syncConsoleWorkspace();
+}
+
+function changeWorkspaceFromCurrent(){
+  const target=_lastFileMeta.current_sub_workspace||"";
+  if(target)changeWorkspace(target);
+}
+
+function exitSubWorkspace(){
+  if(!_subWorkspace)return;
+  _subWorkspace="";
+  _curPath="";
+  _updateSubWorkspaceUrl();
+  _refreshWorkspaceViews();
+  _syncConsoleWorkspace();
+}
+
 /* ── file manager ── */
 async function fetchFiles(path){
   _curPath=path||"";
@@ -1421,7 +1512,9 @@ async function fetchFiles(path){
   qs("#fm-table").style.display="none";
   try{
     const j=await apiFetch("/api/files?path="+encodeURIComponent(_curPath));
+    _lastFileMeta=j||{};
     _renderBreadcrumb(j.path||"");
+    _updateWorkspaceControls(j||{});
     _renderFiles(j.data||[]);
   }catch(e){showErr(e.message);}
   finally{qs("#fm-loading").style.display="none";}
@@ -1429,8 +1522,26 @@ async function fetchFiles(path){
 
 function refreshFiles(){fetchFiles(_curPath);}
 
+function _updateWorkspaceControls(meta){
+  const label=qs("#workspace-mode-label");
+  const changeBtn=qs("#workspace-change-btn");
+  const exitBtn=qs("#workspace-exit-btn");
+  const currentSub=meta.current_sub_workspace||"";
+  const canChange=!!currentSub&&currentSub!==_subWorkspace;
+  if(label)label.textContent=_subWorkspace?("Sub Workspace: "+_subWorkspace):"";
+  if(changeBtn){
+    changeBtn.style.display=canChange?"":"none";
+    changeBtn.title=canChange?("Switch to "+currentSub):"";
+  }
+  if(exitBtn){
+    exitBtn.style.display=_subWorkspace?"":"none";
+    exitBtn.title=_subWorkspace?"Return to main workspace":"";
+  }
+}
+
 function _renderBreadcrumb(p){
-  let html='<span onclick="fetchFiles(\'\')" title="workspace root">workspace</span>';
+  const rootLabel=_subWorkspace?"sub workspace":"workspace";
+  let html='<span onclick="fetchFiles(\'\')" title="workspace root">'+rootLabel+'</span>';
   if(p){
     const parts=p.split("/").filter(Boolean);
     let built="";
@@ -1484,12 +1595,14 @@ function _renderFiles(entries){
     const name=e.name;
     const ext=e.type||"";
     if(e.is_dir){
+      const canChangeWs=e.is_ucagent_workspace&&e.sub_workspace_path&&e.sub_workspace_path!==_subWorkspace;
       html+=`<tr>
         <td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(fpath)}')">${esc(name)}</span></td>
         <td><span class="badge-dir">dir</span></td>
         <td class="col-size">—</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
+          ${canChangeWs?`<button class="act-btn" onclick="event.stopPropagation();changeWorkspace('${jsq(e.sub_workspace_path)}')" title="Switch to this UCAgent workspace">Change Workspace</button>`:""}
           <button class="act-btn" onclick="downloadFile('${esc(fpath)}')" title="Download as tar.gz">&#8681;</button>
           <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
@@ -1699,10 +1812,10 @@ async function openView(path,name,ext){
   try{
     if(_HTML_EXTS.has(ext)){
       body.style.padding="0";body.style.overflow="hidden";
-      body.innerHTML=`<iframe id="view-frame" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      body.innerHTML=`<iframe id="view-frame" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
       body.style.padding="14px";body.style.overflow="auto";
-      body.innerHTML=`<img id="view-img" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" alt="${esc(name)}">`;
+      body.innerHTML=`<img id="view-img" src="${_workspaceFileUrl(path)}" alt="${esc(name)}">`;
     }else{
       body.style.padding="0";body.style.overflow="hidden";
       const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
@@ -1738,23 +1851,23 @@ function toggleViewRaw(){
 
 /* ── waveform viewer ── */
 function openWaveform(path){
-  const fileUrl=window.location.origin+"/workspace/"+path.split("/").map(encodeURIComponent).join("/");
+  const fileUrl=window.location.origin+_workspaceFileUrl(path);
   window.open("/surfer/?load_url="+encodeURIComponent(fileUrl),"_blank");
 }
 
 /* ── serve / download ── */
-function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURIComponent).join("/"),"_blank");}
+function serveFile(path){window.open(_workspaceBaseFileUrl(path),"_blank");}
 
 function downloadFile(path){
   const a=document.createElement("a");
-  a.href="/api/file/download?path="+encodeURIComponent(path);
+  a.href=_withSubWorkspaceParam("/api/file/download?path="+encodeURIComponent(path));
   a.download="";
   a.click();
 }
 
 function downloadWorkspace(){
   const a=document.createElement("a");
-  a.href="/api/workspace/download";
+  a.href=_withSubWorkspaceParam("/api/workspace/download");
   a.download="";
   a.click();
 }
@@ -1808,7 +1921,7 @@ function openUpload(){
   qs("#upload-list").innerHTML="";
   qs("#upload-do-btn").style.display="none";
   qs("#upload-input").value="";
-  qs("#upload-title").textContent="Upload to: workspace/"+_curPath;
+  qs("#upload-title").textContent="Upload to: "+(_subWorkspace?"sub workspace":"workspace")+"/"+_curPath;
   openModal("upload-modal");
 }
 
@@ -1834,7 +1947,7 @@ async function doUpload(){
     const fd=new FormData();
     fd.append("file",f);
     try{
-      const r=await fetch("/api/file/upload?path="+encodeURIComponent(_curPath),{method:"POST",body:fd});
+      const r=await fetch(_withSubWorkspaceParam("/api/file/upload?path="+encodeURIComponent(_curPath)),{method:"POST",body:fd});
       if(r.ok)ok++;else{const j=await r.json().catch(()=>({detail:"failed"}));fail++;console.warn(f.name,j.detail);}
     }catch(e){fail++;}
   }
@@ -2269,6 +2382,7 @@ document.addEventListener("keydown",function(e){
 
 /* ── init ── */
 _initMissionSettings();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);
