@@ -348,3 +348,13 @@ hist_ignore_pattern:
   - ".*"
   - "data"
   - ".git"
+
+
+vibe_coding:
+  short_prompts:
+    continue: "Please continue until all stage-tasks are completed."
+    review: |
+      Please analyze the error messages in the Check/Complete response,
+      resolve these errors, and avoid being distracted by other information.
+    summarize: |
+      Please summarize your task and your completion status.

@@ -19,6 +19,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
+from ucagent.util.config import Config
 
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
@@ -738,6 +739,190 @@ class VerifyPDB(Pdb):
         self.agent.set_break(False)
         self.agent.one_loop(msg)
     do_nrm = do_next_round_with_message
+
+    def do_short_prompt(self, arg):
+        """
+        Run one_loop with a configured short prompt.
+        Usage: short_prompt <name> [append_msg]
+        """
+        args = arg.strip().split(maxsplit=1)
+        if not args:
+            echo_y("Usage: short_prompt <name> [append_msg]")
+            return
+        name = args[0]
+        append_msg = args[1].strip() if len(args) > 1 else ""
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if name not in short_prompts:
+            echo_y(f"Short prompt '{name}' not found. Use short_prompt_list to see available prompts.")
+            return
+        msg = str(short_prompts[name])
+        if append_msg:
+            msg = f"{msg.rstrip()}\n{append_msg}"
+        self.do_chat(msg)
+
+    def complete_short_prompt(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
+
+    def do_short_prompt_list(self, arg):
+        """
+        List configured short prompts.
+        """
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if not short_prompts:
+            echo_y("No short_prompts configured.")
+            return
+        echo_g(f"Available short_prompts: {len(short_prompts)} total")
+        max_name_len = max(len(str(name)) for name in short_prompts)
+        for name in sorted(short_prompts):
+            preview = " ".join(str(short_prompts[name]).split())
+            words = preview.split()
+            if len(words) > 50:
+                preview = f"{' '.join(words[:50])}... [{len(words) - 50} words left]"
+            if not preview:
+                preview = "(empty)"
+            echo(f"  {name:<{max_name_len}} : {preview}")
+
+    def do_short_prompt_del(self, arg):
+        """
+        Delete a configured short prompt.
+        Usage: short_prompt_del <name>
+        """
+        name = arg.strip()
+        if not name:
+            echo_y("Usage: short_prompt_del <name>")
+            return
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if name not in short_prompts:
+            echo_y(f"Short prompt '{name}' not found.")
+            return
+        del short_prompts[name]
+        cfg = self.agent.cfg
+        was_frozen = getattr(cfg, "_freeze", False)
+        cfg.un_freeze()
+        vibe_coding = cfg.get_value("vibe_coding", None)
+        if not isinstance(vibe_coding, Config):
+            vibe_coding = Config()
+            setattr(cfg, "vibe_coding", vibe_coding)
+        setattr(vibe_coding, "short_prompts", Config(short_prompts))
+        if was_frozen:
+            cfg.freeze()
+        echo_g(f"Deleted short prompt '{name}'.")
+
+    def complete_short_prompt_del(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt_del command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
+
+    def do_short_prompt_set(self, arg):
+        """
+        Set or add a configured short prompt.
+        Usage: short_prompt_set <name> <msg>
+        """
+        args = arg.strip().split(maxsplit=1)
+        if len(args) != 2 or not args[1].strip():
+            echo_y("Usage: short_prompt_set <name> <msg>")
+            return
+        name, msg = args[0], args[1].strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        existed = name in short_prompts
+        short_prompts[name] = msg
+        cfg = self.agent.cfg
+        was_frozen = getattr(cfg, "_freeze", False)
+        cfg.un_freeze()
+        vibe_coding = cfg.get_value("vibe_coding", None)
+        if not isinstance(vibe_coding, Config):
+            vibe_coding = Config()
+            setattr(cfg, "vibe_coding", vibe_coding)
+        setattr(vibe_coding, "short_prompts", Config(short_prompts))
+        if was_frozen:
+            cfg.freeze()
+        action = "Updated" if existed else "Added"
+        echo_g(f"{action} short prompt '{name}'.")
+
+    def complete_short_prompt_set(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt_set command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
 
     def do_loop(self, arg):
         """
