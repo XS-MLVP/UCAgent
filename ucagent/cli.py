@@ -985,7 +985,7 @@ def run() -> None:
             args.human = True
             args._temp_dir = temp_dir
         if args.config is None:
-            args.config = "empty.yaml"
+            args.config = "master.yaml"
 
     if args.emulate_config:
         if args.config is None:

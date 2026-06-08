@@ -131,8 +131,8 @@ class VerifyAgent:
         self.cfg.freeze()
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
-        guide_doc_path = os.path.join(self.workspace, "Guide_Doc")
-        if not os.path.exists(guide_doc_path):
+        guide_doc_path = os.path.join(self.workspace, self.cfg.guide_doc.path)
+        if not os.path.exists(guide_doc_path) and self.cfg.guide_doc.enable:
             doc_guide_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "lang",

@@ -1,4 +1,7 @@
 
+template_overwrite:
+  GUIDE_DOC: "Guide_Doc"
+
 # default basic settings for UCAgent
 lang: "zh"
 
@@ -121,7 +124,10 @@ launch:
       "*": "{WORKSPACE}"
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
-      UT: "default.yaml"
+      UT:        "default.yaml"
+      Formal:    "formal.yaml"
+      Vibe:      "vibe.yaml"
+      Increment: "inc.yaml"
   cluster:
     image: "ghcr.nju.edu.cn/xs-mlvp/ucagent:latest" # container image used by docker, docker_swarm, and k8s launch modes
     container_command: "ucagent"                    # command inside the image; local python/cli prefix is replaced with this command
@@ -231,9 +237,13 @@ template: unity_test
 
 un_write_dirs:
   - "{DUT}"
-  - "Guide_Doc"
+  - "{GUIDE_DOC}"
 write_dirs:
   - "{OUT}"
+
+guide_doc:
+  path: "{GUIDE_DOC}"
+  enable: true
 
 tools:
   RunTestCases:

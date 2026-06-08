@@ -1,0 +1,55 @@
+mission:
+  name: "Vibe 模式"
+  prompt:
+    system: |
+      你是一位AI助手，协助用户完成一些任务。请按照用户的指令进行操作，并提供有用的信息和建议。
+      所有的输出都应该是中文。给出的所有事实都必须是正确的。请不要编造任何信息。如果你不确定某件事，请直接说你不知道。
+    tips:
+      allways: []
+      random: []
+
+tools:
+  RunTestCases:
+    test_dir: "{OUT}/tests"
+  ignore_tools: [] # 开启工具 ["WorkDiff", "WorkCommit", "RunBashCommand"]
+
+template: Null
+
+stage:
+  - name: verification_refinement
+    desc: "DUT验证需求细化与测试用例完善"
+    task:
+      - "按照人类专家的要求/思路，对{DUT}的验证（文档、测试用例、测试报告等）进行细化和完善"
+    checker:
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
+    need_human_check: true
+
+un_write_dirs: []
+
+vibe_coding:
+  short_prompts:
+    review_funcs_and_checks: |
+      请阅读 {DUT} 的验证要求与Spec文档（通常位于 {DUT}/ 中的 *.md或者 *.adoc文件），判断{OUT}/{DUT}_functions_and_checks.md中的
+      的功能分组、功能点、检测点等是否完善，如果不完善需要增加。如果检测点功能过大或者过于复杂，必须继续拆分成更小的功能点和检测点，直到每个检测点都足够简单明确。
+    add_test_cases: |
+      根据{OUT}/{DUT}_functions_and_checks.md中的功能点和检测点，确认{OUT}/tests/中的测试用例是否完善，边界测试，是否覆盖齐全，随机测试用例是否足够，如果不完成需要增加用例。
+      重要：
+        - 一个检查点可以对应一个或多个测试用例，但一个测试用例只能对应一个检查点
+        - 如果检测点功能过大或者过于复杂，必须继续拆分成更小的功能点和检测点，直到每个检测点都足够简单明确
+        - 拆分后的复杂检查点名称需要有相同前缀，且不同的命名部分需要有意义
+        - 如果修改了{OUT}/{DUT}_functions_and_checks.md，那么其对应的测试用例需要同步更新
+      需要好好判断用例打印的warn/error是否合理：
+        - 确实是否是用例本身问题，是则需要修改用例
+        - 确实是检测点问题，是则需要修改检测点，修改后需要重新判断用例是否合理
+        - 确实是DUT问题，需要按Guide_Doc中的规范进行bug标记
+    add_random_test_cases: |
+      根据{OUT}/{DUT}_functions_and_checks.md中的功能点和检测点，为corner case增加随机测试用例到{OUT}/tests/中，增加的用例需要满足以下要求：
+        - 用例名称需要有意义，能够反映测试内容
+        - 用例内容需要合理，能够有效地测试对应的检测点
+        - 用例数量需要适当，既要覆盖足够的场景，又不能过多导致冗余
