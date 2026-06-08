@@ -135,6 +135,9 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试用例失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
+    skill_list:
+      - "ext/dir_1/skill-a"
+      - "ext/dir_1/dir_2/skill-a"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
@@ -162,6 +165,8 @@ stage:
     reference_files:
       - "{DUT}/README.md"
       - "{DUT}/__init__.py"
+    skill_list:
+      - "ext/dir_1/dir_2/dir_3/skill-a"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
@@ -187,7 +192,8 @@ stage:
       - "   检查点需要具有可测性，确保能通过测试用例验证"
       - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
     skill_list:
-      - "ut-functions-and-checks"
+      - "unitytest/functions-and-checks"
+    # set `force_use_skill` to True to force UCAgent to use the skill in skill_list
     # force_use_skill: True
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
@@ -207,7 +213,7 @@ stage:
           - "例如：加法器可分为<FG-BASIC>基础运算，<FG-OVERFLOW>溢出处理等，栈结构可以有<FG-PUSH>、<FG-POP>、<FG-POP-PUSH>等"
           - "注意：必须有<FG-API>分组"
         skill_list:
-          - "ut-functions-and-checks"
+          - "unitytest/functions-and-checks"
         checker:
           - name: group_structure_check
             clss: "UnityChipCheckerLabelStructure"
@@ -226,7 +232,7 @@ stage:
           - " - 功能点要可测试，确保能通过测试用例验证"
           - " - 如果功能点复杂，需要在该分组标记结束后，再次针对每个复杂功能点利用<FG-*>, <FC-*>, <CK-*>进行单独细化"
         skill_list:
-          - "ut-functions-and-checks"
+          - "unitytest/functions-and-checks"
         checker:
           - name: function_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -246,7 +252,7 @@ stage:
           - " - 检查点要具体，不能过于笼统"
           - " - 检查点要可测试，确保能通过测试用例验证"
         skill_list:
-          - "ut-functions-and-checks"
+          - "unitytest/functions-and-checks"
         checker:
           - name: check_point_check
             clss: "UnityChipCheckerLabelStructure"
@@ -352,7 +358,7 @@ stage:
     output_files:
       - "{OUT}/{DUT}_static_bug_analysis.md"
     skill_list:
-      - "ut-static-bug-analysis"
+      - "unitytest/static-bug-analysis"
     checker:
       - name: static_bug_batch_analysis_check
         clss: "UnityChipBatchCheckerStaticBug"
@@ -889,7 +895,7 @@ stage:
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
       - "是否已启用参考模型": $(NEED_REF_MODEL: false)
     skill_list:
-      - "ut-create-test-case-templates"
+      - "unitytest/create-test-case-templates"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -978,7 +984,7 @@ stage:
           - "是否已启用参考模型": $(NEED_REF_MODEL: false)
           - "如果启用了参考模型，请特别关注测试用例的比对验证结果，如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
         skill_list:
-          - "ut-test-case-implementation-in-batch"
+          - "unitytest/test-case-implementation-in-batch"
         reference_files:
           - "{OUT}/tests/{DUT}_function_coverage_def.py"
           - "Guide_Doc/dut_test_case.md"
@@ -1036,7 +1042,7 @@ stage:
       - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
     skill_list:
-      - "ut-static-bug-validation"
+      - "unitytest/static-bug-validation"
     reference_files:
       - "{OUT}/{DUT}_static_bug_analysis.md"
       - "{OUT}/{DUT}_bug_analysis.md"

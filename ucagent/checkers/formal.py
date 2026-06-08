@@ -845,7 +845,7 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
                 import subprocess
                 cex_script = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)),
-                    "..", "lang", "zh", "skills", "formal", "fm-cex-gen",
+                    "..", "lang", "zh", "skills", "formal", "cex-gen",
                     "scripts", "init_test_file.py"
                 )
                 cex_script = os.path.normpath(cex_script)

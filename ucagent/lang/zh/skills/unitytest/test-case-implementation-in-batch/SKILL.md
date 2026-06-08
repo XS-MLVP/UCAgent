@@ -1,5 +1,5 @@
 ---
-name: ut-test-case-implementation-in-batch
+name: test-case-implementation-in-batch
 description: 分批测试用例实现与对应bug分析阶段专属技能,用于指导测试用例实现,Bug分析与报告撰写
 ---
 

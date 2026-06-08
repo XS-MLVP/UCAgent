@@ -959,7 +959,7 @@ stage:
 
     # 必用技能(Skill)
     skill_list:
-      - "fail-analyze"
+      - "unitytest/fail-analyze"
 
     # 预期输出文件（Output Files）
     output_files:
