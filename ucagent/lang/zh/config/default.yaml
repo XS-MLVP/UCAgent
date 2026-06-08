@@ -135,9 +135,6 @@ stage:
       - "注意：{DUT}中可能有隐藏bug，测试用例失败时不要尝试修复{DUT}的实现，而是分析是否为设计缺陷并进行记录"
     reference_files:
       - "{DUT}/README.md"
-    skill_list:
-      - "ext/dir_1/skill-a"
-      - "ext/dir_1/dir_2/skill-a"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"
@@ -165,8 +162,6 @@ stage:
     reference_files:
       - "{DUT}/README.md"
       - "{DUT}/__init__.py"
-    skill_list:
-      - "ext/dir_1/dir_2/dir_3/skill-a"
     checker:
           - name: markdown_file_check
             clss: "UnityChipCheckerMarkdownFileFormat"

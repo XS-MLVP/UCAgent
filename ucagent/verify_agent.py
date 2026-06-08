@@ -335,6 +335,7 @@ class VerifyAgent:
         self.invoke_round = 0
         self._tool__call_error = []
         self._is_exit = False
+        self._sync_workspace_back_on_exit_done = False
         self._tip_index = 0
         self._need_break = False
         self._break_threads: set[int] = set()
@@ -619,8 +620,43 @@ class VerifyAgent:
     def exit(self):
         if self.is_exit():
             return
-        self._is_exit = True
-        fc.chmode_rw(self.cwd_read_only_files)
+        try:
+            self._sync_workspace_back_on_exit()
+        finally:
+            self._is_exit = True
+            fc.chmode_rw(self.cwd_read_only_files)
+
+    def _cfg_bool(self, key: str, default: bool = False) -> bool:
+        value = self.cfg.get_value(key, default)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        raw = str(value).strip().lower()
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
+    def _sync_workspace_back_on_exit(self):
+        if self._sync_workspace_back_on_exit_done:
+            return
+        self._sync_workspace_back_on_exit_done = True
+        if not self._cfg_bool("master_api.sync_workspace_back_on_exit", True):
+            return
+        pdb = getattr(self, "pdb", None)
+        master_clients = getattr(pdb, "_master_clients", {}) or {}
+        if not master_clients:
+            return
+        for url, client in list(master_clients.items()):
+            if not getattr(client, "is_running", False):
+                continue
+            ok, msg = client.sync_workspace_back(reason="exit")
+            if ok:
+                info(msg)
+            else:
+                info(f"Workspace sync-back skipped for {url}: {msg}")
 
     def protect_files_on(self, new_files: List[str]):
         for f in new_files:

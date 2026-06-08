@@ -114,10 +114,10 @@ continue_%:
 	$(CMD) $(CWD)/ ${DUT} --config config.yaml ${ARGS}
 
 as_master:
-	$(CMD) --as-master ${ARGS}
+	$(CMD) --as-master --export-cmd-api ${ARGS}
 
 as_master_persist:
-	$(CMD) --as-master-persist ${PATH_PERSISTENT} --as-master ${ARGS}
+	$(CMD) --as-master-persist ${PATH_PERSISTENT}  --export-cmd-api --as-master ${ARGS}
 
 swarm_check:
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker CLI is not installed or not in PATH."; exit 1; }

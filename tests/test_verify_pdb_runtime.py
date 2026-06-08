@@ -18,9 +18,11 @@ from ucagent.util.log import info
 
 
 class _FakeAgent:
-    def __init__(self) -> None:
+    def __init__(self, workspace: str | None = None) -> None:
         self._need_break = False
         self.break_threads: set[int] = set()
+        if workspace is not None:
+            self.workspace = workspace
 
     def set_break(self, value=True):
         self._need_break = value
@@ -135,6 +137,87 @@ def test_info_output_outside_command_is_recorded(probe_pdb):
     rendered = probe_pdb.render_console_entries_since(0)
     assert "INFO" in rendered
     assert "shared info output" in rendered
+
+
+def test_chcwd_controls_pdb_and_shell_command_cwd(tmp_path, capsys):
+    workspace = tmp_path / "workspace"
+    subdir = workspace / "subdir"
+    nested = subdir / "nested"
+    subdir.mkdir(parents=True)
+    nested.mkdir()
+    (subdir / "marker.txt").write_text("demo", encoding="utf-8")
+    (nested / "deep.txt").write_text("nested", encoding="utf-8")
+
+    previous_signal = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    process_cwd = os.getcwd()
+    pdb = _ProbePDB(_FakeAgent(workspace=str(workspace)))
+    try:
+        pdb.execute_command("chcwd subdir")
+        assert pdb._command_cwd == str(subdir)
+        assert os.getcwd() == process_cwd
+
+        pdb.execute_command("pwd")
+        output = capsys.readouterr().out
+        assert f"Current working directory: {subdir}" in output
+
+        pdb.execute_command("ls")
+        output = capsys.readouterr().out
+        assert "marker.txt" in output
+
+        pdb.execute_command("shell pwd")
+        output = capsys.readouterr().out
+        assert f"Working directory: {subdir}" in output
+        assert str(subdir) in output
+        assert os.getcwd() == process_cwd
+
+        pdb.execute_command("chcwd .")
+        assert pdb._command_cwd == str(workspace)
+
+        completions = pdb.complete_cd("subdir/", "cd subdir/", 3, len("cd subdir/"))
+        assert "subdir/nested/" in completions
+        assert "subdir/marker.txt" not in completions
+
+        pdb.execute_command("cd subdir")
+        assert pdb._command_cwd == str(subdir)
+
+        pdb.execute_command("cd .")
+        assert pdb._command_cwd == str(subdir)
+
+        pdb.execute_command("cd")
+        assert pdb._command_cwd == str(workspace)
+
+        pdb.execute_command("shell pwd")
+        output = capsys.readouterr().out
+        assert f"Working directory: {workspace}" in output
+        assert str(workspace) in output
+    finally:
+        signal.signal(signal.SIGINT, previous_signal)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
+
+
+def test_chcwd_rejects_paths_outside_workspace(tmp_path, capsys):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    previous_signal = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    pdb = _ProbePDB(_FakeAgent(workspace=str(workspace)))
+    try:
+        pdb.execute_command(f"chcwd {outside}")
+        output = capsys.readouterr().out
+
+        assert "outside the workspace" in output
+        assert pdb._command_cwd == str(workspace)
+    finally:
+        signal.signal(signal.SIGINT, previous_signal)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
 
 
 def test_add_cmds_falls_back_when_tui_app_stopped(probe_pdb):

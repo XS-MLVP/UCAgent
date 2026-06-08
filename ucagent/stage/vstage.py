@@ -131,11 +131,13 @@ class VerifyStage(object):
         self._cached_stage_outcome = None
         self.last_do_check_info_fail = None
         self.last_do_check_info_pass = None
+        self._on_complete_callbacks = []
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
         self.hist_tgt_dir = os.path.join(self.hist_sav_dir, self.hist_src_dir)
         self.hist_ign_list = cfg.hist_ignore_pattern
+        self.append_on_complete_callback(self._sync_workspace_back_on_complete)
 
         if not self.cfg.skill.use_skill and skill_list and force_use_skill:
             raise ValueError(f"Enable the arg(--use-skill) to use skill, or remove the skill_list and force_use_skill specified in stage '{self.name}'.")
@@ -160,6 +162,55 @@ class VerifyStage(object):
 
     def meta_set_skill_usage(self, skill_usage: Dict[str, Any]):
         self.meta_data['skill_usage'] = copy.deepcopy(skill_usage)
+
+    def append_on_complete_callback(self, callback):
+        if not callable(callback):
+            raise ValueError("on_complete callback must be callable")
+        self._on_complete_callbacks.append(callback)
+        return callback
+
+    def _run_on_complete_callbacks(self):
+        for callback in list(self._on_complete_callbacks):
+            try:
+                callback(self)
+            except Exception as exc:
+                warning(f"[{self.__class__.__name__}.{self.name}] on_complete callback failed: {exc}")
+
+    def _cfg_bool(self, key: str, default: bool = False) -> bool:
+        value = self.cfg.get_value(key, default)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        raw = str(value).strip().lower()
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
+    def _sync_workspace_back_on_complete(self, _stage):
+        if not self._cfg_bool("master_api.sync_workspace_back_on_stage_complete", True):
+            return
+        if not self.vmanager:
+            return
+        agent = getattr(self.vmanager, "agent", None)
+        pdb = getattr(agent, "pdb", None)
+        master_clients = getattr(pdb, "_master_clients", {}) or {}
+        if not master_clients:
+            return
+        try:
+            self.vmanager.save_stage_info()
+        except Exception as exc:
+            warning(f"[{self.__class__.__name__}.{self.name}] save stage info before sync-back failed: {exc}")
+        for url, client in list(master_clients.items()):
+            if not getattr(client, "is_running", False):
+                continue
+            ok, msg = client.sync_workspace_back(reason=f"stage_complete:{self.name}")
+            if ok:
+                info(msg)
+            else:
+                info(f"Workspace sync-back skipped for {url}: {msg}")
 
     def set_usage_skill_list(self,skill_name,listed=False, read=False, used=False):
         if skill_name in self.skill_list:
@@ -297,6 +348,7 @@ class VerifyStage(object):
         self.hist_commit(msg="Stage completed.")
         if self.vmanager:
             self.vmanager.agent.backend.on_stage_complete(self)
+        self._run_on_complete_callbacks()
 
     def is_completed(self):
         return self.is_complete

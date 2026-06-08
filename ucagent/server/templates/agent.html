@@ -64,6 +64,12 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #sb-resizer:hover,#sb-resizer.dragging{background:var(--accent)}
 .sb-section{padding:12px 14px;border-bottom:1px solid var(--border)}
 .sb-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);margin-bottom:8px}
+#agent-status-section{position:relative;overflow:hidden}
+#agent-status-section h3,#agent-status-section #status-text{position:relative;z-index:1}
+#agent-status-section.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(54,211,153,.10))}
+#agent-status-section.sub-workspace-mode::before{content:"Sub";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:var(--sub-watermark-size,72px);font-weight:800;line-height:.9;color:rgba(79,142,247,.18);letter-spacing:2px;
+  text-transform:uppercase;pointer-events:none;z-index:0}
 #status-text{font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
 #mission-list{overflow-y:auto;flex:1;font-family:var(--mono);font-size:12px;line-height:1.7;padding:4px 6px;white-space:pre-wrap;word-break:break-all}
 .mission-name{text-align:center;font-weight:600;font-size:13px;color:var(--accent);margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)}
@@ -161,6 +167,7 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 #breadcrumb{flex:1;font-size:12px;font-family:var(--mono);color:var(--text-dim);word-break:break-all}
 #breadcrumb span{cursor:pointer;color:var(--accent)}#breadcrumb span:hover{text-decoration:underline}
 #breadcrumb .sep{color:var(--text-dim);margin:0 2px}
+#workspace-mode-label{font-family:var(--mono);font-size:11px;color:var(--yellow);max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fm-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:4px 10px;border-radius:var(--radius);cursor:pointer;font-size:12px;white-space:nowrap}
 .fm-btn:hover{border-color:var(--accent);color:var(--accent)}
 .fm-btn.primary{background:var(--accent2);border-color:var(--accent2);color:#fff}
@@ -199,7 +206,15 @@ td.col-name .fn.dir{color:var(--accent)}
 #console-bar{display:flex;align-items:center;padding:4px 12px;background:var(--bg2);border-bottom:1px solid var(--border);border-top:1px solid var(--border);gap:8px;flex-shrink:0}
 #console-bar .label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-dim);font-weight:600}
 #console-bar .csep{flex:1}
-#console-output{flex:1;min-height:0;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:var(--bg);white-space:pre-wrap;word-break:break-all;color:var(--text)}
+#console-output-wrap{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--bg);z-index:0;isolation:isolate}
+#console-output-wrap.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.12),rgba(251,189,35,.08)),var(--bg)}
+#console-output-wrap.sub-workspace-mode::before{content:"Master";position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;
+  font-size:var(--master-watermark-size,110px);font-weight:800;line-height:.82;color:rgba(251,189,35,.16);letter-spacing:2px;
+  text-transform:uppercase;white-space:nowrap;pointer-events:none;z-index:2}
+#console-output{position:relative;z-index:1;height:100%;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.6;padding:6px 10px;background:transparent!important;white-space:pre-wrap;word-break:break-all;color:var(--text)}
+html[data-theme="light"] #console-output-wrap{background:#16202b!important;color:#e6edf5!important}
+html[data-theme="light"] #console-output{color:#e6edf5!important}
+html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:linear-gradient(135deg,rgba(79,142,247,.18),rgba(251,189,35,.12)),#16202b!important}
 .con-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
 .con-btn:hover{border-color:var(--accent);color:var(--accent)}
 .con-btn.active{border-color:var(--green);color:var(--green)}
@@ -308,6 +323,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div class="sep"></div>
   <div id="uc-shell-header-actions" class="uc-shell-actions">
     <a id="master-btn" class="master-btn" href="/" style="display:none" title="Go to Master Dashboard">Master</a>
+    <a id="complete-btn" class="master-btn" href="/complete/" style="display:none" title="Open sub-workspace completion dashboard">Completed Task</a>
     <button id="web-terminal-btn" class="web-terminal-btn" disabled title="Web Terminal not running. Use 'terminal_api_start' command to start.">Web Terminal</button>
     <button id="ui-reset-btn" class="ui-reset-btn" onclick="resetUiLayout()" title="Reset saved UI layout and dashboard preferences (Alt+Shift+R)">Reset UI</button>
     <button id="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
@@ -320,7 +336,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <!-- sidebar -->
   <div id="sidebar" style="border-right:none">
     <div class="sb-scroll">
-      <div class="sb-section">
+      <div class="sb-section" id="agent-status-section">
         <h3>Agent Status</h3>
         <pre id="status-text">Loading…</pre>
       </div>
@@ -372,6 +388,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
   <div id="fm">
     <div id="fm-bar">
       <span id="breadcrumb"></span>
+      <span id="workspace-mode-label"></span>
+      <button class="fm-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change Workspace</button>
+      <button class="fm-btn danger" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit Workspace</button>
       <button class="fm-btn" onclick="refreshFiles()">&#8635;</button>
       <button class="fm-btn" onclick="downloadWorkspace()" title="Download whole workspace as DUT tar.gz">&#8681; Workspace</button>
       <button class="fm-btn" onclick="openNewFile()">&#43; New File</button>
@@ -418,7 +437,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <span id="pdb-running-label">running:</span>
         <span id="pdb-running-cmds"></span>
       </div>
-      <div id="console-output"></div>
+      <div id="console-output-wrap">
+        <div id="console-output"></div>
+      </div>
       <div id="pdb-cmd-bar">
         <span id="pdb-status-badge">&#8226; idle</span>
         <div style="position:relative;flex:1;display:flex">
@@ -573,10 +594,20 @@ let _editPath = "";
 let _uploadFiles = [];
 let _selectedStages = new Set();
 let _stageActionBusy = false;
+let _lastFileMeta = {};
+const _initialParams = new URLSearchParams(window.location.search);
+let _subWorkspace = _normalizeSubWorkspacePath(_initialParams.get("sub_worspace") || _initialParams.get("sub_workspace") || "");
 
 /* ── helpers ── */
 function qs(s){return document.querySelector(s)}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function jsq(s){return String(s??"").replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g," ")}
+function _normalizeSubWorkspacePath(path){
+  const raw=String(path||"").trim();
+  if(!raw)return "";
+  if(raw.startsWith("/"))return raw.replace(/\/+$/g,"");
+  return raw.replace(/^\/+|\/+$/g,"");
+}
 function closeModal(id){qs("#"+id).classList.add("hidden")}
 function openModal(id){
   qs("#"+id).classList.remove("hidden");
@@ -607,8 +638,68 @@ function resetUiLayout(){
   location.reload();
 }
 
+function _updateSubWorkspaceUrl(){
+  const url=new URL(window.location.href);
+  url.searchParams.delete("sub_workspace");
+  if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
+  else url.searchParams.delete("sub_worspace");
+  window.history.replaceState(null,"",url.pathname+url.search+url.hash);
+  _updateSubWorkspaceModeUi();
+}
+
+function _updateSubWorkspaceModeUi(){
+  const statusSection=qs("#agent-status-section");
+  const consoleWrap=qs("#console-output-wrap");
+  const consoleOutput=qs("#console-output");
+  if(statusSection){
+    statusSection.classList.toggle("sub-workspace-mode",!!_subWorkspace);
+    if(_subWorkspace){
+      const h=Math.max(72,statusSection.clientHeight||0);
+      statusSection.style.setProperty("--sub-watermark-size",Math.round(h*0.86)+"px");
+    }else{
+      statusSection.style.removeProperty("--sub-watermark-size");
+    }
+  }
+  if(consoleWrap){
+    consoleWrap.classList.toggle("sub-workspace-mode",!!_subWorkspace);
+    if(_subWorkspace){
+      const h=Math.max(120,consoleWrap.clientHeight||(consoleOutput&&consoleOutput.clientHeight)||0);
+      const w=Math.max(120,consoleWrap.clientWidth||(consoleOutput&&consoleOutput.clientWidth)||0);
+      const heightSize=h*0.82;
+      const widthSize=Math.max(28,(w-24)/4.35);
+      consoleWrap.style.setProperty("--master-watermark-size",Math.round(Math.min(heightSize,widthSize))+"px");
+    }else{
+      consoleWrap.style.removeProperty("--master-watermark-size");
+    }
+  }
+}
+
+function _withSubWorkspaceParam(path){
+  if(!_subWorkspace)return path;
+  try{
+    const u=new URL(path,window.location.origin);
+    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/"))){
+      u.searchParams.set("sub_worspace",_subWorkspace);
+      return u.pathname+u.search+u.hash;
+    }
+  }catch(e){}
+  const sep=String(path).includes("?")?"&":"?";
+  return path+sep+"sub_worspace="+encodeURIComponent(_subWorkspace);
+}
+
+function _workspaceFileUrl(path){
+  return _withSubWorkspaceParam("/workspace/"+path.split("/").map(encodeURIComponent).join("/"));
+}
+
+function _workspaceBaseFileUrl(path){
+  const target=String(path||"").replace(/^\/+/g,"");
+  const subRoot=String(_lastFileMeta.sub_workspace||"").replace(/^\/+|\/+$/g,"");
+  const basePath=subRoot?subRoot+"/"+target:target;
+  return "/workspace/"+basePath.split("/").map(encodeURIComponent).join("/");
+}
+
 async function apiFetch(path,opts){
-  const r=await fetch(path,opts);
+  const r=await fetch(_withSubWorkspaceParam(path),opts);
   const j=await r.json().catch(()=>({status:"error",detail:"Non-JSON response"}));
   if(!r.ok||j.status==="error") throw new Error(j.detail||j.message||"Request failed");
   return j;
@@ -620,6 +711,7 @@ async function fetchStatus(){
     const j=await apiFetch("/api/status");
     const txt=j.data||"";
     qs("#status-text").textContent=_stripAnsi(txt);
+    _updateSubWorkspaceModeUi();
     const firstLine=_stripAnsi(txt).split("\n")[0]||"";
     qs("#status-bar").innerHTML='<span class="dot"></span>'+esc(firstLine.slice(0,80));
   }catch(e){
@@ -652,12 +744,54 @@ function _taskProxyBase(){
   return null;
 }
 
+function _isTaskCmdProxyPath(){
+  return /^\/task\/[^/]+\/cmd(?:\/.*)?$/.test(window.location.pathname);
+}
+
 function _initMasterBtn(){
   const base=_taskProxyBase();
   const btn=qs("#master-btn");
   if(base&&btn){
     btn.style.display="";
     btn.href="/";
+  }
+}
+
+function _masterApiUrl(masterApi){
+  if(!masterApi||!masterApi.port)return "";
+  return _buildWebUrl(masterApi.host,masterApi.port).replace(/\/$/,"")+"/";
+}
+
+function _updateMasterAndCompleteBtns(serverInfo){
+  const proxyBase=_taskProxyBase();
+  const masterBtn=qs("#master-btn");
+  const completeBtn=qs("#complete-btn");
+  const masterApi=serverInfo&&serverInfo.master_api;
+  if(proxyBase){
+    if(masterBtn){
+      masterBtn.style.display="";
+      masterBtn.href="/";
+    }
+    if(completeBtn){
+      if(masterApi&&!_isTaskCmdProxyPath()){
+        completeBtn.style.display="";
+        completeBtn.href=proxyBase+"/cmd/complete/";
+      }else{
+        completeBtn.style.display="none";
+      }
+    }
+    return;
+  }
+  const masterUrl=_masterApiUrl(masterApi);
+  if(masterUrl&&masterBtn){
+    masterBtn.style.display="";
+    masterBtn.href=masterUrl;
+  }
+  if(masterUrl&&completeBtn){
+    completeBtn.style.display="";
+    completeBtn.href=masterUrl.replace(/\/$/,"")+"/agent/self/cmd/complete/";
+  }else if(completeBtn){
+    completeBtn.style.display="none";
   }
 }
 
@@ -677,6 +811,7 @@ async function fetchServerInfo(){
   try{
     const j=await apiFetch("/api/server_info");
     const data=j.data||{};
+    _updateMasterAndCompleteBtns(data);
     const terminalApi=data.terminal_api;
     const webConsole=data.web_console;
     const btn=qs("#web-terminal-btn");
@@ -860,6 +995,7 @@ function _setStageFeatureVisibility(enableFail,enablePass){
 }
 
 async function _postStageUpdate(payload){
+  if(_subWorkspace)return;
   if(_stageActionBusy)return;
   _stageActionBusy=true;
   _updateStageSelectionUi();
@@ -1109,7 +1245,7 @@ async function fetchMission(){
     let html=`<div class="mission-name">${esc(missionName)}</div>`;
     for(const stage of stages){
       const canEditFlags=!!stage.can_edit_flags;
-      const canQuickEditFlags=canEditFlags||!!stage.is_current;
+      const canQuickEditFlags=!_subWorkspace&&(canEditFlags||!!stage.is_current);
       const outcome=stage.out_come;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
@@ -1413,6 +1549,50 @@ async function fetchTools(){
   }catch(e){qs("#tools-list").textContent="(unavailable)";}
 }
 
+async function _syncConsoleWorkspace(){
+  try{
+    await apiFetch("/api/cmd",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({cmd:"chcwd ."})
+    });
+  }catch(e){}
+}
+
+function _refreshWorkspaceViews(){
+  _selectedStages.clear();
+  fetchStatus();
+  fetchMission();
+  fetchTools();
+  fetchFiles("");
+  fetchChangedFiles();
+  fetchPdbStatus();
+}
+
+function changeWorkspace(path){
+  const next=_normalizeSubWorkspacePath(path);
+  if(!next||next===_subWorkspace)return;
+  _subWorkspace=next;
+  _curPath="";
+  _updateSubWorkspaceUrl();
+  _refreshWorkspaceViews();
+  _syncConsoleWorkspace();
+}
+
+function changeWorkspaceFromCurrent(){
+  const target=_lastFileMeta.current_sub_workspace||"";
+  if(target)changeWorkspace(target);
+}
+
+function exitSubWorkspace(){
+  if(!_subWorkspace)return;
+  _subWorkspace="";
+  _curPath="";
+  _updateSubWorkspaceUrl();
+  _refreshWorkspaceViews();
+  _syncConsoleWorkspace();
+}
+
 /* ── file manager ── */
 async function fetchFiles(path){
   _curPath=path||"";
@@ -1421,7 +1601,9 @@ async function fetchFiles(path){
   qs("#fm-table").style.display="none";
   try{
     const j=await apiFetch("/api/files?path="+encodeURIComponent(_curPath));
+    _lastFileMeta=j||{};
     _renderBreadcrumb(j.path||"");
+    _updateWorkspaceControls(j||{});
     _renderFiles(j.data||[]);
   }catch(e){showErr(e.message);}
   finally{qs("#fm-loading").style.display="none";}
@@ -1429,8 +1611,26 @@ async function fetchFiles(path){
 
 function refreshFiles(){fetchFiles(_curPath);}
 
+function _updateWorkspaceControls(meta){
+  const label=qs("#workspace-mode-label");
+  const changeBtn=qs("#workspace-change-btn");
+  const exitBtn=qs("#workspace-exit-btn");
+  const currentSub=meta.current_sub_workspace||"";
+  const canChange=!!currentSub&&currentSub!==_subWorkspace;
+  if(label)label.textContent=_subWorkspace?("Sub Workspace: "+_subWorkspace):"";
+  if(changeBtn){
+    changeBtn.style.display=canChange?"":"none";
+    changeBtn.title=canChange?("Switch to "+currentSub):"";
+  }
+  if(exitBtn){
+    exitBtn.style.display=_subWorkspace?"":"none";
+    exitBtn.title=_subWorkspace?"Return to main workspace":"";
+  }
+}
+
 function _renderBreadcrumb(p){
-  let html='<span onclick="fetchFiles(\'\')" title="workspace root">workspace</span>';
+  const rootLabel=_subWorkspace?"sub workspace":"workspace";
+  let html='<span onclick="fetchFiles(\'\')" title="workspace root">'+rootLabel+'</span>';
   if(p){
     const parts=p.split("/").filter(Boolean);
     let built="";
@@ -1484,12 +1684,14 @@ function _renderFiles(entries){
     const name=e.name;
     const ext=e.type||"";
     if(e.is_dir){
+      const canChangeWs=e.is_ucagent_workspace&&e.sub_workspace_path&&e.sub_workspace_path!==_subWorkspace;
       html+=`<tr>
         <td class="col-name"><span class="icon">&#128194;</span><span class="fn dir" onclick="fetchFiles('${esc(fpath)}')">${esc(name)}</span></td>
         <td><span class="badge-dir">dir</span></td>
         <td class="col-size">—</td>
         <td class="col-mtime">${esc(e.mtime_str)}</td>
         <td class="col-act">
+          ${canChangeWs?`<button class="act-btn" onclick="event.stopPropagation();changeWorkspace('${jsq(e.sub_workspace_path)}')" title="Switch to this UCAgent workspace">Change Workspace</button>`:""}
           <button class="act-btn" onclick="downloadFile('${esc(fpath)}')" title="Download as tar.gz">&#8681;</button>
           <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
           <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
@@ -1699,10 +1901,10 @@ async function openView(path,name,ext){
   try{
     if(_HTML_EXTS.has(ext)){
       body.style.padding="0";body.style.overflow="hidden";
-      body.innerHTML=`<iframe id="view-frame" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" sandbox="allow-scripts allow-same-origin"></iframe>`;
+      body.innerHTML=`<iframe id="view-frame" src="${_workspaceBaseFileUrl(path)}" sandbox="allow-scripts allow-same-origin"></iframe>`;
     }else if(_IMG_EXTS.has(ext)){
       body.style.padding="14px";body.style.overflow="auto";
-      body.innerHTML=`<img id="view-img" src="/workspace/${path.split('/').map(encodeURIComponent).join('/')}" alt="${esc(name)}">`;
+      body.innerHTML=`<img id="view-img" src="${_workspaceFileUrl(path)}" alt="${esc(name)}">`;
     }else{
       body.style.padding="0";body.style.overflow="hidden";
       const j=await apiFetch("/api/file?path="+encodeURIComponent(path));
@@ -1738,23 +1940,23 @@ function toggleViewRaw(){
 
 /* ── waveform viewer ── */
 function openWaveform(path){
-  const fileUrl=window.location.origin+"/workspace/"+path.split("/").map(encodeURIComponent).join("/");
+  const fileUrl=window.location.origin+_workspaceFileUrl(path);
   window.open("/surfer/?load_url="+encodeURIComponent(fileUrl),"_blank");
 }
 
 /* ── serve / download ── */
-function serveFile(path){window.open("/workspace/"+path.split("/").map(encodeURIComponent).join("/"),"_blank");}
+function serveFile(path){window.open(_workspaceBaseFileUrl(path),"_blank");}
 
 function downloadFile(path){
   const a=document.createElement("a");
-  a.href="/api/file/download?path="+encodeURIComponent(path);
+  a.href=_withSubWorkspaceParam("/api/file/download?path="+encodeURIComponent(path));
   a.download="";
   a.click();
 }
 
 function downloadWorkspace(){
   const a=document.createElement("a");
-  a.href="/api/workspace/download";
+  a.href=_withSubWorkspaceParam("/api/workspace/download");
   a.download="";
   a.click();
 }
@@ -1808,7 +2010,7 @@ function openUpload(){
   qs("#upload-list").innerHTML="";
   qs("#upload-do-btn").style.display="none";
   qs("#upload-input").value="";
-  qs("#upload-title").textContent="Upload to: workspace/"+_curPath;
+  qs("#upload-title").textContent="Upload to: "+(_subWorkspace?"sub workspace":"workspace")+"/"+_curPath;
   openModal("upload-modal");
 }
 
@@ -1834,7 +2036,7 @@ async function doUpload(){
     const fd=new FormData();
     fd.append("file",f);
     try{
-      const r=await fetch("/api/file/upload?path="+encodeURIComponent(_curPath),{method:"POST",body:fd});
+      const r=await fetch(_withSubWorkspaceParam("/api/file/upload?path="+encodeURIComponent(_curPath)),{method:"POST",body:fd});
       if(r.ok)ok++;else{const j=await r.json().catch(()=>({detail:"failed"}));fail++;console.warn(f.name,j.detail);}
     }catch(e){fail++;}
   }
@@ -2054,8 +2256,9 @@ async function fetchConsole(){
     const j=await apiFetch("/api/console?lines=500");
     const out=qs("#console-output");
     const lines=j.data||[];
-    if(!lines.length){out.innerHTML="";return;}
+    if(!lines.length){out.innerHTML="";_updateSubWorkspaceModeUi();return;}
     out.innerHTML=lines.map(l=>_ansiToHtml(l)).join("\n");
+    _updateSubWorkspaceModeUi();
     if(_consoleAutoScroll)out.scrollTop=out.scrollHeight;
   }catch(e){}
 }
@@ -2102,6 +2305,7 @@ async function clearConsole(){
   });
   function onMove(e){
     panel.style.height=clampConsoleHeight(startH-(e.clientY-startY))+"px";
+    _updateSubWorkspaceModeUi();
   }
   function onUp(){
     resizer.classList.remove("dragging");
@@ -2111,6 +2315,7 @@ async function clearConsole(){
   }
   window.addEventListener("resize",()=>{
     panel.style.height=clampConsoleHeight(panel.offsetHeight)+"px";
+    _updateSubWorkspaceModeUi();
   });
 })();
 
@@ -2142,11 +2347,13 @@ async function clearConsole(){
   function onMove(e){
     const w=Math.max(startW+(e.clientX-startX),160);
     sidebar.style.width=w+"px";
+    _updateSubWorkspaceModeUi();
   }
   function onUp(){
     resizer.classList.remove("dragging");
     document.body.style.userSelect="";
     resizer.removeEventListener("pointermove",onMove);
+    _updateSubWorkspaceModeUi();
     try{localStorage.setItem('ucagent.sidebar.w',sidebar.offsetWidth);}catch(e){}
   }
 })();
@@ -2268,7 +2475,8 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-_initMissionSettings();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+_updateSubWorkspaceModeUi();_initMissionSettings();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
 setInterval(fetchConsole,2000);

@@ -1200,6 +1200,11 @@ def run() -> None:
     except AssertionError as e:
         info(f"Fail: {e}")
         sys.exit(1)
+    finally:
+        try:
+            agent.exit()
+        except Exception as e:
+            info(f"Warning: failed during agent exit cleanup: {e}")
 
 
 def main() -> None:

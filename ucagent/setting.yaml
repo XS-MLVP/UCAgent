@@ -97,6 +97,8 @@ cmd_api:
 master_api:
   host: 0.0.0.0
   port: 8800
+  sync_workspace_back_on_stage_complete: true  # client uploads workspace back to master after each completed stage when supported
+  sync_workspace_back_on_exit: true   # client uploads zipped workspace back to master on exit when supported
 
 launch:
   file_browser_roots: []              # empty means fallback to <cli.py parent>/examples
@@ -346,3 +348,13 @@ hist_ignore_pattern:
   - ".*"
   - "data"
   - ".git"
+
+
+vibe_coding:
+  short_prompts:
+    continue: "Please continue until all stage-tasks are completed."
+    review: |
+      Please analyze the error messages in the Check/Complete response,
+      resolve these errors, and avoid being distracted by other information.
+    summarize: |
+      Please summarize your task and your completion status.

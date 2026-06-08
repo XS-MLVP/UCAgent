@@ -8,10 +8,13 @@ external tools can inspect/control the agent without touching the console.
 """
 
 import collections
+import copy
 import io
+import json
 import re
 import sys
 import threading
+import time
 import warnings
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -114,16 +117,19 @@ class PdbCmdApiServer:
     Endpoints
     ---------
     GET  /                             - HTML dashboard (agent status + file manager)
-    GET  /api/status                   - Agent status string
+    GET  /api/status                   - Agent status string (?sub_worspace=...)
     GET  /api/server_info              - Running servers info (cmd_api, master_api, mcp)
     GET  /api/pdb_status               - PDB runtime status (tui, pending cmds, break state)
-    GET  /api/tasks                    - Task list
-    GET  /api/task/{index}             - Task detail
-    GET  /api/mission                  - Mission overview (raw ANSI; ?strip_ansi=true to strip)
+    GET  /api/tasks                    - Task list (?sub_worspace=...)
+    GET  /api/task/{index}             - Task detail (?sub_worspace=...)
+    GET  /api/mission                  - Mission overview (raw ANSI; ?strip_ansi=true to strip&sub_worspace=...)
     GET  /api/cmds                     - All available PDB commands  (?prefix=)
     GET  /api/help                     - Command help  (?cmd=<name>)
     GET  /api/tools                    - Tool list with call counts
     GET  /api/changed_files            - Recently changed output files  (?count=10)
+    GET  /api/sub_workspaces           - List UCAgent sub-workspace summaries (?page=1&page_size=20)
+    GET  /api/sub_workspace            - Get one sub-workspace summary (?path=... or ?task_id=...)
+    DELETE /api/sub_workspace          - Delete a sub-workspace and optional wrapper dirs (?path=...)
     GET  /api/stage/{index}/task       - Get task detail from a stage
     GET  /api/stage/{index}/file       - Get file content from a stage  (?file_path=...)
     GET  /api/stage/{index}/file_current - Get current stage file content (?file_path=...)
@@ -132,8 +138,8 @@ class PdbCmdApiServer:
     POST /api/cmd                      - Enqueue a single PDB command  {"cmd": "..."}
     POST /api/cmds/batch               - Enqueue multiple PDB commands  {"cmds": [...]}
     POST /api/interrupt                - Send Ctrl-C interrupt to PDB
-    GET  /api/files                    - List workspace directory  (?path=subdir)
-    GET  /api/file                     - Read text file content  (?path=...)
+    GET  /api/files                    - List workspace directory  (?path=subdir&sub_worspace=...)
+    GET  /api/file                     - Read text file content  (?path=...&sub_worspace=...)
     POST /api/file/new                 - Create new text file  body: {"path":"...","content":"..."}
     POST /api/file/rename              - Rename file or directory  body: {"path":"...","new_name":"..."}
     POST /api/file/edit                - Save/overwrite text file  body: {"path":"...","content":"..."}
@@ -240,10 +246,18 @@ class PdbCmdApiServer:
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastapi")
-            from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+            from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
             from fastapi.responses import FileResponse, HTMLResponse, Response
             from starlette.background import BackgroundTask
         from pydantic import BaseModel
+        from ucagent.util import diff_ops
+        from ucagent.util.functions import (
+            find_files_by_pattern,
+            fmt_time_deta,
+            fmt_time_stamp,
+            list_files_by_mtime,
+        )
+        from ucagent.util.log import L_GREEN, L_RED, L_YELLOW, RESET
 
         app = FastAPI(
             title="UCAgent PDB CMD API",
@@ -306,26 +320,600 @@ class PdbCmdApiServer:
             skip: Optional[bool] = None
             llm_fail_suggestion: Optional[bool] = None
             llm_pass_suggestion: Optional[bool] = None
-        # ── path helpers ───────────────────────────────────────────────
-        def _workspace_root() -> str:
+        # ── path / sub-workspace helpers ───────────────────────────────
+        def _base_workspace_root() -> str:
             return os.path.abspath(pdb.agent.workspace)
 
-        def _safe_abs(rel_path: str) -> str:
+        def _workspace_root(workspace_root: Optional[str] = None) -> str:
+            return os.path.abspath(workspace_root or _base_workspace_root())
+
+        def _is_under(base: str, candidate: str) -> bool:
+            try:
+                base_real = os.path.realpath(os.path.abspath(base))
+                cand_real = os.path.realpath(os.path.abspath(candidate))
+                return os.path.commonpath([base_real, cand_real]) == base_real
+            except ValueError:
+                return False
+
+        def _rel_to_base(abs_path: str) -> str:
+            base = _base_workspace_root()
+            rel = os.path.relpath(os.path.abspath(abs_path), base)
+            return "" if rel == "." else rel
+
+        def _ucagent_info_path(workspace_root: str) -> str:
+            return os.path.join(os.path.abspath(workspace_root), ".ucagent", "ucagent_info.json")
+
+        def _is_ucagent_workspace(workspace_root: str) -> bool:
+            return os.path.isfile(_ucagent_info_path(workspace_root))
+
+        def _load_ucagent_info_for_workspace(workspace_root: str) -> dict:
+            info_path = _ucagent_info_path(workspace_root)
+            if not os.path.isfile(info_path):
+                return {}
+            with open(info_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+
+        def _query_sub_workspace(request: Optional[Request]) -> str:
+            if request is None:
+                return ""
+            # Keep the documented typo for compatibility and accept the
+            # corrected spelling too.
+            return (
+                request.query_params.get("sub_worspace")
+                or request.query_params.get("sub_workspace")
+                or ""
+            ).strip()
+
+        def _resolve_sub_workspace(raw_sub_workspace: str = "") -> Tuple[str, str, bool]:
+            base = _base_workspace_root()
+            raw = (raw_sub_workspace or "").strip()
+            if not raw:
+                return base, "", False
+
+            expanded = os.path.expanduser(raw)
+            candidate = (
+                os.path.abspath(expanded)
+                if os.path.isabs(expanded)
+                else os.path.abspath(os.path.join(base, expanded.lstrip("/")))
+            )
+            if not _is_under(base, candidate):
+                raise HTTPException(status_code=403, detail="Sub workspace must be under the current workspace")
+            if os.path.realpath(candidate) == os.path.realpath(base):
+                return base, "", False
+            if not os.path.isdir(candidate):
+                raise HTTPException(status_code=404, detail=f"Sub workspace '{raw}' not found")
+            if not _is_ucagent_workspace(candidate):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{_rel_to_base(candidate)}' is not a UCAgent workspace",
+                )
+            return candidate, _rel_to_base(candidate), True
+
+        def _request_workspace(request: Optional[Request]) -> Tuple[str, str, bool]:
+            return _resolve_sub_workspace(_query_sub_workspace(request))
+
+        def _safe_abs(rel_path: str, workspace_root: Optional[str] = None) -> str:
             """Resolve rel_path within workspace, raise 403 on traversal."""
-            root = _workspace_root()
+            root = _workspace_root(workspace_root)
             clean = rel_path.strip().lstrip("/")
             if clean:
                 candidate = os.path.normpath(os.path.join(root, clean))
             else:
                 candidate = root
-            if not (candidate == root or candidate.startswith(root + os.sep)):
+            if not _is_under(root, candidate):
                 raise HTTPException(status_code=403, detail="Path traversal not allowed")
             return candidate
 
-        def _rel(abs_path: str) -> str:
-            root = _workspace_root()
+        def _rel(abs_path: str, workspace_root: Optional[str] = None) -> str:
+            root = _workspace_root(workspace_root)
             rel = os.path.relpath(abs_path, root)
             return "" if rel == "." else rel
+
+        def _stage_items_from_info(info: dict) -> list[Tuple[int, dict]]:
+            stages_info = info.get("stages_info", {})
+            if not isinstance(stages_info, dict):
+                return []
+
+            def _stage_key(item) -> int:
+                key, _ = item
+                try:
+                    return int(key)
+                except (TypeError, ValueError):
+                    return 0
+
+            items = []
+            for raw_key, stage_info in sorted(stages_info.items(), key=_stage_key):
+                if not isinstance(stage_info, dict):
+                    continue
+                try:
+                    index = int(raw_key)
+                except (TypeError, ValueError):
+                    index = len(items)
+                items.append((index, stage_info))
+            return items
+
+        def _sub_mission_name(workspace_root: str, info: dict) -> str:
+            for key in ("mission_name", "mission", "misson_name"):
+                value = info.get(key)
+                if value:
+                    return str(value)
+            return os.path.basename(os.path.normpath(workspace_root)) or "Sub Workspace"
+
+        def _format_stage_time_cost(value) -> str:
+            if value in (None, "", 0, 0.0):
+                return ""
+            try:
+                return fmt_time_deta(value)
+            except Exception:
+                return str(value)
+
+        def _fmt_timestamp(value) -> str:
+            if value in (None, ""):
+                return ""
+            try:
+                return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(value)))
+            except Exception:
+                return str(value)
+
+        def _safe_int(value, default: int = 0) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _format_sub_status(workspace_root: str, info: dict) -> str:
+            stage_items = _stage_items_from_info(info)
+            stage_index = info.get("stage_index", 0)
+            all_completed = bool(info.get("all_completed", False))
+            try:
+                stage_index_int = int(stage_index)
+            except (TypeError, ValueError):
+                stage_index_int = 0
+            run_end = info.get("time_end") or time.time()
+            run_time = None
+            if info.get("time_begin") is not None:
+                try:
+                    run_time = fmt_time_deta(float(run_end) - float(info.get("time_begin")))
+                except Exception:
+                    run_time = None
+            rows = [
+                ("UCAgent", info.get("version", "unknown")),
+                ("Workspace", workspace_root),
+                ("Seed", info.get("seed", "N/A")),
+                ("Stage", f"{stage_index_int}/{len(stage_items)}"),
+                ("All Completed", all_completed),
+                ("Agent Exit", bool(info.get("is_agent_exit", False))),
+            ]
+            if info.get("time_begin") is not None:
+                rows.append(("Start Time", fmt_time_stamp(info.get("time_begin"))))
+            if run_time:
+                rows.append(("Run Time", run_time))
+            return "\n".join(f"{key}: {value}" for key, value in rows)
+
+        def _sub_task_list(workspace_root: str, info: dict) -> dict:
+            stage_items = _stage_items_from_info(info)
+            stage_index = info.get("stage_index", 0)
+            try:
+                stage_index = int(stage_index)
+            except (TypeError, ValueError):
+                stage_index = 0
+            if bool(info.get("all_completed", False)):
+                stage_index = len(stage_items)
+            stage_list = []
+            for index, detail in stage_items:
+                task = detail.get("task", {}) if isinstance(detail.get("task", {}), dict) else {}
+                skill_list = task.get("skill_list", [])
+                if isinstance(skill_list, dict):
+                    skill_list = list(skill_list.keys())
+                elif not isinstance(skill_list, list):
+                    skill_list = []
+                stage_list.append({
+                    "index": index,
+                    "title": task.get("title") or detail.get("title") or f"Stage {index}",
+                    "reached": bool(detail.get("reached", index <= stage_index)),
+                    "fail_count": detail.get("fail_count", 0),
+                    "skill_list": skill_list,
+                    "is_skipped": bool(detail.get("is_skipped", False)),
+                    "time_start": "",
+                    "time_end": "",
+                    "time_cost": _format_stage_time_cost(detail.get("time_cost")),
+                    "is_completed": bool(detail.get("is_completed", index < stage_index)),
+                    "needs_human_check": bool(detail.get("needs_human_check", False)),
+                    "need_fail_llm_suggestion": bool(detail.get("need_fail_llm_suggestion", False)),
+                    "need_pass_llm_suggestion": bool(detail.get("need_pass_llm_suggestion", False)),
+                })
+            current_task = "No stages available"
+            if 0 <= stage_index < len(stage_list):
+                current_task = stage_list[stage_index]["title"]
+            return {
+                "mission_name": _sub_mission_name(workspace_root, info),
+                "task_index": stage_index,
+                "task_list": {
+                    "mission": _sub_mission_name(workspace_root, info),
+                    "all_completed": bool(info.get("all_completed", False)),
+                    "stage_list": stage_list,
+                    "process": f"{stage_index}/{len(stage_list)}",
+                    "current_stage_index": stage_index if stage_index < len(stage_list) else None,
+                    "current_stage_name": current_task,
+                    "current_task": current_task,
+                    "last_check_result": {},
+                },
+            }
+
+        def _sub_workspace_lifecycle(info: dict) -> str:
+            all_completed = bool(info.get("all_completed", False))
+            is_exit = bool(info.get("is_agent_exit", False))
+            if bool(info.get("is_wait_human_check", False)) and not all_completed and not is_exit:
+                return "waiting"
+            if all_completed:
+                return "completed"
+            if is_exit:
+                return "exited"
+            return "running"
+
+        def _sub_workspace_summary(workspace_root: str, current_root: Optional[str] = None) -> dict:
+            info_path = _ucagent_info_path(workspace_root)
+            try:
+                info_stat = os.stat(info_path)
+                info_ctime = getattr(info_stat, "st_birthtime", info_stat.st_ctime)
+                info_mtime = info_stat.st_mtime
+            except OSError:
+                info_ctime = None
+                info_mtime = None
+
+            load_error = ""
+            try:
+                info = _load_ucagent_info_for_workspace(workspace_root)
+            except Exception as exc:
+                info = {}
+                load_error = str(exc)
+
+            stage_items = _stage_items_from_info(info)
+            total_stages = len(stage_items)
+            raw_stage_index = _safe_int(info.get("stage_index", 0), 0)
+            all_completed = bool(info.get("all_completed", False))
+            if all_completed:
+                completed_stages = total_stages
+                current_stage_index = None
+            else:
+                completed_stages = 0
+                for index, detail in stage_items:
+                    if bool(detail.get("is_completed", False)) or index < raw_stage_index:
+                        completed_stages += 1
+                current_stage_index = raw_stage_index if 0 <= raw_stage_index < total_stages else None
+            progress_percent = 100 if all_completed and total_stages == 0 else 0
+            if total_stages > 0:
+                progress_percent = round(min(max(completed_stages, 0), total_stages) * 100 / total_stages)
+
+            current_stage_name = ""
+            if current_stage_index is not None:
+                stage_map = {index: detail for index, detail in stage_items}
+                detail = stage_map.get(current_stage_index, {})
+                task = detail.get("task", {}) if isinstance(detail.get("task", {}), dict) else {}
+                current_stage_name = task.get("title") or detail.get("title") or f"Stage {current_stage_index}"
+
+            time_begin = info.get("time_begin")
+            time_end = info.get("time_end")
+            run_time = ""
+            if time_begin is not None:
+                try:
+                    run_until = float(time_end) if time_end is not None else time.time()
+                    run_time = fmt_time_deta(run_until - float(time_begin))
+                except Exception:
+                    run_time = ""
+
+            workspace_stat = None
+            try:
+                workspace_stat = os.stat(workspace_root)
+            except OSError:
+                pass
+
+            current_root = current_root or _base_workspace_root()
+            rel_to_current = os.path.relpath(os.path.abspath(workspace_root), os.path.abspath(current_root))
+            if rel_to_current == ".":
+                rel_to_current = ""
+
+            lifecycle = _sub_workspace_lifecycle(info)
+            return {
+                "path": _rel_to_base(workspace_root),
+                "path_in_current": rel_to_current,
+                "name": os.path.basename(os.path.normpath(workspace_root)),
+                "workspace": workspace_root,
+                "info_path": info_path,
+                "info_ctime": info_ctime,
+                "info_ctime_str": _fmt_timestamp(info_ctime),
+                "info_mtime": info_mtime,
+                "info_mtime_str": _fmt_timestamp(info_mtime),
+                "dir_mtime": workspace_stat.st_mtime if workspace_stat else None,
+                "mission_name": _sub_mission_name(workspace_root, info),
+                "stage_index": raw_stage_index,
+                "current_stage_index": current_stage_index,
+                "current_stage_name": current_stage_name,
+                "completed_stages": completed_stages,
+                "total_stages": total_stages,
+                "progress_percent": progress_percent,
+                "progress_label": f"{completed_stages}/{total_stages}" if total_stages else ("done" if all_completed else "0/0"),
+                "all_completed": all_completed,
+                "is_agent_exit": bool(info.get("is_agent_exit", False)),
+                "is_wait_human_check": bool(info.get("is_wait_human_check", False)),
+                "is_running": lifecycle == "running",
+                "lifecycle": lifecycle,
+                "time_begin": time_begin,
+                "time_begin_str": _fmt_timestamp(time_begin),
+                "time_end": time_end,
+                "time_end_str": _fmt_timestamp(time_end),
+                "run_time": run_time,
+                "version": info.get("version", ""),
+                "seed": info.get("seed", ""),
+                "load_error": load_error,
+            }
+
+        def _iter_sub_workspace_roots(current_root: str, max_depth: int = 2) -> list[str]:
+            base = _base_workspace_root()
+            current_root = os.path.abspath(current_root)
+            max_depth = max(1, min(int(max_depth or 2), 2))
+            roots = []
+            seen = set()
+
+            def _walk(parent: str, depth: int) -> None:
+                if depth > max_depth:
+                    return
+                try:
+                    names = sorted(os.listdir(parent))
+                except OSError:
+                    return
+                for name in names:
+                    full = os.path.join(parent, name)
+                    if not os.path.isdir(full):
+                        continue
+                    if not _is_under(current_root, full) or not _is_under(base, full):
+                        continue
+                    real = os.path.realpath(full)
+                    if _is_ucagent_workspace(full) and real != os.path.realpath(base) and real not in seen:
+                        roots.append(os.path.abspath(full))
+                        seen.add(real)
+                    if depth < max_depth:
+                        _walk(full, depth + 1)
+
+            _walk(current_root, 1)
+            return roots
+
+        def _workspace_contains_sub_workspace(root: str) -> bool:
+            root = os.path.abspath(root)
+            for dirpath, dirnames, _ in os.walk(root):
+                if ".ucagent" in dirnames and os.path.isfile(_ucagent_info_path(dirpath)):
+                    return True
+                if ".git" in dirnames:
+                    dirnames.remove(".git")
+            return False
+
+        def _delete_sub_workspace_tree(workspace_root: str, cleanup_parents: bool = True) -> dict:
+            base = _base_workspace_root()
+            workspace_root = os.path.abspath(workspace_root)
+            if os.path.realpath(workspace_root) == os.path.realpath(base):
+                raise HTTPException(status_code=400, detail="The base workspace cannot be deleted")
+            if not _is_under(base, workspace_root):
+                raise HTTPException(status_code=403, detail="Sub workspace must be under the current workspace")
+            if not _is_ucagent_workspace(workspace_root):
+                raise HTTPException(status_code=400, detail=f"'{_rel_to_base(workspace_root)}' is not a UCAgent workspace")
+
+            summary = _sub_workspace_summary(workspace_root)
+            deleted_paths = [_rel_to_base(workspace_root)]
+            shutil.rmtree(workspace_root)
+
+            cleaned_parent_paths = []
+            parent = os.path.dirname(workspace_root)
+            while cleanup_parents and _is_under(base, parent) and os.path.realpath(parent) != os.path.realpath(base):
+                if _is_ucagent_workspace(parent):
+                    break
+                if _workspace_contains_sub_workspace(parent):
+                    break
+                rel_parent = _rel_to_base(parent)
+                shutil.rmtree(parent)
+                cleaned_parent_paths.append(rel_parent)
+                deleted_paths.append(rel_parent)
+                parent = os.path.dirname(parent)
+
+            return {
+                "deleted_path": _rel_to_base(workspace_root),
+                "deleted_paths": deleted_paths,
+                "cleaned_parent_paths": cleaned_parent_paths,
+                "summary": summary,
+            }
+
+        def _sub_stage_detail_with_journal(workspace_root: str, info: dict, index: int):
+            stage_items = _stage_items_from_info(info)
+            stage_map = {stage_index: detail for stage_index, detail in stage_items}
+            if index not in stage_map:
+                if not stage_items:
+                    return "Index 0 out of range, valid: (none)"
+                valid_min = min(stage_map)
+                valid_max = max(stage_map)
+                return f"Index {index} out of range, valid: ({valid_min}-{valid_max})"
+            detail = copy.deepcopy(stage_map[index])
+            meta_data = detail.get("meta_data", {}) if isinstance(detail.get("meta_data", {}), dict) else {}
+            journal = meta_data.get("journal")
+            llm_suggestions = {
+                "pass": meta_data.get("llm_pass_suggestion"),
+                "fail": meta_data.get("llm_fail_suggestion"),
+            }
+            try:
+                stage_index = int(info.get("stage_index", 0) or 0)
+            except (TypeError, ValueError):
+                stage_index = 0
+            data = {
+                "is_current": (index == stage_index) and not bool(info.get("all_completed", False)),
+                "detail": detail,
+                "journal": journal,
+                "StageJournal": journal,
+                "last_do_check_info": None,
+                "llm_suggestions": llm_suggestions,
+                "workspace": workspace_root,
+            }
+            detail["journal"] = journal
+            detail["StageJournal"] = journal
+            detail["last_do_check_info"] = None
+            detail["llm_suggestions"] = llm_suggestions
+            return data
+
+        def _sub_stage_outcome(workspace_root: str, detail: dict) -> dict:
+            task = detail.get("task", {}) if isinstance(detail.get("task", {}), dict) else {}
+            output_patterns = task.get("output_files", [])
+            if isinstance(output_patterns, str):
+                output_patterns = [output_patterns]
+            if not isinstance(output_patterns, list):
+                output_patterns = []
+            output_files = {}
+            for pattern in output_patterns:
+                try:
+                    output_files[str(pattern)] = find_files_by_pattern(
+                        workspace_root,
+                        str(pattern),
+                        ignore_warn=True,
+                    )
+                except Exception:
+                    output_files[str(pattern)] = []
+
+            changed_files = []
+            meta_data = detail.get("meta_data", {}) if isinstance(detail.get("meta_data", {}), dict) else {}
+            commit_hash = meta_data.get("commit", {}).get("hash") if isinstance(meta_data.get("commit", {}), dict) else None
+            if commit_hash:
+                try:
+                    changed_files = diff_ops.get_commit_changed_files(
+                        os.path.join(workspace_root, ".ucagent", "history"),
+                        commit_hash,
+                    )
+                except Exception:
+                    changed_files = []
+            return {
+                "output_files": output_files,
+                "changed_files": changed_files,
+                "commit_hash": commit_hash,
+                "commit_message": meta_data.get("commit", {}).get("message") if isinstance(meta_data.get("commit", {}), dict) else None,
+            }
+
+        def _sub_mission_info(workspace_root: str, info: dict) -> dict:
+            task_data = _sub_task_list(workspace_root, info)
+            current_index = task_data["task_index"]
+            stage_list = task_data["task_list"]["stage_list"]
+            ret = collections.OrderedDict({
+                "misson_name": task_data["mission_name"],
+                "current_index": current_index,
+                "enable_llm_fail_suggestion": any(s.get("need_fail_llm_suggestion") for s in stage_list),
+                "enable_llm_pass_suggestion": any(s.get("need_pass_llm_suggestion") for s in stage_list),
+                "stages": [],
+            })
+            stage_detail_map = {index: detail for index, detail in _stage_items_from_info(info)}
+            for stage in stage_list:
+                index = stage["index"]
+                title = stage.get("title") or f"Stage {index}"
+                fail_count = stage.get("fail_count", 0)
+                time_cost = stage.get("time_cost", "")
+                is_skipped = bool(stage.get("is_skipped", False))
+                is_current = index == current_index and not bool(info.get("all_completed", False))
+                is_completed = bool(stage.get("is_completed", False)) or index < current_index or bool(info.get("all_completed", False))
+                fail_count_msg = "" if is_skipped else f" ({fail_count} fails{', ' + time_cost if time_cost else ''})"
+                display_title = f"{title} (skipped)" if is_skipped else title
+                color = ""
+                if is_completed:
+                    color = L_GREEN
+                if is_current:
+                    color = L_RED
+                if is_skipped:
+                    color = L_YELLOW
+                cend = RESET if color else ""
+                text = f"{color}{index:2d}{cend} {color}{display_title}{fail_count_msg}{cend}"
+                detail = stage_detail_map.get(index, {})
+                outcome = None
+                if stage.get("reached", False) or is_completed or is_current:
+                    outcome = _sub_stage_outcome(workspace_root, detail)
+                ret["stages"].append({
+                    "index": index,
+                    "text": text,
+                    "out_come": outcome,
+                    "title": title,
+                    "is_current": is_current,
+                    "is_completed": is_completed,
+                    "is_skipped": is_skipped,
+                    "needs_human_check": bool(stage.get("needs_human_check", False)),
+                    "need_fail_llm_suggestion": bool(stage.get("need_fail_llm_suggestion", False)),
+                    "need_pass_llm_suggestion": bool(stage.get("need_pass_llm_suggestion", False)),
+                    "can_edit_flags": False,
+                })
+            return ret
+
+        def _read_text_file_payload(abs_path: str, rel_path: str) -> dict:
+            if not os.path.isfile(abs_path):
+                raise HTTPException(status_code=404, detail=f"File '{rel_path}' not found")
+            if not _is_text_file(abs_path):
+                raise HTTPException(status_code=400, detail=f"'{rel_path}' does not appear to be a text file")
+            st = os.stat(abs_path)
+            for enc in ("utf-8", "utf-8-sig", "latin-1"):
+                try:
+                    with open(abs_path, encoding=enc) as fh:
+                        content = fh.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise HTTPException(status_code=400, detail="File encoding not supported (tried utf-8, latin-1)")
+            return {
+                "status": "ok",
+                "path": rel_path,
+                "size": st.st_size,
+                "content": content,
+            }
+
+        def _sub_stage_file_payload(workspace_root: str, info: dict, index: int, file_path: str, current: bool) -> dict:
+            detail_data = _sub_stage_detail_with_journal(workspace_root, info, index)
+            if isinstance(detail_data, str):
+                return {"error": detail_data}
+            detail = detail_data.get("detail", {})
+            meta_data = detail.get("meta_data", {}) if isinstance(detail.get("meta_data", {}), dict) else {}
+            commit_hash = meta_data.get("commit", {}).get("hash") if isinstance(meta_data.get("commit", {}), dict) else None
+            hist_dir = os.path.join(workspace_root, ".ucagent", "history")
+            if commit_hash and os.path.isdir(hist_dir):
+                try:
+                    if current:
+                        return diff_ops.get_current_file_content_and_diff_from_commit(hist_dir, commit_hash, file_path)
+                    return diff_ops.get_commit_file_content_and_diff(hist_dir, commit_hash, file_path)
+                except Exception as exc:
+                    hist_error = str(exc)
+                else:
+                    hist_error = ""
+            else:
+                hist_error = "stage history is unavailable"
+
+            try:
+                abs_path = _safe_abs(file_path, workspace_root)
+                payload = _read_text_file_payload(abs_path, file_path)
+                return {
+                    "is_text": True,
+                    "content": payload.get("content", ""),
+                    "diff": "",
+                    "error": None if current else hist_error,
+                }
+            except Exception as exc:
+                return {"is_text": False, "content": "", "diff": "", "error": f"{hist_error}; {exc}"}
+
+        def _commands_for_workspace(
+            cmds: List[str],
+            workspace_root: str,
+            workspace_rel: str,
+        ) -> List[str]:
+            if not workspace_rel:
+                return cmds
+            routed = []
+            chcwd_cmd = f"chcwd {workspace_root}"
+            for cmd in cmds:
+                # In sub-workspace mode, reset-style cwd commands should land
+                # at the active sub-workspace root. Other commands run as-is.
+                if cmd.strip().lower() in ("cd", "chcwd ."):
+                    routed.append(chcwd_cmd)
+                else:
+                    routed.append(cmd)
+            return routed
 
         def _archive_dir_response(abs_dir: str, archive_base: str, filename: str):
             fd, archive_path = tempfile.mkstemp(
@@ -376,13 +964,19 @@ class PdbCmdApiServer:
             mime, _ = mimetypes.guess_type(path)
             return bool(mime and mime.startswith("text/"))
 
-        # ── HTML dashboard template (loaded from templates/agent.html) ────
-        _TMPL_PATH = pathlib.Path(__file__).resolve().parent / "templates" / "agent.html"
-        _HTML = _TMPL_PATH.read_text(encoding="utf-8")
+        # ── HTML dashboard templates ─────────────────────────────────────
+        _TEMPLATE_DIR = pathlib.Path(__file__).resolve().parent / "templates"
+        _HTML = (_TEMPLATE_DIR / "agent.html").read_text(encoding="utf-8")
+        _COMPLETE_HTML = (_TEMPLATE_DIR / "complete.html").read_text(encoding="utf-8")
         # ── index: HTML dashboard ───────────────────────────────────────
         @app.get("/", summary="HTML dashboard", response_class=HTMLResponse)
         def index():
             return HTMLResponse(content=_HTML)
+
+        @app.get("/complete", summary="Sub-workspace completion dashboard", response_class=HTMLResponse)
+        @app.get("/complete/", include_in_schema=False, response_class=HTMLResponse)
+        def complete_page():
+            return HTMLResponse(content=_COMPLETE_HTML)
 
         @app.get("/api/ui-meta", summary="UI metadata")
         def get_ui_meta():
@@ -404,9 +998,15 @@ class PdbCmdApiServer:
 
         # ── GET /api/status ────────────────────────────────────────────
         @app.get("/api/status", summary="Agent status")
-        def get_status():
+        def get_status(request: Request):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {"status": "ok", "data": _format_sub_status(workspace_root, info)}
                 return {"status": "ok", "data": pdb.api_status()}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -444,9 +1044,15 @@ class PdbCmdApiServer:
 
         # ── GET /api/tasks ─────────────────────────────────────────────
         @app.get("/api/tasks", summary="Task list")
-        def get_tasks():
+        def get_tasks(request: Request):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {"status": "ok", "data": _sub_task_list(workspace_root, info)}
                 return {"status": "ok", "data": pdb.api_task_list()}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -481,29 +1087,51 @@ class PdbCmdApiServer:
 
         # ── GET /api/task/{index} ──────────────────────────────────────
         @app.get("/api/task/{index}", summary="Task detail")
-        def get_task(index: int):
+        def get_task(index: int, request: Request):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {"status": "ok", "data": _sub_stage_detail_with_journal(workspace_root, info, index)}
                 return {"status": "ok", "data": _task_detail_with_journal(index)}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/stage/{index}/task ────────────────────────────────
         @app.get("/api/stage/{index}/task", summary="Get task detail from a stage")
-        def get_stage_task(index: int):
+        def get_stage_task(index: int, request: Request):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {"status": "ok", "data": _sub_stage_detail_with_journal(workspace_root, info, index)}
                 return {"status": "ok", "data": _task_detail_with_journal(index)}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/mission ───────────────────────────────────────────
         @app.get("/api/mission", summary="Mission overview")
-        def get_mission(strip_ansi: bool = Query(default=False, description="Strip ANSI escape codes from output")):
+        def get_mission(
+            request: Request,
+            strip_ansi: bool = Query(default=False, description="Strip ANSI escape codes from output"),
+        ):
             try:
-                mission_data = pdb.api_mission_info(return_dict=True)
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    mission_data = _sub_mission_info(workspace_root, info)
+                else:
+                    mission_data = pdb.api_mission_info(return_dict=True)
                 if strip_ansi:
                     for stage in mission_data["stages"]:
                         stage["text"] = _strip_ansi(stage["text"])
                 return {"status": "ok", "data": mission_data}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -548,23 +1176,37 @@ class PdbCmdApiServer:
 
         # ── GET /api/tools ─────────────────────────────────────────────
         @app.get("/api/tools", summary="Tool list with call counts")
-        def get_tools():
+        def get_tools(request: Request):
             try:
+                _, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    return {"status": "ok", "data": []}
                 tools = pdb.api_tool_status()
                 data = [
                     {"name": name, "call_count": count, "is_hot": is_hot}
                     for name, count, is_hot in tools
                 ]
                 return {"status": "ok", "data": data}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/changed_files ─────────────────────────────────────
         @app.get("/api/changed_files", summary="Recently changed output files")
         def get_changed_files(
+            request: Request,
             count: int = Query(default=10, description="Maximum number of files to return")
         ):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    files = list_files_by_mtime(workspace_root, count)
+                    data = [
+                        {"delta_seconds": d, "timestamp": t, "file": f}
+                        for d, t, f in files
+                    ]
+                    return {"status": "ok", "data": data, "output_dir": ""}
                 files = pdb.api_changed_files(count)
                 data = [
                     {"delta_seconds": d, "timestamp": t, "file": f}
@@ -574,30 +1216,228 @@ class PdbCmdApiServer:
                 _output_dir = os.path.abspath(pdb.agent.output_dir)
                 output_dir_rel = os.path.relpath(_output_dir, _workspace)
                 return {"status": "ok", "data": data, "output_dir": output_dir_rel}
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/sub_workspaces ────────────────────────────────────
+        @app.get("/api/sub_workspaces", summary="List UCAgent sub-workspace summaries")
+        def list_sub_workspaces(
+            request: Request,
+            page: int = Query(default=1, ge=1, description="Page number (1-based)"),
+            page_size: int = Query(default=20, ge=1, le=100, description="Rows per page"),
+            q: str = Query(default="", description="Filter by path, mission, stage, or lifecycle"),
+            state: str = Query(default="all", description="Lifecycle filter: all/running/waiting/completed/exited"),
+            sort_by: str = Query(default="info_mtime", description="Sort field"),
+            sort_desc: bool = Query(default=True, description="Sort descending"),
+        ):
+            try:
+                current_root, current_rel, _ = _request_workspace(request)
+                items = [
+                    _sub_workspace_summary(root, current_root=current_root)
+                    for root in _iter_sub_workspace_roots(current_root, max_depth=2)
+                ]
+                state_counts = collections.Counter(item.get("lifecycle", "unknown") for item in items)
+                total_count = len(items)
+
+                q_norm = (q or "").strip().lower()
+                if q_norm:
+                    def _match(item: dict) -> bool:
+                        haystack = " ".join(str(item.get(key, "")) for key in (
+                            "path",
+                            "path_in_current",
+                            "name",
+                            "mission_name",
+                            "current_stage_name",
+                            "lifecycle",
+                        )).lower()
+                        return q_norm in haystack
+                    items = [item for item in items if _match(item)]
+
+                state_norm = (state or "all").strip().lower()
+                valid_states = {"all", "running", "waiting", "completed", "exited"}
+                if state_norm not in valid_states:
+                    state_norm = "all"
+                if state_norm != "all":
+                    items = [item for item in items if item.get("lifecycle") == state_norm]
+
+                valid_sort = {
+                    "path",
+                    "mission_name",
+                    "current_stage_name",
+                    "lifecycle",
+                    "info_ctime",
+                    "info_mtime",
+                    "progress_percent",
+                    "completed_stages",
+                    "total_stages",
+                    "time_begin",
+                    "time_end",
+                }
+                if sort_by not in valid_sort:
+                    sort_by = "info_mtime"
+
+                def _sort_key(item: dict):
+                    value = item.get(sort_by)
+                    if value is None:
+                        return -1 if sort_by in {"info_ctime", "info_mtime", "progress_percent", "completed_stages", "total_stages", "time_begin", "time_end"} else ""
+                    if isinstance(value, str):
+                        return value.lower()
+                    return value
+
+                items.sort(key=_sort_key, reverse=bool(sort_desc))
+                filtered_count = len(items)
+                total_pages = (filtered_count + page_size - 1) // page_size if filtered_count else 0
+                if total_pages and page > total_pages:
+                    page = total_pages
+                start = (page - 1) * page_size
+                page_items = items[start:start + page_size]
+                return {
+                    "status": "ok",
+                    "count": filtered_count,
+                    "data": page_items,
+                    "summary": {
+                        "total": total_count,
+                        "filtered": filtered_count,
+                        "returned": len(page_items),
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": total_pages,
+                        "max_depth": 2,
+                        "base_workspace": _base_workspace_root(),
+                        "current_workspace": current_root,
+                        "current_workspace_path": current_rel,
+                        "state_counts": dict(state_counts),
+                    },
+                }
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── DELETE /api/sub_workspace ──────────────────────────────────
+        @app.get("/api/sub_workspace", summary="Get a UCAgent sub workspace summary")
+        def get_sub_workspace(
+            path: str = Query(default="", description="Sub-workspace path relative to the base workspace"),
+            task_id: str = Query(default="", description="Managed task id used to locate a synced-back workspace"),
+            workspace_id: str = Query(default="", description="Managed workspace id used to locate a synced-back workspace"),
+        ):
+            try:
+                raw_path = (path or "").strip()
+                if raw_path:
+                    workspace_root, _, is_sub_workspace = _resolve_sub_workspace(raw_path)
+                    if not is_sub_workspace:
+                        raise HTTPException(status_code=400, detail="The base workspace is not a sub workspace")
+                    return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                refs = []
+                for raw_ref in (workspace_id, task_id):
+                    ref = str(raw_ref or "").strip().strip("/")
+                    if ref and ref not in refs:
+                        refs.append(ref)
+                if not refs:
+                    raise HTTPException(status_code=400, detail="'path' or 'task_id' is required")
+
+                for ref in refs:
+                    for candidate in (os.path.join(ref, "workspace"), ref):
+                        try:
+                            workspace_root, _, is_sub_workspace = _resolve_sub_workspace(candidate)
+                        except HTTPException:
+                            continue
+                        if is_sub_workspace:
+                            return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                for workspace_root in _iter_sub_workspace_roots(_base_workspace_root(), max_depth=2):
+                    rel = _rel_to_base(workspace_root)
+                    try:
+                        info = _load_ucagent_info_for_workspace(workspace_root)
+                    except Exception:
+                        info = {}
+                    parent = os.path.basename(os.path.dirname(workspace_root))
+                    name = os.path.basename(workspace_root)
+                    if any(
+                        ref
+                        and (
+                            rel == ref
+                            or rel.startswith(ref + os.sep)
+                            or parent == ref
+                            or name == ref
+                            or str(info.get("task_id") or "").strip() == ref
+                            or str(info.get("workspace_id") or "").strip() == ref
+                        )
+                        for ref in refs
+                    ):
+                        return {"status": "ok", "data": _sub_workspace_summary(workspace_root)}
+
+                raise HTTPException(status_code=404, detail=f"Sub workspace for '{refs[0]}' not found")
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── DELETE /api/sub_workspace ──────────────────────────────────
+        @app.delete("/api/sub_workspace", summary="Delete a UCAgent sub workspace")
+        def delete_sub_workspace(
+            path: str = Query(..., description="Sub-workspace path relative to the base workspace"),
+            cleanup_parents: bool = Query(default=True, description="Delete non-workspace parent dirs when they contain no other sub workspace"),
+        ):
+            try:
+                workspace_root, _, is_sub_workspace = _resolve_sub_workspace(path)
+                if not is_sub_workspace:
+                    raise HTTPException(status_code=400, detail="The base workspace cannot be deleted")
+                data = _delete_sub_workspace_tree(workspace_root, cleanup_parents=cleanup_parents)
+                return {
+                    "status": "ok",
+                    "message": f"Deleted '{data['deleted_path']}'",
+                    "data": data,
+                }
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/stage/{index}/file ────────────────────────────────
         @app.get("/api/stage/{index}/file", summary="Get file content from a stage")
         def get_stage_file(
+            request: Request,
             index: int,
             file_path: str = Query(..., description="Path to the file in the stage")
         ):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {
+                        "status": "ok",
+                        "data": _sub_stage_file_payload(workspace_root, info, index, file_path, current=False),
+                    }
                 data = pdb.api_get_stage_file(index, file_path)
                 return {"status": "ok", "data": data}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/stage/{index}/file_current ────────────────────────────
         @app.get("/api/stage/{index}/file_current", summary="Get file content from a stage")
         def get_stage_file_current(
+            request: Request,
             index: int,
             file_path: str = Query(..., description="Path to the file in the stage")
         ):
             try:
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    info = _load_ucagent_info_for_workspace(workspace_root)
+                    return {
+                        "status": "ok",
+                        "data": _sub_stage_file_payload(workspace_root, info, index, file_path, current=True),
+                    }
                 data = pdb.api_get_stage_file_current(index, file_path)
                 return {"status": "ok", "data": data}
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
@@ -627,13 +1467,14 @@ class PdbCmdApiServer:
 
         # ── POST /api/cmd ─────────────────────────────────────────────────
         @app.post("/api/cmd", summary="Enqueue a single PDB command")
-        def post_cmd(body: CmdBody):
+        def post_cmd(body: CmdBody, request: Request):
             try:
+                workspace_root, workspace_rel, _ = _request_workspace(request)
                 cmd = body.cmd.strip()
                 if not cmd:
                     raise HTTPException(status_code=400, detail="'cmd' must not be empty")
                 _capture.inject(f"{pdb.prompt}{cmd}")
-                pdb.add_cmds(cmd)
+                pdb.add_cmds(_commands_for_workspace([cmd], workspace_root, workspace_rel))
                 return {"status": "ok", "message": f"Command enqueued", "cmd": cmd}
             except HTTPException:
                 raise
@@ -642,14 +1483,15 @@ class PdbCmdApiServer:
 
         # ── POST /api/cmds/batch ─────────────────────────────────────────────
         @app.post("/api/cmds/batch", summary="Enqueue multiple PDB commands")
-        def post_cmds_batch(body: CmdsBody):
+        def post_cmds_batch(body: CmdsBody, request: Request):
             try:
+                workspace_root, workspace_rel, _ = _request_workspace(request)
                 cmds = [c.strip() for c in body.cmds if c.strip()]
                 if not cmds:
                     raise HTTPException(status_code=400, detail="'cmds' list is empty or all blank")
                 for c in cmds:
                     _capture.inject(f"{pdb.prompt}{c}")
-                pdb.add_cmds(cmds)
+                pdb.add_cmds(_commands_for_workspace(cmds, workspace_root, workspace_rel))
                 return {"status": "ok", "message": f"{len(cmds)} command(s) enqueued", "count": len(cmds), "cmds": cmds}
             except HTTPException:
                 raise
@@ -657,8 +1499,11 @@ class PdbCmdApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         @app.post("/api/stages/update", summary="Update stage flags")
-        def post_stage_update(body: StageFlagsBody):
+        def post_stage_update(body: StageFlagsBody, request: Request):
             try:
+                _, _, is_sub_workspace = _request_workspace(request)
+                if is_sub_workspace:
+                    raise HTTPException(status_code=400, detail="Stage flags cannot be modified from sub-workspace view")
                 updated = pdb.api_update_stage_flags(
                     indices=body.indices,
                     hmcheck_needed=body.hmcheck_needed,
@@ -667,6 +1512,8 @@ class PdbCmdApiServer:
                     llm_pass_suggestion=body.llm_pass_suggestion,
                 )
                 return {"status": "ok", "data": updated}
+            except HTTPException:
+                raise
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
             except Exception as exc:
@@ -690,14 +1537,17 @@ class PdbCmdApiServer:
         # ── GET /api/files ─────────────────────────────────────────────
         @app.get("/api/files", summary="List workspace directory")
         def list_files(
+            request: Request,
             path: str = Query(default="", description="Relative path within workspace (default: root)")
         ):
             try:
                 import datetime
-                abs_path = _safe_abs(path)
+                workspace_root, workspace_rel, is_sub_workspace = _request_workspace(request)
+                abs_path = _safe_abs(path, workspace_root)
                 if not os.path.isdir(abs_path):
                     raise HTTPException(status_code=400, detail=f"'{path}' is not a directory")
                 entries = []
+                base_root = _base_workspace_root()
                 for name in sorted(os.listdir(abs_path)):
                     full = os.path.join(abs_path, name)
                     try:
@@ -705,8 +1555,15 @@ class PdbCmdApiServer:
                     except OSError:
                         continue
                     is_dir = os.path.isdir(full)
-                    rel_entry = os.path.join(_rel(abs_path), name) if _rel(abs_path) else name
+                    parent_rel = _rel(abs_path, workspace_root)
+                    rel_entry = os.path.join(parent_rel, name) if parent_rel else name
                     ext = pathlib.Path(name).suffix.lstrip(".").lower() if not is_dir else ""
+                    is_ucagent_dir = (
+                        is_dir
+                        and _is_ucagent_workspace(full)
+                        and _is_under(base_root, full)
+                        and os.path.realpath(full) != os.path.realpath(base_root)
+                    )
                     entries.append({
                         "name": name,
                         "path": rel_entry,
@@ -716,13 +1573,26 @@ class PdbCmdApiServer:
                         "mtime_str": datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                         "type": ext,
                         "is_text": (not is_dir) and _is_text_file(full),
+                        "is_ucagent_workspace": is_ucagent_dir,
+                        "sub_workspace_path": _rel_to_base(full) if is_ucagent_dir else "",
                     })
                 entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-                rel_path = _rel(abs_path)
+                rel_path = _rel(abs_path, workspace_root)
+                current_is_ucagent = (
+                    _is_ucagent_workspace(abs_path)
+                    and _is_under(base_root, abs_path)
+                    and os.path.realpath(abs_path) != os.path.realpath(base_root)
+                )
+                current_sub_workspace = _rel_to_base(abs_path) if current_is_ucagent else ""
                 return {
                     "status": "ok",
                     "path": rel_path,
-                    "workspace": _workspace_root(),
+                    "workspace": workspace_root,
+                    "base_workspace": base_root,
+                    "sub_workspace": workspace_rel,
+                    "is_sub_workspace": is_sub_workspace,
+                    "current_is_ucagent_workspace": current_is_ucagent,
+                    "current_sub_workspace": current_sub_workspace,
                     "data": entries,
                 }
             except HTTPException:
@@ -733,29 +1603,13 @@ class PdbCmdApiServer:
         # ── GET /api/file ──────────────────────────────────────────────
         @app.get("/api/file", summary="Read text file content")
         def read_file_api(
+            request: Request,
             path: str = Query(..., description="Relative path within workspace")
         ):
             try:
-                abs_path = _safe_abs(path)
-                if not os.path.isfile(abs_path):
-                    raise HTTPException(status_code=404, detail=f"File '{path}' not found")
-                if not _is_text_file(abs_path):
-                    raise HTTPException(status_code=400, detail=f"'{path}' does not appear to be a text file")
-                st = os.stat(abs_path)
-                for enc in ("utf-8", "utf-8-sig", "latin-1"):
-                    try:
-                        content = abs_path and open(abs_path, encoding=enc).read()
-                        break
-                    except UnicodeDecodeError:
-                        continue
-                else:
-                    raise HTTPException(status_code=400, detail="File encoding not supported (tried utf-8, latin-1)")
-                return {
-                    "status": "ok",
-                    "path": path,
-                    "size": st.st_size,
-                    "content": content,
-                }
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(path, workspace_root)
+                return _read_text_file_payload(abs_path, path)
             except HTTPException:
                 raise
             except Exception as exc:
@@ -767,14 +1621,15 @@ class PdbCmdApiServer:
             content: str = ""
 
         @app.post("/api/file/new", summary="Create a new text file (fails if already exists)")
-        def new_file(body: FileNewBody):
+        def new_file(body: FileNewBody, request: Request):
             try:
-                abs_path = _safe_abs(body.path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(body.path, workspace_root)
                 if os.path.exists(abs_path):
                     raise HTTPException(status_code=409, detail=f"'{body.path}' already exists")
                 parent = os.path.dirname(abs_path)
                 if not os.path.isdir(parent):
-                    raise HTTPException(status_code=400, detail=f"Parent directory does not exist: {os.path.relpath(parent, _workspace_root())}")
+                    raise HTTPException(status_code=400, detail=f"Parent directory does not exist: {os.path.relpath(parent, workspace_root)}")
                 with open(abs_path, "w", encoding="utf-8") as fh:
                     fh.write(body.content)
                 return {"status": "ok", "message": f"File '{body.path}' created", "path": body.path, "size": len(body.content.encode("utf-8"))}
@@ -789,9 +1644,10 @@ class PdbCmdApiServer:
             new_name: str   # new filename only (no directory component)
 
         @app.post("/api/file/rename", summary="Rename a file or directory")
-        def rename_file(body: FileRenameBody):
+        def rename_file(body: FileRenameBody, request: Request):
             try:
-                abs_src = _safe_abs(body.path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_src = _safe_abs(body.path, workspace_root)
                 if not os.path.exists(abs_src):
                     raise HTTPException(status_code=404, detail=f"'{body.path}' not found")
                 new_name = os.path.basename(body.new_name.strip())
@@ -802,11 +1658,11 @@ class PdbCmdApiServer:
                 parent = os.path.dirname(abs_src)
                 abs_dst = os.path.join(parent, new_name)
                 # ensure destination is still inside workspace
-                _safe_abs(os.path.relpath(abs_dst, _workspace_root()))
+                _safe_abs(os.path.relpath(abs_dst, workspace_root), workspace_root)
                 if os.path.exists(abs_dst):
                     raise HTTPException(status_code=409, detail=f"'{new_name}' already exists in the same directory")
                 os.rename(abs_src, abs_dst)
-                new_rel = os.path.relpath(abs_dst, _workspace_root())
+                new_rel = os.path.relpath(abs_dst, workspace_root)
                 return {"status": "ok", "message": f"Renamed to '{new_name}'", "path": new_rel}
             except HTTPException:
                 raise
@@ -815,9 +1671,10 @@ class PdbCmdApiServer:
 
         # ── POST /api/file/edit ────────────────────────────────────────
         @app.post("/api/file/edit", summary="Save/overwrite a text file")
-        def edit_file(body: FileEditBody):
+        def edit_file(body: FileEditBody, request: Request):
             try:
-                abs_path = _safe_abs(body.path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(body.path, workspace_root)
                 parent = os.path.dirname(abs_path)
                 if not os.path.isdir(parent):
                     raise HTTPException(status_code=400, detail=f"Parent directory does not exist: {parent}")
@@ -832,10 +1689,12 @@ class PdbCmdApiServer:
         # ── DELETE /api/file ───────────────────────────────────────────
         @app.delete("/api/file", summary="Delete a file or empty directory")
         def delete_file(
+            request: Request,
             path: str = Query(..., description="Relative path within workspace")
         ):
             try:
-                abs_path = _safe_abs(path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(path, workspace_root)
                 if not os.path.exists(abs_path):
                     raise HTTPException(status_code=404, detail=f"'{path}' not found")
                 if os.path.isdir(abs_path):
@@ -855,10 +1714,12 @@ class PdbCmdApiServer:
         # ── GET /api/file/download ─────────────────────────────────────
         @app.get("/api/file/download", summary="Download a file or directory as attachment")
         def download_file(
+            request: Request,
             path: str = Query(..., description="Relative path within workspace")
         ):
             try:
-                abs_path = _safe_abs(path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(path, workspace_root)
                 if not os.path.exists(abs_path):
                     raise HTTPException(status_code=404, detail=f"Path '{path}' not found")
                 if os.path.isdir(abs_path):
@@ -886,26 +1747,35 @@ class PdbCmdApiServer:
 
         # ── GET /api/workspace/download ────────────────────────────────
         @app.get("/api/workspace/download", summary="Download the whole workspace as {DUT}.tar.gz")
-        def download_workspace():
+        def download_workspace(request: Request):
             try:
-                dut_name = getattr(pdb.agent, "dut_name", "") or "workspace"
+                workspace_root, _, is_sub_workspace = _request_workspace(request)
+                dut_name = (
+                    os.path.basename(os.path.normpath(workspace_root))
+                    if is_sub_workspace
+                    else (getattr(pdb.agent, "dut_name", "") or "workspace")
+                )
                 archive_base = _safe_archive_base(dut_name, "workspace")
                 return _archive_dir_response(
-                    _workspace_root(),
+                    workspace_root,
                     archive_base,
                     f"{archive_base}.tar.gz",
                 )
+            except HTTPException:
+                raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── POST /api/file/upload ──────────────────────────────────────
         @app.post("/api/file/upload", summary="Upload a file into the workspace")
         async def upload_file(
+            request: Request,
             path: str = Query(default="", description="Target directory (relative to workspace root)"),
             file: UploadFile = File(...),
         ):
             try:
-                target_dir = _safe_abs(path)
+                workspace_root, _, _ = _request_workspace(request)
+                target_dir = _safe_abs(path, workspace_root)
                 if not os.path.isdir(target_dir):
                     raise HTTPException(status_code=400, detail=f"Target path '{path}' is not a directory")
                 filename = pathlib.Path(file.filename or "upload").name  # strip any dir components
@@ -920,7 +1790,7 @@ class PdbCmdApiServer:
                 return {
                     "status": "ok",
                     "message": f"Uploaded '{filename}'",
-                    "path": _rel(dest),
+                    "path": _rel(dest, workspace_root),
                     "size": size,
                 }
             except HTTPException:
@@ -937,9 +1807,10 @@ class PdbCmdApiServer:
 
         # ── GET /workspace/{path} — static asset serving ──────────────
         @app.get("/workspace/{path:path}", summary="Serve workspace file as static asset")
-        def serve_workspace_file(path: str):
+        def serve_workspace_file(path: str, request: Request):
             try:
-                abs_path = _safe_abs(path)
+                workspace_root, _, _ = _request_workspace(request)
+                abs_path = _safe_abs(path, workspace_root)
                 if not os.path.isfile(abs_path):
                     raise HTTPException(status_code=404, detail=f"'{path}' not found or is a directory")
                 media_type, _ = mimetypes.guess_type(abs_path)

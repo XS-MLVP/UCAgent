@@ -19,6 +19,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
+from ucagent.util.config import Config
 
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
@@ -110,8 +111,66 @@ class VerifyPDB(Pdb):
         self._running_commands_lock = threading.RLock()
         self._running_commands_local = threading.local()
         self._running_command_seq = 0
+        self._workspace_cwd = self._normalize_path(
+            getattr(self.agent, "workspace", None) or os.getcwd()
+        )
+        self._command_cwd = self._workspace_cwd
         set_console_sync_handler(self.record_console_output)
         self._install_persistent_console_mirror()
+
+    def _local_master_client_url(self):
+        s = self._master_api_server
+        if s is None or not s.is_running or not getattr(s, "tcp", False):
+            return "", ""
+        host = getattr(s, "host", "") or "127.0.0.1"
+        if host in ("0.0.0.0", "::", "[::]"):
+            host = "127.0.0.1"
+        return f"http://{host}:{s.port}", getattr(s, "access_key", "")
+
+    def _ensure_self_master_client(self):
+        if self._cmd_api_server is None or not self._cmd_api_server.is_running:
+            return
+        master_url, access_key = self._local_master_client_url()
+        if not master_url:
+            return
+        existing = self._master_clients.get(master_url)
+        if existing is not None and existing.is_running:
+            if getattr(existing, "agent_id", "") == "self":
+                return
+            existing.stop()
+        try:
+            from ucagent.server import PdbMasterClient
+            client = PdbMasterClient(
+                self,
+                master_url=master_url,
+                agent_id="self",
+                interval=5.0,
+                reconnect_interval=10.0,
+                access_key=access_key,
+            )
+            ok, msg = client.start()
+        except Exception as exc:
+            echo_y(f"Failed to register local CMD API to local master as 'self': {exc}")
+            return
+        if ok:
+            self._master_clients[master_url] = client
+            echo_g(msg)
+        else:
+            echo_y(msg)
+
+    def _stop_self_master_client(self):
+        master_url, _ = self._local_master_client_url()
+        if not master_url:
+            return
+        client = self._master_clients.get(master_url)
+        if client is None or getattr(client, "agent_id", "") != "self":
+            return
+        ok, msg = client.stop()
+        if ok:
+            self._master_clients.pop(master_url, None)
+            echo_g(msg)
+        else:
+            echo_y(msg)
 
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
@@ -503,6 +562,65 @@ class VerifyPDB(Pdb):
             # Do nothing when empty line is entered
             pass
 
+    @staticmethod
+    def _normalize_path(path: str) -> str:
+        return os.path.abspath(os.path.expanduser(path))
+
+    def _workspace_realpath(self) -> str:
+        return os.path.realpath(self._workspace_cwd)
+
+    def _is_under_workspace(self, path: str) -> bool:
+        try:
+            workspace = self._workspace_realpath()
+            candidate = os.path.realpath(self._normalize_path(path))
+            return os.path.commonpath([workspace, candidate]) == workspace
+        except ValueError:
+            return False
+
+    def _resolve_command_path(self, path: str) -> str:
+        expanded = os.path.expanduser(path)
+        if os.path.isabs(expanded):
+            return self._normalize_path(expanded)
+        return self._normalize_path(os.path.join(self._command_cwd, expanded))
+
+    def _workspace_relpath(self, path: str) -> str:
+        relpath = os.path.relpath(path, self._workspace_cwd)
+        return "." if relpath == "." else relpath
+
+    def _complete_command_cwd_file(self, text: str, *, dirs_only: bool = False) -> list[str]:
+        text = text.strip()
+        search_root = self._command_cwd
+        prefix = ""
+
+        if text:
+            expanded = os.path.expanduser(text)
+            if os.path.isabs(expanded):
+                full_path = self._normalize_path(expanded)
+            else:
+                full_path = self._normalize_path(os.path.join(self._command_cwd, expanded))
+            if text.endswith("/"):
+                search_root = full_path
+            else:
+                search_root, prefix = os.path.split(full_path)
+
+        if not self._is_under_workspace(search_root) or not os.path.isdir(search_root):
+            return []
+
+        results = []
+        for name in os.listdir(search_root):
+            if not name.startswith(prefix):
+                continue
+            full_path = os.path.join(search_root, name)
+            is_dir = os.path.isdir(full_path)
+            if dirs_only and not is_dir:
+                continue
+            suffix = "/" if is_dir else ""
+            if text and os.path.dirname(text):
+                results.append(os.path.join(os.path.dirname(text), name) + suffix)
+            else:
+                results.append(name + suffix)
+        return results
+
     def api_complite_workspace_file(self, text):
         """Auto-complete workspace files
 
@@ -559,18 +677,18 @@ class VerifyPDB(Pdb):
 
     def do_ls(self, arg):
         """
-        List the current workspace directory.
+        List the current command working directory.
         """
         file_name = arg.strip()
-        full_path = os.path.abspath(os.path.join(self.agent.workspace, file_name))
-        if not full_path.startswith(os.path.abspath(self.agent.workspace)):
+        full_path = self._command_cwd if not file_name else self._resolve_command_path(file_name)
+        if not self._is_under_workspace(full_path):
             echo_y(f"Path '{file_name}' is outside the workspace.")
             return
         if not os.path.exists(full_path):
             echo_y(f"Path '{file_name}' does not exist.")
             return
         if not os.path.isdir(full_path):
-            echo(file_name)
+            echo(self._workspace_relpath(full_path))
             return
         for file in os.listdir(full_path):
             if os.path.isdir(os.path.join(full_path, file)):
@@ -582,7 +700,7 @@ class VerifyPDB(Pdb):
         """
         Auto-complete the list_workspace command.
         """
-        return self.api_complite_workspace_file(text)
+        return self._complete_command_cwd_file(text)
 
     def do_continue(self, arg):
         """
@@ -621,6 +739,190 @@ class VerifyPDB(Pdb):
         self.agent.set_break(False)
         self.agent.one_loop(msg)
     do_nrm = do_next_round_with_message
+
+    def do_short_prompt(self, arg):
+        """
+        Run one_loop with a configured short prompt.
+        Usage: short_prompt <name> [append_msg]
+        """
+        args = arg.strip().split(maxsplit=1)
+        if not args:
+            echo_y("Usage: short_prompt <name> [append_msg]")
+            return
+        name = args[0]
+        append_msg = args[1].strip() if len(args) > 1 else ""
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if name not in short_prompts:
+            echo_y(f"Short prompt '{name}' not found. Use short_prompt_list to see available prompts.")
+            return
+        msg = str(short_prompts[name])
+        if append_msg:
+            msg = f"{msg.rstrip()}\n{append_msg}"
+        self.do_chat(msg)
+
+    def complete_short_prompt(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
+
+    def do_short_prompt_list(self, arg):
+        """
+        List configured short prompts.
+        """
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if not short_prompts:
+            echo_y("No short_prompts configured.")
+            return
+        echo_g(f"Available short_prompts: {len(short_prompts)} total")
+        max_name_len = max(len(str(name)) for name in short_prompts)
+        for name in sorted(short_prompts):
+            preview = " ".join(str(short_prompts[name]).split())
+            words = preview.split()
+            if len(words) > 50:
+                preview = f"{' '.join(words[:50])}... [{len(words) - 50} words left]"
+            if not preview:
+                preview = "(empty)"
+            echo(f"  {name:<{max_name_len}} : {preview}")
+
+    def do_short_prompt_del(self, arg):
+        """
+        Delete a configured short prompt.
+        Usage: short_prompt_del <name>
+        """
+        name = arg.strip()
+        if not name:
+            echo_y("Usage: short_prompt_del <name>")
+            return
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        if name not in short_prompts:
+            echo_y(f"Short prompt '{name}' not found.")
+            return
+        del short_prompts[name]
+        cfg = self.agent.cfg
+        was_frozen = getattr(cfg, "_freeze", False)
+        cfg.un_freeze()
+        vibe_coding = cfg.get_value("vibe_coding", None)
+        if not isinstance(vibe_coding, Config):
+            vibe_coding = Config()
+            setattr(cfg, "vibe_coding", vibe_coding)
+        setattr(vibe_coding, "short_prompts", Config(short_prompts))
+        if was_frozen:
+            cfg.freeze()
+        echo_g(f"Deleted short prompt '{name}'.")
+
+    def complete_short_prompt_del(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt_del command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
+
+    def do_short_prompt_set(self, arg):
+        """
+        Set or add a configured short prompt.
+        Usage: short_prompt_set <name> <msg>
+        """
+        args = arg.strip().split(maxsplit=1)
+        if len(args) != 2 or not args[1].strip():
+            echo_y("Usage: short_prompt_set <name> <msg>")
+            return
+        name, msg = args[0], args[1].strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif isinstance(short_prompts, dict):
+            short_prompts = dict(short_prompts)
+        else:
+            short_prompts = {}
+        existed = name in short_prompts
+        short_prompts[name] = msg
+        cfg = self.agent.cfg
+        was_frozen = getattr(cfg, "_freeze", False)
+        cfg.un_freeze()
+        vibe_coding = cfg.get_value("vibe_coding", None)
+        if not isinstance(vibe_coding, Config):
+            vibe_coding = Config()
+            setattr(cfg, "vibe_coding", vibe_coding)
+        setattr(vibe_coding, "short_prompts", Config(short_prompts))
+        if was_frozen:
+            cfg.freeze()
+        action = "Updated" if existed else "Added"
+        echo_g(f"{action} short prompt '{name}'.")
+
+    def complete_short_prompt_set(self, text, line, begidx, endidx):
+        """
+        Auto-complete the short_prompt_set command.
+        """
+        text = text.strip()
+        try:
+            short_prompts = self.agent.cfg.get_value("vibe_coding.short_prompts", None)
+        except AttributeError:
+            short_prompts = {}
+        if isinstance(short_prompts, Config):
+            short_prompts = short_prompts.as_dict()
+        elif not isinstance(short_prompts, dict):
+            short_prompts = {}
+        return [
+            name
+            for name in sorted(str(name) for name in short_prompts.keys())
+            if name.startswith(text)
+        ]
 
     def do_loop(self, arg):
         """
@@ -1668,6 +1970,7 @@ class VerifyPDB(Pdb):
             if passwd:
                 echo_g(f"  Password   : set (API requires HTTP Basic Auth)")
             echo_g(msg)
+            self._ensure_self_master_client()
         else:
             echo_r(msg)
 
@@ -1681,6 +1984,7 @@ class VerifyPDB(Pdb):
             return
         ok, msg = self._cmd_api_server.stop()
         if ok:
+            self._stop_self_master_client()
             echo_g(msg)
         else:
             echo_r(msg)
@@ -2025,6 +2329,7 @@ class VerifyPDB(Pdb):
             if password:
                 echo_g(f"  Password   : set (dashboard/API requires HTTP Basic Auth)")
             echo_g(msg)
+            self._ensure_self_master_client()
         else:
             echo_r(msg)
 
@@ -2036,6 +2341,7 @@ class VerifyPDB(Pdb):
         if self._master_api_server is None or not self._master_api_server.is_running:
             echo_y("Master API server is not running.")
             return
+        self._stop_self_master_client()
         ok, msg = self._master_api_server.stop()
         if ok:
             echo_g(msg)
@@ -2418,6 +2724,51 @@ class VerifyPDB(Pdb):
             line = sep.join(f"{r[c]:<{widths[c]}}" for c in cols)
             _color.get(r["status"], echo_y)(line)
 
+    def do_sync_workspace_back(self, arg):
+        """
+        Upload the current workspace archive back to connected master(s).
+
+        Usage: sync_workspace_back [master_url]
+
+          sync_workspace_back
+          sync_workspace_back http://192.168.1.10:8800
+        """
+        if not self._master_clients:
+            echo_y("Workspace sync-back is unavailable: not connected to any master.")
+            echo_y("Use 'connect_master_to <host> [port]' first.")
+            return
+
+        target_url = (arg or "").strip().rstrip("/")
+        clients = []
+        if target_url:
+            client = self._master_clients.get(target_url)
+            if client is None and not target_url.startswith("http"):
+                client = self._master_clients.get(f"http://{target_url}")
+                if client is not None:
+                    target_url = f"http://{target_url}"
+            if client is None:
+                echo_y(f"No master connection found for '{target_url}'.")
+                echo_y("Use 'connect_master_list' to see active connections.")
+                return
+            clients = [(target_url, client)]
+        else:
+            clients = list(self._master_clients.items())
+
+        success_count = 0
+        for url, client in clients:
+            if not getattr(client, "is_running", False):
+                echo_y(f"Workspace sync-back skipped for {url}: master client is not running.")
+                continue
+            echo_g(f"Syncing workspace back to {url} ...")
+            ok, msg = client.sync_workspace_back(reason="manual")
+            if ok:
+                success_count += 1
+                echo_g(msg)
+            else:
+                echo_r(msg)
+        if success_count == 0:
+            echo_y("Workspace sync-back did not run on any master.")
+
     def do_list_demo_cmds(self, arg):
         """
         List all available demo commands.
@@ -2454,12 +2805,12 @@ class VerifyPDB(Pdb):
             return False, "Directory path cannot be empty."
         if dir_path.startswith("/"):
             dir_path = dir_path[1:]
-        abspath = os.path.abspath(os.path.join(self.agent.workspace, dir_path))
-        if not abspath.startswith(os.path.abspath(self.agent.workspace)):
+        abspath = os.path.abspath(os.path.join(self._workspace_cwd, dir_path))
+        if not self._is_under_workspace(abspath):
             return False, f"Path '{dir_path}' is outside the workspace."
         if not os.path.exists(abspath):
             return False, f"Path '{dir_path}' does not exist."
-        return True, os.path.relpath(abspath, self.agent.workspace)
+        return True, os.path.relpath(abspath, self._workspace_cwd)
 
     def do_add_write_path(self, arg):
         """
@@ -2581,17 +2932,75 @@ class VerifyPDB(Pdb):
             echo("  Type 'help <command>' for detailed help on a specific command.")
             echo("  Use Ctrl+C to interrupt execution and return to the prompt.")
 
+    def _set_command_cwd(self, dir_path: str, *, reset_dot: bool) -> None:
+        target = (
+            self._workspace_cwd
+            if reset_dot and dir_path == "."
+            else self._resolve_command_path(dir_path)
+        )
+        if not self._is_under_workspace(target):
+            echo_r(f"Path '{dir_path}' is outside the workspace.")
+            return
+        if not os.path.exists(target):
+            echo_r(f"Path '{dir_path}' does not exist.")
+            return
+        if not os.path.isdir(target):
+            echo_r(f"Path '{dir_path}' is not a directory.")
+            return
+
+        self._command_cwd = target
+        echo_g(f"Command working directory: {self._command_cwd}")
+
+    def do_chcwd(self, arg):
+        """
+        Change the command working directory within the workspace.
+        Usage: chcwd <workspace-subdir|.>
+
+        The command working directory is used by VerifyPDB file commands and
+        bash commands. It does not modify agent.workspace. Use "chcwd ." to
+        switch back to the workspace root.
+        """
+        dir_path = arg.strip()
+        if not dir_path:
+            echo_g(f"Command working directory: {self._command_cwd}")
+            return
+
+        self._set_command_cwd(dir_path, reset_dot=True)
+
+    def complete_chcwd(self, text, line, begidx, endidx):
+        """
+        Auto-complete the chcwd command.
+        """
+        return self._complete_command_cwd_file(text, dirs_only=True)
+
+    def do_cd(self, arg):
+        """
+        Change the command working directory within the workspace.
+        Usage: cd [dir]
+
+        Without an argument, switch back to the workspace root. Unlike chcwd,
+        "cd ." keeps the current command working directory.
+        """
+        dir_path = arg.strip() or "."
+        reset_dot = not arg.strip()
+        self._set_command_cwd(dir_path, reset_dot=reset_dot)
+
+    def complete_cd(self, text, line, begidx, endidx):
+        """
+        Auto-complete the cd command.
+        """
+        return self._complete_command_cwd_file(text, dirs_only=True)
+
     def do_pwd(self, arg):
         """
         Show current working directory and workspace information.
         """
-        current_dir = os.getcwd()
+        current_dir = self._command_cwd
         echo_g(f"Current working directory: {current_dir}")
         
-        if hasattr(self.agent, 'workspace') and self.agent.workspace:
-            echo_g(f"Agent workspace: {self.agent.workspace}")
-            if current_dir != self.agent.workspace:
-                echo_y("Note: Current directory differs from agent workspace")
+        echo_g(f"Agent workspace: {self._workspace_cwd}")
+        if current_dir != self._workspace_cwd:
+            echo_y("Note: Command working directory differs from agent workspace")
         
         if hasattr(self.agent, 'dut_name') and self.agent.dut_name:
             echo_g(f"DUT name: {self.agent.dut_name}")
@@ -2649,17 +3058,17 @@ class VerifyPDB(Pdb):
         echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
         echo(f"Executing as bash command: {line}")
         try:
-            # Change to agent's workspace directory before executing
-            original_cwd = os.getcwd()
-            if hasattr(self.agent, 'workspace') and self.agent.workspace:
-                os.chdir(self.agent.workspace)
-                echo(f"Working directory: {self.agent.workspace}")
+            if not os.path.isdir(self._command_cwd):
+                echo_r(f"Working directory does not exist: {self._command_cwd}")
+                return
+            echo(f"Working directory: {self._command_cwd}")
             # Execute the command using subprocess
             result = subprocess.run(
                 line, 
                 shell=True, 
                 capture_output=True, 
                 text=True, 
+                cwd=self._command_cwd,
                 timeout=30  # 30 second timeout to prevent hanging
             )
             # Display the output
@@ -2675,12 +3084,6 @@ class VerifyPDB(Pdb):
             echo_r(f"Command '{line}' timed out after 30 seconds")
         except Exception as e:
             echo_r(f"Error executing command '{line}': {str(e)}")
-        finally:
-            # Restore original working directory
-            try:
-                os.chdir(original_cwd)
-            except Exception:
-                pass
 
     def api_load_toffee_report(self, path, workspace):
         """

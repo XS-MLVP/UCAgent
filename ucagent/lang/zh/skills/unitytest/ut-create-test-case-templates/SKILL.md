@@ -1,5 +1,5 @@
 ---
-name: create-test-case-templates
+name: ut-create-test-case-templates
 description: 创建测试用例模板阶段专属技能,用于指导测试用例模板的创建以及格式规范
 ---
 
