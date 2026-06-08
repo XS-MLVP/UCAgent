@@ -174,6 +174,8 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .fm-btn.primary:hover{background:var(--accent)}
 .fm-btn.danger{background:none;border-color:var(--red);color:var(--red)}
 .fm-btn.danger:hover{background:var(--red);color:#fff}
+.fm-toggle{display:inline-flex;align-items:center;gap:5px;color:var(--text-dim);font-size:12px;cursor:pointer;white-space:nowrap}
+.fm-toggle:hover{color:var(--text)}
 #fm-table-wrap{flex:1;min-height:0;overflow:auto}
 table{width:100%;border-collapse:collapse}
 th{background:var(--bg3);color:var(--text-dim);font-size:11px;font-weight:600;padding:8px 12px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--border)}
@@ -391,6 +393,9 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
     <div id="fm-bar">
       <span id="breadcrumb"></span>
       <span id="workspace-mode-label"></span>
+      <label class="fm-toggle" title="Display file delete controls">
+        <input type="checkbox" id="show-file-delete-controls" style="accent-color:var(--accent)"> Show delete
+      </label>
       <button class="fm-btn" id="workspace-change-btn" onclick="changeWorkspaceFromCurrent()" style="display:none">Change Workspace</button>
       <button class="fm-btn primary" id="workspace-relaunch-btn" onclick="openRelaunchDialog()" style="display:none">Relaunch</button>
       <button class="fm-btn danger" id="workspace-exit-btn" onclick="exitSubWorkspace()" style="display:none">Exit Workspace</button>
@@ -609,6 +614,8 @@ let _uploadFiles = [];
 let _selectedStages = new Set();
 let _stageActionBusy = false;
 let _lastFileMeta = {};
+let _showFileDeleteControls = false;
+const _FILE_DELETE_CONTROLS_KEY = "ucagent-file-show-delete-controls";
 const _initialParams = new URLSearchParams(window.location.search);
 let _subWorkspace = _normalizeSubWorkspacePath(_initialParams.get("sub_worspace") || _initialParams.get("sub_workspace") || "");
 let _masterBaseUrl = "";
@@ -637,6 +644,23 @@ function openModal(id){
   }
 }
 function showErr(msg){alert("Error: "+msg)}
+function _initFileDeleteControls(){
+  const cb=qs("#show-file-delete-controls");
+  try{_showFileDeleteControls=localStorage.getItem(_FILE_DELETE_CONTROLS_KEY)==="1";}catch(e){_showFileDeleteControls=false;}
+  if(cb){
+    cb.checked=_showFileDeleteControls;
+    cb.addEventListener("change",function(){
+      _showFileDeleteControls=cb.checked;
+      try{localStorage.setItem(_FILE_DELETE_CONTROLS_KEY,_showFileDeleteControls?"1":"0");}catch(e){}
+      refreshFiles();
+    });
+  }
+}
+function _requireFileDeleteControls(){
+  if(_showFileDeleteControls)return true;
+  alert("Enable Show delete first.");
+  return false;
+}
 function resetUiLayout(){
   const keys=[
     "ucagent-show-current",
@@ -646,7 +670,8 @@ function resetUiLayout(){
     "ucagent.console.h",
     "ucagent.sidebar.w",
     "ucagent.modal.drag",
-    "ucagent.modal.resize"
+    "ucagent.modal.resize",
+    _FILE_DELETE_CONTROLS_KEY
   ];
   for(const key of keys){
     try{localStorage.removeItem(key);}catch(e){}
@@ -1832,7 +1857,7 @@ function _renderFiles(entries){
           ${canChangeWs?`<button class="act-btn" onclick="event.stopPropagation();changeWorkspace('${jsq(e.sub_workspace_path)}')" title="Switch to this UCAgent workspace">Change Workspace</button>`:""}
           <button class="act-btn" onclick="downloadFile('${esc(fpath)}')" title="Download as tar.gz">&#8681;</button>
           <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')">Rename</button>
-          <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>
+          ${_showFileDeleteControls?`<button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Delete</button>`:""}
         </td>
       </tr>`;
     }else{
@@ -1850,7 +1875,7 @@ function _renderFiles(entries){
           ${canView?`<button class="act-btn" onclick="openView('${esc(fpath)}','${esc(name)}','${esc(ext)}')">View</button>`:""}
           ${canWave?`<button class="act-btn" onclick="openWaveform('${esc(fpath)}')" title="Open waveform viewer">&#127976; Wave</button>`:""}          <button class="act-btn" onclick="serveFile('${esc(fpath)}')" title="Open in browser">&#128279;</button>          <button class="act-btn" onclick="downloadFile('${esc(fpath)}')">&#8681;</button>
           <button class="act-btn" onclick="openRename('${esc(fpath)}','${esc(name)}')" title="Rename">&#9998;</button>
-          <button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>
+          ${_showFileDeleteControls?`<button class="act-btn del" onclick="confirmDelete('${esc(fpath)}','${esc(name)}')">Del</button>`:""}
         </td>
       </tr>`;
     }
@@ -2101,6 +2126,7 @@ function downloadWorkspace(){
 
 /* ── delete ── */
 function confirmDelete(path,name){
+  if(!_requireFileDeleteControls())return;
   qs("#delete-name").textContent=name;
   qs("#delete-confirm-btn").onclick=async()=>{
     try{
@@ -2613,7 +2639,7 @@ document.addEventListener("keydown",function(e){
 });
 
 /* ── init ── */
-_updateSubWorkspaceModeUi();_initMissionSettings();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
+_updateSubWorkspaceModeUi();_initMissionSettings();_initFileDeleteControls();_initMasterBtn();fetchStatus();fetchMission();fetchTools();fetchFiles("");fetchChangedFiles();fetchConsole();fetchPdbStatus();fetchServerInfo();
 if(_subWorkspace)_syncConsoleWorkspace();
 setInterval(()=>{fetchStatus();fetchMission();fetchTools();},8000);
 setInterval(fetchChangedFiles,15000);
