@@ -78,6 +78,7 @@ _CATEGORY_DIRS = {
 }
 _LAUNCH_STATUS_FILE = ".launch_status"
 _LAUNCH_STATUS_EXPIRE_SECONDS = 600
+_LAUNCH_CLEANUP_INTERVAL_SECONDS = 30
 _CATEGORY_LABELS = {
     "main_verilog": "Main RTL",
     "rtl_extra": "Extra RTL",
@@ -605,6 +606,7 @@ class PdbMasterApiServer:
         self._task_runtime: Dict[str, Dict[str, Any]] = {}
         self._compile_runtime: Dict[str, Dict[str, Any]] = {}
         self._compile_runtime_lock = threading.Lock()
+        self._workspace_cleanup_lock = threading.Lock()
 
         self._running = False
         self.started_at: Optional[float] = None
@@ -618,6 +620,7 @@ class PdbMasterApiServer:
         self._proxy_session = None
         self._dirty = False
         self._last_saved = 0.0
+        self._last_launch_cleanup = 0.0
 
         self._launch_roots = self._resolve_launch_roots()
 
@@ -969,11 +972,42 @@ class PdbMasterApiServer:
         changed = False
         files = ws.setdefault("files", [])
         root = ws.get("workspace_dir", "")
+        workspace_id = str(ws.get("workspace_id") or "").strip()
+        status_data = self._read_launch_status(root) if root and os.path.isdir(root) else {}
         if "compile" not in ws:
             ws["compile"] = {}
             changed = True
         if "picker_workspace" not in ws and root:
             ws["picker_workspace"] = os.path.join(root, "workspace")
+            changed = True
+        if not ws.get("base_root"):
+            ws["base_root"] = self.workspace
+            changed = True
+        if not ws.get("task_id") and workspace_id:
+            ws["task_id"] = workspace_id
+            changed = True
+        file_status = str(status_data.get("status") or "").strip()
+        launch_status = str(ws.get("launch_status") or ws.get("status") or file_status or "").strip()
+        if file_status == "launched":
+            launch_status = "launched"
+        if launch_status == "created":
+            launch_status = "active"
+        if launch_status not in {"reserved", "active", "released", "launched"}:
+            launch_status = "active" if files or ws.get("compile") else "reserved"
+        if ws.get("launch_status") != launch_status:
+            ws["launch_status"] = launch_status
+            changed = True
+        materialized = bool(ws.get("materialized"))
+        if root and os.path.isdir(root):
+            materialized = True
+        if ws.get("materialized") != materialized:
+            ws["materialized"] = materialized
+            changed = True
+        if "materialized_at" not in ws:
+            ws["materialized_at"] = ws.get("created_at", 0) if materialized else 0
+            changed = True
+        if not ws.get("last_seen"):
+            ws["last_seen"] = status_data.get("updated_at") or ws.get("created_at") or _now()
             changed = True
         for item in files:
             stored_path = item.get("stored_path", "")
@@ -1076,6 +1110,10 @@ class PdbMasterApiServer:
             "workspace_dir": ws.get("workspace_dir", ""),
             "base_root": ws.get("base_root", ""),
             "created_at": ws.get("created_at", 0),
+            "materialized": bool(ws.get("materialized")),
+            "materialized_at": ws.get("materialized_at", 0),
+            "launch_status": ws.get("launch_status", ""),
+            "last_seen": ws.get("last_seen", 0),
             "task_id": ws.get("task_id", ""),
             "files": files,
             "compile": self._workspace_compile_public(ws),
@@ -1110,7 +1148,6 @@ class PdbMasterApiServer:
 
     def _create_workspace(self) -> Dict[str, Any]:
         base_root = self.workspace
-        os.makedirs(base_root, exist_ok=True)
         with self._workspaces_lock:
             existing_workspace_ids = set(self._workspaces.keys())
         with self._tasks_lock:
@@ -1123,14 +1160,17 @@ class PdbMasterApiServer:
             if not os.path.exists(ws_dir):
                 break
         picker_workspace = os.path.join(ws_dir, "workspace")
-        os.makedirs(picker_workspace, exist_ok=True)
-        self._write_launch_status(ws_dir, "created")
+        now = _now()
         ws = {
             "workspace_id": workspace_id,
             "workspace_dir": ws_dir,
             "picker_workspace": picker_workspace,
             "base_root": base_root,
-            "created_at": _now(),
+            "created_at": now,
+            "last_seen": now,
+            "materialized": False,
+            "materialized_at": 0,
+            "launch_status": "reserved",
             "files": [],
             "task_id": workspace_id,
             "compile": {},
@@ -1140,39 +1180,228 @@ class PdbMasterApiServer:
         self._mark_dirty()
         return ws
 
+    def _safe_launch_workspace_dir(self, workspace_id: str, ws_dir: str) -> bool:
+        if not ws_dir:
+            return False
+        base_root = os.path.abspath(self.workspace)
+        root = os.path.abspath(ws_dir)
+        if root == base_root or not _path_is_under(base_root, root):
+            return False
+        name = os.path.basename(root)
+        workspace_id = str(workspace_id or "").strip()
+        return bool(
+            (workspace_id and name == workspace_id)
+            or name.startswith("ucagent_launch_")
+            or re.fullmatch(r"[0-9a-f]{16}", name)
+        )
+
+    def _touch_workspace_launch_session(self, workspace_id: str, status: str = "") -> Dict[str, Any]:
+        with self._workspace_cleanup_lock:
+            now = _now()
+            ws_dir = ""
+            status_val = ""
+            task_id = ""
+            materialized = False
+            with self._workspaces_lock:
+                ws = self._workspaces.get(workspace_id)
+                if ws is None:
+                    raise KeyError(f"Workspace '{workspace_id}' not found")
+                self._normalize_workspace_locked(ws)
+                status_val = str(status or ws.get("launch_status") or "active").strip()
+                if status_val == "release":
+                    status_val = "released"
+                if ws.get("launch_status") == "launched" and status_val != "launched":
+                    status_val = "launched"
+                if status_val == "created":
+                    status_val = "active"
+                if status_val not in {"reserved", "active", "released", "launched"}:
+                    status_val = "active"
+                ws["launch_status"] = status_val
+                ws["last_seen"] = now
+                if status_val == "released" and not ws.get("released_at"):
+                    ws["released_at"] = now
+                ws_dir = str(ws.get("workspace_dir") or "")
+                task_id = str(ws.get("task_id") or "")
+                materialized = bool(ws.get("materialized")) or bool(ws_dir and os.path.isdir(ws_dir))
+                ws["materialized"] = materialized
+            if materialized:
+                self._write_launch_status(ws_dir, status_val, workspace_id=workspace_id, task_id=task_id)
+        self._mark_dirty()
+        return self._get_workspace(workspace_id)
+
+    def _ensure_workspace_materialized(self, workspace_id: str, status: str = "active") -> Dict[str, Any]:
+        with self._workspace_cleanup_lock:
+            with self._workspaces_lock:
+                ws = self._workspaces.get(workspace_id)
+                if ws is None:
+                    raise KeyError(f"Workspace '{workspace_id}' not found")
+                self._normalize_workspace_locked(ws)
+                ws_dir = str(ws.get("workspace_dir") or "")
+                picker_workspace = str(ws.get("picker_workspace") or os.path.join(ws_dir, "workspace"))
+                task_id = str(ws.get("task_id") or workspace_id)
+            if not self._safe_launch_workspace_dir(workspace_id, ws_dir):
+                raise ValueError(f"Refusing to create unsafe launch workspace directory: {ws_dir}")
+            os.makedirs(picker_workspace, exist_ok=True)
+            now = _now()
+            with self._workspaces_lock:
+                ws = self._workspaces.get(workspace_id)
+                if ws is None:
+                    raise KeyError(f"Workspace '{workspace_id}' not found")
+                ws["workspace_dir"] = ws_dir
+                ws["picker_workspace"] = picker_workspace
+                ws["materialized"] = True
+                if not ws.get("materialized_at"):
+                    ws["materialized_at"] = now
+                ws["last_seen"] = now
+                if ws.get("launch_status") != "launched":
+                    ws["launch_status"] = status if status in {"reserved", "active", "released", "launched"} else "active"
+                status_val = str(ws.get("launch_status") or "active")
+                task_id = str(ws.get("task_id") or task_id)
+            self._write_launch_status(ws_dir, status_val, workspace_id=workspace_id, task_id=task_id)
+        self._mark_dirty()
+        return self._get_workspace(workspace_id)
+
+    def _mark_workspace_launched(self, workspace_id: str, task_id: str) -> None:
+        try:
+            ws = self._touch_workspace_launch_session(workspace_id, status="launched")
+        except KeyError:
+            return
+        ws_dir = str(ws.get("workspace_dir") or "")
+        if ws_dir and os.path.isdir(ws_dir):
+            self._write_launch_status(ws_dir, "launched", workspace_id=workspace_id, task_id=task_id)
+
     def _cleanup_stale_workspaces(self) -> int:
         base_root = self.workspace
-        if not os.path.isdir(base_root):
-            return 0
         cleaned = 0
         now = _now()
-        for entry in os.listdir(base_root):
-            ws_dir = os.path.join(base_root, entry)
-            if not os.path.isdir(ws_dir):
-                continue
-            if not entry.startswith("ucagent_launch_") and not (
-                re.fullmatch(r"[0-9a-f]{16}", entry)
-                and os.path.isfile(os.path.join(ws_dir, _LAUNCH_STATUS_FILE))
-            ):
-                continue
-            status = self._read_launch_status(ws_dir)
-            status_val = status.get("status", "unknown")
-            updated_at = status.get("updated_at", 0)
-            if status_val == "launched":
-                continue
-            if now - updated_at > _LAUNCH_STATUS_EXPIRE_SECONDS:
-                try:
-                    shutil.rmtree(ws_dir)
+        with self._tasks_lock:
+            task_ids = set(self._tasks.keys())
+            task_workspace_ids = {
+                str(task.get("workspace_id") or "").strip()
+                for task in self._tasks.values()
+                if str(task.get("workspace_id") or "").strip()
+            }
+        with self._compile_runtime_lock:
+            running_compile_ids = {
+                workspace_id
+                for workspace_id, runtime in self._compile_runtime.items()
+                if runtime.get("status") == "running"
+            }
+        stale_workspace_ids: List[Tuple[str, str]] = []
+        with self._workspaces_lock:
+            for workspace_id, ws in list(self._workspaces.items()):
+                self._normalize_workspace_locked(ws)
+                task_id = str(ws.get("task_id") or "").strip()
+                launched = (
+                    ws.get("launch_status") == "launched"
+                    or workspace_id in task_workspace_ids
+                    or task_id in task_ids
+                )
+                if launched or workspace_id in running_compile_ids:
+                    continue
+                last_seen = float(ws.get("last_seen") or ws.get("created_at") or 0)
+                released = ws.get("launch_status") == "released"
+                if not released and now - last_seen <= _LAUNCH_STATUS_EXPIRE_SECONDS:
+                    continue
+                stale_workspace_ids.append((workspace_id, str(ws.get("workspace_dir") or "")))
+        for workspace_id, ws_dir in stale_workspace_ids:
+            with self._workspace_cleanup_lock:
+                with self._tasks_lock:
+                    task_ids = set(self._tasks.keys())
+                    task_workspace_ids = {
+                        str(task.get("workspace_id") or "").strip()
+                        for task in self._tasks.values()
+                        if str(task.get("workspace_id") or "").strip()
+                    }
+                with self._compile_runtime_lock:
+                    running_compile_ids = {
+                        wid
+                        for wid, runtime in self._compile_runtime.items()
+                        if runtime.get("status") == "running"
+                    }
+                with self._workspaces_lock:
+                    ws = self._workspaces.get(workspace_id)
+                    if ws is None:
+                        continue
+                    self._normalize_workspace_locked(ws)
+                    task_id = str(ws.get("task_id") or "").strip()
+                    launched = (
+                        ws.get("launch_status") == "launched"
+                        or workspace_id in task_workspace_ids
+                        or task_id in task_ids
+                    )
+                    last_seen = float(ws.get("last_seen") or ws.get("created_at") or 0)
+                    released = ws.get("launch_status") == "released"
+                    if (
+                        launched
+                        or workspace_id in running_compile_ids
+                        or (not released and now - last_seen <= _LAUNCH_STATUS_EXPIRE_SECONDS)
+                    ):
+                        continue
+                    ws_dir = str(ws.get("workspace_dir") or ws_dir)
+                removed = False
+                if ws_dir and os.path.isdir(ws_dir):
+                    if not self._safe_launch_workspace_dir(workspace_id, ws_dir):
+                        warning(f"Skip unsafe stale launch workspace cleanup path '{ws_dir}'")
+                        continue
+                    try:
+                        shutil.rmtree(ws_dir)
+                        removed = True
+                    except OSError as exc:
+                        warning(f"Failed to clean stale launch workspace '{ws_dir}': {exc}")
+                        continue
+                else:
+                    removed = True
+                if removed:
+                    with self._workspaces_lock:
+                        self._workspaces.pop(workspace_id, None)
+                    with self._compile_runtime_lock:
+                        self._compile_runtime.pop(workspace_id, None)
                     cleaned += 1
-                except OSError as exc:
-                    warning(f"Failed to clean stale launch workspace '{ws_dir}': {exc}")
+                    self._mark_dirty()
+        if os.path.isdir(base_root):
+            known_dirs = set()
+            with self._workspaces_lock:
+                known_dirs = {
+                    os.path.abspath(str(ws.get("workspace_dir") or ""))
+                    for ws in self._workspaces.values()
+                    if ws.get("workspace_dir")
+                }
+            with self._tasks_lock:
+                known_dirs.update(
+                    os.path.abspath(str(task.get("workspace_dir") or ""))
+                    for task in self._tasks.values()
+                    if task.get("workspace_dir")
+                )
+            for entry in os.listdir(base_root):
+                ws_dir = os.path.abspath(os.path.join(base_root, entry))
+                if ws_dir in known_dirs or not os.path.isdir(ws_dir):
+                    continue
+                if not entry.startswith("ucagent_launch_") and not (
+                    re.fullmatch(r"[0-9a-f]{16}", entry)
+                    and os.path.isfile(os.path.join(ws_dir, _LAUNCH_STATUS_FILE))
+                ):
+                    continue
+                status = self._read_launch_status(ws_dir)
+                status_val = status.get("status", "unknown")
+                updated_at = status.get("updated_at", 0)
+                if status_val == "launched":
+                    continue
+                if status_val == "released" or now - updated_at > _LAUNCH_STATUS_EXPIRE_SECONDS:
+                    try:
+                        shutil.rmtree(ws_dir)
+                        cleaned += 1
+                    except OSError as exc:
+                        warning(f"Failed to clean stale launch workspace '{ws_dir}': {exc}")
         return cleaned
 
-    def _write_launch_status(self, ws_dir: str, status: str) -> None:
+    def _write_launch_status(self, ws_dir: str, status: str, workspace_id: str = "", task_id: str = "") -> None:
         status_file = os.path.join(ws_dir, _LAUNCH_STATUS_FILE)
         status_data = {
             "status": status,
             "updated_at": _now(),
+            "workspace_id": workspace_id,
+            "task_id": task_id,
         }
         try:
             with open(status_file, "w", encoding="utf-8") as fh:
@@ -1231,7 +1460,7 @@ class PdbMasterApiServer:
         return None
 
     def _store_file_bytes(self, workspace_id: str, category: str, filename: str, data: bytes, source: str, src_path: str) -> Dict[str, Any]:
-        ws = self._get_workspace(workspace_id)
+        ws = self._ensure_workspace_materialized(workspace_id, status="active")
         safe_name = _safe_name(filename, "file")
         rel_target = self._workspace_item_target(category, safe_name)
         abs_target = self._safe_under_root(ws["workspace_dir"], rel_target)
@@ -1248,6 +1477,7 @@ class PdbMasterApiServer:
         )
 
     def _store_existing_file(self, workspace_id: str, category: str, source_path: str) -> Dict[str, Any]:
+        self._ensure_workspace_materialized(workspace_id, status="active")
         if _is_picker_f_file(source_path):
             return self._record_workspace_file(
                 workspace_id,
@@ -1333,7 +1563,7 @@ class PdbMasterApiServer:
         selected_module: str = "",
         picker_extra_args: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        ws = self._get_workspace(workspace_id)
+        ws = self._ensure_workspace_materialized(workspace_id, status="active")
         root = ws["workspace_dir"]
         picker_workspace = ws.get("picker_workspace") or os.path.join(root, "workspace")
         dut = _safe_name(effective_dut, "DUT")
@@ -3898,6 +4128,7 @@ class PdbMasterApiServer:
             task["cmd_api"]["status"] = "starting"
             if not task["terminal_api"].get("enabled"):
                 task["terminal_api"]["status"] = "stopped"
+        self._mark_workspace_launched(workspace_id, task["task_id"])
         self._mark_dirty()
         return task
 
@@ -4774,6 +5005,17 @@ class PdbMasterApiServer:
         @app.post("/api/workspace", summary="Create launch workspace", dependencies=[Depends(_check_password)])
         def create_workspace():
             ws = self._create_workspace()
+            return {"status": "ok", "workspace": self._workspace_public(ws)}
+
+        @app.post("/api/workspace/{workspace_id}/heartbeat", summary="Refresh launch workspace page heartbeat", dependencies=[Depends(_check_password)])
+        def workspace_heartbeat(workspace_id: str, body: Dict[str, Any] = Body(default_factory=dict)):
+            try:
+                status = str((body or {}).get("status") or "").strip()
+                ws = self._touch_workspace_launch_session(workspace_id, status=status)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            if ws.get("launch_status") == "released":
+                self._cleanup_stale_workspaces()
             return {"status": "ok", "workspace": self._workspace_public(ws)}
 
         @app.get("/api/workspace/{workspace_id}.tar.gz", summary="Download compiled DUT workspace archive", dependencies=[Depends(_check_workspace_archive_access)])
@@ -6026,6 +6268,12 @@ class PdbMasterApiServer:
                     del self._online_cache[aid]
 
             self._refresh_task_states()
+
+            if (now - self._last_launch_cleanup) >= _LAUNCH_CLEANUP_INTERVAL_SECONDS:
+                self._last_launch_cleanup = now
+                cleaned = self._cleanup_stale_workspaces()
+                if cleaned:
+                    _master_log(f"Cleaned {cleaned} stale launch workspace(s)")
 
             if self._dirty and (now - self._last_saved) >= self.PERIODIC_SAVE_INTERVAL:
                 self._save_db()

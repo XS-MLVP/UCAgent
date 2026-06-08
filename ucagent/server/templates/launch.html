@@ -108,8 +108,8 @@
   <section class="card stack">
     <div class="stage-card">
       <div class="stage-title"><h2>Workspace</h2></div>
-      <div id="workspace-status" class="status warn">Creating a temporary workspace on the master host...</div>
-      <div class="stage-note">The master creates the workspace automatically. If no browse root is configured, the server picker falls back to the <code>examples</code> directory above <code>cli.py</code>.</div>
+      <div id="workspace-status" class="status warn">Reserving a launch workspace on the master host...</div>
+      <div class="stage-note">The master reserves a task id and display path first, then creates the directory only when files are uploaded/imported or DUT compilation starts. If no browse root is configured, the server picker falls back to the <code>examples</code> directory above <code>cli.py</code>.</div>
     </div>
 
     <div class="stage-card">
@@ -169,7 +169,7 @@
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="file-table-body"><tr><td colspan="6" class="muted">Waiting for workspace creation...</td></tr></tbody>
+          <tbody id="file-table-body"><tr><td colspan="6" class="muted">Waiting for workspace reservation...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -327,10 +327,14 @@ const TAG_OPTIONS = [
 const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args']);
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
+const WORKSPACE_HEARTBEAT_INTERVAL_MS = 30000;
 
 const state = {
   workspace: null,
   workspaceId: '',
+  workspaceHeartbeatTimer: null,
+  workspaceReleased: false,
+  launchSucceeded: false,
   browserRoots: [],
   browser: {
     visible: false,
@@ -769,6 +773,77 @@ async function createWorkspace() {
     }
   }
   throw lastError || new Error('Failed to create workspace.');
+}
+
+function renderWorkspaceStatus() {
+  if (!state.workspace) {
+    setStatus('workspace-status', 'warn', 'Reserving a launch workspace on the master host...');
+    return;
+  }
+  const materialized = Boolean(state.workspace.materialized);
+  const pathLabel = materialized ? 'Workspace Path' : 'Reserved Path';
+  const detail = materialized
+    ? 'The workspace directory is active on the master host.'
+    : 'The directory has not been created yet. It will be created when files are uploaded/imported or DUT compilation starts.';
+  setStatus(
+    'workspace-status',
+    materialized ? 'ok' : 'warn',
+    `Workspace ID: <code>${esc(state.workspace.workspace_id)}</code><br>` +
+    `${pathLabel}: <code>${esc(state.workspace.workspace_dir)}</code><br>` +
+    `Base Root: <code>${esc(state.workspace.base_root)}</code><br>` +
+    `<span class="muted">${esc(detail)}</span>`
+  );
+}
+
+async function heartbeatWorkspace() {
+  if (!state.workspaceId) return;
+  try {
+    const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'active' }),
+    });
+    if (data.workspace && data.workspace.workspace_id === state.workspaceId) {
+      state.workspace = data.workspace;
+      renderWorkspaceStatus();
+    }
+  } catch (error) {
+    console.debug('workspace heartbeat failed', error);
+  }
+}
+
+function startWorkspaceHeartbeat() {
+  if (state.workspaceHeartbeatTimer) {
+    clearInterval(state.workspaceHeartbeatTimer);
+  }
+  state.workspaceHeartbeatTimer = setInterval(heartbeatWorkspace, WORKSPACE_HEARTBEAT_INTERVAL_MS);
+}
+
+function releaseWorkspace() {
+  if (!state.workspaceId || state.workspaceReleased || state.launching || state.launchSucceeded) return;
+  state.workspaceReleased = true;
+  if (state.workspaceHeartbeatTimer) {
+    clearInterval(state.workspaceHeartbeatTimer);
+    state.workspaceHeartbeatTimer = null;
+  }
+  const url = `/api/workspace/${encodeURIComponent(state.workspaceId)}/heartbeat`;
+  const body = JSON.stringify({ status: 'released' });
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      if (navigator.sendBeacon(url, blob)) return;
+    }
+  } catch {
+  }
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+  }
 }
 
 function getFiles() {
@@ -1247,14 +1322,14 @@ function buildPickerArgs(selectedModule = getSelectedModule(), dutName = getDesi
 }
 
 function buildPickerPreview() {
-  if (!state.workspace) return 'Waiting for workspace creation...';
+  if (!state.workspace) return 'Waiting for workspace reservation...';
   if (!isNextStepUnlocked()) return 'Waiting for Main RTL or .f filelist plus Verification Needs...';
   if (!getSelectedModule()) return 'Waiting for Main RTL Module...';
   return shellJoin(buildPickerArgs());
 }
 
 function buildCommandPreview() {
-  if (!state.workspace) return 'Waiting for workspace creation...';
+  if (!state.workspace) return 'Waiting for workspace reservation...';
   const selectedModule = getSelectedModule();
   const dutName = getDesiredDutName() || '<dut>';
   const compile = getCompileInfo();
@@ -1339,6 +1414,7 @@ function updateLaunchState() {
 function syncWorkspace(workspace) {
   state.workspace = workspace;
   state.workspaceId = workspace.workspace_id;
+  renderWorkspaceStatus();
   renderFileTable();
   syncConfigPathDefault();
   renderGateState();
@@ -1730,6 +1806,7 @@ async function launchTask() {
     });
     if (data.status === 'ok') {
       launchedTaskId = data.task.task_id;
+      state.launchSucceeded = true;
       setStatus('launch-status', 'ok', `Task ${esc(data.task.task_id)} launched successfully. Redirecting to /task/ ...`);
       setTimeout(() => { window.location.href = `/task/#task-${encodeURIComponent(data.task.task_id)}`; }, 1200);
       return;
@@ -2017,13 +2094,7 @@ async function initPage() {
 
     const wsData = await createWorkspace();
     syncWorkspace(wsData.workspace);
-    setStatus(
-      'workspace-status',
-      'ok',
-      `Workspace ID: <code>${esc(state.workspace.workspace_id)}</code><br>` +
-      `Workspace Path: <code>${esc(state.workspace.workspace_dir)}</code><br>` +
-      `Base Root: <code>${esc(state.workspace.base_root)}</code>`
-    );
+    startWorkspaceHeartbeat();
 
     const rootData = await api('/api/launch/file-roots');
     state.browserRoots = rootData.roots || [];
@@ -2346,6 +2417,12 @@ document.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('DOMContentLoaded', initPage);
+window.addEventListener('focus', heartbeatWorkspace);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) heartbeatWorkspace();
+});
+window.addEventListener('pagehide', releaseWorkspace);
+window.addEventListener('beforeunload', releaseWorkspace);
 </script>
 <script src="/static/share/ucagent-shell.js"></script>
 <script>
