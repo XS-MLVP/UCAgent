@@ -79,6 +79,7 @@
     color:var(--text);padding:7px 10px;font-size:13px;font-family:var(--font);cursor:pointer}
   .filter-select:focus{outline:none;border-color:var(--accent)}
   .header-toggle{color:var(--text-dim);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer}
+  .section-title{font-size:15px;font-weight:700;margin:4px 0 10px;color:var(--text);text-align:center}
   /* ── Table ───────────────────────────────────────────────────────────── */
   .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
   table{width:100%;border-collapse:collapse;table-layout:auto}
@@ -232,6 +233,7 @@
     <span id="page-num" style="color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
     <button class="btn btn-ghost btn-sm" id="page-next" onclick="nextPage()" disabled>Next →</button>
   </div>
+  <h2 class="section-title">Client List</h2>
   <div class="table-wrap">
     <table>
       <thead>
@@ -460,12 +462,21 @@ function updateDeleteControlsUi() {
   if (!_showDeleteControls) _selectedIds.clear();
   updateBatchBtn();
 }
+function hasCompletedWorkspace(agent) {
+  if (!agent) return false;
+  if (String(agent.completed_sub_workspace || '').trim()) return true;
+  return Boolean(agent.launch && agent.launch_task_finished && agent.launch_task_id);
+}
+function shouldOpenCompletedWorkspace(agent) {
+  if (!hasCompletedWorkspace(agent)) return false;
+  return !isOnlineAgent(agent);
+}
 function taskOpenUrl(agent) {
   if (!agent) return '';
+  if (shouldOpenCompletedWorkspace(agent)) return '';
   if (agent.launch && agent.launch_task_id && !agent.launch_task_finished) {
     return agent.cmd_api_proxy || `/task/${encodeURIComponent(agent.launch_task_id)}/cmd/`;
   }
-  if (agent.launch && agent.launch_task_finished) return '';
   return agent.cmd_api_proxy || '';
 }
 function completedWorkspaceUrl(path) {
@@ -492,24 +503,22 @@ async function resolveCompletedWorkspacePath(agent) {
 }
 function detailOpenTarget(agent) {
   if (!agent) return '';
-  if (agent.launch && agent.launch_task_finished) {
-    if (agent.completed_sub_workspace) {
-      return `/agent/self/cmd/?sub_worspace=${encodeURIComponent(agent.completed_sub_workspace)}`;
-    }
+  if (shouldOpenCompletedWorkspace(agent)) {
+    if (agent.completed_sub_workspace) return completedWorkspaceUrl(agent.completed_sub_workspace);
     return '';
   }
   return agent.cmd_api_proxy || '';
 }
 function canOpenAgent(agent) {
   if (!agent) return false;
-  if (agent.launch && agent.launch_task_finished) {
+  if (shouldOpenCompletedWorkspace(agent)) {
     return Boolean((agent.completed_sub_workspace || agent.launch_task_id) && selfCmdApiAvailable());
   }
   if (agent.launch) return Boolean(taskOpenUrl(agent));
   return Boolean(agent.cmd_api_tcp && taskOpenUrl(agent));
 }
 function openButtonTitle(agent) {
-  if (agent && agent.launch && agent.launch_task_finished) return 'Open completed workspace';
+  if (shouldOpenCompletedWorkspace(agent)) return 'Open completed workspace';
   if (agent && agent.launch) return 'Open task CMD API';
   return 'Open CMD API';
 }
@@ -520,11 +529,11 @@ async function openAgent(agentId) {
     return;
   }
   const proxy = taskOpenUrl(agent);
-  if (agent.launch && agent.launch_task_finished && !selfCmdApiAvailable()) {
+  if (shouldOpenCompletedWorkspace(agent) && !selfCmdApiAvailable()) {
     toast('Self CMD API not running', false);
     return;
   }
-  if (agent.launch && agent.launch_task_finished) {
+  if (shouldOpenCompletedWorkspace(agent)) {
     try {
       const resolvedPath = await resolveCompletedWorkspacePath(agent);
       window.open(completedWorkspaceUrl(resolvedPath), '_blank');
@@ -537,7 +546,7 @@ async function openAgent(agentId) {
     window.open(proxy, '_blank');
     return;
   }
-  if (agent.launch && agent.launch_task_finished) {
+  if (shouldOpenCompletedWorkspace(agent)) {
     toast('Completed workspace not available', false);
   } else {
     toast('CMD API not running', false);
@@ -703,7 +712,7 @@ function renderTable() {
         <button class="btn btn-ghost btn-sm" onclick="openDetail('${esc(a.id)}')">👁 Detail</button>
         ${(()=> {
           if (!canOpenAgent(a)) {
-            const title = a.launch && a.launch_task_finished ? 'Completed workspace not available' : 'CMD API not running';
+            const title = shouldOpenCompletedWorkspace(a) ? 'Completed workspace not available' : 'CMD API not running';
             return `<button class="btn btn-ghost btn-sm" disabled title="${esc(title)}" style="opacity:.35;cursor:not-allowed">Open</button>`;
           }
           return `<button class="btn btn-secondary btn-sm" type="button" onclick="openAgent('${esc(a.id)}')" style="text-decoration:none" title="${esc(openButtonTitle(a))}">Open</button>`;

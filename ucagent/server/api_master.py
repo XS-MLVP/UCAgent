@@ -4415,6 +4415,10 @@ class PdbMasterApiServer:
                         candidate = self._compiled_workspace_dir(ws)
                 except (KeyError, ValueError, OSError):
                     candidate = ""
+        return self._completed_sub_workspace_from_path(candidate)
+
+    def _completed_sub_workspace_from_path(self, path: str) -> str:
+        candidate = str(path or "").strip()
         if not candidate:
             return ""
         candidate = os.path.abspath(candidate)
@@ -4426,6 +4430,59 @@ class PdbMasterApiServer:
             return ""
         rel = os.path.relpath(candidate, base)
         return "" if rel == "." else rel
+
+    def _agent_completed_sub_workspace(self, agent: Dict[str, Any], launch_task: Optional[Dict[str, Any]] = None) -> str:
+        completed = self._task_completed_sub_workspace(launch_task)
+        if completed:
+            return completed
+        agent_id = str((agent or {}).get("id") or "").strip()
+        if not agent_id:
+            return ""
+        extra = (agent or {}).get("extra") or {}
+        agent_workspace = str(extra.get("workspace") or "").strip()
+        agent_workspace_real = os.path.realpath(os.path.abspath(agent_workspace)) if agent_workspace else ""
+        agent_workspace_parent = os.path.basename(os.path.dirname(agent_workspace_real)) if agent_workspace_real else ""
+
+        def _num(value: Any) -> float:
+            try:
+                return float(value or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        candidates: List[Tuple[int, float, str]] = []
+        with self._workspaces_lock:
+            workspaces = [dict(ws) for ws in self._workspaces.values()]
+        for ws in workspaces:
+            ws_id = str(ws.get("workspace_id") or "").strip()
+            ws_task_id = str(ws.get("task_id") or "").strip()
+            last_client_id = str(ws.get("last_launch_client_id") or "").strip()
+            sync_info = ws.get("last_sync_back") or {}
+            sync_agent_id = str(sync_info.get("agent_id") or "").strip() if isinstance(sync_info, dict) else ""
+            related = bool(last_client_id and last_client_id == agent_id)
+            related = related or bool(sync_agent_id and sync_agent_id == agent_id)
+            if agent_workspace_parent:
+                related = related or agent_workspace_parent in {ws_id, ws_task_id}
+            try:
+                compiled_path = self._compiled_workspace_match_path(ws)
+            except Exception:
+                compiled_path = ""
+            compiled_real = os.path.realpath(os.path.abspath(compiled_path)) if compiled_path else ""
+            if agent_workspace_real and compiled_real and agent_workspace_real == compiled_real:
+                related = True
+            if not related:
+                continue
+            recency = max(_num(ws.get("last_seen")), _num(ws.get("created_at")), _num(sync_info.get("synced_at") if isinstance(sync_info, dict) else 0))
+            sync_target = str(sync_info.get("target_dir") or "").strip() if isinstance(sync_info, dict) else ""
+            if sync_target:
+                candidates.append((0, -recency, sync_target))
+            if compiled_path:
+                candidates.append((1, -recency, compiled_path))
+        candidates.sort()
+        for _priority, _recency, candidate in candidates:
+            completed = self._completed_sub_workspace_from_path(candidate)
+            if completed:
+                return completed
+        return ""
 
     def _task_is_finished(self, task: Optional[Dict[str, Any]]) -> bool:
         if not task:
@@ -5122,7 +5179,7 @@ class PdbMasterApiServer:
                     launch_task = self._launched_task_for_agent_id(agent["id"])
                     launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
                     launch_task_finished = self._task_is_finished(launch_task)
-                    completed_sub_workspace = self._task_completed_sub_workspace(launch_task)
+                    completed_sub_workspace = self._agent_completed_sub_workspace(agent, launch_task)
                     data.append({
                         "id": agent["id"],
                         "host": agent["host"],
@@ -5193,7 +5250,7 @@ class PdbMasterApiServer:
             launch_task = self._launched_task_for_agent_id(agent["id"])
             launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
             launch_task_finished = self._task_is_finished(launch_task)
-            completed_sub_workspace = self._task_completed_sub_workspace(launch_task)
+            completed_sub_workspace = self._agent_completed_sub_workspace(agent, launch_task)
             data = {
                 "id": agent["id"],
                 "host": agent["host"],
