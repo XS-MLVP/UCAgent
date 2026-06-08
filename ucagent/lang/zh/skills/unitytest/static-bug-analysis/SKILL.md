@@ -1,5 +1,5 @@
 ---
-name: ut-static-bug-analysis
+name: static-bug-analysis
 description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_analysis.md 文件的编写以及格式规范
 ---
 

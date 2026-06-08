@@ -126,7 +126,7 @@ mission:
         - "如果属性出现 TRIVIALLY_TRUE，说明 assume 约束过强导致环境过约束，需放松约束"
         - "FALSE 属性需区分【环境欠约束】和【RTL 缺陷】，先判断再决定修复方向"
         - "每个 CK 检测点都必须有对应的 SVA 属性实现，不允许遗漏"
-        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/formal/fm-sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
+        - "可通过 RunSkillScript 执行 `python3 .ucagent/skills/formal/sva-opt/scripts/run_formal_verification.py` 即时验证，无需等待 Check 触发"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具"
         - "符号化索引 fv_idx 的三个强制约束（STABLE/VALID/KNOWN）是防止假阳性的关键"
         - "Cover 属性用于证明关键状态可达，防止 assume 过约束导致全量伪通过"
