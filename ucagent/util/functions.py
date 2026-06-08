@@ -366,6 +366,8 @@ def load_ucagent_info(workspace) -> dict:
     info_path = get_abs_path_cwd_ucagent(workspace, "ucagent_info.json")
     if not os.path.exists(info_path):
         return {}
+    if os.path.getsize(info_path) == 0:
+        return {}
     return load_json_file(info_path)
 
 

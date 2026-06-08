@@ -16,6 +16,7 @@ from .util.functions import yam_str, make_llm_tool_ret
 from .util.functions import (
     rm_workspace_prefix,
 )
+import ucagent.util.functions as fc
 from .util.test_tools import ucagent_lib_path
 
 import ucagent.tools
@@ -115,6 +116,7 @@ class VerifyAgent:
                 warning(f"Resuming from saved stage index: {force_stage_index}")
         self.workspace = os.path.abspath(workspace)
         self.__version__ = __version__
+        self.config_file = "" if config_file is None else str(config_file)
         self.cfg = get_config(config_file, cfg_override, self.workspace)
         temp_args = {
             "OUT": output,
@@ -610,6 +612,8 @@ class VerifyAgent:
         return {
             "version": self.__version__,
             "seed": self.seed,
+            "config_file": self.config_file,
+            "config_arg": self.config_file,
         }
 
     def is_exit(self):

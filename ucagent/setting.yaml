@@ -113,6 +113,7 @@ launch:
     tui: true                         # --tui flag
     backend: "langchain"              # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
     mcp_server_no_file_tools: false
+    force_stage_index: 0              # stage index to start
     exit_on_completion: true          # --exit-on-completion flag
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag

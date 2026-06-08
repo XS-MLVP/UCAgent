@@ -38,6 +38,10 @@
   .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
   .grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .full-span{grid-column:1 / -1}
+  .launch-setting-field{min-width:0}
+  .launch-setting-field.number-field{display:flex;align-items:center;gap:8px;justify-self:start;max-width:100%}
+  .launch-setting-field.number-field label{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .launch-setting-field.number-field input{flex:0 0 42px;width:42px;min-width:42px;padding:5px 6px;text-align:right}
   label{display:block;font-size:12px;color:var(--text-dim);margin-bottom:6px}
   input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text)}
   input[type="checkbox"]{width:auto}
@@ -86,6 +90,11 @@
   .response-panel summary{cursor:pointer;color:var(--text-dim);user-select:none}
   .response-panel summary:hover{color:var(--text)}
   #launch-response-panel[open] summary{margin-bottom:8px}
+  body.relaunch-mode main{max-width:920px;grid-template-columns:minmax(0,1fr)}
+  body.relaunch-mode #launch-prep-panel{display:none}
+  body.relaunch-mode header{padding:12px 18px}
+  body.relaunch-mode main{padding:18px}
+  body.relaunch-mode #uc-shell-header-actions{display:none!important}
   @media (max-width: 1220px){
     main{grid-template-columns:1fr}
     .browser-shell.active{grid-template-columns:1fr}
@@ -97,7 +106,7 @@
 </head>
 <body>
 <header>
-  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span>Launch Managed UCAgent Task</span></div>
+  <div class="title uc-shell-brand"><span class="uc-shell-brand-mark">UC</span><span id="launch-page-title">Launch Managed UCAgent Task</span></div>
   <div class="spacer"></div>
   <div id="uc-shell-header-actions" class="actions" style="align-items:center">
     <a class="btn" href="/">Master</a>
@@ -105,7 +114,7 @@
   </div>
 </header>
 <main>
-  <section class="card stack">
+  <section id="launch-prep-panel" class="card stack">
     <div class="stage-card">
       <div class="stage-title"><h2>Workspace</h2></div>
       <div id="workspace-status" class="status warn">Reserving a launch workspace on the master host...</div>
@@ -223,12 +232,12 @@
     </div>
   </section>
 
-  <section class="card stack">
+  <section id="launch-settings-panel" class="card stack">
     <div class="stage-card">
       <div class="stage-title"><h2>Launch Settings</h2></div>
       <div class="grid">
         <div>
-          <label>Task Name</label>
+          <label id="task-name-label">Task Name</label>
           <input id="task-name" placeholder="Auto-generated if empty">
         </div>
         <div>
@@ -328,8 +337,20 @@ const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 const WORKSPACE_HEARTBEAT_INTERVAL_MS = 30000;
+const initialParams = new URLSearchParams(window.location.search);
 
 const state = {
+  relaunch: initialParams.get('relaunch') === '1' || initialParams.get('mode') === 'relaunch',
+  embedded: initialParams.get('embed') === '1',
+  relaunchTaskId: initialParams.get('task_id') || '',
+  relaunchWorkspaceId: initialParams.get('workspace_id') || '',
+  relaunchSubWorkspace: initialParams.get('sub_worspace') || initialParams.get('sub_workspace') || '',
+  relaunchStatus: null,
+  relaunchRecordedConfig: '',
+  relaunchInfoExists: false,
+  relaunchPreviousConfigValue: '',
+  relaunchConfigSwitching: false,
+  relaunchRequestedStageIndex: initialParams.get('force_stage_index') || initialParams.get('stage_index') || '',
   workspace: null,
   workspaceId: '',
   workspaceHeartbeatTimer: null,
@@ -348,6 +369,7 @@ const state = {
   manualWorkspaceBase: false,
   launchBaseConfig: null,
   launchConfig: null,
+  launchDefaultForceStageIndex: '',
   configOptions: [],
   selectedConfigPresetName: '',
   backendOptions: [],
@@ -374,6 +396,29 @@ function enc(value) {
 
 function dec(value) {
   return decodeURIComponent(String(value ?? ''));
+}
+
+function pathBasename(value) {
+  const normalized = String(value ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized) return '';
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || normalized;
+}
+
+function configRefsMatch(left, right) {
+  const leftValue = String(left ?? '').trim();
+  const rightValue = String(right ?? '').trim();
+  if (!leftValue || !rightValue) return leftValue === rightValue;
+  if (leftValue === rightValue) return true;
+  const leftBase = pathBasename(leftValue);
+  const rightBase = pathBasename(rightValue);
+  return Boolean(leftBase && rightBase && leftBase === rightBase);
+}
+
+function listValue(value) {
+  if (Array.isArray(value)) return value;
+  if (value === undefined || value === null || value === '') return [];
+  return [value];
 }
 
 function formatBytes(value) {
@@ -430,7 +475,7 @@ function renderDynamicLaunchSettings(config) {
         ${normalEntries.map(([key, value]) => {
           if (Array.isArray(value)) {
             return `
-              <div>
+              <div class="launch-setting-field">
                 <label>${esc(launchSettingLabel(key))}</label>
                 <textarea data-launch-key="${esc(key)}" data-launch-type="array">${esc(value.join('\n'))}</textarea>
               </div>
@@ -438,7 +483,7 @@ function renderDynamicLaunchSettings(config) {
           }
           if (value && typeof value === 'object') {
             return `
-              <div>
+              <div class="launch-setting-field">
                 <label>${esc(launchSettingLabel(key))}</label>
                 <textarea data-launch-key="${esc(key)}" data-launch-type="json">${esc(JSON.stringify(value, null, 2))}</textarea>
               </div>
@@ -446,9 +491,9 @@ function renderDynamicLaunchSettings(config) {
           }
           const type = typeof value === 'number' ? 'number' : 'string';
           return `
-            <div>
+            <div class="launch-setting-field${type === 'number' ? ' number-field' : ''}">
               <label>${esc(launchSettingLabel(key))}</label>
-              <input data-launch-key="${esc(key)}" data-launch-type="${esc(type)}" value="${esc(value ?? '')}">
+              <input data-launch-key="${esc(key)}" data-launch-type="${esc(type)}" ${type === 'number' ? 'inputmode="decimal"' : ''} value="${esc(value ?? '')}">
             </div>
           `;
         }).join('')}
@@ -796,6 +841,7 @@ function renderWorkspaceStatus() {
 }
 
 async function heartbeatWorkspace() {
+  if (state.relaunch) return;
   if (!state.workspaceId) return;
   try {
     const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/heartbeat`, {
@@ -820,6 +866,7 @@ function startWorkspaceHeartbeat() {
 }
 
 function releaseWorkspace() {
+  if (state.relaunch) return;
   if (!state.workspaceId || state.workspaceReleased || state.launching || state.launchSucceeded) return;
   state.workspaceReleased = true;
   if (state.workspaceHeartbeatTimer) {
@@ -878,6 +925,7 @@ function currentFFilelistPaths() {
 }
 
 function isNextStepUnlocked() {
+  if (state.relaunch) return true;
   return (Boolean(getMainFile()) || hasPickerFFilelist()) && hasRequirementFile();
 }
 
@@ -980,6 +1028,17 @@ function getCompileInfo() {
 }
 
 function isCompileCurrent() {
+  if (state.relaunch) {
+    const compile = getCompileInfo();
+    const selectedModule = getSelectedModule();
+    return Boolean(
+      compile &&
+      compile.status === 'success' &&
+      selectedModule &&
+      compile.selected_module === selectedModule &&
+      compile.dut_name === normalizeDutName(getDesiredDutName())
+    );
+  }
   const compile = getCompileInfo();
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
@@ -1001,6 +1060,7 @@ function getConfigFile() {
 function syncConfigPathDefault() {
   const input = document.getElementById('config-path');
   if (!input || state.manualConfigPath) return;
+  if (state.relaunch) return;
   const selectedOption = getSelectedConfigOption();
   if (selectedOption?.source === 'predefined') return;
   const compile = getCompileInfo();
@@ -1009,7 +1069,9 @@ function syncConfigPathDefault() {
     ? compile.config_path
     : ((getConfigFile() && getConfigFile().name) || 'config.yaml');
   if (optionValues.length > 0) {
-    input.value = optionValues.includes(desiredValue) ? desiredValue : optionValues[0];
+    input.value = optionValues.find((value) => value === desiredValue)
+      || optionValues.find((value) => configRefsMatch(value, desiredValue))
+      || optionValues[0];
     return;
   }
   const configFile = getConfigFile();
@@ -1045,6 +1107,21 @@ function renderFileTable() {
 }
 
 function renderGateState() {
+  if (state.relaunch) {
+    const compile = getCompileInfo();
+    setStatus('file-gate-status', 'ok', 'Using the previous compiled DUT workspace.');
+    const mainDisplay = document.getElementById('main-file-display');
+    mainDisplay.className = 'status ok';
+    mainDisplay.innerHTML = compile?.main_verilog_path
+      ? `<code>${esc(compile.main_verilog_path)}</code>`
+      : 'Previous compile metadata is available.';
+    document.getElementById('selected-module').disabled = false;
+    document.getElementById('parse-modules-btn').disabled = true;
+    document.getElementById('compile-dut-btn').disabled = true;
+    document.getElementById('module-gate-note').className = 'summary-box';
+    document.getElementById('module-gate-note').innerHTML = 'Relaunch reuses the previous successful DUT compile.';
+    return;
+  }
   const mainFile = getMainFile();
   const fFilelists = getPickerFFilelists();
   const hasRtlInput = Boolean(mainFile) || fFilelists.length > 0;
@@ -1338,7 +1415,7 @@ function buildCommandPreview() {
   const useZipWorkspace = state.launchConfig?.use_zip_workspace !== false;
   const workspaceBase = document.getElementById('workspace-base')?.value.trim() || '';
   const workspacePath = useZipWorkspace
-    ? `/api/workspace/${state.workspaceId}.tar.gz`
+    ? `/api/workspace/${state.relaunch ? getRelaunchTaskId() : state.workspaceId}.tar.gz`
     : state.workspace.workspace_dir + '/workspace';
   const args = [
     'ucagent',
@@ -1393,21 +1470,25 @@ function updateLaunchState() {
   renderCompileState();
   document.getElementById('command-preview').textContent = buildCommandPreview();
   const emptyEnvRows = getEmptyEnvRows();
-  const ready = isNextStepUnlocked() && Boolean(getSelectedModule()) && isCompileCurrent() && emptyEnvRows.length === 0;
+  const relaunchAvailable = !state.relaunch || Boolean(state.relaunchStatus?.can_relaunch);
+  const ready = relaunchAvailable && isNextStepUnlocked() && Boolean(getSelectedModule()) && isCompileCurrent() && emptyEnvRows.length === 0;
   const launchBtn = document.getElementById('launch-btn');
   if (launchBtn) {
     launchBtn.disabled = state.launching || !ready;
   }
   if (ready) {
-    setStatus('launch-readiness', 'ok', 'The launch request is ready. Review the command preview and launch when appropriate.');
+    setStatus('launch-readiness', 'ok', `The ${state.relaunch ? 'relaunch' : 'launch'} request is ready. Review the command preview and launch when appropriate.`);
   } else {
     const reasons = [];
-    if (!getMainFile() && !hasPickerFFilelist()) reasons.push('tag one file as Main RTL or add a .f file');
-    if (!hasRequirementFile()) reasons.push('tag one file as Verification Needs');
+    if (state.relaunch && state.relaunchStatus && !state.relaunchStatus.can_relaunch) {
+      reasons.push(state.relaunchStatus.message || 'clear the existing task/client records first');
+    }
+    if (!state.relaunch && !getMainFile() && !hasPickerFFilelist()) reasons.push('tag one file as Main RTL or add a .f file');
+    if (!state.relaunch && !hasRequirementFile()) reasons.push('tag one file as Verification Needs');
     if (!getSelectedModule()) reasons.push('select or type a module');
-    if (getSelectedModule() && !isCompileCurrent()) reasons.push('compile the current DUT selection');
+    if (getSelectedModule() && !isCompileCurrent()) reasons.push(state.relaunch ? 'use a successful previous DUT compile' : 'compile the current DUT selection');
     if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
-    setStatus('launch-readiness', 'warn', `Launch is blocked. Please ${reasons.join(', ')}.`);
+    setStatus('launch-readiness', 'warn', `${state.relaunch ? 'Relaunch' : 'Launch'} is blocked. Please ${reasons.join(', ')}.`);
   }
 }
 
@@ -1764,22 +1845,54 @@ function downloadWorkspace() {
   window.location.href = url;
 }
 
-async function launchTask() {
+function getRelaunchTaskId() {
+  return String(
+    state.relaunchStatus?.task_id ||
+    state.relaunchTaskId ||
+    state.workspace?.task_id ||
+    state.workspaceId ||
+    ''
+  ).trim();
+}
+
+function syncRelaunchLockedFields() {
+  if (!state.relaunch) return;
+  const compile = getCompileInfo();
+  const taskId = getRelaunchTaskId();
+  const taskLabel = document.getElementById('task-name-label');
+  if (taskLabel) taskLabel.textContent = 'Task ID';
+  const taskInput = document.getElementById('task-name');
+  if (taskInput) {
+    taskInput.value = taskId;
+    taskInput.readOnly = true;
+    taskInput.title = 'Relaunch keeps the original task id.';
+  }
+  const moduleInput = document.getElementById('selected-module');
+  if (moduleInput) {
+    moduleInput.value = compile.selected_module || moduleInput.value;
+    moduleInput.readOnly = true;
+    moduleInput.title = 'Relaunch reuses the previous compiled DUT module.';
+  }
+  const dutInput = document.getElementById('dut-name');
+  if (dutInput) {
+    dutInput.value = compile.dut_name || dutInput.value;
+    dutInput.readOnly = true;
+    dutInput.title = 'Relaunch reuses the previous compiled DUT name.';
+  }
+}
+
+function collectLaunchPayload() {
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
-  if ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent()) {
-    updateLaunchState();
-    return;
-  }
-  let launchedTaskId = '';
+  const compile = getCompileInfo();
   const dynamicOptions = collectDynamicLaunchOptions();
   const payload = {
     workspace_id: state.workspaceId,
     task_name: document.getElementById('task-name').value.trim(),
     dut_name: document.getElementById('dut-name').value.trim(),
     selected_module: selectedModule,
-    main_verilog_path: mainFile ? mainFile.stored_path : '',
-    picker_args: getPickerArgs(),
+    main_verilog_path: state.relaunch ? (compile.main_verilog_path || '') : (mainFile ? mainFile.stored_path : ''),
+    picker_args: state.relaunch ? listValue(compile.picker_extra_args || []) : getPickerArgs(),
     config: document.getElementById('config-path').value.trim() || 'config.yaml',
     backend: document.getElementById('backend').value.trim(),
     launch_mode: getSelectedLaunchMode(),
@@ -1790,12 +1903,50 @@ async function launchTask() {
     workspace_base: document.getElementById('workspace-base')?.value.trim() || '',
     ...dynamicOptions,
   };
+  if (state.relaunch) {
+    const relaunchTaskId = getRelaunchTaskId();
+    payload.task_id = relaunchTaskId;
+    payload.task_name = relaunchTaskId;
+    payload.dut_name = compile.dut_name || payload.dut_name;
+    payload.selected_module = compile.selected_module || payload.selected_module;
+    payload.sub_worspace = state.relaunchSubWorkspace;
+  }
+  return payload;
+}
+
+function redirectToTaskPage(taskId) {
+  const target = `/task/#task-${encodeURIComponent(taskId)}`;
+  const go = () => {
+    if (state.embedded && window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: 'ucagent-task-launched', taskId, target }, '*');
+      } catch {
+      }
+      setTimeout(() => { window.location.href = target; }, 1500);
+    } else {
+      window.location.href = target;
+    }
+  };
+  setTimeout(go, 1200);
+}
+
+async function launchTask() {
+  const mainFile = getMainFile();
+  const selectedModule = getSelectedModule();
+  const normalBlocked = !state.relaunch && ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent());
+  const relaunchBlocked = state.relaunch && (!state.relaunchStatus?.can_relaunch || !selectedModule || !isCompileCurrent());
+  if (normalBlocked || relaunchBlocked) {
+    updateLaunchState();
+    return;
+  }
+  let launchedTaskId = '';
+  const payload = collectLaunchPayload();
   state.launching = true;
-  setLaunchButton('Launching...', true);
-  setStatus('launch-status', 'warn', 'Launching the managed task with the compiled DUT workspace...');
+  setLaunchButton(state.relaunch ? 'Relaunching...' : 'Launching...', true);
+  setStatus('launch-status', 'warn', `${state.relaunch ? 'Relaunching' : 'Launching'} the managed task with the compiled DUT workspace...`);
   setLaunchResponse(null, { summary: 'Show response', open: false });
   try {
-    const data = await api('/api/tasks', {
+    const data = await api(state.relaunch ? '/api/relaunch' : '/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1807,8 +1958,8 @@ async function launchTask() {
     if (data.status === 'ok') {
       launchedTaskId = data.task.task_id;
       state.launchSucceeded = true;
-      setStatus('launch-status', 'ok', `Task ${esc(data.task.task_id)} launched successfully. Redirecting to /task/ ...`);
-      setTimeout(() => { window.location.href = `/task/#task-${encodeURIComponent(data.task.task_id)}`; }, 1200);
+      setStatus('launch-status', 'ok', `Task ${esc(data.task.task_id)} ${state.relaunch ? 'relaunched' : 'launched'} successfully. Redirecting to /task/ ...`);
+      redirectToTaskPage(data.task.task_id);
       return;
     }
     setStatus('launch-status', 'err', `Launch failed: ${esc(data.task?.process_status || 'unknown error')}`);
@@ -1818,7 +1969,7 @@ async function launchTask() {
   } finally {
     state.launching = false;
     if (!launchedTaskId) {
-      setLaunchButton('Launch Task', false);
+      setLaunchButton(state.relaunch ? 'Relaunch Task' : 'Launch Task', false);
       updateLaunchState();
     }
   }
@@ -1901,6 +2052,89 @@ function getSelectedConfigOption() {
   return state.configOptions[index];
 }
 
+function getRelaunchInfo() {
+  return state.relaunchStatus?.ucagent_info || {};
+}
+
+function getRelaunchRecordedConfig() {
+  return String(
+    state.relaunchRecordedConfig ||
+    getRelaunchInfo().config_file ||
+    getRelaunchInfo().config_arg ||
+    ''
+  ).trim();
+}
+
+function syncRelaunchInfoState() {
+  const info = getRelaunchInfo();
+  state.relaunchInfoExists = Boolean(info.exists);
+  state.relaunchRecordedConfig = String(info.config_file || info.config_arg || '').trim();
+}
+
+function parseOptionalStageIndex(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function getForceStageIndexField() {
+  return document.querySelector('[data-launch-key="force_stage_index"]');
+}
+
+function relaunchConfigMatchesRecorded() {
+  if (!state.relaunch || !state.relaunchInfoExists) return false;
+  const selectedConfig = document.getElementById('config-path')?.value.trim() || '';
+  const recordedConfig = getRelaunchRecordedConfig();
+  return Boolean(selectedConfig && recordedConfig && configRefsMatch(recordedConfig, selectedConfig));
+}
+
+function syncRelaunchForceStageIndex() {
+  if (!state.relaunch) return;
+  const field = getForceStageIndexField();
+  if (!field) return;
+  const requestedStageIndex = parseOptionalStageIndex(state.relaunchRequestedStageIndex);
+  if (requestedStageIndex !== null && relaunchConfigMatchesRecorded()) {
+    field.value = String(requestedStageIndex);
+    return;
+  }
+  field.value = state.launchDefaultForceStageIndex;
+}
+
+function findConfigSelectValue(value) {
+  const targetValue = String(value ?? '').trim();
+  if (!targetValue) return '';
+  const exact = state.configOptions.find((opt) => opt.value === targetValue);
+  if (exact) return exact.value;
+  const byConfigRef = state.configOptions.find((opt) => configRefsMatch(opt.value, targetValue));
+  if (byConfigRef) return byConfigRef.value;
+  const byName = state.configOptions.find((opt) => configRefsMatch(opt.name, targetValue));
+  return byName ? byName.value : targetValue;
+}
+
+function setConfigSelectValue(value, options = {}) {
+  const select = document.getElementById('config-path');
+  if (!select) return '';
+  const rawValue = String(value ?? '').trim();
+  if (!rawValue) return select.value || '';
+  let targetValue = rawValue;
+  let option = [...select.options].find((item) => item.value === targetValue);
+  if (!option && !options.preserveValue) {
+    targetValue = findConfigSelectValue(rawValue);
+    option = [...select.options].find((item) => item.value === targetValue);
+  }
+  if (!option) {
+    const customOption = new Option(rawValue, rawValue);
+    customOption.dataset.optionIndex = '-1';
+    customOption.dataset.source = 'recorded';
+    customOption.dataset.configPreset = '';
+    select.appendChild(customOption);
+    option = customOption;
+  }
+  select.value = option.value;
+  return select.value || '';
+}
+
 function mergeLaunchConfigForConfigOption(option) {
   const base = { ...(state.launchBaseConfig || {}) };
   const defaults = isPlainObject(option?.defaults) ? { ...option.defaults } : {};
@@ -1912,9 +2146,18 @@ function mergeLaunchConfigForConfigOption(option) {
 }
 
 function applySelectedConfigDefaults(options = {}) {
-  const selectedOption = getSelectedConfigOption();
+  let selectedOption = getSelectedConfigOption();
+  const select = document.getElementById('config-path');
+  if (!selectedOption && select?.value) {
+    selectedOption = state.configOptions.find((opt) => configRefsMatch(opt.value, select.value) || configRefsMatch(opt.name, select.value)) || null;
+  }
   const effectiveConfig = mergeLaunchConfigForConfigOption(selectedOption);
   state.selectedConfigPresetName = selectedOption?.presetName || '';
+  if (!selectedOption && select?.value) {
+    effectiveConfig.config = select.value;
+  } else if (select?.value) {
+    effectiveConfig.config = select.value;
+  }
   state.launchConfig = effectiveConfig;
   if (options.resetWorkspaceBase !== false) {
     state.manualWorkspaceBase = false;
@@ -1967,6 +2210,9 @@ function renderConfigSelect(options = {}) {
     if (selectedIndex < 0 && savedValue) {
       selectedIndex = state.configOptions.findIndex((opt) => opt.value === savedValue);
     }
+    if (selectedIndex < 0 && savedValue) {
+      selectedIndex = state.configOptions.findIndex((opt) => configRefsMatch(opt.value, savedValue) || configRefsMatch(opt.name, savedValue));
+    }
     select.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
     select.removeAttribute('data-saved-value');
     select.removeAttribute('data-saved-preset');
@@ -1990,9 +2236,9 @@ function setSelectValueIfAvailable(id, value) {
   const select = document.getElementById(id);
   if (!select || value === undefined || value === null || value === '') return false;
   const targetValue = String(value);
-  const option = [...select.options].find((item) => item.value === targetValue && !item.disabled);
+  const option = [...select.options].find((item) => (item.value === targetValue || (id === 'config-path' && configRefsMatch(item.value, targetValue))) && !item.disabled);
   if (!option) return false;
-  select.value = targetValue;
+  select.value = option.value;
   return true;
 }
 
@@ -2079,11 +2325,155 @@ function renderLaunchModeStatus() {
   setStatus('launch-mode-status', kind, lines.join('<br>'));
 }
 
+function setupRelaunchModeChrome() {
+  if (!state.relaunch) return;
+  document.body.classList.add('relaunch-mode');
+  const title = document.getElementById('launch-page-title');
+  if (title) title.textContent = 'Relaunch Managed UCAgent Task';
+  const btn = document.getElementById('launch-btn');
+  if (btn) btn.textContent = 'Relaunch Task';
+  syncRelaunchLockedFields();
+  setStatus('launch-readiness', 'warn', 'Checking whether this task can be relaunched...');
+  setStatus('launch-status', '', 'The task has not been relaunched yet.');
+  setLaunchResponse(null, { summary: 'Show response', open: false });
+}
+
+function relaunchStatusUrl() {
+  const params = new URLSearchParams();
+  if (state.relaunchTaskId) params.set('task_id', state.relaunchTaskId);
+  if (state.relaunchWorkspaceId) params.set('workspace_id', state.relaunchWorkspaceId);
+  if (state.relaunchSubWorkspace) params.set('sub_worspace', state.relaunchSubWorkspace);
+  return `/api/relaunch/status?${params.toString()}`;
+}
+
+function relaunchInfoClearUrl() {
+  const params = new URLSearchParams();
+  if (state.relaunchTaskId) params.set('task_id', state.relaunchTaskId);
+  if (state.relaunchWorkspaceId) params.set('workspace_id', state.relaunchWorkspaceId);
+  if (state.relaunchSubWorkspace) params.set('sub_worspace', state.relaunchSubWorkspace);
+  return `/api/relaunch/ucagent-info?${params.toString()}`;
+}
+
+async function clearRelaunchInfoForConfigSwitch() {
+  const data = await api(relaunchInfoClearUrl(), { method: 'DELETE' });
+  const info = data.data?.ucagent_info || {};
+  if (!state.relaunchStatus) state.relaunchStatus = {};
+  state.relaunchStatus.ucagent_info = info;
+  syncRelaunchInfoState();
+  return data;
+}
+
+function restoreRelaunchConfigValue(value) {
+  const restoredValue = setConfigSelectValue(value, { preserveValue: true });
+  applySelectedConfigDefaults({ resetWorkspaceBase: false });
+  state.relaunchPreviousConfigValue = restoredValue;
+  updateLaunchState();
+}
+
+async function handleRelaunchConfigChange() {
+  if (!state.relaunch || state.relaunchConfigSwitching) {
+    applySelectedConfigDefaults();
+    updateLaunchState();
+    return;
+  }
+  const select = document.getElementById('config-path');
+  const selectedConfig = String(select?.value || '').trim();
+  const recordedConfig = getRelaunchRecordedConfig();
+  if (!state.relaunchInfoExists || !recordedConfig || !selectedConfig || configRefsMatch(recordedConfig, selectedConfig)) {
+    applySelectedConfigDefaults();
+    state.relaunchPreviousConfigValue = selectedConfig;
+    updateLaunchState();
+    return;
+  }
+
+  const previousValue = state.relaunchPreviousConfigValue || recordedConfig;
+  const confirmed = window.confirm(
+    `当前选择的 config (${selectedConfig}) 与 .ucagent/ucagent_info.json 中记录的 config (${recordedConfig}) 不一致。\n\n` +
+    `必须清空 .ucagent/ucagent_info.json 的内容才能切换 config。是否清空该文件内容并切换到当前 config？`
+  );
+  if (!confirmed) {
+    state.relaunchConfigSwitching = true;
+    try {
+      restoreRelaunchConfigValue(previousValue);
+    } finally {
+      state.relaunchConfigSwitching = false;
+    }
+    return;
+  }
+
+  try {
+    await clearRelaunchInfoForConfigSwitch();
+    applySelectedConfigDefaults();
+    state.relaunchPreviousConfigValue = selectedConfig;
+    setStatus('launch-status', 'warn', '.ucagent/ucagent_info.json has been cleared. Relaunch will use the selected config.');
+    updateLaunchState();
+  } catch (error) {
+    state.relaunchConfigSwitching = true;
+    try {
+      restoreRelaunchConfigValue(previousValue);
+      setStatus('launch-status', 'err', error.message || 'Failed to clear .ucagent/ucagent_info.json.');
+    } finally {
+      state.relaunchConfigSwitching = false;
+    }
+  }
+}
+
+function applyRelaunchCompileDefaults() {
+  const compile = getCompileInfo();
+  const taskId = getRelaunchTaskId();
+  const selectedModule = compile.selected_module || '';
+  const dutName = compile.dut_name || selectedModule;
+  const moduleInput = document.getElementById('selected-module');
+  if (moduleInput) moduleInput.value = selectedModule;
+  const dutInput = document.getElementById('dut-name');
+  if (dutInput) dutInput.value = dutName;
+  const taskInput = document.getElementById('task-name');
+  if (taskInput) taskInput.value = taskId;
+  syncRelaunchLockedFields();
+  const preferredConfig = getRelaunchRecordedConfig() || compile.config_path || '';
+  const select = document.getElementById('config-path');
+  if (select && preferredConfig) {
+    select.setAttribute('data-saved-value', preferredConfig);
+    renderConfigSelect({ preferredValue: preferredConfig, preferredPreset: '', preferredSource: '' });
+    setConfigSelectValue(preferredConfig, { preserveValue: true });
+    applySelectedConfigDefaults({ resetWorkspaceBase: false });
+    state.relaunchPreviousConfigValue = select.value || '';
+  }
+}
+
+async function initRelaunchPage() {
+  setupRelaunchModeChrome();
+  const statusData = await api(relaunchStatusUrl());
+  state.relaunchStatus = statusData.data || {};
+  syncRelaunchInfoState();
+  if (!state.relaunchStatus.workspace) {
+    throw new Error('Relaunch workspace is not available.');
+  }
+  syncWorkspace(state.relaunchStatus.workspace);
+  await loadConfigOptions();
+  const envData = await api('/api/launch/env-preview');
+  applyEnvDefaults(envData.items || []);
+  applyRelaunchCompileDefaults();
+  const compile = getCompileInfo();
+  if (compile.status === 'success') {
+    setStatus(
+      'launch-status',
+      state.relaunchStatus.can_relaunch ? '' : 'warn',
+      state.relaunchStatus.can_relaunch
+        ? `Ready to relaunch task <code>${esc(getRelaunchTaskId())}</code> from the previous compiled DUT workspace.`
+        : esc(state.relaunchStatus.message || 'Relaunch is blocked.')
+    );
+  }
+  updateLaunchState();
+}
+
 async function initPage() {
   try {
+    setupRelaunchModeChrome();
     resetCompileConsole();
     const configData = await api('/api/launch/config');
     state.launchConfig = configData.default_args || {};
+    state.launchDefaultForceStageIndex = String(state.launchConfig.force_stage_index ?? '');
     state.backendOptions = configData.backend_options || [];
     state.backendKeyName = configData.backend_key_name || '';
     state.launchModes = configData.launch_modes || [];
@@ -2091,6 +2481,11 @@ async function initPage() {
     renderBackendSelect();
     renderLaunchModeSelect();
     applyLaunchConfig(state.launchConfig);
+
+    if (state.relaunch) {
+      await initRelaunchPage();
+      return;
+    }
 
     const wsData = await createWorkspace();
     syncWorkspace(wsData.workspace);
@@ -2123,18 +2518,23 @@ function applyLaunchDefaults(config, options = {}) {
   renderDynamicLaunchSettings(config);
   const pickerArgs = config.picker_args !== undefined ? config.picker_args : config.picker_extra_args;
   const fields = {
-    'task-name': config.task_name !== undefined && config.task_name !== null ? config.task_name : getSelectedModule(),
     'output': config.output ?? '',
     'master-override': config.master ?? '',
     'picker-args': pickerArgs === undefined || pickerArgs === null ? '' : (Array.isArray(pickerArgs) ? pickerArgs.join('\n') : pickerArgs),
   };
+  if (!state.relaunch) {
+    fields['task-name'] = config.task_name !== undefined && config.task_name !== null ? config.task_name : getSelectedModule();
+  }
   for (const [id, value] of Object.entries(fields)) {
     const el = document.getElementById(id);
     if (el && value !== undefined && value !== null) {
       el.value = value;
     }
   }
-  if (config.dut_name !== undefined && config.dut_name !== null && config.dut_name !== '') {
+  if (state.relaunch) {
+    const compile = getCompileInfo();
+    if (compile.dut_name) document.getElementById('dut-name').value = compile.dut_name;
+  } else if (config.dut_name !== undefined && config.dut_name !== null && config.dut_name !== '') {
     document.getElementById('dut-name').value = config.dut_name;
   } else {
     document.getElementById('dut-name').value = getSelectedModule();
@@ -2148,6 +2548,8 @@ function applyLaunchDefaults(config, options = {}) {
   syncBackendMcpFileToolsOption();
   syncCfgBashOverrideExtraArgs();
   renderLaunchModeStatus();
+  syncRelaunchForceStageIndex();
+  syncRelaunchLockedFields();
 }
 
 document.addEventListener('click', async (event) => {
@@ -2304,8 +2706,12 @@ document.addEventListener('change', async (event) => {
     }
     if (target.id === 'config-path') {
       state.manualConfigPath = true;
-      applySelectedConfigDefaults();
-      updateLaunchState();
+      if (state.relaunch) {
+        await handleRelaunchConfigChange();
+      } else {
+        applySelectedConfigDefaults();
+        updateLaunchState();
+      }
       return;
     }
     if (target.matches('input[data-action="env-key"]')) {
@@ -2355,7 +2761,7 @@ document.addEventListener('change', async (event) => {
   }
 });
 
-document.addEventListener('input', (event) => {
+document.addEventListener('input', async (event) => {
   if (event.target.matches('input[data-action="env-key"]')) {
     const row = state.envRows.find((item) => item.id === event.target.dataset.rowId);
     if (row) {
@@ -2379,8 +2785,12 @@ document.addEventListener('input', (event) => {
   ].includes(event.target.id)) {
     if (event.target.id === 'config-path') {
       state.manualConfigPath = true;
-      applySelectedConfigDefaults();
-      updateLaunchState();
+      if (state.relaunch) {
+        await handleRelaunchConfigChange();
+      } else {
+        applySelectedConfigDefaults();
+        updateLaunchState();
+      }
       return;
     }
     if (event.target.id === 'selected-module') {

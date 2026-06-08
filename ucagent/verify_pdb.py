@@ -3035,7 +3035,7 @@ class VerifyPDB(Pdb):
                 'curl', 'wget', 'ssh', 'scp', 'rsync', 'git', 'docker', 'systemctl',
                 'service', 'sudo', 'su', 'which', 'whereis', 'echo', 'history',
                 'head', 'tail', 'wc', 'sort', 'uniq', 'awk', 'sed', 'diff',
-                'make', 'cmake', 'gcc', 'g++', 'python', 'pip', 'npm', 'node'
+                'make', 'cmake', 'gcc', 'g++', 'python', 'pytest', 'pip', 'npm', 'node'
         }
         shell_commands_dangerous = {
             'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',

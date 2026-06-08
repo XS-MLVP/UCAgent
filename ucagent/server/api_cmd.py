@@ -350,6 +350,8 @@ class PdbCmdApiServer:
             info_path = _ucagent_info_path(workspace_root)
             if not os.path.isfile(info_path):
                 return {}
+            if os.path.getsize(info_path) == 0:
+                return {}
             with open(info_path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
             return data if isinstance(data, dict) else {}

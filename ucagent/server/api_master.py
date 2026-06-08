@@ -4059,6 +4059,11 @@ class PdbMasterApiServer:
             "web_console": web_console,
         })
 
+        with self._workspaces_lock:
+            ws_locked = self._workspaces.get(workspace_id)
+            if ws_locked is not None:
+                ws_locked["last_launch_client_id"] = str(req.get("client_id") or "").strip()
+
         task["picker_command"] = list(compile_info.get("picker_command") or [])
         task["picker_exit_code"] = compile_info.get("picker_exit_code")
         task["picker_status"] = compile_info.get("status", "not_started")
@@ -4385,6 +4390,261 @@ class PdbMasterApiServer:
             return False
         status = str(task.get("process_status") or "").strip().lower()
         return status in {"stopped", "failed"} or bool(task.get("finished_at"))
+
+    def _compiled_workspace_match_path(self, ws: Dict[str, Any]) -> str:
+        try:
+            return os.path.abspath(self._compiled_workspace_dir(dict(ws)))
+        except Exception:
+            compile_info = ws.get("compile") or {}
+            for value in (
+                compile_info.get("picker_workspace"),
+                ws.get("picker_workspace"),
+                os.path.join(str(ws.get("workspace_dir") or ""), "workspace"),
+            ):
+                if value:
+                    return os.path.abspath(str(value))
+        return ""
+
+    def _relaunch_ucagent_info_path(self, ws: Dict[str, Any]) -> str:
+        workspace_root = self._compiled_workspace_match_path(ws)
+        if not workspace_root:
+            return ""
+        return os.path.join(workspace_root, ".ucagent", "ucagent_info.json")
+
+    def _load_relaunch_ucagent_info(self, ws: Dict[str, Any]) -> Dict[str, Any]:
+        info_path = self._relaunch_ucagent_info_path(ws)
+        data: Dict[str, Any] = {}
+        load_error = ""
+        exists = bool(info_path and os.path.isfile(info_path))
+        if exists:
+            try:
+                with open(info_path, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                if isinstance(loaded, dict):
+                    data = loaded
+            except Exception as exc:
+                load_error = str(exc)
+        config_file = str(data.get("config_file") or data.get("config_arg") or "").strip()
+        return {
+            "exists": exists,
+            "path": info_path,
+            "config_file": config_file,
+            "config_arg": config_file,
+            "load_error": load_error,
+        }
+
+    def _config_refs_match(self, left: str, right: str) -> bool:
+        left = str(left or "").strip()
+        right = str(right or "").strip()
+        if not left or not right:
+            return left == right
+        if left == right:
+            return True
+        left_base = os.path.basename(left.rstrip("/"))
+        right_base = os.path.basename(right.rstrip("/"))
+        return bool(left_base and right_base and left_base == right_base)
+
+    def _clear_relaunch_ucagent_info(
+        self,
+        *,
+        task_id: str = "",
+        workspace_id: str = "",
+        sub_workspace: str = "",
+    ) -> Dict[str, Any]:
+        target = self._resolve_relaunch_target(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            sub_workspace=sub_workspace,
+        )
+        blockers = self._relaunch_blockers(target["task_id"], target["workspace"])
+        if blockers:
+            raise ValueError(" ".join(blockers))
+        info = self._load_relaunch_ucagent_info(target["workspace"])
+        cleared = False
+        info_path = info.get("path") or ""
+        if info_path:
+            os.makedirs(os.path.dirname(info_path), exist_ok=True)
+            with open(info_path, "w", encoding="utf-8"):
+                pass
+            cleared = True
+        return {
+            "cleared": cleared,
+            "deleted": False,
+            "task_id": target["task_id"],
+            "workspace_id": target["workspace_id"],
+            "ucagent_info": {
+                "exists": bool(info_path and os.path.isfile(info_path)),
+                "path": info_path,
+                "config_file": "",
+                "config_arg": "",
+                "previous_config_file": info.get("config_file", ""),
+            },
+        }
+
+    def _resolve_relaunch_target(
+        self,
+        *,
+        task_id: str = "",
+        workspace_id: str = "",
+        sub_workspace: str = "",
+    ) -> Dict[str, Any]:
+        task_id = str(task_id or "").strip()
+        workspace_id = str(workspace_id or "").strip()
+        sub_workspace = str(sub_workspace or "").strip().strip("/")
+        task_snapshot: Optional[Dict[str, Any]] = None
+        if task_id:
+            with self._tasks_lock:
+                existing_task = self._tasks.get(task_id)
+                task_snapshot = dict(existing_task) if existing_task else None
+            if task_snapshot and not workspace_id:
+                workspace_id = str(task_snapshot.get("workspace_id") or "").strip()
+
+        candidate_abs = ""
+        if sub_workspace:
+            expanded = os.path.expanduser(sub_workspace)
+            candidate_abs = (
+                os.path.abspath(expanded)
+                if os.path.isabs(expanded)
+                else os.path.abspath(os.path.join(self.workspace, expanded))
+            )
+            if not _path_is_under(self.workspace, candidate_abs):
+                raise ValueError("Sub workspace must be under the master workspace")
+
+        workspaces: List[Dict[str, Any]] = []
+        with self._workspaces_lock:
+            for ws in self._workspaces.values():
+                self._normalize_workspace_locked(ws)
+                workspaces.append(dict(ws))
+
+        def _matches(ws: Dict[str, Any]) -> bool:
+            ws_id = str(ws.get("workspace_id") or "").strip()
+            ws_task_id = str(ws.get("task_id") or "").strip()
+            if workspace_id and ws_id == workspace_id:
+                return True
+            if task_id and (ws_task_id == task_id or ws_id == task_id):
+                return True
+            if candidate_abs:
+                paths = [
+                    self._compiled_workspace_match_path(ws),
+                    str((ws.get("compile") or {}).get("picker_workspace") or ""),
+                    str(ws.get("picker_workspace") or ""),
+                    os.path.join(str(ws.get("workspace_dir") or ""), "workspace"),
+                ]
+                for path in paths:
+                    if path and os.path.realpath(os.path.abspath(path)) == os.path.realpath(candidate_abs):
+                        return True
+                    if path and _path_is_under(os.path.abspath(path), candidate_abs) and os.path.realpath(os.path.abspath(path)) == os.path.realpath(candidate_abs):
+                        return True
+            return False
+
+        matched = next((ws for ws in workspaces if _matches(ws)), None)
+        if matched is None and candidate_abs:
+            first_part = sub_workspace.split("/", 1)[0] if sub_workspace else ""
+            if first_part:
+                matched = next(
+                    (
+                        ws for ws in workspaces
+                        if str(ws.get("workspace_id") or "").strip() == first_part
+                        or str(ws.get("task_id") or "").strip() == first_part
+                    ),
+                    None,
+                )
+        if matched is None:
+            ref = task_id or workspace_id or sub_workspace
+            raise KeyError(f"Relaunch workspace for '{ref}' not found")
+
+        resolved_task_id = str(matched.get("task_id") or matched.get("workspace_id") or "").strip()
+        if task_id and resolved_task_id and resolved_task_id != task_id:
+            raise ValueError(f"Sub workspace belongs to task '{resolved_task_id}', not '{task_id}'")
+        if not task_id:
+            task_id = resolved_task_id
+        if not task_id:
+            raise ValueError("Unable to determine relaunch task id")
+
+        with self._tasks_lock:
+            latest_task = self._tasks.get(task_id)
+            task_snapshot = dict(latest_task) if latest_task else task_snapshot
+
+        return {
+            "task_id": task_id,
+            "workspace_id": str(matched.get("workspace_id") or "").strip(),
+            "workspace": matched,
+            "task": task_snapshot,
+            "sub_workspace": sub_workspace,
+        }
+
+    def _relaunch_blockers(self, task_id: str, ws: Dict[str, Any]) -> List[str]:
+        task_id = str(task_id or "").strip()
+        blockers: List[str] = []
+        self._refresh_task_states()
+        with self._tasks_lock:
+            existing_task = self._tasks.get(task_id)
+            if existing_task is not None:
+                status = str(existing_task.get("process_status") or "unknown")
+                blockers.append(
+                    f"Task list still contains task '{task_id}' (status: {status}). "
+                    "Stop/delete the old task record before relaunching."
+                )
+
+        compiled_path = self._compiled_workspace_match_path(ws)
+        compiled_real = os.path.realpath(compiled_path) if compiled_path else ""
+        workspace_id = str(ws.get("workspace_id") or "").strip()
+        last_client_id = str(ws.get("last_launch_client_id") or "").strip()
+        with self._agents_lock:
+            for agent in self._agents.values():
+                agent_id = str(agent.get("id") or "").strip()
+                extra = agent.get("extra") or {}
+                agent_workspace = str(extra.get("workspace") or "").strip()
+                agent_workspace_real = os.path.realpath(os.path.abspath(agent_workspace)) if agent_workspace else ""
+                parent_name = os.path.basename(os.path.dirname(agent_workspace_real)) if agent_workspace_real else ""
+                related = False
+                if last_client_id and agent_id == last_client_id:
+                    related = True
+                if task_id and (agent_id == task_id or parent_name == task_id):
+                    related = True
+                if workspace_id and parent_name == workspace_id:
+                    related = True
+                if compiled_real and agent_workspace_real == compiled_real:
+                    related = True
+                if related:
+                    status = self._agent_status(agent)
+                    blockers.append(
+                        f"Client list still contains agent '{agent_id}' related to task '{task_id}' "
+                        f"(status: {status}). Remove it from the client list before relaunching."
+                    )
+        return blockers
+
+    def _relaunch_status(
+        self,
+        *,
+        task_id: str = "",
+        workspace_id: str = "",
+        sub_workspace: str = "",
+    ) -> Dict[str, Any]:
+        target = self._resolve_relaunch_target(
+            task_id=task_id,
+            workspace_id=workspace_id,
+            sub_workspace=sub_workspace,
+        )
+        ws = target["workspace"]
+        compile_info = ws.get("compile") or {}
+        ucagent_info = self._load_relaunch_ucagent_info(ws)
+        blockers = self._relaunch_blockers(target["task_id"], ws)
+        if compile_info.get("status") != "success":
+            blockers.append("The previous launch workspace does not contain a successful DUT compile result.")
+        can_relaunch = not blockers
+        return {
+            "can_relaunch": can_relaunch,
+            "message": "" if can_relaunch else " ".join(blockers),
+            "blockers": blockers,
+            "task_id": target["task_id"],
+            "workspace_id": target["workspace_id"],
+            "sub_workspace": sub_workspace,
+            "workspace": self._workspace_public(ws),
+            "compile": self._workspace_compile_public(ws),
+            "ucagent_info": ucagent_info,
+            "task": self._task_public(target["task"], include_logs=False) if target.get("task") else None,
+        }
 
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
@@ -5440,6 +5700,83 @@ class PdbMasterApiServer:
             try:
                 task = self._run_task_launch(dict(body))
             except (KeyError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok" if task["process_status"] != "failed" else "failed", "task": self._task_public(task, include_logs=True)}
+
+        @app.get("/api/relaunch/status", summary="Check relaunch availability", dependencies=[Depends(_check_password)])
+        def relaunch_status(
+            task_id: str = "",
+            workspace_id: str = "",
+            sub_worspace: str = "",
+            sub_workspace: str = "",
+        ):
+            try:
+                data = self._relaunch_status(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    sub_workspace=sub_worspace or sub_workspace,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok", "data": data}
+
+        @app.delete("/api/relaunch/ucagent-info", summary="Clear saved relaunch UCAgent info", dependencies=[Depends(_check_password)])
+        def clear_relaunch_ucagent_info(
+            task_id: str = "",
+            workspace_id: str = "",
+            sub_worspace: str = "",
+            sub_workspace: str = "",
+        ):
+            try:
+                data = self._clear_relaunch_ucagent_info(
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    sub_workspace=sub_worspace or sub_workspace,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok", "data": data}
+
+        @app.post("/api/relaunch", summary="Relaunch a completed managed task", dependencies=[Depends(_check_password)])
+        def relaunch_task(body: Dict[str, Any] = Body(default_factory=dict)):
+            req = dict(body)
+            try:
+                status = self._relaunch_status(
+                    task_id=str(req.get("task_id") or ""),
+                    workspace_id=str(req.get("workspace_id") or ""),
+                    sub_workspace=str(req.get("sub_worspace") or req.get("sub_workspace") or ""),
+                )
+                if not status.get("can_relaunch"):
+                    raise ValueError(status.get("message") or "Task cannot be relaunched yet")
+                compile_info = status.get("compile") or {}
+                uc_info = status.get("ucagent_info") or {}
+                recorded_config = str(uc_info.get("config_file") or uc_info.get("config_arg") or "").strip()
+                requested_config = str(req.get("config") or "").strip()
+                if (
+                    uc_info.get("exists")
+                    and recorded_config
+                    and requested_config
+                    and not self._config_refs_match(recorded_config, requested_config)
+                ):
+                    raise ValueError(
+                        f"Relaunch config '{requested_config}' does not match recorded config '{recorded_config}'. "
+                        "Clear .ucagent/ucagent_info.json before switching config."
+                    )
+                req["task_id"] = status["task_id"]
+                req["task_name"] = status["task_id"]
+                req["workspace_id"] = status["workspace_id"]
+                req["dut_name"] = str(compile_info.get("dut_name") or "")
+                req["selected_module"] = str(compile_info.get("selected_module") or "")
+                req["main_verilog_path"] = compile_info.get("main_verilog_path") or ""
+                req["picker_args"] = list(compile_info.get("picker_extra_args") or [])
+                task = self._run_task_launch(req)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return {"status": "ok" if task["process_status"] != "failed" else "failed", "task": self._task_public(task, include_logs=True)}
 
