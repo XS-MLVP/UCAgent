@@ -178,6 +178,16 @@ const STORAGE_KEY = 'ucagent-task-page-state';
 
 function esc(s){return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
+function clearCurrentTaskSelection(message='Select a task from the list.') {
+  currentTaskId = '';
+  if (window.location.hash) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  document.querySelectorAll('#task-rows tr.task-row-highlight').forEach((row) => row.classList.remove('task-row-highlight'));
+  document.getElementById('task-detail').textContent = message;
+  setTaskLogs(message, true);
+}
+
 function loadViewState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -236,7 +246,11 @@ async function api(url, options={}) {
   const text = await resp.text();
   let data;
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  if (!resp.ok) throw new Error(formatApiError(data, resp.statusText || 'Request failed'));
+  if (!resp.ok) {
+    const err = new Error(formatApiError(data, resp.statusText || 'Request failed'));
+    err.status = resp.status;
+    throw err;
+  }
   return data;
 }
 
@@ -568,6 +582,11 @@ async function showTask(taskId) {
       !(stdout || stderr)
     );
   } catch (err) {
+    if (err.status === 404) {
+      clearCurrentTaskSelection('Task record is no longer available.');
+      await loadTasks();
+      return;
+    }
     document.getElementById('task-detail').innerHTML = `<div class="err">${esc(err.message)}</div>`;
     setTaskLogs('', true);
   }
@@ -592,9 +611,7 @@ async function deleteTask(taskId) {
   try {
     await api(`/api/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
     if (currentTaskId === taskId) {
-      currentTaskId = '';
-      document.getElementById('task-detail').textContent = 'Select a task from the list.';
-      setTaskLogs('Select a task from the list.', true);
+      clearCurrentTaskSelection();
     }
     await loadTasks();
   } catch (err) {

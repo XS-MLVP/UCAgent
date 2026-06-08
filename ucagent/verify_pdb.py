@@ -172,6 +172,26 @@ class VerifyPDB(Pdb):
         else:
             echo_y(msg)
 
+    def _notify_master_clients_exit(self, reason: str = "quit"):
+        if not self._master_clients:
+            return
+        for url, client in list(self._master_clients.items()):
+            try:
+                send_exit = getattr(client, "send_exit_heartbeat", None)
+                if callable(send_exit):
+                    ok, msg = send_exit(reason=reason)
+                    if ok:
+                        echo_g(msg)
+                    else:
+                        echo_y(msg)
+            except Exception as exc:
+                echo_y(f"Failed to notify master {url} about exit: {exc}")
+            try:
+                client.stop()
+            except Exception:
+                pass
+            self._master_clients.pop(url, None)
+
     @property
     def tui_console_state(self) -> "ConsoleWidgetState | None":
         with self._console_state_lock:
@@ -3701,6 +3721,7 @@ class VerifyPDB(Pdb):
         self.save_cmd_history()
         echo_g("Stage information saved. Exiting debugger.")
         self.agent.exit()
+        self._notify_master_clients_exit(reason="quit")
         return super().do_quit(arg)
 
     def do_q(self, arg):

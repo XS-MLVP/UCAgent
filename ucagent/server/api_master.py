@@ -715,8 +715,13 @@ class PdbMasterApiServer:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _agent_is_online(self, agent: Dict[str, Any]) -> bool:
+        return not bool(agent.get("client_exit")) and (_now() - agent.get("last_seen", 0)) <= self.offline_timeout
+
     def _agent_status(self, agent: Dict[str, Any]) -> str:
-        return "online" if _now() - agent["last_seen"] <= self.offline_timeout else "offline"
+        if bool(agent.get("client_exit")):
+            return "exit"
+        return "online" if self._agent_is_online(agent) else "offline"
 
     def _get_launch_root(self, root_id: str) -> Dict[str, str]:
         for root in self._launch_roots:
@@ -3835,15 +3840,17 @@ class PdbMasterApiServer:
         now = _now()
         agents = self._snapshot_agents()
         with self._tasks_lock:
-            for task in self._tasks.values():
+            for task_id, task in list(self._tasks.items()):
                 launch_mode = task.get("launch_mode", "process")
                 pid = task.get("pid")
-                runtime = self._task_runtime.get(task["task_id"])
+                runtime = self._task_runtime.get(task_id)
                 matched_agent = self._agent_for_task_unlocked(task, agents)
                 matched_agent_id = str((matched_agent or {}).get("id") or "").strip()
+                matched_agent_online = bool(matched_agent and self._agent_is_online(matched_agent))
+                matched_agent_exited = bool(matched_agent and matched_agent.get("client_exit"))
                 if matched_agent and self._merge_task_agent_runtime_info(task, matched_agent):
                     self._mark_dirty()
-                registered = bool(matched_agent_id)
+                registered = matched_agent_online
                 if task.get("registered_to_master") != registered:
                     task["registered_to_master"] = registered
                     self._mark_dirty()
@@ -3851,12 +3858,30 @@ class PdbMasterApiServer:
                     task["registered_agent_id"] = matched_agent_id
                     self._mark_dirty()
 
+                if (
+                    task.get("process_status") == "starting"
+                    and not task.get("started_at")
+                    and not task.get("finished_at")
+                    and (
+                        (launch_mode == "process" and not runtime and not pid)
+                        or (
+                            launch_mode in _CONTAINER_LAUNCH_MODES
+                            and not str((task.get("cluster") or {}).get("name") or "").strip()
+                        )
+                    )
+                ):
+                    continue
+
                 alive = False
+                runtime_exit_detected = False
+                cluster_state_unknown = False
                 exit_code = task.get("exit_code")
                 if launch_mode in _CONTAINER_LAUNCH_MODES:
                     alive, cluster_exit_code, _cluster_detail = self._cluster_alive_status(task)
                     if cluster_exit_code is not None:
                         exit_code = cluster_exit_code
+                    cluster_state_unknown = not alive and cluster_exit_code is None
+                    runtime_exit_detected = not alive and cluster_exit_code is not None
                     if launch_mode == "k8s" and alive:
                         self._start_k8s_port_forwards(task)
                 elif runtime and runtime.get("process") is not None:
@@ -3864,21 +3889,30 @@ class PdbMasterApiServer:
                     alive = code is None
                     if code is not None:
                         exit_code = code
+                        runtime_exit_detected = True
                 else:
                     alive = _is_pid_alive(pid)
+                    runtime_exit_detected = bool(pid) and not alive
 
                 if task["process_status"] in {"starting", "running", "stopping"}:
                     cmd_ok = self._probe_child_service(task["cmd_api"], task)
                     term_ok = self._probe_child_service(task["terminal_api"], task)
                     term_enabled = bool((task.get("terminal_api") or {}).get("enabled"))
-                    if registered or cmd_ok:
+                    if cluster_state_unknown:
+                        started_at = float(task.get("started_at") or task.get("created_at") or 0)
+                        if task["process_status"] == "starting" and started_at and (now - started_at) < 15:
+                            continue
+                        runtime_exit_detected = True
+                    if not runtime_exit_detected and (matched_agent_online or cmd_ok):
                         alive = True
                     if not alive:
-                        if launch_mode in _CONTAINER_LAUNCH_MODES and exit_code is None:
-                            continue
                         task["finished_at"] = task.get("finished_at") or now
                         task["exit_code"] = exit_code
-                        task["process_status"] = "stopped" if task["process_status"] == "stopping" or exit_code == 0 else "failed"
+                        task["process_status"] = (
+                            "stopped"
+                            if task["process_status"] == "stopping" or exit_code in (None, 0)
+                            else "failed"
+                        )
                         if launch_mode == "docker_swarm" and not task.get("cluster_debug_logged"):
                             cluster_name = str((task.get("cluster") or {}).get("name") or "").strip()
                             detail = self._docker_swarm_task_detail(cluster_name)
@@ -3890,7 +3924,7 @@ class PdbMasterApiServer:
                             task["cluster_debug_logged"] = True
                         task["cmd_api"]["status"] = "stopped"
                         task["terminal_api"]["status"] = "stopped"
-                        self._close_task_runtime(task["task_id"])
+                        self._close_task_runtime(task_id)
                         self._mark_dirty()
                     else:
                         new_cmd_status = "running" if cmd_ok else "unavailable"
@@ -3907,6 +3941,14 @@ class PdbMasterApiServer:
                         if task["process_status"] == "starting" and cmd_ok and (term_ok or not term_enabled):
                             task["process_status"] = "running"
                             self._mark_dirty()
+                if matched_agent_exited and task.get("process_status") in {"stopped", "failed"} and not alive:
+                    self._close_task_runtime(task_id)
+                    self._tasks.pop(task_id, None)
+                    self._mark_dirty()
+                    _master_log(
+                        f"Task '{task_id}' removed after client '{matched_agent_id}' exited "
+                        "and its runtime stopped"
+                    )
 
     def _run_task_launch(self, req: Dict[str, Any]) -> Dict[str, Any]:
         req = dict(req)
@@ -4608,9 +4650,11 @@ class PdbMasterApiServer:
                     related = True
                 if related:
                     status = self._agent_status(agent)
+                    if status == "exit":
+                        continue
                     blockers.append(
                         f"Client list still contains agent '{agent_id}' related to task '{task_id}' "
-                        f"(status: {status}). Remove it from the client list before relaunching."
+                        f"(status: {status}). Wait for it to exit or remove it from the client list before relaunching."
                     )
         return blockers
 
@@ -4930,8 +4974,10 @@ class PdbMasterApiServer:
                 raise HTTPException(status_code=400, detail="'id' must not be empty")
 
             client_ip = request.client.host if request.client else ""
+            is_force = bool(body.get("force"))
+            is_client_exit = bool(body.get("client_exit") or body.get("exit"))
             if agent_id in self._removed:
-                if bool(body.get("force")):
+                if is_force:
                     self._removed.discard(agent_id)
                 else:
                     return {"status": "removed", "message": "This agent has been removed from the master."}
@@ -4940,6 +4986,22 @@ class PdbMasterApiServer:
             with self._agents_lock:
                 existing = self._agents.get(agent_id, {})
                 is_new = not existing
+                try:
+                    reported_exited_at = float(body.get("exited_at")) if body.get("exited_at") not in (None, "") else now
+                except (TypeError, ValueError):
+                    reported_exited_at = now
+                exit_reason = str(body.get("exit_reason") or ("quit" if is_client_exit else "")).strip()
+                client_exit = True if is_client_exit else (False if is_force else bool(existing.get("client_exit")))
+                exited_at = (
+                    reported_exited_at
+                    if is_client_exit
+                    else (0 if not client_exit else existing.get("exited_at", 0))
+                )
+                exit_reason_value = (
+                    exit_reason
+                    if is_client_exit
+                    else ("" if not client_exit else existing.get("exit_reason", ""))
+                )
                 tcp_url = _fix_tcp_url(str(body.get("cmd_api_tcp") or ""), client_ip)
                 current_stage_index = int(body.get("current_stage_index", -1) or -1)
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
@@ -5011,12 +5073,18 @@ class PdbMasterApiServer:
                     "mission_info_ansi": str(body.get("mission_info_ansi") or "") or existing.get("mission_info_ansi", ""),
                     "run_time": str(body.get("run_time") or "") or existing.get("run_time", ""),
                     "extra": body.get("extra") or existing.get("extra", {}),
+                    "client_exit": client_exit,
+                    "exited_at": exited_at,
+                    "exit_reason": exit_reason_value,
                     "first_seen": existing.get("first_seen", now),
                     "last_seen": now,
                 }
             self._mark_dirty()
-            if is_new or bool(body.get("force")):
-                action = "rejoined" if bool(body.get("force")) else "joined"
+            if is_client_exit:
+                _master_log(f"Agent '{agent_id}' exited ({exit_reason_value or 'exit'})")
+                self._save_db()
+            elif is_new or is_force:
+                action = "rejoined" if is_force else "joined"
                 _master_log(f"Agent '{agent_id}' {action} host={str(body.get('host') or '?')}")
             return {
                 "status": "ok",
@@ -5047,7 +5115,7 @@ class PdbMasterApiServer:
                     if not include_self and str(agent.get("id") or "") == "self":
                         continue
                     st = self._agent_status(agent)
-                    if not include_offline and st == "offline":
+                    if not include_offline and st != "online":
                         continue
                     tl = agent.get("task_list") or {}
                     raw_mi = agent.get("mission_info_ansi", "")
@@ -5062,6 +5130,9 @@ class PdbMasterApiServer:
                         "cmd_api_tcp": agent["cmd_api_tcp"],
                         "cmd_api_sock": agent["cmd_api_sock"],
                         "status": st,
+                        "client_exit": bool(agent.get("client_exit")),
+                        "exited_at": agent.get("exited_at", 0),
+                        "exit_reason": agent.get("exit_reason", ""),
                         "last_seen": agent["last_seen"],
                         "first_seen": agent["first_seen"],
                         "mission": tl.get("mission_name", ""),
@@ -5085,12 +5156,13 @@ class PdbMasterApiServer:
                     })
                 reverse = sort_desc
                 if sort_by == "status":
-                    data.sort(key=lambda a: (a["status"] != "online"), reverse=reverse)
+                    status_rank = {"online": 0, "offline": 1, "exit": 2}
+                    data.sort(key=lambda a: status_rank.get(a["status"], 3), reverse=reverse)
                 else:
                     data.sort(key=lambda a: a.get(sort_by, ""), reverse=reverse)
                 total_count = len(data)
                 online_count = sum(1 for item in data if item.get("status") == "online")
-                offline_count = sum(1 for item in data if item.get("status") == "offline")
+                offline_count = sum(1 for item in data if item.get("status") != "online")
                 total_pages = (total_count + page_size - 1) // page_size
                 if total_pages and page > total_pages:
                     page = total_pages
@@ -5129,6 +5201,9 @@ class PdbMasterApiServer:
                 "cmd_api_tcp": agent["cmd_api_tcp"],
                 "cmd_api_sock": agent["cmd_api_sock"],
                 "status": st,
+                "client_exit": bool(agent.get("client_exit")),
+                "exited_at": agent.get("exited_at", 0),
+                "exit_reason": agent.get("exit_reason", ""),
                 "last_seen": agent["last_seen"],
                 "first_seen": agent["first_seen"],
                 "mission": tl.get("mission_name", ""),
@@ -5782,6 +5857,7 @@ class PdbMasterApiServer:
 
         @app.get("/api/tasks", summary="List managed tasks", dependencies=[Depends(_check_password)])
         def list_tasks(status: str = "", dut: str = "", q: str = ""):
+            self._refresh_task_states()
             status = status.strip().lower()
             dut = dut.strip().lower()
             q = q.strip().lower()
@@ -5817,6 +5893,7 @@ class PdbMasterApiServer:
 
         @app.get("/api/task/{task_id}", summary="Managed task detail", dependencies=[Depends(_check_password)])
         def get_task(task_id: str):
+            self._refresh_task_states()
             try:
                 task = self._get_task(task_id)
             except KeyError as exc:
@@ -5825,6 +5902,7 @@ class PdbMasterApiServer:
 
         @app.get("/api/task/{task_id}/command", summary="Managed task command", dependencies=[Depends(_check_password)])
         def get_task_command(task_id: str):
+            self._refresh_task_states()
             try:
                 task = self._get_task(task_id)
             except KeyError as exc:
@@ -5833,6 +5911,7 @@ class PdbMasterApiServer:
 
         @app.get("/api/task/{task_id}/logs", summary="Managed task logs", dependencies=[Depends(_check_password)])
         def get_task_logs(task_id: str):
+            self._refresh_task_states()
             try:
                 task = self._get_task(task_id)
             except KeyError as exc:
@@ -6592,13 +6671,19 @@ class PdbMasterApiServer:
             with self._agents_lock:
                 current_ids = set(self._agents.keys())
                 for aid, agent in self._agents.items():
-                    is_online = (now - agent["last_seen"]) <= self.offline_timeout
+                    is_online = self._agent_is_online(agent)
                     was_online = self._online_cache.get(aid, True)
                     if was_online and not is_online:
-                        elapsed = int(now - agent["last_seen"])
-                        _master_log(
-                            f"Agent '{aid}' went offline (no heartbeat for {elapsed}s, host={agent.get('host', '?')})"
-                        )
+                        if agent.get("client_exit"):
+                            _master_log(
+                                f"Agent '{aid}' is offline after exit "
+                                f"(reason={agent.get('exit_reason') or 'exit'}, host={agent.get('host', '?')})"
+                            )
+                        else:
+                            elapsed = int(now - agent["last_seen"])
+                            _master_log(
+                                f"Agent '{aid}' went offline (no heartbeat for {elapsed}s, host={agent.get('host', '?')})"
+                            )
                     self._online_cache[aid] = is_online
             for aid in list(self._online_cache):
                 if aid not in current_ids:
@@ -6736,7 +6821,7 @@ class PdbMasterApiServer:
         online = offline = 0
         with self._agents_lock:
             for agent in self._agents.values():
-                if _now() - agent["last_seen"] <= self.offline_timeout:
+                if self._agent_is_online(agent):
                     online += 1
                 else:
                     offline += 1
@@ -6925,6 +7010,40 @@ class PdbMasterClient:
                 self._stop_event.wait(self.reconnect_interval)
                 continue
             self._stop_event.wait(self.interval)
+
+    def send_exit_heartbeat(self, reason: str = "exit") -> Tuple[bool, str]:
+        import requests
+
+        self._stop_event.set()
+        payload = self._build_payload()
+        payload["client_exit"] = True
+        payload["exited_at"] = _now()
+        payload["exit_reason"] = str(reason or "exit")
+        register_url = f"{self.master_url}/api/register"
+        try:
+            resp = requests.post(register_url, json=payload, timeout=10, headers=self._headers())
+        except Exception as exc:
+            self._connected = False
+            return False, f"Failed to send exit heartbeat to master {self.master_url}: {exc}"
+        if resp.ok:
+            data = resp.json()
+            if data.get("status") == "removed":
+                self._kicked = True
+                self._running = False
+                self._connected = False
+                return False, f"This agent was removed from master {self.master_url}."
+            if isinstance(data.get("capabilities"), dict):
+                self._last_capabilities = data["capabilities"]
+            self._running = False
+            self._connected = False
+            return True, f"Exit heartbeat sent to master {self.master_url} as '{self.agent_id}'."
+        if resp.status_code == 403:
+            self._auth_failed = True
+            self._running = False
+            self._connected = False
+            return False, f"Access key was rejected by master {self.master_url} (HTTP 403)."
+        self._connected = False
+        return False, f"Exit heartbeat failed for master {self.master_url}: HTTP {resp.status_code} {self._response_detail(resp)}"
 
     def start(self) -> Tuple[bool, str]:
         if self._running:

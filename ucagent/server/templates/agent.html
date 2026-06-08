@@ -1700,7 +1700,7 @@ async function openRelaunchDialog(){
     const status=await _fetchRelaunchStatus();
     const data=status.data||{};
     if(!data.can_relaunch){
-      showErr(data.message||"Task cannot be relaunched yet. Please remove the old task/client records first.");
+      showErr(data.message||"Task cannot be relaunched yet. Wait for the old task to disappear and the client to exit, or remove the related records.");
       return;
     }
     _openRelaunchFrame(data);

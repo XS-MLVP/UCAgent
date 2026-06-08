@@ -97,6 +97,7 @@
   .badge{display:inline-block;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:600;white-space:nowrap}
   .badge-online{background:#14532d;color:var(--online)}
   .badge-offline{background:#450a0a;color:#fca5a5}
+  .badge-exit{background:#272b36;color:#a3aab8}
   .badge-yes{background:#1e3a5f;color:#93c5fd}
   .badge-break{background:#451a03;color:#fed7aa}
   .progress-bar-wrap{background:var(--bg);border-radius:4px;height:5px;min-width:48px;overflow:hidden;margin-bottom:2px}
@@ -204,7 +205,7 @@
     <select class="filter-select" id="filter-status" onchange="renderTable()">
       <option value="all">All status</option>
       <option value="online">Online only</option>
-      <option value="offline">Offline only</option>
+      <option value="offline">Offline / exit only</option>
     </select>
     <select class="filter-select" id="sort-by" onchange="onSortChange()" title="Sort agent list">
       <option value="id">Sort by: ID</option>
@@ -430,6 +431,25 @@ function updateCompletedTaskButton() {
 function selfCmdApiAvailable() {
   return Boolean(_selfAgent && _selfAgent.cmd_api_tcp && _selfAgent.status === 'online');
 }
+function isOnlineAgent(agent) {
+  return agent && agent.status === 'online';
+}
+function isOfflineLikeAgent(agent) {
+  return !isOnlineAgent(agent);
+}
+function agentStatusRank(agent) {
+  const status = agent && agent.status;
+  if (status === 'online') return 0;
+  if (status === 'offline') return 1;
+  if (status === 'exit') return 2;
+  return 3;
+}
+function agentBadgeClass(agent) {
+  const status = agent && agent.status;
+  if (status === 'online') return 'badge-online';
+  if (status === 'exit') return 'badge-exit';
+  return 'badge-offline';
+}
 function updateDeleteControlsUi() {
   const selectAllBtn = document.getElementById('select-all-btn');
   const batchBtn = document.getElementById('batch-delete-btn');
@@ -534,7 +554,7 @@ function checkAutoDeleteOffline() {
   // Find offline agents that have been offline for more than threshold
   const toDelete = _allAgents.filter(a => {
     if (a.id === 'self') return false;
-    if (a.status !== 'offline') return false;
+    if (!isOfflineLikeAgent(a)) return false;
     const lastSeen = a.last_seen || 0;
     const offlineTime = now - lastSeen;
     return offlineTime > _autoDeleteOfflineThreshold;
@@ -571,9 +591,9 @@ function getVisible() {
     _isSearching = true;
     let result = _allAgents.filter(a => {
       if (!_showSelfClient && a.id === 'self') return false;
-      if (!showOff && a.status === 'offline') return false;
+      if (!showOff && isOfflineLikeAgent(a)) return false;
       if (filter === 'online'  && a.status !== 'online')  return false;
-      if (filter === 'offline' && a.status !== 'offline') return false;
+      if (filter === 'offline' && !isOfflineLikeAgent(a)) return false;
       const hay = `${a.id} ${a.host} ${a.mission || ''} ${a.current_stage_name || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
       return true;
@@ -588,8 +608,8 @@ function getVisible() {
           bVal = b[_sortBy];
           break;
         case 'status':
-          aVal = a.status === 'online' ? 0 : 1;
-          bVal = b.status === 'online' ? 0 : 1;
+          aVal = agentStatusRank(a);
+          bVal = agentStatusRank(b);
           break;
         case 'last_seen':
         case 'first_seen':
@@ -611,9 +631,9 @@ function getVisible() {
     // But still apply status filter since backend returns all statuses
     return _allAgents.filter(a => {
       if (!_showSelfClient && a.id === 'self') return false;
-      if (!showOff && a.status === 'offline') return false;
+      if (!showOff && isOfflineLikeAgent(a)) return false;
       if (filter === 'online'  && a.status !== 'online')  return false;
-      if (filter === 'offline' && a.status !== 'offline') return false;
+      if (filter === 'offline' && !isOfflineLikeAgent(a)) return false;
       return true;
     });
   }
@@ -651,7 +671,7 @@ function renderTable() {
     return;
   }
   tbody.innerHTML = pageItems.map(a => {
-    const st     = a.status === 'online';
+    const st     = isOnlineAgent(a);
     const cur    = a.current_stage_index >= 0 ? a.current_stage_index : -1;
     const tot    = a.total_stage_count    || 0;
     const pct    = tot > 0 ? Math.min(Math.round(((cur + 1) / tot) * 100), 100) : 0;
@@ -664,7 +684,7 @@ function renderTable() {
       <td>${canDelete ? `<input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/>` : ''}</td>
       <td><span class="id-cell" title="${esc(a.id)}">${esc(a.id)}</span></td>
       <td><span class="host-cell" title="${esc(a.host)}">${esc(a.host || '—')}</span></td>
-      <td><span class="badge ${st ? 'badge-online' : 'badge-offline'}">${esc(a.status)}</span></td>
+      <td><span class="badge ${agentBadgeClass(a)}">${esc(a.status)}</span></td>
       <td>${a.launch ? '<span class="badge badge-yes">yes</span>' : '<span style="color:var(--text-dim);font-size:12px">—</span>'}</td>
       <td><span class="version-cell" title="${esc(a.version || '—')}">${esc(a.version || '—')}</span></td>
       <td>
@@ -902,6 +922,8 @@ function openDetail(id) {
     ['ID',           a.id],
     ['Host',         a.host],
     ['Status',       a.status],
+    ['Exited At',    a.exited_at ? new Date(a.exited_at * 1000).toLocaleString() : '—'],
+    ['Exit Reason',  a.exit_reason || '—'],
     ['Version',      a.version || '—'],
     ['Mission',      a.mission || '—'],
     ['Stage',        a.current_stage_name || '—'],
