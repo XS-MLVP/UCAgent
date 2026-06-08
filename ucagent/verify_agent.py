@@ -110,6 +110,7 @@ class VerifyAgent:
         saved_info = {}
         if not no_history:
             saved_info = fc.load_ucagent_info(workspace)
+        force_stage_index_explicit = force_stage_index != 0
         if force_stage_index == 0:
             force_stage_index = saved_info.get("stage_index", force_stage_index)
             if force_stage_index > 0:
@@ -192,8 +193,9 @@ class VerifyAgent:
             self.tool_read_text,
             saved_info,
             force_stage_index,
-            force_todo,
-            self.todo_panel,
+            force_stage_index_explicit=force_stage_index_explicit,
+            force_todo=force_todo,
+            todo_panel=self.todo_panel,
             stage_skip_list=stage_skip_list,
             stage_unskip_list=stage_unskip_list,
             tool_inspect_file=[
@@ -614,6 +616,7 @@ class VerifyAgent:
             "seed": self.seed,
             "config_file": self.config_file,
             "config_arg": self.config_file,
+            "mission_name": self.cfg.mission.name,
         }
 
     def is_exit(self):
@@ -625,9 +628,14 @@ class VerifyAgent:
         if self.is_exit():
             return
         try:
+            self._is_exit = True
+            try:
+                if getattr(self, "stage_manager", None) is not None:
+                    self.stage_manager.save_stage_info()
+            except Exception as exc:
+                warning(f"Failed to save stage information on exit: {exc}")
             self._sync_workspace_back_on_exit()
         finally:
-            self._is_exit = True
             fc.chmode_rw(self.cwd_read_only_files)
 
     def _cfg_bool(self, key: str, default: bool = False) -> bool:

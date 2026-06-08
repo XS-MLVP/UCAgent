@@ -654,7 +654,7 @@ def get_args() -> argparse.Namespace:
         "--force-stage-index", 
         type=int, 
         default=0, 
-        help="Force the stage index to start from a specific stage"
+        help="Force the stage index to start from a specific stage. If this rewinds saved progress, saved data from that stage onward is reset."
     )
     parser.add_argument(
         "--no-write", "-nw", 

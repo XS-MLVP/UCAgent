@@ -386,6 +386,7 @@ class StageManager(object):
             stage_unskip_list=None,
             tool_inspect_file=None,
             reference_files=None,
+            force_stage_index_explicit=False,
     ):
         """
         Initialize the StageManager with an empty list of stages.
@@ -400,10 +401,45 @@ class StageManager(object):
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
         self.force_stage_index = force_stage_index
+        self.force_stage_index_explicit = force_stage_index_explicit
+        self._saved_info_truncated_by_force = False
         self.stage_skip_list = stage_skip_list
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+
+    @staticmethod
+    def _safe_int(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _truncate_loaded_info_for_forced_stage(self, force_stage_index):
+        if not self.force_stage_index_explicit:
+            return False
+        saved_stage_index = self._safe_int(self.ucagent_info.get("stage_index", 0), 0)
+        if force_stage_index >= saved_stage_index:
+            return False
+
+        warning(
+            f"Force stage index {force_stage_index} is earlier than saved stage index "
+            f"{saved_stage_index}; clearing saved progress from stage {force_stage_index} onward."
+        )
+        self.ucagent_info = copy.deepcopy(self.ucagent_info)
+        stages_info = self.ucagent_info.get("stages_info", {})
+        if isinstance(stages_info, dict):
+            self.ucagent_info["stages_info"] = {
+                stage_idx: stage_info
+                for stage_idx, stage_info in stages_info.items()
+                if self._safe_int(stage_idx, -1) < force_stage_index
+            }
+        self.ucagent_info["stage_index"] = force_stage_index
+        self.ucagent_info["all_completed"] = False
+        self.ucagent_info["time_end"] = None
+        self.ucagent_info["is_agent_exit"] = False
+        self.ucagent_info["is_wait_human_check"] = False
+        return True
 
     def init_stage(self):
         from ucagent.stage import VerifyStage
@@ -424,6 +460,7 @@ class StageManager(object):
         info(f"Initialized StageManager with {len(self.stages)} stages.")
         info("Stages:\n" + "\n".join([f"{i:2d}:   {stage.title()}{' (skipped)' if stage.is_skipped() else ''}" for i, stage in enumerate(self.stages)]))
         self.stage_index = min(max(0, self.force_stage_index), len(self.stages))
+        self._saved_info_truncated_by_force = self._truncate_loaded_info_for_forced_stage(self.stage_index)
         for i in range(min(self.stage_index + 1, len(self.stages))):
             self.stages[i].set_reached(True)
         stages_info = self.ucagent_info.get("stages_info", {})
@@ -474,6 +511,8 @@ class StageManager(object):
         )
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].hist_init()
+        if self._saved_info_truncated_by_force:
+            self.save_stage_info()
 
     def is_break(self):
         return self.agent.is_break()
@@ -835,6 +874,7 @@ class StageManager(object):
         all_completed = self._refresh_all_completed()
         info = self.agent.get_stat_info()
         info.update({
+            "mission_name": self.agent.cfg.mission.name,
             "stage_index": self.stage_index,
             "all_completed": all_completed,
             "time_begin": self.time_begin,

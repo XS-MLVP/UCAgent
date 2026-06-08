@@ -11,6 +11,7 @@ import collections
 import copy
 import io
 import json
+import os
 import re
 import sys
 import threading
@@ -108,6 +109,28 @@ _ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
+
+
+def _sub_mission_name_from_info(workspace_root: str, info: dict) -> str:
+    for key in ("mission_name", "mission", "misson_name"):
+        value = info.get(key)
+        if isinstance(value, dict):
+            value = value.get("name")
+        if value:
+            return str(value)
+    return os.path.basename(os.path.normpath(workspace_root)) or "Sub Workspace"
+
+
+def _sub_workspace_lifecycle_from_info(info: dict) -> str:
+    all_completed = bool(info.get("all_completed", False))
+    is_exit = bool(info.get("is_agent_exit", False))
+    if all_completed:
+        return "completed"
+    if is_exit:
+        return "exited"
+    if bool(info.get("is_wait_human_check", False)) and not all_completed:
+        return "waiting"
+    return "running"
 
 
 class PdbCmdApiServer:
@@ -436,11 +459,7 @@ class PdbCmdApiServer:
             return items
 
         def _sub_mission_name(workspace_root: str, info: dict) -> str:
-            for key in ("mission_name", "mission", "misson_name"):
-                value = info.get(key)
-                if value:
-                    return str(value)
-            return os.path.basename(os.path.normpath(workspace_root)) or "Sub Workspace"
+            return _sub_mission_name_from_info(workspace_root, info)
 
         def _format_stage_time_cost(value) -> str:
             if value in (None, "", 0, 0.0):
@@ -544,15 +563,7 @@ class PdbCmdApiServer:
             }
 
         def _sub_workspace_lifecycle(info: dict) -> str:
-            all_completed = bool(info.get("all_completed", False))
-            is_exit = bool(info.get("is_agent_exit", False))
-            if bool(info.get("is_wait_human_check", False)) and not all_completed and not is_exit:
-                return "waiting"
-            if all_completed:
-                return "completed"
-            if is_exit:
-                return "exited"
-            return "running"
+            return _sub_workspace_lifecycle_from_info(info)
 
         def _sub_workspace_summary(workspace_root: str, current_root: Optional[str] = None) -> dict:
             info_path = _ucagent_info_path(workspace_root)

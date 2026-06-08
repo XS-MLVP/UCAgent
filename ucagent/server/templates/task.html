@@ -347,6 +347,27 @@ function serviceBadge(status) {
   return `<span class="badge warn">${esc(status || 'starting')}</span>`;
 }
 
+function normalizeDutPart(value) {
+  return String(value || '').trim();
+}
+
+function sameDutPart(left, right) {
+  return normalizeDutPart(left).toLowerCase() === normalizeDutPart(right).toLowerCase();
+}
+
+function taskDutCell(task) {
+  const dutName = normalizeDutPart(task?.dut_name);
+  const moduleName = normalizeDutPart(task?.selected_module);
+  const primary = dutName || moduleName || '—';
+  const showModule = moduleName && !sameDutPart(primary, moduleName);
+  const title = showModule ? `${primary} ${moduleName}` : primary;
+  const moduleHtml = showModule ? `<div class="muted truncate dut-cell">${esc(moduleName)}</div>` : '';
+  return {
+    title,
+    html: `<div class="truncate dut-cell">${esc(primary)}</div>${moduleHtml}`,
+  };
+}
+
 function getHashTaskId() {
   const hash = window.location.hash || '';
   if (!hash.startsWith('#task-')) return '';
@@ -513,6 +534,7 @@ function renderTaskRows() {
   const pageRows = resolvePageTasks(rows);
   tbody.innerHTML = pageRows.map(task => {
     const terminal = terminalTarget(task);
+    const dutCell = taskDutCell(task);
     const dangerActions = showDeleteControls ? `
             <button class="btn btn-danger" ${['starting','running','stopping'].includes(task.process_status) ? '' : 'disabled'} onclick="stopTask('${esc(task.task_id)}')">Stop</button>
             <button class="btn btn-danger" ${['stopped','failed'].includes(task.process_status) ? '' : 'disabled'} onclick="deleteTask('${esc(task.task_id)}')">Delete</button>
@@ -522,7 +544,7 @@ function renderTaskRows() {
         <td><button class="btn truncate task-cell" onclick="showTask('${esc(task.task_id)}')" title="${esc(task.task_id)}">${esc(task.task_id)}</button></td>
         <td class="muted" title="${esc(formatTimestamp(task.created_at))}"><span class="truncate created-cell">${esc(formatTimestamp(task.created_at))}</span></td>
         <td>${badge(task.process_status)}</td>
-        <td title="${esc(`${task.dut_name || '—'} ${task.selected_module || ''}`.trim())}"><div class="truncate dut-cell">${esc(task.dut_name || '—')}</div><div class="muted truncate dut-cell">${esc(task.selected_module || '')}</div></td>
+        <td title="${esc(dutCell.title)}">${dutCell.html}</td>
         <td title="${esc(task.pid || '—')}"><span class="truncate">${task.pid || '—'}</span></td>
         <td title="${esc(task.registered_agent_id || 'no')}">${task.registered_to_master ? `<span class="badge ok truncate registered-cell">${esc(task.registered_agent_id || 'yes')}</span>` : '<span class="badge warn">no</span>'}</td>
         <td>${serviceBadge(task.cmd_api?.status)}</td>
