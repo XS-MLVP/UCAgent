@@ -5162,9 +5162,28 @@ class PdbMasterApiServer:
             options = []
             if isinstance(predefined_configs, dict):
                 for name, value in predefined_configs.items():
-                    if name.startswith("_"):
+                    name_str = str(name)
+                    if name_str.startswith("_"):
                         continue
-                    options.append({"name": name, "value": value, "source": "predefined"})
+                    cfg_value = ""
+                    defaults: Dict[str, Any] = {}
+                    value = _plain_config_value(value)
+                    if isinstance(value, dict):
+                        defaults = dict(value)
+                        cfg_value = defaults.pop("cfg", defaults.get("config", ""))
+                        if cfg_value not in (None, ""):
+                            defaults["config"] = cfg_value
+                    else:
+                        cfg_value = value
+                        if cfg_value not in (None, ""):
+                            defaults["config"] = cfg_value
+                    options.append({
+                        "name": name_str,
+                        "value": str(cfg_value or name_str),
+                        "source": "predefined",
+                        "defaults": defaults,
+                        "preset_name": name_str,
+                    })
             if doc_dir and os.path.isdir(doc_dir):
                 try:
                     for entry in sorted(os.listdir(doc_dir)):

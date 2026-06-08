@@ -324,7 +324,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args']);
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 
@@ -342,8 +342,10 @@ const state = {
   envRows: [],
   manualConfigPath: false,
   manualWorkspaceBase: false,
+  launchBaseConfig: null,
   launchConfig: null,
   configOptions: [],
+  selectedConfigPresetName: '',
   backendOptions: [],
   backendKeyName: '',
   launchModes: [],
@@ -924,6 +926,8 @@ function getConfigFile() {
 function syncConfigPathDefault() {
   const input = document.getElementById('config-path');
   if (!input || state.manualConfigPath) return;
+  const selectedOption = getSelectedConfigOption();
+  if (selectedOption?.source === 'predefined') return;
   const compile = getCompileInfo();
   const optionValues = [...input.options].map((option) => option.value);
   const desiredValue = (compile && compile.config_path)
@@ -1743,33 +1747,154 @@ async function launchTask() {
   }
 }
 
+function isPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function configPresetToOption(name, preset) {
+  const optionName = String(name ?? '').trim();
+  if (isPlainObject(preset)) {
+    const cfgValue = preset.cfg ?? preset.config ?? '';
+    const defaults = { ...preset };
+    delete defaults.cfg;
+    if (cfgValue !== undefined && cfgValue !== null && String(cfgValue).trim() !== '') {
+      defaults.config = cfgValue;
+    }
+    return {
+      name: optionName,
+      value: String(cfgValue || optionName),
+      source: 'predefined',
+      defaults,
+      presetName: optionName,
+    };
+  }
+  const cfgValue = String(preset ?? '').trim();
+  return {
+    name: optionName || cfgValue,
+    value: cfgValue,
+    source: 'predefined',
+    defaults: cfgValue ? { config: cfgValue } : {},
+    presetName: optionName,
+  };
+}
+
+function configOptionsFromLaunchConfig(config) {
+  if (!isPlainObject(config?.configs)) return [];
+  return Object.entries(config.configs)
+    .filter(([name]) => !String(name || '').startsWith('_'))
+    .map(([name, preset]) => configPresetToOption(name, preset));
+}
+
+function normalizeConfigOptionFromApi(item) {
+  if (!isPlainObject(item)) return null;
+  const source = String(item.source || '').trim() || 'workspace';
+  const name = String(item.name ?? item.value ?? '').trim();
+  if (source === 'predefined') {
+    if (isPlainObject(item.defaults)) {
+      const cfgValue = item.value ?? item.cfg ?? item.config ?? item.defaults.config ?? item.defaults.cfg ?? '';
+      const defaults = { ...item.defaults };
+      delete defaults.cfg;
+      if (cfgValue !== undefined && cfgValue !== null && String(cfgValue).trim() !== '') {
+        defaults.config = cfgValue;
+      }
+      return {
+        name,
+        value: String(cfgValue || name),
+        source,
+        defaults,
+        presetName: String(item.preset_name || item.presetName || name),
+      };
+    }
+    return configPresetToOption(name, item.value);
+  }
+  return {
+    name,
+    value: String(item.value ?? ''),
+    source,
+    defaults: {},
+    presetName: '',
+  };
+}
+
+function getSelectedConfigOption() {
+  const select = document.getElementById('config-path');
+  const selected = select?.selectedOptions?.[0];
+  const index = Number(selected?.dataset.optionIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= state.configOptions.length) return null;
+  return state.configOptions[index];
+}
+
+function mergeLaunchConfigForConfigOption(option) {
+  const base = { ...(state.launchBaseConfig || {}) };
+  const defaults = isPlainObject(option?.defaults) ? { ...option.defaults } : {};
+  const merged = { ...base, ...defaults };
+  if (option?.value) {
+    merged.config = option.value;
+  }
+  return merged;
+}
+
+function applySelectedConfigDefaults(options = {}) {
+  const selectedOption = getSelectedConfigOption();
+  const effectiveConfig = mergeLaunchConfigForConfigOption(selectedOption);
+  state.selectedConfigPresetName = selectedOption?.presetName || '';
+  state.launchConfig = effectiveConfig;
+  if (options.resetWorkspaceBase !== false) {
+    state.manualWorkspaceBase = false;
+  }
+  applyLaunchDefaults(effectiveConfig, { applyConfigPath: false });
+}
+
 async function loadConfigOptions() {
   if (!state.workspaceId) return;
   try {
     const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/config-options`);
     const select = document.getElementById('config-path');
+    const selectedOption = getSelectedConfigOption();
     if (select && select.value) {
       select.setAttribute('data-saved-value', select.value);
+      if (selectedOption?.presetName) {
+        select.setAttribute('data-saved-preset', selectedOption.presetName);
+      }
+      if (selectedOption?.source) {
+        select.setAttribute('data-saved-source', selectedOption.source);
+      }
     }
-    state.configOptions = data.options || [];
+    state.configOptions = (data.options || []).map(normalizeConfigOptionFromApi).filter(Boolean);
     renderConfigSelect();
   } catch (error) {
     console.error('Failed to load config options:', error);
   }
 }
 
-function renderConfigSelect() {
+function renderConfigSelect(options = {}) {
   const select = document.getElementById('config-path');
   if (!select) return;
-  const savedValue = select.getAttribute('data-saved-value') || select.value;
-  select.innerHTML = state.configOptions.map((opt) => `<option value="${esc(opt.value)}">${esc(opt.name)}</option>`).join('');
+  const currentOption = getSelectedConfigOption();
+  const savedValue = options.preferredValue ?? select.getAttribute('data-saved-value') ?? select.value;
+  const savedPreset = options.preferredPreset ?? select.getAttribute('data-saved-preset') ?? currentOption?.presetName ?? state.selectedConfigPresetName;
+  const savedSource = options.preferredSource ?? select.getAttribute('data-saved-source') ?? currentOption?.source ?? '';
+  select.innerHTML = state.configOptions.map((opt, index) => `
+    <option value="${esc(opt.value)}" data-option-index="${index}" data-source="${esc(opt.source || '')}" data-config-preset="${esc(opt.presetName || '')}">
+      ${esc(opt.name)}
+    </option>
+  `).join('');
   if (state.configOptions.length > 0) {
-    if (savedValue && state.configOptions.some((opt) => opt.value === savedValue)) {
-      select.value = savedValue;
-    } else {
-      select.value = state.configOptions[0].value;
+    let selectedIndex = -1;
+    if (savedPreset) {
+      selectedIndex = state.configOptions.findIndex((opt) => opt.presetName === savedPreset);
     }
+    if (selectedIndex < 0 && savedSource && savedValue) {
+      selectedIndex = state.configOptions.findIndex((opt) => opt.source === savedSource && opt.value === savedValue);
+    }
+    if (selectedIndex < 0 && savedValue) {
+      selectedIndex = state.configOptions.findIndex((opt) => opt.value === savedValue);
+    }
+    select.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
     select.removeAttribute('data-saved-value');
+    select.removeAttribute('data-saved-preset');
+    select.removeAttribute('data-saved-source');
+    state.selectedConfigPresetName = getSelectedConfigOption()?.presetName || '';
   }
 }
 
@@ -1916,36 +2041,37 @@ async function initPage() {
 
 function applyLaunchConfig(config) {
   if (!config) return;
-  if (config.configs && typeof config.configs === 'object') {
-    state.configOptions = Object.entries(config.configs)
-      .filter(([name, _]) => !name.startsWith('_'))
-      .map(([name, value]) => ({
-        name,
-        value,
-        source: 'predefined',
-      }));
-  }
-  renderConfigSelect();
+  state.launchBaseConfig = { ...config };
+  state.configOptions = configOptionsFromLaunchConfig(config);
+  renderConfigSelect({ preferredValue: config.config });
+  applySelectedConfigDefaults();
+}
+
+function applyLaunchDefaults(config, options = {}) {
+  if (!config) return;
   renderDynamicLaunchSettings(config);
+  const pickerArgs = config.picker_args !== undefined ? config.picker_args : config.picker_extra_args;
   const fields = {
-    'task-name': config.task_name,
-    'dut-name': config.dut_name,
-    'output': config.output,
-    'master-override': config.master,
-    'picker-args': Array.isArray(config.picker_args || config.picker_extra_args)
-      ? (config.picker_args || config.picker_extra_args).join('\n')
-      : (config.picker_args ?? config.picker_extra_args),
+    'task-name': config.task_name !== undefined && config.task_name !== null ? config.task_name : getSelectedModule(),
+    'output': config.output ?? '',
+    'master-override': config.master ?? '',
+    'picker-args': pickerArgs === undefined || pickerArgs === null ? '' : (Array.isArray(pickerArgs) ? pickerArgs.join('\n') : pickerArgs),
   };
   for (const [id, value] of Object.entries(fields)) {
     const el = document.getElementById(id);
-    if (el && value !== undefined && value !== null && value !== '') {
-      if (id !== 'launch-mode' || [...el.options].some((option) => option.value === value && !option.disabled)) {
-        el.value = value;
-      }
+    if (el && value !== undefined && value !== null) {
+      el.value = value;
     }
   }
+  if (config.dut_name !== undefined && config.dut_name !== null && config.dut_name !== '') {
+    document.getElementById('dut-name').value = config.dut_name;
+  } else {
+    document.getElementById('dut-name').value = getSelectedModule();
+  }
   setSelectValueIfAvailable('backend', config.backend);
-  setSelectValueIfAvailable('config-path', config.config);
+  if (options.applyConfigPath !== false) {
+    setSelectValueIfAvailable('config-path', config.config);
+  }
   setSelectValueIfAvailable('launch-mode', firstLaunchModeValue(config.launch_mode));
   applyWorkspaceBaseDefault(true);
   syncBackendMcpFileToolsOption();
@@ -2107,6 +2233,9 @@ document.addEventListener('change', async (event) => {
     }
     if (target.id === 'config-path') {
       state.manualConfigPath = true;
+      applySelectedConfigDefaults();
+      updateLaunchState();
+      return;
     }
     if (target.matches('input[data-action="env-key"]')) {
       const row = state.envRows.find((item) => item.id === target.dataset.rowId);
@@ -2177,6 +2306,12 @@ document.addEventListener('input', (event) => {
   if ([
     'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args', 'selected-module',
   ].includes(event.target.id)) {
+    if (event.target.id === 'config-path') {
+      state.manualConfigPath = true;
+      applySelectedConfigDefaults();
+      updateLaunchState();
+      return;
+    }
     if (event.target.id === 'selected-module') {
       syncModuleDerivedFields(event.target.value);
     }

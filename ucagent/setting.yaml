@@ -113,6 +113,7 @@ launch:
     tui: true                         # --tui flag
     backend: "langchain"              # --backend flag, options: langchain, claude, opencode, copilot, qwen, iflow, kilo, codex
     mcp_server_no_file_tools: false
+    exit_on_completion: true          # --exit-on-completion flag
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag
     use_skill: false
@@ -124,10 +125,19 @@ launch:
       "*": "{WORKSPACE}"
     extra_args: []                    # additional CLI arguments
     configs:                          # predefined config options for dropdown
-      UT:        "default.yaml"
-      Formal:    "formal.yaml"
-      Vibe:      "vibe.yaml"
-      Increment: "inc.yaml"
+      UT:
+        cfg: "default.yaml"
+      Formal:
+        cfg: "formal.yaml"
+        use_skill: true
+      Vibe:
+        cfg: "vibe.yaml"
+        tui: false
+        exit_on_completion: false
+        use_skill: true
+        loop: false
+      Increment:
+        cfg: "inc.yaml"
   cluster:
     image: "ghcr.nju.edu.cn/xs-mlvp/ucagent:latest" # container image used by docker, docker_swarm, and k8s launch modes
     container_command: "ucagent"                    # command inside the image; local python/cli prefix is replaced with this command
