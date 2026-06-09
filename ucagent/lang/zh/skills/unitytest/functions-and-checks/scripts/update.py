@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple
 
 
 PROJECT_ROOT = os.getcwd()
-SECTION_TITLE = "## 功能分组与检测点"
+SECTION_TITLE = "## 功能点与检测点"
 
 
 def parse_args():

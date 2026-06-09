@@ -1064,6 +1064,9 @@ def run() -> None:
     if args.extra_skill_path and not args.use_skill:
         raise ValueError("--extra-skill-path requires --use-skill is True")
 
+    if args.extra_skill_path and not os.path.exists(args.extra_skill_path):
+        raise ValueError(f"--extra-skill-path does not exist: {args.extra_skill_path}")
+
     if args.use_skill:
         args.override = _append_override(args.override, "skill.use_skill", args.use_skill)
         args.override = _append_override(args.override, "skill.extra_skill_path", args.extra_skill_path or "")

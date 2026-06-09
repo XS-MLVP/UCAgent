@@ -814,13 +814,12 @@ def dump_as_json(data):
         return data
     return json.dumps(data, indent=4, ensure_ascii=False) #.replace("\\n", "\n").replace("\\", "")
 
-def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list=[], disable_skill_list=[]):
+def copytree_incremental(src_dir, dst_dir, enable_skill_list=[], disable_skill_list=[]):
     """
     Incremental copying of directories with skill-based filtering.
     
     :param src_dir: source directory
     :param dst_dir: destination directory
-    :param skip_existing: whether to skip existing files (True=skip, False=overwrite)
     :param enable_skill_list: list of skills to include (only copy these)
     :param disable_skill_list: list of skills to exclude (copy all except these)
     :return: list of copied skills
@@ -836,30 +835,38 @@ def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list
 
     copied_skills = []
     
-    # recursively discover skills by SKILL.md
-    skill_dir_map = {}
+    # recursively discover skills by SKILL.md. Keep each directory as a separate
+    # entry so different paths can contain skills with the same directory name.
+    skill_entries = []
     for root, _, files in os.walk(src_dir):
         if "SKILL.md" not in files:
             continue
         skill_name = os.path.basename(root)
-        skill_dir_map[skill_name] = root
-    all_skills = list(skill_dir_map.keys())
+        skill_rel_dir = os.path.relpath(root, src_dir)
+        skill_entries.append((skill_name, skill_rel_dir, root))
+    skill_entries.sort(key=lambda item: item[1])
     
     # determine which skills to copy based on enable_skill_list and disable_skill_list
     skills_to_copy = []
+    enable_skill_set = set(enable_skill_list or [])
+    disable_skill_set = set(disable_skill_list or [])
     if enable_skill_list:
-        skills_to_copy = [skill for skill in enable_skill_list if skill in skill_dir_map]
+        skills_to_copy = [
+            entry for entry in skill_entries
+            if entry[0] in enable_skill_set or entry[1] in enable_skill_set
+        ]
     elif disable_skill_list:
-        skills_to_copy = [skill for skill in all_skills if skill not in disable_skill_list]
+        skills_to_copy = [
+            entry for entry in skill_entries
+            if entry[0] not in disable_skill_set and entry[1] not in disable_skill_set
+        ]
     else:
-        skills_to_copy = all_skills
+        skills_to_copy = skill_entries
     
     # copy skill
-    for skill in skills_to_copy:
-        src_skill_dir = skill_dir_map.get(skill)
+    for skill, skill_rel_dir, src_skill_dir in skills_to_copy:
         if not src_skill_dir or not os.path.exists(src_skill_dir):
             continue
-        skill_rel_dir = os.path.relpath(src_skill_dir, src_dir)
         dst_skill_dir = os.path.join(dst_dir, skill_rel_dir)
         if not os.path.exists(dst_skill_dir):
             os.makedirs(dst_skill_dir)
@@ -874,13 +881,17 @@ def copytree_incremental(src_dir, dst_dir, skip_existing=True, enable_skill_list
             for filename in files:
                 src_file = os.path.join(root, filename)
                 dst_file = os.path.join(dst_path, filename)
-                if os.path.exists(dst_file) and skip_existing:
-                    continue
-                else:
-                    shutil.copy2(src_file, dst_file)
-                    file_copied = True
-            if file_copied and skill not in copied_skills:
-                copied_skills.append(skill)
+                if os.path.exists(dst_file):
+                    os.chmod(dst_file, stat.S_IRUSR | stat.S_IWUSR)
+                shutil.copy2(src_file, dst_file)
+                file_copied = True
+                if os.path.exists(dst_file):
+                    try:
+                        os.chmod(dst_file, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+                    except OSError as e:
+                        warning(f"Failed to set skill file read-only: {dst_file}: {e}")
+            if file_copied and skill_rel_dir not in copied_skills:
+                copied_skills.append(skill_rel_dir)
     
     return copied_skills
 
@@ -2449,19 +2460,19 @@ def copy_skill_files(cfg, workspace, root_dir):
         root_dir: Root directory path
     """
     dst_path = get_workspace_skill_root(workspace)
-    src_paths=[]
+    copy_tasks = []
     # default skills path
-    default_skill_path = os.path.join(root_dir,"lang",cfg.lang,"skills")
-    src_paths.append(default_skill_path)
+    default_skill_path = os.path.join(root_dir, "lang", cfg.lang, "skills")
+    copy_tasks.append((default_skill_path, dst_path))
     # additional skills path
     if cfg.skill.extra_skill_path:
-        extra_skills_path = os.path.abspath(cfg.skill.extra_skill_path)
-        src_paths.append(extra_skills_path)
+        extra_skill_path = os.path.abspath(cfg.skill.extra_skill_path)
+        copy_tasks.append((extra_skill_path, os.path.join(dst_path, "ext")))
     # Copy skills to workspace
-    for src_path in src_paths:
+    for src_path, target_path in copy_tasks:
         if os.path.exists(src_path):
             try:
-                copied_skills = copytree_incremental(src_path, dst_path, skip_existing=True,enable_skill_list=cfg.skill.enable_skill_list,disable_skill_list=cfg.skill.disable_skill_list)
+                copied_skills = copytree_incremental(src_path, target_path, enable_skill_list=cfg.skill.enable_skill_list, disable_skill_list=cfg.skill.disable_skill_list)
                 if copied_skills:
                     info(f"Copy {len(copied_skills)} new skill file(s)")
             except Exception as e:
