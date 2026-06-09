@@ -176,13 +176,15 @@
   <div class="refresh-info">Auto-refresh in <span id="countdown">5</span>s</div>
   <div class="header-actions" id="uc-shell-header-actions">
     <a href="/launch/" class="btn btn-secondary btn-sm">Launch</a>
-    <a href="/task/" class="btn btn-secondary btn-sm">Task</a>
     <a id="completed-task-btn" href="/agent/self/cmd/complete/" class="btn btn-secondary btn-sm" style="display:none">Completed Task</a>
     <label class="header-toggle" title="Display the local self client in the agent list and statistics">
       <input type="checkbox" id="show-self-client" style="accent-color:var(--accent)"> Show self
     </label>
-    <label class="header-toggle" title="Display delete controls">
-      <input type="checkbox" id="show-delete-controls" style="accent-color:var(--accent)"> Show delete
+    <label class="header-toggle" title="Display unregister/delete controls">
+      <input type="checkbox" id="show-unregister-controls" style="accent-color:var(--accent)"> Show remove
+    </label>
+    <label class="header-toggle" title="Display managed task stop controls">
+      <input type="checkbox" id="show-stop-controls" style="accent-color:var(--accent)"> Show stop
     </label>
     <label class="header-toggle" title="Display offline agents (not removed from database)">
       <input type="checkbox" id="show-offline" checked style="accent-color:var(--accent)"> Show offline
@@ -202,14 +204,14 @@
     <div class="stat-card"><div class="stat-label">Offline</div><div class="stat-value stat-offline" id="stat-offline">—</div></div>
   </div>
   <div class="toolbar">
-    <input type="search" class="search-box" id="search-box" placeholder="Filter by ID / host / mission…" oninput="onSearchChange()"/>
+    <input type="search" class="search-box" id="search-box" placeholder="Filter by task / client / host / mission…" oninput="onSearchChange()"/>
     <select class="filter-select" id="filter-status" onchange="renderTable()">
       <option value="all">All status</option>
       <option value="online">Online only</option>
       <option value="offline">Offline / exit only</option>
     </select>
     <select class="filter-select" id="sort-by" onchange="onSortChange()" title="Sort agent list">
-      <option value="id">Sort by: ID</option>
+      <option value="id">Sort by: Client ID</option>
       <option value="host">Sort by: Host</option>
       <option value="status">Sort by: Status</option>
       <option value="last_seen">Sort by: Last seen</option>
@@ -217,8 +219,8 @@
       <option value="current_stage_index">Sort by: Progress</option>
     </select>
     <button class="btn btn-ghost btn-sm" id="sort-order-btn" onclick="toggleSortOrder()" title="Toggle ascending/descending">↓ Desc</button>
-    <button class="btn btn-ghost btn-sm" id="select-all-btn" onclick="toggleSelectAll()">☐ Select all</button>
-    <button class="btn btn-danger btn-sm" id="batch-delete-btn" onclick="confirmBatchDelete()" disabled>🗑 Delete (<span id="selected-count">0</span>)</button>
+    <button class="btn btn-ghost btn-sm" id="select-all-btn" onclick="toggleSelectAll()" style="display:none">☐ Select all</button>
+    <button class="btn btn-danger btn-sm" id="batch-delete-btn" onclick="confirmBatchDelete()" disabled style="display:none">&#x2298; Remove (0)</button>
   </div>
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;font-size:12px">
     <span style="color:var(--text-dim)">Per page:</span>
@@ -233,13 +235,14 @@
     <span id="page-num" style="color:var(--text-dim);min-width:40px;text-align:center">0/0</span>
     <button class="btn btn-ghost btn-sm" id="page-next" onclick="nextPage()" disabled>Next →</button>
   </div>
-  <h2 class="section-title">Client List</h2>
+  <h2 class="section-title">Task &amp; Client list</h2>
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th><input type="checkbox" id="header-checkbox" onchange="onHeaderCheckboxChange()" title="Select all visible"/></th>
-          <th>ID</th>
+          <th><input type="checkbox" id="header-checkbox" onchange="onHeaderCheckboxChange()" title="Select all visible" style="display:none"/></th>
+          <th>Task ID</th>
+          <th>Client ID</th>
           <th>Host</th>
           <th>Status</th>
           <th>Local</th>
@@ -255,7 +258,7 @@
         </tr>
       </thead>
       <tbody id="agents-tbody">
-        <tr class="loading-row"><td colspan="14">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="15">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -270,7 +273,7 @@
     </div>
     <div class="modal-body" id="detail-modal-body"></div>
     <div class="modal-actions">
-      <button class="btn btn-danger btn-sm" id="detail-delete-btn" onclick="confirmDeleteFromDetail()">🗑 Delete this agent</button>
+      <button class="btn btn-danger btn-sm" id="detail-delete-btn" onclick="confirmDeleteFromDetail()">&#x2298; Remove this client</button>
       <button class="btn btn-secondary btn-sm" id="detail-refresh-btn" onclick="refreshDetail()">↻ Refresh</button>
       <button class="btn btn-ghost btn-sm" onclick="closeDetailModal()">Close</button>
     </div>
@@ -325,10 +328,10 @@
 <!-- ── Confirm Dialog ────────────────────────────────────────────────── -->
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
-    <h3 id="confirm-title">Confirm deletion</h3>
+    <h3 id="confirm-title">Confirm action</h3>
     <p id="confirm-msg">Are you sure?</p>
     <div class="confirm-actions">
-      <button class="btn btn-danger" id="confirm-yes-btn">Delete</button>
+      <button class="btn btn-danger" id="confirm-yes-btn">Confirm</button>
       <button class="btn btn-ghost" onclick="closeConfirm()">Cancel</button>
     </div>
   </div>
@@ -357,7 +360,8 @@ let _sortBy = 'last_seen';    // current sort field: id, host, status, last_seen
 let _sortDesc = true;         // sort descending by default
 let _isSearching = false;     // whether user is searching (if true, use client-side filtering)
 let _showSelfClient = false;
-let _showDeleteControls = false;
+let _showUnregisterControls = false;
+let _showStopControls = false;
 let _selfAgent = null;
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, ok = true) {
@@ -452,15 +456,49 @@ function agentBadgeClass(agent) {
   if (status === 'exit') return 'badge-exit';
   return 'badge-offline';
 }
-function updateDeleteControlsUi() {
+function updateUnregisterControlsUi() {
   const selectAllBtn = document.getElementById('select-all-btn');
   const batchBtn = document.getElementById('batch-delete-btn');
   const headerCb = document.getElementById('header-checkbox');
-  if (selectAllBtn) selectAllBtn.style.display = _showDeleteControls ? '' : 'none';
-  if (batchBtn) batchBtn.style.display = _showDeleteControls ? '' : 'none';
-  if (headerCb) headerCb.style.display = _showDeleteControls ? '' : 'none';
-  if (!_showDeleteControls) _selectedIds.clear();
+  if (selectAllBtn) selectAllBtn.style.display = _showUnregisterControls ? '' : 'none';
+  if (batchBtn) batchBtn.style.display = _showUnregisterControls ? '' : 'none';
+  if (headerCb) headerCb.style.display = _showUnregisterControls ? '' : 'none';
+  if (!_showUnregisterControls) _selectedIds.clear();
   updateBatchBtn();
+}
+function isManagedTaskAgent(agent) {
+  return Boolean(agent && agent.launch_task_exists && agent.launch_task_id);
+}
+function isManagedTaskActive(agent) {
+  return ['starting', 'running'].includes(String(agent?.launch_task_status || '').toLowerCase());
+}
+function managedTaskStopAction(agent) {
+  if (!_showStopControls) return '';
+  if (!isManagedTaskAgent(agent) || !isManagedTaskActive(agent)) return '';
+  const taskId = String(agent.launch_task_id || '');
+  const clientId = String(agent.id || '');
+  return `<button class="btn btn-danger btn-sm" type="button" onclick="confirmStopManagedTask('${esc(taskId)}','${esc(clientId)}')" title="Stop managed task">Stop</button>`;
+}
+function agentById(id) {
+  return (_allAgents || []).find((item) => item.id === id) || null;
+}
+function clientRemovalAction(agentOrId) {
+  const agent = typeof agentOrId === 'string' ? agentById(agentOrId) : agentOrId;
+  const online = isOnlineAgent(agent);
+  return {
+    label: online ? 'Unregister' : 'Delete',
+    doneLabel: online ? 'Unregistered' : 'Deleted',
+    title: online ? 'Unregister client' : 'Delete client record',
+    blockRejoin: online,
+  };
+}
+function batchRemovalLabel(ids) {
+  const actions = ids.map(id => clientRemovalAction(id));
+  if (actions.length === 0) return 'Remove';
+  const unregisterCount = actions.filter(action => action.blockRejoin).length;
+  if (unregisterCount === actions.length) return 'Unregister';
+  if (unregisterCount === 0) return 'Delete';
+  return 'Remove';
 }
 function hasCompletedWorkspace(agent) {
   if (!agent) return false;
@@ -474,7 +512,7 @@ function shouldOpenCompletedWorkspace(agent) {
 function taskOpenUrl(agent) {
   if (!agent) return '';
   if (shouldOpenCompletedWorkspace(agent)) return '';
-  if (agent.launch && agent.launch_task_id && !agent.launch_task_finished) {
+  if (agent.launch_task_exists && agent.launch_task_id && !agent.launch_task_finished) {
     return agent.cmd_api_proxy || `/task/${encodeURIComponent(agent.launch_task_id)}/cmd/`;
   }
   return agent.cmd_api_proxy || '';
@@ -514,16 +552,16 @@ function canOpenAgent(agent) {
   if (shouldOpenCompletedWorkspace(agent)) {
     return Boolean((agent.completed_sub_workspace || agent.launch_task_id) && selfCmdApiAvailable());
   }
-  if (agent.launch) return Boolean(taskOpenUrl(agent));
+  if (agent.launch_task_exists) return Boolean(taskOpenUrl(agent));
   return Boolean(agent.cmd_api_tcp && taskOpenUrl(agent));
 }
 function openButtonTitle(agent) {
   if (shouldOpenCompletedWorkspace(agent)) return 'Open completed workspace';
-  if (agent && agent.launch) return 'Open task CMD API';
+  if (agent && agent.launch_task_exists) return 'Open task CMD API';
   return 'Open CMD API';
 }
 async function openAgent(agentId) {
-  const agent = (_allAgents || []).find((item) => item.id === agentId);
+  const agent = agentById(agentId);
   if (!agent) {
     toast(`Agent ${agentId} not found`, false);
     return;
@@ -578,7 +616,7 @@ async function batchDeleteSilent(ids) {
   let ok = 0, fail = 0;
   for (const id of ids.filter(item => item !== 'self')) {
     try {
-      const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const r = await fetch(`/api/agent/${encodeURIComponent(id)}?block_rejoin=false`, { method: 'DELETE' });
       if (r.ok) { ok++; _allAgents = _allAgents.filter(a => a.id !== id); _selectedIds.delete(id); }
       else fail++;
     } catch { fail++; }
@@ -603,7 +641,7 @@ function getVisible() {
       if (!showOff && isOfflineLikeAgent(a)) return false;
       if (filter === 'online'  && a.status !== 'online')  return false;
       if (filter === 'offline' && !isOfflineLikeAgent(a)) return false;
-      const hay = `${a.id} ${a.host} ${a.mission || ''} ${a.current_stage_name || ''}`.toLowerCase();
+      const hay = `${a.launch_task_id || ''} ${a.id} ${a.host} ${a.mission || ''} ${a.current_stage_name || ''}`.toLowerCase();
       if (!hay.includes(q)) return false;
       return true;
     });
@@ -671,10 +709,10 @@ function renderTable() {
   // clean up selected ids that are no longer visible
   const visibleIds = new Set(visible.map(a => a.id));
   for (const id of [..._selectedIds]) { if (!visibleIds.has(id)) _selectedIds.delete(id); }
-  if (!_showDeleteControls) _selectedIds.clear();
+  if (!_showUnregisterControls) _selectedIds.clear();
   updateBatchBtn();
   if (pageItems.length === 0) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="14"><div style="display:flex;flex-direction:column;align-items:center;gap:12px"><div>No agents found.</div><a href="/launch/" class="btn btn-primary" style="text-decoration:none;font-size:24px;padding:6px 18px" title="Launch a new managed task">＋</a></div></td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="15"><div style="display:flex;flex-direction:column;align-items:center;gap:12px"><div>No agents found.</div><a href="/launch/" class="btn btn-primary" style="text-decoration:none;font-size:24px;padding:6px 18px" title="Launch a new managed task">＋</a></div></td></tr>';
     syncHeaderCheckbox();
     updatePaginationControls(_currentPage, totalPages, totalFilteredCount);
     return;
@@ -688,9 +726,13 @@ function renderTable() {
     const done   = a.is_mission_complete;
     const checked = _selectedIds.has(a.id) ? 'checked' : '';
     const rowClass = st ? '' : 'style="opacity:.6"';
-    const canDelete = _showDeleteControls && a.id !== 'self';
+    const canUnregister = _showUnregisterControls && a.id !== 'self';
+    const removeAction = clientRemovalAction(a);
+    const taskId = a.launch_task_id || '';
+    const stopAction = managedTaskStopAction(a);
     return `<tr ${rowClass}>
-      <td>${canDelete ? `<input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/>` : ''}</td>
+      <td>${canUnregister ? `<input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/>` : ''}</td>
+      <td><span class="id-cell" title="${esc(taskId)}">${esc(taskId || '—')}</span></td>
       <td><span class="id-cell" title="${esc(a.id)}">${esc(a.id)}</span></td>
       <td><span class="host-cell" title="${esc(a.host)}">${esc(a.host || '—')}</span></td>
       <td><span class="badge ${agentBadgeClass(a)}">${esc(a.status)}</span></td>
@@ -717,7 +759,8 @@ function renderTable() {
           }
           return `<button class="btn btn-secondary btn-sm" type="button" onclick="openAgent('${esc(a.id)}')" style="text-decoration:none" title="${esc(openButtonTitle(a))}">Open</button>`;
         })()}
-        ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${esc(a.id)}')">🗑</button>` : ''}
+        ${stopAction}
+        ${canUnregister ? `<button class="btn btn-danger btn-sm" onclick="confirmDelete('${esc(a.id)}')" title="${esc(removeAction.title)}">&#x2298; ${esc(removeAction.label)}</button>` : ''}
       </td>
     </tr>`;
   }).join('');
@@ -837,7 +880,7 @@ function onSearchChange() {
 }
 // ── Select / batch ─────────────────────────────────────────────────────────
 function onRowCheckbox(cb) {
-  if (!_showDeleteControls) {
+  if (!_showUnregisterControls) {
     cb.checked = false;
     updateBatchBtn();
     syncHeaderCheckbox();
@@ -857,7 +900,7 @@ function onRowCheckbox(cb) {
   syncHeaderCheckbox();
 }
 function onHeaderCheckboxChange() {
-  if (!_showDeleteControls) return;
+  if (!_showUnregisterControls) return;
   const hc = document.getElementById('header-checkbox');
   getVisible().forEach(a => {
     if (a.id === 'self') return;
@@ -866,25 +909,29 @@ function onHeaderCheckboxChange() {
   renderTable();
 }
 function toggleSelectAll() {
-  if (!_showDeleteControls) return;
+  if (!_showUnregisterControls) return;
   const vis = getVisible().filter(a => a.id !== 'self');
   const allSel = vis.every(a => _selectedIds.has(a.id));
   vis.forEach(a => { if (allSel) _selectedIds.delete(a.id); else _selectedIds.add(a.id); });
   renderTable();
 }
 function syncHeaderCheckbox() {
-  const vis = _showDeleteControls ? getVisible().filter(a => a.id !== 'self') : [];
+  const vis = _showUnregisterControls ? getVisible().filter(a => a.id !== 'self') : [];
   const hc  = document.getElementById('header-checkbox');
   hc.checked       = vis.length > 0 && vis.every(a => _selectedIds.has(a.id));
   hc.indeterminate = !hc.checked && vis.some(a => _selectedIds.has(a.id));
 }
 function updateBatchBtn() {
-  if (!_showDeleteControls) _selectedIds.clear();
+  if (!_showUnregisterControls) _selectedIds.clear();
   _selectedIds.delete('self');
-  const n   = _selectedIds.size;
+  const ids = [..._selectedIds].filter(id => id !== 'self');
+  const n   = ids.length;
   const btn = document.getElementById('batch-delete-btn');
+  if (!btn) return;
   btn.disabled = n === 0;
-  document.getElementById('selected-count').textContent = n;
+  const label = batchRemovalLabel(ids);
+  btn.innerHTML = `&#x2298; ${esc(label)} (${n})`;
+  btn.title = n === 0 ? 'Select clients to remove' : `${label} ${n} selected client(s)`;
 }
 // ── ANSI → HTML ───────────────────────────────────────────────────────────
 const _ANSI_COLORS = {
@@ -926,9 +973,14 @@ function openDetail(id) {
   _currentDetailId = id;
   document.getElementById('detail-modal-title').textContent = `Agent: ${id}`;
   const detailDeleteBtn = document.getElementById('detail-delete-btn');
-  if (detailDeleteBtn) detailDeleteBtn.style.display = (_showDeleteControls && id !== 'self') ? '' : 'none';
+  if (detailDeleteBtn) {
+    const action = clientRemovalAction(a);
+    detailDeleteBtn.style.display = (_showUnregisterControls && id !== 'self') ? '' : 'none';
+    detailDeleteBtn.innerHTML = `&#x2298; ${esc(action.label)} this client`;
+    detailDeleteBtn.title = action.title;
+  }
   const fields = [
-    ['ID',           a.id],
+    ['Client ID',    a.id],
     ['Host',         a.host],
     ['Status',       a.status],
     ['Exited At',    a.exited_at ? new Date(a.exited_at * 1000).toLocaleString() : '—'],
@@ -939,7 +991,7 @@ function openDetail(id) {
     ['Progress',     a.total_stage_count > 0 ? `${a.current_stage_index}/${a.total_stage_count}` : '—'],
     ['Run Time',     a.run_time || '—'],
     ['Complete',     a.is_mission_complete ? 'Yes ✓' : 'No'],
-    ['Launch Task',  a.launch_task_id || '—'],
+    ['Task ID',      a.launch_task_id || '—'],
     ['Task Status',  a.launch_task_status || '—'],
     ['Completed Workspace', a.completed_sub_workspace || '—'],
     ['MCP Running',  a.mcp_running ? 'Yes' : 'No'],
@@ -1089,9 +1141,10 @@ function updateAutoDeleteStatus() {
 }
 // ── Confirm dialog ─────────────────────────────────────────────────────────
 let _confirmCallback = null;
-function showConfirm(title, msg, onYes) {
+function showConfirm(title, msg, onYes, yesLabel='Confirm') {
   document.getElementById('confirm-title').textContent = title;
   document.getElementById('confirm-msg').textContent   = msg;
+  document.getElementById('confirm-yes-btn').textContent = yesLabel;
   _confirmCallback = onYes;
   document.getElementById('confirm-overlay').classList.add('open');
 }
@@ -1103,33 +1156,47 @@ document.getElementById('confirm-yes-btn').addEventListener('click', () => {
   if (_confirmCallback) { const cb = _confirmCallback; closeConfirm(); cb(); }
 });
 function confirmDelete(id) {
-  if (!_showDeleteControls) {
-    toast('Enable Show delete first', false);
+  if (!_showUnregisterControls) {
+    toast('Enable Show remove first', false);
     return;
   }
   if (id === 'self') {
-    toast('The self client cannot be deleted here', false);
+    toast('The self client cannot be removed here', false);
     return;
   }
-  showConfirm('Delete agent', `Remove agent "${id}" from the master?`, () => deleteAgent(id));
+  const action = clientRemovalAction(id);
+  const note = action.blockRejoin ? ' It will be blocked from rejoining unless it registers with force.' : '';
+  showConfirm(action.title, `${action.label} client "${id}" from the master?${note}`, () => deleteAgent(id), action.label);
 }
 function confirmBatchDelete() {
-  if (!_showDeleteControls) return;
+  if (!_showUnregisterControls) return;
   const ids = [..._selectedIds].filter(id => id !== 'self');
   if (ids.length === 0) return;
-  showConfirm('Batch delete', `Delete ${ids.length} selected agent(s)?`, () => batchDelete(ids));
+  const label = batchRemovalLabel(ids);
+  showConfirm(`${label} selected clients`, `${label} ${ids.length} selected client(s)?`, () => batchDelete(ids), label);
 }
-// ── Delete API ─────────────────────────────────────────────────────────────
+function confirmStopManagedTask(taskId, clientId='') {
+  if (!taskId) return;
+  const clientText = clientId ? ` for client "${clientId}"` : '';
+  showConfirm(
+    'Stop managed task',
+    `Stop task "${taskId}"${clientText}? The task record and Task ID will remain visible on this page.`,
+    () => stopManagedTask(taskId),
+    'Stop'
+  );
+}
+// ── Agent remove / managed task stop APIs ─────────────────────────────────
 async function deleteAgent(id) {
   if (id === 'self') {
-    toast('The self client cannot be deleted here', false);
+    toast('The self client cannot be removed here', false);
     return;
   }
+  const action = clientRemovalAction(id);
   try {
-    const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    const d = await r.json();
+    const r = await fetch(`/api/agent/${encodeURIComponent(id)}?block_rejoin=${action.blockRejoin ? 'true' : 'false'}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
     if (r.ok) {
-      toast(`Deleted: ${id}`);
+      toast(`${action.doneLabel}: ${id}`);
       _allAgents = _allAgents.filter(a => a.id !== id);
       _selectedIds.delete(id);
       fetchAgents();
@@ -1140,15 +1207,32 @@ async function deleteAgent(id) {
 }
 async function batchDelete(ids) {
   let ok = 0, fail = 0;
+  const label = batchRemovalLabel(ids);
   for (const id of ids.filter(item => item !== 'self')) {
+    const action = clientRemovalAction(id);
     try {
-      const r = await fetch(`/api/agent/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const r = await fetch(`/api/agent/${encodeURIComponent(id)}?block_rejoin=${action.blockRejoin ? 'true' : 'false'}`, { method: 'DELETE' });
       if (r.ok) { ok++; _allAgents = _allAgents.filter(a => a.id !== id); _selectedIds.delete(id); }
       else fail++;
     } catch { fail++; }
   }
-  toast(`Deleted ${ok} agent(s)${fail ? `, ${fail} failed` : ''}.`, fail === 0);
+  toast(`${label} ${ok} client(s)${fail ? `, ${fail} failed` : ''}.`, fail === 0);
   fetchAgents();
+}
+async function stopManagedTask(taskId) {
+  try {
+    const r = await fetch(`/api/task/${encodeURIComponent(taskId)}/stop`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({force: false})
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || d.message || r.statusText);
+    toast(`Stop requested: ${taskId}`);
+    await fetchAgents();
+  } catch (e) {
+    toast(`Error: ${e.message || e}`, false);
+  }
 }
 // ── Countdown + auto-refresh ───────────────────────────────────────────────
 function startCountdown() {
@@ -1172,10 +1256,15 @@ document.getElementById('show-self-client').addEventListener('change', e => {
   localStorage.setItem('master-current-page', '1');
   fetchAgents();
 });
-document.getElementById('show-delete-controls').addEventListener('change', e => {
-  _showDeleteControls = e.target.checked;
-  localStorage.setItem('master-show-delete-controls', _showDeleteControls ? '1' : '0');
-  updateDeleteControlsUi();
+document.getElementById('show-unregister-controls').addEventListener('change', e => {
+  _showUnregisterControls = e.target.checked;
+  localStorage.setItem('master-show-unregister-controls', _showUnregisterControls ? '1' : '0');
+  updateUnregisterControlsUi();
+  renderTable();
+});
+document.getElementById('show-stop-controls').addEventListener('change', e => {
+  _showStopControls = e.target.checked;
+  localStorage.setItem('master-show-stop-controls', _showStopControls ? '1' : '0');
   renderTable();
 });
 // ── Auto-delete toggle ─────────────────────────────────────────────────
@@ -1236,10 +1325,13 @@ if (savedPage) {
 const savedShowSelf = localStorage.getItem('master-show-self-client');
 _showSelfClient = savedShowSelf === '1';
 document.getElementById('show-self-client').checked = _showSelfClient;
-const savedShowDelete = localStorage.getItem('master-show-delete-controls');
-_showDeleteControls = savedShowDelete === '1';
-document.getElementById('show-delete-controls').checked = _showDeleteControls;
-updateDeleteControlsUi();
+const savedShowUnregister = localStorage.getItem('master-show-unregister-controls');
+_showUnregisterControls = savedShowUnregister === '1';
+document.getElementById('show-unregister-controls').checked = _showUnregisterControls;
+updateUnregisterControlsUi();
+const savedShowStop = localStorage.getItem('master-show-stop-controls');
+_showStopControls = savedShowStop === '1';
+document.getElementById('show-stop-controls').checked = _showStopControls;
 // Restore auto-delete check interval from localStorage
 const savedInterval = localStorage.getItem('master-auto-delete-check-interval');
 if (savedInterval) {

@@ -16,6 +16,7 @@ import ast
 import ntpath
 import posixpath
 import shutil
+import stat
 import tarfile
 from typing import Dict, List, Any, Optional, Union
 import tempfile
@@ -173,6 +174,63 @@ def _download_workspace_archive(source_url: str, archive_path: str) -> None:
         raise WorkspaceArchiveError(f"Downloaded workspace archive is empty: {display_url}")
 
 
+def _make_path_removable(path: str) -> None:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return
+    if stat.S_ISLNK(st.st_mode):
+        return
+    chflags = getattr(os, "chflags", None)
+    if chflags is not None:
+        try:
+            chflags(path, 0)
+        except OSError:
+            pass
+    mode = stat.S_IMODE(st.st_mode) | stat.S_IRUSR | stat.S_IWUSR
+    if stat.S_ISDIR(st.st_mode):
+        mode |= stat.S_IXUSR
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        return
+
+
+def _make_tree_removable(path: str) -> None:
+    _make_path_removable(path)
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=False):
+        _make_path_removable(root)
+        for name in dirs:
+            _make_path_removable(os.path.join(root, name))
+        for name in files:
+            _make_path_removable(os.path.join(root, name))
+
+
+def _remove_workspace_archive_extract(extract_dir: str) -> None:
+    def _on_remove_error(func, failed_path, exc_info):
+        _make_path_removable(os.path.dirname(failed_path))
+        _make_path_removable(failed_path)
+        func(failed_path)
+
+    if os.path.islink(extract_dir) or os.path.isfile(extract_dir):
+        _make_path_removable(os.path.dirname(extract_dir))
+        _make_path_removable(extract_dir)
+        os.unlink(extract_dir)
+        return
+    _make_tree_removable(extract_dir)
+    shutil.rmtree(extract_dir, onerror=_on_remove_error)
+
+
+def _write_workspace_archive_marker(marker_path: str, workspace: str, effective_workspace: str = "") -> None:
+    try:
+        with open(marker_path, "w", encoding="utf-8") as fh:
+            fh.write(f"source={workspace}\n")
+            if effective_workspace:
+                fh.write(f"workspace={effective_workspace}\n")
+    except OSError:
+        pass
+
+
 def _safe_extract_workspace_archive(archive_path: str, extract_dir: str, dut_name: str) -> str:
     workspace_dir = os.path.join(extract_dir, "workspace")
     try:
@@ -236,19 +294,14 @@ def _prepare_workspace_archive_source(workspace: str, dut_name: str, workspace_b
     except OSError as exc:
         raise WorkspaceArchiveError(f"Failed to create --workspace-base directory '{base_dir}': {exc}") from exc
 
-    if os.path.exists(extract_dir):
-        if os.path.isfile(marker_path):
-            try:
-                shutil.rmtree(extract_dir)
-            except OSError as exc:
-                raise WorkspaceArchiveError(f"Failed to clean previous extracted workspace '{extract_dir}': {exc}") from exc
-        else:
-            raise WorkspaceArchiveError(
-                f"Extraction target already exists and was not created by UCAgent: {extract_dir}. "
-                "Remove it or choose another --workspace-base."
-            )
+    if os.path.lexists(extract_dir):
+        try:
+            _remove_workspace_archive_extract(extract_dir)
+        except OSError as exc:
+            raise WorkspaceArchiveError(f"Failed to clean previous extracted workspace '{extract_dir}': {exc}") from exc
     try:
         os.makedirs(extract_dir, exist_ok=False)
+        _write_workspace_archive_marker(marker_path, workspace)
         with tempfile.TemporaryDirectory(prefix="ucagent_workspace_archive_") as tmp_dir:
             archive_path = workspace
             if parsed.scheme in ("http", "https"):
@@ -260,14 +313,13 @@ def _prepare_workspace_archive_source(workspace: str, dut_name: str, workspace_b
                     raise WorkspaceArchiveError(f"Workspace archive file not found: {archive_path}")
             effective_workspace = _safe_extract_workspace_archive(archive_path, extract_dir, dut_name)
     except Exception:
-        shutil.rmtree(extract_dir, ignore_errors=True)
+        try:
+            _remove_workspace_archive_extract(extract_dir)
+        except OSError:
+            pass
         raise
 
-    try:
-        with open(marker_path, "w", encoding="utf-8") as fh:
-            fh.write(f"source={workspace}\nworkspace={effective_workspace}\n")
-    except OSError:
-        pass
+    _write_workspace_archive_marker(marker_path, workspace, effective_workspace)
     info(f"Workspace archive extracted to: {extract_dir}")
     info(f"Effective workspace: {effective_workspace}")
     return effective_workspace

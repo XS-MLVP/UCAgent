@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import collections
+import hashlib
 import json
 import mimetypes
 import os
@@ -147,6 +148,14 @@ def _now() -> float:
 def _safe_name(name: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip())
     return cleaned or fallback
+
+
+def _config_ref_name(config_ref: str) -> str:
+    raw = str(config_ref or "").strip().rstrip("/\\")
+    if not raw:
+        return ""
+    parts = [part for part in re.split(r"[\\/]+", raw) if part]
+    return parts[-1] if parts else raw
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -3807,6 +3816,32 @@ class PdbMasterApiServer:
                 return agent
         return None
 
+    def _remember_agent_launch_task_id(self, agent_id: str, task_id: str) -> bool:
+        agent_id = str(agent_id or "").strip()
+        task_id = str(task_id or "").strip()
+        if not agent_id or not task_id:
+            return False
+        with self._agents_lock:
+            agent = self._agents.get(agent_id)
+            if agent is None or agent.get("last_launch_task_id") == task_id:
+                return False
+            agent["last_launch_task_id"] = task_id
+        self._mark_dirty()
+        return True
+
+    def _remember_task_launch_agent(self, task: Dict[str, Any]) -> None:
+        task_id = str((task or {}).get("task_id") or "").strip()
+        if not task_id:
+            return
+        for key in ("registered_agent_id", "client_id"):
+            if self._remember_agent_launch_task_id(str((task or {}).get(key) or ""), task_id):
+                return
+        with self._agents_lock:
+            agents = list(self._agents.values())
+        matched_agent = self._agent_for_task_unlocked(task or {}, agents)
+        matched_agent_id = str((matched_agent or {}).get("id") or "").strip()
+        self._remember_agent_launch_task_id(matched_agent_id, task_id)
+
     def _merge_task_agent_runtime_info(self, task: Dict[str, Any], agent: Dict[str, Any]) -> bool:
         changed = False
         cmd_api_tcp = str(agent.get("cmd_api_tcp") or "").strip()
@@ -3839,6 +3874,7 @@ class PdbMasterApiServer:
     def _refresh_task_states(self) -> None:
         now = _now()
         agents = self._snapshot_agents()
+        remembered_launch_agents: List[Tuple[str, str]] = []
         with self._tasks_lock:
             for task_id, task in list(self._tasks.items()):
                 launch_mode = task.get("launch_mode", "process")
@@ -3848,6 +3884,8 @@ class PdbMasterApiServer:
                 matched_agent_id = str((matched_agent or {}).get("id") or "").strip()
                 matched_agent_online = bool(matched_agent and self._agent_is_online(matched_agent))
                 matched_agent_exited = bool(matched_agent and matched_agent.get("client_exit"))
+                if matched_agent_id:
+                    remembered_launch_agents.append((matched_agent_id, task_id))
                 if matched_agent and self._merge_task_agent_runtime_info(task, matched_agent):
                     self._mark_dirty()
                 registered = matched_agent_online
@@ -3949,6 +3987,8 @@ class PdbMasterApiServer:
                         f"Task '{task_id}' removed after client '{matched_agent_id}' exited "
                         "and its runtime stopped"
                     )
+        for agent_id, task_id in remembered_launch_agents:
+            self._remember_agent_launch_task_id(agent_id, task_id)
 
     def _run_task_launch(self, req: Dict[str, Any]) -> Dict[str, Any]:
         req = dict(req)
@@ -4397,6 +4437,60 @@ class PdbMasterApiServer:
         matched.sort(key=lambda item: item.get("created_at", 0), reverse=True)
         return matched[0]
 
+    def _agent_cached_launch_task_id(self, agent: Dict[str, Any]) -> str:
+        if not agent:
+            return ""
+        for key in ("launch_task_id", "last_launch_task_id", "managed_task_id"):
+            value = str(agent.get(key) or "").strip()
+            if value:
+                return value
+        extra = agent.get("extra") or {}
+        if isinstance(extra, dict):
+            for key in ("launch_task_id", "task_id", "ucagent_task_id"):
+                value = str(extra.get(key) or "").strip()
+                if value:
+                    return value
+        agent_id = str(agent.get("id") or "").strip()
+        if not agent_id:
+            return ""
+        agent_workspace = str(extra.get("workspace") or "").strip() if isinstance(extra, dict) else ""
+        agent_workspace_real = os.path.realpath(os.path.abspath(agent_workspace)) if agent_workspace else ""
+        agent_workspace_parent = os.path.basename(os.path.dirname(agent_workspace_real)) if agent_workspace_real else ""
+
+        def _num(value: Any) -> float:
+            try:
+                return float(value or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        candidates: List[Tuple[float, str]] = []
+        with self._workspaces_lock:
+            workspaces = [dict(ws) for ws in self._workspaces.values()]
+        for ws in workspaces:
+            ws_id = str(ws.get("workspace_id") or "").strip()
+            ws_task_id = str(ws.get("task_id") or "").strip()
+            if not ws_task_id:
+                continue
+            last_client_id = str(ws.get("last_launch_client_id") or "").strip()
+            sync_info = ws.get("last_sync_back") or {}
+            sync_agent_id = str(sync_info.get("agent_id") or "").strip() if isinstance(sync_info, dict) else ""
+            related = bool(last_client_id and last_client_id == agent_id)
+            related = related or bool(sync_agent_id and sync_agent_id == agent_id)
+            if agent_workspace_parent:
+                related = related or agent_workspace_parent in {ws_id, ws_task_id}
+            if not related:
+                continue
+            recency = max(
+                _num(ws.get("last_seen")),
+                _num(ws.get("created_at")),
+                _num(sync_info.get("synced_at") if isinstance(sync_info, dict) else 0),
+            )
+            candidates.append((recency, ws_task_id))
+        if not candidates:
+            return ""
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
+
     def _task_completed_sub_workspace(self, task: Optional[Dict[str, Any]]) -> str:
         if not task:
             return ""
@@ -4510,6 +4604,53 @@ class PdbMasterApiServer:
             return ""
         return os.path.join(workspace_root, ".ucagent", "ucagent_info.json")
 
+    def _relaunch_ucagent_info_backup_path(self, info_path: str, config_ref: str) -> str:
+        config_name = _config_ref_name(config_ref) or "default"
+        safe_config_name = _safe_name(config_name, "config")
+        digest = hashlib.sha256(config_name.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(os.path.dirname(info_path), f"ucagent_info_{safe_config_name}_{digest}.json")
+
+    def _copy_file_atomic(self, source_path: str, target_path: str) -> None:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        tmp_path = f"{target_path}.tmp-{secrets.token_hex(6)}"
+        try:
+            shutil.copy2(source_path, tmp_path)
+            os.replace(tmp_path, target_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def _write_empty_file_atomic(self, target_path: str) -> None:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        tmp_path = f"{target_path}.tmp-{secrets.token_hex(6)}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8"):
+                pass
+            os.replace(tmp_path, target_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    def _write_json_atomic(self, target_path: str, data: Dict[str, Any]) -> None:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        tmp_path = f"{target_path}.tmp-{secrets.token_hex(6)}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, target_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
     def _load_relaunch_ucagent_info(self, ws: Dict[str, Any]) -> Dict[str, Any]:
         info_path = self._relaunch_ucagent_info_path(ws)
         data: Dict[str, Any] = {}
@@ -4539,9 +4680,74 @@ class PdbMasterApiServer:
             return left == right
         if left == right:
             return True
-        left_base = os.path.basename(left.rstrip("/"))
-        right_base = os.path.basename(right.rstrip("/"))
+        left_base = _config_ref_name(left)
+        right_base = _config_ref_name(right)
         return bool(left_base and right_base and left_base == right_base)
+
+    def _switch_relaunch_ucagent_info_config(
+        self,
+        ws: Dict[str, Any],
+        target_config: str = "",
+    ) -> Dict[str, Any]:
+        info = self._load_relaunch_ucagent_info(ws)
+        info_path = str(info.get("path") or "")
+        if not info_path:
+            raise ValueError("Unable to determine .ucagent/ucagent_info.json path for relaunch workspace")
+
+        os.makedirs(os.path.dirname(info_path), exist_ok=True)
+        target_config = str(target_config or "").strip()
+        current_config = str(info.get("config_file") or info.get("config_arg") or "").strip()
+        backup_path = ""
+        backed_up = False
+        restored = False
+        cleared = False
+        initialized = False
+        target_backup_path = self._relaunch_ucagent_info_backup_path(info_path, target_config) if target_config else ""
+
+        if current_config and os.path.isfile(info_path) and os.path.getsize(info_path) > 0:
+            backup_path = self._relaunch_ucagent_info_backup_path(info_path, current_config)
+            self._copy_file_atomic(info_path, backup_path)
+            backed_up = True
+
+        needs_target_switch = not target_config or not self._config_refs_match(current_config, target_config)
+        if needs_target_switch:
+            if target_backup_path and os.path.isfile(target_backup_path):
+                self._copy_file_atomic(target_backup_path, info_path)
+                restored = True
+            elif target_config:
+                self._write_json_atomic(info_path, {
+                    "config_file": target_config,
+                    "config_arg": target_config,
+                })
+                initialized = True
+                cleared = True
+            else:
+                self._write_empty_file_atomic(info_path)
+                cleared = True
+
+        switched_info = self._load_relaunch_ucagent_info(ws)
+        switched_info.update({
+            "previous_config_file": current_config,
+            "target_config_file": target_config,
+            "backup_path": backup_path,
+            "target_backup_path": target_backup_path,
+            "backed_up": backed_up,
+            "restored": restored,
+            "cleared": cleared,
+            "initialized": initialized,
+            "switched": needs_target_switch,
+        })
+        return {
+            "cleared": cleared,
+            "deleted": False,
+            "backed_up": backed_up,
+            "restored": restored,
+            "initialized": initialized,
+            "switched": needs_target_switch,
+            "backup_path": backup_path,
+            "target_backup_path": target_backup_path,
+            "ucagent_info": switched_info,
+        }
 
     def _clear_relaunch_ucagent_info(
         self,
@@ -4549,6 +4755,7 @@ class PdbMasterApiServer:
         task_id: str = "",
         workspace_id: str = "",
         sub_workspace: str = "",
+        target_config: str = "",
     ) -> Dict[str, Any]:
         target = self._resolve_relaunch_target(
             task_id=task_id,
@@ -4558,26 +4765,11 @@ class PdbMasterApiServer:
         blockers = self._relaunch_blockers(target["task_id"], target["workspace"])
         if blockers:
             raise ValueError(" ".join(blockers))
-        info = self._load_relaunch_ucagent_info(target["workspace"])
-        cleared = False
-        info_path = info.get("path") or ""
-        if info_path:
-            os.makedirs(os.path.dirname(info_path), exist_ok=True)
-            with open(info_path, "w", encoding="utf-8"):
-                pass
-            cleared = True
+        switch_info = self._switch_relaunch_ucagent_info_config(target["workspace"], target_config)
         return {
-            "cleared": cleared,
-            "deleted": False,
+            **switch_info,
             "task_id": target["task_id"],
             "workspace_id": target["workspace_id"],
-            "ucagent_info": {
-                "exists": bool(info_path and os.path.isfile(info_path)),
-                "path": info_path,
-                "config_file": "",
-                "config_arg": "",
-                "previous_config_file": info.get("config_file", ""),
-            },
         }
 
     def _resolve_relaunch_target(
@@ -5130,6 +5322,13 @@ class PdbMasterApiServer:
                     "mission_info_ansi": str(body.get("mission_info_ansi") or "") or existing.get("mission_info_ansi", ""),
                     "run_time": str(body.get("run_time") or "") or existing.get("run_time", ""),
                     "extra": body.get("extra") or existing.get("extra", {}),
+                    "last_launch_task_id": str(
+                        body.get("launch_task_id")
+                        or body.get("task_id")
+                        or existing.get("last_launch_task_id")
+                        or existing.get("launch_task_id")
+                        or ""
+                    ).strip(),
                     "client_exit": client_exit,
                     "exited_at": exited_at,
                     "exit_reason": exit_reason_value,
@@ -5177,6 +5376,8 @@ class PdbMasterApiServer:
                     tl = agent.get("task_list") or {}
                     raw_mi = agent.get("mission_info_ansi", "")
                     launch_task = self._launched_task_for_agent_id(agent["id"])
+                    launch_task_exists = bool(launch_task)
+                    launch_task_id = launch_task.get("task_id", "") if launch_task else self._agent_cached_launch_task_id(agent)
                     launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
                     launch_task_finished = self._task_is_finished(launch_task)
                     completed_sub_workspace = self._agent_completed_sub_workspace(agent, launch_task)
@@ -5204,12 +5405,13 @@ class PdbMasterApiServer:
                         "run_time": agent.get("run_time", ""),
                         "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                         "task_list": agent.get("task_list"),
-                        "launch": bool(launch_task),
-                        "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
+                        "launch": bool(launch_task_id),
+                        "launch_task_exists": launch_task_exists,
+                        "launch_task_id": launch_task_id,
                         "launch_task_status": launch_task_status,
                         "launch_task_finished": launch_task_finished,
                         "completed_sub_workspace": completed_sub_workspace,
-                        "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else f"/agent/{agent['id']}/cmd/",
+                        "cmd_api_proxy": f"/task/{launch_task_id}/cmd/" if launch_task_exists else f"/agent/{agent['id']}/cmd/",
                     })
                 reverse = sort_desc
                 if sort_by == "status":
@@ -5248,6 +5450,8 @@ class PdbMasterApiServer:
             tl = agent.get("task_list") or {}
             raw_mi = agent.get("mission_info_ansi", "")
             launch_task = self._launched_task_for_agent_id(agent["id"])
+            launch_task_exists = bool(launch_task)
+            launch_task_id = launch_task.get("task_id", "") if launch_task else self._agent_cached_launch_task_id(agent)
             launch_task_status = str(launch_task.get("process_status") or "") if launch_task else ""
             launch_task_finished = self._task_is_finished(launch_task)
             completed_sub_workspace = self._agent_completed_sub_workspace(agent, launch_task)
@@ -5275,25 +5479,30 @@ class PdbMasterApiServer:
                 "run_time": agent.get("run_time", ""),
                 "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                 "task_list": agent.get("task_list"),
-                "launch": bool(launch_task),
-                "launch_task_id": launch_task.get("task_id", "") if launch_task else "",
+                "launch": bool(launch_task_id),
+                "launch_task_exists": launch_task_exists,
+                "launch_task_id": launch_task_id,
                 "launch_task_status": launch_task_status,
                 "launch_task_finished": launch_task_finished,
                 "completed_sub_workspace": completed_sub_workspace,
-                "cmd_api_proxy": f"/task/{launch_task['task_id']}/cmd/" if launch_task else f"/agent/{agent['id']}/cmd/",
+                "cmd_api_proxy": f"/task/{launch_task_id}/cmd/" if launch_task_exists else f"/agent/{agent['id']}/cmd/",
             }
             return {"status": "ok", "agent_status": st, "data": data}
 
         @app.delete("/api/agent/{agent_id}", summary="Remove an agent", dependencies=[Depends(_check_password)])
-        def delete_agent(agent_id: str):
+        def delete_agent(agent_id: str, block_rejoin: bool = True):
             with self._agents_lock:
                 if agent_id not in self._agents:
                     raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
                 del self._agents[agent_id]
-            self._removed.add(agent_id)
+            if block_rejoin:
+                self._removed.add(agent_id)
+            else:
+                self._removed.discard(agent_id)
             self._mark_dirty()
-            _master_log(f"Agent '{agent_id}' removed by operator")
-            return {"status": "ok", "message": f"Agent '{agent_id}' removed."}
+            action = "unregistered" if block_rejoin else "deleted"
+            _master_log(f"Agent '{agent_id}' {action} by operator")
+            return {"status": "ok", "message": f"Agent '{agent_id}' {action}.", "block_rejoin": block_rejoin}
 
         @app.get("/api/launch/file-roots", summary="List configured launch file roots", dependencies=[Depends(_check_password)])
         def launch_file_roots():
@@ -5854,18 +6063,20 @@ class PdbMasterApiServer:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return {"status": "ok", "data": data}
 
-        @app.delete("/api/relaunch/ucagent-info", summary="Clear saved relaunch UCAgent info", dependencies=[Depends(_check_password)])
+        @app.delete("/api/relaunch/ucagent-info", summary="Switch saved relaunch UCAgent info by config", dependencies=[Depends(_check_password)])
         def clear_relaunch_ucagent_info(
             task_id: str = "",
             workspace_id: str = "",
             sub_worspace: str = "",
             sub_workspace: str = "",
+            target_config: str = "",
         ):
             try:
                 data = self._clear_relaunch_ucagent_info(
                     task_id=task_id,
                     workspace_id=workspace_id,
                     sub_workspace=sub_worspace or sub_workspace,
+                    target_config=target_config,
                 )
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -5885,19 +6096,14 @@ class PdbMasterApiServer:
                 if not status.get("can_relaunch"):
                     raise ValueError(status.get("message") or "Task cannot be relaunched yet")
                 compile_info = status.get("compile") or {}
-                uc_info = status.get("ucagent_info") or {}
-                recorded_config = str(uc_info.get("config_file") or uc_info.get("config_arg") or "").strip()
                 requested_config = str(req.get("config") or "").strip()
-                if (
-                    uc_info.get("exists")
-                    and recorded_config
-                    and requested_config
-                    and not self._config_refs_match(recorded_config, requested_config)
-                ):
-                    raise ValueError(
-                        f"Relaunch config '{requested_config}' does not match recorded config '{recorded_config}'. "
-                        "Clear .ucagent/ucagent_info.json before switching config."
+                if requested_config:
+                    target = self._resolve_relaunch_target(
+                        task_id=status["task_id"],
+                        workspace_id=status["workspace_id"],
+                        sub_workspace=str(req.get("sub_worspace") or req.get("sub_workspace") or ""),
                     )
+                    self._switch_relaunch_ucagent_info_config(target["workspace"], requested_config)
                 req["task_id"] = status["task_id"]
                 req["task_name"] = status["task_id"]
                 req["workspace_id"] = status["workspace_id"]
@@ -6003,13 +6209,16 @@ class PdbMasterApiServer:
 
         @app.delete("/api/task/{task_id}", summary="Delete managed task record", dependencies=[Depends(_check_password)])
         def delete_task(task_id: str):
+            task_snapshot: Dict[str, Any] = {}
             with self._tasks_lock:
                 task = self._tasks.get(task_id)
                 if task is None:
                     raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-                if task.get("process_status") in {"starting", "running", "stopping"}:
+                if task.get("process_status") in {"starting", "running"}:
                     raise HTTPException(status_code=400, detail="Running task cannot be deleted")
+                task_snapshot = dict(task)
                 del self._tasks[task_id]
+            self._remember_task_launch_agent(task_snapshot)
             self._close_task_runtime(task_id)
             self._mark_dirty()
             return {"status": "ok"}

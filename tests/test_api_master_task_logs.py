@@ -1,7 +1,10 @@
 import os
+import json
 import sys
 import tempfile
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
@@ -382,3 +385,109 @@ def test_master_task_logs_show_normal_outer_logs_without_web_console_noise():
         assert "normal stdout" in logs["stdout"]
         assert "normal stderr" in logs["stderr"]
         assert "normal web console" not in logs["stderr"]
+
+
+def test_relaunch_ucagent_info_switches_between_config_backups():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        ws = server._create_workspace()
+        workspace_id = ws["workspace_id"]
+        picker_workspace = ws["picker_workspace"]
+        info_dir = os.path.join(picker_workspace, ".ucagent")
+        info_path = os.path.join(info_dir, "ucagent_info.json")
+        os.makedirs(info_dir, exist_ok=True)
+
+        with server._workspaces_lock:
+            ws_locked = server._workspaces[workspace_id]
+            ws_locked["compile"] = {
+                "status": "success",
+                "picker_workspace": picker_workspace,
+                "dut_name": "Adder",
+                "selected_module": "Adder",
+            }
+
+        with open(info_path, "w", encoding="utf-8") as fh:
+            json.dump({"config_file": "config_a.yaml", "stage_index": 3, "a_state": True}, fh)
+
+        switch_to_b = server._clear_relaunch_ucagent_info(
+            workspace_id=workspace_id,
+            target_config="/tmp/anywhere/config_b.yaml",
+        )
+
+        assert switch_to_b["backed_up"] is True
+        assert switch_to_b["initialized"] is True
+        assert os.path.isfile(switch_to_b["backup_path"])
+        assert os.path.basename(switch_to_b["backup_path"]).startswith("ucagent_info_config_a.yaml_")
+        with open(switch_to_b["backup_path"], "r", encoding="utf-8") as fh:
+            assert json.load(fh)["stage_index"] == 3
+        with open(info_path, "r", encoding="utf-8") as fh:
+            current = json.load(fh)
+        assert current["config_file"] == "/tmp/anywhere/config_b.yaml"
+        assert "stage_index" not in current
+
+        with open(info_path, "w", encoding="utf-8") as fh:
+            json.dump({"config_file": "config_b.yaml", "stage_index": 7, "b_state": True}, fh)
+
+        switch_to_a = server._clear_relaunch_ucagent_info(
+            workspace_id=workspace_id,
+            target_config="config_a.yaml",
+        )
+
+        assert switch_to_a["backed_up"] is True
+        assert switch_to_a["restored"] is True
+        assert os.path.isfile(switch_to_a["backup_path"])
+        assert os.path.basename(switch_to_a["backup_path"]).startswith("ucagent_info_config_b.yaml_")
+        with open(switch_to_a["backup_path"], "r", encoding="utf-8") as fh:
+            assert json.load(fh)["stage_index"] == 7
+        with open(info_path, "r", encoding="utf-8") as fh:
+            assert json.load(fh)["stage_index"] == 3
+
+        switch_back_to_b = server._clear_relaunch_ucagent_info(
+            workspace_id=workspace_id,
+            target_config="config_b.yaml",
+        )
+
+        assert switch_back_to_b["restored"] is True
+        with open(info_path, "r", encoding="utf-8") as fh:
+            restored_b = json.load(fh)
+        assert restored_b["stage_index"] == 7
+        assert restored_b["b_state"] is True
+
+
+def test_agent_list_keeps_cached_launch_task_id_after_task_record_delete():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        client = TestClient(server._app)
+
+        register = client.post("/api/register", json={"id": "agent-1", "host": "worker-1"})
+        assert register.status_code == 200
+
+        task = server._create_task_record({"task_id": "task-1", "client_id": "agent-1"})
+        task["process_status"] = "stopped"
+
+        removed = client.delete("/api/task/task-1")
+        assert removed.status_code == 200
+
+        response = client.get("/api/agents")
+        assert response.status_code == 200
+        agents = response.json()["agents"]
+        agent = next(item for item in agents if item["id"] == "agent-1")
+        assert agent["launch"] is True
+        assert agent["launch_task_exists"] is False
+        assert agent["launch_task_id"] == "task-1"
+
+
+def test_agent_delete_block_rejoin_controls_removed_set():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        client = TestClient(server._app)
+
+        assert client.post("/api/register", json={"id": "offline-agent", "host": "worker-1"}).status_code == 200
+        delete_stale = client.delete("/api/agent/offline-agent?block_rejoin=false")
+        assert delete_stale.status_code == 200
+        assert "offline-agent" not in server._removed
+
+        assert client.post("/api/register", json={"id": "online-agent", "host": "worker-2"}).status_code == 200
+        unregister = client.delete("/api/agent/online-agent?block_rejoin=true")
+        assert unregister.status_code == 200
+        assert "online-agent" in server._removed

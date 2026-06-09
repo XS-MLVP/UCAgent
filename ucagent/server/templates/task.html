@@ -179,6 +179,7 @@ let currentTaskId = '';
 let allTasks = [];
 let totalTaskCount = 0;
 let showDeleteControls = false;
+const pendingAutoDeleteTimers = new Map();
 const STORAGE_KEY = 'ucagent-task-page-state';
 const DELETE_CONTROLS_KEY = 'ucagent-task-show-delete-controls';
 
@@ -345,6 +346,20 @@ function serviceBadge(status) {
   if (status === 'running') return '<span class="badge ok">running</span>';
   if (status === 'stopped') return '<span class="badge muted">stopped</span>';
   return `<span class="badge warn">${esc(status || 'starting')}</span>`;
+}
+
+function isTaskActive(task) {
+  return ['starting', 'running'].includes(String(task?.process_status || '').toLowerCase());
+}
+
+function taskCleanupActions(task) {
+  if (!showDeleteControls) return '';
+  const taskId = String(task?.task_id || '');
+  if (!taskId) return '';
+  if (isTaskActive(task)) {
+    return `<button class="btn btn-danger" onclick="stopTask('${esc(taskId)}')">Stop</button>`;
+  }
+  return `<button class="btn btn-danger" onclick="deleteTask('${esc(taskId)}')">Delete</button>`;
 }
 
 function normalizeDutPart(value) {
@@ -535,10 +550,7 @@ function renderTaskRows() {
   tbody.innerHTML = pageRows.map(task => {
     const terminal = terminalTarget(task);
     const dutCell = taskDutCell(task);
-    const dangerActions = showDeleteControls ? `
-            <button class="btn btn-danger" ${['starting','running','stopping'].includes(task.process_status) ? '' : 'disabled'} onclick="stopTask('${esc(task.task_id)}')">Stop</button>
-            <button class="btn btn-danger" ${['stopped','failed'].includes(task.process_status) ? '' : 'disabled'} onclick="deleteTask('${esc(task.task_id)}')">Delete</button>
-          ` : '';
+    const dangerActions = taskCleanupActions(task);
     return `
       <tr id="task-${encodeURIComponent(task.task_id)}">
         <td><button class="btn truncate task-cell" onclick="showTask('${esc(task.task_id)}')" title="${esc(task.task_id)}">${esc(task.task_id)}</button></td>
@@ -636,7 +648,7 @@ async function showTask(taskId) {
 
 async function stopTask(taskId) {
   if (!requireDeleteControls()) return;
-  if (!confirm(`Stop task ${taskId}?`)) return;
+  if (!confirm(`Stop task ${taskId}? The task record will be deleted automatically after 3 seconds if the stop request succeeds.`)) return;
   try {
     await api(`/api/task/${encodeURIComponent(taskId)}/stop`, {
       method: 'POST',
@@ -645,14 +657,26 @@ async function stopTask(taskId) {
     });
     await loadTasks();
     if (currentTaskId === taskId) await showTask(taskId);
+    scheduleAutoDeleteTask(taskId);
   } catch (err) {
     alert(err.message);
   }
 }
 
-async function deleteTask(taskId) {
-  if (!requireDeleteControls()) return;
-  if (!confirm(`Delete task record ${taskId}?`)) return;
+function scheduleAutoDeleteTask(taskId) {
+  if (pendingAutoDeleteTimers.has(taskId)) {
+    clearTimeout(pendingAutoDeleteTimers.get(taskId));
+  }
+  const timer = setTimeout(() => {
+    pendingAutoDeleteTimers.delete(taskId);
+    deleteTask(taskId, { auto: true, skipControls: true, skipConfirm: true });
+  }, 3000);
+  pendingAutoDeleteTimers.set(taskId, timer);
+}
+
+async function deleteTask(taskId, options={}) {
+  if (!options.skipControls && !requireDeleteControls()) return;
+  if (!options.skipConfirm && !confirm(`Delete task record ${taskId}?`)) return;
   try {
     await api(`/api/task/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
     if (currentTaskId === taskId) {
@@ -660,6 +684,13 @@ async function deleteTask(taskId) {
     }
     await loadTasks();
   } catch (err) {
+    if (options.auto && err.status === 404) {
+      if (currentTaskId === taskId) {
+        clearCurrentTaskSelection();
+      }
+      await loadTasks();
+      return;
+    }
     alert(err.message);
   }
 }

@@ -110,7 +110,7 @@
   <div class="spacer"></div>
   <div id="uc-shell-header-actions" class="actions" style="align-items:center">
     <a class="btn" href="/">Master</a>
-    <a class="btn" href="/task/">Tasks</a>
+    <a class="btn" href="/task/">Managed Tasks</a>
   </div>
 </header>
 <main>
@@ -2346,16 +2346,17 @@ function relaunchStatusUrl() {
   return `/api/relaunch/status?${params.toString()}`;
 }
 
-function relaunchInfoClearUrl() {
+function relaunchInfoSwitchUrl(targetConfig = '') {
   const params = new URLSearchParams();
   if (state.relaunchTaskId) params.set('task_id', state.relaunchTaskId);
   if (state.relaunchWorkspaceId) params.set('workspace_id', state.relaunchWorkspaceId);
   if (state.relaunchSubWorkspace) params.set('sub_worspace', state.relaunchSubWorkspace);
+  if (targetConfig) params.set('target_config', targetConfig);
   return `/api/relaunch/ucagent-info?${params.toString()}`;
 }
 
-async function clearRelaunchInfoForConfigSwitch() {
-  const data = await api(relaunchInfoClearUrl(), { method: 'DELETE' });
+async function switchRelaunchInfoForConfig(targetConfig) {
+  const data = await api(relaunchInfoSwitchUrl(targetConfig), { method: 'DELETE' });
   const info = data.data?.ucagent_info || {};
   if (!state.relaunchStatus) state.relaunchStatus = {};
   state.relaunchStatus.ucagent_info = info;
@@ -2379,39 +2380,52 @@ async function handleRelaunchConfigChange() {
   const select = document.getElementById('config-path');
   const selectedConfig = String(select?.value || '').trim();
   const recordedConfig = getRelaunchRecordedConfig();
-  if (!state.relaunchInfoExists || !recordedConfig || !selectedConfig || configRefsMatch(recordedConfig, selectedConfig)) {
+  const previousValue = state.relaunchPreviousConfigValue || recordedConfig;
+  const selectionChanged = Boolean(
+    selectedConfig &&
+    previousValue &&
+    !configRefsMatch(previousValue, selectedConfig)
+  );
+  const currentInfoConflicts = Boolean(
+    state.relaunchInfoExists &&
+    recordedConfig &&
+    selectedConfig &&
+    !configRefsMatch(recordedConfig, selectedConfig)
+  );
+  if (!selectionChanged && !currentInfoConflicts) {
     applySelectedConfigDefaults();
     state.relaunchPreviousConfigValue = selectedConfig;
     updateLaunchState();
     return;
   }
 
-  const previousValue = state.relaunchPreviousConfigValue || recordedConfig;
-  const confirmed = window.confirm(
-    `当前选择的 config (${selectedConfig}) 与 .ucagent/ucagent_info.json 中记录的 config (${recordedConfig}) 不一致。\n\n` +
-    `必须清空 .ucagent/ucagent_info.json 的内容才能切换 config。是否清空该文件内容并切换到当前 config？`
-  );
-  if (!confirmed) {
-    state.relaunchConfigSwitching = true;
-    try {
-      restoreRelaunchConfigValue(previousValue);
-    } finally {
-      state.relaunchConfigSwitching = false;
+  if (currentInfoConflicts) {
+    const confirmed = window.confirm(
+      `当前选择的 config (${selectedConfig}) 与 .ucagent/ucagent_info.json 中记录的 config (${recordedConfig}) 不一致。\n\n` +
+      `将先备份当前 .ucagent/ucagent_info.json，再恢复当前 config 对应的历史状态。是否继续切换？`
+    );
+    if (!confirmed) {
+      state.relaunchConfigSwitching = true;
+      try {
+        restoreRelaunchConfigValue(previousValue);
+      } finally {
+        state.relaunchConfigSwitching = false;
+      }
+      return;
     }
-    return;
   }
 
   try {
-    await clearRelaunchInfoForConfigSwitch();
+    await switchRelaunchInfoForConfig(selectedConfig);
     applySelectedConfigDefaults();
     state.relaunchPreviousConfigValue = selectedConfig;
-    setStatus('launch-status', 'warn', '.ucagent/ucagent_info.json has been cleared. Relaunch will use the selected config.');
+    setStatus('launch-status', 'warn', '.ucagent/ucagent_info.json has been switched to the selected config state.');
     updateLaunchState();
   } catch (error) {
     state.relaunchConfigSwitching = true;
     try {
       restoreRelaunchConfigValue(previousValue);
-      setStatus('launch-status', 'err', error.message || 'Failed to clear .ucagent/ucagent_info.json.');
+      setStatus('launch-status', 'err', error.message || 'Failed to switch .ucagent/ucagent_info.json for the selected config.');
     } finally {
       state.relaunchConfigSwitching = false;
     }
@@ -2781,18 +2795,8 @@ document.addEventListener('input', async (event) => {
     return;
   }
   if ([
-    'task-name', 'dut-name', 'config-path', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args', 'selected-module',
+    'task-name', 'dut-name', 'backend', 'launch-mode', 'output', 'workspace-base', 'master-override', 'picker-args', 'selected-module',
   ].includes(event.target.id)) {
-    if (event.target.id === 'config-path') {
-      state.manualConfigPath = true;
-      if (state.relaunch) {
-        await handleRelaunchConfigChange();
-      } else {
-        applySelectedConfigDefaults();
-        updateLaunchState();
-      }
-      return;
-    }
     if (event.target.id === 'selected-module') {
       syncModuleDerivedFields(event.target.value);
     }
