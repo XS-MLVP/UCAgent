@@ -87,28 +87,7 @@ class VerifyStage(object):
         self.reference_files = {
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
-        if self.cfg.skill.use_skill:
-            if skill_list is None:
-                skill_list = []
-            if not isinstance(skill_list, list):
-                raise ValueError(f"Stage '{self.name}' skill_list must be a list.")
-            validated_skill_list = []
-            skill_root_abs = os.path.abspath(fc.get_workspace_skill_root(workspace))
-            for skill_name in skill_list:
-                if not isinstance(skill_name, str):
-                    raise ValueError(f"Stage '{self.name}' skill_list item must be a string: {skill_name}")
-                skill_name = skill_name.strip()
-                if not skill_name:
-                    raise ValueError(f"Stage '{self.name}' skill_list contains an empty skill name.")
-                skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
-                if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs:
-                    raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is outside the workspace skill directory.")
-                if not os.path.isdir(skill_dir) or not os.path.isfile(os.path.join(skill_dir, "SKILL.md")):
-                    raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is not found in workspace.")
-                validated_skill_list.append(skill_name)
-            self.skill_list = {k:[False,False,False] for k in validated_skill_list}
-        else:
-            self.skill_list = {}
+        self.skill_list = self._init_skill_list(skill_list)
         self.force_use_skill = force_use_skill
         self.output_files = output_files
         self.tool_read_text = tool_read_text
@@ -720,6 +699,32 @@ class VerifyStage(object):
             data["last_human_check_result"] = self._hum_check_passed
             data["last_human_check_msg"] = self._hum_check_msg
         return data
+    
+    def _init_skill_list(self, skill_list):
+        if not self.cfg.skill.use_skill:
+            return {}
+
+        if skill_list is None:
+            skill_list = []
+        if not isinstance(skill_list, list):
+            raise ValueError(f"Stage '{self.name}' skill_list must be a list.")
+
+        validated_skill_list = []
+        skill_root_abs = os.path.abspath(fc.get_workspace_skill_root(self.workspace))
+        for skill_name in skill_list:
+            if not isinstance(skill_name, str):
+                raise ValueError(f"Stage '{self.name}' skill_list item must be a string: {skill_name}")
+            skill_name = skill_name.strip()
+            if not skill_name:
+                raise ValueError(f"Stage '{self.name}' skill_list contains an empty skill name.")
+            skill_dir = os.path.abspath(os.path.join(skill_root_abs, skill_name))
+            if os.path.commonpath([skill_root_abs, skill_dir]) != skill_root_abs:
+                raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is outside the workspace skill directory.")
+            if not os.path.isdir(skill_dir) or not os.path.isfile(os.path.join(skill_dir, "SKILL.md")):
+                raise ValueError(f"Stage '{self.name}' skill '{skill_name}' is not found in workspace.")
+            validated_skill_list.append(skill_name)
+
+        return {k: [False, False, False] for k in validated_skill_list}
 
 
 def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
