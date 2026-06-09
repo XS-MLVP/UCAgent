@@ -220,6 +220,9 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 .con-btn{background:none;border:1px solid var(--border);color:var(--text-dim);padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px}
 .con-btn:hover{border-color:var(--accent);color:var(--accent)}
 .con-btn.active{border-color:var(--green);color:var(--green)}
+.con-btn:disabled{opacity:.45;cursor:not-allowed}
+.con-btn:disabled:hover{border-color:var(--border);color:var(--text-dim)}
+.con-btn.active:disabled{border-color:var(--green);color:var(--green)}
 .con-btn.cdanger:hover{border-color:var(--red);color:var(--red)}
 /* ── pdb command input bar ── */
 #pdb-cmd-bar{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;padding:4px 8px;background:var(--bg2);border-top:1px solid var(--border);gap:6px;flex-shrink:0;min-height:36px;position:relative;z-index:61;margin-top:auto}
@@ -439,6 +442,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
         <span class="label">Console Output</span>
         <span class="csep"></span>
         <button class="con-btn active" id="console-autoscroll-btn" onclick="toggleAutoScroll()">Auto-scroll</button>
+        <button class="con-btn" id="console-chat-btn" onclick="toggleConsoleChatMode()" disabled title="Enable chat mode (Shift+C when idle)">Chat</button>
         <button class="con-btn cdanger" onclick="clearConsole()">Clear</button>
       </div>
       <div id="pdb-running">
@@ -2236,11 +2240,62 @@ function _ansiToHtml(s){
 
 /* ── pdb command bar ── */
 let _pdbBusy = false;
+let _pdbInTui = false;
+let _consoleChatMode = false;
 let _cmdHistory = [];
 let _cmdHistoryIdx = -1;
 let _cmdHistorySaved = "";
 let _acItems = [];
 let _acIdx = -1;
+
+function _consoleChatToggleAvailable() {
+  return !_pdbBusy && !_pdbInTui;
+}
+
+function _updateConsoleChatControl() {
+  const btn = qs("#console-chat-btn");
+  const input = qs("#pdb-cmd-input");
+  const available = _consoleChatToggleAvailable();
+  if (btn) {
+    btn.disabled = !available;
+    btn.classList.toggle("active", _consoleChatMode);
+    btn.setAttribute("aria-pressed", _consoleChatMode ? "true" : "false");
+    btn.title = available ? "Toggle chat mode (Shift+C)" : "Chat mode can be toggled when console is idle";
+  }
+  if (input) {
+    input.placeholder = _consoleChatMode ? "Chat message..." : "PDB command...";
+  }
+}
+
+function toggleConsoleChatMode() {
+  if (!_consoleChatToggleAvailable()) return;
+  _consoleChatMode = !_consoleChatMode;
+  _updateConsoleChatControl();
+  const input = qs("#pdb-cmd-input");
+  if (input && !input.disabled) input.focus();
+}
+
+function _commandForConsoleMode(rawCmd) {
+  const cmd = rawCmd.trim();
+  if (!_consoleChatMode) return cmd;
+  if (cmd.startsWith("/")) return cmd.slice(1).trim();
+  return "chat " + cmd;
+}
+
+function _isEditableShortcutTarget(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = String(el.tagName || "").toLowerCase();
+  return tag === "textarea" || tag === "select" || tag === "input";
+}
+
+function _shouldToggleConsoleChatFromKey(event) {
+  if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return false;
+  if (!event.shiftKey || String(event.key).toLowerCase() !== "c") return false;
+  const target = event.target;
+  if (target && target.id === "pdb-cmd-input") return !String(target.value || "").trim();
+  return !_isEditableShortcutTarget(target);
+}
 
 function _acShow(items, stripPrefix) {
   const ac = qs("#pdb-autocomplete");
@@ -2279,10 +2334,12 @@ async function _acComplete() {
   // Use the raw value; trimStart removes only leading whitespace so a
   // trailing space ("tool_invoke ") is preserved, which signals arg mode.
   const val = input.value.replace(/^\s+/, "");
-  const isArgMode = val.includes(" ");  // space present → argument completion
+  if (_consoleChatMode && !val.startsWith("/")) { _acHide(); return; }
+  const cmdVal = _consoleChatMode ? val.slice(1) : val;
+  const isArgMode = cmdVal.includes(" ");  // space present → argument completion
   try {
-    const j = await apiFetch("/api/cmds?prefix="+encodeURIComponent(val));
-    const items = j.data || [];
+    const j = await apiFetch("/api/cmds?prefix="+encodeURIComponent(cmdVal));
+    const items = _consoleChatMode ? (j.data || []).map(t => "/" + t) : (j.data || []);
     if (items.length === 1) {
       input.value = items[0] + " ";
       _acHide();
@@ -2347,6 +2404,7 @@ function handleCmdKeydown(event) {
 
 function _setPdbBusy(busy, inTui) {
   _pdbBusy = busy;
+  _pdbInTui = !!inTui;
   const input = qs("#pdb-cmd-input");
   const sendBtn = qs("#pdb-cmd-send");
   const badge = qs("#pdb-status-badge");
@@ -2366,6 +2424,7 @@ function _setPdbBusy(busy, inTui) {
     badge.className = "idle";
     badge.textContent = "\u25cf idle";
   }
+  _updateConsoleChatControl();
 }
 
 async function fetchPdbStatus() {
@@ -2390,16 +2449,18 @@ async function fetchPdbStatus() {
 
 async function sendPdbCmd() {
   const input = qs("#pdb-cmd-input");
-  const cmd = input.value.trim();
-  if (!cmd) return;
+  const rawCmd = input.value.trim();
+  if (!rawCmd) return;
   try {
+    const cmd = _commandForConsoleMode(rawCmd);
+    if (!cmd) return;
     await apiFetch("/api/cmd", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({cmd})
     });
     // Record in local history (dedup consecutive)
-    if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== cmd) _cmdHistory.push(cmd);
+    if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== rawCmd) _cmdHistory.push(rawCmd);
     _cmdHistoryIdx = -1;
     input.value = "";
     _setPdbBusy(true);
@@ -2635,6 +2696,11 @@ document.addEventListener("keydown",function(e){
   if(e.altKey&&e.shiftKey&&String(e.key).toLowerCase()==="r"){
     e.preventDefault();
     resetUiLayout();
+    return;
+  }
+  if(_shouldToggleConsoleChatFromKey(e)&&_consoleChatToggleAvailable()){
+    e.preventDefault();
+    toggleConsoleChatMode();
   }
 });
 
