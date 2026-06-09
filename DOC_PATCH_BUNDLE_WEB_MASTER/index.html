@@ -1,0 +1,311 @@
+<!DOCTYPE html><html lang=en class=no-js><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content="面向开发者的 UCAgent 文档与扩展指南"><link href=https://xs-mlvp.github.io/UCAgent/DOC_PATCH_BUNDLE_WEB_MASTER/ rel=canonical><link rel=icon href=../assets/images/favicon.png><meta name=generator content="mkdocs-1.6.1, mkdocs-material-9.7.6"><title>文档补丁包：Web Master 与近期功能增量 - UCAgent 开发者手册</title><link rel=stylesheet href=../assets/stylesheets/main.484c7ddc.min.css><link rel=stylesheet href=../assets/stylesheets/palette.ab4e12ef.min.css><link rel=preconnect href=https://fonts.gstatic.com crossorigin><link rel=stylesheet href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback"><style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style><link rel=stylesheet href=https://unpkg.com/katex@0.16.9/dist/katex.min.css><link rel=stylesheet href=../stylesheets/extra.css><script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script><link href=../assets/stylesheets/glightbox.min.css rel=stylesheet><script src=../assets/javascripts/glightbox.min.js></script><style id=glightbox-style>
+            html.glightbox-open { overflow: initial; height: 100%; }
+            .gslide-title { margin-top: 0px; user-select: text; }
+            .gslide-desc { color: #666; user-select: text; }
+            .gslide-image img { background: white; }
+            .gscrollbar-fixer { padding-right: 15px; }
+            .gdesc-inner { font-size: 0.75rem; }
+            body[data-md-color-scheme="slate"] .gdesc-inner { background: var(--md-default-bg-color); }
+            body[data-md-color-scheme="slate"] .gslide-title { color: var(--md-default-fg-color); }
+            body[data-md-color-scheme="slate"] .gslide-desc { color: var(--md-default-fg-color); }
+        </style></head> <body dir=ltr data-md-color-scheme=default data-md-color-primary=indigo data-md-color-accent=indigo> <input class=md-toggle data-md-toggle=drawer type=checkbox id=__drawer autocomplete=off> <input class=md-toggle data-md-toggle=search type=checkbox id=__search autocomplete=off> <label class=md-overlay for=__drawer></label> <div data-md-component=skip> <a href=#文档补丁包web-master-与近期功能增量 class=md-skip> Skip to content </a> </div> <div data-md-component=announce> </div> <header class="md-header md-header--shadow" data-md-component=header> <nav class="md-header__inner md-grid" aria-label=Header> <a href=.. title="UCAgent 开发者手册" class="md-header__button md-logo" aria-label="UCAgent 开发者手册" data-md-component=logo> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg> </a> <label class="md-header__button md-icon" for=__drawer> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"></path></svg> </label> <div class=md-header__title data-md-component=header-title> <div class=md-header__ellipsis> <div class=md-header__topic> <span class=md-ellipsis> UCAgent 开发者手册 </span> </div> <div class=md-header__topic data-md-component=header-topic> <span class=md-ellipsis> 文档补丁包：Web Master 与近期功能增量 </span> </div> </div> </div> <form class=md-header__option data-md-component=palette> <input class=md-option data-md-color-media data-md-color-scheme=default data-md-color-primary=indigo data-md-color-accent=indigo aria-label="Switch to dark mode" type=radio name=__palette id=__palette_0> <label class="md-header__button md-icon" title="Switch to dark mode" for=__palette_1 hidden> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg> </label> <input class=md-option data-md-color-media data-md-color-scheme=slate data-md-color-primary=indigo data-md-color-accent=indigo aria-label="Switch to light mode" type=radio name=__palette id=__palette_1> <label class="md-header__button md-icon" title="Switch to light mode" for=__palette_0 hidden> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"></path></svg> </label> </form> <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script> <label class="md-header__button md-icon" for=__search> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg> </label> <div class=md-search data-md-component=search role=dialog> <label class=md-search__overlay for=__search></label> <div class=md-search__inner role=search> <form class=md-search__form name=search> <input type=text class=md-search__input name=query aria-label=Search placeholder=Search autocapitalize=off autocorrect=off autocomplete=off spellcheck=false data-md-component=search-query required> <label class="md-search__icon md-icon" for=__search> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"></path></svg> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"></path></svg> </label> <nav class=md-search__options aria-label=Search> <button type=reset class="md-search__icon md-icon" title=Clear aria-label=Clear tabindex=-1> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"></path></svg> </button> </nav> <div class=md-search__suggest data-md-component=search-suggest></div> </form> <div class=md-search__output> <div class=md-search__scrollwrap tabindex=0 data-md-scrollfix> <div class=md-search-result data-md-component=search-result> <div class=md-search-result__meta> Initializing search </div> <ol class=md-search-result__list role=presentation></ol> </div> </div> </div> </div> </div> <div class=md-header__source> <a href=https://github.com/XS-MLVP/UCAgent title="Go to repository" class=md-source data-md-component=source> <div class="md-source__icon md-icon"> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 448 512"><!-- Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg> </div> <div class=md-source__repository> XS-MLVP/UCAgent </div> </a> </div> </nav> </header> <div class=md-container data-md-component=container> <main class=md-main data-md-component=main> <div class="md-main__inner md-grid"> <div class="md-sidebar md-sidebar--primary" data-md-component=sidebar data-md-type=navigation> <div class=md-sidebar__scrollwrap> <div class=md-sidebar__inner> <nav class="md-nav md-nav--primary" aria-label=Navigation data-md-level=0> <label class=md-nav__title for=__drawer> <a href=.. title="UCAgent 开发者手册" class="md-nav__button md-logo" aria-label="UCAgent 开发者手册" data-md-component=logo> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"></path></svg> </a> UCAgent 开发者手册 </label> <div class=md-nav__source> <a href=https://github.com/XS-MLVP/UCAgent title="Go to repository" class=md-source data-md-component=source> <div class="md-source__icon md-icon"> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 448 512"><!-- Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"></path></svg> </div> <div class=md-source__repository> XS-MLVP/UCAgent </div> </a> </div> <ul class=md-nav__list data-md-scrollfix> <li class=md-nav__item> <a href=../content/00_index/ class=md-nav__link> <span class=md-ellipsis> 首页 </span> </a> </li> <li class="md-nav__item md-nav__item--nested"> <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type=checkbox id=__nav_2> <label class=md-nav__link for=__nav_2 id=__nav_2_label tabindex=0> <span class=md-ellipsis> 开始使用 </span> <span class="md-nav__icon md-icon"></span> </label> <nav class=md-nav data-md-level=1 aria-labelledby=__nav_2_label aria-expanded=false> <label class=md-nav__title for=__nav_2> <span class="md-nav__icon md-icon"></span> 开始使用 </label> <ul class=md-nav__list data-md-scrollfix> <li class=md-nav__item> <a href=../content/01_start/00_introduce/ class=md-nav__link> <span class=md-ellipsis> 工具介绍 </span> </a> </li> <li class=md-nav__item> <a href=../content/01_start/01_installation/ class=md-nav__link> <span class=md-ellipsis> 工具安装 </span> </a> </li> <li class=md-nav__item> <a href=../content/01_start/02_quickstart/ class=md-nav__link> <span class=md-ellipsis> 快速入门 </span> </a> </li> </ul> </nav> </li> <li class="md-nav__item md-nav__item--nested"> <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type=checkbox id=__nav_3> <label class=md-nav__link for=__nav_3 id=__nav_3_label tabindex=0> <span class=md-ellipsis> 功能介绍 </span> <span class="md-nav__icon md-icon"></span> </label> <nav class=md-nav data-md-level=1 aria-labelledby=__nav_3_label aria-expanded=false> <label class=md-nav__title for=__nav_3> <span class="md-nav__icon md-icon"></span> 功能介绍 </label> <ul class=md-nav__list data-md-scrollfix> <li class=md-nav__item> <a href=../content/02_usage/00_mcp/ class=md-nav__link> <span class=md-ellipsis> MCP 集成 </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/01_direct/ class=md-nav__link> <span class=md-ellipsis> 直接使用 </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/02_assit/ class=md-nav__link> <span class=md-ellipsis> 人机协同验证 </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/03_option/ class=md-nav__link> <span class=md-ellipsis> 参数说明 </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/04_tui/ class=md-nav__link> <span class=md-ellipsis> TUI </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/05_faq/ class=md-nav__link> <span class=md-ellipsis> FAQ </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/06_llm_check/ class=md-nav__link> <span class=md-ellipsis> LLM Check &amp; Refinement </span> </a> </li> <li class=md-nav__item> <a href=../content/02_usage/07_web_master/ class=md-nav__link> <span class=md-ellipsis> Web Master 使用指南 </span> </a> </li> </ul> </nav> </li> <li class="md-nav__item md-nav__item--nested"> <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type=checkbox id=__nav_4> <label class=md-nav__link for=__nav_4 id=__nav_4_label tabindex=0> <span class=md-ellipsis> 定制开发 </span> <span class="md-nav__icon md-icon"></span> </label> <nav class=md-nav data-md-level=1 aria-labelledby=__nav_4_label aria-expanded=false> <label class=md-nav__title for=__nav_4> <span class="md-nav__icon md-icon"></span> 定制开发 </label> <ul class=md-nav__list data-md-scrollfix> <li class=md-nav__item> <a href=../content/03_develop/00_index/ class=md-nav__link> <span class=md-ellipsis> 概览 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/01_quick_start/ class=md-nav__link> <span class=md-ellipsis> 定制开发入门 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/02_architecture/ class=md-nav__link> <span class=md-ellipsis> 架构与工作原理 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/03_workflow/ class=md-nav__link> <span class=md-ellipsis> 工作流 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/04_template/ class=md-nav__link> <span class=md-ellipsis> 模板文件 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/05_customize/ class=md-nav__link> <span class=md-ellipsis> 定制工具 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/06_tool_list/ class=md-nav__link> <span class=md-ellipsis> 工具列表 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/07_checkers/ class=md-nav__link> <span class=md-ellipsis> 检查器 </span> </a> </li> <li class=md-nav__item> <a href=../content/03_develop/08_mini_example/ class=md-nav__link> <span class=md-ellipsis> Mini 示例 </span> </a> </li> </ul> </nav> </li> <li class="md-nav__item md-nav__item--nested"> <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type=checkbox id=__nav_5> <label class=md-nav__link for=__nav_5 id=__nav_5_label tabindex=0> <span class=md-ellipsis> 实践案例 </span> <span class="md-nav__icon md-icon"></span> </label> <nav class=md-nav data-md-level=1 aria-labelledby=__nav_5_label aria-expanded=false> <label class=md-nav__title for=__nav_5> <span class="md-nav__icon md-icon"></span> 实践案例 </label> <ul class=md-nav__list data-md-scrollfix> <li class=md-nav__item> <a href=../content/04_case/00_genspec/ class=md-nav__link> <span class=md-ellipsis> 规范生成 </span> </a> </li> <li class=md-nav__item> <a href=../content/04_case/01_multirun/ class=md-nav__link> <span class=md-ellipsis> 多实例并发执行 </span> </a> </li> <li class=md-nav__item> <a href=../content/04_case/02_batchrun/ class=md-nav__link> <span class=md-ellipsis> 批处理执行 </span> </a> </li> </ul> </nav> </li> </ul> </nav> </div> </div> </div> <div class="md-sidebar md-sidebar--secondary" data-md-component=sidebar data-md-type=toc> <div class=md-sidebar__scrollwrap> <div class=md-sidebar__inner> <nav class="md-nav md-nav--secondary" aria-label="Table of contents"> <label class=md-nav__title for=__toc> <span class="md-nav__icon md-icon"></span> Table of contents </label> <ul class=md-nav__list data-md-component=toc data-md-scrollfix> <li class=md-nav__item> <a href=#patch-1-readmezh-增补章节 class=md-nav__link> <span class=md-ellipsis> Patch 1: README.zh 增补章节 </span> </a> </li> <li class=md-nav__item> <a href=#patch-2-readmeen-增补章节 class=md-nav__link> <span class=md-ellipsis> Patch 2: README.en 增补章节 </span> </a> </li> <li class=md-nav__item> <a href=#patch-3-参数文档补充页面能力映射 class=md-nav__link> <span class=md-ellipsis> Patch 3: 参数文档补充“页面能力映射” </span> </a> </li> <li class=md-nav__item> <a href=#patch-4-tui-文档补充与-web-协同 class=md-nav__link> <span class=md-ellipsis> Patch 4: TUI 文档补充“与 Web 协同” </span> </a> </li> <li class=md-nav__item> <a href=#patch-5-人机协同文档补充页面操作等价命令 class=md-nav__link> <span class=md-ellipsis> Patch 5: 人机协同文档补充“页面操作等价命令” </span> </a> </li> <li class=md-nav__item> <a href=#patch-6-架构文档补充master-三页面--统一代理 class=md-nav__link> <span class=md-ellipsis> Patch 6: 架构文档补充“Master 三页面 + 统一代理” </span> </a> </li> <li class=md-nav__item> <a href=#patch-7-工作流文档补充阶段复盘 class=md-nav__link> <span class=md-ellipsis> Patch 7: 工作流文档补充“阶段复盘” </span> </a> </li> <li class=md-nav__item> <a href=#patch-8-多任务案例补充dashboard-运维动作 class=md-nav__link> <span class=md-ellipsis> Patch 8: 多任务案例补充“Dashboard 运维动作” </span> </a> </li> <li class=md-nav__item> <a href=#patch-9-批量案例补充task-页面闭环 class=md-nav__link> <span class=md-ellipsis> Patch 9: 批量案例补充“Task 页面闭环” </span> </a> </li> <li class=md-nav__item> <a href=#patch-10-新增专页全文 class=md-nav__link> <span class=md-ellipsis> Patch 10: 新增专页（全文） </span> </a> </li> <li class=md-nav__item> <a href=#3-dashboard class=md-nav__link> <span class=md-ellipsis> 3. Dashboard </span> </a> </li> <li class=md-nav__item> <a href=#4-launch class=md-nav__link> <span class=md-ellipsis> 4. Launch </span> </a> </li> <li class=md-nav__item> <a href=#5-task class=md-nav__link> <span class=md-ellipsis> 5. Task </span> </a> </li> <li class=md-nav__item> <a href=#6-agent class=md-nav__link> <span class=md-ellipsis> 6. Agent </span> </a> </li> <li class=md-nav__item> <a href=#7-代理与网络排障 class=md-nav__link> <span class=md-ellipsis> 7. 代理与网络排障 </span> </a> </li> <li class=md-nav__item> <a href=#8-安全建议 class=md-nav__link> <span class=md-ellipsis> 8. 安全建议 </span> </a> </li> <li class=md-nav__item> <a href=#审查清单 class=md-nav__link> <span class=md-ellipsis> 审查清单 </span> </a> </li> </ul> </nav> </div> </div> </div> <div class=md-content data-md-component=content> <article class="md-content__inner md-typeset"> <h1 id=文档补丁包web-master-与近期功能增量>文档补丁包：Web Master 与近期功能增量<a class=headerlink href=#文档补丁包web-master-与近期功能增量 title="Permanent link">¶</a></h1> <p>本文档用于审查后再手工改原文。所有建议补丁集中在一个文件内。</p> <ul> <li>目标：补齐手册对近期新增能力的覆盖</li> <li>范围：README、02_usage、03_develop、04_case、导航</li> <li>使用方式：按小节复制粘贴到对应文件</li> </ul> <hr> <h2 id=patch-1-readmezh-增补章节>Patch 1: README.zh 增补章节<a class=headerlink href=#patch-1-readmezh-增补章节 title="Permanent link">¶</a></h2> <p>目标文件：README.zh.md 建议位置：现有“通过Web界面交互”章节之后</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-0-1> 1</a></span>
+<span class=normal><a href=#__codelineno-0-2> 2</a></span>
+<span class=normal><a href=#__codelineno-0-3> 3</a></span>
+<span class=normal><a href=#__codelineno-0-4> 4</a></span>
+<span class=normal><a href=#__codelineno-0-5> 5</a></span>
+<span class=normal><a href=#__codelineno-0-6> 6</a></span>
+<span class=normal><a href=#__codelineno-0-7> 7</a></span>
+<span class=normal><a href=#__codelineno-0-8> 8</a></span>
+<span class=normal><a href=#__codelineno-0-9> 9</a></span>
+<span class=normal><a href=#__codelineno-0-10>10</a></span>
+<span class=normal><a href=#__codelineno-0-11>11</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-0-1><a id=__codelineno-0-1 name=__codelineno-0-1></a><span class=gu>## Web Master 新增能力（近期）</span>
+</span><span id=__span-0-2><a id=__codelineno-0-2 name=__codelineno-0-2></a>
+</span><span id=__span-0-3><a id=__codelineno-0-3 name=__codelineno-0-3></a>以下能力已在近期版本中上线，建议结合本文其他章节使用：
+</span><span id=__span-0-4><a id=__codelineno-0-4 name=__codelineno-0-4></a>
+</span><span id=__span-0-5><a id=__codelineno-0-5 name=__codelineno-0-5></a><span class=k>1.</span> Launch 页面：可在浏览器内完成工作区创建、文件导入/上传、模块解析、编译与启动参数预览。
+</span><span id=__span-0-6><a id=__codelineno-0-6 name=__codelineno-0-6></a><span class=k>2.</span> Task 页面：支持托管任务筛选、分页、详情与日志查看，以及停止/删除操作。
+</span><span id=__span-0-7><a id=__codelineno-0-7 name=__codelineno-0-7></a><span class=k>3.</span> Agent 页面增强：支持阶段多选与批量开关（HM/Skip/LFail/LPass），并支持阶段产物文件内容与 Diff 复盘。
+</span><span id=__span-0-8><a id=__codelineno-0-8 name=__codelineno-0-8></a><span class=k>4.</span> 统一代理访问：Master 可统一代理 task/agent 的 cmd、terminal、web-console 路径，减少跨地址跳转。
+</span><span id=__span-0-9><a id=__codelineno-0-9 name=__codelineno-0-9></a><span class=k>5.</span> Web Terminal 增强：支持多会话访问（不同 URL）。
+</span><span id=__span-0-10><a id=__codelineno-0-10 name=__codelineno-0-10></a>
+</span><span id=__span-0-11><a id=__codelineno-0-11 name=__codelineno-0-11></a>建议阅读：docs/content/02_usage/07_web_master.md
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-2-readmeen-增补章节>Patch 2: README.en 增补章节<a class=headerlink href=#patch-2-readmeen-增补章节 title="Permanent link">¶</a></h2> <p>目标文件：README.en.md 建议位置：现有 Web interaction 相关段落后</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-1-1> 1</a></span>
+<span class=normal><a href=#__codelineno-1-2> 2</a></span>
+<span class=normal><a href=#__codelineno-1-3> 3</a></span>
+<span class=normal><a href=#__codelineno-1-4> 4</a></span>
+<span class=normal><a href=#__codelineno-1-5> 5</a></span>
+<span class=normal><a href=#__codelineno-1-6> 6</a></span>
+<span class=normal><a href=#__codelineno-1-7> 7</a></span>
+<span class=normal><a href=#__codelineno-1-8> 8</a></span>
+<span class=normal><a href=#__codelineno-1-9> 9</a></span>
+<span class=normal><a href=#__codelineno-1-10>10</a></span>
+<span class=normal><a href=#__codelineno-1-11>11</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-1-1><a id=__codelineno-1-1 name=__codelineno-1-1></a><span class=gu>## Recent Web Master Enhancements</span>
+</span><span id=__span-1-2><a id=__codelineno-1-2 name=__codelineno-1-2></a>
+</span><span id=__span-1-3><a id=__codelineno-1-3 name=__codelineno-1-3></a>The following capabilities were added recently and are now available in Web Master workflows:
+</span><span id=__span-1-4><a id=__codelineno-1-4 name=__codelineno-1-4></a>
+</span><span id=__span-1-5><a id=__codelineno-1-5 name=__codelineno-1-5></a><span class=k>1.</span> Launch page: create workspace, upload/import files, parse modules, compile, and preview launch command.
+</span><span id=__span-1-6><a id=__codelineno-1-6 name=__codelineno-1-6></a><span class=k>2.</span> Task page: filter, paginate, inspect task details/logs, and stop/delete managed tasks.
+</span><span id=__span-1-7><a id=__codelineno-1-7 name=__codelineno-1-7></a><span class=k>3.</span> Enhanced Agent page: stage multi-select and bulk toggles (HM/Skip/LFail/LPass), plus stage artifact content/diff review.
+</span><span id=__span-1-8><a id=__codelineno-1-8 name=__codelineno-1-8></a><span class=k>4.</span> Unified proxy access: Master proxies cmd/terminal/web-console paths for both task and agent entries.
+</span><span id=__span-1-9><a id=__codelineno-1-9 name=__codelineno-1-9></a><span class=k>5.</span> Improved Web Terminal: multiple terminal sessions across different URLs.
+</span><span id=__span-1-10><a id=__codelineno-1-10 name=__codelineno-1-10></a>
+</span><span id=__span-1-11><a id=__codelineno-1-11 name=__codelineno-1-11></a>See also: docs/content/02_usage/07_web_master.md
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-3-参数文档补充页面能力映射>Patch 3: 参数文档补充“页面能力映射”<a class=headerlink href=#patch-3-参数文档补充页面能力映射 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/02_usage/03_option.md 建议位置：在“--web-console 与 --web-terminal 区别”小节之后</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-2-1> 1</a></span>
+<span class=normal><a href=#__codelineno-2-2> 2</a></span>
+<span class=normal><a href=#__codelineno-2-3> 3</a></span>
+<span class=normal><a href=#__codelineno-2-4> 4</a></span>
+<span class=normal><a href=#__codelineno-2-5> 5</a></span>
+<span class=normal><a href=#__codelineno-2-6> 6</a></span>
+<span class=normal><a href=#__codelineno-2-7> 7</a></span>
+<span class=normal><a href=#__codelineno-2-8> 8</a></span>
+<span class=normal><a href=#__codelineno-2-9> 9</a></span>
+<span class=normal><a href=#__codelineno-2-10>10</a></span>
+<span class=normal><a href=#__codelineno-2-11>11</a></span>
+<span class=normal><a href=#__codelineno-2-12>12</a></span>
+<span class=normal><a href=#__codelineno-2-13>13</a></span>
+<span class=normal><a href=#__codelineno-2-14>14</a></span>
+<span class=normal><a href=#__codelineno-2-15>15</a></span>
+<span class=normal><a href=#__codelineno-2-16>16</a></span>
+<span class=normal><a href=#__codelineno-2-17>17</a></span>
+<span class=normal><a href=#__codelineno-2-18>18</a></span>
+<span class=normal><a href=#__codelineno-2-19>19</a></span>
+<span class=normal><a href=#__codelineno-2-20>20</a></span>
+<span class=normal><a href=#__codelineno-2-21>21</a></span>
+<span class=normal><a href=#__codelineno-2-22>22</a></span>
+<span class=normal><a href=#__codelineno-2-23>23</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-2-1><a id=__codelineno-2-1 name=__codelineno-2-1></a><span class=gu>### Web 页面能力映射（补充）</span>
+</span><span id=__span-2-2><a id=__codelineno-2-2 name=__codelineno-2-2></a>
+</span><span id=__span-2-3><a id=__codelineno-2-3 name=__codelineno-2-3></a>参数用于开启入口，页面用于完成操作。推荐映射如下：
+</span><span id=__span-2-4><a id=__codelineno-2-4 name=__codelineno-2-4></a>
+</span><span id=__span-2-5><a id=__codelineno-2-5 name=__codelineno-2-5></a><span class=k>1.</span> --as-master / --as-master-persist
+</span><span id=__span-2-6><a id=__codelineno-2-6 name=__codelineno-2-6></a><span class=w>   </span><span class=k>-</span><span class=w> </span>打开 Master Dashboard（总览）
+</span><span id=__span-2-7><a id=__codelineno-2-7 name=__codelineno-2-7></a><span class=w>   </span><span class=k>-</span><span class=w> </span>可进入 Launch 与 Task 页面
+</span><span id=__span-2-8><a id=__codelineno-2-8 name=__codelineno-2-8></a><span class=k>2.</span> --master
+</span><span id=__span-2-9><a id=__codelineno-2-9 name=__codelineno-2-9></a><span class=w>   </span><span class=k>-</span><span class=w> </span>将 Agent 连接到指定 Master
+</span><span id=__span-2-10><a id=__codelineno-2-10 name=__codelineno-2-10></a><span class=w>   </span><span class=k>-</span><span class=w> </span>在 Master 页面统一查看与管理
+</span><span id=__span-2-11><a id=__codelineno-2-11 name=__codelineno-2-11></a><span class=k>3.</span> --export-cmd-api
+</span><span id=__span-2-12><a id=__codelineno-2-12 name=__codelineno-2-12></a><span class=w>   </span><span class=k>-</span><span class=w> </span>为托管任务暴露 CMD API
+</span><span id=__span-2-13><a id=__codelineno-2-13 name=__codelineno-2-13></a><span class=w>   </span><span class=k>-</span><span class=w> </span>Task 页面可查看命令与日志，Agent 页面可通过代理访问
+</span><span id=__span-2-14><a id=__codelineno-2-14 name=__codelineno-2-14></a><span class=k>4.</span> --web-console
+</span><span id=__span-2-15><a id=__codelineno-2-15 name=__codelineno-2-15></a><span class=w>   </span><span class=k>-</span><span class=w> </span>提供 Web 控制页面（独立浏览器交互）
+</span><span id=__span-2-16><a id=__codelineno-2-16 name=__codelineno-2-16></a><span class=k>5.</span> --web-terminal
+</span><span id=__span-2-17><a id=__codelineno-2-17 name=__codelineno-2-17></a><span class=w>   </span><span class=k>-</span><span class=w> </span>提供 Web 终端访问，并允许本地终端同时操作
+</span><span id=__span-2-18><a id=__codelineno-2-18 name=__codelineno-2-18></a>
+</span><span id=__span-2-19><a id=__codelineno-2-19 name=__codelineno-2-19></a>页面级新增能力（非独立 CLI 参数）：
+</span><span id=__span-2-20><a id=__codelineno-2-20 name=__codelineno-2-20></a>
+</span><span id=__span-2-21><a id=__codelineno-2-21 name=__codelineno-2-21></a><span class=k>1.</span> Launch：工作区创建、文件管理、模块解析、编译与命令预览
+</span><span id=__span-2-22><a id=__codelineno-2-22 name=__codelineno-2-22></a><span class=k>2.</span> Task：任务筛选、分页、详情、日志、停止/删除
+</span><span id=__span-2-23><a id=__codelineno-2-23 name=__codelineno-2-23></a><span class=k>3.</span> Agent：阶段批量开关（HM/Skip/LFail/LPass）与阶段产物 Diff 复盘
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-4-tui-文档补充与-web-协同>Patch 4: TUI 文档补充“与 Web 协同”<a class=headerlink href=#patch-4-tui-文档补充与-web-协同 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/02_usage/04_tui.md 建议位置：文末新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-3-1> 1</a></span>
+<span class=normal><a href=#__codelineno-3-2> 2</a></span>
+<span class=normal><a href=#__codelineno-3-3> 3</a></span>
+<span class=normal><a href=#__codelineno-3-4> 4</a></span>
+<span class=normal><a href=#__codelineno-3-5> 5</a></span>
+<span class=normal><a href=#__codelineno-3-6> 6</a></span>
+<span class=normal><a href=#__codelineno-3-7> 7</a></span>
+<span class=normal><a href=#__codelineno-3-8> 8</a></span>
+<span class=normal><a href=#__codelineno-3-9> 9</a></span>
+<span class=normal><a href=#__codelineno-3-10>10</a></span>
+<span class=normal><a href=#__codelineno-3-11>11</a></span>
+<span class=normal><a href=#__codelineno-3-12>12</a></span>
+<span class=normal><a href=#__codelineno-3-13>13</a></span>
+<span class=normal><a href=#__codelineno-3-14>14</a></span>
+<span class=normal><a href=#__codelineno-3-15>15</a></span>
+<span class=normal><a href=#__codelineno-3-16>16</a></span>
+<span class=normal><a href=#__codelineno-3-17>17</a></span>
+<span class=normal><a href=#__codelineno-3-18>18</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-3-1><a id=__codelineno-3-1 name=__codelineno-3-1></a><span class=gu>## 与 Web Master 协同使用</span>
+</span><span id=__span-3-2><a id=__codelineno-3-2 name=__codelineno-3-2></a>
+</span><span id=__span-3-3><a id=__codelineno-3-3 name=__codelineno-3-3></a>TUI 与 Web 并非互斥，推荐按场景组合：
+</span><span id=__span-3-4><a id=__codelineno-3-4 name=__codelineno-3-4></a>
+</span><span id=__span-3-5><a id=__codelineno-3-5 name=__codelineno-3-5></a><span class=k>1.</span> TUI 适合本地快速调试与细粒度命令输入。
+</span><span id=__span-3-6><a id=__codelineno-3-6 name=__codelineno-3-6></a><span class=k>2.</span> Web Master 适合集群化观察、托管任务运维与远程协作。
+</span><span id=__span-3-7><a id=__codelineno-3-7 name=__codelineno-3-7></a>
+</span><span id=__span-3-8><a id=__codelineno-3-8 name=__codelineno-3-8></a>协同建议：
+</span><span id=__span-3-9><a id=__codelineno-3-9 name=__codelineno-3-9></a>
+</span><span id=__span-3-10><a id=__codelineno-3-10 name=__codelineno-3-10></a><span class=k>1.</span> 用 Launch 页面完成文件准备与编译启动。
+</span><span id=__span-3-11><a id=__codelineno-3-11 name=__codelineno-3-11></a><span class=k>2.</span> 用 Task 页面跟踪启动与日志。
+</span><span id=__span-3-12><a id=__codelineno-3-12 name=__codelineno-3-12></a><span class=k>3.</span> 进入 Agent 页面执行阶段批量控制与结果复盘。
+</span><span id=__span-3-13><a id=__codelineno-3-13 name=__codelineno-3-13></a><span class=k>4.</span> 需要本地即时修复时，切回 TUI 或本地终端。
+</span><span id=__span-3-14><a id=__codelineno-3-14 name=__codelineno-3-14></a>
+</span><span id=__span-3-15><a id=__codelineno-3-15 name=__codelineno-3-15></a>注意：
+</span><span id=__span-3-16><a id=__codelineno-3-16 name=__codelineno-3-16></a>
+</span><span id=__span-3-17><a id=__codelineno-3-17 name=__codelineno-3-17></a><span class=k>1.</span> 启用 web-terminal 时，可与本地终端并行。
+</span><span id=__span-3-18><a id=__codelineno-3-18 name=__codelineno-3-18></a><span class=k>2.</span> 多终端会话场景建议用不同 URL 或页签区分任务。
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-5-人机协同文档补充页面操作等价命令>Patch 5: 人机协同文档补充“页面操作等价命令”<a class=headerlink href=#patch-5-人机协同文档补充页面操作等价命令 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/02_usage/02_assit.md 建议位置：命令清单后新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-4-1> 1</a></span>
+<span class=normal><a href=#__codelineno-4-2> 2</a></span>
+<span class=normal><a href=#__codelineno-4-3> 3</a></span>
+<span class=normal><a href=#__codelineno-4-4> 4</a></span>
+<span class=normal><a href=#__codelineno-4-5> 5</a></span>
+<span class=normal><a href=#__codelineno-4-6> 6</a></span>
+<span class=normal><a href=#__codelineno-4-7> 7</a></span>
+<span class=normal><a href=#__codelineno-4-8> 8</a></span>
+<span class=normal><a href=#__codelineno-4-9> 9</a></span>
+<span class=normal><a href=#__codelineno-4-10>10</a></span>
+<span class=normal><a href=#__codelineno-4-11>11</a></span>
+<span class=normal><a href=#__codelineno-4-12>12</a></span>
+<span class=normal><a href=#__codelineno-4-13>13</a></span>
+<span class=normal><a href=#__codelineno-4-14>14</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-4-1><a id=__codelineno-4-1 name=__codelineno-4-1></a><span class=gu>## Web Agent 页面与命令等价关系</span>
+</span><span id=__span-4-2><a id=__codelineno-4-2 name=__codelineno-4-2></a>
+</span><span id=__span-4-3><a id=__codelineno-4-3 name=__codelineno-4-3></a>在 Agent 页面可直接完成以下等价操作：
+</span><span id=__span-4-4><a id=__codelineno-4-4 name=__codelineno-4-4></a>
+</span><span id=__span-4-5><a id=__codelineno-4-5 name=__codelineno-4-5></a><span class=k>1.</span> HM 开关：等价于阶段人工审核开关调整。
+</span><span id=__span-4-6><a id=__codelineno-4-6 name=__codelineno-4-6></a><span class=k>2.</span> Skip/Unskip：等价于阶段跳过状态切换。
+</span><span id=__span-4-7><a id=__codelineno-4-7 name=__codelineno-4-7></a><span class=k>3.</span> LFail/LPass：等价于阶段 LLM Fail/Pass 建议开关。
+</span><span id=__span-4-8><a id=__codelineno-4-8 name=__codelineno-4-8></a><span class=k>4.</span> 多选批量操作：等价于对多个阶段重复执行同类命令。
+</span><span id=__span-4-9><a id=__codelineno-4-9 name=__codelineno-4-9></a>
+</span><span id=__span-4-10><a id=__codelineno-4-10 name=__codelineno-4-10></a>建议流程：
+</span><span id=__span-4-11><a id=__codelineno-4-11 name=__codelineno-4-11></a>
+</span><span id=__span-4-12><a id=__codelineno-4-12 name=__codelineno-4-12></a><span class=k>1.</span> 先在页面批量设置策略。
+</span><span id=__span-4-13><a id=__codelineno-4-13 name=__codelineno-4-13></a><span class=k>2.</span> 再执行检查与推进。
+</span><span id=__span-4-14><a id=__codelineno-4-14 name=__codelineno-4-14></a><span class=k>3.</span> 对失败阶段进入文件与 Diff 视图复盘。
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-6-架构文档补充master-三页面--统一代理>Patch 6: 架构文档补充“Master 三页面 + 统一代理”<a class=headerlink href=#patch-6-架构文档补充master-三页面--统一代理 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/03_develop/02_architecture.md 建议位置：核心架构章节后新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-5-1> 1</a></span>
+<span class=normal><a href=#__codelineno-5-2> 2</a></span>
+<span class=normal><a href=#__codelineno-5-3> 3</a></span>
+<span class=normal><a href=#__codelineno-5-4> 4</a></span>
+<span class=normal><a href=#__codelineno-5-5> 5</a></span>
+<span class=normal><a href=#__codelineno-5-6> 6</a></span>
+<span class=normal><a href=#__codelineno-5-7> 7</a></span>
+<span class=normal><a href=#__codelineno-5-8> 8</a></span>
+<span class=normal><a href=#__codelineno-5-9> 9</a></span>
+<span class=normal><a href=#__codelineno-5-10>10</a></span>
+<span class=normal><a href=#__codelineno-5-11>11</a></span>
+<span class=normal><a href=#__codelineno-5-12>12</a></span>
+<span class=normal><a href=#__codelineno-5-13>13</a></span>
+<span class=normal><a href=#__codelineno-5-14>14</a></span>
+<span class=normal><a href=#__codelineno-5-15>15</a></span>
+<span class=normal><a href=#__codelineno-5-16>16</a></span>
+<span class=normal><a href=#__codelineno-5-17>17</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-5-1><a id=__codelineno-5-1 name=__codelineno-5-1></a><span class=gu>## Web Master 架构补充</span>
+</span><span id=__span-5-2><a id=__codelineno-5-2 name=__codelineno-5-2></a>
+</span><span id=__span-5-3><a id=__codelineno-5-3 name=__codelineno-5-3></a>近期版本在 Master 侧形成三页面协同架构：
+</span><span id=__span-5-4><a id=__codelineno-5-4 name=__codelineno-5-4></a>
+</span><span id=__span-5-5><a id=__codelineno-5-5 name=__codelineno-5-5></a><span class=k>1.</span> Dashboard（master.html）
+</span><span id=__span-5-6><a id=__codelineno-5-6 name=__codelineno-5-6></a><span class=w>   </span><span class=k>-</span><span class=w> </span>Agent 汇总、过滤、排序、分页、离线策略
+</span><span id=__span-5-7><a id=__codelineno-5-7 name=__codelineno-5-7></a><span class=k>2.</span> Launch（launch.html）
+</span><span id=__span-5-8><a id=__codelineno-5-8 name=__codelineno-5-8></a><span class=w>   </span><span class=k>-</span><span class=w> </span>工作区准备、文件导入、模块解析、编译、启动编排
+</span><span id=__span-5-9><a id=__codelineno-5-9 name=__codelineno-5-9></a><span class=k>3.</span> Task（task.html）
+</span><span id=__span-5-10><a id=__codelineno-5-10 name=__codelineno-5-10></a><span class=w>   </span><span class=k>-</span><span class=w> </span>托管任务列表、状态与日志运维
+</span><span id=__span-5-11><a id=__codelineno-5-11 name=__codelineno-5-11></a>
+</span><span id=__span-5-12><a id=__codelineno-5-12 name=__codelineno-5-12></a>统一代理层：
+</span><span id=__span-5-13><a id=__codelineno-5-13 name=__codelineno-5-13></a>
+</span><span id=__span-5-14><a id=__codelineno-5-14 name=__codelineno-5-14></a><span class=k>1.</span> 对 task/agent 提供 cmd 代理路径
+</span><span id=__span-5-15><a id=__codelineno-5-15 name=__codelineno-5-15></a><span class=k>2.</span> 对 task/agent 提供 terminal 代理路径
+</span><span id=__span-5-16><a id=__codelineno-5-16 name=__codelineno-5-16></a><span class=k>3.</span> 对 task/agent 提供 web-console 代理路径
+</span><span id=__span-5-17><a id=__codelineno-5-17 name=__codelineno-5-17></a><span class=k>4.</span> 支持 WebSocket 转发与重连增强
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-7-工作流文档补充阶段复盘>Patch 7: 工作流文档补充“阶段复盘”<a class=headerlink href=#patch-7-工作流文档补充阶段复盘 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/03_develop/03_workflow.md 建议位置：阶段控制说明段后新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-6-1> 1</a></span>
+<span class=normal><a href=#__codelineno-6-2> 2</a></span>
+<span class=normal><a href=#__codelineno-6-3> 3</a></span>
+<span class=normal><a href=#__codelineno-6-4> 4</a></span>
+<span class=normal><a href=#__codelineno-6-5> 5</a></span>
+<span class=normal><a href=#__codelineno-6-6> 6</a></span>
+<span class=normal><a href=#__codelineno-6-7> 7</a></span>
+<span class=normal><a href=#__codelineno-6-8> 8</a></span>
+<span class=normal><a href=#__codelineno-6-9> 9</a></span>
+<span class=normal><a href=#__codelineno-6-10>10</a></span>
+<span class=normal><a href=#__codelineno-6-11>11</a></span>
+<span class=normal><a href=#__codelineno-6-12>12</a></span>
+<span class=normal><a href=#__codelineno-6-13>13</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-6-1><a id=__codelineno-6-1 name=__codelineno-6-1></a><span class=gu>## 阶段复盘（Web 视角）</span>
+</span><span id=__span-6-2><a id=__codelineno-6-2 name=__codelineno-6-2></a>
+</span><span id=__span-6-3><a id=__codelineno-6-3 name=__codelineno-6-3></a>除命令行与 TUI 方式外，可在 Agent 页面进行阶段级复盘：
+</span><span id=__span-6-4><a id=__codelineno-6-4 name=__codelineno-6-4></a>
+</span><span id=__span-6-5><a id=__codelineno-6-5 name=__codelineno-6-5></a><span class=k>1.</span> 查看阶段产物文件清单
+</span><span id=__span-6-6><a id=__codelineno-6-6 name=__codelineno-6-6></a><span class=k>2.</span> 预览文件内容
+</span><span id=__span-6-7><a id=__codelineno-6-7 name=__codelineno-6-7></a><span class=k>3.</span> 切换 Diff 视图分析改动
+</span><span id=__span-6-8><a id=__codelineno-6-8 name=__codelineno-6-8></a><span class=k>4.</span> 配合阶段开关（HM/Skip/LFail/LPass）快速迭代
+</span><span id=__span-6-9><a id=__codelineno-6-9 name=__codelineno-6-9></a>
+</span><span id=__span-6-10><a id=__codelineno-6-10 name=__codelineno-6-10></a>建议：
+</span><span id=__span-6-11><a id=__codelineno-6-11 name=__codelineno-6-11></a>
+</span><span id=__span-6-12><a id=__codelineno-6-12 name=__codelineno-6-12></a><span class=k>1.</span> 对连续失败阶段优先查看 Diff 与错误日志。
+</span><span id=__span-6-13><a id=__codelineno-6-13 name=__codelineno-6-13></a><span class=k>2.</span> 对风险阶段先启用 HM 或 LFail，再继续推进。
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-8-多任务案例补充dashboard-运维动作>Patch 8: 多任务案例补充“Dashboard 运维动作”<a class=headerlink href=#patch-8-多任务案例补充dashboard-运维动作 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/04_case/01_multirun.md 建议位置：并发运行说明后新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-7-1>1</a></span>
+<span class=normal><a href=#__codelineno-7-2>2</a></span>
+<span class=normal><a href=#__codelineno-7-3>3</a></span>
+<span class=normal><a href=#__codelineno-7-4>4</a></span>
+<span class=normal><a href=#__codelineno-7-5>5</a></span>
+<span class=normal><a href=#__codelineno-7-6>6</a></span>
+<span class=normal><a href=#__codelineno-7-7>7</a></span>
+<span class=normal><a href=#__codelineno-7-8>8</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-7-1><a id=__codelineno-7-1 name=__codelineno-7-1></a><span class=gu>## Web Master 运维建议（多任务场景）</span>
+</span><span id=__span-7-2><a id=__codelineno-7-2 name=__codelineno-7-2></a>
+</span><span id=__span-7-3><a id=__codelineno-7-3 name=__codelineno-7-3></a>当并发任务数量较多时，建议通过 Dashboard 提升运维效率：
+</span><span id=__span-7-4><a id=__codelineno-7-4 name=__codelineno-7-4></a>
+</span><span id=__span-7-5><a id=__codelineno-7-5 name=__codelineno-7-5></a><span class=k>1.</span> 使用状态过滤快速定位异常 Agent。
+</span><span id=__span-7-6><a id=__codelineno-7-6 name=__codelineno-7-6></a><span class=k>2.</span> 使用排序（last_seen/progress）识别卡住任务。
+</span><span id=__span-7-7><a id=__codelineno-7-7 name=__codelineno-7-7></a><span class=k>3.</span> 使用分页避免单页过载。
+</span><span id=__span-7-8><a id=__codelineno-7-8 name=__codelineno-7-8></a><span class=k>4.</span> 启用离线自动清理，保持列表整洁。
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-9-批量案例补充task-页面闭环>Patch 9: 批量案例补充“Task 页面闭环”<a class=headerlink href=#patch-9-批量案例补充task-页面闭环 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/04_case/02_batchrun.md 建议位置：批量执行脚本说明后新增小节</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-8-1>1</a></span>
+<span class=normal><a href=#__codelineno-8-2>2</a></span>
+<span class=normal><a href=#__codelineno-8-3>3</a></span>
+<span class=normal><a href=#__codelineno-8-4>4</a></span>
+<span class=normal><a href=#__codelineno-8-5>5</a></span>
+<span class=normal><a href=#__codelineno-8-6>6</a></span>
+<span class=normal><a href=#__codelineno-8-7>7</a></span>
+<span class=normal><a href=#__codelineno-8-8>8</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-8-1><a id=__codelineno-8-1 name=__codelineno-8-1></a><span class=gu>## 通过 Task 页面做批量任务闭环</span>
+</span><span id=__span-8-2><a id=__codelineno-8-2 name=__codelineno-8-2></a>
+</span><span id=__span-8-3><a id=__codelineno-8-3 name=__codelineno-8-3></a>批量任务启动后，建议在 Task 页面完成闭环运维：
+</span><span id=__span-8-4><a id=__codelineno-8-4 name=__codelineno-8-4></a>
+</span><span id=__span-8-5><a id=__codelineno-8-5 name=__codelineno-8-5></a><span class=k>1.</span> 按 DUT 或关键字过滤任务。
+</span><span id=__span-8-6><a id=__codelineno-8-6 name=__codelineno-8-6></a><span class=k>2.</span> 按状态聚焦 failed/stopped 任务。
+</span><span id=__span-8-7><a id=__codelineno-8-7 name=__codelineno-8-7></a><span class=k>3.</span> 进入任务详情查看 command 与日志。
+</span><span id=__span-8-8><a id=__codelineno-8-8 name=__codelineno-8-8></a><span class=k>4.</span> 必要时 stop 后修复配置并重启任务。
+</span></code></pre></div></td></tr></tbody></table></div> <hr> <h2 id=patch-10-新增专页全文>Patch 10: 新增专页（全文）<a class=headerlink href=#patch-10-新增专页全文 title="Permanent link">¶</a></h2> <p>目标文件：docs/content/02_usage/07_web_master.md 建议动作：若文件不存在则新建；若已存在则按需替换为下列模板骨架</p> <div class="language-md highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-9-1> 1</a></span>
+<span class=normal><a href=#__codelineno-9-2> 2</a></span>
+<span class=normal><a href=#__codelineno-9-3> 3</a></span>
+<span class=normal><a href=#__codelineno-9-4> 4</a></span>
+<span class=normal><a href=#__codelineno-9-5> 5</a></span>
+<span class=normal><a href=#__codelineno-9-6> 6</a></span>
+<span class=normal><a href=#__codelineno-9-7> 7</a></span>
+<span class=normal><a href=#__codelineno-9-8> 8</a></span>
+<span class=normal><a href=#__codelineno-9-9> 9</a></span>
+<span class=normal><a href=#__codelineno-9-10>10</a></span>
+<span class=normal><a href=#__codelineno-9-11>11</a></span>
+<span class=normal><a href=#__codelineno-9-12>12</a></span>
+<span class=normal><a href=#__codelineno-9-13>13</a></span>
+<span class=normal><a href=#__codelineno-9-14>14</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-9-1><a id=__codelineno-9-1 name=__codelineno-9-1></a><span class=gh># Web Master 使用指南</span>
+</span><span id=__span-9-2><a id=__codelineno-9-2 name=__codelineno-9-2></a>
+</span><span id=__span-9-3><a id=__codelineno-9-3 name=__codelineno-9-3></a><span class=gu>## 1. 功能概览</span>
+</span><span id=__span-9-4><a id=__codelineno-9-4 name=__codelineno-9-4></a>
+</span><span id=__span-9-5><a id=__codelineno-9-5 name=__codelineno-9-5></a><span class=k>1.</span> Dashboard：总览、筛选、排序、分页、离线策略
+</span><span id=__span-9-6><a id=__codelineno-9-6 name=__codelineno-9-6></a><span class=k>2.</span> Launch：工作区创建、文件导入、模块解析、编译、命令预览
+</span><span id=__span-9-7><a id=__codelineno-9-7 name=__codelineno-9-7></a><span class=k>3.</span> Task：托管任务列表、详情、日志、停止/删除
+</span><span id=__span-9-8><a id=__codelineno-9-8 name=__codelineno-9-8></a><span class=k>4.</span> Agent：阶段批量开关与阶段产物 Diff 复盘
+</span><span id=__span-9-9><a id=__codelineno-9-9 name=__codelineno-9-9></a><span class=k>5.</span> Web Terminal：在线终端并行访问
+</span><span id=__span-9-10><a id=__codelineno-9-10 name=__codelineno-9-10></a>
+</span><span id=__span-9-11><a id=__codelineno-9-11 name=__codelineno-9-11></a><span class=gu>## 2. 快速开始</span>
+</span><span id=__span-9-12><a id=__codelineno-9-12 name=__codelineno-9-12></a>
+</span><span id=__span-9-13><a id=__codelineno-9-13 name=__codelineno-9-13></a>~~~bash
+</span><span id=__span-9-14><a id=__codelineno-9-14 name=__codelineno-9-14></a>ucagent --as-master-persist --as-master
+</span></code></pre></div></td></tr></tbody></table></div> <p>访问地址：</p> <div class="language-text highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-10-1>1</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-10-1><a id=__codelineno-10-1 name=__codelineno-10-1></a>http://localhost:8800
+</span></code></pre></div></td></tr></tbody></table></div> <h2 id=3-dashboard>3. Dashboard<a class=headerlink href=#3-dashboard title="Permanent link">¶</a></h2> <ol> <li>搜索、过滤、排序、分页</li> <li>批量删除与离线自动清理</li> </ol> <h2 id=4-launch>4. Launch<a class=headerlink href=#4-launch title="Permanent link">¶</a></h2> <ol> <li>创建工作区</li> <li>上传/导入文件</li> <li>解析模块与编译</li> <li>预览命令并启动任务</li> </ol> <h2 id=5-task>5. Task<a class=headerlink href=#5-task title="Permanent link">¶</a></h2> <ol> <li>筛选与分页</li> <li>查看详情与日志</li> <li>停止或删除任务</li> </ol> <h2 id=6-agent>6. Agent<a class=headerlink href=#6-agent title="Permanent link">¶</a></h2> <ol> <li>阶段快捷开关：HM/Skip/LFail/LPass</li> <li>多选批量设置</li> <li>阶段文件内容与 Diff 复盘</li> </ol> <h2 id=7-代理与网络排障>7. 代理与网络排障<a class=headerlink href=#7-代理与网络排障 title="Permanent link">¶</a></h2> <ol> <li>页面可访问但子路径失败：检查代理与鉴权</li> <li>WebSocket 波动：检查网关是否放通 WS</li> <li>远程访问异常：检查监听地址与端口暴露</li> </ol> <h2 id=8-安全建议>8. 安全建议<a class=headerlink href=#8-安全建议 title="Permanent link">¶</a></h2> <ol> <li>共享网络务必启用密码保护</li> <li>对外暴露建议加 TLS 与网关鉴权 <div class="language-text highlight"><table class=highlighttable><tbody><tr><td class=linenos><div class=linenodiv><pre><span></span><span class=normal><a href=#__codelineno-11-1> 1</a></span>
+<span class=normal><a href=#__codelineno-11-2> 2</a></span>
+<span class=normal><a href=#__codelineno-11-3> 3</a></span>
+<span class=normal><a href=#__codelineno-11-4> 4</a></span>
+<span class=normal><a href=#__codelineno-11-5> 5</a></span>
+<span class=normal><a href=#__codelineno-11-6> 6</a></span>
+<span class=normal><a href=#__codelineno-11-7> 7</a></span>
+<span class=normal><a href=#__codelineno-11-8> 8</a></span>
+<span class=normal><a href=#__codelineno-11-9> 9</a></span>
+<span class=normal><a href=#__codelineno-11-10>10</a></span>
+<span class=normal><a href=#__codelineno-11-11>11</a></span>
+<span class=normal><a href=#__codelineno-11-12>12</a></span>
+<span class=normal><a href=#__codelineno-11-13>13</a></span>
+<span class=normal><a href=#__codelineno-11-14>14</a></span>
+<span class=normal><a href=#__codelineno-11-15>15</a></span>
+<span class=normal><a href=#__codelineno-11-16>16</a></span>
+<span class=normal><a href=#__codelineno-11-17>17</a></span></pre></div></td><td class=code><div><pre><span></span><code><span id=__span-11-1><a id=__codelineno-11-1 name=__codelineno-11-1></a>---
+</span><span id=__span-11-2><a id=__codelineno-11-2 name=__codelineno-11-2></a>
+</span><span id=__span-11-3><a id=__codelineno-11-3 name=__codelineno-11-3></a>## Patch 11: 导航接入
+</span><span id=__span-11-4><a id=__codelineno-11-4 name=__codelineno-11-4></a>
+</span><span id=__span-11-5><a id=__codelineno-11-5 name=__codelineno-11-5></a>目标文件：docs/mkdocs.yml
+</span><span id=__span-11-6><a id=__codelineno-11-6 name=__codelineno-11-6></a>建议位置：nav 下 02_usage 分组
+</span><span id=__span-11-7><a id=__codelineno-11-7 name=__codelineno-11-7></a>
+</span><span id=__span-11-8><a id=__codelineno-11-8 name=__codelineno-11-8></a>~~~yaml
+</span><span id=__span-11-9><a id=__codelineno-11-9 name=__codelineno-11-9></a>- 使用:
+</span><span id=__span-11-10><a id=__codelineno-11-10 name=__codelineno-11-10></a>  - 00_mcp: content/02_usage/00_mcp.md
+</span><span id=__span-11-11><a id=__codelineno-11-11 name=__codelineno-11-11></a>  - 01_direct: content/02_usage/01_direct.md
+</span><span id=__span-11-12><a id=__codelineno-11-12 name=__codelineno-11-12></a>  - 02_assit: content/02_usage/02_assit.md
+</span><span id=__span-11-13><a id=__codelineno-11-13 name=__codelineno-11-13></a>  - 03_option: content/02_usage/03_option.md
+</span><span id=__span-11-14><a id=__codelineno-11-14 name=__codelineno-11-14></a>  - 04_tui: content/02_usage/04_tui.md
+</span><span id=__span-11-15><a id=__codelineno-11-15 name=__codelineno-11-15></a>  - 05_faq: content/02_usage/05_faq.md
+</span><span id=__span-11-16><a id=__codelineno-11-16 name=__codelineno-11-16></a>  - 06_llm_check: content/02_usage/06_llm_check.md
+</span><span id=__span-11-17><a id=__codelineno-11-17 name=__codelineno-11-17></a>  - 07_web_master: content/02_usage/07_web_master.md
+</span></code></pre></div></td></tr></tbody></table></div></li> </ol> <hr> <h2 id=审查清单>审查清单<a class=headerlink href=#审查清单 title="Permanent link">¶</a></h2> <ol> <li>术语统一：Web Master、Launch、Task、Agent、Web Terminal。</li> <li>中英文一致：README.zh 与 README.en 同步。</li> <li>参数与行为解耦：参数页说明入口，专页说明操作流。</li> <li>案例可执行：案例中加入页面化运维闭环。</li> <li>导航可达：07_web_master 已在 mkdocs 导航中可见。</li> </ol> <aside class=md-source-file> <span class=md-source-file__fact> <span class=md-icon title="Last update"> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"></path></svg> </span> <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 20, 2026 08:31:19 UTC">April 20, 2026</span> </span> <span class=md-source-file__fact> <span class=md-icon title=Created> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"></path></svg> </span> <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 20, 2026 08:31:19 UTC">April 20, 2026</span> </span> </aside> </article> </div> <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script> <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script> </div> </main> <footer class=md-footer> <div class="md-footer-meta md-typeset"> <div class="md-footer-meta__inner md-grid"> <div class=md-copyright> </div> <div class=md-social> <a href=https://github.com/XS-MLVP/UCAgent target=_blank rel=noopener title=GitHub class=md-social__link> <svg xmlns=http://www.w3.org/2000/svg viewbox="0 0 512 512"><!-- Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"></path></svg> </a> </div> </div> </div> </footer> </div> <div class=md-dialog data-md-component=dialog> <div class="md-dialog__inner md-typeset"></div> </div> <script id=__config type=application/json>{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.expand", "navigation.tracking", "search.highlight", "search.suggest", "content.tabs.link", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script> <script src=../assets/javascripts/bundle.79ae519e.min.js></script> <script src=https://unpkg.com/katex@0.16.9/dist/katex.min.js></script> <script src=https://unpkg.com/katex@0.16.9/dist/contrib/auto-render.min.js></script> <script src=../javascripts/math.js></script> <script id=init-glightbox>const lightbox = GLightbox({"touchNavigation": true, "loop": false, "zoomable": true, "draggable": true, "openEffect": "zoom", "closeEffect": "zoom", "slideEffect": "slide"});
+document$.subscribe(()=>{ lightbox.reload(); });
+</script></body></html>
