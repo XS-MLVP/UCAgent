@@ -745,6 +745,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)
         need_pass_llm_suggestion=stage.get_value('need_pass_llm_suggestion', None)
+        need_human_check = stage.get_value('need_human_check', False)
 
         if ignore:
             warning(f"Stage '{stage.name}' is set to be ignored, skipping its parsing.")
@@ -778,6 +779,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             skip=skip,
             need_fail_llm_suggestion=need_fail_llm_suggestion,
             need_pass_llm_suggestion=need_pass_llm_suggestion,
+            need_human_check=need_human_check,
         ))
     return ret
 
