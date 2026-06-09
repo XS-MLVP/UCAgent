@@ -115,14 +115,179 @@ plain_text: not enabled
 
         self.assertEqual(cfg.get_value("a.b"), ["x", "y"])
 
-    def test_override_accepts_unquoted_base64_value_with_padding(self):
+    def test_override_replaces_list_item_by_index(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["zero", "one", "two"],
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c[1]", "updated")
+
+        self.assertEqual(cfg.get_value("a.b.c"), ["zero", "updated", "two"])
+
+    def test_override_replaces_list_range(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["zero", "one", "two", "three"],
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c[1:2]", "updated")
+
+        self.assertEqual(cfg.get_value("a.b.c"), ["zero", "updated", "updated", "three"])
+
+    def test_override_inserts_list_item_with_zero_size(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["zero", "two"],
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c[1:0]", "one")
+        cfg.set_value("a.b.c[-1:0]", "before_two")
+
+        self.assertEqual(cfg.get_value("a.b.c"), ["zero", "one", "before_two", "two"])
+
+    def test_override_deletes_list_items(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["zero", "one", "two", "three", "four", "five", "six"],
+                },
+            },
+        })
+
+        cfg.set_values([
+            {"a.b.c[-1]": "@delete"},
+            {"a.b.c[5]": "@delete"},
+            {"a.b.c[1:2]": "@delete"},
+        ])
+
+        self.assertEqual(cfg.get_value("a.b.c"), ["zero", "three", "four"])
+
+    def test_override_deletes_config_attribute(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": 1,
+                    "d": 2,
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c", "@delete")
+
+        self.assertFalse(cfg.get_value("a.b").has_attr("c"))
+        self.assertEqual(cfg.as_dict(), {"a": {"b": {"d": 2}}})
+
+    def test_override_deletes_entire_list_attribute(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["zero", "one"],
+                    "d": "keep",
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c", "@delete")
+
+        self.assertFalse(cfg.get_value("a.b").has_attr("c"))
+        self.assertEqual(cfg.as_dict(), {"a": {"b": {"d": "keep"}}})
+
+    def test_override_updates_nested_config_in_list(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": [
+                        {"x": {"y": 0}},
+                        {"x": {"y": 1}},
+                    ],
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c[-1].x.y", 2)
+
+        self.assertEqual(cfg.get_value("a.b.c")[-1].x.y, 2)
+        self.assertEqual(cfg.as_dict()["a"]["b"]["c"][-1]["x"]["y"], 2)
+
+    def test_override_inserts_dict_as_config_list_item(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": [],
+                },
+            },
+        })
+
+        cfg.set_value("a.b.c[0:0]", {"x": {"y": 1}})
+        cfg.set_value("a.b.c[0].x.y", 2)
+
+        self.assertEqual(cfg.as_dict()["a"]["b"]["c"], [{"x": {"y": 2}}])
+
+    def test_override_uses_at_delete_only_as_reserved_directive(self):
+        cfg = Config({
+            "a": {
+                "b": {
+                    "c": ["keep"],
+                    "literal": "",
+                },
+            },
+        })
+
+        cfg.set_value("a.b.literal", "@@delete")
+        cfg.set_value("a.b.c[0]", "@@delete")
+
+        self.assertEqual(cfg.get_value("a.b.literal"), "@delete")
+        self.assertEqual(cfg.get_value("a.b.c"), ["@delete"])
+
+    def test_override_rejects_unescaped_at_in_value(self):
+        cfg = Config({
+            "a": {
+                "b": "",
+            },
+        })
+
+        with self.assertRaises(ValueError):
+            cfg.set_value("a.b", "email@example.com")
+
+    def test_override_decodes_base64_directive(self):
+        cfg = Config({
+            "a": {
+                "b": "",
+            },
+        })
+
+        cfg.set_value("a.b", "@base64:aGVsbG9AZXhhbXBsZS5jb20=")
+
+        self.assertEqual(cfg.get_value("a.b"), "hello@example.com")
+
+    def test_override_rejects_legacy_base64_prefix(self):
+        cfg = Config({
+            "a": {
+                "b": "",
+            },
+        })
+
+        with self.assertRaises(ValueError):
+            cfg.set_value("a.b", "base64@aGVsbG8=")
+
+    def test_override_accepts_unquoted_base64_directive_with_padding(self):
         override = get_override_dict(
-            "backend.codex.cfg_bash_cmd=base64@K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg=="
+            "backend.codex.cfg_bash_cmd=@base64:K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg=="
         )
 
         self.assertEqual(
             override["backend.codex.cfg_bash_cmd"],
-            "base64@K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg==",
+            "@base64:K2VjaG8ge3siT1BFTkFJX0FQSV9LRVkiOntPUEVOQUlfQVBJX0tFWX19fSA+IH4vLmNvZGV4L2F1dGguanNvbg==",
         )
 
     def test_override_still_parses_literal_values(self):
