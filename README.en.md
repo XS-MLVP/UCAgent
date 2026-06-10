@@ -18,6 +18,9 @@ UCAgent is an automated hardware verification AI agent based on large language m
 
 **For more details, please refer to [UCAgent Online Documentation](https://ucagent.open-verify.cc/)**
 
+> [!TIP]
+> The slide, code and environment for UCAgent workshop presented at **RISC-V Summit Europe 2026** are available at the official repository: [https://github.com/XS-MLVP/tutorial-records](https://github.com/XS-MLVP/tutorial-records)
+
 ---
 
 ## System Requirements
