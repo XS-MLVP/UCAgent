@@ -62,6 +62,42 @@
   .tag-select{min-width:140px}
   .pill{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);font-size:12px}
   .switch{display:flex;align-items:center;gap:8px}
+  .batch-toggle{margin-left:auto}
+  .batch-mode-only{display:none}
+  body.batch-mode .batch-mode-only{display:block}
+  body.batch-mode .batch-mode-only.btn,
+  body.batch-mode .batch-mode-only.pill{display:inline-flex}
+  body.batch-mode .batch-mode-only.batch-elapsed{display:inline-flex}
+  body.batch-mode .single-mode-only,
+  body.batch-mode .single-task-field,
+  body.batch-mode .single-compile-actions{display:none!important}
+  .batch-panel{border:1px solid var(--border);border-radius:10px;padding:12px;background:rgba(255,255,255,.02)}
+  .batch-panel-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .batch-panel-head strong{font-size:13px}
+  .batch-list{display:flex;flex-wrap:wrap;gap:8px;max-height:150px;overflow:auto;align-items:flex-start}
+  .batch-empty{color:var(--text-dim);font-size:12px}
+  .batch-item{display:inline-flex;align-items:center;min-width:0;max-width:260px;gap:6px;padding:5px 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface2);font-size:12px}
+  .batch-item-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .batch-item-meta{color:var(--text-dim)}
+  .batch-item.batch-success{border-color:rgba(34,197,94,.65);background:rgba(34,197,94,.16);color:#bbf7d0}
+  .batch-item.batch-running{border-color:rgba(239,68,68,.75);background:rgba(239,68,68,.2);color:#fecaca}
+  .batch-item.batch-failed{border-color:rgba(245,158,11,.65);background:rgba(245,158,11,.15);color:#fde68a}
+  .batch-item.batch-validating{border-color:rgba(99,102,241,.65);background:rgba(99,102,241,.16)}
+  .batch-remove{flex:0 0 auto;width:18px;height:18px;padding:0;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.18);color:inherit;cursor:pointer;line-height:16px}
+  .batch-remove:hover{border-color:#fff;color:#fff}
+  .batch-remove:disabled{opacity:.55;cursor:not-allowed}
+  .batch-stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .batch-stat{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface2);color:var(--text-dim);font-size:12px}
+  .batch-stat strong{color:var(--text)}
+  .batch-stat.ok strong{color:#86efac}
+  .batch-stat.warn strong{color:#fde68a}
+  .batch-stat.err strong{color:#fecaca}
+  .batch-current{margin-top:10px;font-size:12px;line-height:1.6}
+  .batch-launch-actions{align-items:center}
+  .batch-elapsed{align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface2);color:var(--text-dim);font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+  .batch-elapsed.active{border-color:rgba(245,158,11,.55);color:#fde68a}
+  html[data-theme="light"] .batch-elapsed{background:#fff7ed;border-color:#fdba74;color:#9a3412;box-shadow:0 0 0 1px rgba(234,88,12,.08) inset}
+  html[data-theme="light"] .batch-elapsed.active{background:#ffedd5;border-color:#ea580c;color:#7c2d12}
   .browser-shell{display:none;gap:14px;grid-template-columns:280px 1fr}
   .browser-shell.active{display:grid}
   .browser-panel{display:flex;flex-direction:column;gap:10px}
@@ -129,7 +165,10 @@
 <main>
   <section id="launch-prep-panel" class="card stack">
     <div class="stage-card">
-      <div class="stage-title"><h2>Workspace</h2></div>
+      <div class="stage-title">
+        <h2>Workspace</h2>
+        <label class="pill switch batch-toggle"><input type="checkbox" id="batch-mode-toggle"> Batch</label>
+      </div>
       <div id="workspace-status" class="status warn">Reserving a launch workspace on the master host...</div>
       <div class="stage-note">The master reserves a task id and display path first, then creates the directory only when files are uploaded/imported or DUT compilation starts. If no browse root is configured, the server picker falls back to the <code>examples</code> directory above <code>cli.py</code>.</div>
     </div>
@@ -137,17 +176,28 @@
     <div class="stage-card">
       <div class="stage-title"><span class="stage-no">1</span><h2>Manage Launch Files</h2></div>
       <div class="actions">
-        <button type="button" class="btn btn-primary" data-action="choose-upload">Upload Files</button>
+        <button type="button" class="btn btn-primary single-mode-only" data-action="choose-upload">Upload Files</button>
         <button type="button" class="btn" id="toggle-browser-btn" data-action="toggle-browser">Select On Server</button>
       </div>
       <input id="upload-files-input" type="file" multiple style="display:none">
       <div id="file-gate-status" class="status warn">Tag at least one file as <code>Main RTL</code> or add one <code>.f</code> file, then tag one file as <code>Verification Needs</code> to unlock the next step.</div>
-      <div class="stage-note">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>. Server-selected <code>.f</code> files stay in place and are passed to picker by absolute path.</div>
+      <div class="stage-note single-mode-only">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>. Server-selected <code>.f</code> files stay in place and are passed to picker by absolute path.</div>
+      <div class="stage-note batch-mode-only">Batch mode uses only server-selected YAML launch configs. Upload is disabled; picker and launch settings below apply to every queued task.</div>
       <details class="yaml-help">
         <summary>YAML Config Help</summary>
         <pre id="launch-yaml-help-code" class="mono yaml-code"></pre>
       </details>
       <div id="launch-yaml-status" class="status">No YAML launch config has been applied.</div>
+      <div id="batch-queue-panel" class="batch-panel batch-mode-only">
+        <div class="batch-panel-head">
+          <strong>Batch YAML Queue</strong>
+          <span id="batch-count" class="muted">0 tasks</span>
+          <button type="button" class="btn btn-danger" id="batch-clear-btn" data-action="batch-clear" disabled>Clear</button>
+        </div>
+        <div id="batch-list" class="batch-list"><span class="batch-empty">Select one or more YAML files on the server to add tasks.</span></div>
+        <div id="batch-progress" class="batch-stats"></div>
+        <div id="batch-current" class="status batch-current">No batch item selected.</div>
+      </div>
 
       <div id="browser-shell" class="browser-shell">
         <div class="browser-panel">
@@ -179,13 +229,14 @@
           <div class="actions">
             <button type="button" class="btn" data-action="browser-select-all">Select All</button>
             <button type="button" class="btn" data-action="browser-clear-selection">Clear</button>
-            <button type="button" class="btn" id="browser-apply-yaml-btn" data-action="browser-apply-yaml" disabled>Apply YAML Config</button>
-            <button type="button" class="btn btn-primary" id="browser-import-btn" data-action="browser-import">Import Selected Files</button>
+            <button type="button" class="btn single-mode-only" id="browser-apply-yaml-btn" data-action="browser-apply-yaml" disabled>Apply YAML Config</button>
+            <button type="button" class="btn btn-primary batch-mode-only" id="browser-add-batch-yaml-btn" data-action="browser-add-batch-yaml" disabled>Add YAML Tasks</button>
+            <button type="button" class="btn btn-primary single-mode-only" id="browser-import-btn" data-action="browser-import">Import Selected Files</button>
           </div>
         </div>
       </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap single-mode-only">
         <table>
           <thead>
             <tr>
@@ -201,7 +252,7 @@
           <tbody id="file-table-body"><tr><td colspan="7" class="muted">Waiting for workspace reservation...</td></tr></tbody>
         </table>
       </div>
-      <div class="actions">
+      <div class="actions single-mode-only">
         <button type="button" class="btn" data-action="select-all-workspace-files">Select All Files</button>
         <button type="button" class="btn" data-action="clear-workspace-file-selection">Clear File Selection</button>
         <button type="button" class="btn btn-danger" id="delete-selected-files-btn" data-action="delete-selected-files" disabled>Delete Selected</button>
@@ -209,7 +260,7 @@
       </div>
     </div>
 
-    <div class="stage-card">
+    <div class="stage-card single-task-field">
       <div class="stage-title"><span class="stage-no">2</span><h2>Select Main RTL Module</h2></div>
       <div id="module-gate-note" class="summary-box muted">The module input unlocks only after the file list contains <code>Main RTL</code> or a <code>.f</code> file, plus <code>Verification Needs</code>.</div>
       <div class="grid3">
@@ -233,7 +284,7 @@
     </div>
 
     <div class="stage-card">
-      <div class="stage-title"><span class="stage-no">3</span><h2>Compile DUT</h2></div>
+      <div class="stage-title"><span class="stage-no">3</span><h2 id="compile-stage-title">Compile DUT</h2></div>
       <div class="stage-note">Compile prepares <code>{DUT}_RTL</code>, <code>{DUT}_Doc</code>, runs <code>picker export</code>, and copies the verification-needs file into the generated DUT package as <code>README.md</code>.</div>
       <div class="grid">
         <div class="full-span">
@@ -241,7 +292,7 @@
           <textarea id="picker-args" rows="2" placeholder="Extra picker export args, e.g. --sim vcs&#10;--vflag -Wall"></textarea>
         </div>
       </div>
-      <div class="actions">
+      <div class="actions single-compile-actions">
         <button type="button" class="btn btn-primary" id="compile-dut-btn" data-action="compile-dut" disabled>Compile DUT</button>
         <button type="button" class="btn" id="download-workspace-btn" data-action="download-workspace" disabled>Download Workspace</button>
       </div>
@@ -262,11 +313,11 @@
     <div class="stage-card">
       <div class="stage-title"><h2>Launch Settings</h2></div>
       <div class="grid">
-        <div>
+        <div class="single-task-field">
           <label id="task-name-label">Task Name</label>
           <input id="task-name" placeholder="Auto-generated if empty">
         </div>
-        <div>
+        <div class="single-task-field">
           <label>DUT Name (from compiled module)</label>
           <input id="dut-name" readonly placeholder="Auto-filled from selected module">
         </div>
@@ -332,8 +383,9 @@
         <label>Resolved Command Preview</label>
         <pre id="command-preview" class="status mono">Waiting for required inputs...</pre>
       </div>
-      <div class="actions">
+      <div class="actions batch-launch-actions">
         <button type="button" class="btn btn-primary" id="launch-btn" data-action="launch-task" disabled>Launch Task</button>
+        <span id="batch-elapsed" class="batch-elapsed batch-mode-only">Elapsed 00:00</span>
       </div>
       <div id="launch-status" class="status">The task has not been launched yet.</div>
       <div class="response-panel">
@@ -368,6 +420,14 @@ const initialParams = new URLSearchParams(window.location.search);
 const state = {
   relaunch: initialParams.get('relaunch') === '1' || initialParams.get('mode') === 'relaunch',
   embedded: initialParams.get('embed') === '1',
+  batchMode: false,
+  batchItems: [],
+  batchCurrentIndex: -1,
+  batchLaunchedTaskIds: [],
+  batchValidationCount: 0,
+  batchRunStartedAt: 0,
+  batchElapsedMs: 0,
+  batchElapsedTimer: null,
   relaunchTaskId: initialParams.get('task_id') || '',
   relaunchWorkspaceId: initialParams.get('workspace_id') || '',
   relaunchSubWorkspace: initialParams.get('sub_worspace') || initialParams.get('sub_workspace') || '',
@@ -407,6 +467,7 @@ const state = {
   envExpanded: false,
   envMaxVisible: 3,
   launching: false,
+  batchLaunching: false,
   autoCfgBashOverrideValue: '',
 };
 
@@ -874,9 +935,18 @@ function appendCompileConsole(message, stream = '') {
 
 function setCompileButton(label, disabled) {
   const btn = document.getElementById('compile-dut-btn');
+  setCompileDutLabel(label);
   if (!btn) return;
   btn.textContent = label;
   btn.disabled = disabled;
+}
+
+function setCompileDutLabel(label) {
+  const text = label || 'Compile DUT';
+  const title = document.getElementById('compile-stage-title');
+  const btn = document.getElementById('compile-dut-btn');
+  if (title) title.textContent = text;
+  if (btn) btn.textContent = text;
 }
 
 function setDownloadWorkspaceButton(enabled) {
@@ -895,6 +965,59 @@ function setLaunchButton(label, disabled) {
   btn.disabled = disabled;
 }
 
+function formatElapsedDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (value) => String(value).padStart(2, '0');
+  return hours > 0
+    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
+    : `${pad(minutes)}:${pad(seconds)}`;
+}
+
+function renderBatchElapsed() {
+  const element = document.getElementById('batch-elapsed');
+  if (!element) return;
+  const active = state.batchLaunching && state.batchRunStartedAt;
+  const elapsed = active ? Date.now() - state.batchRunStartedAt : state.batchElapsedMs;
+  element.textContent = `Elapsed ${formatElapsedDuration(elapsed)}`;
+  element.classList.toggle('active', Boolean(active));
+  element.title = active
+    ? 'Elapsed time for the running batch launch.'
+    : (state.batchElapsedMs ? 'Elapsed time for the latest batch launch attempt.' : 'Elapsed time appears while batch launch is running.');
+}
+
+function stopBatchElapsedTimer() {
+  if (state.batchElapsedTimer) {
+    clearInterval(state.batchElapsedTimer);
+    state.batchElapsedTimer = null;
+  }
+  if (state.batchRunStartedAt) {
+    state.batchElapsedMs = Date.now() - state.batchRunStartedAt;
+    state.batchRunStartedAt = 0;
+  }
+  renderBatchElapsed();
+}
+
+function startBatchElapsedTimer() {
+  stopBatchElapsedTimer();
+  state.batchRunStartedAt = Date.now();
+  state.batchElapsedMs = 0;
+  renderBatchElapsed();
+  state.batchElapsedTimer = setInterval(renderBatchElapsed, 1000);
+}
+
+function resetBatchElapsedTimer() {
+  if (state.batchElapsedTimer) {
+    clearInterval(state.batchElapsedTimer);
+    state.batchElapsedTimer = null;
+  }
+  state.batchRunStartedAt = 0;
+  state.batchElapsedMs = 0;
+  renderBatchElapsed();
+}
+
 function setLaunchResponse(data, options = {}) {
   const panel = document.getElementById('launch-response-panel');
   const summary = document.getElementById('launch-response-summary');
@@ -903,6 +1026,720 @@ function setLaunchResponse(data, options = {}) {
   body.textContent = data ? JSON.stringify(data, null, 2) : '';
   summary.textContent = options.summary || 'Show response';
   panel.open = !!options.open;
+}
+
+function batchItemKey(rootId, relPath) {
+  return `${String(rootId || '').trim()}::${String(relPath || '').trim()}`;
+}
+
+function batchItemName(item) {
+  return pathBasename(item?.yamlPath || item?.relPath || item?.name || '') || 'launch.yaml';
+}
+
+function getBatchYamlSelection() {
+  const selected = [...state.browser.selected];
+  return selected.filter(isYamlFile);
+}
+
+function getWorkspaceFiles(workspace) {
+  return workspace?.files || [];
+}
+
+function getWorkspaceMainFile(workspace) {
+  return getWorkspaceFiles(workspace).find((item) => item.category === 'main_verilog') || null;
+}
+
+function getWorkspacePickerFFilelists(workspace) {
+  return getWorkspaceFiles(workspace).filter((item) => isFFile(item.name || item.stored_path || item.source_path));
+}
+
+function workspaceHasRequirementFile(workspace) {
+  return getWorkspaceFiles(workspace).some((item) => item.category === 'requirement');
+}
+
+function workspaceRtlInputReady(workspace) {
+  return Boolean(getWorkspaceMainFile(workspace)) || getWorkspacePickerFFilelists(workspace).length > 0;
+}
+
+function batchStatusText(status) {
+  if (status === 'success') return 'launched';
+  if (status === 'running') return 'launching';
+  if (status === 'failed') return 'failed';
+  if (status === 'validating') return 'checking';
+  return 'ready';
+}
+
+function batchItemPhaseText(item) {
+  if (!item) return '';
+  if (item.phase === 'compiling') return 'compiling';
+  if (item.phase === 'launching') return 'launching';
+  if (item.phase === 'paused') return 'paused';
+  if (item.phase === 'done') return 'done';
+  if (item.phase === 'validated') return 'validated';
+  return '';
+}
+
+function batchItemDisplayStatus(item) {
+  const phase = batchItemPhaseText(item);
+  if (item?.status === 'running' && phase) return phase;
+  if (item?.status === 'failed' && phase) return phase;
+  return batchStatusText(item?.status);
+}
+
+function batchDutName(item) {
+  return String(item?.dutName || item?.selectedModule || item?.taskName || '').trim();
+}
+
+function batchCompileLabel(item) {
+  const dutName = batchDutName(item);
+  return dutName ? `Compile ${dutName}` : 'Compile DUT';
+}
+
+function getVisibleBatchItem() {
+  const indexed = state.batchItems[state.batchCurrentIndex];
+  if (indexed && indexed.status !== 'success') return indexed;
+  return state.batchItems.find((item) => item.status === 'running')
+    || state.batchItems.find((item) => item.status === 'failed')
+    || state.batchItems.find((item) => item.status !== 'success')
+    || state.batchItems[state.batchItems.length - 1]
+    || null;
+}
+
+function getBatchCounts() {
+  const counts = {
+    total: state.batchItems.length,
+    success: 0,
+    running: 0,
+    failed: 0,
+    pending: 0,
+  };
+  for (const item of state.batchItems) {
+    if (item.status === 'success') counts.success += 1;
+    else if (item.status === 'running') counts.running += 1;
+    else if (item.status === 'failed') counts.failed += 1;
+    else counts.pending += 1;
+  }
+  counts.remaining = counts.total - counts.success;
+  return counts;
+}
+
+function renderBatchProgress() {
+  const stats = document.getElementById('batch-progress');
+  const current = document.getElementById('batch-current');
+  if (!stats || !current) return;
+  const counts = getBatchCounts();
+  const statItems = [
+    ['Total', counts.total, ''],
+    ['Launched', counts.success, 'ok'],
+    ['Running', counts.running, 'warn'],
+    ['Failed', counts.failed, counts.failed ? 'err' : ''],
+    ['Pending', counts.pending, ''],
+  ];
+  stats.innerHTML = statItems.map(([label, value, kind]) => (
+    `<span class="batch-stat${kind ? ` ${kind}` : ''}">${esc(label)} <strong>${esc(value)}</strong></span>`
+  )).join('');
+
+  if (!state.batchItems.length) {
+    current.className = 'status batch-current';
+    current.textContent = 'No batch item selected.';
+    setCompileDutLabel('Compile DUT');
+    return;
+  }
+
+  const item = getVisibleBatchItem();
+  const index = state.batchItems.indexOf(item);
+  const itemKind = item?.status === 'failed' ? 'err' : (item?.status === 'running' ? 'warn' : 'ok');
+  const heading = item?.status === 'running'
+    ? 'Current task'
+    : (item?.status === 'failed' ? 'Paused task' : (item?.status === 'success' ? 'Latest task' : 'Next task'));
+  const yamlPath = item?.yamlPath || item?.relPath || '';
+  const workspaceId = item?.workspaceId || item?.workspace?.workspace_id || '';
+  const taskId = item?.taskId || '';
+  current.className = `status batch-current${itemKind ? ` ${itemKind}` : ''}`;
+  current.innerHTML = [
+    `<strong>${esc(heading)} ${index >= 0 ? `${index + 1}/${state.batchItems.length}` : ''}</strong>`,
+    `Status: <code>${esc(batchItemDisplayStatus(item))}</code>`,
+    `YAML: <code title="${esc(yamlPath)}">${esc(batchItemName(item))}</code>`,
+    `DUT: <code>${esc(batchDutName(item) || '-')}</code>`,
+    `Module: <code>${esc(item?.selectedModule || '-')}</code>`,
+    `Workspace: <code>${esc(workspaceId || '-')}</code>`,
+    `Task: <code>${esc(taskId || '-')}</code>`,
+    item?.error ? `Error: <span class="muted">${esc(item.error)}</span>` : '',
+  ].filter(Boolean).join('<br>');
+  setCompileDutLabel(batchCompileLabel(item));
+}
+
+function renderBatchList() {
+  const list = document.getElementById('batch-list');
+  const count = document.getElementById('batch-count');
+  const clearBtn = document.getElementById('batch-clear-btn');
+  if (!list || !count) return;
+  count.textContent = `${state.batchItems.length} task${state.batchItems.length === 1 ? '' : 's'}`;
+  if (clearBtn) clearBtn.disabled = !state.batchItems.length || state.batchLaunching;
+  if (!state.batchItems.length) {
+    list.innerHTML = '<span class="batch-empty">Select one or more YAML files on the server to add tasks.</span>';
+    return;
+  }
+  list.innerHTML = state.batchItems.map((item, index) => {
+    const statusClass = item.status ? ` batch-${esc(item.status)}` : '';
+    const disabled = state.batchLaunching || item.status === 'running' || item.status === 'success';
+    const titleParts = [
+      item.yamlPath || item.relPath || '',
+      batchItemPhaseText(item) ? `Phase: ${batchItemPhaseText(item)}` : '',
+      item.error ? `Error: ${item.error}` : '',
+      item.workspaceId ? `Workspace: ${item.workspaceId}` : '',
+      item.taskId ? `Task: ${item.taskId}` : '',
+    ].filter(Boolean);
+    return `
+        <span class="batch-item${statusClass}" title="${esc(titleParts.join('\n'))}">
+        <span class="batch-item-meta">${index + 1}</span>
+        <span class="batch-item-name">${esc(batchItemName(item))}</span>
+        <span class="batch-item-meta">${esc(batchItemDisplayStatus(item))}</span>
+        <button type="button" class="batch-remove" data-action="batch-remove" data-batch-id="${esc(item.id)}" ${disabled ? 'disabled' : ''} title="Remove">x</button>
+      </span>
+    `;
+  }).join('');
+}
+
+function renderBatchModeState() {
+  renderBatchList();
+  renderBatchProgress();
+  renderBatchElapsed();
+  const validating = state.batchValidationCount > 0;
+  const emptyEnvRows = getEmptyEnvRows();
+  const pendingCount = state.batchItems.filter((item) => item.status !== 'success').length;
+  const failedItem = state.batchItems.find((item) => item.status === 'failed');
+  const ready = state.batchItems.length > 0 && !validating && emptyEnvRows.length === 0 && pendingCount > 0;
+
+  setStatus(
+    'file-gate-status',
+    state.batchItems.length ? (failedItem ? 'warn' : 'ok') : 'warn',
+    state.batchItems.length
+      ? `Batch queue contains ${state.batchItems.length} YAML task(s).`
+      : 'Batch mode is enabled. Select YAML launch config files from the server to build the queue.'
+  );
+  document.getElementById('picker-preview').textContent = getPickerArgs().length
+    ? `Batch picker args: ${shellJoin(getPickerArgs())}`
+    : 'Batch picker args: (none)';
+  document.getElementById('command-preview').textContent = buildBatchCommandPreview();
+
+  if (!state.batchLaunching) {
+    setStatus('compile-status', state.batchItems.length ? 'warn' : '', state.batchItems.length
+      ? 'DUT packages will be compiled automatically for each YAML task when batch launch starts.'
+      : 'Add YAML tasks before launching the batch.');
+    const summary = document.getElementById('compile-summary');
+    if (summary) {
+      summary.className = `summary-box${state.batchItems.length ? '' : ' muted'}`;
+      summary.innerHTML = state.batchItems.length
+        ? `Queued YAML tasks: <code>${esc(String(state.batchItems.length))}</code>`
+        : 'Compile runs per task during batch launch.';
+    }
+  }
+
+  const btnLabel = failedItem ? 'Continue Batch' : 'Launch Batch';
+  setLaunchButton(validating ? 'Checking YAML...' : btnLabel, state.batchLaunching || !ready);
+  if (state.batchLaunching) {
+    setStatus('launch-readiness', 'warn', 'Batch launch is running. The current YAML item is highlighted in red.');
+  } else if (ready) {
+    setStatus('launch-readiness', 'ok', 'Batch launch is ready. Picker, environment, and launch settings will be reused for every queued YAML task.');
+  } else {
+    const reasons = [];
+    if (!state.batchItems.length) reasons.push('add at least one YAML task');
+    if (validating) reasons.push('wait for YAML validation to finish');
+    if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
+    if (state.batchItems.length && pendingCount === 0) reasons.push('all queued tasks have already launched');
+    setStatus('launch-readiness', 'warn', `Batch launch is blocked. Please ${reasons.join(', ')}.`);
+  }
+}
+
+function buildBatchCommandPreview() {
+  if (!state.batchMode) return buildCommandPreview();
+  if (!state.batchItems.length) return 'Waiting for YAML batch tasks...';
+  const dynamicOptions = collectDynamicLaunchOptions();
+  const useZipWorkspace = state.launchConfig?.use_zip_workspace !== false;
+  const workspaceBase = document.getElementById('workspace-base')?.value.trim() || '';
+  const args = [
+    'ucagent',
+    useZipWorkspace ? '/api/workspace/<batch-task>.tar.gz' : '<batch-workspace>/workspace',
+    '<yaml-dut>',
+    '--config', '<yaml/common config>',
+    '--output', document.getElementById('output').value.trim() || 'unity_test',
+  ];
+  if (useZipWorkspace && workspaceBase) args.push('--workspace-base', workspaceBase);
+  if (dynamicOptions.stream_output) args.push('-s');
+  if (dynamicOptions.human) args.push('-hm');
+  if (dynamicOptions.tui) args.push('--tui');
+  if (dynamicOptions.loop) args.push('-l');
+  if (dynamicOptions.mcp_server_no_file_tools) args.push('--mcp-server-no-file-tools');
+  const backend = document.getElementById('backend').value.trim();
+  if (backend) args.push('--backend', backend);
+  const masterOverride = document.getElementById('master-override').value.trim();
+  args.push('--master', masterOverride || '<current master>');
+  args.push('--export-cmd-api', '<auto>');
+  const extraArgs = Array.isArray(dynamicOptions.extra_args) ? dynamicOptions.extra_args : [];
+  args.push(...extraArgs);
+  return `${state.batchItems.length} task(s), sequential:\n${shellJoin(args)}`;
+}
+
+function setBatchMode(enabled) {
+  if (state.relaunch) return;
+  state.batchMode = !!enabled;
+  document.body.classList.toggle('batch-mode', state.batchMode);
+  const toggle = document.getElementById('batch-mode-toggle');
+  if (toggle) toggle.checked = state.batchMode;
+  clearBrowserSelection();
+  if (state.batchMode) {
+    setStatus('launch-yaml-status', '', 'Batch mode is enabled. Select server YAML files to validate and add them to the queue.');
+    resetCompileConsole('Batch compile logs will stream here.');
+  } else {
+    resetBatchElapsedTimer();
+    setStatus('launch-yaml-status', state.launchYamlSpec ? 'ok' : '', state.launchYamlSpec
+      ? `Applied YAML launch config: <code>${esc(state.launchYamlSpec.yaml_path || '')}</code>`
+      : 'No YAML launch config has been applied.');
+    renderWorkspaceStatus();
+  }
+  updateBrowserSelectionStatus();
+  updateLaunchState();
+}
+
+async function releaseBatchWorkspace(item) {
+  const workspaceId = String(item?.workspaceId || item?.workspace?.workspace_id || '').trim();
+  if (!workspaceId || item.status === 'success') return;
+  try {
+    await api(`/api/workspace/${encodeURIComponent(workspaceId)}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'released' }),
+    });
+  } catch {
+  }
+}
+
+function sendBatchWorkspaceRelease(item) {
+  const workspaceId = String(item?.workspaceId || item?.workspace?.workspace_id || '').trim();
+  if (!workspaceId || item.status === 'success') return;
+  const url = `/api/workspace/${encodeURIComponent(workspaceId)}/heartbeat`;
+  const body = JSON.stringify({ status: 'released' });
+  try {
+    if (navigator.sendBeacon) {
+      const blob = new Blob([body], { type: 'application/json' });
+      if (navigator.sendBeacon(url, blob)) return;
+    }
+  } catch {
+  }
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+  }
+}
+
+function releaseBatchWorkspaces() {
+  if (state.batchLaunching || state.launchSucceeded) return;
+  for (const item of state.batchItems) {
+    sendBatchWorkspaceRelease(item);
+  }
+}
+
+async function heartbeatBatchWorkspaces() {
+  if (!state.batchItems.length || state.batchLaunching || state.launchSucceeded) return;
+  const activeItems = state.batchItems.filter((item) => item.status !== 'success' && (item.workspaceId || item.workspace?.workspace_id));
+  await Promise.allSettled(activeItems.map(async (item) => {
+    const workspaceId = item.workspaceId || item.workspace.workspace_id;
+    const data = await api(`/api/workspace/${encodeURIComponent(workspaceId)}/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'active' }),
+    });
+    if (data.workspace) {
+      item.workspace = data.workspace;
+      item.workspaceId = data.workspace.workspace_id;
+    }
+  }));
+}
+
+async function validateBatchWorkspace(workspace, fields) {
+  const mainFile = getWorkspaceMainFile(workspace);
+  const hasFFilelist = getWorkspacePickerFFilelists(workspace).length > 0;
+  if (!mainFile && !hasFFilelist) {
+    throw new Error('YAML must provide main_rtl, filelist, or rtl input.');
+  }
+  if (!workspaceHasRequirementFile(workspace)) {
+    throw new Error('YAML must provide requirement or doc input for Verification Needs.');
+  }
+  let selectedModule = String(fields.selected_module || fields.module || '').trim();
+  let modules = [];
+  if (!selectedModule && mainFile) {
+    const data = await api(`/api/workspace/${encodeURIComponent(workspace.workspace_id)}/verilog/modules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: mainFile.stored_path }),
+    });
+    modules = data.modules || [];
+    selectedModule = modules[0] || '';
+  }
+  if (!selectedModule) {
+    throw new Error(hasFFilelist
+      ? 'YAML using .f filelist must set module/selected_module.'
+      : 'YAML must set module/selected_module or contain a parsable main RTL module.');
+  }
+  const dutName = normalizeDutName(fields.dut_name || fields.dut || selectedModule);
+  const taskName = String(fields.task_name || fields.task || dutName || selectedModule).trim();
+  return {
+    selectedModule,
+    dutName,
+    taskName,
+    mainVerilogPath: mainFile ? mainFile.stored_path : '',
+    modules,
+  };
+}
+
+async function createBatchItemFromYaml(rootId, relPath) {
+  const wsData = await createWorkspace();
+  const workspaceId = wsData.workspace.workspace_id;
+  let workspace = wsData.workspace;
+  try {
+    const data = await api(`/api/workspace/${encodeURIComponent(workspaceId)}/apply-yaml`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root_id: rootId, path: relPath }),
+    });
+    workspace = data.workspace || workspace;
+    const fields = normalizeLaunchYamlSpec({
+      yaml_path: data.yaml_path,
+      fields: data.fields || {},
+      imports: data.imports || [],
+    }).fields || {};
+    const validated = await validateBatchWorkspace(workspace, fields);
+    return {
+      id: makeId('batch'),
+      key: batchItemKey(rootId, relPath),
+      rootId,
+      relPath,
+      yamlPath: data.yaml_path || relPath,
+      name: pathBasename(data.yaml_path || relPath),
+      workspaceId,
+      workspace,
+      fields,
+      imports: data.imports || [],
+      selectedModule: validated.selectedModule,
+      dutName: validated.dutName,
+      taskName: validated.taskName,
+      mainVerilogPath: validated.mainVerilogPath,
+      modules: validated.modules || [],
+      status: 'pending',
+      phase: 'validated',
+      taskId: '',
+      error: '',
+      response: null,
+    };
+  } catch (error) {
+    await releaseBatchWorkspace({ workspaceId, status: 'failed' });
+    throw error;
+  }
+}
+
+async function addBatchYamlFiles(paths) {
+  const rootId = document.getElementById('browser-root').value || (state.browserRoots[0] && state.browserRoots[0].id) || '';
+  const yamlPaths = (paths || []).filter(isYamlFile);
+  if (!yamlPaths.length) {
+    throw new Error('Please select one or more .yaml/.yml files for batch launch.');
+  }
+  state.batchValidationCount += yamlPaths.length;
+  renderBatchModeState();
+  const added = [];
+  const skipped = [];
+  const errors = [];
+  try {
+    for (const relPath of yamlPaths) {
+      const key = batchItemKey(rootId, relPath);
+      if (state.batchItems.some((item) => item.key === key)) {
+        skipped.push(relPath);
+        state.batchValidationCount -= 1;
+        continue;
+      }
+      setStatus('launch-yaml-status', 'warn', `Checking YAML launch config <code>${esc(relPath)}</code>...`);
+      try {
+        const item = await createBatchItemFromYaml(rootId, relPath);
+        state.batchItems.push(item);
+        added.push(item);
+      } catch (error) {
+        errors.push(`${relPath}: ${error.message || error}`);
+      } finally {
+        state.batchValidationCount -= 1;
+        renderBatchModeState();
+      }
+    }
+  } finally {
+    state.batchValidationCount = Math.max(0, state.batchValidationCount);
+  }
+  if (errors.length) {
+    const skippedText = skipped.length ? `<br>Skipped duplicate YAML: ${skipped.map((item) => `<code>${esc(item)}</code>`).join(', ')}` : '';
+    setStatus(
+      'launch-yaml-status',
+      'err',
+      `${added.length ? `Added ${added.length} valid YAML task(s).<br>` : ''}` +
+      `Failed to add ${errors.length} YAML file(s):<br>${errors.map((item) => esc(item)).join('<br>')}${skippedText}`
+    );
+  } else {
+    const skippedText = skipped.length ? ` Skipped ${skipped.length} duplicate YAML file(s).` : '';
+    setStatus('launch-yaml-status', 'ok', `Added ${added.length} YAML task(s) to the batch queue.${esc(skippedText)}`);
+  }
+  clearBrowserSelection();
+  updateLaunchState();
+}
+
+async function removeBatchItem(itemId) {
+  const item = state.batchItems.find((entry) => entry.id === itemId);
+  if (!item || state.batchLaunching || item.status === 'success') return;
+  await releaseBatchWorkspace(item);
+  state.batchItems = state.batchItems.filter((entry) => entry.id !== itemId);
+  renderBatchModeState();
+}
+
+async function clearBatchItems() {
+  if (state.batchLaunching || !state.batchItems.length) return;
+  const removable = state.batchItems.filter((item) => item.status !== 'success');
+  await Promise.allSettled(removable.map((item) => releaseBatchWorkspace(item)));
+  state.batchItems = state.batchItems.filter((item) => item.status === 'success');
+  renderBatchModeState();
+}
+
+async function ensureBatchItemWorkspace(item) {
+  if (item.workspaceId) {
+    try {
+      const data = await api(`/api/workspace/${encodeURIComponent(item.workspaceId)}`);
+      item.workspace = data.workspace;
+      return item.workspace;
+    } catch {
+      item.workspaceId = '';
+      item.workspace = null;
+    }
+  }
+  const wsData = await createWorkspace();
+  item.workspaceId = wsData.workspace.workspace_id;
+  const data = await api(`/api/workspace/${encodeURIComponent(item.workspaceId)}/apply-yaml`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root_id: item.rootId, path: item.relPath }),
+  });
+  item.workspace = data.workspace;
+  item.yamlPath = data.yaml_path || item.yamlPath;
+  item.fields = normalizeLaunchYamlSpec({ yaml_path: data.yaml_path, fields: data.fields || {}, imports: data.imports || [] }).fields || item.fields || {};
+  const validated = await validateBatchWorkspace(item.workspace, item.fields || {});
+  item.selectedModule = validated.selectedModule;
+  item.dutName = validated.dutName;
+  item.taskName = validated.taskName;
+  item.mainVerilogPath = validated.mainVerilogPath;
+  return item.workspace;
+}
+
+async function compileBatchItem(item) {
+  const workspace = await ensureBatchItemWorkspace(item);
+  const mainFile = getWorkspaceMainFile(workspace);
+  const selectedModule = String(item.selectedModule || '').trim();
+  if (!selectedModule) {
+    throw new Error('Batch item has no selected module.');
+  }
+  const itemIndex = state.batchItems.indexOf(item);
+  const dutName = batchDutName(item) || selectedModule;
+  setCompileDutLabel(`Compile ${dutName}`);
+  setStatus(
+    'compile-status',
+    'warn',
+    `Compiling <code>${esc(dutName)}</code> for batch item ${itemIndex >= 0 ? itemIndex + 1 : '-'}/${state.batchItems.length}.`
+  );
+  const summary = document.getElementById('compile-summary');
+  if (summary) {
+    summary.className = 'summary-box';
+    summary.innerHTML = [
+      `YAML: <code>${esc(item.yamlPath || item.relPath || '-')}</code>`,
+      `DUT: <code>${esc(dutName)}</code>`,
+      `Module: <code>${esc(selectedModule)}</code>`,
+      `Workspace: <code>${esc(item.workspaceId || '-')}</code>`,
+      `Picker Args: ${getPickerArgs().length ? `<code>${esc(getPickerArgs().join(' '))}</code>` : '<code>(none)</code>'}`,
+    ].join('<br>');
+  }
+  await api(`/api/workspace/${encodeURIComponent(item.workspaceId)}/compile/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dut_name: item.dutName || selectedModule,
+      selected_module: selectedModule,
+      main_verilog_path: mainFile ? mainFile.stored_path : '',
+      picker_args: getPickerArgs(),
+    }),
+  });
+  let cursor = 0;
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const data = await api(`/api/workspace/${encodeURIComponent(item.workspaceId)}/compile/status?cursor=${cursor}`);
+    const runtime = data.runtime || {};
+    const chunk = runtime.chunk || '';
+    if (chunk) {
+      appendCompileConsole(chunk, batchItemName(item));
+      cursor = runtime.cursor || cursor;
+    }
+    if (runtime.status === 'running') continue;
+    if (runtime.workspace) {
+      item.workspace = runtime.workspace;
+    }
+    if (runtime.status !== 'success') {
+      const message = runtime.result?.stderr || runtime.error || 'picker export failed';
+      setStatus('compile-status', 'err', `Compile <code>${esc(dutName)}</code> failed.`);
+      throw new Error(message);
+    }
+    setStatus('compile-status', 'ok', `Compiled <code>${esc(runtime.compile?.dut_name || dutName)}</code> for batch item ${itemIndex >= 0 ? itemIndex + 1 : '-'}/${state.batchItems.length}.`);
+    if (summary && runtime.compile) {
+      summary.className = 'summary-box';
+      summary.innerHTML = [
+        `YAML: <code>${esc(item.yamlPath || item.relPath || '-')}</code>`,
+        `DUT Package: <code>${esc(runtime.compile.dut_name || dutName)}</code>`,
+        `RTL Dir: <code>${esc(runtime.compile.rtl_dir || '-')}</code>`,
+        `Doc Dir: <code>${esc(runtime.compile.doc_dir || '-')}</code>`,
+        `Package Dir: <code>${esc(runtime.compile.dut_dir || '-')}</code>`,
+        `Workspace: <code>${esc(item.workspaceId || '-')}</code>`,
+      ].join('<br>');
+    }
+    return runtime;
+  }
+}
+
+function batchConfigForItem(item) {
+  const selectedConfig = document.getElementById('config-path').value.trim();
+  const itemConfig = String(item.fields?.config || '').trim();
+  return selectedConfig || itemConfig || 'config.yaml';
+}
+
+function collectBatchLaunchPayload(item) {
+  const dynamicOptions = collectDynamicLaunchOptions();
+  const dynamicMeta = isPlainObject(dynamicOptions.meta) ? dynamicOptions.meta : {};
+  const meta = {
+    ...dynamicMeta,
+    launch_yaml: item.yamlPath || item.relPath || '',
+    batch_index: String(state.batchItems.indexOf(item) + 1),
+  };
+  const mainFile = getWorkspaceMainFile(item.workspace);
+  const payload = {
+    workspace_id: item.workspaceId,
+    task_name: item.taskName || item.dutName || item.selectedModule,
+    dut_name: item.dutName || item.selectedModule,
+    selected_module: item.selectedModule,
+    main_verilog_path: mainFile ? mainFile.stored_path : '',
+    picker_args: getPickerArgs(),
+    config: batchConfigForItem(item),
+    backend: document.getElementById('backend').value.trim(),
+    launch_mode: getSelectedLaunchMode(),
+    output: document.getElementById('output').value.trim() || 'unity_test',
+    master: document.getElementById('master-override').value.trim(),
+    env: collectEnvOverrides(),
+    use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
+    workspace_base: document.getElementById('workspace-base')?.value.trim() || '',
+    ...dynamicOptions,
+  };
+  payload.meta = meta;
+  return payload;
+}
+
+async function launchBatchTasks() {
+  if (!state.batchMode) return launchTask();
+  syncEnvReferenceRows();
+  const emptyEnvRows = getEmptyEnvRows();
+  if (!state.batchItems.length || emptyEnvRows.length) {
+    updateLaunchState();
+    return;
+  }
+  const startIndex = state.batchItems.findIndex((item) => item.status !== 'success');
+  if (startIndex < 0) {
+    setStatus('launch-status', 'ok', 'All batch tasks have already launched. Redirecting to /task/ ...');
+    redirectToTaskPage(state.batchLaunchedTaskIds[state.batchLaunchedTaskIds.length - 1] || '');
+    return;
+  }
+
+  state.batchLaunching = true;
+  state.launching = true;
+  startBatchElapsedTimer();
+  setLaunchButton('Launching Batch...', true);
+  setLaunchResponse(null, { summary: 'Show response', open: false });
+  resetCompileConsole('Batch compile logs will stream here.');
+  let lastTaskId = '';
+  try {
+    for (let index = startIndex; index < state.batchItems.length; index += 1) {
+      const item = state.batchItems[index];
+      if (item.status === 'success') continue;
+      const retryingFailedItem = item.status === 'failed';
+      if (retryingFailedItem) {
+        await releaseBatchWorkspace(item);
+        item.workspaceId = '';
+        item.workspace = null;
+        item.phase = 'validated';
+      }
+      state.batchCurrentIndex = index;
+      item.status = 'running';
+      item.phase = 'compiling';
+      item.error = '';
+      renderBatchModeState();
+      setStatus(
+        'launch-status',
+        'warn',
+        `Batch item ${index + 1}/${state.batchItems.length}: ${esc(batchCompileLabel(item))} from <code>${esc(batchItemName(item))}</code>.`
+      );
+
+      await compileBatchItem(item);
+      item.phase = 'launching';
+      renderBatchModeState();
+      setStatus(
+        'launch-status',
+        'warn',
+        `Launching batch item ${index + 1}/${state.batchItems.length}: <code>${esc(batchItemName(item))}</code>.`
+      );
+      const payload = collectBatchLaunchPayload(item);
+      const data = await api('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      item.response = data;
+      setLaunchResponse(data, {
+        summary: data.status === 'ok' ? 'Show latest batch launch response' : 'Show latest batch error',
+        open: false,
+      });
+      if (data.status !== 'ok') {
+        throw new Error(data.task?.process_status || 'Launch failed');
+      }
+      item.status = 'success';
+      item.phase = 'done';
+      item.taskId = data.task.task_id;
+      lastTaskId = data.task.task_id;
+      if (!state.batchLaunchedTaskIds.includes(lastTaskId)) {
+        state.batchLaunchedTaskIds.push(lastTaskId);
+      }
+      setStatus('launch-status', 'ok', `Batch item ${index + 1}/${state.batchItems.length} launched as task <code>${esc(lastTaskId)}</code>.`);
+      renderBatchModeState();
+    }
+
+    state.launchSucceeded = true;
+    setStatus('launch-status', 'ok', `All ${state.batchItems.length} batch task(s) launched successfully. Redirecting to /task/ ...`);
+    redirectToTaskPage(lastTaskId || state.batchLaunchedTaskIds[state.batchLaunchedTaskIds.length - 1] || '');
+  } catch (error) {
+    const item = state.batchItems[state.batchCurrentIndex];
+    if (item) {
+      item.status = 'failed';
+      item.phase = 'paused';
+      item.error = error.message || String(error);
+    }
+    setStatus('launch-status', 'err', `Batch paused at item ${state.batchCurrentIndex + 1}/${state.batchItems.length}: ${esc(error.message || error)}`);
+    setLaunchResponse({ error: error.message || String(error), item: item ? { yaml: item.yamlPath || item.relPath, workspace_id: item.workspaceId } : null }, { summary: 'Show batch error', open: false });
+  } finally {
+    stopBatchElapsedTimer();
+    state.batchLaunching = false;
+    state.launching = false;
+    renderBatchModeState();
+  }
 }
 
 async function createWorkspace() {
@@ -942,20 +1779,22 @@ function renderWorkspaceStatus() {
 
 async function heartbeatWorkspace() {
   if (state.relaunch) return;
-  if (!state.workspaceId) return;
-  try {
-    const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/heartbeat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'active' }),
-    });
-    if (data.workspace && data.workspace.workspace_id === state.workspaceId) {
-      state.workspace = data.workspace;
-      renderWorkspaceStatus();
+  if (state.workspaceId) {
+    try {
+      const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'active' }),
+      });
+      if (data.workspace && data.workspace.workspace_id === state.workspaceId) {
+        state.workspace = data.workspace;
+        renderWorkspaceStatus();
+      }
+    } catch (error) {
+      console.debug('workspace heartbeat failed', error);
     }
-  } catch (error) {
-    console.debug('workspace heartbeat failed', error);
   }
+  if (state.batchMode) await heartbeatBatchWorkspaces();
 }
 
 function startWorkspaceHeartbeat() {
@@ -967,6 +1806,7 @@ function startWorkspaceHeartbeat() {
 
 function releaseWorkspace() {
   if (state.relaunch) return;
+  if (state.batchMode) releaseBatchWorkspaces();
   if (!state.workspaceId || state.workspaceReleased || state.launching || state.launchSucceeded) return;
   state.workspaceReleased = true;
   if (state.workspaceHeartbeatTimer) {
@@ -1619,6 +2459,10 @@ function buildCommandPreview() {
 
 function updateLaunchState() {
   syncEnvReferenceRows();
+  if (state.batchMode && !state.relaunch) {
+    renderBatchModeState();
+    return;
+  }
   renderGateState();
   renderCompileState();
   document.getElementById('command-preview').textContent = buildCommandPreview();
@@ -1706,10 +2550,24 @@ function syncBrowserSelectionCheckboxes() {
 function updateBrowserSelectionStatus(note = '') {
   const selected = [...state.browser.selected];
   const yamlPaths = selected.filter(isYamlFile);
+  const nonYamlPaths = selected.filter((item) => !isYamlFile(item));
   const importBtn = document.getElementById('browser-import-btn');
   const applyYamlBtn = document.getElementById('browser-apply-yaml-btn');
+  const addBatchBtn = document.getElementById('browser-add-batch-yaml-btn');
+  if (state.batchMode) {
+    if (importBtn) importBtn.disabled = true;
+    if (applyYamlBtn) applyYamlBtn.disabled = true;
+    if (addBatchBtn) addBatchBtn.disabled = !(yamlPaths.length > 0 && nonYamlPaths.length === 0) || state.batchLaunching || state.batchValidationCount > 0;
+    const message = yamlPaths.length
+      ? `${yamlPaths.length} YAML config file(s) selected for batch.`
+      : 'No YAML config files selected.';
+    const detail = nonYamlPaths.length ? ' Batch mode accepts .yaml/.yml files only.' : note;
+    document.getElementById('browser-status').textContent = detail ? `${message} ${detail}` : message;
+    return;
+  }
   if (importBtn) importBtn.disabled = yamlPaths.length > 0;
   if (applyYamlBtn) applyYamlBtn.disabled = !(selected.length === 1 && yamlPaths.length === 1);
+  if (addBatchBtn) addBatchBtn.disabled = true;
   let message = '';
   if (yamlPaths.length) {
     message = `YAML config selected: ${yamlPaths[0]}. Use Apply YAML Config to read it.`;
@@ -1723,6 +2581,20 @@ function updateBrowserSelectionStatus(note = '') {
 function selectAllBrowserFiles() {
   const checkboxes = [...document.querySelectorAll('input[data-action="browser-select-file"]')];
   state.browser.selected.clear();
+  if (state.batchMode) {
+    let selectedYaml = 0;
+    for (const checkbox of checkboxes) {
+      const path = dec(checkbox.dataset.path);
+      const yaml = isYamlFile(path);
+      checkbox.checked = yaml;
+      if (yaml) {
+        state.browser.selected.add(path);
+        selectedYaml += 1;
+      }
+    }
+    updateBrowserSelectionStatus(selectedYaml ? '' : 'No YAML configs were found in the current file list.');
+    return;
+  }
   let skippedYaml = false;
   for (const checkbox of checkboxes) {
     const path = dec(checkbox.dataset.path);
@@ -1773,16 +2645,19 @@ async function loadBrowser(path = '') {
         `).join('')
       : '<div class="item-row muted">No directories found.</div>';
     document.getElementById('browser-files').innerHTML = (data.files || []).length
-      ? data.files.map((item) => `
+      ? data.files.map((item) => {
+        const disabled = state.batchMode && !isYamlFile(item.path);
+        return `
           <label class="item-row">
-            <input type="checkbox" data-action="browser-select-file" data-path="${enc(item.path)}">
+            <input type="checkbox" data-action="browser-select-file" data-path="${enc(item.path)}" ${disabled ? 'disabled' : ''}>
             <div class="item-main">
               <strong>${esc(item.name)}</strong>
               <span class="muted mono">${esc(item.path)}</span>
             </div>
             <span class="muted mono">${esc(formatBytes(item.size))}</span>
           </label>
-        `).join('')
+        `;
+      }).join('')
       : '<div class="item-row muted">No files found.</div>';
   } catch (error) {
     document.getElementById('browser-status').textContent = error.message;
@@ -2228,7 +3103,7 @@ function collectLaunchPayload() {
 }
 
 function redirectToTaskPage(taskId) {
-  const target = `/task/#task-${encodeURIComponent(taskId)}`;
+  const target = taskId ? `/task/#task-${encodeURIComponent(taskId)}` : '/task/';
   const go = () => {
     if (state.embedded && window.parent && window.parent !== window) {
       try {
@@ -2244,6 +3119,10 @@ function redirectToTaskPage(taskId) {
 }
 
 async function launchTask() {
+  if (state.batchMode && !state.relaunch) {
+    await launchBatchTasks();
+    return;
+  }
   const mainFile = getMainFile();
   const selectedModule = getSelectedModule();
   const normalBlocked = !state.relaunch && ((!mainFile && !hasPickerFFilelist()) || !selectedModule || !hasRequirementFile() || !isCompileCurrent());
@@ -2886,6 +3765,7 @@ document.addEventListener('click', async (event) => {
   const action = target.dataset.action;
   try {
     if (action === 'choose-upload') {
+      if (state.batchMode) throw new Error('Batch mode accepts server YAML configs only.');
       document.getElementById('upload-files-input').click();
       return;
     }
@@ -2918,6 +3798,7 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'browser-import') {
+      if (state.batchMode) throw new Error('Batch mode accepts server YAML configs only.');
       const paths = [...state.browser.selected];
       if (!paths.length) throw new Error('Please select file(s) from the server list first.');
       if (paths.some(isYamlFile)) throw new Error('YAML config files must be applied with Apply YAML Config.');
@@ -2931,6 +3812,18 @@ document.addEventListener('click', async (event) => {
       await applyLaunchYamlConfig();
       await loadBrowser(state.browser.path);
       toggleBrowser(false);
+      return;
+    }
+    if (action === 'browser-add-batch-yaml') {
+      await addBatchYamlFiles(getBatchYamlSelection());
+      return;
+    }
+    if (action === 'batch-remove') {
+      await removeBatchItem(target.dataset.batchId);
+      return;
+    }
+    if (action === 'batch-clear') {
+      await clearBatchItems();
       return;
     }
     if (action === 'select-all-workspace-files') {
@@ -2994,10 +3887,11 @@ document.addEventListener('click', async (event) => {
       return;
     }
     if (action === 'launch-task') {
-      await launchTask();
+      if (state.batchMode) await launchBatchTasks();
+      else await launchTask();
     }
   } catch (error) {
-    if (action === 'browser-apply-yaml') {
+    if (action === 'browser-apply-yaml' || action === 'browser-add-batch-yaml') {
       setStatus('launch-yaml-status', 'err', error.message);
       document.getElementById('browser-status').textContent = error.message;
     } else if (action.startsWith('browser')) {
@@ -3015,7 +3909,20 @@ document.addEventListener('click', async (event) => {
 document.addEventListener('change', async (event) => {
   const target = event.target;
   try {
+    if (target.id === 'batch-mode-toggle') {
+      if (state.batchLaunching) {
+        target.checked = state.batchMode;
+        return;
+      }
+      setBatchMode(target.checked);
+      if (state.browser.visible) await loadBrowser(state.browser.path);
+      return;
+    }
     if (target.id === 'upload-files-input') {
+      if (state.batchMode) {
+        target.value = '';
+        return;
+      }
       const files = [...(target.files || [])];
       if (!files.length) return;
       await uploadFiles(files);
@@ -3028,6 +3935,19 @@ document.addEventListener('change', async (event) => {
     }
     if (target.matches('input[data-action="browser-select-file"]')) {
       const path = dec(target.dataset.path);
+      if (state.batchMode) {
+        if (target.checked && !isYamlFile(path)) {
+          target.checked = false;
+          state.browser.selected.delete(path);
+          updateBrowserSelectionStatus('Batch mode accepts YAML launch configs only.');
+          return;
+        }
+        if (target.checked) state.browser.selected.add(path);
+        else state.browser.selected.delete(path);
+        syncBrowserSelectionCheckboxes();
+        updateBrowserSelectionStatus();
+        return;
+      }
       if (target.checked && isYamlFile(path)) {
         state.browser.selected.clear();
         state.browser.selected.add(path);

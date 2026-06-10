@@ -1,0 +1,11 @@
+# Launch manifest for examples/Adder.
+# Paths are relative to this YAML file.
+
+task_name: Adder
+dut: Adder
+module: Adder
+output: unity_test
+
+files:
+  main_rtl: Adder.v
+  requirement: README.md

@@ -1,0 +1,11 @@
+# Launch manifest for examples/Mux.
+# Paths are relative to this YAML file.
+
+task_name: Mux
+dut: Mux
+module: Mux
+output: unity_test
+
+files:
+  main_rtl: Mux.v
+  requirement: unity_test/Mux_verification_needs_and_plan.md

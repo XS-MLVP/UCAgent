@@ -1,0 +1,11 @@
+# Launch manifest for examples/FSM.
+# Paths are relative to this YAML file.
+
+task_name: FSM
+dut: FSM
+module: FSM
+output: unity_test
+
+files:
+  main_rtl: FSM.v
+  requirement: README.md
