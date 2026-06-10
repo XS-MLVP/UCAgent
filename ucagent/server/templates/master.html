@@ -110,10 +110,19 @@
     font-size:11px;color:var(--text-dim)}
   .id-cell{display:inline-block;font-family:'Consolas','Courier New',monospace;font-size:11px;max-width:128px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .stage-cell{display:inline-block;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+  .time-cell{display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:11px;color:var(--text-dim)}
   .host-cell{display:inline-block;max-width:108px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
   .version-cell{display:inline-block;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
   input[type=checkbox]{width:13px;height:13px;cursor:pointer;accent-color:var(--accent)}
+  /* ── Alerts ───────────────────────────────────────────────────────────── */
+  .multi-client-alert{display:none;margin-bottom:16px;background:#2a2113;border:1px solid rgba(245,158,11,.5);
+    border-left:4px solid var(--warn);border-radius:var(--radius);padding:12px 14px;color:#fde68a}
+  .multi-client-alert-title{font-size:13px;font-weight:700;margin-bottom:6px;color:#fbbf24}
+  .multi-client-alert-body{font-size:12px;line-height:1.5;color:#fde68a}
+  .multi-client-alert-item{margin-top:4px}
+  .multi-client-alert code{font-family:'Consolas','Courier New',monospace;color:#fff;background:rgba(0,0,0,.22);
+    border-radius:4px;padding:1px 4px}
   /* ── Modal ───────────────────────────────────────────────────────────── */
   .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
     z-index:100;align-items:center;justify-content:center;padding:20px}
@@ -165,7 +174,7 @@
     .stat-value{font-size:22px}
     .cmd-cell{max-width:100px}
     .mission-cell{max-width:100px}
-    .stage-cell{max-width:90px}
+    .time-cell{max-width:112px}
     .id-cell{max-width:120px}
   }
 </style>
@@ -198,6 +207,7 @@
   </div>
 </header>
 <main>
+  <div id="multi-client-alert" class="multi-client-alert" role="alert"></div>
   <div class="stats">
     <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value stat-total" id="stat-total">—</div></div>
     <div class="stat-card"><div class="stat-label">Online</div><div class="stat-value stat-online" id="stat-online">—</div></div>
@@ -214,7 +224,7 @@
       <option value="id">Sort by: Client ID</option>
       <option value="host">Sort by: Host</option>
       <option value="status">Sort by: Status</option>
-      <option value="last_seen">Sort by: Last seen</option>
+      <option value="last_seen">Sort by: Last active</option>
       <option value="first_seen">Sort by: First seen</option>
       <option value="current_stage_index">Sort by: Progress</option>
     </select>
@@ -249,7 +259,7 @@
           <th>Version</th>
           <th>Progress</th>
           <th>Run Time</th>
-          <th>Stage</th>
+          <th>Last Active</th>
           <th>MCP</th>
           <th>Break</th>
           <th>Last CMD</th>
@@ -363,6 +373,8 @@ let _showSelfClient = false;
 let _showUnregisterControls = false;
 let _showStopControls = false;
 let _selfAgent = null;
+let _taskDuplicateWarnings = [];
+let _duplicateCleanupRunning = false;
 // ── Toast ──────────────────────────────────────────────────────────────────
 function toast(msg, ok = true) {
   const c = document.getElementById('toast-container');
@@ -373,30 +385,50 @@ function toast(msg, ok = true) {
   setTimeout(() => t.remove(), 3500);
 }
 // ── Fetch agents ───────────────────────────────────────────────────────────
+function buildAgentsParams(overrides = {}) {
+  const params = {
+    'include_offline': 'true',
+    'include_self': _showSelfClient ? 'true' : 'false',
+    'strip_ansi': 'false',
+    'page': _currentPage,
+    'page_size': _pageSize,
+    'sort_by': _sortBy,
+    'sort_desc': _sortDesc ? 'true' : 'false',
+    ...overrides,
+  };
+  return new URLSearchParams(params);
+}
+async function loadAgentPage() {
+  const params = buildAgentsParams();
+  const url = `/api/agents?${params}`;
+  console.log(`[API] Fetching: ${url}`);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.statusText);
+  const d = await r.json();
+  _allAgents = d.agents || [];
+  // Update pagination info from server response
+  _currentPage = d.page || 1;
+  _totalPages = d.total_pages || 1;
+  _totalCount = d.count || 0;
+  _onlineCount = d.online_count || 0;
+  _offlineCount = d.offline_count || 0;
+}
+function currentSearchQuery() {
+  const searchBox = document.getElementById('search-box');
+  return searchBox ? searchBox.value.trim().toLowerCase() : '';
+}
 async function fetchAgents() {
   try {
-    const params = new URLSearchParams({
-      'include_offline': 'true',
-      'include_self': _showSelfClient ? 'true' : 'false',
-      'strip_ansi': 'false',
-      'page': _currentPage,
-      'page_size': _pageSize,
-      'sort_by': _sortBy,
-      'sort_desc': _sortDesc ? 'true' : 'false'
-    });
-    const url = `/api/agents?${params}`;
-    console.log(`[API] Fetching: ${url}`);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(r.statusText);
-    const d = await r.json();
-    _allAgents = d.agents || [];
-    // Update pagination info from server response
-    _currentPage = d.page || 1;
-    _totalPages = d.total_pages || 1;
-    _totalCount = d.count || 0;
-    _onlineCount = d.online_count || 0;
-    _offlineCount = d.offline_count || 0;
+    await loadAgentPage();
     await fetchSelfAgentInfo();
+    const cleanedDuplicates = await reconcileTaskClientDuplicates();
+    if (cleanedDuplicates) {
+      await loadAgentPage();
+    }
+    if (currentSearchQuery()) {
+      _allAgents = await fetchAllAgentsSnapshot();
+      _isSearching = true;
+    }
   } catch (e) {
     console.error('Fetch error:', e);
   }
@@ -590,6 +622,142 @@ async function openAgent(agentId) {
     toast('CMD API not running', false);
   }
 }
+// ── Task/client duplicate cleanup ──────────────────────────────────────────
+function agentTaskId(agent) {
+  return String((agent && agent.launch_task_id) || '').trim();
+}
+function agentActivityTime(agent) {
+  const values = [
+    Number(agent && agent.last_seen),
+    Number(agent && agent.exited_at),
+    Number(agent && agent.first_seen),
+  ].filter(v => Number.isFinite(v) && v > 0);
+  return values.length ? Math.max(...values) : 0;
+}
+function sortByActivityDesc(items) {
+  return items.slice().sort((a, b) => {
+    const delta = agentActivityTime(b) - agentActivityTime(a);
+    if (delta !== 0) return delta;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  });
+}
+function groupAgentsByTask(agents) {
+  const groups = new Map();
+  (agents || []).forEach(agent => {
+    const taskId = agentTaskId(agent);
+    if (!taskId) return;
+    if (!groups.has(taskId)) groups.set(taskId, []);
+    groups.get(taskId).push(agent);
+  });
+  return groups;
+}
+function formatTimestamp(ts) {
+  const value = Number(ts || 0);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  return new Date(value * 1000).toLocaleString();
+}
+function clientAlertLabel(agent) {
+  const id = esc(agent && agent.id ? agent.id : 'unknown');
+  const active = esc(formatTimestamp(agent && agent.last_seen));
+  return `<code>${id}</code> (${active})`;
+}
+function updateMultiClientAlert() {
+  const el = document.getElementById('multi-client-alert');
+  if (!el) return;
+  if (!_taskDuplicateWarnings.length) {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  const items = _taskDuplicateWarnings.map(item => {
+    const clients = item.agents.map(clientAlertLabel).join(', ');
+    return `<div class="multi-client-alert-item">Task <code>${esc(item.taskId)}</code>: ${clients}</div>`;
+  }).join('');
+  el.innerHTML = `<div class="multi-client-alert-title">Multiple online clients need review</div>
+    <div class="multi-client-alert-body">
+      The task(s) below have more than one online client. Please confirm this is expected.
+      ${items}
+    </div>`;
+  el.style.display = '';
+}
+function duplicateOnlineWarnings(agents, idsToRemove = new Set()) {
+  const warnings = [];
+  const groups = groupAgentsByTask((agents || []).filter(agent => !idsToRemove.has(agent.id)));
+  groups.forEach((items, taskId) => {
+    if (items.length > 1 && items.every(isOnlineAgent)) {
+      warnings.push({taskId, agents: sortByActivityDesc(items)});
+    }
+  });
+  warnings.sort((a, b) => String(a.taskId).localeCompare(String(b.taskId)));
+  return warnings;
+}
+async function fetchAllAgentsSnapshot() {
+  const pageSize = 1000;
+  const agents = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const params = buildAgentsParams({
+      'page': page,
+      'page_size': pageSize,
+      'sort_by': 'last_seen',
+      'sort_desc': 'true',
+    });
+    const r = await fetch(`/api/agents?${params}`);
+    if (!r.ok) throw new Error(r.statusText);
+    const d = await r.json();
+    agents.push(...(d.agents || []));
+    totalPages = d.total_pages || 1;
+    page++;
+  } while (page <= totalPages);
+  return agents;
+}
+async function reconcileTaskClientDuplicates() {
+  if (_duplicateCleanupRunning) return false;
+  _duplicateCleanupRunning = true;
+  try {
+    const snapshot = (_totalCount <= _allAgents.length) ? _allAgents.slice() : await fetchAllAgentsSnapshot();
+    const groups = groupAgentsByTask(snapshot);
+    const idsToDelete = new Set();
+    groups.forEach(items => {
+      if (items.length <= 1) return;
+      const onlineItems = items.filter(isOnlineAgent);
+      if (onlineItems.length === items.length) return;
+      if (onlineItems.length > 0) {
+        items.filter(isOfflineLikeAgent).forEach(agent => {
+          if (agent.id !== 'self') idsToDelete.add(agent.id);
+        });
+        return;
+      }
+      const sorted = sortByActivityDesc(items);
+      sorted.slice(1).forEach(agent => {
+        if (agent.id !== 'self') idsToDelete.add(agent.id);
+      });
+    });
+    const deletedIds = new Set();
+    for (const id of idsToDelete) {
+      try {
+        const r = await fetch(`/api/agent/${encodeURIComponent(id)}?block_rejoin=false`, { method: 'DELETE' });
+        if (r.ok) {
+          deletedIds.add(id);
+          _selectedIds.delete(id);
+          console.log(`[Duplicate cleanup] Deleted stale client ${id}`);
+        } else {
+          console.warn(`[Duplicate cleanup] Failed to delete ${id}: ${r.statusText}`);
+        }
+      } catch (e) {
+        console.warn(`[Duplicate cleanup] Failed to delete ${id}:`, e);
+      }
+    }
+    _taskDuplicateWarnings = duplicateOnlineWarnings(snapshot, deletedIds);
+    return deletedIds.size > 0;
+  } catch (e) {
+    console.warn('[Duplicate cleanup] Failed:', e);
+    return false;
+  } finally {
+    _duplicateCleanupRunning = false;
+  }
+}
 // ── Auto-delete offline agents ─────────────────────────────────────────────
 function checkAutoDeleteOffline() {
   const autoDeleteSwitch = document.getElementById('auto-delete-offline');
@@ -689,6 +857,7 @@ function getVisible() {
 function renderTable() {
   const tbody   = document.getElementById('agents-tbody');
   const visible = getVisible();
+  updateMultiClientAlert();
   // Determine if we need to do pagination (only when searching)
   let pageItems = visible;
   let totalPages = 1;
@@ -730,6 +899,7 @@ function renderTable() {
     const removeAction = clientRemovalAction(a);
     const taskId = a.launch_task_id || '';
     const stopAction = managedTaskStopAction(a);
+    const lastActive = formatTimestamp(a.last_seen);
     return `<tr ${rowClass}>
       <td>${canUnregister ? `<input type="checkbox" class="row-cb" data-id="${esc(a.id)}" ${checked} onchange="onRowCheckbox(this)"/>` : ''}</td>
       <td><span class="id-cell" title="${esc(taskId)}">${esc(taskId || '—')}</span></td>
@@ -745,7 +915,7 @@ function renderTable() {
           : '<span style="color:var(--text-dim)">—</span>'}
       </td>
       <td style="font-size:12px;white-space:nowrap;color:var(--text-dim)">${esc(a.run_time || '—')}</td>
-      <td><span class="stage-cell" title="${esc(a.current_stage_name || '')}">${esc(a.current_stage_name || '—')}</span></td>
+      <td><span class="time-cell" title="${esc(lastActive)}">${esc(lastActive)}</span></td>
       <td>${a.mcp_running ? '<span class="badge badge-yes">on</span>' : '<span style="color:var(--text-dim);font-size:12px">—</span>'}</td>
       <td>${a.is_break    ? '<span class="badge badge-break">yes</span>' : '<span style="color:var(--text-dim);font-size:12px">—</span>'}</td>
       <td><span class="cmd-cell" title="${esc(a.last_cmd || '')}">${esc(a.last_cmd || '—')}</span></td>
@@ -845,27 +1015,15 @@ function updateSortOrderButton() {
   btn.textContent = _sortDesc ? '↓ Desc' : '↑ Asc';
 }
 function onSearchChange() {
-  const searchBox = document.getElementById('search-box');
-  const q = searchBox.value.trim().toLowerCase();
+  const q = currentSearchQuery();
   _currentPage = 1;
   localStorage.setItem('master-current-page', '1');
   // If user is now searching and wasn't before, need to fetch all data for client-side filtering
   if (q && !_isSearching) {
     _isSearching = true;
-    // Fetch all data (large page_size) for client-side search filtering
-	    const params = new URLSearchParams({
-	      'include_offline': 'true',
-	      'include_self': _showSelfClient ? 'true' : 'false',
-	      'strip_ansi': 'false',
-      'page': 1,
-      'page_size': 10000,  // Get many results for searching
-      'sort_by': _sortBy,
-      'sort_desc': _sortDesc ? 'true' : 'false'
-    });
-    fetch(`/api/agents?${params}`)
-      .then(r => r.json())
-      .then(d => {
-        _allAgents = d.agents || [];
+    fetchAllAgentsSnapshot()
+      .then(agents => {
+        _allAgents = agents;
         renderTable();
       })
       .catch(e => console.error('Search fetch error:', e));
@@ -999,7 +1157,7 @@ function openDetail(id) {
     ['Last CMD',     a.last_cmd || '—'],
     ['CMD API Sock', a.cmd_api_sock || '—'],
     ['First Seen',   a.first_seen  ? new Date(a.first_seen  * 1000).toLocaleString() : '—'],
-    ['Last Seen',    a.last_seen   ? new Date(a.last_seen   * 1000).toLocaleString() : '—'],
+    ['Last Active',  formatTimestamp(a.last_seen)],
   ];
   const cmdApiTarget = detailOpenTarget(a);
   const cmdApiHtml = canOpenAgent(a)
