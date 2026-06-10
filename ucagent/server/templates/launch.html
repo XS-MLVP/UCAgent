@@ -89,6 +89,19 @@
   .console-box{max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:10px;background:#0b0d12;padding:10px 12px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
   .response-panel summary{cursor:pointer;color:var(--text-dim);user-select:none}
   .response-panel summary:hover{color:var(--text)}
+  .yaml-help{border:1px dashed rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)}
+  .yaml-help summary{cursor:pointer;color:var(--text-dim);user-select:none}
+  .yaml-help summary:hover{color:var(--text)}
+  .yaml-help pre{margin-top:10px;font-size:12px}
+  .yaml-code{line-height:1.6;color:var(--text);white-space:normal}
+  .yaml-code-line{display:grid;grid-template-columns:3ch minmax(0,1fr);gap:10px;min-height:1.6em}
+  .yaml-code-line .yaml-line-no{color:#64748b;text-align:right;user-select:none}
+  .yaml-code-line .yaml-line-text{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+  .yaml-code .yaml-comment{color:#94a3b8}
+  .yaml-code .yaml-key{color:#93c5fd}
+  .yaml-code .yaml-punct{color:#cbd5e1}
+  .yaml-code .yaml-value{color:#86efac}
+  .yaml-code .yaml-list{color:#fbbf24}
   #launch-response-panel[open] summary{margin-bottom:8px}
   body.relaunch-mode main{max-width:920px;grid-template-columns:minmax(0,1fr)}
   body.relaunch-mode #launch-prep-panel{display:none}
@@ -130,6 +143,11 @@
       <input id="upload-files-input" type="file" multiple style="display:none">
       <div id="file-gate-status" class="status warn">Tag at least one file as <code>Main RTL</code> or add one <code>.f</code> file, then tag one file as <code>Verification Needs</code> to unlock the next step.</div>
       <div class="stage-note">Each file has one primary tag. Only one row can be tagged as <code>Main RTL</code>; assigning a new main file automatically demotes the previous one to <code>Extra RTL</code>. Server-selected <code>.f</code> files stay in place and are passed to picker by absolute path.</div>
+      <details class="yaml-help">
+        <summary>YAML Config Help</summary>
+        <pre id="launch-yaml-help-code" class="mono yaml-code"></pre>
+      </details>
+      <div id="launch-yaml-status" class="status">No YAML launch config has been applied.</div>
 
       <div id="browser-shell" class="browser-shell">
         <div class="browser-panel">
@@ -161,7 +179,8 @@
           <div class="actions">
             <button type="button" class="btn" data-action="browser-select-all">Select All</button>
             <button type="button" class="btn" data-action="browser-clear-selection">Clear</button>
-            <button type="button" class="btn btn-primary" data-action="browser-import">Import Selected Files</button>
+            <button type="button" class="btn" id="browser-apply-yaml-btn" data-action="browser-apply-yaml" disabled>Apply YAML Config</button>
+            <button type="button" class="btn btn-primary" id="browser-import-btn" data-action="browser-import">Import Selected Files</button>
           </div>
         </div>
       </div>
@@ -170,6 +189,7 @@
         <table>
           <thead>
             <tr>
+              <th>Select</th>
               <th>File Name</th>
               <th>Type</th>
               <th>Tag</th>
@@ -178,8 +198,14 @@
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="file-table-body"><tr><td colspan="6" class="muted">Waiting for workspace reservation...</td></tr></tbody>
+          <tbody id="file-table-body"><tr><td colspan="7" class="muted">Waiting for workspace reservation...</td></tr></tbody>
         </table>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" data-action="select-all-workspace-files">Select All Files</button>
+        <button type="button" class="btn" data-action="clear-workspace-file-selection">Clear File Selection</button>
+        <button type="button" class="btn btn-danger" id="delete-selected-files-btn" data-action="delete-selected-files" disabled>Delete Selected</button>
+        <span id="selected-file-count" class="muted">0 selected</span>
       </div>
     </div>
 
@@ -333,7 +359,7 @@ const TAG_OPTIONS = [
   { value: 'source_extra', label: 'Other Source' },
 ];
 
-const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args']);
+const FIXED_LAUNCH_KEYS = new Set(['task_name', 'dut_name', 'output', 'master', 'configs', 'cfg', 'config', 'backend', 'launch_mode', 'use_zip_workspace', 'workspace_base', 'picker_args', 'picker_extra_args', 'meta']);
 const CFG_BASH_OVERRIDE_FLAG = '--override';
 const CFG_BASH_OVERRIDE_PATTERN = /^backend\.[^.]+\.args\.cfg_bash_enable=.*$/;
 const WORKSPACE_HEARTBEAT_INTERVAL_MS = 30000;
@@ -353,6 +379,8 @@ const state = {
   relaunchRequestedStageIndex: initialParams.get('force_stage_index') || initialParams.get('stage_index') || '',
   workspace: null,
   workspaceId: '',
+  launchYamlSpec: null,
+  selectedWorkspaceFiles: new Set(),
   workspaceHeartbeatTimer: null,
   workspaceReleased: false,
   launchSucceeded: false,
@@ -388,6 +416,78 @@ function makeId(prefix) {
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+const LAUNCH_YAML_HELP = `# REQUIRED: RTL input.
+# Use main_rtl, filelist, or rtl.
+# If only rtl is set, first Verilog becomes Main RTL.
+# REQUIRED: verification input.
+# Use requirement, or first doc as fallback.
+# Paths may be absolute or relative to this YAML.
+
+task_name: my_task       # optional; default: module/task id
+dut: my_dut              # optional; default: module
+module: top_module       # optional with main_rtl
+output: unity_test       # optional; default: unity_test
+config: config.yaml      # optional config path/preset
+picker_args:             # optional picker args
+  - --sim
+  - vcs
+
+files:
+  main_rtl: rtl/top.sv               # required option A
+  filelist:                          # required option B
+    - rtl/files.f
+  rtl:                               # optional extra RTL
+    - rtl/lib.sv
+    - rtl/defs.svh
+  requirement: docs/needs.md         # preferred needs doc
+  doc:                               # optional extra docs
+    - docs/spec.md
+  config:                            # optional config files
+    - config.yaml
+  source_extra:                      # optional helper/source files
+    - scripts/helper.py`;
+
+function highlightYamlValue(value) {
+  const text = String(value ?? '');
+  const commentIndex = text.indexOf('#');
+  const valuePart = commentIndex >= 0 ? text.slice(0, commentIndex) : text;
+  const commentPart = commentIndex >= 0 ? text.slice(commentIndex) : '';
+  const highlightedValue = valuePart
+    ? `<span class="yaml-value">${esc(valuePart)}</span>`
+    : '';
+  const highlightedComment = commentPart
+    ? `<span class="yaml-comment">${esc(commentPart)}</span>`
+    : '';
+  return `${highlightedValue}${highlightedComment}`;
+}
+
+function highlightYamlLine(line) {
+  if (!line.trim()) return '';
+  if (line.trimStart().startsWith('#')) {
+    return `<span class="yaml-comment">${esc(line)}</span>`;
+  }
+  const listMatch = line.match(/^(\s*)(-\s+)(.*)$/);
+  if (listMatch) {
+    return `${esc(listMatch[1])}<span class="yaml-list">${esc(listMatch[2])}</span>${highlightYamlValue(listMatch[3])}`;
+  }
+  const keyMatch = line.match(/^(\s*)([A-Za-z0-9_-]+)(\s*:\s?)(.*)$/);
+  if (keyMatch) {
+    return `${esc(keyMatch[1])}<span class="yaml-key">${esc(keyMatch[2])}</span><span class="yaml-punct">${esc(keyMatch[3])}</span>${highlightYamlValue(keyMatch[4])}`;
+  }
+  return esc(line);
+}
+
+function renderLaunchYamlHelp() {
+  const element = document.getElementById('launch-yaml-help-code');
+  if (!element) return;
+  element.innerHTML = LAUNCH_YAML_HELP.split('\n').map((line, index) => `
+    <span class="yaml-code-line">
+      <span class="yaml-line-no">${index + 1}</span>
+      <span class="yaml-line-text">${highlightYamlLine(line)}</span>
+    </span>
+  `).join('');
 }
 
 function enc(value) {
@@ -1078,15 +1178,52 @@ function syncConfigPathDefault() {
   input.value = configFile ? configFile.name : 'config.yaml';
 }
 
+function pruneWorkspaceFileSelection() {
+  const ids = new Set(getFiles().map((item) => item.item_id).filter(Boolean));
+  for (const itemId of [...state.selectedWorkspaceFiles]) {
+    if (!ids.has(itemId)) state.selectedWorkspaceFiles.delete(itemId);
+  }
+}
+
+function getSelectedWorkspaceFileItems() {
+  const selected = state.selectedWorkspaceFiles;
+  return getFiles().filter((item) => selected.has(item.item_id));
+}
+
+function updateBulkFileActions() {
+  const count = state.selectedWorkspaceFiles.size;
+  const deleteBtn = document.getElementById('delete-selected-files-btn');
+  const countLabel = document.getElementById('selected-file-count');
+  if (deleteBtn) deleteBtn.disabled = count === 0;
+  if (countLabel) countLabel.textContent = `${count} selected`;
+}
+
+function selectAllWorkspaceFiles() {
+  state.selectedWorkspaceFiles.clear();
+  for (const file of getFiles()) {
+    if (file.item_id) state.selectedWorkspaceFiles.add(file.item_id);
+  }
+  renderFileTable();
+}
+
+function clearWorkspaceFileSelection() {
+  state.selectedWorkspaceFiles.clear();
+  renderFileTable();
+}
+
 function renderFileTable() {
   const tbody = document.getElementById('file-table-body');
   const files = getFiles();
   if (!files.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="muted">No files have been imported yet.</td></tr>';
+    state.selectedWorkspaceFiles.clear();
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">No files have been imported yet.</td></tr>';
+    updateBulkFileActions();
     return;
   }
+  pruneWorkspaceFileSelection();
   tbody.innerHTML = files.map((file) => `
     <tr>
+      <td><input type="checkbox" data-action="select-workspace-file" data-item-id="${esc(file.item_id)}" ${state.selectedWorkspaceFiles.has(file.item_id) ? 'checked' : ''}></td>
       <td><strong>${esc(file.name)}</strong></td>
       <td>${esc((file.file_type || 'file').replace(/^\./, '').toUpperCase() || 'FILE')}</td>
       <td>
@@ -1104,6 +1241,7 @@ function renderFileTable() {
       </td>
     </tr>
   `).join('');
+  updateBulkFileActions();
 }
 
 function renderGateState() {
@@ -1405,6 +1543,17 @@ function buildPickerPreview() {
   return shellJoin(buildPickerArgs());
 }
 
+function collectLaunchMeta() {
+  const meta = {};
+  const yamlPath = String(
+    state.launchYamlSpec?.yaml_path ||
+    state.workspace?.launch_yaml?.path ||
+    ''
+  ).trim();
+  if (yamlPath) meta.launch_yaml = yamlPath;
+  return meta;
+}
+
 function buildCommandPreview() {
   if (!state.workspace) return 'Waiting for workspace reservation...';
   const selectedModule = getSelectedModule();
@@ -1440,6 +1589,10 @@ function buildCommandPreview() {
   args.push('--master', masterOverride || '<current master>');
   args.push('--export-cmd-api', '<auto>');
   if (compileCurrent && compile?.doc_dir) args.push('--guid-doc-path', compile.doc_dir);
+  const meta = collectLaunchMeta();
+  for (const [key, value] of Object.entries(meta)) {
+    args.push('--meta', `${key}=${value}`);
+  }
   const consumedKeys = new Set(['stream_output', 'human', 'tui', 'loop', 'mcp_server_no_file_tools', 'use_skill', 'extra_skill_path', 'use_zip_workspace', 'workspace_base']);
   for (const [key, value] of Object.entries(dynamicOptions)) {
     if (consumedKeys.has(key)) continue;
@@ -1461,7 +1614,7 @@ function buildCommandPreview() {
       args.push(`--${key.replace(/_/g, '-')}`, String(value));
     }
   }
-  return args.join(' ');
+  return shellJoin(args);
 }
 
 function updateLaunchState() {
@@ -1539,24 +1692,49 @@ async function uploadFiles(files) {
 
 function resetBrowserSelection() {
   state.browser.selected.clear();
+  syncBrowserSelectionCheckboxes();
   updateBrowserSelectionStatus();
 }
 
-function updateBrowserSelectionStatus() {
-  const count = state.browser.selected.size;
-  document.getElementById('browser-status').textContent = count
-    ? `${count} file(s) selected.`
-    : 'No server files selected.';
+function syncBrowserSelectionCheckboxes() {
+  const checkboxes = [...document.querySelectorAll('input[data-action="browser-select-file"]')];
+  for (const checkbox of checkboxes) {
+    checkbox.checked = state.browser.selected.has(dec(checkbox.dataset.path));
+  }
+}
+
+function updateBrowserSelectionStatus(note = '') {
+  const selected = [...state.browser.selected];
+  const yamlPaths = selected.filter(isYamlFile);
+  const importBtn = document.getElementById('browser-import-btn');
+  const applyYamlBtn = document.getElementById('browser-apply-yaml-btn');
+  if (importBtn) importBtn.disabled = yamlPaths.length > 0;
+  if (applyYamlBtn) applyYamlBtn.disabled = !(selected.length === 1 && yamlPaths.length === 1);
+  let message = '';
+  if (yamlPaths.length) {
+    message = `YAML config selected: ${yamlPaths[0]}. Use Apply YAML Config to read it.`;
+  } else {
+    const count = selected.length;
+    message = count ? `${count} file(s) selected.` : 'No server files selected.';
+  }
+  document.getElementById('browser-status').textContent = note ? `${message} ${note}` : message;
 }
 
 function selectAllBrowserFiles() {
   const checkboxes = [...document.querySelectorAll('input[data-action="browser-select-file"]')];
   state.browser.selected.clear();
+  let skippedYaml = false;
   for (const checkbox of checkboxes) {
+    const path = dec(checkbox.dataset.path);
+    if (isYamlFile(path)) {
+      checkbox.checked = false;
+      skippedYaml = true;
+      continue;
+    }
     checkbox.checked = true;
-    state.browser.selected.add(dec(checkbox.dataset.path));
+    state.browser.selected.add(path);
   }
-  updateBrowserSelectionStatus();
+  updateBrowserSelectionStatus(skippedYaml ? 'YAML configs are single-file inputs and were skipped by Select All.' : '');
 }
 
 function clearBrowserSelection() {
@@ -1638,6 +1816,110 @@ async function importServerFiles(paths) {
         paths: categoryPaths,
       }),
     });
+  }
+}
+
+function isYamlFile(filename) {
+  const lower = String(filename || '').toLowerCase();
+  return lower.endsWith('.yaml') || lower.endsWith('.yml');
+}
+
+function normalizeLaunchYamlSpec(spec) {
+  const normalized = spec || {};
+  const fields = isPlainObject(normalized.fields) ? normalized.fields : normalized;
+  return {
+    yaml_path: normalized.yaml_path || normalized.path || '',
+    fields: fields || {},
+    imports: Array.isArray(normalized.imports) ? normalized.imports : [],
+  };
+}
+
+function setInputIfPresent(id, value) {
+  if (value === undefined || value === null || value === '') return false;
+  const input = document.getElementById(id);
+  if (!input) return false;
+  input.value = String(value);
+  return true;
+}
+
+function applyLaunchYamlFields(spec) {
+  const normalized = normalizeLaunchYamlSpec(spec);
+  const fields = normalized.fields || {};
+  state.launchYamlSpec = normalized;
+
+  if (fields.config) {
+    state.manualConfigPath = true;
+    setConfigSelectValue(fields.config);
+    applySelectedConfigDefaults({ resetWorkspaceBase: false });
+  }
+
+  const selectedModule = String(fields.selected_module || fields.module || '').trim();
+  const dutName = String(fields.dut_name || fields.dut || '').trim();
+  const taskName = String(fields.task_name || fields.task || '').trim();
+  if (selectedModule) {
+    document.getElementById('selected-module').value = selectedModule;
+  }
+  if (dutName || selectedModule) {
+    document.getElementById('dut-name').value = dutName || selectedModule;
+  }
+  if (taskName || dutName || selectedModule) {
+    document.getElementById('task-name').value = taskName || dutName || selectedModule;
+  }
+  if (Array.isArray(fields.picker_args)) {
+    setInputIfPresent('picker-args', fields.picker_args.join('\n'));
+  } else {
+    setInputIfPresent('picker-args', fields.picker_args || fields.picker_extra_args);
+  }
+  setInputIfPresent('output', fields.output);
+  setInputIfPresent('workspace-base', fields.workspace_base);
+  setInputIfPresent('master-override', fields.master);
+  if (fields.backend) {
+    if (!setSelectValueIfAvailable('backend', fields.backend)) setInputIfPresent('backend', fields.backend);
+  }
+  if (fields.launch_mode) {
+    setSelectValueIfAvailable('launch-mode', fields.launch_mode);
+    renderLaunchModeStatus();
+  }
+  syncBackendMcpFileToolsOption();
+  syncCfgBashOverrideExtraArgs();
+  updateLaunchState();
+}
+
+async function applyLaunchYamlConfig() {
+  const rootId = document.getElementById('browser-root').value || (state.browserRoots[0] && state.browserRoots[0].id) || '';
+  const selected = [...state.browser.selected];
+  const yamlPaths = selected.filter(isYamlFile);
+  if (selected.length !== 1 || yamlPaths.length !== 1) {
+    throw new Error('Please select exactly one .yaml/.yml launch config file.');
+  }
+  setStatus('launch-yaml-status', 'warn', `Reading YAML launch config <code>${esc(yamlPaths[0])}</code>...`);
+  const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/apply-yaml`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      root_id: rootId,
+      path: yamlPaths[0],
+    }),
+  });
+  if (data.workspace) {
+    syncWorkspace(data.workspace);
+  }
+  applyLaunchYamlFields({
+    yaml_path: data.yaml_path,
+    fields: data.fields || {},
+    imports: data.imports || [],
+  });
+  const importCount = (data.files || data.imports || []).length;
+  setStatus(
+    'launch-yaml-status',
+    'ok',
+    `Applied YAML launch config: <code>${esc(data.yaml_path || yamlPaths[0])}</code><br>` +
+    `Imported or updated ${esc(importCount)} file(s).`
+  );
+  if (isNextStepUnlocked() && getMainFile() && !getSelectedModule()) {
+    await parseModules(true);
+  } else {
+    updateLaunchState();
   }
 }
 
@@ -1845,6 +2127,32 @@ function downloadWorkspace() {
   window.location.href = url;
 }
 
+async function deleteSelectedWorkspaceFiles() {
+  const items = getSelectedWorkspaceFileItems();
+  if (!items.length) {
+    updateBulkFileActions();
+    return;
+  }
+  const names = items.slice(0, 5).map((item) => item.name).join(', ');
+  const suffix = items.length > 5 ? `, and ${items.length - 5} more` : '';
+  if (!confirm(`Delete ${items.length} selected workspace file(s): ${names}${suffix}?`)) return;
+  let latestWorkspace = null;
+  for (const item of items) {
+    const ref = item.item_id || item.stored_relpath || item.name;
+    const data = await api(`/api/workspace/${encodeURIComponent(state.workspaceId)}/file?path=${encodeURIComponent(ref)}`, { method: 'DELETE' });
+    latestWorkspace = data.workspace || latestWorkspace;
+  }
+  state.selectedWorkspaceFiles.clear();
+  if (latestWorkspace) {
+    syncWorkspace(latestWorkspace);
+  } else {
+    await refreshWorkspace();
+  }
+  if (!getMainFile() && !hasPickerFFilelist()) {
+    clearModuleState('The current RTL input is missing. Tag a Main RTL file or add a .f file.');
+  }
+}
+
 function getRelaunchTaskId() {
   return String(
     state.relaunchStatus?.task_id ||
@@ -1886,6 +2194,8 @@ function collectLaunchPayload() {
   const selectedModule = getSelectedModule();
   const compile = getCompileInfo();
   const dynamicOptions = collectDynamicLaunchOptions();
+  const dynamicMeta = isPlainObject(dynamicOptions.meta) ? dynamicOptions.meta : {};
+  const meta = { ...dynamicMeta, ...collectLaunchMeta() };
   const payload = {
     workspace_id: state.workspaceId,
     task_name: document.getElementById('task-name').value.trim(),
@@ -1903,6 +2213,9 @@ function collectLaunchPayload() {
     workspace_base: document.getElementById('workspace-base')?.value.trim() || '',
     ...dynamicOptions,
   };
+  if (Object.keys(meta).length) {
+    payload.meta = meta;
+  }
   if (state.relaunch) {
     const relaunchTaskId = getRelaunchTaskId();
     payload.task_id = relaunchTaskId;
@@ -2483,6 +2796,7 @@ async function initRelaunchPage() {
 
 async function initPage() {
   try {
+    renderLaunchYamlHelp();
     setupRelaunchModeChrome();
     resetCompileConsole();
     const configData = await api('/api/launch/config');
@@ -2606,10 +2920,29 @@ document.addEventListener('click', async (event) => {
     if (action === 'browser-import') {
       const paths = [...state.browser.selected];
       if (!paths.length) throw new Error('Please select file(s) from the server list first.');
+      if (paths.some(isYamlFile)) throw new Error('YAML config files must be applied with Apply YAML Config.');
       await importServerFiles(paths);
       await refreshWorkspace({ autoParseModules: true });
       await loadBrowser(state.browser.path);
       toggleBrowser(false);
+      return;
+    }
+    if (action === 'browser-apply-yaml') {
+      await applyLaunchYamlConfig();
+      await loadBrowser(state.browser.path);
+      toggleBrowser(false);
+      return;
+    }
+    if (action === 'select-all-workspace-files') {
+      selectAllWorkspaceFiles();
+      return;
+    }
+    if (action === 'clear-workspace-file-selection') {
+      clearWorkspaceFileSelection();
+      return;
+    }
+    if (action === 'delete-selected-files') {
+      await deleteSelectedWorkspaceFiles();
       return;
     }
     if (action === 'delete-file') {
@@ -2664,7 +2997,10 @@ document.addEventListener('click', async (event) => {
       await launchTask();
     }
   } catch (error) {
-    if (action.startsWith('browser')) {
+    if (action === 'browser-apply-yaml') {
+      setStatus('launch-yaml-status', 'err', error.message);
+      document.getElementById('browser-status').textContent = error.message;
+    } else if (action.startsWith('browser')) {
       document.getElementById('browser-status').textContent = error.message;
     } else if (action === 'compile-dut') {
       setAnsiStatus('compile-status', 'err', error.message);
@@ -2692,9 +3028,29 @@ document.addEventListener('change', async (event) => {
     }
     if (target.matches('input[data-action="browser-select-file"]')) {
       const path = dec(target.dataset.path);
-      if (target.checked) state.browser.selected.add(path);
-      else state.browser.selected.delete(path);
-      updateBrowserSelectionStatus();
+      if (target.checked && isYamlFile(path)) {
+        state.browser.selected.clear();
+        state.browser.selected.add(path);
+        syncBrowserSelectionCheckboxes();
+        updateBrowserSelectionStatus('Other selections were cleared because YAML configs are applied one at a time.');
+      } else if (target.checked) {
+        for (const selectedPath of [...state.browser.selected]) {
+          if (isYamlFile(selectedPath)) state.browser.selected.delete(selectedPath);
+        }
+        state.browser.selected.add(path);
+        syncBrowserSelectionCheckboxes();
+        updateBrowserSelectionStatus();
+      } else {
+        state.browser.selected.delete(path);
+        updateBrowserSelectionStatus();
+      }
+      return;
+    }
+    if (target.matches('input[data-action="select-workspace-file"]')) {
+      const itemId = String(target.dataset.itemId || '').trim();
+      if (itemId && target.checked) state.selectedWorkspaceFiles.add(itemId);
+      else if (itemId) state.selectedWorkspaceFiles.delete(itemId);
+      updateBulkFileActions();
       return;
     }
     if (target.matches('select[data-action="change-tag"]')) {
@@ -2770,7 +3126,12 @@ document.addEventListener('change', async (event) => {
       updateLaunchState();
     }
   } catch (error) {
-    setStatus('file-gate-status', 'err', error.message);
+    if (target.matches('input[data-action="browser-select-file"]') && isYamlFile(dec(target.dataset.path || ''))) {
+      setStatus('launch-yaml-status', 'err', error.message);
+      document.getElementById('browser-status').textContent = error.message;
+    } else {
+      setStatus('file-gate-status', 'err', error.message);
+    }
     await refreshWorkspace();
   }
 });

@@ -435,6 +435,24 @@ def get_list_from_str(list_str: Optional[str]) -> List[str]:
     return [item.strip() for item in list_str.split(",") if item.strip()]
 
 
+def get_meta_pair(meta_str: Optional[str]):
+    """Parse a hidden --meta key=value argument."""
+    if meta_str is None or "=" not in meta_str:
+        raise argparse.ArgumentTypeError("--meta expects key=value")
+    key, value = meta_str.split("=", 1)
+    key = key.strip()
+    if not key:
+        raise argparse.ArgumentTypeError("--meta key must not be empty")
+    return key, value.strip()
+
+
+def get_meta_dict(meta_args) -> Dict[str, str]:
+    meta: Dict[str, str] = {}
+    for key, value in meta_args or []:
+        meta[str(key)] = str(value)
+    return meta
+
+
 def get_args() -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -784,6 +802,14 @@ def get_args() -> argparse.Namespace:
         default=None,
         help="Client identifier used when connecting to a master. Passed to connect_master_to --id."
     )
+    parser.add_argument(
+        "--meta",
+        action="append",
+        default=[],
+        type=get_meta_pair,
+        metavar="key=value",
+        help=argparse.SUPPRESS,
+    )
 
     parser.add_argument(
         "--as-master-key",
@@ -905,6 +931,7 @@ def get_args() -> argparse.Namespace:
         else:
             merged_override.append(override)
     args.override = merged_override
+    args.meta = get_meta_dict(args.meta)
     return args
 
 
@@ -1231,6 +1258,7 @@ def run() -> None:
         no_history=args.no_history,
         enable_context_manage_tools=args.enable_context_manage_tools,
         exit_on_completion=args.exit_on_completion,
+        meta=args.meta,
     )
     if args.web_console_session_host is not None or \
        args.web_console_session_port is not None:

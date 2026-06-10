@@ -78,6 +78,7 @@ class VerifyAgent:
         no_history: bool = False,
         enable_context_manage_tools: bool = False,
         exit_on_completion: bool = False,
+        meta: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the Verify Agent with configuration and an optional agent.
 
@@ -118,6 +119,13 @@ class VerifyAgent:
         self.workspace = os.path.abspath(workspace)
         self.__version__ = __version__
         self.config_file = "" if config_file is None else str(config_file)
+        saved_meta = saved_info.get("meta") if isinstance(saved_info.get("meta"), dict) else {}
+        self.meta = copy.deepcopy(saved_meta)
+        if meta:
+            self.meta.update(copy.deepcopy(meta))
+            updated_info = copy.deepcopy(saved_info)
+            updated_info["meta"] = copy.deepcopy(self.meta)
+            fc.save_ucagent_info(self.workspace, updated_info)
         self.cfg = get_config(config_file, cfg_override, self.workspace)
         temp_args = {
             "OUT": output,
@@ -617,6 +625,7 @@ class VerifyAgent:
             "config_file": self.config_file,
             "config_arg": self.config_file,
             "mission_name": self.cfg.mission.name,
+            "meta": copy.deepcopy(self.meta),
         }
 
     def is_exit(self):

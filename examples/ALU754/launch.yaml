@@ -1,0 +1,18 @@
+# Launch manifest for examples/ALU754.
+# Paths are relative to this YAML file.
+
+task_name: ALU754
+dut: ALU754
+module: ALU754
+output: unity_test
+
+files:
+  main_rtl: ALU754.v
+  filelist:
+    - filelist.txt
+  rtl:
+    - ieee_add.v
+    - ieee_comp.v
+    - ieee_div.v
+    - ieee_mul.v
+  requirement: README.md

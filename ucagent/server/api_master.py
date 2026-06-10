@@ -46,7 +46,7 @@ except ImportError:  # pragma: no cover - optional dependency checked at runtime
     _Header = HTMLResponse = JSONResponse = HTTPBasic = HTTPBasicCredentials = BaseModel = Field = None
 
 from ucagent.util.config import get_config
-from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent, is_port_free
+from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent, is_port_free, load_ucagent_info
 from ucagent.util.log import echo_g, warning
 from ucagent.util.workspace_archive import (
     WorkspaceArchiveError,
@@ -78,6 +78,8 @@ _CATEGORY_DIRS = {
     "misc": "_launch_uploads/misc",
 }
 _LAUNCH_STATUS_FILE = ".launch_status"
+_LAUNCH_TMP_MARKER_FILE = ".ucagent_launch_tmp"
+_LAUNCH_TMP_MARKER_MAGIC = "ucagent.launch.tmp-workspace.v1"
 _LAUNCH_STATUS_EXPIRE_SECONDS = 600
 _LAUNCH_CLEANUP_INTERVAL_SECONDS = 30
 _CATEGORY_LABELS = {
@@ -89,6 +91,7 @@ _CATEGORY_LABELS = {
     "config": "Config",
     "misc": "Unassigned",
 }
+_LAUNCH_YAML_EXTS = {".yaml", ".yml"}
 _RTL_SOURCE_EXTS = {".v", ".sv", ".vh", ".svh", ".scala"}
 _FILELIST_EXTS = {".v", ".sv", ".vh", ".svh"}
 _PICKER_F_EXTS = {".f"}
@@ -506,6 +509,86 @@ def _parse_module_names(text: str) -> List[str]:
         if name not in seen:
             seen.append(name)
     return seen
+
+
+def _yaml_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _yaml_mapping(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {_yaml_key(key): item for key, item in value.items()}
+
+
+def _yaml_scalar(value: Any) -> str:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return ""
+    return str(value).strip()
+
+
+def _yaml_first_scalar(mapping: Dict[str, Any], aliases: List[str]) -> str:
+    normalized = _yaml_mapping(mapping)
+    for alias in aliases:
+        value = _yaml_scalar(normalized.get(_yaml_key(alias)))
+        if value:
+            return value
+    return ""
+
+
+def _yaml_path_values(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        mapping = _yaml_mapping(value)
+        for key in ("path", "paths", "file", "files", "filename", "name"):
+            if key in mapping:
+                return _yaml_path_values(mapping[key])
+        return []
+    if isinstance(value, (list, tuple, set)):
+        result: List[str] = []
+        for item in value:
+            result.extend(_yaml_path_values(item))
+        return result
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _yaml_arg_values(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return [text]
+
+
+def _launch_yaml_bucket(value: Any) -> str:
+    key = _yaml_key(value)
+    if key in {"main", "main_rtl", "main_verilog", "top", "top_rtl"}:
+        return "main"
+    if key in {"filelist", "filelists", "f", "f_filelist", "f_filelists", "picker_filelist", "picker_filelists"}:
+        return "filelist"
+    if key in {"rtl", "rtls", "rtl_extra", "verilog", "verilog_files", "source_rtl"}:
+        return "rtl"
+    if key in {"source_extra", "other_source", "sources_extra", "extra_source"}:
+        return "source_extra"
+    if key in {"requirement", "requirements", "verification", "verification_need", "verification_needs", "needs"}:
+        return "requirement"
+    if key in {"doc", "docs", "document", "documents", "documentation"}:
+        return "doc"
+    if key in {"spec", "specs", "specification", "specifications"}:
+        return "spec"
+    if key in {"config", "configs", "cfg", "config_file", "config_files"}:
+        return "config"
+    if key in {"misc", "other", "unassigned"}:
+        return "misc"
+    return ""
 
 
 def _is_rtl_workspace_file(name: str, category: str) -> bool:
@@ -987,7 +1070,8 @@ class PdbMasterApiServer:
         files = ws.setdefault("files", [])
         root = ws.get("workspace_dir", "")
         workspace_id = str(ws.get("workspace_id") or "").strip()
-        status_data = self._read_launch_status(root) if root and os.path.isdir(root) else {}
+        has_tmp_marker = bool(root and os.path.isdir(root) and self._launch_tmp_marker_matches(workspace_id, root))
+        status_data = self._read_launch_status(root) if has_tmp_marker else {}
         if "compile" not in ws:
             ws["compile"] = {}
             changed = True
@@ -1011,9 +1095,7 @@ class PdbMasterApiServer:
         if ws.get("launch_status") != launch_status:
             ws["launch_status"] = launch_status
             changed = True
-        materialized = bool(ws.get("materialized"))
-        if root and os.path.isdir(root):
-            materialized = True
+        materialized = bool(has_tmp_marker)
         if ws.get("materialized") != materialized:
             ws["materialized"] = materialized
             changed = True
@@ -1131,6 +1213,7 @@ class PdbMasterApiServer:
             "task_id": ws.get("task_id", ""),
             "files": files,
             "compile": self._workspace_compile_public(ws),
+            "launch_yaml": _copy_jsonable(ws.get("launch_yaml", {})) if isinstance(ws.get("launch_yaml"), dict) else {},
         }
 
     def _update_workspace_item_category(self, workspace_id: str, item_id: str, category: str) -> Dict[str, Any]:
@@ -1203,11 +1286,75 @@ class PdbMasterApiServer:
             return False
         name = os.path.basename(root)
         workspace_id = str(workspace_id or "").strip()
-        return bool(
-            (workspace_id and name == workspace_id)
-            or name.startswith("ucagent_launch_")
-            or re.fullmatch(r"[0-9a-f]{16}", name)
-        )
+        if workspace_id:
+            return name == workspace_id
+        return bool(name.startswith("ucagent_launch_") or re.fullmatch(r"[0-9a-f]{16}", name))
+
+    def _launch_tmp_marker_path(self, ws_dir: str) -> str:
+        return os.path.join(ws_dir, _LAUNCH_TMP_MARKER_FILE)
+
+    def _read_launch_tmp_marker(self, ws_dir: str) -> Dict[str, Any]:
+        marker_file = self._launch_tmp_marker_path(ws_dir)
+        try:
+            with open(marker_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _write_launch_tmp_marker(self, ws_dir: str, workspace_id: str, task_id: str = "") -> None:
+        workspace_id = str(workspace_id or "").strip()
+        task_id = str(task_id or workspace_id or "").strip()
+        now = _now()
+        existing = self._read_launch_tmp_marker(ws_dir)
+        created_at = existing.get("created_at") if existing.get("magic") == _LAUNCH_TMP_MARKER_MAGIC else None
+        if not isinstance(created_at, (int, float)) or created_at <= 0:
+            created_at = now
+        marker_data = {
+            "magic": _LAUNCH_TMP_MARKER_MAGIC,
+            "version": 1,
+            "temporary": True,
+            "workspace_id": workspace_id,
+            "task_id": task_id,
+            "base_root": os.path.abspath(self.workspace),
+            "workspace_dir": os.path.abspath(ws_dir),
+            "created_at": created_at,
+            "updated_at": now,
+        }
+        marker_file = self._launch_tmp_marker_path(ws_dir)
+        tmp_file = f"{marker_file}.tmp-{secrets.token_hex(6)}"
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as fh:
+                json.dump(marker_data, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp_file, marker_file)
+        finally:
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except OSError:
+                    pass
+
+    def _launch_tmp_marker_matches(self, workspace_id: str, ws_dir: str) -> bool:
+        workspace_id = str(workspace_id or "").strip()
+        if not self._safe_launch_workspace_dir(workspace_id, ws_dir):
+            return False
+        marker = self._read_launch_tmp_marker(ws_dir)
+        if marker.get("magic") != _LAUNCH_TMP_MARKER_MAGIC or marker.get("temporary") is not True:
+            return False
+        marker_workspace_id = str(marker.get("workspace_id") or "").strip()
+        if not marker_workspace_id:
+            return False
+        if workspace_id and marker_workspace_id != workspace_id:
+            return False
+        if os.path.basename(os.path.abspath(ws_dir)) != marker_workspace_id:
+            return False
+        marker_base_root = str(marker.get("base_root") or "").strip()
+        if not marker_base_root or os.path.realpath(os.path.abspath(marker_base_root)) != os.path.realpath(os.path.abspath(self.workspace)):
+            return False
+        marker_workspace_dir = str(marker.get("workspace_dir") or "").strip()
+        if marker_workspace_dir and os.path.realpath(os.path.abspath(marker_workspace_dir)) != os.path.realpath(os.path.abspath(ws_dir)):
+            return False
+        return True
 
     def _touch_workspace_launch_session(self, workspace_id: str, status: str = "") -> Dict[str, Any]:
         with self._workspace_cleanup_lock:
@@ -1236,10 +1383,13 @@ class PdbMasterApiServer:
                     ws["released_at"] = now
                 ws_dir = str(ws.get("workspace_dir") or "")
                 task_id = str(ws.get("task_id") or "")
-                materialized = bool(ws.get("materialized")) or bool(ws_dir and os.path.isdir(ws_dir))
+                materialized = bool(ws_dir and os.path.isdir(ws_dir) and self._launch_tmp_marker_matches(workspace_id, ws_dir))
                 ws["materialized"] = materialized
             if materialized:
-                self._write_launch_status(ws_dir, status_val, workspace_id=workspace_id, task_id=task_id)
+                if self._launch_tmp_marker_matches(workspace_id, ws_dir):
+                    self._write_launch_status(ws_dir, status_val, workspace_id=workspace_id, task_id=task_id)
+                else:
+                    warning(f"Skip launch status update for unmarked launch workspace path '{ws_dir}'")
         self._mark_dirty()
         return self._get_workspace(workspace_id)
 
@@ -1255,7 +1405,10 @@ class PdbMasterApiServer:
                 task_id = str(ws.get("task_id") or workspace_id)
             if not self._safe_launch_workspace_dir(workspace_id, ws_dir):
                 raise ValueError(f"Refusing to create unsafe launch workspace directory: {ws_dir}")
+            if os.path.exists(ws_dir) and not self._launch_tmp_marker_matches(workspace_id, ws_dir):
+                raise ValueError(f"Refusing to use unmarked launch workspace directory: {ws_dir}")
             os.makedirs(picker_workspace, exist_ok=True)
+            self._write_launch_tmp_marker(ws_dir, workspace_id=workspace_id, task_id=task_id)
             now = _now()
             with self._workspaces_lock:
                 ws = self._workspaces.get(workspace_id)
@@ -1282,7 +1435,10 @@ class PdbMasterApiServer:
             return
         ws_dir = str(ws.get("workspace_dir") or "")
         if ws_dir and os.path.isdir(ws_dir):
-            self._write_launch_status(ws_dir, "launched", workspace_id=workspace_id, task_id=task_id)
+            if self._launch_tmp_marker_matches(workspace_id, ws_dir):
+                self._write_launch_status(ws_dir, "launched", workspace_id=workspace_id, task_id=task_id)
+            else:
+                warning(f"Skip launch status update for unmarked launched workspace path '{ws_dir}'")
 
     def _cleanup_stale_workspaces(self) -> int:
         base_root = self.workspace
@@ -1355,8 +1511,8 @@ class PdbMasterApiServer:
                     ws_dir = str(ws.get("workspace_dir") or ws_dir)
                 removed = False
                 if ws_dir and os.path.isdir(ws_dir):
-                    if not self._safe_launch_workspace_dir(workspace_id, ws_dir):
-                        warning(f"Skip unsafe stale launch workspace cleanup path '{ws_dir}'")
+                    if not self._launch_tmp_marker_matches(workspace_id, ws_dir):
+                        warning(f"Skip unmarked stale launch workspace cleanup path '{ws_dir}'")
                         continue
                     try:
                         shutil.rmtree(ws_dir)
@@ -1391,10 +1547,9 @@ class PdbMasterApiServer:
                 ws_dir = os.path.abspath(os.path.join(base_root, entry))
                 if ws_dir in known_dirs or not os.path.isdir(ws_dir):
                     continue
-                if not entry.startswith("ucagent_launch_") and not (
-                    re.fullmatch(r"[0-9a-f]{16}", entry)
-                    and os.path.isfile(os.path.join(ws_dir, _LAUNCH_STATUS_FILE))
-                ):
+                marker = self._read_launch_tmp_marker(ws_dir)
+                marker_workspace_id = str(marker.get("workspace_id") or "").strip()
+                if not marker_workspace_id or not self._launch_tmp_marker_matches(marker_workspace_id, ws_dir):
                     continue
                 status = self._read_launch_status(ws_dir)
                 status_val = status.get("status", "unknown")
@@ -1511,6 +1666,316 @@ class PdbMasterApiServer:
             source="server",
             src_path=source_path,
         )
+
+    def _find_workspace_item_by_source_path(self, ws: Dict[str, Any], source_path: str) -> Optional[Dict[str, Any]]:
+        wanted = os.path.abspath(source_path)
+        for item in ws.get("files", []):
+            source = item.get("source_path") or item.get("stored_path") or ""
+            if source and os.path.abspath(source) == wanted:
+                return item
+        return None
+
+    def _resolve_launch_yaml_ref(self, yaml_path: str, raw_path: str, *, require_file: bool = True) -> str:
+        raw = str(raw_path or "").strip()
+        if not raw:
+            raise ValueError("YAML file path entry is empty")
+        expanded = os.path.expanduser(raw)
+        if os.path.isabs(expanded):
+            resolved = os.path.abspath(expanded)
+        else:
+            resolved = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(yaml_path)), expanded))
+        if require_file and not os.path.isfile(resolved):
+            raise ValueError(f"YAML referenced file does not exist: {raw} -> {resolved}")
+        return resolved
+
+    def _append_launch_yaml_import(
+        self,
+        imports: List[Dict[str, Any]],
+        seen: set,
+        *,
+        yaml_path: str,
+        category: str,
+        raw_path: str,
+        source_key: str,
+    ) -> None:
+        if category not in _CATEGORY_DIRS:
+            category = "misc"
+        resolved = self._resolve_launch_yaml_ref(yaml_path, raw_path)
+        if category == "main_verilog" and pathlib.Path(resolved).suffix.lower() not in _FILELIST_EXTS:
+            raise ValueError(f"main_rtl must be a Verilog/SystemVerilog file: {raw_path}")
+        identity = os.path.realpath(resolved)
+        if identity in seen:
+            return
+        seen.add(identity)
+        imports.append({
+            "category": category,
+            "path": resolved,
+            "raw_path": raw_path,
+            "source_key": source_key,
+        })
+
+    def _load_launch_yaml_spec(self, yaml_path: str) -> Dict[str, Any]:
+        if pathlib.Path(yaml_path).suffix.lower() not in _LAUNCH_YAML_EXTS:
+            raise ValueError("Launch spec must be a .yaml or .yml file")
+        try:
+            import yaml
+        except ImportError as exc:  # pragma: no cover - yaml is a project dependency
+            raise ValueError("PyYAML is required to read launch YAML files") from exc
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+        except Exception as exc:
+            raise ValueError(f"Failed to read launch YAML file: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("Launch YAML root must be a mapping")
+        return data
+
+    def _normalize_launch_yaml_spec(self, yaml_path: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        top = _yaml_mapping(data)
+        buckets: Dict[str, List[str]] = {
+            "main": [],
+            "filelist": [],
+            "rtl": [],
+            "source_extra": [],
+            "requirement": [],
+            "doc": [],
+            "spec": [],
+            "config": [],
+            "misc": [],
+        }
+
+        def add_to_bucket(bucket: str, value: Any) -> None:
+            if not bucket:
+                return
+            buckets.setdefault(bucket, []).extend(_yaml_path_values(value))
+
+        files_node = top.get("files")
+        if isinstance(files_node, dict):
+            for key, value in _yaml_mapping(files_node).items():
+                add_to_bucket(_launch_yaml_bucket(key), value)
+        elif isinstance(files_node, list):
+            for entry in files_node:
+                if isinstance(entry, dict):
+                    entry_map = _yaml_mapping(entry)
+                    bucket = _launch_yaml_bucket(
+                        entry_map.get("type")
+                        or entry_map.get("category")
+                        or entry_map.get("tag")
+                        or entry_map.get("kind")
+                    )
+                    add_to_bucket(bucket or "misc", entry)
+                else:
+                    add_to_bucket("misc", entry)
+        elif files_node is not None:
+            raise ValueError("'files' in launch YAML must be a mapping or list")
+
+        field_keys = {
+            "files",
+            "task",
+            "task_name",
+            "dut",
+            "dut_name",
+            "target_dut",
+            "module",
+            "top_module",
+            "selected_module",
+            "main_module",
+            "dut_module",
+            "config",
+            "config_path",
+            "cfg",
+            "backend",
+            "output",
+            "launch_mode",
+            "workspace_base",
+            "master",
+            "picker_args",
+            "picker_extra_args",
+        }
+        for key, value in top.items():
+            if key in field_keys:
+                continue
+            add_to_bucket(_launch_yaml_bucket(key), value)
+
+        fields: Dict[str, Any] = {}
+        scalar_fields = {
+            "task_name": ["task_name", "task"],
+            "dut_name": ["dut_name", "dut", "target_dut"],
+            "selected_module": ["selected_module", "module", "top_module", "main_module", "dut_module"],
+            "backend": ["backend"],
+            "output": ["output"],
+            "launch_mode": ["launch_mode"],
+            "workspace_base": ["workspace_base"],
+            "master": ["master"],
+        }
+        for target, aliases in scalar_fields.items():
+            value = _yaml_first_scalar(data, aliases)
+            if value:
+                fields[target] = value
+
+        picker_args = _yaml_arg_values(top.get("picker_args", top.get("picker_extra_args")))
+        if picker_args:
+            fields["picker_args"] = picker_args
+
+        raw_config = _yaml_first_scalar(data, ["config", "config_path", "cfg"])
+        if raw_config:
+            config_candidate = self._resolve_launch_yaml_ref(yaml_path, raw_config, require_file=False)
+            if os.path.isfile(config_candidate):
+                buckets["config"].append(raw_config)
+                fields["config"] = os.path.basename(config_candidate)
+            else:
+                fields["config"] = raw_config
+        elif buckets["config"]:
+            try:
+                fields["config"] = os.path.basename(self._resolve_launch_yaml_ref(yaml_path, buckets["config"][0]))
+            except ValueError:
+                pass
+
+        imports: List[Dict[str, Any]] = []
+        seen: set = set()
+        for index, raw_path in enumerate(buckets["main"]):
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="main_verilog" if index == 0 else "rtl_extra",
+                raw_path=raw_path,
+                source_key="main_rtl",
+            )
+        for raw_path in buckets["filelist"]:
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="rtl_extra",
+                raw_path=raw_path,
+                source_key="filelist",
+            )
+        for index, raw_path in enumerate(buckets["rtl"]):
+            category = "rtl_extra"
+            if not buckets["main"] and not buckets["filelist"] and index == 0:
+                resolved = self._resolve_launch_yaml_ref(yaml_path, raw_path)
+                if pathlib.Path(resolved).suffix.lower() in _FILELIST_EXTS:
+                    category = "main_verilog"
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category=category,
+                raw_path=raw_path,
+                source_key="rtl",
+            )
+        for raw_path in buckets["source_extra"]:
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="source_extra",
+                raw_path=raw_path,
+                source_key="source_extra",
+            )
+        for index, raw_path in enumerate(buckets["requirement"]):
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="requirement" if index == 0 else "spec",
+                raw_path=raw_path,
+                source_key="requirement",
+            )
+        for raw_path in buckets["spec"]:
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="spec",
+                raw_path=raw_path,
+                source_key="spec",
+            )
+        doc_category_first = "spec" if buckets["requirement"] else "requirement"
+        for index, raw_path in enumerate(buckets["doc"]):
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category=doc_category_first if index == 0 else "spec",
+                raw_path=raw_path,
+                source_key="doc",
+            )
+        for raw_path in buckets["config"]:
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="config",
+                raw_path=raw_path,
+                source_key="config",
+            )
+        for raw_path in buckets["misc"]:
+            self._append_launch_yaml_import(
+                imports,
+                seen,
+                yaml_path=yaml_path,
+                category="misc",
+                raw_path=raw_path,
+                source_key="misc",
+            )
+
+        return {
+            "yaml_path": os.path.abspath(yaml_path),
+            "fields": fields,
+            "imports": imports,
+        }
+
+    def _import_or_update_launch_yaml_file(self, workspace_id: str, category: str, abs_path: str) -> Dict[str, Any]:
+        ws = self._get_workspace(workspace_id)
+        existing = self._find_workspace_item_by_source_path(ws, abs_path)
+        if existing is not None:
+            if existing.get("category") != category or category in {"main_verilog", "requirement"}:
+                self._update_workspace_item_category(workspace_id, existing.get("item_id", ""), category)
+                ws = self._get_workspace(workspace_id)
+                existing = self._find_workspace_item_by_id(ws, existing.get("item_id", "")) or existing
+            return existing
+        item = self._store_existing_file(workspace_id, category, abs_path)
+        if category in {"main_verilog", "requirement"}:
+            self._update_workspace_item_category(workspace_id, item.get("item_id", ""), category)
+            ws = self._get_workspace(workspace_id)
+            item = self._find_workspace_item_by_id(ws, item.get("item_id", "")) or item
+        return item
+
+    def _apply_launch_yaml_spec(self, workspace_id: str, yaml_path: str) -> Dict[str, Any]:
+        self._get_workspace(workspace_id)
+        data = self._load_launch_yaml_spec(yaml_path)
+        spec = self._normalize_launch_yaml_spec(yaml_path, data)
+        imported: List[Dict[str, Any]] = []
+        for item in spec["imports"]:
+            imported.append(
+                self._import_or_update_launch_yaml_file(
+                    workspace_id,
+                    str(item.get("category") or "misc"),
+                    str(item.get("path") or ""),
+                )
+            )
+        stored_spec = {
+            "path": spec["yaml_path"],
+            "applied_at": _now(),
+            "fields": _copy_jsonable(spec.get("fields") or {}),
+            "imports": _copy_jsonable(spec.get("imports") or []),
+        }
+        with self._workspaces_lock:
+            ws = self._workspaces.get(workspace_id)
+            if ws is None:
+                raise KeyError(f"Workspace '{workspace_id}' not found")
+            ws["launch_yaml"] = stored_spec
+        self._mark_dirty()
+        ws = self._get_workspace(workspace_id)
+        return {
+            "yaml_path": spec["yaml_path"],
+            "fields": spec["fields"],
+            "imports": spec["imports"],
+            "files": [self._workspace_file_public(ws, item) for item in imported],
+            "workspace": self._workspace_public(ws),
+        }
 
     def _list_workspace_tree(self, workspace_id: str) -> List[Dict[str, Any]]:
         ws = self._get_workspace(workspace_id)
@@ -2288,6 +2753,24 @@ class PdbMasterApiServer:
         add_flag("--enable-context-manage-tools", req.get("enable_context_manage_tools"))
         add_flag("--exit-on-completion", req.get("exit_on_completion"))
         add_value("--client-id", req.get("client_id"))
+        raw_meta = req.get("meta") or {}
+        if isinstance(raw_meta, dict):
+            for key, value in raw_meta.items():
+                meta_key = str(key or "").strip()
+                if not meta_key:
+                    continue
+                if isinstance(value, (dict, list, tuple)):
+                    meta_value = json.dumps(value, ensure_ascii=False)
+                elif value is None:
+                    meta_value = ""
+                else:
+                    meta_value = str(value)
+                add_value("--meta", f"{meta_key}={meta_value}")
+        elif isinstance(raw_meta, list):
+            for item in raw_meta:
+                text = str(item or "").strip()
+                if "=" in text:
+                    add_value("--meta", text)
 
         master_spec = (req.get("master") or "").strip()
         if not master_spec:
@@ -5254,6 +5737,8 @@ class PdbMasterApiServer:
                 tcp_url = _fix_tcp_url(str(body.get("cmd_api_tcp") or ""), client_ip)
                 current_stage_index = int(body.get("current_stage_index", -1) or -1)
                 total_stage_count = int(body.get("total_stage_count", 0) or 0)
+                raw_meta = body.get("meta")
+                meta = _copy_jsonable(raw_meta) if isinstance(raw_meta, dict) else _copy_jsonable(existing.get("meta", {}))
                 
                 # Normalize web_console field
                 raw_web_console = body.get("web_console")
@@ -5321,6 +5806,7 @@ class PdbMasterApiServer:
                     "last_cmd": str(body.get("last_cmd") or "") or existing.get("last_cmd", ""),
                     "mission_info_ansi": str(body.get("mission_info_ansi") or "") or existing.get("mission_info_ansi", ""),
                     "run_time": str(body.get("run_time") or "") or existing.get("run_time", ""),
+                    "meta": meta,
                     "extra": body.get("extra") or existing.get("extra", {}),
                     "last_launch_task_id": str(
                         body.get("launch_task_id")
@@ -5403,6 +5889,7 @@ class PdbMasterApiServer:
                         "is_break": agent.get("is_break", False),
                         "last_cmd": agent.get("last_cmd", ""),
                         "run_time": agent.get("run_time", ""),
+                        "meta": _copy_jsonable(agent.get("meta", {})) if isinstance(agent.get("meta"), dict) else {},
                         "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                         "task_list": agent.get("task_list"),
                         "launch": bool(launch_task_id),
@@ -5477,6 +5964,7 @@ class PdbMasterApiServer:
                 "is_break": agent.get("is_break", False),
                 "last_cmd": agent.get("last_cmd", ""),
                 "run_time": agent.get("run_time", ""),
+                "meta": _copy_jsonable(agent.get("meta", {})) if isinstance(agent.get("meta"), dict) else {},
                 "mission_info_ansi": _strip_ansi(raw_mi) if strip_ansi else raw_mi,
                 "task_list": agent.get("task_list"),
                 "launch": bool(launch_task_id),
@@ -5713,6 +6201,25 @@ class PdbMasterApiServer:
                 "files": [self._workspace_file_public(ws, item) for item in imported],
                 "workspace": self._workspace_public(ws),
             }
+
+        @app.post("/api/workspace/{workspace_id}/apply-yaml", summary="Apply launch YAML spec to workspace", dependencies=[Depends(_check_password)])
+        def workspace_apply_yaml(workspace_id: str, body: Dict[str, Any] = Body(default_factory=dict)):
+            root_id = str(body.get("root_id") or "").strip()
+            if not root_id and self._launch_roots:
+                root_id = self._launch_roots[0]["id"]
+            rel_path = str(body.get("path") or body.get("yaml_path") or "").strip()
+            if not rel_path:
+                raise HTTPException(status_code=400, detail="'path' is required")
+            try:
+                self._get_workspace(workspace_id)
+                root = self._get_launch_root(root_id)
+                yaml_path = self._safe_under_root(root["path"], rel_path)
+                result = self._apply_launch_yaml_spec(workspace_id, yaml_path)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok", **result}
 
         @app.patch("/api/workspace/{workspace_id}/file", summary="Update launch workspace file metadata", dependencies=[Depends(_check_password)])
         def workspace_update_file(workspace_id: str, body: Dict[str, Any] = Body(default_factory=dict)):
@@ -7196,6 +7703,20 @@ class PdbMasterClient:
             mcp_running = mcps is not None and (mcp_thread is None or mcp_thread.is_alive())
         is_break = bool(agent.is_break()) if agent is not None else False
         last_cmd = getattr(pdb, "lastcmd", "") or ""
+        meta = {}
+        if agent is not None:
+            try:
+                workspace = getattr(agent, "workspace", "")
+                if workspace:
+                    saved_info = load_ucagent_info(workspace)
+                    saved_meta = saved_info.get("meta") if isinstance(saved_info, dict) else {}
+                    if isinstance(saved_meta, dict):
+                        meta.update(_copy_jsonable(saved_meta))
+            except Exception:
+                pass
+            agent_meta = getattr(agent, "meta", {})
+            if isinstance(agent_meta, dict):
+                meta.update(_copy_jsonable(agent_meta))
 
         try:
             mission_info_lines = pdb.api_mission_info()
@@ -7226,6 +7747,7 @@ class PdbMasterClient:
             "mcp_running": mcp_running,
             "is_break": is_break,
             "last_cmd": last_cmd,
+            "meta": meta,
             "mission_info_ansi": mission_info_ansi,
             "extra": {
                 "workspace": getattr(agent, "workspace", ""),
