@@ -59,6 +59,8 @@
   .detail-command{max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface2)}
   tr.task-row-highlight{outline:2px solid rgba(99,102,241,.75);outline-offset:-2px;background:rgba(99,102,241,.10)}
   .ansi-seg{white-space:pre-wrap}
+  .logs-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+  .logs-heading h2{margin:0}
   .logs-box{min-height:240px;max-height:70vh;overflow:auto;padding:12px;border-radius:8px;border:1px solid var(--border);background:#0b0d12;color:var(--text);font:12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap;word-break:break-word}
   .truncate{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
   .task-cell{max-width:140px}
@@ -168,7 +170,10 @@
       <div id="task-detail" class="muted">Select a task from the list.</div>
     </div>
     <div>
-      <h2>Logs</h2>
+      <div class="logs-heading">
+        <h2>Logs</h2>
+        <button id="log-auto-scroll" class="btn btn-primary" type="button" aria-pressed="true" title="Toggle automatic scrolling for log updates">Auto scroll: On</button>
+      </div>
       <div id="task-logs" class="logs-box muted">Select a task from the list.</div>
     </div>
   </section>
@@ -179,9 +184,11 @@ let currentTaskId = '';
 let allTasks = [];
 let totalTaskCount = 0;
 let showDeleteControls = false;
+let logAutoScroll = true;
 const pendingAutoDeleteTimers = new Map();
 const STORAGE_KEY = 'ucagent-task-page-state';
 const DELETE_CONTROLS_KEY = 'ucagent-task-show-delete-controls';
+const LOG_AUTO_SCROLL_KEY = 'ucagent-task-log-auto-scroll';
 
 function esc(s){return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 
@@ -228,6 +235,31 @@ function applyViewState() {
 function updateDeleteControlsUi() {
   const checkbox = document.getElementById('show-delete-controls');
   if (checkbox) checkbox.checked = showDeleteControls;
+}
+
+function updateLogAutoScrollUi() {
+  const button = document.getElementById('log-auto-scroll');
+  if (!button) return;
+  button.setAttribute('aria-pressed', logAutoScroll ? 'true' : 'false');
+  button.classList.toggle('btn-primary', logAutoScroll);
+  button.textContent = logAutoScroll ? 'Auto scroll: On' : 'Auto scroll: Off';
+}
+
+function setLogAutoScroll(enabled) {
+  logAutoScroll = Boolean(enabled);
+  try {
+    localStorage.setItem(LOG_AUTO_SCROLL_KEY, logAutoScroll ? '1' : '0');
+  } catch {}
+  updateLogAutoScrollUi();
+}
+
+function loadLogAutoScrollPreference() {
+  try {
+    logAutoScroll = localStorage.getItem(LOG_AUTO_SCROLL_KEY) !== '0';
+  } catch {
+    logAutoScroll = true;
+  }
+  updateLogAutoScrollUi();
 }
 
 function requireDeleteControls() {
@@ -323,9 +355,15 @@ function ansiToHtml(input) {
 function setTaskLogs(text, muted=false) {
   const element = document.getElementById('task-logs');
   if (!element) return;
+  const previousScrollTop = element.scrollTop;
   element.classList.toggle('muted', muted);
   element.innerHTML = ansiToHtml(text);
-  element.scrollTop = 0;
+  if (logAutoScroll) {
+    element.scrollTop = element.scrollHeight;
+  } else {
+    const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    element.scrollTop = Math.min(previousScrollTop, maxScrollTop);
+  }
 }
 
 function formatTimestamp(ts) {
@@ -725,6 +763,14 @@ document.getElementById('show-delete-controls').addEventListener('change', (even
   renderTaskRows();
 });
 
+document.getElementById('log-auto-scroll').addEventListener('click', () => {
+  setLogAutoScroll(!logAutoScroll);
+  if (logAutoScroll) {
+    const element = document.getElementById('task-logs');
+    if (element) element.scrollTop = element.scrollHeight;
+  }
+});
+
 ['filter-status', 'filter-dut', 'filter-q', 'page-size'].forEach((id) => {
   const el = document.getElementById(id);
   const eventName = id === 'filter-dut' || id === 'filter-q' ? 'input' : 'change';
@@ -741,6 +787,7 @@ const savedState = loadViewState();
 document.getElementById('page-info').dataset.page = String(savedState.page || 1);
 showDeleteControls = localStorage.getItem(DELETE_CONTROLS_KEY) === '1';
 updateDeleteControlsUi();
+loadLogAutoScrollPreference();
 if (initialHashTaskId) currentTaskId = initialHashTaskId;
 loadTasks();
 if (initialHashTaskId) showTask(initialHashTaskId);
