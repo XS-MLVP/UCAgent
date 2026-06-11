@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import collections
+from datetime import datetime, timezone
 import hashlib
 import json
 import mimetypes
@@ -121,6 +122,28 @@ _LAUNCH_MODE_LABELS = {
 _CONTAINER_LAUNCH_MODES = {"docker", "docker_swarm", "k8s"}
 _MASTER_SOURCE_CONTAINER_PATH = "/UCAgent"
 _K8S_JOB_STATUS_JSONPATH = "{.status.active} {.status.succeeded} {.status.failed}"
+_SWARM_SERVICE_PREFIX = "ucagent-"
+_SWARM_SERVICE_RETENTION_SECONDS = 3600
+_SWARM_SERVICE_RUNNING_STATES = {
+    "new",
+    "pending",
+    "assigned",
+    "accepted",
+    "ready",
+    "preparing",
+    "starting",
+    "running",
+}
+_SWARM_SERVICE_EXITED_STATES = {
+    "complete",
+    "completed",
+    "shutdown",
+    "failed",
+    "rejected",
+    "orphaned",
+    "remove",
+    "removed",
+}
 
 
 def _strip_ansi(text: str) -> str:
@@ -174,6 +197,67 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     if raw in {"0", "false", "no", "n", "off"}:
         return False
     return default
+
+
+def _parse_docker_timestamp(value: Any) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    match = re.match(r"^(.*\.\d{6})\d+([+-]\d\d:\d\d)$", raw)
+    if match:
+        raw = match.group(1) + match.group(2)
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return 0.0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _parse_docker_relative_age(value: Any) -> float:
+    text = str(value or "").strip().lower()
+    if "ago" not in text:
+        return -1.0
+    if "less than a second ago" in text:
+        return 0.0
+    units = {
+        "second": 1.0,
+        "sec": 1.0,
+        "minute": 60.0,
+        "min": 60.0,
+        "hour": 3600.0,
+        "day": 86400.0,
+        "week": 604800.0,
+        "month": 2592000.0,
+        "year": 31536000.0,
+    }
+    match = re.search(
+        r"(?:about|around|over|almost)?\s*(?:an?|one|\d+)\s+"
+        r"(second|sec|minute|min|hour|day|week|month|year)s?\s+ago",
+        text,
+    )
+    if not match:
+        return -1.0
+    raw_amount = re.search(r"(?:about|around|over|almost)?\s*(an?|one|\d+)\s+", match.group(0))
+    amount_text = raw_amount.group(1) if raw_amount else "1"
+    if amount_text in {"a", "an", "one"}:
+        amount = 1.0
+    else:
+        try:
+            amount = float(amount_text)
+        except ValueError:
+            amount = 1.0
+    return amount * units.get(match.group(1), 0.0)
+
+
+def _swarm_task_id_from_service_name(name: str) -> str:
+    name = str(name or "").strip()
+    if name.startswith(_SWARM_SERVICE_PREFIX):
+        return name[len(_SWARM_SERVICE_PREFIX):]
+    return ""
 
 
 def _tail_file(path: str, max_lines: int = 200) -> str:
@@ -3715,6 +3799,225 @@ class PdbMasterApiServer:
         except Exception as exc:
             return str(exc)
 
+    def _docker_swarm_service_state(self, name: str) -> Dict[str, Any]:
+        name = str(name or "").strip()
+        if not name:
+            return {"exists": False, "active": False, "exited": False, "detail": "missing service name"}
+        if self._docker_cli_available():
+            code, inspect_out, inspect_err = self._run_control_command(
+                ["docker", "service", "inspect", name, "--format", "{{json .}}"],
+                timeout=5.0,
+            )
+            if code != 0:
+                return {
+                    "exists": False,
+                    "active": False,
+                    "exited": False,
+                    "detail": (inspect_err or inspect_out).strip(),
+                }
+            service_data: Dict[str, Any] = {}
+            try:
+                parsed = json.loads(inspect_out)
+                service_data = parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                service_data = {}
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "service", "ps", name, "--no-trunc", "--format", "{{json .}}"],
+                timeout=5.0,
+            )
+            if code != 0:
+                return {
+                    "exists": True,
+                    "active": False,
+                    "exited": False,
+                    "detail": (stderr or stdout).strip(),
+                    "created_at": _parse_docker_timestamp(service_data.get("CreatedAt")),
+                    "updated_at": _parse_docker_timestamp(service_data.get("UpdatedAt")),
+                }
+            states: List[str] = []
+            current_states: List[str] = []
+            last_status_at = 0.0
+            now = _now()
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    item = {"CurrentState": line}
+                current = str(item.get("CurrentState") or "").strip()
+                current_states.append(current)
+                state = current.split(None, 1)[0].lower() if current else ""
+                if state:
+                    states.append(state)
+                age = _parse_docker_relative_age(current)
+                if age >= 0:
+                    last_status_at = max(last_status_at, now - age)
+            active = any(state in _SWARM_SERVICE_RUNNING_STATES for state in states)
+            exited = bool(states) and not active and all(state in _SWARM_SERVICE_EXITED_STATES for state in states)
+            return {
+                "exists": True,
+                "active": active,
+                "exited": exited,
+                "states": states,
+                "current_states": current_states,
+                "detail": "\n".join(current_states) or stdout.strip(),
+                "created_at": _parse_docker_timestamp(service_data.get("CreatedAt")),
+                "updated_at": _parse_docker_timestamp(service_data.get("UpdatedAt")),
+                "last_status_at": last_status_at,
+            }
+        try:
+            service = self._docker_sdk_client().services.get(name)
+            attrs = service.attrs or {}
+            states: List[str] = []
+            messages: List[str] = []
+            last_status_at = 0.0
+            for item in service.tasks():
+                status = item.get("Status") or {}
+                state = str(status.get("State") or "").strip().lower()
+                if state:
+                    states.append(state)
+                message = str(status.get("Message") or "").strip()
+                error = str(status.get("Err") or "").strip()
+                if state or message or error:
+                    messages.append(" ".join(part for part in (state, message, error) if part))
+                last_status_at = max(last_status_at, _parse_docker_timestamp(status.get("Timestamp")))
+            active = any(state in _SWARM_SERVICE_RUNNING_STATES for state in states)
+            exited = bool(states) and not active and all(state in _SWARM_SERVICE_EXITED_STATES for state in states)
+            return {
+                "exists": True,
+                "active": active,
+                "exited": exited,
+                "states": states,
+                "current_states": messages,
+                "detail": "\n".join(messages),
+                "created_at": _parse_docker_timestamp(attrs.get("CreatedAt")),
+                "updated_at": _parse_docker_timestamp(attrs.get("UpdatedAt")),
+                "last_status_at": last_status_at,
+            }
+        except Exception as exc:
+            return {"exists": False, "active": False, "exited": False, "detail": str(exc)}
+
+    def _remove_docker_swarm_service(self, name: str, task: Optional[Dict[str, Any]] = None, reason: str = "") -> bool:
+        name = str(name or "").strip()
+        if not name:
+            return False
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(["docker", "service", "rm", name], timeout=15.0)
+            if code != 0:
+                if task is not None:
+                    self._append_task_log(
+                        task["stderr_log_path"],
+                        f"Failed to remove Docker Swarm service {name}: {(stderr or stdout).strip()}",
+                    )
+                return False
+        else:
+            try:
+                self._docker_sdk_client().services.get(name).remove()
+            except Exception as exc:
+                if task is not None:
+                    self._append_task_log(
+                        task["stderr_log_path"],
+                        f"Failed to remove Docker Swarm service {name} via SDK: {exc}",
+                    )
+                return False
+        if task is not None:
+            suffix = f" ({reason})" if reason else ""
+            self._append_task_log(task["stdout_log_path"], f"Removed Docker Swarm service {name}{suffix}")
+        return True
+
+    def _remove_exited_swarm_service_before_launch(self, task: Dict[str, Any], name: str) -> None:
+        state = self._docker_swarm_service_state(name)
+        if not state.get("exists"):
+            return
+        detail = str(state.get("detail") or "").strip()
+        if state.get("exited"):
+            removed = self._remove_docker_swarm_service(name, task, reason="exited service before relaunch")
+            if not removed:
+                raise ValueError(f"Docker Swarm service {name} already exists and could not be removed: {detail}")
+            return
+        if state.get("active"):
+            raise ValueError(f"Docker Swarm service {name} already exists and is still active: {detail}")
+        raise ValueError(f"Docker Swarm service {name} already exists and its state is unknown: {detail}")
+
+    def _list_ucagent_swarm_services(self) -> List[Dict[str, Any]]:
+        if self._docker_cli_available():
+            code, stdout, stderr = self._run_control_command(
+                ["docker", "service", "ls", "--format", "{{json .}}"],
+                timeout=8.0,
+            )
+            if code != 0:
+                warning(f"Failed to list Docker Swarm services: {(stderr or stdout).strip()}")
+                return []
+            services: List[Dict[str, Any]] = []
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                name = str(item.get("Name") or item.get("name") or "").strip()
+                if name.startswith(_SWARM_SERVICE_PREFIX):
+                    services.append({"name": name, "raw": item})
+            return services
+        try:
+            services = []
+            for service in self._docker_sdk_client().services.list():
+                name = str((service.attrs or {}).get("Spec", {}).get("Name") or service.name or "").strip()
+                if name.startswith(_SWARM_SERVICE_PREFIX):
+                    services.append({"name": name, "raw": service.attrs or {}})
+            return services
+        except Exception as exc:
+            warning(f"Failed to list Docker Swarm services via SDK: {exc}")
+            return []
+
+    def _swarm_service_finished_at(self, task: Optional[Dict[str, Any]], state: Dict[str, Any]) -> float:
+        if task is not None:
+            try:
+                value = float(task.get("finished_at") or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                return value
+        for key in ("last_status_at", "updated_at", "created_at"):
+            try:
+                value = float(state.get(key) or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0:
+                return value
+        return 0.0
+
+    def _cleanup_stale_swarm_services(self) -> int:
+        if self._docker_swarm_local_state() != "active":
+            return 0
+        services = self._list_ucagent_swarm_services()
+        if not services:
+            return 0
+        now = _now()
+        with self._tasks_lock:
+            tasks_snapshot = {task_id: dict(task) for task_id, task in self._tasks.items()}
+        cleaned = 0
+        for service in services:
+            name = str(service.get("name") or "").strip()
+            if not name.startswith(_SWARM_SERVICE_PREFIX):
+                continue
+            state = self._docker_swarm_service_state(name)
+            if not state.get("exists") or not state.get("exited") or state.get("active"):
+                continue
+            task_id = _swarm_task_id_from_service_name(name)
+            task = tasks_snapshot.get(task_id)
+            if task is not None:
+                finished_at = self._swarm_service_finished_at(task, state)
+                if not finished_at or now - finished_at <= _SWARM_SERVICE_RETENTION_SECONDS:
+                    continue
+            if self._remove_docker_swarm_service(name):
+                cleaned += 1
+        return cleaned
+
     def _cluster_job_status(self, active: int, succeeded: int, failed: int) -> Tuple[bool, Optional[int], str]:
         detail = f"active={active} succeeded={succeeded} failed={failed}"
         if active > 0:
@@ -3806,6 +4109,7 @@ class PdbMasterApiServer:
         context = self._cluster_launch_context(task, env, prepared, "docker_swarm")
         cfg = context["cfg"]
         name = context["name"]
+        self._remove_exited_swarm_service_before_launch(task, name)
         if not self._docker_cli_available():
             client = self._docker_sdk_client()
             mounts = [
@@ -4721,6 +5025,10 @@ class PdbMasterApiServer:
             if not task["terminal_api"].get("enabled"):
                 task["terminal_api"]["status"] = "stopped"
         self._mark_workspace_launched(workspace_id, task["task_id"])
+        if launch_mode == "docker_swarm":
+            cleaned = self._cleanup_stale_swarm_services()
+            if cleaned:
+                _master_log(f"Cleaned {cleaned} stale Docker Swarm service(s)")
         self._mark_dirty()
         return task
 
@@ -4745,13 +5053,7 @@ class PdbMasterApiServer:
         if launch_mode == "docker_swarm":
             name = str((task.get("cluster") or {}).get("name") or "").strip()
             if name:
-                if self._docker_cli_available():
-                    self._run_control_command(["docker", "service", "rm", name], timeout=15.0)
-                else:
-                    try:
-                        self._docker_sdk_client().services.get(name).remove()
-                    except Exception as exc:
-                        self._append_task_log(task["stderr_log_path"], f"Failed to remove Docker Swarm service via SDK: {exc}")
+                self._remove_docker_swarm_service(name, task, reason="task stop requested")
             return
         if launch_mode == "k8s":
             cluster = task.get("cluster") or {}
@@ -5377,10 +5679,11 @@ class PdbMasterApiServer:
             existing_task = self._tasks.get(task_id)
             if existing_task is not None:
                 status = str(existing_task.get("process_status") or "unknown")
-                blockers.append(
-                    f"Task list still contains task '{task_id}' (status: {status}). "
-                    "Stop/delete the old task record before relaunching."
-                )
+                if not self._task_is_finished(existing_task):
+                    blockers.append(
+                        f"Task list still contains running task '{task_id}' (status: {status}). "
+                        "Wait for it to exit or stop it before relaunching."
+                    )
 
         compiled_path = self._compiled_workspace_match_path(ws)
         compiled_real = os.path.realpath(compiled_path) if compiled_path else ""
@@ -5443,6 +5746,23 @@ class PdbMasterApiServer:
             "ucagent_info": ucagent_info,
             "task": self._task_public(target["task"], include_logs=False) if target.get("task") else None,
         }
+
+    def _drop_finished_task_record_for_relaunch(self, task_id: str) -> None:
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            return
+        task_snapshot: Optional[Dict[str, Any]] = None
+        with self._tasks_lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                return
+            if not self._task_is_finished(task):
+                raise ValueError(f"Task '{task_id}' is still running and cannot be relaunched")
+            task_snapshot = dict(task)
+            self._tasks.pop(task_id, None)
+        self._remember_task_launch_agent(task_snapshot)
+        self._close_task_runtime(task_id)
+        self._mark_dirty()
 
     def _cmd_proxy_url(self, task: Dict[str, Any], subpath: str) -> str:
         self._refresh_task_runtime_info_from_agent(task)
@@ -6633,6 +6953,7 @@ class PdbMasterApiServer:
                         sub_workspace=str(req.get("sub_worspace") or req.get("sub_workspace") or ""),
                     )
                     self._switch_relaunch_ucagent_info_config(target["workspace"], requested_config)
+                self._drop_finished_task_record_for_relaunch(status["task_id"])
                 req["task_id"] = status["task_id"]
                 req["task_name"] = status["task_id"]
                 req["workspace_id"] = status["workspace_id"]

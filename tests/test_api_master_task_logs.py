@@ -4,6 +4,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -319,6 +320,231 @@ def test_swarm_task_cmd_proxy_uses_service_dns_over_agent_task_ip():
         assert task["cmd_api"]["tcp_url"] == "http://10.0.1.109:8765"
         assert task["cmd_api"]["base_url_internal"] == "http://127.0.0.1:8765"
         assert server._cmd_proxy_url(task, "api/status") == "http://ucagent-test-task:8765/api/status"
+
+
+def test_swarm_task_finish_keeps_service_for_debug_logs():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = server._create_task_record(
+            {
+                "task_id": "task-finished",
+                "task_name": "swarm",
+                "launch_mode": "docker_swarm",
+                "cmd_api": {"enabled": True, "status": "starting", "port": 8765},
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        task["cluster"] = {"mode": "docker_swarm", "name": "ucagent-task-finished"}
+        task["process_status"] = "running"
+        task["started_at"] = time.time() - 30
+
+        with patch.object(server, "_cluster_alive_status", return_value=(False, 0, "complete")), \
+                patch.object(server, "_probe_child_service", return_value=False), \
+                patch.object(server, "_docker_swarm_task_detail", return_value="Complete 1 second ago"), \
+                patch.object(server, "_remove_docker_swarm_service") as remove_service:
+            server._refresh_task_states()
+
+        assert task["process_status"] == "stopped"
+        assert task["exit_code"] == 0
+        remove_service.assert_not_called()
+
+
+def test_swarm_launch_removes_exited_same_name_service_before_create():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = server._create_task_record(
+            {
+                "task_id": "task-relaunch",
+                "task_name": "swarm",
+                "launch_mode": "docker_swarm",
+                "cmd_api": {"enabled": True, "status": "starting", "port": 8765},
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        task["resolved_command"] = ["python3", "ucagent/cli.py", "/work", "Adder"]
+        events = []
+
+        def fake_context(_task, _env, _prepared, _mode):
+            return {
+                "cfg": {"image": "ucagent:test", "swarm_extra_args": []},
+                "name": "ucagent-task-relaunch",
+                "env": {},
+                "mounts": [],
+                "network": "",
+                "picker_workspace": "/tmp",
+                "command": ["ucagent", "/work", "Adder"],
+            }
+
+        def fake_state(name):
+            events.append(f"state:{name}")
+            return {"exists": True, "active": False, "exited": True, "detail": "Complete 2 minutes ago"}
+
+        def fake_remove(name, task=None, reason=""):
+            events.append(f"rm:{name}:{reason}")
+            return True
+
+        def fake_run(cmd, timeout=10.0):
+            events.append(cmd[:3])
+            return 0, "service-id\n", ""
+
+        with patch.object(server, "_cluster_launch_context", side_effect=fake_context), \
+                patch.object(server, "_docker_cli_available", return_value=True), \
+                patch.object(server, "_docker_swarm_service_state", side_effect=fake_state), \
+                patch.object(server, "_remove_docker_swarm_service", side_effect=fake_remove), \
+                patch.object(server, "_run_control_command", side_effect=fake_run), \
+                patch.object(server, "_start_external_log_capture"):
+            cluster = server._start_task_docker_swarm(
+                task,
+                {},
+                {"workspace_dir": master_ws, "picker_workspace": master_ws, "use_zip_workspace": False},
+                {"enabled": True, "port": 8765},
+                {"enabled": False},
+                {"enabled": False},
+            )
+
+        assert events[0] == "state:ucagent-task-relaunch"
+        assert events[1] == "rm:ucagent-task-relaunch:exited service before relaunch"
+        assert events[2] == ["docker", "service", "create"]
+        assert cluster["name"] == "ucagent-task-relaunch"
+        assert cluster["id"] == "service-id"
+
+
+def test_swarm_launch_rejects_active_same_name_service():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = server._create_task_record(
+            {
+                "task_id": "task-active",
+                "task_name": "swarm",
+                "launch_mode": "docker_swarm",
+                "cmd_api": {"enabled": True, "status": "starting", "port": 8765},
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        task["resolved_command"] = ["python3", "ucagent/cli.py", "/work", "Adder"]
+
+        with patch.object(server, "_cluster_launch_context", return_value={
+                "cfg": {"image": "ucagent:test", "swarm_extra_args": []},
+                "name": "ucagent-task-active",
+                "env": {},
+                "mounts": [],
+                "network": "",
+                "picker_workspace": "/tmp",
+                "command": ["ucagent", "/work", "Adder"],
+            }), \
+                patch.object(server, "_docker_swarm_service_state", return_value={
+                    "exists": True,
+                    "active": True,
+                    "exited": False,
+                    "detail": "Running 10 seconds ago",
+                }), \
+                patch.object(server, "_run_control_command") as run_command:
+            try:
+                server._start_task_docker_swarm(
+                    task,
+                    {},
+                    {"workspace_dir": master_ws, "picker_workspace": master_ws, "use_zip_workspace": False},
+                    {"enabled": True, "port": 8765},
+                    {"enabled": False},
+                    {"enabled": False},
+                )
+            except ValueError as exc:
+                assert "still active" in str(exc)
+            else:
+                raise AssertionError("Expected active Swarm service to block launch")
+
+        run_command.assert_not_called()
+
+
+def test_cleanup_stale_swarm_services_deletes_old_or_untracked_exited_services():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        now = time.time()
+        old_task = server._create_task_record({"task_id": "old"})
+        old_task["process_status"] = "stopped"
+        old_task["finished_at"] = now - 3700
+        recent_task = server._create_task_record({"task_id": "recent"})
+        recent_task["process_status"] = "stopped"
+        recent_task["finished_at"] = now - 120
+        removed = []
+
+        with patch.object(server, "_docker_swarm_local_state", return_value="active"), \
+                patch.object(server, "_list_ucagent_swarm_services", return_value=[
+                    {"name": "ucagent-old"},
+                    {"name": "ucagent-recent"},
+                    {"name": "ucagent-untracked"},
+                ]), \
+                patch.object(server, "_docker_swarm_service_state", return_value={
+                    "exists": True,
+                    "active": False,
+                    "exited": True,
+                    "detail": "Complete 2 hours ago",
+                    "last_status_at": now - 7200,
+                }), \
+                patch.object(server, "_remove_docker_swarm_service", side_effect=lambda name: removed.append(name) or True):
+            cleaned = server._cleanup_stale_swarm_services()
+
+        assert cleaned == 2
+        assert removed == ["ucagent-old", "ucagent-untracked"]
+
+
+def test_relaunch_drops_finished_old_task_record_before_launch():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        client = TestClient(server._app)
+        ws = server._create_workspace()
+        workspace_id = ws["workspace_id"]
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(picker_workspace, exist_ok=True)
+        with server._workspaces_lock:
+            ws_locked = server._workspaces[workspace_id]
+            ws_locked["compile"] = {
+                "status": "success",
+                "picker_workspace": picker_workspace,
+                "dut_name": "Adder",
+                "selected_module": "Adder",
+                "main_verilog_path": os.path.join(picker_workspace, "Adder.v"),
+                "compiled_main_verilog_path": os.path.join(picker_workspace, "Adder.v"),
+                "picker_extra_args": [],
+            }
+        old_task = server._create_task_record(
+            {
+                "task_id": ws["task_id"],
+                "workspace_id": workspace_id,
+                "launch_mode": "docker_swarm",
+                "cmd_api": {"enabled": True, "status": "stopped"},
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        old_task["process_status"] = "stopped"
+        old_task["finished_at"] = time.time() - 30
+        old_task["cluster"] = {"mode": "docker_swarm", "name": f"ucagent-{old_task['task_id']}"}
+
+        launched = []
+
+        def fake_run_launch(req):
+            launched.append(dict(req))
+            return server._create_task_record(
+                {
+                    "task_id": req["task_id"],
+                    "workspace_id": req["workspace_id"],
+                    "launch_mode": "docker_swarm",
+                    "cmd_api": {"enabled": True, "status": "starting"},
+                    "terminal_api": {"enabled": False, "status": "stopped"},
+                    "web_console": {"enabled": False, "status": "stopped"},
+                }
+            )
+
+        with patch.object(server, "_run_task_launch", side_effect=fake_run_launch):
+            response = client.post("/api/relaunch", json={"task_id": old_task["task_id"]})
+
+        assert response.status_code == 200
+        assert launched[0]["task_id"] == old_task["task_id"]
+        assert server._tasks[old_task["task_id"]]["process_status"] == "pending"
 
 
 def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
