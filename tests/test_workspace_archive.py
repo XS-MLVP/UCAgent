@@ -3,6 +3,7 @@
 
 import io
 import os
+import shutil
 import sys
 import tarfile
 
@@ -16,6 +17,7 @@ from ucagent.cli import (
     _prepare_workspace_archive_source,
     _safe_extract_workspace_archive,
 )
+from ucagent.util.workspace_archive import create_workspace_archive
 
 
 def _add_dir(tf: tarfile.TarFile, name: str) -> None:
@@ -180,3 +182,48 @@ def test_workspace_archive_prepare_replaces_previous_extract_without_marker(tmp_
     assert workspace_dir == str(extract_dir / "workspace")
     assert not (stale_workspace / "stale.txt").exists()
     assert (stale_workspace / "version.txt").read_bytes() == b"new"
+
+
+def test_create_workspace_archive_applies_ignore_patterns(tmp_path):
+    workspace = tmp_path / "workspace"
+    (workspace / "pkg" / "__pycache__").mkdir(parents=True)
+    (workspace / ".pytest_cache").mkdir(parents=True)
+    (workspace / "unity_test" / "tests" / "data").mkdir(parents=True)
+    (workspace / "uc_test_report").mkdir(parents=True)
+    (workspace / "keep.txt").write_text("keep", encoding="utf-8")
+    (workspace / "pkg" / "keep.py").write_text("keep", encoding="utf-8")
+    (workspace / "pkg" / "module.pyc").write_bytes(b"ignored")
+    (workspace / "pkg" / "__pycache__" / "module.pyc").write_bytes(b"ignored")
+    (workspace / ".pytest_cache" / "cache.bin").write_bytes(b"ignored")
+    (workspace / "unity_test" / "tests" / "data" / "sample.dat").write_bytes(b"ignored")
+    (workspace / "uc_test_report" / "index.html").write_text("ignored", encoding="utf-8")
+
+    archive_path, _filename, temp_dir = create_workspace_archive(
+        str(workspace),
+        archive_stem="sample",
+        root_name="workspace",
+        ignore_patterns=[
+            "*.pyc",
+            "__pycache__",
+            ".pytest_cache",
+            "unity_test/tests/data/",
+            "uc_test_report/",
+        ],
+    )
+    try:
+        with tarfile.open(archive_path, "r:gz") as tf:
+            names = set(tf.getnames())
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    assert "workspace/keep.txt" in names
+    assert "workspace/pkg/keep.py" in names
+    assert "workspace/pkg/module.pyc" not in names
+    assert "workspace/pkg/__pycache__" not in names
+    assert "workspace/pkg/__pycache__/module.pyc" not in names
+    assert "workspace/.pytest_cache" not in names
+    assert "workspace/.pytest_cache/cache.bin" not in names
+    assert "workspace/unity_test/tests/data" not in names
+    assert "workspace/unity_test/tests/data/sample.dat" not in names
+    assert "workspace/uc_test_report" not in names
+    assert "workspace/uc_test_report/index.html" not in names

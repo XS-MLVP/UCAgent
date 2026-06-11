@@ -7896,6 +7896,24 @@ class PdbMasterClient:
             return False, str(status.get("reason") or "Workspace sync-back is not available"), status
         return True, str(status.get("reason") or "Workspace sync-back is available"), status
 
+    def _sync_workspace_back_ignore_patterns(self) -> List[str]:
+        agent = getattr(self.pdb, "agent", None)
+        cfg = getattr(agent, "cfg", None)
+        if cfg is None:
+            return []
+        try:
+            value = cfg.get_value("master_api.sync_workspace_back.ignore_patterns", [])
+        except AttributeError:
+            return []
+        value = _plain_config_value(value)
+        if isinstance(value, str):
+            items = value.split(",")
+        elif isinstance(value, (list, tuple)):
+            items = value
+        else:
+            return []
+        return [pattern for pattern in (str(item).strip() for item in items) if pattern]
+
     def sync_workspace_back(self, workspace_dir: str = "", reason: str = "manual") -> Tuple[bool, str]:
         ok, msg, status = self.workspace_sync_status()
         if not ok:
@@ -7914,6 +7932,7 @@ class PdbMasterClient:
                 workspace,
                 archive_stem=archive_stem,
                 root_name="workspace",
+                ignore_patterns=self._sync_workspace_back_ignore_patterns(),
             )
             url = f"{self.master_url}/api/workspace-sync/back"
             with open(archive_path, "rb") as fh:

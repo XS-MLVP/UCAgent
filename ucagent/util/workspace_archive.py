@@ -9,7 +9,8 @@ import posixpath
 import shutil
 import tarfile
 import tempfile
-from typing import Tuple
+from fnmatch import fnmatch
+from typing import Iterable, Sequence, Tuple
 
 
 class WorkspaceArchiveError(ValueError):
@@ -26,6 +27,7 @@ def create_workspace_archive(
     workspace_dir: str,
     archive_stem: str = "workspace",
     root_name: str = "workspace",
+    ignore_patterns: Sequence[str] | str | None = None,
 ) -> Tuple[str, str, str]:
     """Create a ``.tar.gz`` archive whose top-level directory is ``root_name``.
 
@@ -37,17 +39,89 @@ def create_workspace_archive(
     if not os.path.isdir(source_dir):
         raise WorkspaceArchiveError(f"Workspace directory not found: {source_dir}")
 
+    patterns = _normalize_ignore_patterns(ignore_patterns)
     archive_stem = safe_archive_base(archive_stem, "workspace")
     root_name = safe_archive_base(root_name, "workspace")
     temp_dir = tempfile.mkdtemp(prefix="ucagent_workspace_archive_")
     archive_path = os.path.join(temp_dir, f"{archive_stem}.tar.gz")
     try:
         with tarfile.open(archive_path, "w:gz") as tf:
-            tf.add(source_dir, arcname=root_name, recursive=True)
+            tf.add(
+                source_dir,
+                arcname=root_name,
+                recursive=True,
+                filter=_make_archive_filter(root_name, patterns),
+            )
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
     return archive_path, f"{archive_stem}.tar.gz", temp_dir
+
+
+def _normalize_ignore_patterns(ignore_patterns: Sequence[str] | str | None) -> Tuple[str, ...]:
+    if ignore_patterns is None:
+        return ()
+    if isinstance(ignore_patterns, str):
+        items: Iterable[str] = ignore_patterns.split(",")
+    else:
+        items = ignore_patterns
+    patterns = []
+    for item in items:
+        pattern = str(item or "").strip()
+        if pattern:
+            patterns.append(pattern.replace(os.sep, "/"))
+    return tuple(patterns)
+
+
+def _make_archive_filter(root_name: str, ignore_patterns: Tuple[str, ...]):
+    def _filter(member: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        if not ignore_patterns:
+            return member
+        rel_path = _archive_member_relative_path(member.name, root_name)
+        if rel_path and _matches_ignore_pattern(rel_path, member.isdir(), ignore_patterns):
+            return None
+        return member
+
+    return _filter
+
+
+def _archive_member_relative_path(member_name: str, root_name: str) -> str:
+    normalized = posixpath.normpath((member_name or "").replace("\\", "/"))
+    if normalized in ("", ".", root_name):
+        return ""
+    prefix = root_name + "/"
+    if normalized.startswith(prefix):
+        return normalized[len(prefix):].strip("/")
+    return normalized.strip("/")
+
+
+def _matches_ignore_pattern(rel_path: str, is_dir: bool, ignore_patterns: Tuple[str, ...]) -> bool:
+    rel_path = rel_path.strip("/")
+    if not rel_path:
+        return False
+    rel_dir_path = rel_path + "/" if is_dir else rel_path
+    basename = posixpath.basename(rel_path)
+    for pattern in ignore_patterns:
+        pattern = pattern.strip().replace("\\", "/")
+        dir_only = pattern.endswith("/")
+        pattern = pattern.strip("/")
+        if not pattern:
+            continue
+        if dir_only:
+            if _dir_pattern_matches(rel_path, pattern):
+                return True
+            continue
+        if fnmatch(rel_path, pattern) or fnmatch(rel_dir_path, pattern):
+            return True
+        if "/" not in pattern and fnmatch(basename, pattern):
+            return True
+        if _dir_pattern_matches(rel_path, pattern):
+            return True
+    return False
+
+
+def _dir_pattern_matches(rel_path: str, pattern: str) -> bool:
+    return rel_path == pattern or rel_path.startswith(pattern + "/")
 
 
 def _normalize_archive_member_path(name: str, root_name: str) -> str:
