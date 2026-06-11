@@ -100,10 +100,10 @@ cmd_api:
 master_api:
   host: 0.0.0.0
   port: 8800
-  sync_workspace_back:
+  sync_workspace:
     on_stage_complete: true  # client uploads workspace back to master after each completed stage when supported
     on_exit: true            # client uploads zipped workspace back to master on exit when supported
-    ignore_patterns:         # file patterns to ignore when uploading workspace back to master (glob patterns, relative to workspace root)
+    ignore_patterns:         # file patterns to ignore when syncing/downloading workspace archives (glob patterns, relative to workspace root)
       - "*.pyc"
       - "*.pyd"
       - "*.dat"

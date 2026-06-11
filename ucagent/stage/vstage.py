@@ -169,7 +169,7 @@ class VerifyStage(object):
         return default
 
     def _sync_workspace_back_on_complete(self, _stage):
-        if not self._cfg_bool("master_api.sync_workspace_back.on_stage_complete", True):
+        if not self._cfg_bool("master_api.sync_workspace.on_stage_complete", True):
             return
         if not self.vmanager:
             return

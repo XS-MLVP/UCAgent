@@ -1,6 +1,8 @@
 import os
 import json
+import shutil
 import sys
+import tarfile
 import tempfile
 from unittest.mock import patch
 
@@ -58,6 +60,56 @@ def test_master_server_uses_passed_config_for_launch_defaults():
 
         assert server._enabled_launch_modes() == ["docker_swarm"]
         assert server._launch_cluster_config()["image"] == "123123123"
+
+
+def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {"file_browser_roots": []},
+            "master_api": {
+                "sync_workspace": {
+                    "ignore_patterns": [
+                        "*.pyc",
+                        "__pycache__",
+                        "uc_test_report/",
+                    ],
+                },
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+        ws = server._create_workspace()
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(os.path.join(picker_workspace, "pkg", "__pycache__"), exist_ok=True)
+        os.makedirs(os.path.join(picker_workspace, "uc_test_report"), exist_ok=True)
+        with open(os.path.join(picker_workspace, "keep.txt"), "w", encoding="utf-8") as fh:
+            fh.write("keep")
+        with open(os.path.join(picker_workspace, "pkg", "keep.py"), "w", encoding="utf-8") as fh:
+            fh.write("keep")
+        with open(os.path.join(picker_workspace, "pkg", "module.pyc"), "wb") as fh:
+            fh.write(b"ignored")
+        with open(os.path.join(picker_workspace, "pkg", "__pycache__", "module.pyc"), "wb") as fh:
+            fh.write(b"ignored")
+        with open(os.path.join(picker_workspace, "uc_test_report", "index.html"), "w", encoding="utf-8") as fh:
+            fh.write("ignored")
+        ws["compile"] = {
+            "status": "success",
+            "picker_workspace": picker_workspace,
+        }
+
+        archive_path, _filename, temp_dir = server._create_compiled_workspace_archive(ws, "compiled")
+        try:
+            with tarfile.open(archive_path, "r:gz") as tf:
+                names = set(tf.getnames())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        assert "workspace/keep.txt" in names
+        assert "workspace/pkg/keep.py" in names
+        assert "workspace/pkg/module.pyc" not in names
+        assert "workspace/pkg/__pycache__" not in names
+        assert "workspace/pkg/__pycache__/module.pyc" not in names
+        assert "workspace/uc_test_report" not in names
+        assert "workspace/uc_test_report/index.html" not in names
 
 
 def test_cluster_mounts_keep_master_source_host_path(monkeypatch):

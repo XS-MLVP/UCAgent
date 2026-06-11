@@ -313,6 +313,23 @@ def _plain_config_value(obj: Any) -> Any:
     return obj
 
 
+def _workspace_sync_ignore_patterns_from_cfg(cfg: Any) -> List[str]:
+    if cfg is None:
+        return []
+    try:
+        value = cfg.get_value("master_api.sync_workspace.ignore_patterns", [])
+    except AttributeError:
+        return []
+    value = _plain_config_value(value)
+    if isinstance(value, str):
+        items = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        items = value
+    else:
+        return []
+    return [pattern for pattern in (str(item).strip() for item in items) if pattern]
+
+
 def _normalize_cluster_master_ip_config(value: Any) -> Any:
     env_host = str(os.environ.get("UCAGENT_LAUNCH_MASTER_IP") or "").strip()
     if env_host:
@@ -849,7 +866,12 @@ class PdbMasterApiServer:
             archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
             "workspace",
         )
-        return create_workspace_archive(picker_workspace, archive_stem=archive_stem, root_name="workspace")
+        return create_workspace_archive(
+            picker_workspace,
+            archive_stem=archive_stem,
+            root_name="workspace",
+            ignore_patterns=_workspace_sync_ignore_patterns_from_cfg(self.cfg),
+        )
 
     def _workspace_archive_download_url(self, archive_ref: str, launch_mode: str, master_host: str = "") -> str:
         if not self.tcp:
@@ -7896,23 +7918,9 @@ class PdbMasterClient:
             return False, str(status.get("reason") or "Workspace sync-back is not available"), status
         return True, str(status.get("reason") or "Workspace sync-back is available"), status
 
-    def _sync_workspace_back_ignore_patterns(self) -> List[str]:
+    def _sync_workspace_ignore_patterns(self) -> List[str]:
         agent = getattr(self.pdb, "agent", None)
-        cfg = getattr(agent, "cfg", None)
-        if cfg is None:
-            return []
-        try:
-            value = cfg.get_value("master_api.sync_workspace_back.ignore_patterns", [])
-        except AttributeError:
-            return []
-        value = _plain_config_value(value)
-        if isinstance(value, str):
-            items = value.split(",")
-        elif isinstance(value, (list, tuple)):
-            items = value
-        else:
-            return []
-        return [pattern for pattern in (str(item).strip() for item in items) if pattern]
+        return _workspace_sync_ignore_patterns_from_cfg(getattr(agent, "cfg", None))
 
     def sync_workspace_back(self, workspace_dir: str = "", reason: str = "manual") -> Tuple[bool, str]:
         ok, msg, status = self.workspace_sync_status()
@@ -7932,7 +7940,7 @@ class PdbMasterClient:
                 workspace,
                 archive_stem=archive_stem,
                 root_name="workspace",
-                ignore_patterns=self._sync_workspace_back_ignore_patterns(),
+                ignore_patterns=self._sync_workspace_ignore_patterns(),
             )
             url = f"{self.master_url}/api/workspace-sync/back"
             with open(archive_path, "rb") as fh:

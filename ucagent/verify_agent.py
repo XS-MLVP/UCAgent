@@ -664,7 +664,7 @@ class VerifyAgent:
         if self._sync_workspace_back_on_exit_done:
             return
         self._sync_workspace_back_on_exit_done = True
-        if not self._cfg_bool("master_api.sync_workspace_back.on_exit", True):
+        if not self._cfg_bool("master_api.sync_workspace.on_exit", True):
             return
         pdb = getattr(self, "pdb", None)
         master_clients = getattr(pdb, "_master_clients", {}) or {}
