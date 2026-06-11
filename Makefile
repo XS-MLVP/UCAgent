@@ -29,7 +29,7 @@ endif
 SWARM_OVERRIDE := --override launch.default_args.launch_mode=docker_swarm \
                   --override launch.cluster.docker_network=$(SWARM_NETWORK) \
                   --override launch.cluster.master_ip=$(SWARM_MASTER_SERVICE) \
-                  --override launch.default_args.extra_args[-1:0]=@base64:LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl
+                  --override launch.default_args.extra_args[0:0]=@base64:LS1vdmVycmlkZQpzdGFnZVstMV0ubmVlZF9odW1hbl9jaGVjaz1UcnVl
 
 
 UCAGENT_PY := $(wildcard ucagent.py)
