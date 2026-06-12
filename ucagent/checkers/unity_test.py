@@ -693,7 +693,8 @@ class BaseUnityChipCheckerTestCase(Checker):
         if not test_cases:
             return report, str_out, str_err
         tc_blocks = fc.tc_list_as_loc_blocks(test_cases.keys(),
-                                             target_tc_prefix=self.args_test_func_prefix)
+                                             target_tc_prefix=self.args_test_func_prefix,
+                                             workspace=self.workspace)
         failures = []
         def check_args(func_code_str):
             arg_list = fc.get_func_params_regex(func_code_str)

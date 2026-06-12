@@ -163,6 +163,70 @@ def test_check_has_assert_in_tc():
     print("------------------------")
 
 
+def test_toffee_test_case_path_suffix_fallback(tmp_path):
+    """Test Toffee report paths with different host/container prefixes."""
+    workspace = tmp_path / "workspace"
+    test_file = workspace / "unity_test" / "tests" / "test_Adder_env_fixture.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "def test_api_Adder_env_initialization():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    report_key = "/host/tmp/workspace/unity_test/tests/test_Adder_env_fixture.py:1-2::test_api_Adder_env_initialization"
+    tests = fc.get_toffee_json_test_case(str(workspace), {report_key: "PASSED"})
+
+    assert tests == [
+        (
+            "unity_test/tests/test_Adder_env_fixture.py:1-2::test_api_Adder_env_initialization",
+            "PASSED",
+        )
+    ]
+
+    ret, msg = fc.check_has_assert_in_tc(
+        str(workspace),
+        {"tests": {"test_cases": dict(tests)}},
+    )
+
+    assert ret is True
+    assert msg == "All test cases have assert statements."
+
+
+def test_workspace_relative_path_suffix_fallback_unique_filename(tmp_path):
+    """Test suffix fallback can recover when only the file name is shared."""
+    workspace = tmp_path / "workspace"
+    test_file = workspace / "unity_test" / "tests" / "test_unique_name.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("def test_unique_name():\n    assert True\n", encoding="utf-8")
+
+    path = fc.workspace_relative_path(
+        str(workspace),
+        "/container/other_mount/test_unique_name.py",
+    )
+
+    assert path == "unity_test/tests/test_unique_name.py"
+
+
+def test_workspace_relative_path_suffix_fallback_requires_unique_match(tmp_path):
+    """Test suffix fallback does not guess when multiple files match."""
+    workspace = tmp_path / "workspace"
+    for rel_path in [
+        "unity_test/tests/test_duplicate.py",
+        "backup/tests/test_duplicate.py",
+    ]:
+        test_file = workspace / rel_path
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text("def test_duplicate():\n    assert True\n", encoding="utf-8")
+
+    path = fc.workspace_relative_path(
+        str(workspace),
+        "/container/workdir/tests/test_duplicate.py",
+    )
+
+    assert path == "container/workdir/tests/test_duplicate.py"
+
+
 def test_markdown_headers():
     """Test function markdown_headers"""
     test_file = "../ucagent/lang/zh/doc/Guide_Doc/dut_spec_template.md"
