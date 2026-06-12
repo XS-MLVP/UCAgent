@@ -28,6 +28,13 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_mock_"
+          checker:
+      - name: vibe_workspace_init
+        clss: "VibeWorkSpaceInit"
+        args:
+          branch_name: ucagent/vibecoding
+          data_key: "VIBE_HM_PASS_INPUT"
+          dut_name: "{DUT}"
     need_human_check: true
 
 un_write_dirs: []

@@ -111,10 +111,12 @@ master_api:
       - "*.fst"
       - "*.fdb"
       - "*.vcd"
-      - "__pycache__/"
-      - ".pytest_cache/"
+      - "__pycache__"
+      - ".pytest_cache"
       - "{OUT}/tests/data/"
       - "uc_test_report/"
+      - ".gitignore"
+      - ".git/"
 
 launch:
   file_browser_roots: []              # empty means fallback to <cli.py parent>/examples

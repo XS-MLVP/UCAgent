@@ -50,6 +50,7 @@ stage:
             - ["data", "uc_test_report", "*.json", "*.ini", "{DUT}.ignore"]
             - ["*.fst", "*.dat", "*.vcd", "*.bin", "*.log", "*.tmp", "*.pyc", ]
             - [".ucagent/*"]
+          init_msg: "Init increment verification"
 
   - name: update_task_and_plan
     desc: "更新验证计划"
