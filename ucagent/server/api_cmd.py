@@ -792,22 +792,54 @@ class PdbCmdApiServer:
                     output_files[str(pattern)] = []
 
             changed_files = []
+            changed_file_statuses = {}
             meta_data = detail.get("meta_data", {}) if isinstance(detail.get("meta_data", {}), dict) else {}
-            commit_hash = meta_data.get("commit", {}).get("hash") if isinstance(meta_data.get("commit", {}), dict) else None
-            if commit_hash:
+            commit_meta = meta_data.get("commit", {}) if isinstance(meta_data.get("commit", {}), dict) else {}
+            commit_hash = commit_meta.get("hash")
+            has_stage_changes = _sub_stage_commit_has_changes(workspace_root, detail, commit_meta, commit_hash)
+            if commit_hash and has_stage_changes:
                 try:
-                    changed_files = diff_ops.get_commit_changed_files(
+                    changed_file_statuses = diff_ops.get_commit_changed_file_statuses(
+                        os.path.join(workspace_root, ".ucagent", "history"),
+                        commit_hash,
+                    )
+                    changed_files = list(changed_file_statuses.keys())
+                except Exception:
+                    changed_files = []
+                    changed_file_statuses = {}
+            return {
+                "output_files": output_files,
+                "changed_files": changed_files,
+                "changed_file_statuses": changed_file_statuses,
+                "commit_hash": commit_hash,
+                "commit_message": commit_meta.get("message"),
+                "commit_has_changes": has_stage_changes,
+            }
+
+        def _sub_stage_commit_has_changes(workspace_root: str, detail: dict, commit_meta: dict, commit_hash: str | None) -> bool:
+            has_stage_changes = commit_meta.get("has_changes", True)
+            if commit_hash and "has_changes" not in commit_meta:
+                task = detail.get("task", {}) if isinstance(detail.get("task", {}), dict) else {}
+                title = detail.get("name") or task.get("title") or detail.get("title") or ""
+                prefix = detail.get("section_index") or detail.get("prefix") or ""
+                stage_title = f"{prefix}-{title}" if prefix else title
+                commit_title = commit_meta.get("stage_title")
+                meta_message = commit_meta.get("message", "")
+                if not commit_title and ":\n\n" in meta_message:
+                    commit_title = meta_message.split(":\n\n", 1)[0]
+                commit_message = ""
+                try:
+                    commit_message = diff_ops.get_commit_message(
                         os.path.join(workspace_root, ".ucagent", "history"),
                         commit_hash,
                     )
                 except Exception:
-                    changed_files = []
-            return {
-                "output_files": output_files,
-                "changed_files": changed_files,
-                "commit_hash": commit_hash,
-                "commit_message": meta_data.get("commit", {}).get("message") if isinstance(meta_data.get("commit", {}), dict) else None,
-            }
+                    commit_message = meta_message
+                if commit_title:
+                    has_stage_changes = commit_message.startswith(commit_title + ":")
+                elif commit_message and stage_title:
+                    has_stage_changes = commit_message.startswith(stage_title + ":")
+            return has_stage_changes
 
         def _sub_mission_info(workspace_root: str, info: dict) -> dict:
             task_data = _sub_task_list(workspace_root, info)
@@ -879,31 +911,93 @@ class PdbCmdApiServer:
                 "path": rel_path,
                 "size": st.st_size,
                 "content": content,
+                "exists": True,
             }
 
-        def _sub_stage_file_payload(workspace_root: str, info: dict, index: int, file_path: str, current: bool) -> dict:
+        def _sub_stage_file_payload(workspace_root: str, info: dict, index: int, file_path: str, current: bool, sync_history: bool = False) -> dict:
             detail_data = _sub_stage_detail_with_journal(workspace_root, info, index)
             if isinstance(detail_data, str):
                 return {"error": detail_data}
             detail = detail_data.get("detail", {})
             meta_data = detail.get("meta_data", {}) if isinstance(detail.get("meta_data", {}), dict) else {}
-            commit_hash = meta_data.get("commit", {}).get("hash") if isinstance(meta_data.get("commit", {}), dict) else None
+            commit_meta = meta_data.get("commit", {}) if isinstance(meta_data.get("commit", {}), dict) else {}
+            commit_hash = commit_meta.get("hash")
+            has_stage_changes = _sub_stage_commit_has_changes(workspace_root, detail, commit_meta, commit_hash)
             hist_dir = os.path.join(workspace_root, ".ucagent", "history")
+            content_payload = None
+            if current:
+                try:
+                    abs_path = _safe_abs(file_path, workspace_root)
+                    content_payload = _read_text_file_payload(abs_path, file_path)
+                except HTTPException as exc:
+                    if exc.status_code == 404:
+                        content_payload = {
+                            "is_text": True,
+                            "content": "",
+                            "diff": "",
+                            "error": None,
+                            "exists": False,
+                            "status": "deleted",
+                        }
+                    else:
+                        return {"is_text": False, "content": "", "diff": "", "error": str(exc.detail)}
+                except Exception as exc:
+                    return {"is_text": False, "content": "", "diff": "", "error": str(exc)}
+            if sync_history:
+                return {
+                    "is_text": False,
+                    "content": content_payload.get("content", "") if content_payload else "",
+                    "diff": "",
+                    "error": "Manual history sync is only available from a running agent dashboard.",
+                }
             if commit_hash and os.path.isdir(hist_dir):
                 try:
                     if current:
-                        return diff_ops.get_current_file_content_and_diff_from_commit(hist_dir, commit_hash, file_path)
-                    return diff_ops.get_commit_file_content_and_diff(hist_dir, commit_hash, file_path)
+                        diff_payload = diff_ops.get_current_file_content_and_diff_from_commit(hist_dir, commit_hash, file_path)
+                        diff_content = diff_payload.get("diff", "") if has_stage_changes else ""
+                        return {
+                            "is_text": True,
+                            "content": content_payload.get("content", ""),
+                            "diff": diff_content,
+                            "error": None,
+                            "exists": content_payload.get("exists", True),
+                            "status": diff_payload.get("status"),
+                        }
+                    payload = diff_ops.get_commit_file_content_and_diff(hist_dir, commit_hash, file_path)
+                    if not has_stage_changes:
+                        payload["diff"] = ""
+                    return payload
                 except Exception as exc:
                     hist_error = str(exc)
                 else:
                     hist_error = ""
+            elif current and os.path.isdir(hist_dir):
+                try:
+                    diff_payload = diff_ops.get_worktree_file_content_and_diff(hist_dir, file_path)
+                    return {
+                        "is_text": True,
+                        "content": content_payload.get("content", ""),
+                        "diff": diff_payload.get("diff", ""),
+                        "error": None,
+                        "exists": content_payload.get("exists", True),
+                        "status": diff_payload.get("status"),
+                    }
+                except Exception:
+                    return {
+                        "is_text": True,
+                        "content": content_payload.get("content", ""),
+                        "diff": "",
+                        "error": None,
+                    }
             else:
                 hist_error = "stage history is unavailable"
 
             try:
-                abs_path = _safe_abs(file_path, workspace_root)
-                payload = _read_text_file_payload(abs_path, file_path)
+                if content_payload is not None:
+                    payload = content_payload
+                else:
+                    abs_path = _safe_abs(file_path, workspace_root)
+                    payload = _read_text_file_payload(abs_path, file_path)
                 return {
                     "is_text": True,
                     "content": payload.get("content", ""),
@@ -1692,7 +1786,8 @@ class PdbCmdApiServer:
         def get_stage_file_current(
             request: Request,
             index: int,
-            file_path: str = Query(..., description="Path to the file in the stage")
+            file_path: str = Query(..., description="Path to the file in the stage"),
+            sync_history: bool = Query(default=False, description="Synchronize stage history before reading diff"),
         ):
             try:
                 workspace_root, _, is_sub_workspace = _request_workspace(request)
@@ -1700,9 +1795,16 @@ class PdbCmdApiServer:
                     info = _load_ucagent_info_for_workspace(workspace_root)
                     return {
                         "status": "ok",
-                        "data": _sub_stage_file_payload(workspace_root, info, index, file_path, current=True),
+                        "data": _sub_stage_file_payload(
+                            workspace_root,
+                            info,
+                            index,
+                            file_path,
+                            current=True,
+                            sync_history=sync_history,
+                        ),
                     }
-                data = pdb.api_get_stage_file_current(index, file_path)
+                data = pdb.api_get_stage_file_current(index, file_path, sync_history=sync_history)
                 return {"status": "ok", "data": data}
             except HTTPException:
                 raise

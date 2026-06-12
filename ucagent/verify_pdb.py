@@ -1192,7 +1192,7 @@ class VerifyPDB(Pdb):
         stage = self.agent.stage_manager.stages[index]
         return stage.get_stage_file_content(file_path)
 
-    def api_get_stage_file_current(self, index, file_path):
+    def api_get_stage_file_current(self, index, file_path, sync_history=False):
         """
         Get the diff of a file in a specific stage.
         Args:
@@ -1204,7 +1204,9 @@ class VerifyPDB(Pdb):
         if index >= len(self.agent.stage_manager.stages) or index < 0:
             return f"Index {index} out of range, valid: (0-{len(self.agent.stage_manager.stages) - 1})"
         stage = self.agent.stage_manager.stages[index]
-        return stage.get_current_file_content_with_diff(file_path)
+        if sync_history and stage != self.agent.stage_manager.get_current_stage():
+            return {"error": "Manual history sync is only available for the current stage."}
+        return stage.get_current_file_content_with_diff(file_path, sync_history=sync_history)
 
     def api_get_check_tag_list(self, stage_list):
         """

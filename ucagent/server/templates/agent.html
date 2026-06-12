@@ -111,6 +111,9 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .outcome-name:hover{text-decoration:underline}
 .outcome-name.file-output{background:#1e3a2f;color:var(--green)}
 .outcome-name.file-changed{background:#3a2a1e;color:var(--orange)}
+.outcome-file-wrap.deleted{opacity:.78}
+.outcome-file-wrap.deleted .outcome-name{text-decoration:line-through}
+.outcome-file-wrap.deleted .outcome-name:hover{text-decoration:line-through underline}
 .outcome-more-btn{color:var(--accent);cursor:pointer;font-size:10px;padding:1px 4px}
 .outcome-more-btn:hover{text-decoration:underline}
 .workspace-git-section{margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;font-family:var(--mono);line-height:1.6}
@@ -129,9 +132,13 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .stage-toggle-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px}
 .stage-toggle-btn:hover{border-color:var(--accent);color:var(--accent)}
 .stage-toggle-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.stage-refresh-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);width:26px;border-radius:4px;cursor:pointer;font-size:13px;line-height:1}
+.stage-refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+.stage-refresh-btn:disabled{opacity:.5;cursor:not-allowed}
 .stage-file-container{display:flex;flex-direction:column;height:100%}
 .stage-diff-section{margin-bottom:8px}
 .stage-diff-content{background:var(--bg3);padding:8px;border-radius:4px;font-family:var(--mono);font-size:11px;white-space:pre}
+.stage-diff-empty{height:100%;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-family:var(--mono);font-size:12px;padding:20px;text-align:center;white-space:pre-wrap}
 .stage-diff-merge{height:100%;overflow:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
 .stage-diff-table{width:max-content;min-width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;line-height:1.6}
 .stage-diff-table td{padding:0;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top;white-space:pre}
@@ -1324,6 +1331,8 @@ async function openStageTask(stageIndex){
   qs("#view-title").textContent=`Stage ${stageIndex} Task`;
   qs("#view-raw-btn").style.display="none";
   _viewIsRaw=false;
+  _viewIsStageFile=false;
+  _viewIsCurrentStageFile=false;
   body.style.padding="0";
   body.style.overflow="hidden";
   body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
@@ -1365,6 +1374,7 @@ async function fetchMission(){
       const outcome=stage.out_come;
       const outputFiles=outcome?.output_files||{};
       const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+      const fileStatuses=outcome?.changed_file_statuses||{};
       const changedFiles=(outcome?.changed_files||[]).slice();
       const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
       const hasFiles=allFiles.length>0;
@@ -1411,7 +1421,7 @@ async function fetchMission(){
         html+=`<div class="outcome-section">`;
         html+=`<span class="outcome-label">Files:</span>`;
         html+=`<div class="outcome-files-grid" id="files-${stage.index}">`;
-        html+=_renderOutcomeFiles(allFiles,stage.index,outputSet,false);
+        html+=_renderOutcomeFiles(allFiles,stage.index,outputSet,false,fileStatuses);
         html+=`</div></div>`;
         html+=`</div>`;
       }
@@ -1449,21 +1459,22 @@ function refreshOutcomeFiles(){
     const outcome=window._missionOutcomeData[stageIndex];
     const outputFiles=outcome.output_files||{};
     const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+    const statuses=outcome.changed_file_statuses||{};
     const changedFiles=(outcome.changed_files||[]).slice();
     const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
     const grid=qs(`#files-${stageIndex}`);
     if(grid&&allFiles.length){
-      grid.innerHTML=_renderOutcomeFiles(allFiles,parseInt(stageIndex),outputSet,false);
+      grid.innerHTML=_renderOutcomeFiles(allFiles,parseInt(stageIndex),outputSet,false,statuses);
     }
   }
 }
 
-function _renderOutcomeFiles(files,stageIndex,outputSet,expanded){
+function _renderOutcomeFiles(files,stageIndex,outputSet,expanded,statuses={}){
   const maxCount=getOutcomeShowCount();
   const showCount=expanded?files.length:maxCount;
   let html="";
   for(let i=0;i<Math.min(showCount,files.length);i++){
-    html+=_renderOutcomeFile(files[i],stageIndex,outputSet);
+    html+=_renderOutcomeFile(files[i],stageIndex,outputSet,statuses);
   }
   if(files.length>maxCount){
     if(!expanded){
@@ -1482,13 +1493,16 @@ function _toggleOutcomeFiles(stageIndex,expanded){
   if(!outcome)return;
   const outputFiles=outcome.output_files||{};
   const outputSet=new Set(Object.values(outputFiles).flat().filter(Boolean));
+  const statuses=outcome.changed_file_statuses||{};
   const changedFiles=(outcome.changed_files||[]).slice();
   const allFiles=[...new Set([...outputSet,...changedFiles])].sort();
-  grid.innerHTML=_renderOutcomeFiles(allFiles,stageIndex,outputSet,expanded);
+  grid.innerHTML=_renderOutcomeFiles(allFiles,stageIndex,outputSet,expanded,statuses);
 }
 
-function _renderOutcomeFile(filePath,stageIndex,outputSet){
+function _renderOutcomeFile(filePath,stageIndex,outputSet,statuses={}){
   const isOutput=outputSet.has(filePath);
+  const status=statuses[filePath]||"";
+  const deleted=status==="deleted";
   const colorCls=isOutput?"output-color":"changed-color";
   const cls=isOutput?"file-output":"file-changed";
   const parts=filePath.split("/");
@@ -1497,7 +1511,7 @@ function _renderOutcomeFile(filePath,stageIndex,outputSet){
   const isText=_TEXT_EXTS.has(ext)||_MD_EXTS.has(ext);
   const isImg=_IMG_EXTS.has(ext);
   const isHtml=_HTML_EXTS.has(ext);
-  const canView=isText||isImg||isHtml;
+  const canView=deleted||isText||isImg||isHtml;
   let pathHtml="";
   let builtPath="";
   for(let i=0;i<parts.length;i++){
@@ -1512,7 +1526,7 @@ function _renderOutcomeFile(filePath,stageIndex,outputSet){
   }else{
     pathHtml+=`<span class="outcome-name ${cls}" onclick="fetchFiles('${esc(builtPath)}')" title="${esc(filePath)}">${esc(name)}</span>`;
   }
-  return`<span class="outcome-file-wrap">${pathHtml}</span>`;
+  return`<span class="outcome-file-wrap ${deleted?"deleted":""}">${pathHtml}</span>`;
 }
 
 function _renderWorkspaceGitStatus(data){
@@ -1574,12 +1588,16 @@ async function fetchWorkspaceGitStatus(){
   }
 }
 
-let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDiff="",_viewStageIndex=0,_viewFilePath="",_viewFileName="";
+let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDiff="",_viewStageIndex=0,_viewFilePath="",_viewFileName="",_viewIsStageFile=false,_viewIsCurrentStageFile=false,_stageDiffRefreshing=false;
 
 async function openStageFile(stageIndex,filePath,name,ext){
   try{
     const showCurrent=qs("#show-current-content")?.checked||false;
-    const apiPath=showCurrent?"/api/stage/"+stageIndex+"/file_current":"/api/stage/"+stageIndex+"/file";
+    const stageInfo=(window._missionStages||[]).find(stage=>stage.index===stageIndex);
+    const isCurrentStage=!!stageInfo?.is_current;
+    const forceCurrent=isCurrentStage;
+    const useCurrent=showCurrent||forceCurrent;
+    const apiPath=useCurrent?"/api/stage/"+stageIndex+"/file_current":"/api/stage/"+stageIndex+"/file";
     const j=await apiFetch(apiPath+"?file_path="+encodeURIComponent(filePath));
     const data=j.data||{};
     if(data.error){
@@ -1597,7 +1615,10 @@ async function openStageFile(stageIndex,filePath,name,ext){
     _viewStageIndex=stageIndex;
     _viewFilePath=filePath;
     _viewFileName=name;
-    qs("#view-title").textContent=name;
+    _viewIsStageFile=true;
+    _viewIsCurrentStageFile=isCurrentStage;
+    _stageDiffRefreshing=false;
+    qs("#view-title").textContent=data.status==="deleted"||data.exists===false?name+" (deleted)":name;
     qs("#view-raw-btn").style.display="none";
     const body=qs("#view-body");
     body.style.padding="0";
@@ -1638,6 +1659,9 @@ async function openWorkspaceGitFile(filePath,name,ext){
     _viewStageIndex=-1;
     _viewFilePath=filePath;
     _viewFileName=name;
+    _viewIsStageFile=false;
+    _viewIsCurrentStageFile=false;
+    _stageDiffRefreshing=false;
     qs("#view-title").textContent=(data.exists===false?name+" (deleted)":name)+" - Git";
     body.style.padding="0";
     body.style.overflow="hidden";
@@ -1655,11 +1679,17 @@ function _renderStageFileContent(body,ext,showDiff){
   const content=_viewCurrentContent||"";
   const diff=_viewCurrentDiff||"";
   const hasDiff=diff.trim().length>0;
+  const showStageTools=_viewIsStageFile&&Number.isInteger(_viewStageIndex)&&_viewStageIndex>=0;
+  const canRefreshStageDiff=showStageTools&&_viewIsCurrentStageFile&&!_subWorkspace;
   let html="";
   html+=`<div class="stage-file-container">`;
-  if(showDiff&&hasDiff){
+  if(showDiff){
     html+=`<div class="stage-diff-section" style="margin:0;flex:1;overflow:auto">`;
-    html+=`<div id="stage-diff-view" class="stage-diff-merge"></div>`;
+    if(hasDiff){
+      html+=`<div id="stage-diff-view" class="stage-diff-merge"></div>`;
+    }else{
+      html+=`<div class="stage-diff-merge"><div class="stage-diff-empty">${canRefreshStageDiff?"No diff yet.\nClick refresh to sync workspace files into .ucagent/history and reload the diff.":"No diff available."}</div></div>`;
+    }
     html+=`</div>`;
   }else{
     if(_MD_EXTS.has(ext)){
@@ -1672,10 +1702,13 @@ function _renderStageFileContent(body,ext,showDiff){
       html+=`</div>`;
     }
   }
-  if(hasDiff){
+  if(hasDiff||showStageTools){
     html+=`<div class="stage-toggle-bar" style="margin-top:8px;margin-bottom:0">`;
     html+=`<button class="stage-toggle-btn${!showDiff?" active":""}" onclick="_toggleStageView(false)">Content</button>`;
     html+=`<button class="stage-toggle-btn${showDiff?" active":""}" onclick="_toggleStageView(true)">Diff</button>`;
+    if(canRefreshStageDiff){
+      html+=`<button class="stage-refresh-btn" onclick="refreshStageDiff()" title="Sync workspace files into .ucagent/history and reload diff" ${_stageDiffRefreshing?"disabled":""}>${_stageDiffRefreshing?"…":"&#8635;"}</button>`;
+    }
     html+=`</div>`;
   }
   html+=`</div>`;
@@ -1695,6 +1728,34 @@ function _toggleStageView(showDiff){
   const body=qs("#view-body");
   if(!body)return;
   _renderStageFileContent(body,_viewCurrentExt,showDiff);
+}
+
+async function refreshStageDiff(){
+  if(!_viewIsStageFile||!_viewIsCurrentStageFile||!Number.isInteger(_viewStageIndex)||_viewStageIndex<0||!_viewFilePath)return;
+  const body=qs("#view-body");
+  if(!body||_stageDiffRefreshing)return;
+  _stageDiffRefreshing=true;
+  _renderStageFileContent(body,_viewCurrentExt,true);
+  try{
+    const j=await apiFetch("/api/stage/"+_viewStageIndex+"/file_current?file_path="+encodeURIComponent(_viewFilePath)+"&sync_history=true");
+    const data=j.data||{};
+    if(data.error){
+      showErr(data.error);
+    }else{
+      let content=data.content||"";
+      if(typeof content!=="string")content=String(content);
+      _viewCurrentContent=content;
+      let diff=data.diff||"";
+      if(typeof diff!=="string")diff=String(diff);
+      _viewCurrentDiff=diff;
+      fetchMission();
+    }
+  }catch(e){
+    showErr(e.message);
+  }finally{
+    _stageDiffRefreshing=false;
+    _renderStageFileContent(body,_viewCurrentExt,true);
+  }
 }
 
 function _parseStageUnifiedDiff(diff){
