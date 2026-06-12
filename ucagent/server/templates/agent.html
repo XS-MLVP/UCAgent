@@ -113,6 +113,18 @@ a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 .outcome-name.file-changed{background:#3a2a1e;color:var(--orange)}
 .outcome-more-btn{color:var(--accent);cursor:pointer;font-size:10px;padding:1px 4px}
 .outcome-more-btn:hover{text-decoration:underline}
+.workspace-git-section{margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;font-family:var(--mono);line-height:1.6}
+.workspace-git-hdr{display:flex;align-items:center;gap:6px;margin-bottom:6px;color:var(--text-dim)}
+.workspace-git-title{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);font-weight:600}
+.workspace-git-branch{color:var(--accent);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workspace-git-refresh{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:1px 6px;border-radius:4px;cursor:pointer;font-size:10px;margin-left:auto}
+.workspace-git-refresh:hover{border-color:var(--accent);color:var(--accent)}
+.workspace-git-msg{color:var(--text-dim);padding:2px 0;white-space:pre-wrap}
+.workspace-git-msg.warn{color:var(--yellow)}
+.workspace-git-group{margin-top:6px}
+.workspace-git-status-badge{font-size:9px;border:1px solid currentColor;border-radius:3px;padding:0 3px;margin-right:3px;line-height:1.3;opacity:.85}
+.workspace-git-status-badge.modified{color:var(--orange)}
+.workspace-git-status-badge.untracked{color:var(--green)}
 .stage-toggle-bar{display:flex;gap:4px;margin-bottom:8px}
 .stage-toggle-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text-dim);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px}
 .stage-toggle-btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -357,6 +369,10 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
             <label class="show-current-label" title="Show files for each stage">
               <input type="checkbox" id="show-files">
               <span>Show Files</span>
+            </label>
+            <label class="show-current-label" title="Show workspace Git modified and untracked files">
+              <input type="checkbox" id="show-git-diff">
+              <span>Show Git Diff</span>
             </label>
             <span class="cf-count-label">Max files:</span>
             <div class="cf-count-ctrl" title="Max files to show per section">
@@ -669,6 +685,7 @@ function resetUiLayout(){
   const keys=[
     "ucagent-show-current",
     "ucagent-show-files",
+    "ucagent-show-git-diff",
     "ucagent-outcome-count",
     "ucagent-collapsed-stages",
     "ucagent.console.h",
@@ -945,6 +962,7 @@ async function fetchServerInfo(){
 const _STORAGE_KEYS={
   showCurrent:"ucagent-show-current",
   showFiles:"ucagent-show-files",
+  showGitDiff:"ucagent-show-git-diff",
   outcomeCount:"ucagent-outcome-count",
   collapsedStages:"ucagent-collapsed-stages"
 };
@@ -952,12 +970,15 @@ const _STORAGE_KEYS={
 function _loadMissionSettings(){
   const showCurrent=localStorage.getItem(_STORAGE_KEYS.showCurrent)==="true";
   const showFiles=localStorage.getItem(_STORAGE_KEYS.showFiles)!=="false";
+  const showGitDiff=localStorage.getItem(_STORAGE_KEYS.showGitDiff)==="true";
   const outcomeCount=parseInt(localStorage.getItem(_STORAGE_KEYS.outcomeCount))||10;
   const el1=qs("#show-current-content");
   const el2=qs("#show-files");
+  const elGit=qs("#show-git-diff");
   const el3=qs("#outcome-count-input");
   if(el1)el1.checked=showCurrent;
   if(el2)el2.checked=showFiles;
+  if(elGit)elGit.checked=showGitDiff;
   if(el3)el3.value=outcomeCount;
 }
 
@@ -1008,11 +1029,16 @@ function _initMissionSettings(){
   _loadMissionSettings();
   const el1=qs("#show-current-content");
   const el2=qs("#show-files");
+  const elGit=qs("#show-git-diff");
   if(el1)el1.addEventListener("change",()=>{
     _saveMissionSetting(_STORAGE_KEYS.showCurrent,el1.checked);
   });
   if(el2)el2.addEventListener("change",()=>{
     _saveMissionSetting(_STORAGE_KEYS.showFiles,el2.checked);
+    fetchMission();
+  });
+  if(elGit)elGit.addEventListener("change",()=>{
+    _saveMissionSetting(_STORAGE_KEYS.showGitDiff,elGit.checked);
     fetchMission();
   });
 }
@@ -1331,6 +1357,7 @@ async function fetchMission(){
     _pruneSelectedStages(stages);
     window._missionOutcomeData={};
     const showFiles=qs("#show-files")?.checked!==false;
+    const showGitDiff=qs("#show-git-diff")?.checked===true;
     let html=`<div class="mission-name">${esc(missionName)}</div>`;
     for(const stage of stages){
       const canEditFlags=!!stage.can_edit_flags;
@@ -1390,8 +1417,15 @@ async function fetchMission(){
       }
       html+=`</div>`;
     }
+    if(showGitDiff){
+      html+=`<div class="workspace-git-section" id="workspace-git-status">`;
+      html+=`<div class="workspace-git-hdr"><span class="workspace-git-title">Workspace Git Changes</span><button class="workspace-git-refresh" onclick="fetchWorkspaceGitStatus()">Refresh</button></div>`;
+      html+=`<div class="workspace-git-msg">Loading Git status…</div>`;
+      html+=`</div>`;
+    }
     qs("#mission-list").innerHTML=html||"(no tasks)";
     _updateStageSelectionUi();
+    if(showGitDiff)fetchWorkspaceGitStatus();
   }catch(e){qs("#mission-list").textContent="(unavailable)";}
 }
 
@@ -1481,6 +1515,65 @@ function _renderOutcomeFile(filePath,stageIndex,outputSet){
   return`<span class="outcome-file-wrap">${pathHtml}</span>`;
 }
 
+function _renderWorkspaceGitStatus(data){
+  const branch=data.branch?`<span class="workspace-git-branch" title="Git branch">${esc(data.branch)}</span>`:"";
+  let html=`<div class="workspace-git-hdr"><span class="workspace-git-title">Workspace Git Changes</span>${branch}<button class="workspace-git-refresh" onclick="fetchWorkspaceGitStatus()">Refresh</button></div>`;
+  if(!data.is_git_repo){
+    html+=`<div class="workspace-git-msg warn">${esc(data.message||"Workspace is not a Git repository.")}</div>`;
+    return html;
+  }
+  const modified=data.modified_files||[];
+  const untracked=data.untracked_files||[];
+  if(!modified.length&&!untracked.length){
+    html+=`<div class="workspace-git-msg">${esc(data.message||"No modified or untracked files in the workspace.")}</div>`;
+    return html;
+  }
+  html+=`<div class="workspace-git-msg">${esc(data.message||"")}</div>`;
+  if(modified.length){
+    html+=`<div class="workspace-git-group"><span class="outcome-label">Modified files:</span>`;
+    html+=`<div class="outcome-files-grid">${modified.map(file=>_renderWorkspaceGitFile(file,"modified")).join("")}</div></div>`;
+  }
+  if(untracked.length){
+    html+=`<div class="workspace-git-group"><span class="outcome-label">Untracked files:</span>`;
+    html+=`<div class="outcome-files-grid">${untracked.map(file=>_renderWorkspaceGitFile(file,"untracked")).join("")}</div></div>`;
+  }
+  return html;
+}
+
+function _renderWorkspaceGitFile(file,kind){
+  const filePath=typeof file==="string"?file:(file.path||"");
+  if(!filePath)return "";
+  const status=typeof file==="string"?(kind==="untracked"?"??":"M"):(file.status||"");
+  const label=typeof file==="string"?kind:(file.label||kind);
+  const colorCls=kind==="untracked"?"output-color":"changed-color";
+  const cls=kind==="untracked"?"file-output":"file-changed";
+  const parts=filePath.split("/");
+  const name=parts.pop()||filePath;
+  const ext=name.includes(".")?name.split(".").pop().toLowerCase():"";
+  let pathHtml="";
+  let builtPath="";
+  for(let i=0;i<parts.length;i++){
+    const part=parts[i];
+    builtPath=builtPath?builtPath+"/"+part:part;
+    pathHtml+=`<span class="outcome-path-part ${colorCls}" onclick="fetchFiles('${jsq(builtPath)}')" title="${esc(builtPath)}">${esc(part)}</span>`;
+    pathHtml+=`<span class="outcome-sep ${colorCls}">/</span>`;
+  }
+  pathHtml+=`<span class="workspace-git-status-badge ${kind}" title="${esc(label)}">${esc(status.trim()||status||kind)}</span>`;
+  pathHtml+=`<span class="outcome-name ${cls}" onclick="openWorkspaceGitFile('${jsq(filePath)}','${jsq(name)}','${jsq(ext)}')" title="${esc(filePath)}">${esc(name)}</span>`;
+  return`<span class="outcome-file-wrap">${pathHtml}</span>`;
+}
+
+async function fetchWorkspaceGitStatus(){
+  const el=qs("#workspace-git-status");
+  if(!el)return;
+  try{
+    const j=await apiFetch("/api/workspace_git_status");
+    el.innerHTML=_renderWorkspaceGitStatus(j.data||{});
+  }catch(e){
+    el.innerHTML=`<div class="workspace-git-hdr"><span class="workspace-git-title">Workspace Git Changes</span><button class="workspace-git-refresh" onclick="fetchWorkspaceGitStatus()">Refresh</button></div><div class="workspace-git-msg warn">${esc(e.message)}</div>`;
+  }
+}
+
 let _viewCurrentPath="",_viewCurrentExt="",_viewCurrentContent="",_viewCurrentDiff="",_viewStageIndex=0,_viewFilePath="",_viewFileName="";
 
 async function openStageFile(stageIndex,filePath,name,ext){
@@ -1513,6 +1606,49 @@ async function openStageFile(stageIndex,filePath,name,ext){
     openModal("view-modal");
     _applyStoredModalResize('view-modal');
   }catch(e){showErr(e.message);}
+}
+
+async function openWorkspaceGitFile(filePath,name,ext){
+  const body=qs("#view-body");
+  qs("#view-title").textContent=name+" - Git";
+  qs("#view-raw-btn").style.display="none";
+  _viewIsRaw=false;
+  body.style.padding="0";
+  body.style.overflow="hidden";
+  body.innerHTML='<div style="color:var(--text-dim);padding:20px">Loading…</div>';
+  openModal("view-modal");
+  try{
+    const j=await apiFetch("/api/workspace_git_file?file_path="+encodeURIComponent(filePath));
+    const data=j.data||{};
+    if(data.error){
+      body.style.padding="14px";
+      body.style.overflow="auto";
+      body.innerHTML=`<div style="color:var(--red);line-height:1.6">${esc(data.error)}</div>`;
+      _applyStoredModalResize('view-modal');
+      return;
+    }
+    _viewCurrentPath=filePath;
+    _viewCurrentExt=ext;
+    let content=data.content||"";
+    if(typeof content!=="string")content=String(content);
+    _viewCurrentContent=content;
+    let diff=data.diff||"";
+    if(typeof diff!=="string")diff=String(diff);
+    _viewCurrentDiff=diff;
+    _viewStageIndex=-1;
+    _viewFilePath=filePath;
+    _viewFileName=name;
+    qs("#view-title").textContent=(data.exists===false?name+" (deleted)":name)+" - Git";
+    body.style.padding="0";
+    body.style.overflow="hidden";
+    _renderStageFileContent(body,ext,!!diff.trim()&&!content.trim());
+    _applyStoredModalResize('view-modal');
+  }catch(e){
+    body.style.padding="14px";
+    body.style.overflow="auto";
+    body.innerHTML=`<div style="color:var(--red);line-height:1.6">${esc(e.message)}</div>`;
+    _applyStoredModalResize('view-modal');
+  }
 }
 
 function _renderStageFileContent(body,ext,showDiff){
