@@ -12,7 +12,15 @@ SWARM_MASTER_PERSIST ?= /tmp/ucagent_master
 SWARM_DOCKER_SOCK ?= /var/run/docker.sock
 SWARM_MASTER_HOST ?=
 SWARM_LOCAL_UCAGENT_DIR := $(CURDIR)
+SWARM_IS_COLIMA ?= $(shell ctx="$$(docker context show 2>/dev/null)"; host="$$(docker context inspect "$$ctx" --format '{{.Endpoints.docker.Host}}' 2>/dev/null)"; printf '%s\n%s\n' "$$ctx" "$$host" | grep -Eq '(^colima|[/.]colima)' && echo 1 || echo 0)
+SWARM_COLIMA_SSH ?= colima ssh --
+SWARM_MASTER_PERSIST_SOURCE := $(abspath $(SWARM_MASTER_PERSIST))
+SWARM_COMMA := ,
 MASTER_IP ?= 127.0.0.1
+
+SWARM_MASTER_PUBLISH = published=$(SWARM_MASTER_PORT),target=$(SWARM_MASTER_PORT)$(if $(filter 1 true yes,$(SWARM_IS_COLIMA)),$(SWARM_COMMA)mode=host)
+SWARM_DOCKER_SOCK_CHECK = $(if $(filter 1 true yes,$(SWARM_IS_COLIMA)),$(SWARM_COLIMA_SSH) test -S $(SWARM_DOCKER_SOCK),test -S $(SWARM_DOCKER_SOCK))
+SWARM_MASTER_PERSIST_MKDIR = $(if $(filter 1 true yes,$(SWARM_IS_COLIMA)),$(SWARM_COLIMA_SSH) mkdir -p $(SWARM_MASTER_PERSIST_SOURCE),mkdir -p $(SWARM_MASTER_PERSIST_SOURCE))
 
 ifneq ($(strip $(UCAGENT_MASTER_SOURCE)),)
 SWARM_MASTER_SOURCE_DIR := $(abspath $(UCAGENT_MASTER_SOURCE))
@@ -128,7 +136,7 @@ as_master_persist:
 swarm_check:
 	@command -v docker >/dev/null 2>&1 || { echo "Error: docker CLI is not installed or not in PATH."; exit 1; }
 	@docker info >/dev/null 2>&1 || { echo "Error: Docker daemon is not available. Please start Docker first."; exit 1; }
-	@test -S $(SWARM_DOCKER_SOCK) || { echo "Error: Docker socket $(SWARM_DOCKER_SOCK) is not available."; exit 1; }
+	@$(SWARM_DOCKER_SOCK_CHECK) || { echo "Error: Docker socket $(SWARM_DOCKER_SOCK) is not available."; exit 1; }
 	@if [ -n "$(SWARM_MASTER_SOURCE_DIR)" ] && [ ! -f "$(SWARM_MASTER_SOURCE_DIR)/ucagent/cli.py" ]; then \
 		echo "Error: UCAGENT_MASTER_SOURCE must point to a UCAgent source tree containing ucagent/cli.py: $(SWARM_MASTER_SOURCE_DIR)"; \
 		exit 1; \
@@ -173,7 +181,7 @@ swarm_clean:
 	@docker ps -a
 
 swarm_master: swarm_init
-	@mkdir -p $(SWARM_MASTER_PERSIST)
+	@$(SWARM_MASTER_PERSIST_MKDIR)
 	@if docker service inspect $(SWARM_MASTER_SERVICE) >/dev/null 2>&1; then \
 		echo "Removing existing Docker Swarm service $(SWARM_MASTER_SERVICE)..."; \
 		docker service rm $(SWARM_MASTER_SERVICE) >/dev/null; \
@@ -208,8 +216,8 @@ swarm_master: swarm_init
 		--env UC_ENV_CMD_BACKEND_EX_ARGS_N \
 		--env UC_ENV_CMD_BACKEND_EX_ARGS_C \
 		$(SWARM_MASTER_SOURCE_ENV) \
-		--publish published=$(SWARM_MASTER_PORT),target=$(SWARM_MASTER_PORT) \
-		--mount type=bind,source=$(abspath $(SWARM_MASTER_PERSIST)),target=$(SWARM_MASTER_PERSIST) \
+		--publish $(SWARM_MASTER_PUBLISH) \
+		--mount type=bind,source=$(SWARM_MASTER_PERSIST_SOURCE),target=$(SWARM_MASTER_PERSIST) \
 		--mount type=bind,source=$(SWARM_DOCKER_SOCK),target=$(SWARM_DOCKER_SOCK) \
 		$(SWARM_MASTER_UCAGENT_MOUNT) \
 		--workdir /workspace/UCAgent \
