@@ -46,8 +46,14 @@ except ImportError:  # pragma: no cover - optional dependency checked at runtime
     Body = Depends = FastAPI = HTTPException = Query = Request = Response = WebSocket = WebSocketDisconnect = None
     _Header = HTMLResponse = JSONResponse = HTTPBasic = HTTPBasicCredentials = BaseModel = Field = None
 
-from ucagent.util.config import get_config
-from ucagent.util.functions import find_available_port, get_abs_path_cwd_ucagent, is_port_free, load_ucagent_info
+from ucagent.util.config import get_config, load_yaml_with_env_vars
+from ucagent.util.functions import (
+    find_available_port,
+    get_abs_path_cwd_ucagent,
+    is_port_free,
+    load_ucagent_info,
+    replace_bash_var,
+)
 from ucagent.util.log import echo_g, warning
 from ucagent.util.workspace_archive import (
     WorkspaceArchiveError,
@@ -397,6 +403,77 @@ def _plain_config_value(obj: Any) -> Any:
     return obj
 
 
+def _yaml_mapping_node_value(mapping_node: Any, key: str) -> Any:
+    if not getattr(mapping_node, "value", None):
+        return None
+    for key_node, value_node in mapping_node.value:
+        if getattr(key_node, "value", None) == key:
+            return value_node
+    return None
+
+
+def _config_default_env_keys(config_files: List[str]) -> set:
+    keys = set()
+    for config_file in config_files or []:
+        if not config_file or not os.path.isfile(config_file):
+            continue
+        try:
+            data = load_yaml_with_env_vars(config_file) or {}
+        except Exception:
+            continue
+        configured = data.get("launch", {}).get("default_env", []) if isinstance(data, dict) else []
+        if not isinstance(configured, list):
+            continue
+        keys.clear()
+        for entry in configured:
+            if isinstance(entry, str):
+                key = entry.strip()
+            elif isinstance(entry, dict) and len(entry) == 1:
+                key = str(next(iter(entry.keys()))).strip()
+            else:
+                continue
+            if key:
+                keys.add(key)
+    return keys
+
+
+def _config_default_env_bool_literals(config_files: List[str]) -> Dict[str, str]:
+    literals: Dict[str, str] = {}
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - yaml is a project dependency
+        return literals
+    configured_keys = _config_default_env_keys(config_files)
+    for config_file in config_files or []:
+        if not config_file or not os.path.isfile(config_file):
+            continue
+        try:
+            with open(config_file, "r", encoding="utf-8") as fh:
+                node = yaml.compose(replace_bash_var(fh.read(), os.environ))
+        except Exception:
+            continue
+        launch_node = _yaml_mapping_node_value(node, "launch")
+        default_env_node = _yaml_mapping_node_value(launch_node, "default_env")
+        if getattr(default_env_node, "id", "") != "sequence":
+            continue
+        for item_node in default_env_node.value:
+            if getattr(item_node, "id", "") != "mapping" or len(getattr(item_node, "value", [])) != 1:
+                continue
+            key_node, value_node = item_node.value[0]
+            key = str(getattr(key_node, "value", "") or "").strip()
+            if not key:
+                continue
+            literals.pop(key, None)
+            if getattr(value_node, "tag", "") != "tag:yaml.org,2002:bool":
+                continue
+            raw_value = str(getattr(value_node, "value", "") or "").strip()
+            if raw_value.lower() in {"true", "false"}:
+                literals[key] = raw_value
+    if configured_keys:
+        literals = {key: value for key, value in literals.items() if key in configured_keys}
+    return literals
+
+
 def _workspace_sync_ignore_patterns_from_cfg(cfg: Any) -> List[str]:
     if cfg is None:
         return []
@@ -482,6 +559,45 @@ def _normalize_launch_mode_list(value: Any) -> List[str]:
 
 def _valid_env_name(name: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(name or "")))
+
+
+def _launch_env_reference_key(value: Any) -> str:
+    match = re.match(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$", str(value or "").strip())
+    return match.group(1) if match else ""
+
+
+def _resolve_launch_env_references(values: Dict[str, Any], base_env: Dict[str, Any]) -> Dict[str, str]:
+    raw_values = {
+        str(key): str(value)
+        for key, value in (values or {}).items()
+        if str(key).strip()
+    }
+    base_values = {str(key): str(value) for key, value in (base_env or {}).items()}
+    resolved: Dict[str, str] = {}
+
+    def resolve_key(key: str, seen: set) -> Optional[str]:
+        if key in resolved:
+            return resolved[key]
+        if key not in raw_values:
+            return base_values.get(key)
+        value = raw_values[key]
+        ref_key = _launch_env_reference_key(value)
+        if not ref_key:
+            resolved[key] = value
+            return value
+        if ref_key in seen:
+            resolved[key] = value
+            return value
+        ref_value = resolve_key(ref_key, seen | {key})
+        if ref_value is None:
+            resolved[key] = value
+            return value
+        resolved[key] = ref_value
+        return ref_value
+
+    for key in raw_values:
+        resolve_key(key, set())
+    return resolved
 
 
 def _parse_web_terminal_spec(spec: str) -> Tuple[str, int, str]:
@@ -2905,7 +3021,7 @@ class PdbMasterApiServer:
 
         env = os.environ.copy()
         env_updates = self._launch_default_env_updates()
-        env_updates.update(req.get("env") or {})
+        env_updates.update(_resolve_launch_env_references(req.get("env") or {}, {**env, **env_updates}))
         env.update({str(k): str(v) for k, v in env_updates.items()})
         if self.access_key:
             env["UCAGENT_WORKSPACE_ARCHIVE_KEY"] = self.access_key
@@ -3604,6 +3720,7 @@ class PdbMasterApiServer:
                 selected[key] = str(env[key])
         for key, value in (requested_env or {}).items():
             selected[str(key)] = str(value)
+        selected = _resolve_launch_env_references(selected, env)
         selected.setdefault("PYTHONUNBUFFERED", "1")
         return selected
 
@@ -5149,6 +5266,8 @@ class PdbMasterApiServer:
             configured = configured.as_dict()
         if not isinstance(configured, list):
             configured = []
+        loaded_config_files = getattr(self.cfg, "__dict__", {}).get("_loaded_config_files", [])
+        bool_literals = _config_default_env_bool_literals(loaded_config_files)
         secret_markers = ("KEY", "TOKEN", "SECRET", "PASSWORD")
         ref_pattern = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
         items = []
@@ -5187,6 +5306,7 @@ class PdbMasterApiServer:
                 "mode": mode,
                 "reference_key": reference_key,
                 "raw_value": (raw_value if (not masked or mode == "reference") else ""),
+                "raw_literal": bool_literals.get(key, ""),
                 "present": "yes" if resolved_value else "no",
                 "value": _mask_secret(resolved_value) if (resolved_value and masked) else resolved_value,
                 "masked": masked,

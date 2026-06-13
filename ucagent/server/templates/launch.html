@@ -2188,9 +2188,15 @@ function renderCompileState() {
 
 function normalizeBooleanEnvValue(value) {
   const normalized = String(value ?? '').trim().toLowerCase();
-  if (normalized === 'true') return 'True';
-  if (normalized === 'false') return 'False';
+  if (normalized === 'true') return 'true';
+  if (normalized === 'false') return 'false';
   return '';
+}
+
+function envBooleanOptionCase(row) {
+  const raw = String(row.rawLiteral || row.rawValue || row.initialValue || row.value || '').trim();
+  if (raw === 'True' || raw === 'False') return 'title';
+  return 'lower';
 }
 
 function getEnvRowDisplayValue(row) {
@@ -2208,11 +2214,14 @@ function getEnvRowBooleanValue(row) {
 
 function renderEnvValueControl(row) {
   if (row.booleanSelect) {
-    const selected = getEnvRowBooleanValue(row) || 'False';
+    const optionCase = envBooleanOptionCase(row);
+    const trueValue = optionCase === 'title' ? 'True' : 'true';
+    const falseValue = optionCase === 'title' ? 'False' : 'false';
+    const selected = getEnvRowBooleanValue(row) || 'false';
     return `
         <select data-action="env-value" data-row-id="${esc(row.id)}" data-env-type="boolean">
-          <option value="True" ${selected === 'True' ? 'selected' : ''}>True</option>
-          <option value="False" ${selected === 'False' ? 'selected' : ''}>False</option>
+          <option value="${trueValue}" ${selected === 'true' ? 'selected' : ''}>${trueValue}</option>
+          <option value="${falseValue}" ${selected === 'false' ? 'selected' : ''}>${falseValue}</option>
         </select>`;
   }
   return `
@@ -2254,31 +2263,32 @@ ${renderEnvValueControl(row)}
 
 function resolveEnvRow(row, seen = new Set()) {
   if (!row) return { filled: false, payloadValue: '', displayValue: '' };
-  const manual = String(row.value || '').trim();
-  if (manual) {
-    return { filled: true, payloadValue: manual, displayValue: manual };
-  }
-  if (row.mode === 'reference' && row.referenceKey) {
+  if (row.mode === 'reference' && row.referenceKey && !row.userEdited) {
     if (seen.has(row.key)) return { filled: false, payloadValue: '', displayValue: '' };
     const nextSeen = new Set(seen);
     nextSeen.add(row.key);
     const refRow = state.envRows.find((item) => item.key.trim() === row.referenceKey);
     const resolved = resolveEnvRow(refRow, nextSeen);
     if (resolved.filled) {
+      const payloadValue = String(resolved.payloadValue || '').trim();
       return {
         filled: true,
-        payloadValue: row.userEdited ? resolved.displayValue : (row.rawValue || `$${row.referenceKey}`),
+        payloadValue: payloadValue || (refRow?.masked ? '' : resolved.displayValue),
         displayValue: resolved.displayValue,
       };
     }
     if (row.hasDefaultValue) {
       return {
         filled: true,
-        payloadValue: row.rawValue || `$${row.referenceKey}`,
+        payloadValue: row.masked ? '' : row.initialValue,
         displayValue: row.masked ? row.placeholder : row.initialValue,
       };
     }
     return { filled: false, payloadValue: '', displayValue: '' };
+  }
+  const manual = String(row.value || '').trim();
+  if (manual) {
+    return { filled: true, payloadValue: manual, displayValue: manual };
   }
   if (row.hasDefaultValue) {
     if (row.mode === 'literal') {
@@ -2802,9 +2812,13 @@ function applyEnvDefaults(items) {
   state.envRows = (items || []).map((item) => {
     const masked = Boolean(item.masked);
     const mode = String(item.mode || 'required');
-    const value = masked ? '' : String(item.value || '');
     const rawValue = String(item.raw_value || '');
-    const booleanSelect = !masked && mode === 'literal' && Boolean(normalizeBooleanEnvValue(rawValue || value));
+    const rawLiteral = String(item.raw_literal || '');
+    const literalBooleanValue = mode === 'literal' && normalizeBooleanEnvValue(rawLiteral || rawValue || item.value)
+      ? (rawLiteral || rawValue || String(item.value || ''))
+      : '';
+    const value = masked ? '' : String(literalBooleanValue || item.value || '');
+    const booleanSelect = !masked && mode === 'literal' && Boolean(normalizeBooleanEnvValue(rawLiteral || rawValue || value));
     let sourceLabel = 'required';
     let detailLabel = 'Required external environment variable';
     if (mode === 'reference') {
@@ -2812,7 +2826,7 @@ function applyEnvDefaults(items) {
       detailLabel = `Configured as ${item.raw_value || ''}`;
     } else if (mode === 'literal') {
       sourceLabel = 'config';
-      detailLabel = `Configured value: ${item.raw_value || ''}`;
+      detailLabel = `Configured value: ${rawLiteral || item.raw_value || ''}`;
     } else if (item.present === 'yes') {
       sourceLabel = 'inherited';
       detailLabel = 'Inherited from the master environment';
@@ -2826,6 +2840,7 @@ function applyEnvDefaults(items) {
       masked,
       mode,
       rawValue,
+      rawLiteral,
       referenceKey: String(item.reference_key || ''),
       hasDefaultValue: item.present === 'yes',
       userEdited: false,

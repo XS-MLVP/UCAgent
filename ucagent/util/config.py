@@ -79,7 +79,7 @@ class Config:
         """
         result = {}
         for key, value in self.__dict__.items():
-            if key == "_freeze":
+            if key in {"_freeze", "_loaded_config_files"}:
                 continue
             if isinstance(value, Config):
                 result[key] = value.as_dict()
@@ -538,4 +538,6 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
             info(f"Config file '{user_config_file_path}' already loaded, ignore.")
 
     # set override values
-    return cfg.set_values(cfg_override).freeze()
+    cfg.set_values(cfg_override)
+    object.__setattr__(cfg, "_loaded_config_files", list(loaded_configs))
+    return cfg.freeze()

@@ -183,6 +183,123 @@ def test_launch_request_env_overrides_default_env():
         assert env["PASS_SUGGESTION_MODEL"] == "web-model"
 
 
+def test_launch_request_env_resolves_references_from_same_payload():
+    with tempfile.TemporaryDirectory() as master_ws:
+        cfg = Config({
+            "launch": {
+                "default_env": [
+                    {"ENABLE_LLM_SUGGESTION": True},
+                    {"ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION"},
+                    {"ENABLE_LLM_PASS_SUGGESTION": "$ENABLE_LLM_SUGGESTION"},
+                ],
+            },
+        }).freeze()
+        server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+        _argv, env = server._build_ucagent_command(
+            {
+                "env": {
+                    "ENABLE_LLM_SUGGESTION": "true",
+                    "ENABLE_LLM_FAIL_SUGGESTION": "$ENABLE_LLM_SUGGESTION",
+                    "ENABLE_LLM_PASS_SUGGESTION": "$ENABLE_LLM_SUGGESTION",
+                },
+            },
+            {"workspace_dir": master_ws, "picker_workspace": master_ws, "dut_name": "Adder"},
+            {"host": "127.0.0.1", "port": 8765, "password": "pw"},
+        )
+
+        assert env["ENABLE_LLM_SUGGESTION"] == "true"
+        assert env["ENABLE_LLM_FAIL_SUGGESTION"] == "true"
+        assert env["ENABLE_LLM_PASS_SUGGESTION"] == "true"
+
+
+def test_launch_env_preview_preserves_default_env_bool_literal_case():
+    with tempfile.TemporaryDirectory() as master_ws:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as handle:
+            handle.write(
+                """
+launch:
+  default_env:
+    - "LOWER_TRUE": true
+    - "LOWER_FALSE": false
+    - "TITLE_TRUE": True
+    - "TITLE_FALSE": False
+"""
+            )
+            config_path = handle.name
+        try:
+            cfg = Config({
+                "launch": {
+                    "default_env": [
+                        {"LOWER_TRUE": True},
+                        {"LOWER_FALSE": False},
+                        {"TITLE_TRUE": True},
+                        {"TITLE_FALSE": False},
+                    ],
+                },
+            })
+            object.__setattr__(cfg, "_loaded_config_files", [config_path])
+            cfg.freeze()
+            server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+            preview = {item["key"]: item for item in server._launch_env_preview()}
+        finally:
+            os.unlink(config_path)
+
+    assert preview["LOWER_TRUE"]["raw_literal"] == "true"
+    assert preview["LOWER_FALSE"]["raw_literal"] == "false"
+    assert preview["TITLE_TRUE"]["raw_literal"] == "True"
+    assert preview["TITLE_FALSE"]["raw_literal"] == "False"
+
+
+def test_launch_env_preview_ignores_stale_bool_literal_from_overridden_default_env():
+    with tempfile.TemporaryDirectory() as master_ws:
+        config_paths = []
+        for content in (
+            """
+launch:
+  default_env:
+    - "ENABLED": true
+""",
+            """
+launch:
+  default_env:
+    - "ENABLED": "yes"
+    - "OTHER": false
+""",
+        ):
+            with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as handle:
+                handle.write(content)
+                config_paths.append(handle.name)
+        try:
+            cfg = Config({
+                "launch": {
+                    "default_env": [
+                        {"ENABLED": "yes"},
+                        {"OTHER": False},
+                    ],
+                },
+            })
+            object.__setattr__(cfg, "_loaded_config_files", list(config_paths))
+            cfg.freeze()
+            server = PdbMasterApiServer(workspace=master_ws, cfg=cfg)
+
+            preview = {item["key"]: item for item in server._launch_env_preview()}
+        finally:
+            for config_path in config_paths:
+                os.unlink(config_path)
+
+    assert preview["ENABLED"]["raw_literal"] == ""
+    assert preview["OTHER"]["raw_literal"] == "false"
+
+
+def test_config_as_dict_omits_loaded_config_files_metadata():
+    cfg = Config({"launch": {"default_env": []}})
+    object.__setattr__(cfg, "_loaded_config_files", ["/tmp/setting.yaml"])
+
+    assert "_loaded_config_files" not in cfg.as_dict()
+
+
 def test_master_source_overrides_container_launch_cli(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws:
         source_host_path = "/host/path/UCAgent-not-visible-inside-master-container"
