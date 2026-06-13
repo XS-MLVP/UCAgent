@@ -41,6 +41,11 @@ stage:
           data_key: "VIBE_HM_PASS_INPUT"
           dut_name: "{DUT}"
     need_human_check: true
+    reference_files:
+      - "Guide_Doc/dut_functions_and_checks.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "Guide_Doc/dut_test_case.md"
+      - "{OUT}/*.md"
 
 un_write_dirs: []
 
