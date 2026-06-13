@@ -622,6 +622,8 @@ class VerifyAgent:
         return {
             "version": self.__version__,
             "seed": self.seed,
+            "dut_name": self.dut_name,
+            "DUT": self.dut_name,
             "config_file": self.config_file,
             "config_arg": self.config_file,
             "mission_name": self.cfg.mission.name,

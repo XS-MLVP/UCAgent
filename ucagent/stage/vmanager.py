@@ -511,8 +511,7 @@ class StageManager(object):
         )
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].hist_init()
-        if self._saved_info_truncated_by_force:
-            self.save_stage_info()
+        self.save_stage_info()
 
     def is_break(self):
         return self.agent.is_break()
@@ -876,6 +875,8 @@ class StageManager(object):
         info = self.agent.get_stat_info()
         info.update({
             "mission_name": self.agent.cfg.mission.name,
+            "dut_name": getattr(self.agent, "dut_name", ""),
+            "DUT": getattr(self.agent, "dut_name", ""),
             "stage_index": self.stage_index,
             "all_completed": all_completed,
             "time_begin": self.time_begin,

@@ -1306,6 +1306,7 @@ class PdbMasterApiServer:
         if not ws.get("task_id") and workspace_id:
             ws["task_id"] = workspace_id
             changed = True
+        manual_relaunch = bool(ws.get("manual_relaunch_workspace"))
         file_status = str(status_data.get("status") or "").strip()
         launch_status = str(ws.get("launch_status") or ws.get("status") or file_status or "").strip()
         if file_status == "launched":
@@ -1317,7 +1318,7 @@ class PdbMasterApiServer:
         if ws.get("launch_status") != launch_status:
             ws["launch_status"] = launch_status
             changed = True
-        materialized = bool(has_tmp_marker)
+        materialized = bool(has_tmp_marker or (manual_relaunch and root and os.path.isdir(root)))
         if ws.get("materialized") != materialized:
             ws["materialized"] = materialized
             changed = True
@@ -1426,6 +1427,7 @@ class PdbMasterApiServer:
         return {
             "workspace_id": ws.get("workspace_id", ""),
             "workspace_dir": ws.get("workspace_dir", ""),
+            "picker_workspace": ws.get("picker_workspace", ""),
             "base_root": ws.get("base_root", ""),
             "created_at": ws.get("created_at", 0),
             "materialized": bool(ws.get("materialized")),
@@ -1683,6 +1685,8 @@ class PdbMasterApiServer:
         with self._workspaces_lock:
             for workspace_id, ws in list(self._workspaces.items()):
                 self._normalize_workspace_locked(ws)
+                if ws.get("manual_relaunch_workspace"):
+                    continue
                 task_id = str(ws.get("task_id") or "").strip()
                 launched = (
                     ws.get("launch_status") == "launched"
@@ -1716,6 +1720,8 @@ class PdbMasterApiServer:
                     if ws is None:
                         continue
                     self._normalize_workspace_locked(ws)
+                    if ws.get("manual_relaunch_workspace"):
+                        continue
                     task_id = str(ws.get("task_id") or "").strip()
                     launched = (
                         ws.get("launch_status") == "launched"
@@ -4950,6 +4956,17 @@ class PdbMasterApiServer:
             raise ValueError("'selected_module' is required")
         effective_dut = (req.get("dut_name") or "").strip() or selected_module
         compile_info = dict((ws.get("compile") or {}))
+        allow_ucagent_info_relaunch = bool(req.get("_relaunch_from_ucagent_info")) and compile_info.get("status") != "success"
+        ucagent_info: Dict[str, Any] = {}
+        info_dut_name = ""
+        if allow_ucagent_info_relaunch:
+            try:
+                info_path = self._relaunch_ucagent_info_path(ws)
+                ucagent_info = self._read_json_dict_file(info_path) if info_path else {}
+                info_dut_name = self._relaunch_info_dut_name(ucagent_info)
+            except Exception:
+                ucagent_info = {}
+                info_dut_name = ""
         current_f_filelists = sorted(
             os.path.abspath(item.get("stored_path", ""))
             for item in ws.get("files", [])
@@ -4972,28 +4989,65 @@ class PdbMasterApiServer:
                 or os.path.abspath(str(compile_info.get("main_verilog_path") or "")) == os.path.abspath(str(req.get("main_verilog_path") or ""))
             )
         )
-        if not compile_matches:
+        info_relaunch_matches = bool(
+            allow_ucagent_info_relaunch
+            and info_dut_name
+            and info_dut_name == _safe_name(effective_dut, "DUT")
+        )
+        if not compile_matches and not info_relaunch_matches:
             raise ValueError(
                 f"Workspace '{workspace_id}' has no successful compile matching DUT '{_safe_name(effective_dut, 'DUT')}' "
                 f"and module '{selected_module}'. Please compile first."
             )
 
-        prepared = {
-            "workspace_dir": ws["workspace_dir"],
-            "picker_workspace": compile_info.get("picker_workspace", ""),
-            "dut_name": compile_info.get("dut_name", ""),
-            "rtl_dir": compile_info.get("rtl_dir", ""),
-            "doc_dir": compile_info.get("doc_dir", ""),
-            "dut_dir": compile_info.get("dut_dir", ""),
-            "main_verilog_path": compile_info.get("compiled_main_verilog_path", ""),
-            "filelist_path": compile_info.get("filelist_path", ""),
-            "source_f_filelist_paths": list(compile_info.get("source_f_filelist_paths") or []),
-            "f_filelist_paths": list(compile_info.get("f_filelist_paths") or []),
-            "generated_filelist": bool(compile_info.get("generated_filelist")),
-            "copied_files": list(compile_info.get("copied_files") or []),
-            "config_path": compile_info.get("config_path", ""),
-            "use_zip_workspace": bool(req.get("use_zip_workspace", True)),
-        }
+        if compile_matches:
+            prepared = {
+                "workspace_dir": ws["workspace_dir"],
+                "picker_workspace": compile_info.get("picker_workspace", ""),
+                "dut_name": compile_info.get("dut_name", ""),
+                "rtl_dir": compile_info.get("rtl_dir", ""),
+                "doc_dir": compile_info.get("doc_dir", ""),
+                "dut_dir": compile_info.get("dut_dir", ""),
+                "main_verilog_path": compile_info.get("compiled_main_verilog_path", ""),
+                "filelist_path": compile_info.get("filelist_path", ""),
+                "source_f_filelist_paths": list(compile_info.get("source_f_filelist_paths") or []),
+                "f_filelist_paths": list(compile_info.get("f_filelist_paths") or []),
+                "generated_filelist": bool(compile_info.get("generated_filelist")),
+                "copied_files": list(compile_info.get("copied_files") or []),
+                "config_path": compile_info.get("config_path", ""),
+                "use_zip_workspace": bool(req.get("use_zip_workspace", True)),
+            }
+            picker_status = compile_info.get("status", "not_started")
+        else:
+            picker_workspace = os.path.abspath(
+                str(ws.get("picker_workspace") or self._compiled_workspace_match_path(ws) or ws["workspace_dir"])
+            )
+            if not os.path.isdir(picker_workspace):
+                raise ValueError(f"Relaunch workspace directory not found: {picker_workspace}")
+            if not self._is_ucagent_workspace_root(picker_workspace):
+                raise ValueError(f"Relaunch workspace is missing .ucagent/ucagent_info.json: {picker_workspace}")
+            doc_dir = os.path.join(picker_workspace, f"{info_dut_name}_Doc")
+            dut_dir = os.path.join(picker_workspace, info_dut_name)
+            if not os.path.isdir(doc_dir):
+                doc_dir = ""
+            prepared = {
+                "workspace_dir": os.path.abspath(str(ws["workspace_dir"])),
+                "picker_workspace": picker_workspace,
+                "dut_name": info_dut_name,
+                "rtl_dir": os.path.join(picker_workspace, f"{info_dut_name}_RTL"),
+                "doc_dir": doc_dir,
+                "dut_dir": dut_dir if os.path.isdir(dut_dir) else "",
+                "main_verilog_path": "",
+                "filelist_path": "",
+                "source_f_filelist_paths": [],
+                "f_filelist_paths": [],
+                "generated_filelist": False,
+                "copied_files": [],
+                "config_path": "",
+                "use_zip_workspace": False,
+            }
+            req["use_zip_workspace"] = False
+            picker_status = "success"
 
         compiled_config = str(compile_info.get("config_path") or "").strip()
         current_config = str(req.get("config") or "").strip()
@@ -5074,7 +5128,7 @@ class PdbMasterApiServer:
 
         task["picker_command"] = list(compile_info.get("picker_command") or [])
         task["picker_exit_code"] = compile_info.get("picker_exit_code")
-        task["picker_status"] = compile_info.get("status", "not_started")
+        task["picker_status"] = picker_status
         req["task_id"] = task["task_id"]
         self._mark_dirty()
 
@@ -5578,6 +5632,95 @@ class PdbMasterApiServer:
                 except OSError:
                     pass
 
+    def _ucagent_info_path_for_root(self, workspace_root: str) -> str:
+        return os.path.join(os.path.abspath(workspace_root), ".ucagent", "ucagent_info.json")
+
+    def _is_ucagent_workspace_root(self, workspace_root: str) -> bool:
+        return os.path.isfile(self._ucagent_info_path_for_root(workspace_root))
+
+    def _read_json_dict_file(self, path: str) -> Dict[str, Any]:
+        path = str(path or "").strip()
+        if not path or not os.path.isfile(path) or os.path.getsize(path) == 0:
+            return {}
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+
+    def _read_ucagent_info_for_root(self, workspace_root: str) -> Dict[str, Any]:
+        return self._read_json_dict_file(self._ucagent_info_path_for_root(workspace_root))
+
+    def _relaunch_info_dut_name(self, info: Dict[str, Any]) -> str:
+        if not isinstance(info, dict):
+            return ""
+        for key in ("dut_name", "DUT", "dut", "target_dut"):
+            value = str(info.get(key) or "").strip()
+            if value:
+                return _safe_name(value, "DUT")
+        meta = info.get("meta") if isinstance(info.get("meta"), dict) else {}
+        for key in ("dut_name", "DUT", "dut", "target_dut"):
+            value = str(meta.get(key) or "").strip()
+            if value:
+                return _safe_name(value, "DUT")
+        return ""
+
+    def _relaunch_identity_from_info(self, info: Dict[str, Any]) -> Dict[str, Any]:
+        identity: Dict[str, Any] = {}
+        if not isinstance(info, dict):
+            return identity
+        dut_name = self._relaunch_info_dut_name(info)
+        if dut_name:
+            identity["dut_name"] = dut_name
+            identity["DUT"] = dut_name
+        for key in ("selected_module", "task_id", "workspace_id"):
+            value = str(info.get(key) or "").strip()
+            if value:
+                identity[key] = value
+        return identity
+
+    def _relaunch_identity_from_workspace(self, ws: Dict[str, Any], base_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        identity = self._relaunch_identity_from_info(base_info or {})
+        compile_info = ws.get("compile") or {}
+        dut_name = str(compile_info.get("dut_name") or "").strip()
+        if dut_name and "dut_name" not in identity:
+            identity["dut_name"] = _safe_name(dut_name, "DUT")
+            identity["DUT"] = identity["dut_name"]
+        selected_module = str(compile_info.get("selected_module") or "").strip()
+        if selected_module and "selected_module" not in identity:
+            identity["selected_module"] = selected_module
+        for key in ("task_id", "workspace_id"):
+            value = str(ws.get(key) or "").strip()
+            if value and key not in identity:
+                identity[key] = value
+        return identity
+
+    def _ensure_relaunch_info_identity(self, info_path: str, identity: Dict[str, Any]) -> None:
+        if not info_path or not identity or not os.path.isfile(info_path) or os.path.getsize(info_path) == 0:
+            return
+        try:
+            data = self._read_json_dict_file(info_path)
+        except Exception:
+            return
+        changed = False
+        dut_name = str(identity.get("dut_name") or identity.get("DUT") or "").strip()
+        if dut_name:
+            if not self._relaunch_info_dut_name(data):
+                data["dut_name"] = dut_name
+                data["DUT"] = dut_name
+                changed = True
+            elif not str(data.get("DUT") or "").strip():
+                data["DUT"] = self._relaunch_info_dut_name(data)
+                changed = True
+            elif not str(data.get("dut_name") or "").strip():
+                data["dut_name"] = self._relaunch_info_dut_name(data)
+                changed = True
+        for key in ("selected_module", "task_id", "workspace_id"):
+            value = str(identity.get(key) or "").strip()
+            if value and not str(data.get(key) or "").strip():
+                data[key] = value
+                changed = True
+        if changed:
+            self._write_json_atomic(info_path, data)
+
     def _load_relaunch_ucagent_info(self, ws: Dict[str, Any]) -> Dict[str, Any]:
         info_path = self._relaunch_ucagent_info_path(ws)
         data: Dict[str, Any] = {}
@@ -5585,18 +5728,23 @@ class PdbMasterApiServer:
         exists = bool(info_path and os.path.isfile(info_path))
         if exists:
             try:
-                with open(info_path, "r", encoding="utf-8") as fh:
-                    loaded = json.load(fh)
-                if isinstance(loaded, dict):
-                    data = loaded
+                data = self._read_json_dict_file(info_path)
             except Exception as exc:
                 load_error = str(exc)
         config_file = str(data.get("config_file") or data.get("config_arg") or "").strip()
+        dut_name = self._relaunch_info_dut_name(data)
         return {
             "exists": exists,
             "path": info_path,
             "config_file": config_file,
             "config_arg": config_file,
+            "dut_name": dut_name,
+            "DUT": dut_name,
+            "selected_module": str(data.get("selected_module") or "").strip(),
+            "task_id": str(data.get("task_id") or "").strip(),
+            "workspace_id": str(data.get("workspace_id") or "").strip(),
+            "stage_index": data.get("stage_index"),
+            "all_completed": data.get("all_completed"),
             "load_error": load_error,
         }
 
@@ -5622,6 +5770,13 @@ class PdbMasterApiServer:
             raise ValueError("Unable to determine .ucagent/ucagent_info.json path for relaunch workspace")
 
         os.makedirs(os.path.dirname(info_path), exist_ok=True)
+        current_data: Dict[str, Any] = {}
+        if os.path.isfile(info_path) and os.path.getsize(info_path) > 0:
+            try:
+                current_data = self._read_json_dict_file(info_path)
+            except Exception:
+                current_data = {}
+        identity = self._relaunch_identity_from_workspace(ws, current_data)
         target_config = str(target_config or "").strip()
         current_config = str(info.get("config_file") or info.get("config_arg") or "").strip()
         backup_path = ""
@@ -5642,15 +5797,19 @@ class PdbMasterApiServer:
                 self._copy_file_atomic(target_backup_path, info_path)
                 restored = True
             elif target_config:
-                self._write_json_atomic(info_path, {
+                initialized_info = {
                     "config_file": target_config,
                     "config_arg": target_config,
-                })
+                    **identity,
+                }
+                self._write_json_atomic(info_path, initialized_info)
                 initialized = True
                 cleared = True
             else:
                 self._write_empty_file_atomic(info_path)
                 cleared = True
+        if target_config:
+            self._ensure_relaunch_info_identity(info_path, identity)
 
         switched_info = self._load_relaunch_ucagent_info(ws)
         switched_info.update({
@@ -5698,6 +5857,90 @@ class PdbMasterApiServer:
             "task_id": target["task_id"],
             "workspace_id": target["workspace_id"],
         }
+
+    def _workspace_id_for_relaunch_path(self, workspace_root: str, info: Optional[Dict[str, Any]] = None) -> str:
+        info = info or {}
+        for key in ("workspace_id", "task_id"):
+            candidate = _safe_name(str(info.get(key) or "").strip(), "")
+            if candidate:
+                return candidate
+        root_abs = os.path.abspath(workspace_root)
+        base_name = os.path.basename(root_abs)
+        if base_name == "workspace":
+            base_name = os.path.basename(os.path.dirname(root_abs))
+        base = _safe_name(base_name, "")
+        if base:
+            return base
+        digest = hashlib.sha256(os.path.realpath(root_abs).encode("utf-8")).hexdigest()[:16]
+        return f"relaunch_{digest}"
+
+    def _register_relaunch_workspace_from_path(self, workspace_root: str) -> Optional[Dict[str, Any]]:
+        workspace_root = os.path.abspath(os.path.expanduser(str(workspace_root or "").strip()))
+        base_root = os.path.abspath(self.workspace)
+        if not workspace_root or not _path_is_under(base_root, workspace_root):
+            return None
+        if not self._is_ucagent_workspace_root(workspace_root):
+            return None
+        try:
+            info = self._read_ucagent_info_for_root(workspace_root)
+        except Exception:
+            info = {}
+        workspace_id = self._workspace_id_for_relaunch_path(workspace_root, info)
+        task_id = _safe_name(str(info.get("task_id") or workspace_id).strip(), workspace_id)
+        picker_workspace = workspace_root
+        launch_workspace_dir = os.path.dirname(workspace_root) if os.path.basename(workspace_root) == "workspace" else workspace_root
+        now = _now()
+        with self._workspaces_lock:
+            existing = self._workspaces.get(workspace_id)
+            target_picker_real = os.path.realpath(os.path.abspath(picker_workspace))
+            target_launch_real = os.path.realpath(os.path.abspath(launch_workspace_dir))
+            if existing is not None and not existing.get("manual_relaunch_workspace"):
+                existing_picker = os.path.realpath(os.path.abspath(str(existing.get("picker_workspace") or ""))) if existing.get("picker_workspace") else ""
+                existing_dir = os.path.realpath(os.path.abspath(str(existing.get("workspace_dir") or ""))) if existing.get("workspace_dir") else ""
+                same_target = target_picker_real in {existing_picker, existing_dir} or target_launch_real in {existing_picker, existing_dir}
+                if not same_target:
+                    digest = hashlib.sha256(target_picker_real.encode("utf-8")).hexdigest()[:8]
+                    workspace_id = _safe_name(f"{workspace_id}_{digest}", f"relaunch_{digest}")
+                    task_id = workspace_id
+                    existing = self._workspaces.get(workspace_id)
+            if existing is None:
+                ws = {
+                    "workspace_id": workspace_id,
+                    "workspace_dir": launch_workspace_dir,
+                    "picker_workspace": picker_workspace,
+                    "base_root": base_root,
+                    "created_at": now,
+                    "last_seen": now,
+                    "materialized": True,
+                    "materialized_at": now,
+                    "launch_status": "launched",
+                    "files": [],
+                    "task_id": task_id,
+                    "compile": {},
+                    "manual_relaunch_workspace": True,
+                }
+                self._workspaces[workspace_id] = ws
+                self._normalize_workspace_locked(ws)
+                self._mark_dirty()
+                return dict(ws)
+            self._normalize_workspace_locked(existing)
+            changed = False
+            for key, value in (
+                ("workspace_dir", launch_workspace_dir),
+                ("picker_workspace", picker_workspace),
+                ("base_root", base_root),
+                ("task_id", task_id),
+            ):
+                if value and existing.get(key) != value:
+                    existing[key] = value
+                    changed = True
+            existing["manual_relaunch_workspace"] = True
+            existing["materialized"] = True
+            existing["launch_status"] = "launched"
+            existing["last_seen"] = now
+            if changed:
+                self._mark_dirty()
+            return dict(existing)
 
     def _resolve_relaunch_target(
         self,
@@ -5757,8 +6000,13 @@ class PdbMasterApiServer:
 
         matched = next((ws for ws in workspaces if _matches(ws)), None)
         if matched is None and candidate_abs:
+            registered = self._register_relaunch_workspace_from_path(candidate_abs)
+            if registered is None and os.path.basename(candidate_abs) != "workspace":
+                registered = self._register_relaunch_workspace_from_path(os.path.join(candidate_abs, "workspace"))
+            if registered is not None:
+                matched = registered
             first_part = sub_workspace.split("/", 1)[0] if sub_workspace else ""
-            if first_part:
+            if matched is None and first_part:
                 matched = next(
                     (
                         ws for ws in workspaces
@@ -5773,7 +6021,10 @@ class PdbMasterApiServer:
 
         resolved_task_id = str(matched.get("task_id") or matched.get("workspace_id") or "").strip()
         if task_id and resolved_task_id and resolved_task_id != task_id:
-            raise ValueError(f"Sub workspace belongs to task '{resolved_task_id}', not '{task_id}'")
+            if candidate_abs and matched.get("manual_relaunch_workspace"):
+                task_id = resolved_task_id
+            else:
+                raise ValueError(f"Sub workspace belongs to task '{resolved_task_id}', not '{task_id}'")
         if not task_id:
             task_id = resolved_task_id
         if not task_id:
@@ -5851,8 +6102,13 @@ class PdbMasterApiServer:
         compile_info = ws.get("compile") or {}
         ucagent_info = self._load_relaunch_ucagent_info(ws)
         blockers = self._relaunch_blockers(target["task_id"], ws)
-        if compile_info.get("status") != "success":
-            blockers.append("The previous launch workspace does not contain a successful DUT compile result.")
+        info_dut_name = str(ucagent_info.get("dut_name") or ucagent_info.get("DUT") or "").strip()
+        compile_ready = compile_info.get("status") == "success"
+        info_ready = bool(ucagent_info.get("exists") and info_dut_name)
+        if not compile_ready and not info_ready:
+            blockers.append(
+                "The relaunch workspace has no successful DUT compile result and .ucagent/ucagent_info.json does not record DUT."
+            )
         can_relaunch = not blockers
         return {
             "can_relaunch": can_relaunch,
@@ -5861,6 +6117,7 @@ class PdbMasterApiServer:
             "task_id": target["task_id"],
             "workspace_id": target["workspace_id"],
             "sub_workspace": sub_workspace,
+            "workspace_source": "compile" if compile_ready else ("ucagent_info" if info_ready else ""),
             "workspace": self._workspace_public(ws),
             "compile": self._workspace_compile_public(ws),
             "ucagent_info": ucagent_info,
@@ -7065,6 +7322,9 @@ class PdbMasterApiServer:
                 if not status.get("can_relaunch"):
                     raise ValueError(status.get("message") or "Task cannot be relaunched yet")
                 compile_info = status.get("compile") or {}
+                ucagent_info = status.get("ucagent_info") or {}
+                info_dut_name = str(ucagent_info.get("dut_name") or ucagent_info.get("DUT") or "").strip()
+                info_selected_module = str(ucagent_info.get("selected_module") or "").strip()
                 requested_config = str(req.get("config") or "").strip()
                 if requested_config:
                     target = self._resolve_relaunch_target(
@@ -7077,10 +7337,13 @@ class PdbMasterApiServer:
                 req["task_id"] = status["task_id"]
                 req["task_name"] = status["task_id"]
                 req["workspace_id"] = status["workspace_id"]
-                req["dut_name"] = str(compile_info.get("dut_name") or "")
-                req["selected_module"] = str(compile_info.get("selected_module") or "")
+                req["dut_name"] = str(compile_info.get("dut_name") or info_dut_name or req.get("dut_name") or "")
+                req["selected_module"] = str(compile_info.get("selected_module") or info_selected_module or req.get("selected_module") or req["dut_name"])
                 req["main_verilog_path"] = compile_info.get("main_verilog_path") or ""
                 req["picker_args"] = list(compile_info.get("picker_extra_args") or [])
+                if status.get("workspace_source") == "ucagent_info":
+                    req["_relaunch_from_ucagent_info"] = True
+                    req["use_zip_workspace"] = False
                 task = self._run_task_launch(req)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc

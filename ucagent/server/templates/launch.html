@@ -1967,10 +1967,46 @@ function getCompileInfo() {
   return state.workspace?.compile || {};
 }
 
+function getRelaunchInfo() {
+  return state.relaunchStatus?.ucagent_info || {};
+}
+
+function getRelaunchDutName() {
+  const info = getRelaunchInfo();
+  return normalizeDutName(info.dut_name || info.DUT || getCompileInfo().dut_name || getDesiredDutName());
+}
+
+function getRelaunchSelectedModule() {
+  const info = getRelaunchInfo();
+  return String(getCompileInfo().selected_module || info.selected_module || getRelaunchDutName() || '').trim();
+}
+
+function isRelaunchFromUcagentInfo() {
+  return state.relaunch && state.relaunchStatus?.workspace_source === 'ucagent_info';
+}
+
+function getUseZipWorkspaceForLaunch() {
+  if (isRelaunchFromUcagentInfo()) return false;
+  return state.launchConfig?.use_zip_workspace !== false;
+}
+
+function getLaunchWorkspacePath(useZipWorkspace) {
+  if (useZipWorkspace) {
+    return `/api/workspace/${state.relaunch ? getRelaunchTaskId() : state.workspaceId}.tar.gz`;
+  }
+  if (state.relaunch) {
+    return state.workspace?.picker_workspace || `${state.workspace?.workspace_dir || ''}/workspace`;
+  }
+  return state.workspace.workspace_dir + '/workspace';
+}
+
 function isCompileCurrent() {
   if (state.relaunch) {
     const compile = getCompileInfo();
     const selectedModule = getSelectedModule();
+    if (isRelaunchFromUcagentInfo()) {
+      return Boolean(getRelaunchDutName() && selectedModule);
+    }
     return Boolean(
       compile &&
       compile.status === 'success' &&
@@ -2090,14 +2126,18 @@ function renderGateState() {
     setStatus('file-gate-status', 'ok', 'Using the previous compiled DUT workspace.');
     const mainDisplay = document.getElementById('main-file-display');
     mainDisplay.className = 'status ok';
-    mainDisplay.innerHTML = compile?.main_verilog_path
+    mainDisplay.innerHTML = isRelaunchFromUcagentInfo()
+      ? `Workspace: <code>${esc(state.workspace?.picker_workspace || state.workspace?.workspace_dir || '-')}</code>`
+      : compile?.main_verilog_path
       ? `<code>${esc(compile.main_verilog_path)}</code>`
       : 'Previous compile metadata is available.';
     document.getElementById('selected-module').disabled = false;
     document.getElementById('parse-modules-btn').disabled = true;
     document.getElementById('compile-dut-btn').disabled = true;
     document.getElementById('module-gate-note').className = 'summary-box';
-    document.getElementById('module-gate-note').innerHTML = 'Relaunch reuses the previous successful DUT compile.';
+    document.getElementById('module-gate-note').innerHTML = isRelaunchFromUcagentInfo()
+      ? 'Relaunch uses the DUT recorded in <code>.ucagent/ucagent_info.json</code>.'
+      : 'Relaunch reuses the previous successful DUT compile.';
     return;
   }
   const mainFile = getMainFile();
@@ -2151,6 +2191,16 @@ function renderCompileState() {
     setStatus('compile-status', '', 'Select or type a module before compiling the DUT.');
     summary.className = 'summary-box muted';
     summary.innerHTML = 'Compile after setting the target module.';
+    return;
+  }
+  if (isRelaunchFromUcagentInfo()) {
+    setStatus('compile-status', 'ok', `Using recorded DUT <code>${esc(getRelaunchDutName())}</code> from <code>.ucagent/ucagent_info.json</code>.`);
+    summary.className = 'summary-box';
+    summary.innerHTML = [
+      `Workspace: <code>${esc(state.workspace?.picker_workspace || state.workspace?.workspace_dir || '-')}</code>`,
+      `DUT: <code>${esc(getRelaunchDutName())}</code>`,
+      `Config State: <code>${esc(getRelaunchRecordedConfig() || '(none)')}</code>`,
+    ].join('<br>');
     return;
   }
   if (!compile || !compile.status) {
@@ -2388,6 +2438,9 @@ function buildPickerArgs(selectedModule = getSelectedModule(), dutName = getDesi
 
 function buildPickerPreview() {
   if (!state.workspace) return 'Waiting for workspace reservation...';
+  if (isRelaunchFromUcagentInfo()) {
+    return shellJoin(['ucagent', getLaunchWorkspacePath(false), getRelaunchDutName()]);
+  }
   if (!isNextStepUnlocked()) return 'Waiting for Main RTL or .f filelist plus Verification Needs...';
   if (!getSelectedModule()) return 'Waiting for Main RTL Module...';
   return shellJoin(buildPickerArgs());
@@ -2411,15 +2464,13 @@ function buildCommandPreview() {
   const compile = getCompileInfo();
   const compileCurrent = isCompileCurrent();
   const dynamicOptions = collectDynamicLaunchOptions();
-  const useZipWorkspace = state.launchConfig?.use_zip_workspace !== false;
+  const useZipWorkspace = getUseZipWorkspaceForLaunch();
   const workspaceBase = document.getElementById('workspace-base')?.value.trim() || '';
-  const workspacePath = useZipWorkspace
-    ? `/api/workspace/${state.relaunch ? getRelaunchTaskId() : state.workspaceId}.tar.gz`
-    : state.workspace.workspace_dir + '/workspace';
+  const workspacePath = getLaunchWorkspacePath(useZipWorkspace);
   const args = [
     'ucagent',
     workspacePath,
-    compileCurrent ? compile.dut_name : normalizeDutName(dutName),
+    state.relaunch ? getRelaunchDutName() : (compileCurrent ? compile.dut_name : normalizeDutName(dutName)),
     '--config', document.getElementById('config-path').value.trim() || 'config.yaml',
     '--output', document.getElementById('output').value.trim() || 'unity_test',
   ];
@@ -2493,7 +2544,7 @@ function updateLaunchState() {
     if (!state.relaunch && !getMainFile() && !hasPickerFFilelist()) reasons.push('tag one file as Main RTL or add a .f file');
     if (!state.relaunch && !hasRequirementFile()) reasons.push('tag one file as Verification Needs');
     if (!getSelectedModule()) reasons.push('select or type a module');
-    if (getSelectedModule() && !isCompileCurrent()) reasons.push(state.relaunch ? 'use a successful previous DUT compile' : 'compile the current DUT selection');
+    if (getSelectedModule() && !isCompileCurrent()) reasons.push(state.relaunch ? 'provide a recorded DUT in .ucagent/ucagent_info.json or a successful previous DUT compile' : 'compile the current DUT selection');
     if (emptyEnvRows.length) reasons.push(`fill or remove empty environment variable(s): ${emptyEnvRows.map((row) => row.key).join(', ')}`);
     setStatus('launch-readiness', 'warn', `${state.relaunch ? 'Relaunch' : 'Launch'} is blocked. Please ${reasons.join(', ')}.`);
   }
@@ -3067,15 +3118,19 @@ function syncRelaunchLockedFields() {
   }
   const moduleInput = document.getElementById('selected-module');
   if (moduleInput) {
-    moduleInput.value = compile.selected_module || moduleInput.value;
+    moduleInput.value = compile.selected_module || getRelaunchSelectedModule() || moduleInput.value;
     moduleInput.readOnly = true;
-    moduleInput.title = 'Relaunch reuses the previous compiled DUT module.';
+    moduleInput.title = isRelaunchFromUcagentInfo()
+      ? 'Relaunch uses the DUT recorded in .ucagent/ucagent_info.json.'
+      : 'Relaunch reuses the previous compiled DUT module.';
   }
   const dutInput = document.getElementById('dut-name');
   if (dutInput) {
-    dutInput.value = compile.dut_name || dutInput.value;
+    dutInput.value = compile.dut_name || getRelaunchDutName() || dutInput.value;
     dutInput.readOnly = true;
-    dutInput.title = 'Relaunch reuses the previous compiled DUT name.';
+    dutInput.title = isRelaunchFromUcagentInfo()
+      ? 'Relaunch uses the DUT recorded in .ucagent/ucagent_info.json.'
+      : 'Relaunch reuses the previous compiled DUT name.';
   }
 }
 
@@ -3086,6 +3141,7 @@ function collectLaunchPayload() {
   const dynamicOptions = collectDynamicLaunchOptions();
   const dynamicMeta = isPlainObject(dynamicOptions.meta) ? dynamicOptions.meta : {};
   const meta = { ...dynamicMeta, ...collectLaunchMeta() };
+  const useZipWorkspace = getUseZipWorkspaceForLaunch();
   const payload = {
     workspace_id: state.workspaceId,
     task_name: document.getElementById('task-name').value.trim(),
@@ -3099,10 +3155,11 @@ function collectLaunchPayload() {
     output: document.getElementById('output').value.trim() || 'unity_test',
     master: document.getElementById('master-override').value.trim(),
     env: collectEnvOverrides(),
-    use_zip_workspace: state.launchConfig?.use_zip_workspace !== false,
+    use_zip_workspace: useZipWorkspace,
     workspace_base: document.getElementById('workspace-base')?.value.trim() || '',
     ...dynamicOptions,
   };
+  payload.use_zip_workspace = useZipWorkspace;
   if (Object.keys(meta).length) {
     payload.meta = meta;
   }
@@ -3110,8 +3167,8 @@ function collectLaunchPayload() {
     const relaunchTaskId = getRelaunchTaskId();
     payload.task_id = relaunchTaskId;
     payload.task_name = relaunchTaskId;
-    payload.dut_name = compile.dut_name || payload.dut_name;
-    payload.selected_module = compile.selected_module || payload.selected_module;
+    payload.dut_name = compile.dut_name || getRelaunchDutName() || payload.dut_name;
+    payload.selected_module = compile.selected_module || getRelaunchSelectedModule() || payload.selected_module || payload.dut_name;
     payload.sub_worspace = state.relaunchSubWorkspace;
   }
   return payload;
@@ -3150,7 +3207,7 @@ async function launchTask() {
   const payload = collectLaunchPayload();
   state.launching = true;
   setLaunchButton(state.relaunch ? 'Relaunching...' : 'Launching...', true);
-  setStatus('launch-status', 'warn', `${state.relaunch ? 'Relaunching' : 'Launching'} the managed task with the compiled DUT workspace...`);
+  setStatus('launch-status', 'warn', `${state.relaunch ? 'Relaunching' : 'Launching'} the managed task with the selected workspace...`);
   setLaunchResponse(null, { summary: 'Show response', open: false });
   try {
     const data = await api(state.relaunch ? '/api/relaunch' : '/api/tasks', {
@@ -3257,10 +3314,6 @@ function getSelectedConfigOption() {
   const index = Number(selected?.dataset.optionIndex);
   if (!Number.isInteger(index) || index < 0 || index >= state.configOptions.length) return null;
   return state.configOptions[index];
-}
-
-function getRelaunchInfo() {
-  return state.relaunchStatus?.ucagent_info || {};
 }
 
 function getRelaunchRecordedConfig() {
@@ -3537,6 +3590,8 @@ function setupRelaunchModeChrome() {
   document.body.classList.add('relaunch-mode');
   const title = document.getElementById('launch-page-title');
   if (title) title.textContent = 'Relaunch Managed UCAgent Task';
+  const dutLabel = document.querySelector('label[for="dut-name"]') || document.querySelector('#dut-name')?.previousElementSibling;
+  if (dutLabel) dutLabel.textContent = 'DUT Name';
   const btn = document.getElementById('launch-btn');
   if (btn) btn.textContent = 'Relaunch Task';
   syncRelaunchLockedFields();
@@ -3567,7 +3622,11 @@ async function switchRelaunchInfoForConfig(targetConfig) {
   const info = data.data?.ucagent_info || {};
   if (!state.relaunchStatus) state.relaunchStatus = {};
   state.relaunchStatus.ucagent_info = info;
+  if (!state.relaunchStatus.workspace_source && (info.dut_name || info.DUT)) {
+    state.relaunchStatus.workspace_source = 'ucagent_info';
+  }
   syncRelaunchInfoState();
+  applyRelaunchCompileDefaults();
   return data;
 }
 
@@ -3642,8 +3701,8 @@ async function handleRelaunchConfigChange() {
 function applyRelaunchCompileDefaults() {
   const compile = getCompileInfo();
   const taskId = getRelaunchTaskId();
-  const selectedModule = compile.selected_module || '';
-  const dutName = compile.dut_name || selectedModule;
+  const dutName = compile.dut_name || getRelaunchDutName();
+  const selectedModule = compile.selected_module || getRelaunchSelectedModule() || dutName;
   const moduleInput = document.getElementById('selected-module');
   if (moduleInput) moduleInput.value = selectedModule;
   const dutInput = document.getElementById('dut-name');
@@ -3675,16 +3734,15 @@ async function initRelaunchPage() {
   const envData = await api('/api/launch/env-preview');
   applyEnvDefaults(envData.items || []);
   applyRelaunchCompileDefaults();
-  const compile = getCompileInfo();
-  if (compile.status === 'success') {
-    setStatus(
-      'launch-status',
-      state.relaunchStatus.can_relaunch ? '' : 'warn',
-      state.relaunchStatus.can_relaunch
-        ? `Ready to relaunch task <code>${esc(getRelaunchTaskId())}</code> from the previous compiled DUT workspace.`
-        : esc(state.relaunchStatus.message || 'Relaunch is blocked.')
-    );
-  }
+  setStatus(
+    'launch-status',
+    state.relaunchStatus.can_relaunch ? '' : 'warn',
+    state.relaunchStatus.can_relaunch
+      ? (isRelaunchFromUcagentInfo()
+        ? `Ready to relaunch task <code>${esc(getRelaunchTaskId())}</code> from <code>.ucagent/ucagent_info.json</code>.`
+        : `Ready to relaunch task <code>${esc(getRelaunchTaskId())}</code> from the previous compiled DUT workspace.`)
+      : esc(state.relaunchStatus.message || 'Relaunch is blocked.')
+  );
   updateLaunchState();
 }
 
@@ -3755,7 +3813,7 @@ function applyLaunchDefaults(config, options = {}) {
   }
   if (state.relaunch) {
     const compile = getCompileInfo();
-    if (compile.dut_name) document.getElementById('dut-name').value = compile.dut_name;
+    document.getElementById('dut-name').value = compile.dut_name || getRelaunchDutName();
   } else if (config.dut_name !== undefined && config.dut_name !== null && config.dut_name !== '') {
     document.getElementById('dut-name').value = config.dut_name;
   } else {
