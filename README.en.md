@@ -25,7 +25,7 @@ UCAgent is an automated hardware verification AI agent based on large language m
 
 ## System Requirements
 
-- Python 3.11+
+- Python 3.11+, if the latest version of Python encounters dependency issues, please downgrade
 - Supported OS: Linux, macOS
 - Memory: 4GB+ recommended
 - Network: Access to AI model API (OpenAI compatible)
