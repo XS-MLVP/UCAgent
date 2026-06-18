@@ -1,0 +1,16 @@
+app:
+  name: base
+  title: base-title
+  items:
+    - zero
+    - one
+    - two
+    - three
+  nested:
+    - name: alpha
+      tags:
+        - red
+        - blue
+    - name: beta
+      tags:
+        - green

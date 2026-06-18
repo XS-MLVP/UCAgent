@@ -1,0 +1,7 @@
+app:
+  title: extra-title
+app.items[1]: one-updated
+app.items[2:0]: inserted-before-two
+app.nested[0]: "@delete"
+app.nested[0].tags[0]: purple
+app.nested[0].tags[1:0]: navy

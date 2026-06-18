@@ -1,6 +1,57 @@
-
-# example config file for UCAgent
-# you can copy this file to ~/.ucagent/setting.yaml and modify it as needed
+####################################################################################################
+# This is an example config.yaml file for ucagent. It demonstrates the config load order, include logic,
+# Config load order:
+# 1. Built-in default config: ucagent/setting.yaml
+# 2. User config: ~/.ucagent/setting.yaml
+# 3. Language default config: ucagent/lang/{lang}/config/default.yaml
+# 4. Workspace config: <workspace>/.ucagent/setting.yaml, when workspace is provided
+# 5. The config file requested by --config, or ./config.yaml when present
+# 6. CLI/template overrides are applied last
+#
+# Include logic:
+# - Only a top-level "include" key is treated as a loader directive.
+# - Nested "include" keys are normal config keys.
+# - Example:
+#     include:
+#       - base.yaml
+#       - extra.yaml
+# - Included files are merged in list order before this file is merged.
+# - Absolute include paths are used directly.
+# - Relative include paths are resolved first relative to the current YAML file,
+#   then relative to the current working directory.
+# - The top-level "include" key itself is not kept in the final config.
+#
+# Override/merge logic:
+# - Later configs override earlier configs.
+# - Dict values are merged recursively.
+# - Scalar values replace the previous value.
+# - List values normally replace the previous list.
+# - A string value beginning with "+" appends to an existing list when the key
+#   points directly at that list. For example:
+#     launch.default_args.extra_args: "+--verbose"
+# - "@delete" deletes an existing key or list item when used with override syntax.
+# - Use "@@delete" when the literal string "@delete" is needed.
+# - Values starting with "@base64:" are base64-decoded by override syntax.
+# - A single literal "@" in override strings is reserved; escape it as "@@".
+#
+# List edit syntax:
+# - List edits use the same path syntax as CLI --override and Config.set_value.
+# - Replace one item:
+#     stage[1]: {name: new_stage}
+# - Replace a range with repeated values:
+#     stage[1:2]: {name: repeated_stage}
+# - Insert before an index with size 0:
+#     stage[1:0]: {name: inserted_stage}
+# - Append by inserting at the end:
+#     stage[-1:0]: {name: before_last_stage}
+# - Delete one item:
+#     stage[1]: "@delete"
+# - Delete a range:
+#     stage[1:2]: "@delete"
+# - Edit a field inside a list item:
+#     stage[0].name: requirement_analysis
+# - Negative indexes are supported, e.g. stage[-1].name edits the last item.
+####################################################################################################
 
 #openai:
 #  model_name: "$(OPENAI_MODEL: Qwen/Qwen3-Coder-30B-A3B-Instruct)"

@@ -1,0 +1,8 @@
+include:
+  - base.yaml
+  - extra.yaml
+app:
+  include: literal-app-include
+  title: final-title
+app.items[0:0]: start
+app.items[-1]: "@delete"

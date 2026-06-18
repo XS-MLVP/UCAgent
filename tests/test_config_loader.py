@@ -11,7 +11,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.cli import get_args, get_override_dict
-from ucagent.util.config import Config, load_yaml_with_env_vars
+from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_file
 
 
 class TestConfigLoader(unittest.TestCase):
@@ -296,6 +296,110 @@ plain_text: not enabled
         self.assertEqual(override["a.b"], 123)
         self.assertIs(override["c.d"], True)
         self.assertEqual(override["e.f"], ["x"])
+
+    def test_yaml_include_merges_in_order_and_applies_list_operations(self):
+        config_dir = os.path.join(current_dir, "test_data", "configs")
+        cfg = Config()
+        loaded_configs = []
+
+        _merge_config_file(cfg, os.path.join(config_dir, "new.yaml"), loaded_configs)
+
+        self.assertEqual(
+            cfg.as_dict(),
+            {
+                "app": {
+                    "name": "base",
+                    "include": "literal-app-include",
+                    "title": "final-title",
+                    "items": ["start", "zero", "one-updated", "inserted-before-two", "two"],
+                    "nested": [
+                        {
+                            "name": "beta",
+                            "tags": ["purple", "navy"],
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertNotIn("include", cfg.as_dict())
+        self.assertEqual(cfg.get_value("app.include"), "literal-app-include")
+        self.assertEqual(
+            [os.path.basename(path) for path in loaded_configs],
+            ["base.yaml", "extra.yaml", "new.yaml"],
+        )
+
+    def test_yaml_include_supports_absolute_paths_and_cwd_fallback(self):
+        old_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            configs_dir = os.path.join(temp_dir, "configs")
+            os.makedirs(configs_dir, exist_ok=True)
+
+            cwd_include_file = os.path.join(temp_dir, "shared.yaml")
+            with open(cwd_include_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "from_cwd:\n"
+                    "  value: cwd\n"
+                )
+
+            absolute_include_file = os.path.join(temp_dir, "absolute.yaml")
+            with open(absolute_include_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "from_absolute:\n"
+                    "  value: absolute\n"
+                )
+
+            target_file = os.path.join(configs_dir, "main.yaml")
+            with open(target_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "include:\n"
+                    "  - shared.yaml\n"
+                    f"  - {absolute_include_file}\n"
+                    "from_main:\n"
+                    "  value: main\n"
+                )
+
+            os.chdir(temp_dir)
+            try:
+                cfg = Config()
+                loaded_configs = []
+                _merge_config_file(cfg, target_file, loaded_configs)
+            finally:
+                os.chdir(old_cwd)
+
+        self.assertEqual(
+            cfg.as_dict(),
+            {
+                "from_cwd": {"value": "cwd"},
+                "from_absolute": {"value": "absolute"},
+                "from_main": {"value": "main"},
+            },
+        )
+        self.assertEqual(
+            [os.path.basename(path) for path in loaded_configs],
+            ["shared.yaml", "absolute.yaml", "main.yaml"],
+        )
+
+    def test_yaml_merge_keeps_dotted_literal_keys_when_not_override_paths(self):
+        cfg = Config({
+            "render_files": {
+                "{ASSETS}/mcp_claude.json": "{CWD}/.mcp.json",
+            },
+        })
+
+        cfg.merge_from_dict({
+            "render_files": {
+                "{ASSETS}/mcp_claude.json": "{CWD}/custom.json",
+                "{ASSETS}/mcp_new.json": "{CWD}/new.json",
+            },
+        })
+
+        self.assertEqual(
+            cfg.as_dict()["render_files"],
+            {
+                "{ASSETS}/mcp_claude.json": "{CWD}/custom.json",
+                "{ASSETS}/mcp_new.json": "{CWD}/new.json",
+            },
+        )
 
 
 if __name__ == '__main__':

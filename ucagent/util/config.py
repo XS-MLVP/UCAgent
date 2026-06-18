@@ -205,33 +205,92 @@ class Config:
         """
         if not isinstance(other, Config):
             raise TypeError("Can only merge from another Config instance.")
-        for key, value in other.__dict__.items():
-            if isinstance(value, Config):
-                if self.has_attr(key) and isinstance(getattr(self, key), Config):
-                    getattr(self, key).merge_from(value)
-                else:
-                    setattr(self, key, value)
-            else:
-                setattr(self, key, value)
-        return self
+        return self.merge_from_dict(other.as_dict())
 
-    def merge_from_dict(self, data):
+    def merge_from_dict(self, data, skip_include=False):
         """
         Merge configuration from a dictionary.
         :param data: Dictionary containing configuration.
+        :param skip_include: Whether to treat top-level include as a loader directive.
         :return: self
         """
         if not isinstance(data, dict):
             raise TypeError("Can only merge from a dictionary.")
         for key, value in data.items():
-            if isinstance(value, dict):
+            if skip_include and key == "include":
+                continue
+            if self._should_apply_merge_override(key, value):
+                self.set_value(key, value)
+            elif isinstance(value, dict):
                 if self.has_attr(key) and isinstance(getattr(self, key), Config):
                     getattr(self, key).merge_from_dict(value)
                 else:
-                    setattr(self, key, Config(value))
+                    setattr(self, key, Config().merge_from_dict(value))
             else:
-                setattr(self, key, value)
+                setattr(self, key, self._to_config_value(value))
         return self
+
+    def _should_apply_merge_override(self, key, value):
+        if not isinstance(key, str):
+            return False
+        if "[" in key or "]" in key:
+            return True
+        if value == "@delete":
+            return self._override_target_exists(key)
+        if isinstance(value, str):
+            if (value.startswith("@@") or value.startswith("@base64:")) and self._override_target_exists(key):
+                return True
+            if value.startswith("+") and self._override_target_is_list(key):
+                return True
+        return False
+
+    def _override_target_exists(self, key):
+        try:
+            tokens = self._parse_override_key(key)
+            current = self
+            for token in tokens[:-1]:
+                if isinstance(token, str):
+                    if not isinstance(current, Config) or not current.has_attr(token):
+                        return False
+                    current = getattr(current, token)
+                else:
+                    if not isinstance(current, list):
+                        return False
+                    index = self._normalize_list_index(token["index"], len(current), False)
+                    if token["size"] != 1:
+                        return False
+                    current = current[index]
+
+            target = tokens[-1]
+            if isinstance(target, str):
+                return isinstance(current, Config) and current.has_attr(target)
+            if not isinstance(current, list):
+                return False
+            self._normalize_list_index(target["index"], len(current), target["size"] == 0)
+            return True
+        except Exception:
+            return False
+
+    def _override_target_is_list(self, key):
+        try:
+            tokens = self._parse_override_key(key)
+            current = self
+            for token in tokens[:-1]:
+                if isinstance(token, str):
+                    if not isinstance(current, Config) or not current.has_attr(token):
+                        return False
+                    current = getattr(current, token)
+                else:
+                    if not isinstance(current, list):
+                        return False
+                    index = self._normalize_list_index(token["index"], len(current), False)
+                    if token["size"] != 1:
+                        return False
+                    current = current[index]
+            target = tokens[-1]
+            return isinstance(target, str) and isinstance(current, Config) and current.has_attr(target) and isinstance(getattr(current, target), list)
+        except Exception:
+            return False
 
     def set_value(self, key, value):
         """
@@ -469,6 +528,65 @@ def load_yaml_with_env_vars(file_path):
         return yaml.load(rendered_content, Loader=UCAgentConfigLoader)
 
 
+def _normalize_include_value(include_value, config_file):
+    if include_value is None:
+        return []
+    if isinstance(include_value, str):
+        return [include_value]
+    if not isinstance(include_value, list):
+        raise TypeError(f"Config include in '{config_file}' must be a string or a list of strings.")
+    for include_file in include_value:
+        if not isinstance(include_file, str) or not include_file.strip():
+            raise TypeError(f"Config include in '{config_file}' must be a string or a list of strings.")
+    return include_value
+
+
+def _resolve_include_file(include_file, parent_config_file):
+    include_file = os.path.expanduser(include_file)
+    if os.path.isabs(include_file):
+        if os.path.isfile(include_file):
+            return os.path.abspath(include_file)
+        raise FileNotFoundError(f"Included config file '{include_file}' not found.")
+
+    parent_dir = os.path.dirname(os.path.abspath(parent_config_file))
+    found_file = find_file_in_paths(include_file, [parent_dir, os.getcwd()])
+    if found_file is not None:
+        return os.path.abspath(found_file)
+    raise FileNotFoundError(
+        f"Included config file '{include_file}' not found relative to "
+        f"'{parent_dir}' or current working directory '{os.getcwd()}'."
+    )
+
+
+def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
+    config_file = os.path.abspath(config_file)
+    if config_file in loaded_configs:
+        info(f"Config file '{config_file}' already loaded, ignore.")
+        return cfg
+    if loading_stack is None:
+        loading_stack = []
+    if config_file in loading_stack:
+        cycle = loading_stack[loading_stack.index(config_file):] + [config_file]
+        raise ValueError(f"Config include cycle detected: {' -> '.join(cycle)}")
+
+    loading_stack.append(config_file)
+    try:
+        data = load_yaml_with_env_vars(config_file) or {}
+        if not isinstance(data, dict):
+            raise TypeError(f"Config file '{config_file}' must contain a YAML mapping.")
+
+        for include_file in _normalize_include_value(data.get("include"), config_file):
+            include_config_file = _resolve_include_file(include_file, config_file)
+            _merge_config_file(cfg, include_config_file, loaded_configs, loading_stack)
+
+        cfg.merge_from_dict(data, skip_include=True)
+        loaded_configs.append(config_file)
+        info(f"Load config from '{config_file}' completed.")
+        return cfg
+    finally:
+        loading_stack.pop()
+
+
 def get_config(config_file=None, cfg_override=None, workspace=None):
     """
     Get the configuration for the agent.
@@ -481,17 +599,14 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     # 1. load default config
     default_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), "../setting.yaml"))
     assert os.path.isfile(default_config_file), f"Default configuration file '{default_config_file}' not found."
-    cfg = Config(load_yaml_with_env_vars(default_config_file))
-    info(f"Load config from '{default_config_file}' completed.")
-    loaded_configs.append(default_config_file)
+    cfg = Config()
+    _merge_config_file(cfg, default_config_file, loaded_configs)
 
     # 2. load user config
     user_home = os.path.expanduser('~')
     user_config_file = os.path.abspath(os.path.join(user_home, '.ucagent/setting.yaml'))
     if os.path.isfile(user_config_file):
-        cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file)))
-        info(f"Load config from '{user_config_file}' completed.")
-        loaded_configs.append(user_config_file)
+        _merge_config_file(cfg, user_config_file, loaded_configs)
     else:
         info(f"User config file '{user_config_file}' not found, touch an empty one.")
         os.makedirs(os.path.dirname(user_config_file), exist_ok=True)
@@ -504,16 +619,13 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml"))
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
-    cfg.merge_from(Config(load_yaml_with_env_vars(lang_config_file)))
-    loaded_configs.append(lang_config_file)
+    _merge_config_file(cfg, lang_config_file, loaded_configs)
 
     # 4. load workspace config
     if workspace is not None:
         cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
         if os.path.isfile(cwd_setting_file):
-            cfg.merge_from(Config(load_yaml_with_env_vars(cwd_setting_file)))
-            info(f"Load config from '{cwd_setting_file}' completed.")
-            loaded_configs.append(cwd_setting_file)
+            _merge_config_file(cfg, cwd_setting_file, loaded_configs)
         else:
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
@@ -531,11 +643,7 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
         info(f"Default user config file '{config_file}' not found, ignore.")
     else:
         user_config_file_path = os.path.abspath(user_config_file_path)
-        if user_config_file_path not in loaded_configs:
-            cfg.merge_from(Config(load_yaml_with_env_vars(user_config_file_path)))
-            info(f"Load config from '{user_config_file_path}' completed.")
-        else:
-            info(f"Config file '{user_config_file_path}' already loaded, ignore.")
+        _merge_config_file(cfg, user_config_file_path, loaded_configs)
 
     # set override values
     cfg.set_values(cfg_override)
