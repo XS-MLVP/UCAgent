@@ -731,6 +731,62 @@ def test_relaunch_ucagent_info_preserves_requested_zip_workspace():
         assert launched[0]["use_zip_workspace"] is True
 
 
+def test_manual_relaunch_workspace_uses_directory_name_for_ids():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        picker_workspace = os.path.join(master_ws, "my_1234", "workspace")
+        os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
+        with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "workspace_id": "my_1234",
+                    "task_id": "my_1234",
+                    "dut_name": "Adder",
+                    "selected_module": "Adder",
+                },
+                fh,
+            )
+
+        target = server._resolve_relaunch_target(sub_workspace="my_1234")
+
+        assert target["workspace_id"] == "my_1234"
+        assert target["task_id"] == "my_1234"
+        assert target["workspace"]["workspace_id"] == "my_1234"
+        assert target["workspace"]["task_id"] == "my_1234"
+        assert target["workspace"]["workspace_dir"] == os.path.join(master_ws, "my_1234")
+        assert target["workspace"]["picker_workspace"] == picker_workspace
+
+
+def test_manual_relaunch_workspace_rejects_stale_info_ids():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        picker_workspace = os.path.join(master_ws, "my_1234", "workspace")
+        os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
+        with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "workspace_id": "old_workspace_id",
+                    "task_id": "old_task_id",
+                    "dut_name": "Adder",
+                    "selected_module": "Adder",
+                },
+                fh,
+            )
+
+        try:
+            server._resolve_relaunch_target(sub_workspace="my_1234")
+        except ValueError as exc:
+            message = str(exc)
+        else:
+            raise AssertionError("Expected stale relaunch identity to be rejected")
+
+        assert "Relaunch workspace identity mismatch" in message
+        assert "old_workspace_id" in message
+        assert "old_task_id" in message
+        assert "my_1234" in message
+        assert ".ucagent/ucagent_info.json" in message
+
+
 def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
     with tempfile.TemporaryDirectory() as master_ws:
         server = PdbMasterApiServer(workspace=master_ws)

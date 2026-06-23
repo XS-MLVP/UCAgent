@@ -5878,11 +5878,6 @@ class PdbMasterApiServer:
         }
 
     def _workspace_id_for_relaunch_path(self, workspace_root: str, info: Optional[Dict[str, Any]] = None) -> str:
-        info = info or {}
-        for key in ("workspace_id", "task_id"):
-            candidate = _safe_name(str(info.get(key) or "").strip(), "")
-            if candidate:
-                return candidate
         root_abs = os.path.abspath(workspace_root)
         base_name = os.path.basename(root_abs)
         if base_name == "workspace":
@@ -5892,6 +5887,23 @@ class PdbMasterApiServer:
             return base
         digest = hashlib.sha256(os.path.realpath(root_abs).encode("utf-8")).hexdigest()[:16]
         return f"relaunch_{digest}"
+
+    def _validate_relaunch_info_identity(self, workspace_root: str, info: Dict[str, Any], expected_id: str) -> None:
+        mismatches = []
+        info_path = self._ucagent_info_path_for_root(workspace_root)
+        for key in ("workspace_id", "task_id"):
+            raw = str((info or {}).get(key) or "").strip()
+            if not raw:
+                continue
+            actual = _safe_name(raw, "")
+            if actual and actual != expected_id:
+                mismatches.append(f"{key}={raw!r}")
+        if mismatches:
+            raise ValueError(
+                f"Relaunch workspace identity mismatch: {info_path} records "
+                f"{', '.join(mismatches)}, but the workspace directory resolves to '{expected_id}'. "
+                "Update .ucagent/ucagent_info.json to match the workspace directory before relaunching."
+            )
 
     def _register_relaunch_workspace_from_path(self, workspace_root: str) -> Optional[Dict[str, Any]]:
         workspace_root = os.path.abspath(os.path.expanduser(str(workspace_root or "").strip()))
@@ -5905,7 +5917,8 @@ class PdbMasterApiServer:
         except Exception:
             info = {}
         workspace_id = self._workspace_id_for_relaunch_path(workspace_root, info)
-        task_id = _safe_name(str(info.get("task_id") or workspace_id).strip(), workspace_id)
+        self._validate_relaunch_info_identity(workspace_root, info, workspace_id)
+        task_id = workspace_id
         picker_workspace = workspace_root
         launch_workspace_dir = os.path.dirname(workspace_root) if os.path.basename(workspace_root) == "workspace" else workspace_root
         now = _now()
