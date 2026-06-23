@@ -2,9 +2,12 @@
 """Specialized PDB debugger for UCAgent verification."""
 
 import ctypes
+import codecs
 from dataclasses import dataclass
 from pdb import Pdb
 import os
+import selectors
+import subprocess
 import sys
 from ucagent.util.log import echo_g, echo_y, echo_r, echo, info, message, set_console_sync_handler
 from ucagent.util.functions import dump_as_json, get_func_arg_list, fmt_time_deta, fmt_time_stamp, list_files_by_mtime, yam_str, is_port_free
@@ -20,6 +23,9 @@ from typing import TYPE_CHECKING
 
 from ucagent.tui.utils import PersistentConsoleMirror
 from ucagent.util.config import Config
+
+DEFAULT_CMD_IDLE_TIMEOUT = 30.0
+CMD_OUTPUT_POLL_INTERVAL = 1.0
 
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
@@ -115,6 +121,7 @@ class VerifyPDB(Pdb):
             getattr(self.agent, "workspace", None) or os.getcwd()
         )
         self._command_cwd = self._workspace_cwd
+        self._cmd_idle_timeout = self._load_cmd_idle_timeout()
         set_console_sync_handler(self.record_console_output)
         self._install_persistent_console_mirror()
 
@@ -433,6 +440,216 @@ class VerifyPDB(Pdb):
             time.sleep(step)
             remaining -= step
         return True
+
+    def _load_cmd_idle_timeout(self) -> float:
+        raw_timeout = DEFAULT_CMD_IDLE_TIMEOUT
+        cfg = getattr(self.agent, "cfg", None)
+        get_value = getattr(cfg, "get_value", None)
+        if callable(get_value):
+            try:
+                raw_timeout = get_value("cmd_timeout", DEFAULT_CMD_IDLE_TIMEOUT)
+            except Exception:
+                raw_timeout = DEFAULT_CMD_IDLE_TIMEOUT
+        try:
+            return self._parse_cmd_idle_timeout(raw_timeout)
+        except ValueError:
+            echo_y(
+                f"Invalid configured cmd_timeout '{raw_timeout}', "
+                f"using {self._format_cmd_idle_timeout(DEFAULT_CMD_IDLE_TIMEOUT)}."
+            )
+            return DEFAULT_CMD_IDLE_TIMEOUT
+
+    @staticmethod
+    def _parse_cmd_idle_timeout(value) -> float:
+        if isinstance(value, str):
+            cleaned = value.strip().lower()
+            if cleaned in {"off", "none", "no", "disable", "disabled"}:
+                return 0.0
+            value = cleaned
+        timeout = float(value)
+        if timeout < 0:
+            raise ValueError("cmd_timeout must be non-negative")
+        return timeout
+
+    @staticmethod
+    def _format_cmd_idle_timeout(timeout: float) -> str:
+        if timeout <= 0:
+            return "disabled"
+        if timeout.is_integer():
+            return f"{int(timeout)} seconds"
+        return f"{timeout:g} seconds"
+
+    def _write_shell_output(self, text: str) -> None:
+        if not text:
+            return
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def _terminate_shell_process(
+            self, process: subprocess.Popen, wait_timeout: float = 1.0
+    ) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+            process.wait(timeout=wait_timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                if os.name != "nt":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                process.wait(timeout=wait_timeout)
+            except Exception:
+                pass
+        except ProcessLookupError:
+            pass
+        except Exception as exc:
+            echo_y(f"Failed to terminate shell command process {process.pid}: {exc}")
+            try:
+                process.kill()
+                process.wait(timeout=wait_timeout)
+            except Exception:
+                pass
+
+    def _run_shell_command_streaming(self, command: str) -> tuple[int | None, str | None]:
+        popen_kwargs = {}
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+
+        stdout_stream = None
+        read_fd = None
+        close_read_fd = False
+        if os.name != "nt":
+            import pty
+
+            master_fd, slave_fd = pty.openpty()
+            try:
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    cwd=self._command_cwd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    bufsize=0,
+                    **popen_kwargs,
+                )
+            except Exception:
+                os.close(master_fd)
+                raise
+            finally:
+                os.close(slave_fd)
+            read_fd = master_fd
+            close_read_fd = True
+        else:
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=self._command_cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,
+                **popen_kwargs,
+            )
+            stdout_stream = process.stdout
+            if stdout_stream is not None:
+                read_fd = stdout_stream.fileno()
+
+        timeout = self._cmd_idle_timeout
+        last_output_at = time.monotonic()
+        saw_output = False
+        output_ended_with_newline = True
+        timed_out = False
+        interrupted = False
+        stdout_open = read_fd is not None
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+
+        try:
+            with selectors.DefaultSelector() as selector:
+                if read_fd is not None:
+                    selector.register(read_fd, selectors.EVENT_READ)
+
+                while stdout_open:
+                    if self.agent.is_break():
+                        interrupted = True
+                        self._terminate_shell_process(process)
+                        break
+
+                    now = time.monotonic()
+                    if timeout > 0 and now - last_output_at >= timeout:
+                        timed_out = True
+                        self._terminate_shell_process(process)
+                        break
+
+                    select_timeout = CMD_OUTPUT_POLL_INTERVAL
+                    if timeout > 0:
+                        select_timeout = min(
+                            select_timeout,
+                            max(0.0, timeout - (now - last_output_at)),
+                        )
+                    if process.poll() is not None:
+                        select_timeout = 0.0
+
+                    events = selector.select(timeout=select_timeout)
+                    if not events:
+                        if process.poll() is not None:
+                            break
+                        continue
+
+                    for key, _ in events:
+                        try:
+                            chunk = os.read(key.fd, 4096)
+                        except OSError:
+                            chunk = b""
+                        if not chunk:
+                            try:
+                                selector.unregister(key.fd)
+                            except Exception:
+                                pass
+                            stdout_open = False
+                            continue
+                        saw_output = True
+                        last_output_at = time.monotonic()
+                        text = decoder.decode(chunk, final=False)
+                        if text:
+                            output_ended_with_newline = text.endswith("\n")
+                            self._write_shell_output(text)
+
+                final_text = decoder.decode(b"", final=True)
+                if final_text:
+                    saw_output = True
+                    output_ended_with_newline = final_text.endswith("\n")
+                    self._write_shell_output(final_text)
+
+            if process.poll() is None and not timed_out and not interrupted:
+                process.wait()
+        except KeyboardInterrupt:
+            self._terminate_shell_process(process)
+            raise
+        finally:
+            if stdout_stream is not None:
+                try:
+                    stdout_stream.close()
+                except Exception:
+                    pass
+            if close_read_fd and read_fd is not None:
+                try:
+                    os.close(read_fd)
+                except Exception:
+                    pass
+
+        if saw_output and not output_ended_with_newline:
+            echo("")
+        if timed_out:
+            return process.poll(), "timeout"
+        if interrupted:
+            return process.poll(), "interrupted"
+        return process.poll(), None
 
     def get_cmd_history(self) -> list[str]:
         """Return the current readline-backed command history."""
@@ -3035,15 +3252,99 @@ class VerifyPDB(Pdb):
         if not arg.strip():
             echo_y("Usage: shell <command>")
             return
-        
-        echo(f"Executing shell command: {arg}")
-        self.default(arg)
+
+        cmd_name = arg.strip().split(maxsplit=1)[0]
+        if self._is_dangerous_shell_command(cmd_name):
+            echo_r(f"Warning: '{cmd_name}' is a potentially dangerous command!")
+            response = input("Are you sure you want to execute this command? (y/N): ")
+            if response.lower() not in ['y', 'yes']:
+                echo_y("Command execution cancelled.")
+                return
+
+        self._execute_shell_command(arg, explicit=True)
+
+    def do_cmd_timeout(self, arg):
+        """
+        Show or set shell command idle timeout.
+        Usage: cmd_timeout [seconds|off]
+
+        The timeout is measured as seconds since the last stdout/stderr output.
+        Any output resets the timer. Use 0 or "off" to disable it.
+        """
+        value = arg.strip()
+        if not value:
+            echo_g(
+                "Shell command idle timeout: "
+                f"{self._format_cmd_idle_timeout(self._cmd_idle_timeout)}"
+            )
+            return
+        try:
+            timeout = self._parse_cmd_idle_timeout(value)
+        except ValueError:
+            echo_r(f"Invalid cmd_timeout value: {value}. Use a non-negative number or off.")
+            return
+        self._cmd_idle_timeout = timeout
+        echo_g(
+            "Shell command idle timeout set to "
+            f"{self._format_cmd_idle_timeout(self._cmd_idle_timeout)}."
+        )
+
+    def _execute_shell_command(self, line: str, *, explicit: bool = False) -> None:
+        cmd_name = ""
+        if not explicit:
+            cmd_name = line.split(maxsplit=1)[0] if line.strip() else ""
+
+        if explicit:
+            echo(f"Executing shell command: {line}")
+        else:
+            echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
+            echo(f"Executing as bash command: {line}")
+
+        if not os.path.isdir(self._command_cwd):
+            echo_r(f"Working directory does not exist: {self._command_cwd}")
+            return
+        echo(f"Working directory: {self._command_cwd}")
+        echo(
+            "Idle timeout without output: "
+            f"{self._format_cmd_idle_timeout(self._cmd_idle_timeout)}"
+        )
+
+        try:
+            returncode, stop_reason = self._run_shell_command_streaming(line)
+        except FileNotFoundError as exc:
+            echo_r(f"Error executing command '{line}': {exc}")
+            return
+        except Exception as exc:
+            echo_r(f"Error executing command '{line}': {str(exc)}")
+            return
+
+        if stop_reason == "timeout":
+            echo_r(
+                f"Command '{line}' timed out after "
+                f"{self._format_cmd_idle_timeout(self._cmd_idle_timeout)} without output"
+            )
+            return
+        if stop_reason == "interrupted":
+            echo_y(f"Command '{line}' interrupted.")
+            return
+
+        if returncode != 0:
+            echo_r(f"Command exited with code: {returncode}")
+        else:
+            echo_g("Command completed successfully (exit code: 0)")
+
+    @staticmethod
+    def _is_dangerous_shell_command(cmd_name: str) -> bool:
+        return cmd_name in {
+            'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
+            'kill', 'killall', 'pkill', 'reboot', 'shutdown', 'halt',
+            'fdisk', 'mkfs', 'format', 'dd', 'mount', 'umount'
+        }
 
     def default(self, line):
         """
         Handle unrecognized commands. First try as PDB command, then shell command for clear shell commands only.
         """
-        import subprocess
         line = line.strip()
         if not line:
             return
@@ -3057,7 +3358,8 @@ class VerifyPDB(Pdb):
                 'curl', 'wget', 'ssh', 'scp', 'rsync', 'git', 'docker', 'systemctl',
                 'service', 'sudo', 'su', 'which', 'whereis', 'echo', 'history',
                 'head', 'tail', 'wc', 'sort', 'uniq', 'awk', 'sed', 'diff',
-                'make', 'cmake', 'gcc', 'g++', 'python', 'pytest', 'pip', 'npm', 'node'
+                'make', 'cmake', 'gcc', 'g++', 'python', 'python3', 'pytest', 'pip',
+                'npm', 'node', 'bash', 'sh'
         }
         shell_commands_dangerous = {
             'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
@@ -3070,42 +3372,14 @@ class VerifyPDB(Pdb):
             # Let PDB's default handler deal with Python expressions and variables
             return super().default(line)
         # Check if the command is potentially dangerous
-        if cmd_name in shell_commands_dangerous:
+        if self._is_dangerous_shell_command(cmd_name):
             echo_r(f"Warning: '{cmd_name}' is a potentially dangerous command!")
             response = input("Are you sure you want to execute this command? (y/N): ")
             if response.lower() not in ['y', 'yes']:
                 echo_y("Command execution cancelled.")
                 return
-        # Show a warning that this command is not a built-in PDB command
-        echo_y(f"Command '{cmd_name}' is not a built-in VerifyPDB command.")
-        echo(f"Executing as bash command: {line}")
-        try:
-            if not os.path.isdir(self._command_cwd):
-                echo_r(f"Working directory does not exist: {self._command_cwd}")
-                return
-            echo(f"Working directory: {self._command_cwd}")
-            # Execute the command using subprocess
-            result = subprocess.run(
-                line, 
-                shell=True, 
-                capture_output=True, 
-                text=True, 
-                cwd=self._command_cwd,
-                timeout=30  # 30 second timeout to prevent hanging
-            )
-            # Display the output
-            if result.stdout:
-                echo_g(f"Output:\n{result.stdout}")
-            if result.stderr:
-                echo_r(f"Error:\n{result.stderr}")
-            if result.returncode != 0:
-                echo_r(f"Command exited with code: {result.returncode}")
-            else:
-                echo_g(f"Command completed successfully (exit code: 0)")
-        except subprocess.TimeoutExpired:
-            echo_r(f"Command '{line}' timed out after 30 seconds")
-        except Exception as e:
-            echo_r(f"Error executing command '{line}': {str(e)}")
+
+        self._execute_shell_command(line)
 
     def api_load_toffee_report(self, path, workspace):
         """

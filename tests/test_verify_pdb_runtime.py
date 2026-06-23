@@ -3,6 +3,7 @@
 
 import os
 import signal
+import shlex
 import sys
 import threading
 import time
@@ -15,6 +16,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 from ucagent.verify_pdb import VerifyPDB
 from ucagent.verify_agent import VerifyAgent
 from ucagent.util.log import info
+
+
+def _console_output_lines(rendered: str) -> list[str]:
+    return [
+        line
+        for line in rendered.splitlines()
+        if not line.startswith("> ")
+        and not line.startswith("Executing shell command:")
+        and not line.startswith("Working directory:")
+        and not line.startswith("Idle timeout without output:")
+        and "Command '" not in line
+    ]
 
 
 class _FakeAgent:
@@ -196,6 +209,151 @@ def test_chcwd_controls_pdb_and_shell_command_cwd(tmp_path, capsys):
         signal.signal(signal.SIGINT, previous_signal)
         sys.stdout = previous_stdout
         sys.stderr = previous_stderr
+
+
+def test_cmd_timeout_command_shows_and_sets_idle_timeout(probe_pdb, capsys):
+    probe_pdb.execute_command("cmd_timeout")
+    output = capsys.readouterr().out
+    assert "Shell command idle timeout: 30 seconds" in output
+
+    probe_pdb.execute_command("cmd_timeout 1.5")
+    output = capsys.readouterr().out
+    assert "Shell command idle timeout set to 1.5 seconds." in output
+    assert probe_pdb._cmd_idle_timeout == 1.5
+
+    probe_pdb.execute_command("cmd_timeout off")
+    output = capsys.readouterr().out
+    assert "Shell command idle timeout set to disabled." in output
+    assert probe_pdb._cmd_idle_timeout == 0
+
+
+def test_shell_command_streams_output_before_completion(probe_pdb):
+    code = (
+        "import time; "
+        "print('stream-first', flush=True); "
+        "time.sleep(1.5); "
+        "print('stream-second', flush=True)"
+    )
+    command = f"shell {shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+    errors: list[BaseException] = []
+
+    def run_command():
+        try:
+            probe_pdb.execute_command(command)
+        except BaseException as exc:  # pragma: no cover - debugging aid
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_command)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            rendered = probe_pdb.render_console_entries_since(0)
+            if "stream-first" in rendered:
+                break
+            time.sleep(0.02)
+
+        rendered = probe_pdb.render_console_entries_since(0)
+        assert "stream-first" in rendered
+        assert worker.is_alive()
+        assert "stream-second" not in _console_output_lines(rendered)
+    finally:
+        worker.join(timeout=3.0)
+        if worker.is_alive():
+            probe_pdb.cancel_last_running_command()
+            worker.join(timeout=1.0)
+
+    assert not worker.is_alive()
+    assert not errors
+    rendered = probe_pdb.render_console_entries_since(0)
+    assert "stream-second" in _console_output_lines(rendered)
+    assert "Command completed successfully" in rendered
+
+
+def test_shell_command_pty_streams_line_buffered_output(probe_pdb):
+    code = (
+        "import time; "
+        "print('line-buffered-first'); "
+        "time.sleep(1.5); "
+        "print('line-buffered-second')"
+    )
+    command = f"shell {shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+    errors: list[BaseException] = []
+
+    def run_command():
+        try:
+            probe_pdb.execute_command(command)
+        except BaseException as exc:  # pragma: no cover - debugging aid
+            errors.append(exc)
+
+    worker = threading.Thread(target=run_command)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            output_lines = _console_output_lines(probe_pdb.render_console_entries_since(0))
+            if "line-buffered-first" in output_lines:
+                break
+            time.sleep(0.02)
+
+        output_lines = _console_output_lines(probe_pdb.render_console_entries_since(0))
+        assert "line-buffered-first" in output_lines
+        assert worker.is_alive()
+        assert "line-buffered-second" not in output_lines
+    finally:
+        worker.join(timeout=3.0)
+        if worker.is_alive():
+            probe_pdb.cancel_last_running_command()
+            worker.join(timeout=1.0)
+
+    assert not worker.is_alive()
+    assert not errors
+    output_lines = _console_output_lines(probe_pdb.render_console_entries_since(0))
+    assert "line-buffered-second" in output_lines
+
+
+def test_shell_idle_timeout_resets_after_output(probe_pdb):
+    probe_pdb._cmd_idle_timeout = 1.0
+    code = (
+        "import time\n"
+        "for idx in range(4):\n"
+        "    print(f'tick-{idx}', flush=True)\n"
+        "    time.sleep(0.35)\n"
+        "print('still-alive', flush=True)\n"
+    )
+
+    probe_pdb.execute_command(
+        f"shell {shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+    )
+
+    rendered = probe_pdb.render_console_entries_since(0)
+    output_lines = _console_output_lines(rendered)
+    assert "tick-0" in output_lines
+    assert "tick-3" in output_lines
+    assert "still-alive" in output_lines
+    assert "timed out" not in rendered
+
+
+def test_shell_idle_timeout_kills_quiet_command(probe_pdb):
+    probe_pdb._cmd_idle_timeout = 0.4
+    code = (
+        "import time; "
+        "print('quiet-start', flush=True); "
+        "time.sleep(5); "
+        "print('quiet-late', flush=True)"
+    )
+
+    started = time.monotonic()
+    probe_pdb.execute_command(
+        f"shell {shlex.quote(sys.executable)} -c {shlex.quote(code)}"
+    )
+
+    rendered = probe_pdb.render_console_entries_since(0)
+    output_lines = _console_output_lines(rendered)
+    assert time.monotonic() - started < 2.0
+    assert "quiet-start" in output_lines
+    assert "quiet-late" not in output_lines
+    assert "timed out after 0.4 seconds without output" in rendered
 
 
 def test_chcwd_rejects_paths_outside_workspace(tmp_path, capsys):

@@ -8,6 +8,10 @@ lang: "zh"
 # init commands to run at the start of the agent
 init_cmds: []
 
+# Idle timeout for VerifyPDB bash commands, in seconds. The timer resets when
+# stdout/stderr output arrives. Set to 0 or "off" to disable.
+cmd_timeout: 30
+
 # backend
 backend:
   key_name: "langchain"  # options: langchain, claude, opencode, copilot, etc.
