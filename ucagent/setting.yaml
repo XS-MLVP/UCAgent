@@ -10,7 +10,7 @@ init_cmds: []
 
 # Idle timeout for VerifyPDB bash commands, in seconds. The timer resets when
 # stdout/stderr output arrives. Set to 0 or "off" to disable.
-cmd_timeout: 30
+cmd_timeout: 300
 
 # backend
 backend:
