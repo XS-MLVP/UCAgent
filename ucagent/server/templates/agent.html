@@ -2444,6 +2444,7 @@ let _cmdHistoryIdx = -1;
 let _cmdHistorySaved = "";
 let _acItems = [];
 let _acIdx = -1;
+let _pdbFocusAfterBusy = false;
 
 function _consoleChatToggleAvailable() {
   return !_pdbBusy && !_pdbInTui;
@@ -2470,6 +2471,17 @@ function toggleConsoleChatMode() {
   _updateConsoleChatControl();
   const input = qs("#pdb-cmd-input");
   if (input && !input.disabled) input.focus();
+}
+
+function _focusPdbCmdInputSoon(force=false) {
+  const input = qs("#pdb-cmd-input");
+  if (!input || input.disabled) return;
+  requestAnimationFrame(() => {
+    if (!input || input.disabled) return;
+    const active = document.activeElement;
+    const canRestore = force || !active || active === document.body || active === input || active.id === "pdb-cmd-send";
+    if (canRestore) input.focus();
+  });
 }
 
 function _commandForConsoleMode(rawCmd) {
@@ -2611,7 +2623,7 @@ function _setPdbBusy(busy, inTui) {
     badge.className = "tui";
     badge.textContent = "\u25cf TUI";
   } else if (busy) {
-    input.disabled = true;
+    input.disabled = false;
     sendBtn.disabled = true;
     badge.className = "busy";
     badge.textContent = "\u25cf busy";
@@ -2622,6 +2634,10 @@ function _setPdbBusy(busy, inTui) {
     badge.textContent = "\u25cf idle";
   }
   _updateConsoleChatControl();
+  if (_pdbFocusAfterBusy && input && !input.disabled && (!busy || inTui)) {
+    _pdbFocusAfterBusy = false;
+    _focusPdbCmdInputSoon();
+  }
 }
 
 async function fetchPdbStatus() {
@@ -2646,11 +2662,18 @@ async function fetchPdbStatus() {
 
 async function sendPdbCmd() {
   const input = qs("#pdb-cmd-input");
+  if (_pdbBusy && !_pdbInTui) {
+    _focusPdbCmdInputSoon(true);
+    return;
+  }
   const rawCmd = input.value.trim();
   if (!rawCmd) return;
   try {
     const cmd = _commandForConsoleMode(rawCmd);
     if (!cmd) return;
+    input.value = "";
+    _pdbFocusAfterBusy = true;
+    _focusPdbCmdInputSoon(true);
     await apiFetch("/api/cmd", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -2659,9 +2682,14 @@ async function sendPdbCmd() {
     // Record in local history (dedup consecutive)
     if (!_cmdHistory.length || _cmdHistory[_cmdHistory.length - 1] !== rawCmd) _cmdHistory.push(rawCmd);
     _cmdHistoryIdx = -1;
-    input.value = "";
     _setPdbBusy(true);
-  } catch(e) { showErr(e.message); }
+    _focusPdbCmdInputSoon(true);
+  } catch(e) {
+    showErr(e.message);
+    _pdbFocusAfterBusy = false;
+    if (!String(input.value || "").trim()) input.value = rawCmd;
+    _focusPdbCmdInputSoon(true);
+  }
 }
 
 async function sendPdbInterrupt() {
