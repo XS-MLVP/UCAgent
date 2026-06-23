@@ -74,6 +74,14 @@ def _raise_keyboard_interrupt_in_thread(thread_id: int) -> bool:
     return True
 
 
+def _readline_uses_libedit() -> bool:
+    backend = getattr(readline, "backend", "") or ""
+    if "editline" in str(backend).lower() or "libedit" in str(backend).lower():
+        return True
+    doc = getattr(readline, "__doc__", "") or ""
+    return "libedit" in doc.lower()
+
+
 class VerifyPDB(Pdb):
     """
     VerifyPDB is a specialized PDB class that overrides the default behavior
@@ -724,6 +732,33 @@ class VerifyPDB(Pdb):
                 cmd = self.init_cmd.pop(0)
                 self.execute_command(cmd)
         return super().interaction(frame, traceback)
+
+    def _bind_readline_completion(self) -> None:
+        readline.parse_and_bind(self._readline_completion_bind_command())
+
+    def _readline_completion_bind_command(self) -> str:
+        if _readline_uses_libedit():
+            return "bind ^I rl_complete"
+        return f"{self.completekey}: complete"
+
+    def cmdloop(self, intro=None):
+        """Run cmdloop with libedit-compatible tab binding on macOS."""
+        if not (self.use_rawinput and self.completekey and _readline_uses_libedit()):
+            return super().cmdloop(intro)
+
+        original_parse_and_bind = readline.parse_and_bind
+        default_binding = f"{self.completekey}: complete"
+
+        def parse_and_bind(command: str):
+            if command == default_binding:
+                command = self._readline_completion_bind_command()
+            return original_parse_and_bind(command)
+
+        readline.parse_and_bind = parse_and_bind
+        try:
+            return super().cmdloop(intro)
+        finally:
+            readline.parse_and_bind = original_parse_and_bind
 
     def _cmdloop(self):
         """Override Pdb._cmdloop to suppress the ``--KeyboardInterrupt--``

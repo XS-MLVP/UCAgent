@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import readline
 import signal
 import shlex
 import sys
@@ -225,6 +226,30 @@ def test_cmd_timeout_command_shows_and_sets_idle_timeout(probe_pdb, capsys):
     output = capsys.readouterr().out
     assert "Shell command idle timeout set to disabled." in output
     assert probe_pdb._cmd_idle_timeout == 0
+
+
+def test_readline_completion_binding_uses_libedit_syntax(probe_pdb, monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(readline, "__doc__", "Importing this module enables command line editing using libedit readline.")
+    monkeypatch.setattr(readline, "parse_and_bind", calls.append)
+
+    probe_pdb._bind_readline_completion()
+
+    assert calls == ["bind ^I rl_complete"]
+    assert probe_pdb._readline_completion_bind_command() == "bind ^I rl_complete"
+
+
+def test_readline_completion_binding_uses_gnu_syntax(probe_pdb, monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(readline, "__doc__", "GNU readline")
+    monkeypatch.setattr(readline, "parse_and_bind", calls.append)
+
+    probe_pdb._bind_readline_completion()
+
+    assert calls == ["tab: complete"]
+    assert probe_pdb._readline_completion_bind_command() == "tab: complete"
 
 
 def test_shell_command_runs_while_agent_break_is_set(probe_pdb):
