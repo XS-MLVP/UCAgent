@@ -227,6 +227,49 @@ def test_cmd_timeout_command_shows_and_sets_idle_timeout(probe_pdb, capsys):
     assert probe_pdb._cmd_idle_timeout == 0
 
 
+def test_shell_command_runs_while_agent_break_is_set(probe_pdb):
+    probe_pdb.agent.set_break(True)
+
+    probe_pdb.execute_command("sh -c 'echo break-ok'")
+
+    rendered = probe_pdb.render_console_entries_since(0)
+    assert "break-ok" in _console_output_lines(rendered)
+    assert "interrupted" not in rendered
+
+
+def test_unknown_non_dangerous_command_executes_as_shell(probe_pdb):
+    probe_pdb.execute_command("command -v sh")
+
+    rendered = probe_pdb.render_console_entries_since(0)
+    assert "/sh" in rendered or rendered.splitlines().count("sh") > 0
+    assert "Executing as bash command: command -v sh" in rendered
+
+
+def test_shell_command_completion_whitelist_and_files(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "demo.txt").write_text("demo", encoding="utf-8")
+
+    previous_signal = signal.getsignal(signal.SIGINT)
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    pdb = _ProbePDB(_FakeAgent(workspace=str(workspace)))
+    try:
+        assert "pytest" in pdb.api_all_cmds("py")
+        assert "pytest" in pdb.completenames("py")
+        assert "rm" not in pdb.api_all_cmds("r")
+
+        completions = pdb.completedefault("de", "pytest de", len("pytest "), len("pytest de"))
+        assert "demo.txt" in completions
+
+        shell_completions = pdb.complete_shell("de", "shell pytest de", len("shell pytest "), len("shell pytest de"))
+        assert "demo.txt" in shell_completions
+    finally:
+        signal.signal(signal.SIGINT, previous_signal)
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
+
+
 def test_shell_command_streams_output_before_completion(probe_pdb):
     code = (
         "import time; "

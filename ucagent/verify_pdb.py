@@ -26,6 +26,20 @@ from ucagent.util.config import Config
 
 DEFAULT_CMD_IDLE_TIMEOUT = 30.0
 CMD_OUTPUT_POLL_INTERVAL = 1.0
+SHELL_COMMAND_DANGEROUS = {
+    "chmod", "chown", "cp", "dd", "fdisk", "format", "halt", "kill",
+    "killall", "mkfs", "mount", "mv", "pkill", "reboot", "rm", "rmdir",
+    "shutdown", "su", "sudo", "umount",
+}
+SHELL_COMMAND_COMPLETION_WHITELIST = {
+    "awk", "bash", "cat", "cmake", "curl", "diff", "docker", "echo",
+    "find", "gcc", "g++", "git", "grep", "gzip", "head", "history", "htop",
+    "iverilog", "ls", "make", "mkdir", "node", "npm", "pip", "ps", "pwd",
+    "pytest", "python", "python3", "rg", "rsync", "scp", "sed", "service",
+    "sh", "sort", "ssh", "systemctl", "tail", "tar", "tee", "toffee",
+    "touch", "uniq", "uv", "vvp", "wc", "wget", "which", "whereis",
+    "yosys", "zsh",
+}
 
 if TYPE_CHECKING:
     from ucagent.tui.widgets.console import ConsoleWidgetState
@@ -117,6 +131,7 @@ class VerifyPDB(Pdb):
         self._running_commands_lock = threading.RLock()
         self._running_commands_local = threading.local()
         self._running_command_seq = 0
+        self._interrupt_seq = 0
         self._workspace_cwd = self._normalize_path(
             getattr(self.agent, "workspace", None) or os.getcwd()
         )
@@ -276,9 +291,13 @@ class VerifyPDB(Pdb):
     def request_thread_interrupt(self, thread_id: int | None) -> bool:
         if thread_id is None:
             return False
+        self._mark_interrupt_requested()
         self.agent.set_break_thread(thread_id)
         _raise_keyboard_interrupt_in_thread(thread_id)
         return True
+
+    def _mark_interrupt_requested(self) -> None:
+        self._interrupt_seq += 1
 
     def should_record_console_output(self) -> bool:
         """Shared console transcript should include every visible PDB/TUI write."""
@@ -364,13 +383,20 @@ class VerifyPDB(Pdb):
         if token is None:
             return
 
+        thread_id = None
         with self._running_commands_lock:
-            self._running_commands.pop(token, None)
+            state = self._running_commands.pop(token, None)
+            if state is not None:
+                thread_id = state.thread_id
             if self._running_commands:
                 last_key = next(reversed(self._running_commands))
                 self._current_cmd = self._running_commands[last_key].command
             else:
                 self._current_cmd = None
+        if thread_id is not None:
+            clear_break_thread = getattr(self.agent, "clear_break_thread", None)
+            if callable(clear_break_thread):
+                clear_break_thread(thread_id)
 
     def _should_track_running_command(self, command: str) -> bool:
         cmd, _, _ = self.parseline(command)
@@ -515,11 +541,23 @@ class VerifyPDB(Pdb):
             except Exception:
                 pass
 
+    def _shell_command_interrupt_requested(self, initial_interrupt_seq: int) -> bool:
+        if self._interrupt_seq != initial_interrupt_seq:
+            return True
+
+        thread_id = threading.current_thread().ident
+        for attr_name in ("_break_threads", "break_threads"):
+            break_threads = getattr(self.agent, attr_name, None)
+            if break_threads is not None and thread_id in break_threads:
+                return True
+        return False
+
     def _run_shell_command_streaming(self, command: str) -> tuple[int | None, str | None]:
         popen_kwargs = {}
         if os.name != "nt":
             popen_kwargs["start_new_session"] = True
 
+        initial_interrupt_seq = self._interrupt_seq
         stdout_stream = None
         read_fd = None
         close_read_fd = False
@@ -575,7 +613,7 @@ class VerifyPDB(Pdb):
                     selector.register(read_fd, selectors.EVENT_READ)
 
                 while stdout_open:
-                    if self.agent.is_break():
+                    if self._shell_command_interrupt_requested(initial_interrupt_seq):
                         interrupted = True
                         self._terminate_shell_process(process)
                         break
@@ -775,6 +813,7 @@ class VerifyPDB(Pdb):
             self._api_wakeup_done = True
             raise KeyboardInterrupt  # caught by _cmdloop → restarts cmdloop silently
         had_running_command = self._has_running_command_in_current_thread()
+        self._mark_interrupt_requested()
         self.agent.set_break(True)
         self.agent.message_echo("SIGINT received. Stopping execution ...")
         if had_running_command:
@@ -858,6 +897,16 @@ class VerifyPDB(Pdb):
                 results.append(name + suffix)
         return results
 
+    def completenames(self, text, *ignored):
+        """Complete built-in PDB commands plus common shell commands."""
+        names = set(super().completenames(text, *ignored))
+        names.update(
+            command
+            for command in SHELL_COMMAND_COMPLETION_WHITELIST
+            if command.startswith(text)
+        )
+        return sorted(names)
+
     def api_complite_workspace_file(self, text):
         """Auto-complete workspace files
 
@@ -885,6 +934,9 @@ class VerifyPDB(Pdb):
         """
         Auto-complete default command.
         """
+        cmd_name = (line.strip().split(maxsplit=1) or [""])[0]
+        if cmd_name in SHELL_COMMAND_COMPLETION_WHITELIST:
+            return self._complete_command_cwd_file(text)
         return self.api_complite_workspace_file(text)
 
     def api_parse_args(self, arg):
@@ -1597,11 +1649,12 @@ class VerifyPDB(Pdb):
         """
         # ── command-name completion ───────────────────────────────────────
         if " " not in prefix:
-            ret = []
+            ret = set()
             for name in self.get_names():
                 if name.startswith("do_"):
-                    ret.append(name[3:])
-            return [c for c in ret if c.startswith(prefix)]
+                    ret.add(name[3:])
+            ret.update(SHELL_COMMAND_COMPLETION_WHITELIST)
+            return sorted(c for c in ret if c.startswith(prefix))
 
         # ── argument completion ───────────────────────────────────────────
         line = prefix
@@ -3263,6 +3316,12 @@ class VerifyPDB(Pdb):
 
         self._execute_shell_command(arg, explicit=True)
 
+    def complete_shell(self, text, line, begidx, endidx):
+        """
+        Auto-complete shell command arguments.
+        """
+        return self._complete_command_cwd_file(text)
+
     def do_cmd_timeout(self, arg):
         """
         Show or set shell command idle timeout.
@@ -3335,43 +3394,23 @@ class VerifyPDB(Pdb):
 
     @staticmethod
     def _is_dangerous_shell_command(cmd_name: str) -> bool:
-        return cmd_name in {
-            'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
-            'kill', 'killall', 'pkill', 'reboot', 'shutdown', 'halt',
-            'fdisk', 'mkfs', 'format', 'dd', 'mount', 'umount'
-        }
+        return cmd_name in SHELL_COMMAND_DANGEROUS
 
     def default(self, line):
         """
-        Handle unrecognized commands. First try as PDB command, then shell command for clear shell commands only.
+        Handle unrecognized commands as shell commands.
+
+        Prefix a line with "!" to force PDB's original Python-expression
+        handling instead of bash execution.
         """
         line = line.strip()
         if not line:
             return
-        # Get the command name (first word)
+        if line.startswith("!"):
+            return super().default(line)
+
         cmd_parts = line.split()
         cmd_name = cmd_parts[0] if cmd_parts else ""
-        # Check if this looks like a clear shell command
-        shell_commands_normal = {
-                'ls', 'cd', 'pwd', 'mkdir', 'touch', 'cp', 'mv', 'rm', 'cat', 'grep',
-                'find', 'ps', 'top', 'htop', 'kill', 'chmod', 'chown', 'tar', 'gzip',
-                'curl', 'wget', 'ssh', 'scp', 'rsync', 'git', 'docker', 'systemctl',
-                'service', 'sudo', 'su', 'which', 'whereis', 'echo', 'history',
-                'head', 'tail', 'wc', 'sort', 'uniq', 'awk', 'sed', 'diff',
-                'make', 'cmake', 'gcc', 'g++', 'python', 'python3', 'pytest', 'pip',
-                'npm', 'node', 'bash', 'sh'
-        }
-        shell_commands_dangerous = {
-            'rm', 'rmdir', 'mv', 'cp', 'chmod', 'chown', 'sudo', 'su',
-            'kill', 'killall', 'pkill', 'reboot', 'shutdown', 'halt',
-            'fdisk', 'mkfs', 'format', 'dd', 'mount', 'umount'
-        }
-        supported_shell_cmds = shell_commands_normal.union(shell_commands_dangerous)
-        # If it's clearly not a shell command, let PDB handle it (for Python expressions, variables, etc.)
-        if not cmd_name in supported_shell_cmds:
-            # Let PDB's default handler deal with Python expressions and variables
-            return super().default(line)
-        # Check if the command is potentially dangerous
         if self._is_dangerous_shell_command(cmd_name):
             echo_r(f"Warning: '{cmd_name}' is a potentially dangerous command!")
             response = input("Are you sure you want to execute this command? (y/N): ")
