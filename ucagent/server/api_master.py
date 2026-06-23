@@ -1060,8 +1060,28 @@ class PdbMasterApiServer:
             raise ValueError("Compiled workspace directory not found")
         return picker_workspace
 
+    def _relaunch_workspace_dir(self, ws: Dict[str, Any]) -> str:
+        for value in (
+            ws.get("picker_workspace"),
+            os.path.join(str(ws.get("workspace_dir") or ""), "workspace"),
+            ws.get("workspace_dir"),
+        ):
+            raw = str(value or "").strip()
+            if not raw:
+                continue
+            workspace_root = os.path.abspath(raw)
+            if workspace_root and os.path.isdir(workspace_root) and self._is_ucagent_workspace_root(workspace_root):
+                return workspace_root
+        raise ValueError("Relaunch workspace is missing .ucagent/ucagent_info.json")
+
+    def _launchable_workspace_dir(self, ws: Dict[str, Any]) -> str:
+        compile_info = ws.get("compile") or {}
+        if compile_info.get("status") != "success":
+            return self._relaunch_workspace_dir(ws)
+        return self._compiled_workspace_dir(ws)
+
     def _create_compiled_workspace_archive(self, ws: Dict[str, Any], archive_stem: str = "") -> Tuple[str, str, str]:
-        picker_workspace = self._compiled_workspace_dir(ws)
+        picker_workspace = self._launchable_workspace_dir(ws)
         archive_stem = _safe_name(
             archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
             "workspace",
@@ -5044,9 +5064,8 @@ class PdbMasterApiServer:
                 "generated_filelist": False,
                 "copied_files": [],
                 "config_path": "",
-                "use_zip_workspace": False,
+                "use_zip_workspace": bool(req.get("use_zip_workspace", True)),
             }
-            req["use_zip_workspace"] = False
             picker_status = "success"
 
         compiled_config = str(compile_info.get("config_path") or "").strip()
@@ -7343,7 +7362,6 @@ class PdbMasterApiServer:
                 req["picker_args"] = list(compile_info.get("picker_extra_args") or [])
                 if status.get("workspace_source") == "ucagent_info":
                     req["_relaunch_from_ucagent_info"] = True
-                    req["use_zip_workspace"] = False
                 task = self._run_task_launch(req)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc

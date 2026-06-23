@@ -1986,7 +1986,6 @@ function isRelaunchFromUcagentInfo() {
 }
 
 function getUseZipWorkspaceForLaunch() {
-  if (isRelaunchFromUcagentInfo()) return false;
   return state.launchConfig?.use_zip_workspace !== false;
 }
 
@@ -2439,7 +2438,8 @@ function buildPickerArgs(selectedModule = getSelectedModule(), dutName = getDesi
 function buildPickerPreview() {
   if (!state.workspace) return 'Waiting for workspace reservation...';
   if (isRelaunchFromUcagentInfo()) {
-    return shellJoin(['ucagent', getLaunchWorkspacePath(false), getRelaunchDutName()]);
+    const useZipWorkspace = getUseZipWorkspaceForLaunch();
+    return shellJoin(['ucagent', getLaunchWorkspacePath(useZipWorkspace), getRelaunchDutName()]);
   }
   if (!isNextStepUnlocked()) return 'Waiting for Main RTL or .f filelist plus Verification Needs...';
   if (!getSelectedModule()) return 'Waiting for Main RTL Module...';

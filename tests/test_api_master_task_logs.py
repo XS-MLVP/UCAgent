@@ -113,6 +113,29 @@ def test_compiled_workspace_archive_uses_sync_workspace_ignore_patterns():
         assert "workspace/uc_test_report/index.html" not in names
 
 
+def test_relaunch_ucagent_info_workspace_can_be_archived_without_compile():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        ws = server._create_workspace()
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
+        with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
+            json.dump({"dut_name": "Adder", "selected_module": "Adder"}, fh)
+        with open(os.path.join(picker_workspace, "keep.txt"), "w", encoding="utf-8") as fh:
+            fh.write("keep")
+        ws["compile"] = {}
+
+        archive_path, _filename, temp_dir = server._create_compiled_workspace_archive(ws, "relaunch")
+        try:
+            with tarfile.open(archive_path, "r:gz") as tf:
+                names = set(tf.getnames())
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        assert "workspace/.ucagent/ucagent_info.json" in names
+        assert "workspace/keep.txt" in names
+
+
 def test_cluster_mounts_keep_master_source_host_path(monkeypatch):
     with tempfile.TemporaryDirectory() as master_ws, tempfile.TemporaryDirectory() as task_ws:
         server = PdbMasterApiServer(workspace=master_ws)
@@ -662,6 +685,50 @@ def test_relaunch_drops_finished_old_task_record_before_launch():
         assert response.status_code == 200
         assert launched[0]["task_id"] == old_task["task_id"]
         assert server._tasks[old_task["task_id"]]["process_status"] == "pending"
+
+
+def test_relaunch_ucagent_info_preserves_requested_zip_workspace():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        client = TestClient(server._app)
+        ws = server._create_workspace()
+        workspace_id = ws["workspace_id"]
+        picker_workspace = ws["picker_workspace"]
+        os.makedirs(os.path.join(picker_workspace, ".ucagent"), exist_ok=True)
+        with open(os.path.join(picker_workspace, ".ucagent", "ucagent_info.json"), "w", encoding="utf-8") as fh:
+            json.dump({"dut_name": "Adder", "selected_module": "Adder"}, fh)
+
+        old_task = server._create_task_record(
+            {
+                "task_id": ws["task_id"],
+                "workspace_id": workspace_id,
+                "cmd_api": {"enabled": True, "status": "stopped"},
+                "terminal_api": {"enabled": False, "status": "stopped"},
+                "web_console": {"enabled": False, "status": "stopped"},
+            }
+        )
+        old_task["process_status"] = "stopped"
+        old_task["finished_at"] = time.time() - 30
+        launched = []
+
+        def fake_run_launch(req):
+            launched.append(dict(req))
+            return server._create_task_record(
+                {
+                    "task_id": req["task_id"],
+                    "workspace_id": req["workspace_id"],
+                    "cmd_api": {"enabled": True, "status": "starting"},
+                    "terminal_api": {"enabled": False, "status": "stopped"},
+                    "web_console": {"enabled": False, "status": "stopped"},
+                }
+            )
+
+        with patch.object(server, "_run_task_launch", side_effect=fake_run_launch):
+            response = client.post("/api/relaunch", json={"task_id": old_task["task_id"], "use_zip_workspace": True})
+
+        assert response.status_code == 200
+        assert launched[0]["_relaunch_from_ucagent_info"] is True
+        assert launched[0]["use_zip_workspace"] is True
 
 
 def test_process_task_cmd_proxy_can_use_agent_reported_tcp_url():
