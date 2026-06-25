@@ -113,7 +113,8 @@ class RunPyTest(UCTool):
                 else:
                     raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
 
-        cmd = ["pytest", "-s", *self.get_pytest_args(), *test_target]
+        ENV_ARGS = env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip().split()
+        cmd = ["pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(
