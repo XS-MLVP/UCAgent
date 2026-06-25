@@ -19,6 +19,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.stage.vmanager as vmanager
+from ucagent.stage.vstage import VerifyStage
 from ucagent.stage.vmanager import StageManager
 from ucagent.util import functions as fc
 
@@ -111,6 +112,14 @@ class _FakeAgent:
 
     def get_stat_info(self):
         return {"version": "test"}
+
+
+class _FakeCurrentStageManager:
+    def __init__(self, current_stage):
+        self._current_stage = current_stage
+
+    def get_current_stage(self):
+        return self._current_stage
 
 
 def _cfg():
@@ -225,3 +234,34 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     assert saved["mission_name"] == "Formal Coverage Mission"
     assert saved["is_agent_exit"] is True
     assert saved["all_completed"] is False
+
+
+def _make_verify_stage(name, reference_files, parent=None):
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.name = name
+    stage.reference_files = dict(reference_files)
+    stage.parent = parent
+    stage.force_unactive = False
+    stage.skill_list = {}
+    stage.workspace = ""
+    stage.vmanager = None
+    stage.is_skill_path = lambda _file_path: False
+    return stage
+
+
+def test_on_file_read_marks_reference_files_in_parent_stage_chain():
+    root = _make_verify_stage("root", {"shared.md": False, "root_only.md": False})
+    parent = _make_verify_stage("parent", {"shared.md": False}, parent=root)
+    child = _make_verify_stage("child", {"shared.md": False, "child_only.md": False}, parent=parent)
+    manager = _FakeCurrentStageManager(child)
+    root.vmanager = manager
+    parent.vmanager = manager
+    child.vmanager = manager
+
+    child.on_file_read(True, "shared.md", "content")
+
+    assert root.reference_files["shared.md"] is True
+    assert parent.reference_files["shared.md"] is True
+    assert child.reference_files["shared.md"] is True
+    assert root.reference_files["root_only.md"] is False
+    assert child.reference_files["child_only.md"] is False
