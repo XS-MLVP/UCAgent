@@ -193,6 +193,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
+      - "{DUT}_Doc/*.md"
       - "{DUT}/__init__.py"
       - "{OUT}/{DUT}_basic_info.md"
       - "{OUT}/{DUT}_verification_needs_and_plan.md"

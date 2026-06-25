@@ -93,3 +93,7 @@ SBuffer 主要负责缓冲存储指令的数据，提高存储性能。核心功
 
 如果在运行测试时发现 failures，请参考源码 `Sbuffer.scala` 及相关设计文档进行调试。
 发现 bug 按照 UCAgent 的 bug 记录规范进行记录。
+
+## 5. Spec文档
+
+Spec文档位于Doc目录，由FM-Agent生成。

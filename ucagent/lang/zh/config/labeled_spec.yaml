@@ -4,16 +4,17 @@
 # 用作最终验收：确保生成的 functions_and_checks 文档没有遗漏标注规格中的 CK。
 
 stage[2].task:
-  - "目标：基于已标注的规格文档，生成完整、可测试的功能点与检查点文档"
-  - "第1步：阅读{DUT}/下的所有规格/需求文档，重点识别其中已有的<FG-*>、<FC-*>、<CK-*>标签"
-  - "第2步：将规格中的功能按<FG-*>分组，并保持标签命名与原规格一致"
+  - "目标：基于已标注的规格文档，生成完整、可测试的功能点与检查点文档：{OUT}/{DUT}_functions_and_checks.md"
+  - "第1步：阅读{DUT}/, {DUT}_Doc/等目录下的所有规格/需求文档，重点识别其中已有的<FG-*>、<FC-*>、<CK-*>标签"
+  - "第3步：将每个功能组<FG-*>整理到{OUT}/{DUT}_functions_and_checks.md"
   - "第3步：将每个功能组下的<FC-*>功能点整理到{OUT}/{DUT}_functions_and_checks.md"
   - "第4步：将每个功能点下的<CK-*>检测点完整迁移/补充到{OUT}/{DUT}_functions_and_checks.md"
-  - "第5步：若发现规格中没有标签但存在明显遗漏的可测功能，也应补充新的FG/FC/CK，并保证命名清晰可追溯"
+  - "第5步：若发现规格中没有标签但存在明显遗漏的可测功能，也应补充新的FG/FC/CK到{OUT}/{DUT}_functions_and_checks.md，需要保证命名清晰可追溯"
   - "输出：把结果写入{OUT}/{DUT}_functions_and_checks.md，请使用{DOC_GEN_LANG}编写"
   - "重要要求："
   - "  - 标签格式必须严格遵循<FG-*> -> <FC-*> -> <CK-*>层级"
   - "  - 已标注规格文档中的所有CK都必须在{OUT}/{DUT}_functions_and_checks.md中出现"
+  - "  - {OUT}/{DUT}_functions_and_checks.md中新增的CK必须有明确的功能点和可验证的测试方法，他们不一定要在规格文档中出现"
   - "  - 新增CK必须具体、可观察、可通过端口输入输出验证"
   - "  - 不要把多个复杂行为合并成一个过大的CK；必要时继续拆分"
   - "  - 参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
@@ -28,6 +29,8 @@ stage[2].checker:
   - name: must_have_cks
     clss: "MustHaveCKs"
     args:
-      source_files: "$(LABELED_SPEC_FILES: {DUT}/*.md)"
+      source_files:
+        - "$(LABELED_SPEC_FILES: {DUT}/*.md)"
+        - "{DUT}_Doc/*.md"
       funcs_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
       leaf_node: "CK"

@@ -5,7 +5,7 @@
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 import ucagent.util.functions as fc
 from ucagent.util.log import info
-import copy
+from collections import OrderedDict
 import os
 
 
@@ -225,12 +225,13 @@ class MarkDownHeadChecker(Checker):
 
 
 class MustHaveCKs(Checker):
-    """Ensure markdown source files contain required labels.
+    """Ensure every CK in source files exists in the functions-and-checks doc.
 
     Role:
-        Use ``funcs_and_checks_doc`` as the source of truth, then verify every
-        matched file in ``source_files`` contains all required ``leaf_node``
-        labels. Missing labels are reported with their definition line numbers.
+        Use ``funcs_and_checks_doc`` as the allowed CK set, then verify every
+        matched file in ``source_files`` only contains ``leaf_node`` labels that
+        also exist in that document. Missing labels are reported with their
+        source file line numbers.
 
     Args:
         source_files: A file path, glob/regex pattern, or list of patterns.
@@ -257,7 +258,7 @@ class MustHaveCKs(Checker):
         self.funcs_and_checks_doc = funcs_and_checks_doc
         self.leaf_node = leaf_node
 
-    def _load_labels(self, doc_file, return_line_block=False):
+    def _load_labels(self, doc_file, return_line_block=False, file_kind="documentation file"):
         try:
             return fc.get_unity_chip_doc_marks(
                 self.get_path(doc_file),
@@ -266,7 +267,7 @@ class MustHaveCKs(Checker):
                 return_line_block=return_line_block,
             )
         except Exception as e:
-            raise ValueError(f"Error parsing documentation file '{doc_file}': {e}") from e
+            raise ValueError(f"Error parsing {file_kind} '{doc_file}': {e}") from e
 
     def _get_label_line_map(self, label_blocks):
         label_line_map = {}
@@ -283,70 +284,78 @@ class MustHaveCKs(Checker):
                     break
         return label_line_map
 
-    def _label_with_line(self, label, label_line_map):
+    def _label_with_line(self, label, label_line_map, file_path=None):
         line_no = label_line_map.get(label)
         if line_no is None:
             return label
-        return f"{label} ({self.funcs_and_checks_doc}:{line_no})"
+        label_file = file_path or self.funcs_and_checks_doc
+        return f"{label} ({label_file}:{line_no})"
 
     def do_check(self, is_complete=False, **kw) -> tuple[bool, object]:
-        """Check markdown source files contain all labels from the functions-and-checks doc."""
+        """Check markdown source files only contain labels from the functions-and-checks doc."""
         fc_ck_file = self.get_path(self.funcs_and_checks_doc)
         if not os.path.isfile(fc_ck_file):
             return False, {
                 "error": f"Funcs and checks doc file '{self.funcs_and_checks_doc}' does not exist in workspace. Please check your configuration."
             }
         try:
-            target_label_list, target_label_blocks = self._load_labels(
-                self.funcs_and_checks_doc, return_line_block=True
-            )
-            target_label_line_map = self._get_label_line_map(target_label_blocks)
+            allowed_label_list = self._load_labels(self.funcs_and_checks_doc)
         except ValueError as e:
             return False, {
                 "error": str(e)
             }
+        allowed_label_set = set(allowed_label_list)
 
         source_label_map = {}
-        source_file_list = fc.find_files_by_pattern(self.workspace, self.source_files)
+        source_file_list = sorted(fc.find_files_by_pattern(self.workspace, self.source_files))
         if len(source_file_list) == 0:
             return False, {
                 "error": f"No source files found for patterns: {', '.join(self.source_files)}."
             }
 
-        for dfile in source_file_list: # Suport multiple doc files
+        for dfile in source_file_list:
             if not os.path.exists(self.get_path(dfile)):
-                return False, {"error": f"Documentation file '{dfile}' does not exist."}
+                return False, {"error": f"Source file '{dfile}' does not exist."}
             try:
-                data_sub = self._load_labels(dfile)
+                data_sub, data_blocks = self._load_labels(
+                    dfile, return_line_block=True, file_kind="source file"
+                )
             except ValueError as e:
                 return False, {
                     "error": str(e)
                 }
-            source_label_map[dfile] = data_sub
+            source_label_map[dfile] = {
+                "labels": data_sub,
+                "line_map": self._get_label_line_map(data_blocks),
+            }
 
         missing_label_map = {}
-        for dfile, label_list in source_label_map.items():
-            source_label_set = set(label_list)
+        for dfile, label_data in source_label_map.items():
+            label_list = label_data["labels"]
             missing_label_list = [
-                label for label in target_label_list
-                if label not in source_label_set
+                label for label in label_list
+                if label not in allowed_label_set
             ]
             if len(missing_label_list) > 0:
                 missing_label_map[dfile] = [
-                    self._label_with_line(label, target_label_line_map)
+                    self._label_with_line(label, label_data["line_map"], dfile)
                     for label in missing_label_list
                 ]
         if len(missing_label_map) > 0:
+            missing_source_file_count = len(missing_label_map)
+            missing_label_count = sum(len(label_list) for label_list in missing_label_map.values())
             error_details = "\n".join([
-                f"File '{dfile}' is missing required {self.leaf_node} labels from "
+                f"File '{dfile}' contains {len(label_list)} {self.leaf_node} labels not defined in "
                 f"'{self.funcs_and_checks_doc}': {', '.join(label_list[:20])}"
                 f"{'' if len(label_list) <= 20 else '...(%s more)' % (len(label_list) - 20)}"
                 for dfile, label_list in missing_label_map.items()
             ])
-            return False, {
-                "error": f"Some source files are missing required {self.leaf_node} labels defined in '{self.funcs_and_checks_doc}'.",
-                "details": error_details
-            }
+            return False, OrderedDict({
+                "error": f"Some {missing_source_file_count} source file(s) contain {missing_label_count} {self.leaf_node} " + \
+                         f"labels not defined in '{self.funcs_and_checks_doc}' (contained {len(allowed_label_list)} {self.leaf_node} labels).",
+                "details": error_details,
+                "suggestion": f"Please ensure all {self.leaf_node} labels in the source files are defined in '{self.funcs_and_checks_doc}'."
+            })
         return True, {
-            "note": f"All source files contain required {self.leaf_node} labels defined in '{self.funcs_and_checks_doc}'."
+            "note": f"All source files contain only {self.leaf_node} labels defined in '{self.funcs_and_checks_doc}'."
         }
