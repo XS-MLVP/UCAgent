@@ -1,4 +1,6 @@
 {
+  "$schema": "https://app.kilo.ai/config.json",
+  "permission": "allow",
   "mcp": {
     "unitytest": {
       "type": "remote",
@@ -6,5 +8,19 @@
       "enabled": true,
       "timeout": 600000000
     }
-  }
+  },
+  "provider": {
+    "ucagent": {
+      "options": {
+        "baseURL": "{{OPENAI_API_BASE}}",
+        "apiKey": "{env:OPENAI_API_KEY}"
+      },
+      "models": {
+        "{{OPENAI_MODEL}}": {
+          "name": "{{OPENAI_MODEL}}"
+        }
+      }
+    }
+  },
+  "model": "ucagent/{{OPENAI_MODEL}}"
 }

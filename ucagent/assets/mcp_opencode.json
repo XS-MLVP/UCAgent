@@ -7,5 +7,21 @@
       "enabled": true,
       "timeout": 600000000
     }
-  }
+  },
+  "provider": {
+    "ucagent": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "UCAgent",
+      "options": {
+        "baseURL": "{{OPENAI_API_BASE}}",
+        "apiKey": "{env:OPENAI_API_KEY}"
+      },
+      "models": {
+        "{{OPENAI_MODEL}}": {
+          "name": "{{OPENAI_MODEL}}"
+        }
+      }
+    }
+  },
+  "model": "ucagent/{{OPENAI_MODEL}}"
 }
