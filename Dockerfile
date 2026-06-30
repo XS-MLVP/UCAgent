@@ -12,8 +12,10 @@ RUN node --version && \
     python3 -m pip --version
 
 # Install Code Agent CLIs.
-RUN npm install -g @anthropic-ai/claude-code @openai/codex && \
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @kilocode/cli opencode-ai && \
     claude --version && \
+    kilo --version && \
+    opencode --version && \
     codex --version
 
 # Set working directory
