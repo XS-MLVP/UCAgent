@@ -82,6 +82,18 @@ def _readline_uses_libedit() -> bool:
     return "libedit" in doc.lower()
 
 
+def _stream_chain_contains(stream, target) -> bool:
+    """Return whether a stream's _original chain already contains target."""
+    visited: set[int] = set()
+    current = stream
+    while current is not None and id(current) not in visited:
+        if current is target:
+            return True
+        visited.add(id(current))
+        current = getattr(current, "_original", None)
+    return False
+
+
 class VerifyPDB(Pdb):
     """
     VerifyPDB is a specialized PDB class that overrides the default behavior
@@ -1964,7 +1976,8 @@ class VerifyPDB(Pdb):
                     and self._cmd_api_server.is_running):
                 cc = self._cmd_api_server._console_capture
                 if _sys.stdout is not cc:
-                    cc._original = _sys.stdout
+                    if not _stream_chain_contains(_sys.stdout, cc):
+                        cc._original = _sys.stdout
                     _sys.stdout = cc
                 if self.stdout is not cc:
                     self.stdout = cc
