@@ -12,13 +12,10 @@ RUN node --version && \
     python3 -m pip --version
 
 # Install Code Agent CLIs.
-RUN npm install -g @anthropic-ai/claude-code @openai/codex @kilocode/cli opencode-ai
-
-# Verify that the Code Agent CLIs are installed correctly.
-#  ignore: claude --version && \
-RUN kilo --version && \
-    opencode --version && \
-    codex --version
+RUN npm install -g @anthropic-ai/claude-code && claude --version
+RUN npm install -g @openai/codex && codex --version
+RUN npm install -g @kilocode/cli && kilo --version
+RUN npm install -g opencode-ai && opencode --version
 
 # Set working directory
 WORKDIR /workspace/UCAgent
