@@ -22,6 +22,7 @@
         }
       }
     }
-  },
+  }{% if OPENAI_API_BASE %}{% if OPENAI_MODEL %},
   "model": "ucagent/{{OPENAI_MODEL}}"
+  {% endif %}{% endif %}
 }
