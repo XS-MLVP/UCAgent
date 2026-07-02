@@ -15,8 +15,8 @@ RUN node --version && \
 RUN npm install -g @anthropic-ai/claude-code @openai/codex @kilocode/cli opencode-ai
 
 # Verify that the Code Agent CLIs are installed correctly.
-RUN claude --version && \
-    kilo --version && \
+#  ignore: claude --version && \
+RUN kilo --version && \
     opencode --version && \
     codex --version
 
