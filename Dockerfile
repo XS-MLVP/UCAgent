@@ -12,10 +12,18 @@ RUN node --version && \
     python3 -m pip --version
 
 # Install Code Agent CLIs.
-RUN npm install -g @anthropic-ai/claude-code && claude --version
-RUN npm install -g @openai/codex && codex --version
-RUN npm install -g @kilocode/cli && kilo --version
-RUN npm install -g opencode-ai && opencode --version
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @kilocode/cli opencode-ai
+
+# The base image installs Node via nvm under /usr/local/nvm and exports that
+# bin directory in PATH. Reassert it here so the CLI checks do not depend on
+# shell startup files.
+ENV PATH="/usr/local/nvm/versions/node/v20.12.2/bin:${PATH}"
+
+# Verify that the Code Agent CLIs are installed correctly.
+RUN claude --version && \
+    kilo --version && \
+    opencode --version && \
+    codex --version
 
 # Set working directory
 WORKDIR /workspace/UCAgent
