@@ -649,6 +649,12 @@ class VerifyAgent:
         finally:
             fc.chmode_rw(self.cwd_read_only_files)
 
+    def exit_unset(self):
+        if not self.is_exit():
+            return False
+        self._is_exit = False
+        return True
+
     def _cfg_bool(self, key: str, default: bool = False) -> bool:
         value = self.cfg.get_value(key, default)
         if isinstance(value, bool):

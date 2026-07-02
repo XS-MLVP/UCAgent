@@ -4099,6 +4099,15 @@ class VerifyPDB(Pdb):
         """
         return self.do_quit(arg)
 
+    def do_exit_unset(self, arg):
+        """
+        Unset exit status
+        """
+        if self.agent.exit_unset():
+            echo_g("Exit unset success.")
+        else:
+            echo_r("Agent is not exited !")
+
     def do_sleep(self, arg):
         """sleep <float>: time to sleep
         """
