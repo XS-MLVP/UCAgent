@@ -4,5 +4,24 @@
       "httpUrl": "http://127.0.0.1:{{PORT}}/mcp",
       "timeout": 600000000
     }
-  }
+  }{% if OPENAI_API_BASE %}{% if OPENAI_MODEL %},
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "{{OPENAI_MODEL}}",
+        "name": "{{OPENAI_MODEL}}",
+        "baseUrl": "{{OPENAI_API_BASE}}",
+        "envKey": "OPENAI_API_KEY"
+      }
+    ]
+  },
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "{{OPENAI_MODEL}}",
+    "baseUrl": "{{OPENAI_API_BASE}}"
+  }{% endif %}{% endif %}
 }
