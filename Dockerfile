@@ -16,6 +16,7 @@ RUN npm install -g @anthropic-ai/claude-code && claude --version
 RUN npm install -g @openai/codex && codex --version
 RUN npm install -g @kilocode/cli && kilo --version
 RUN npm install -g opencode-ai && opencode --version
+RUN npm install -g @qwen-code/qwen-code@latest && qwen --version
 
 # Set working directory
 WORKDIR /workspace/UCAgent
