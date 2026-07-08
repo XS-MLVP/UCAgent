@@ -46,6 +46,11 @@ except ImportError:  # pragma: no cover - optional dependency checked at runtime
     Body = Depends = FastAPI = HTTPException = Query = Request = Response = WebSocket = WebSocketDisconnect = None
     _Header = HTMLResponse = JSONResponse = HTTPBasic = HTTPBasicCredentials = BaseModel = Field = None
 
+try:
+    from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest, start_http_server
+except ImportError:  # pragma: no cover - optional dependency checked at runtime
+    CONTENT_TYPE_LATEST = Gauge = generate_latest = start_http_server = None
+
 from ucagent.util.config import get_config, load_yaml_with_env_vars
 from ucagent.util.functions import (
     find_available_port,
@@ -150,6 +155,72 @@ _SWARM_SERVICE_EXITED_STATES = {
     "remove",
     "removed",
 }
+_STAGE_EVENT_LABELS = (
+    "namespace",
+    "pod",
+    "node",
+    "agent_id",
+    "task_id",
+    "dut",
+    "mission",
+    "stage_kind",
+    "stage_index",
+    "section_index",
+    "stage_name",
+    "parent_stage_name",
+    "top_stage_index",
+    "top_stage_name",
+    "is_top_level",
+)
+_STAGE_METRICS_STARTED_PORTS = set()
+_STAGE_START_TIMESTAMP_GAUGE = None
+_STAGE_COMPLETE_TIMESTAMP_GAUGE = None
+
+
+def _stage_label_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _stage_metric_labels(event: Dict[str, Any]) -> Dict[str, str]:
+    return {label: _stage_label_value(event.get(label, "")) for label in _STAGE_EVENT_LABELS}
+
+
+def _stage_timestamp_metric(event_type: str):
+    global _STAGE_START_TIMESTAMP_GAUGE, _STAGE_COMPLETE_TIMESTAMP_GAUGE
+    if Gauge is None:
+        return None
+    if event_type == "start":
+        if _STAGE_START_TIMESTAMP_GAUGE is None:
+            _STAGE_START_TIMESTAMP_GAUGE = Gauge(
+                "ucagent_stage_start_timestamp_seconds",
+                "Unix timestamp when a UCAgent stage starts.",
+                _STAGE_EVENT_LABELS,
+            )
+        return _STAGE_START_TIMESTAMP_GAUGE
+    if event_type == "complete":
+        if _STAGE_COMPLETE_TIMESTAMP_GAUGE is None:
+            _STAGE_COMPLETE_TIMESTAMP_GAUGE = Gauge(
+                "ucagent_stage_complete_timestamp_seconds",
+                "Unix timestamp when a UCAgent stage completes.",
+                _STAGE_EVENT_LABELS,
+            )
+        return _STAGE_COMPLETE_TIMESTAMP_GAUGE
+    return None
+
+
+def _set_stage_timestamp_metric(event: Dict[str, Any]) -> None:
+    metric = _stage_timestamp_metric(str(event.get("event_type") or ""))
+    if metric is None:
+        return
+    try:
+        timestamp = float(event.get("timestamp"))
+    except (TypeError, ValueError):
+        return
+    metric.labels(**_stage_metric_labels(event)).set(timestamp)
 
 
 def _strip_ansi(text: str) -> str:
@@ -171,6 +242,21 @@ def _local_ip() -> str:
 def _master_log(msg: str) -> None:
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     echo_g(f"[Master {ts}] {msg}")
+
+
+def _start_stage_metrics_http_server(port: int) -> None:
+    if port <= 0 or port in _STAGE_METRICS_STARTED_PORTS:
+        return
+    if start_http_server is None:
+        _master_log("Warning: prometheus_client is not installed; stage metrics endpoint disabled.")
+        return
+    try:
+        start_http_server(port)
+    except OSError as exc:
+        _master_log(f"Warning: failed to start stage metrics server on port {port}: {exc}")
+        return
+    _STAGE_METRICS_STARTED_PORTS.add(port)
+    _master_log(f"Stage metrics server listening on :{port}/metrics")
 
 
 def _now() -> float:
@@ -902,6 +988,7 @@ class PdbMasterApiServer:
         self._db_path = os.path.join(self._db_dir, "agents.json")
         self._tasks_path = os.path.join(self._db_dir, "tasks.json")
         self._workspaces_path = os.path.join(self._db_dir, "workspaces.json")
+        self._stage_events_path = os.path.join(self._db_dir, "stage_events.json")
         self._logs_dir = os.path.join(self._db_dir, "task_logs")
         os.makedirs(self._logs_dir, exist_ok=True)
 
@@ -912,6 +999,8 @@ class PdbMasterApiServer:
         self._tasks_lock = threading.Lock()
         self._workspaces: Dict[str, Dict[str, Any]] = {}
         self._workspaces_lock = threading.Lock()
+        self._stage_events: Dict[str, Dict[str, Any]] = {}
+        self._stage_events_lock = threading.Lock()
         self._task_runtime: Dict[str, Dict[str, Any]] = {}
         self._compile_runtime: Dict[str, Dict[str, Any]] = {}
         self._compile_runtime_lock = threading.Lock()
@@ -932,8 +1021,10 @@ class PdbMasterApiServer:
         self._last_launch_cleanup = 0.0
 
         self._launch_roots = self._resolve_launch_roots()
+        self._stage_metrics_port = self._resolve_stage_metrics_port()
 
         self._load_db()
+        _start_stage_metrics_http_server(self._stage_metrics_port)
         self._app = self._build_app()
 
     # ------------------------------------------------------------------
@@ -964,6 +1055,22 @@ class PdbMasterApiServer:
             resolved.append({"id": "root-1", "name": os.path.basename(default_path) or "examples", "path": default_path})
         return resolved
 
+    def _resolve_stage_metrics_port(self) -> int:
+        raw = (
+            os.environ.get("UCAGENT_STAGE_METRICS_PORT")
+            or os.environ.get("UCAGENT_METRICS_PORT")
+            or self.cfg.get_value("master_api.stage_metrics.port", 9108)
+        )
+        try:
+            port = int(raw)
+        except (TypeError, ValueError):
+            _master_log(f"Warning: invalid stage metrics port '{raw}', using 9108.")
+            return 9108
+        if port < 0 or port > 65535:
+            _master_log(f"Warning: stage metrics port {port} out of range, using 9108.")
+            return 9108
+        return port
+
     def _load_json_file(self, path: str, default: Any) -> Any:
         if not os.path.exists(path):
             return default
@@ -986,11 +1093,29 @@ class PdbMasterApiServer:
         workspaces_data = self._load_json_file(self._workspaces_path, {"workspaces": {}})
         with self._workspaces_lock:
             self._workspaces.update(workspaces_data.get("workspaces", {}))
+        stage_events_data = self._load_json_file(self._stage_events_path, {"events": {}})
+        raw_events = stage_events_data.get("events", {})
+        if isinstance(raw_events, list):
+            raw_events = {
+                str(item.get("event_id") or idx): item
+                for idx, item in enumerate(raw_events)
+                if isinstance(item, dict)
+            }
+        if isinstance(raw_events, dict):
+            with self._stage_events_lock:
+                for event_id, event in raw_events.items():
+                    if not isinstance(event, dict):
+                        continue
+                    normalized = self._normalize_stage_event(event, fallback_event_id=str(event_id))
+                    if normalized:
+                        self._stage_events[normalized["event_id"]] = normalized
+                        _set_stage_timestamp_metric(normalized)
 
-        if self._agents or self._tasks or self._workspaces:
+        if self._agents or self._tasks or self._workspaces or self._stage_events:
             _master_log(
                 f"Loaded {len(self._agents)} agent(s), {len(self._tasks)} task(s), "
-                f"{len(self._workspaces)} workspace(s) from '{self._db_dir}'"
+                f"{len(self._workspaces)} workspace(s), {len(self._stage_events)} stage event(s) "
+                f"from '{self._db_dir}'"
             )
 
     def _save_db(self) -> None:
@@ -1001,11 +1126,14 @@ class PdbMasterApiServer:
                 tasks_snapshot = {k: dict(v) for k, v in self._tasks.items()}
             with self._workspaces_lock:
                 ws_snapshot = {k: dict(v) for k, v in self._workspaces.items()}
+            with self._stage_events_lock:
+                stage_events_snapshot = {k: dict(v) for k, v in self._stage_events.items()}
 
             payloads = [
                 (self._db_path, {"agents": agents_snapshot, "removed": list(self._removed)}),
                 (self._tasks_path, {"tasks": tasks_snapshot}),
                 (self._workspaces_path, {"workspaces": ws_snapshot}),
+                (self._stage_events_path, {"events": stage_events_snapshot}),
             ]
             for path, data in payloads:
                 tmp = path + ".tmp"
@@ -1019,6 +1147,96 @@ class PdbMasterApiServer:
 
     def _mark_dirty(self) -> None:
         self._dirty = True
+
+    @staticmethod
+    def _stage_event_id(task_id: str, client_event_id: str) -> str:
+        task_id = str(task_id or "").strip()
+        client_event_id = str(client_event_id or "").strip()
+        if task_id and client_event_id:
+            prefix = f"{task_id}|"
+            if client_event_id.startswith(prefix):
+                return client_event_id
+            return f"{task_id}|{client_event_id}"
+        return client_event_id or task_id
+
+    @staticmethod
+    def _stage_client_event_id(task_id: str, event_id: str) -> str:
+        task_id = str(task_id or "").strip()
+        event_id = str(event_id or "").strip()
+        prefix = f"{task_id}|"
+        if task_id and event_id.startswith(prefix):
+            return event_id[len(prefix):]
+        return event_id
+
+    def _fallback_stage_client_event_id(self, event: Dict[str, Any]) -> str:
+        return ":".join([
+            str(event.get("event_type", "")),
+            str(event.get("stage_kind", "")),
+            str(event.get("section_index", "")),
+            str(event.get("stage_index", "")),
+            str(event.get("stage_name", "")),
+        ])
+
+    def _normalize_stage_event(self, event: Dict[str, Any], fallback_event_id: str = "") -> Optional[Dict[str, Any]]:
+        if not isinstance(event, dict):
+            return None
+        try:
+            normalized = _copy_jsonable(event)
+        except Exception:
+            normalized = dict(event)
+
+        event_type = str(normalized.get("event_type") or "").strip().lower()
+        if event_type not in {"start", "complete"}:
+            return None
+        try:
+            timestamp = float(normalized.get("timestamp"))
+        except (TypeError, ValueError):
+            return None
+
+        for label in _STAGE_EVENT_LABELS:
+            normalized[label] = _stage_label_value(normalized.get(label, ""))
+
+        normalized["event_type"] = event_type
+        normalized["timestamp"] = timestamp
+        normalized["recorded_at"] = float(normalized.get("recorded_at") or _now())
+
+        task_id = normalized.get("task_id") or normalized.get("agent_id") or normalized.get("pod") or ""
+        raw_event_id = str(normalized.get("event_id") or fallback_event_id or "").strip()
+        client_event_id = str(normalized.get("client_event_id") or "").strip()
+        if not client_event_id:
+            client_event_id = self._stage_client_event_id(task_id, raw_event_id)
+        if not client_event_id:
+            client_event_id = self._fallback_stage_client_event_id(normalized)
+        event_id = self._stage_event_id(task_id, client_event_id)
+        if not event_id:
+            event_id = client_event_id
+        normalized["client_event_id"] = client_event_id
+        normalized["event_id"] = event_id
+        return normalized
+
+    def _record_stage_event(self, event: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = self._normalize_stage_event(event)
+        if normalized is None:
+            raise ValueError("Invalid stage event payload.")
+        event_id = normalized["event_id"]
+        with self._stage_events_lock:
+            is_new = event_id not in self._stage_events
+            self._stage_events[event_id] = normalized
+        _set_stage_timestamp_metric(normalized)
+        self._mark_dirty()
+        self._save_db()
+        if is_new:
+            _master_log(
+                f"Stage event {normalized['event_type']} recorded: "
+                f"{normalized.get('task_id') or normalized.get('agent_id')} "
+                f"{normalized.get('section_index')}-{normalized.get('stage_name')}"
+            )
+        return normalized
+
+    def _list_stage_events(self) -> List[Dict[str, Any]]:
+        with self._stage_events_lock:
+            events = [dict(event) for event in self._stage_events.values()]
+        return sorted(events, key=lambda item: (float(item.get("timestamp") or 0), item.get("event_id", "")))
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -4348,17 +4566,48 @@ class PdbMasterApiServer:
             vol_name = f"workspace-{index}"
             volumes.append({"name": vol_name, "hostPath": {"path": source, "type": "Directory"}})
             volume_mounts.append({"name": vol_name, "mountPath": target})
+        env_list = [
+            {"name": str(key), "value": str(value)}
+            for key, value in sorted(context["env"].items())
+            if _valid_env_name(str(key)) and str(key) not in {"POD_NAME", "POD_NAMESPACE", "NODE_NAME", "UCAGENT_TASK_ID"}
+        ]
+        env_list.extend([
+            {
+                "name": "POD_NAME",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "metadata.name",
+                    },
+                },
+            },
+            {
+                "name": "POD_NAMESPACE",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "metadata.namespace",
+                    },
+                },
+            },
+            {
+                "name": "NODE_NAME",
+                "valueFrom": {
+                    "fieldRef": {
+                        "fieldPath": "spec.nodeName",
+                    },
+                },
+            },
+            {
+                "name": "UCAGENT_TASK_ID",
+                "value": str(task["task_id"]),
+            },
+        ])
         container = {
             "name": "ucagent",
             "image": cfg["image"],
             "imagePullPolicy": cfg["k8s_image_pull_policy"],
             "command": command[:1],
             "args": command[1:],
-            "env": [
-                {"name": str(key), "value": str(value)}
-                for key, value in sorted(context["env"].items())
-                if _valid_env_name(str(key))
-            ],
+            "env": env_list,
             "volumeMounts": volume_mounts,
         }
         if ports:
@@ -4810,7 +5059,10 @@ class PdbMasterApiServer:
         if merged_terminal_api != (task.get("terminal_api") or {}):
             task["terminal_api"] = merged_terminal_api
             changed = True
-        reported_web_console = agent.get("web_console") or {}
+        reported_web_console = dict(agent.get("web_console") or {})
+        web_console_tcp = str(reported_web_console.get("tcp_url") or "").strip()
+        if web_console_tcp and task.get("launch_mode") != "docker_swarm":
+            reported_web_console["base_url_internal"] = web_console_tcp
         merged_web_console = _merge_runtime_service_info(task.get("web_console"), reported_web_console)
         if merged_web_console != (task.get("web_console") or {}):
             task["web_console"] = merged_web_console
@@ -6396,8 +6648,35 @@ class PdbMasterApiServer:
                 "status": "ok",
                 "capabilities": {
                     "workspace_sync_back": self._workspace_sync_status(agent_id),
+                    "stage_events": True,
                 },
             }
+
+        @app.post("/api/stage-events", summary="Record UCAgent stage timing event", dependencies=[Depends(_check_access_key)])
+        def record_stage_event(body: Dict[str, Any] = Body(default_factory=dict)):
+            raw_events = body.get("events") if isinstance(body, dict) else None
+            if isinstance(raw_events, list):
+                events = raw_events
+            else:
+                events = [body]
+            recorded = []
+            for event in events:
+                try:
+                    recorded.append(self._record_stage_event(event))
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"status": "ok", "count": len(recorded), "events": recorded}
+
+        @app.get("/api/stage-events", summary="List UCAgent stage timing events", dependencies=[Depends(_check_password)])
+        def list_stage_events():
+            events = self._list_stage_events()
+            return {"status": "ok", "count": len(events), "events": events}
+
+        @app.get("/metrics", summary="Prometheus metrics", include_in_schema=False)
+        def metrics():
+            if generate_latest is None:
+                raise HTTPException(status_code=503, detail="prometheus_client is not installed")
+            return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
         @app.get("/api/workspace-sync/status", summary="Workspace sync-back status", dependencies=[Depends(_check_access_key)])
         def workspace_sync_status(agent_id: str = Query(default="")):
@@ -8652,6 +8931,33 @@ class PdbMasterClient:
         if not status.get("enabled"):
             return False, str(status.get("reason") or "Workspace sync-back is not available"), status
         return True, str(status.get("reason") or "Workspace sync-back is available"), status
+
+    def send_stage_event(self, event: Dict[str, Any]) -> Tuple[bool, str]:
+        if self._kicked:
+            return False, f"This agent was removed from master {self.master_url}"
+        if self._auth_failed:
+            return False, f"Access key was rejected by master {self.master_url}"
+        if not self._running:
+            return False, "Not connected to master"
+        import requests
+
+        payload = dict(event or {})
+        payload.setdefault("agent_id", self.agent_id)
+        url = f"{self.master_url}/api/stage-events"
+        try:
+            resp = requests.post(url, json=payload, timeout=10, headers=self._headers())
+        except Exception as exc:
+            self._connected = False
+            return False, f"Failed to send stage event to master {self.master_url}: {exc}"
+        if resp.status_code == 403:
+            self._auth_failed = True
+            self._running = False
+            self._connected = False
+            return False, f"Access key was rejected by master {self.master_url} (HTTP 403)"
+        if not resp.ok:
+            return False, f"Master returned HTTP {resp.status_code}: {self._response_detail(resp)}"
+        self._connected = True
+        return True, f"Stage event sent to master {self.master_url}"
 
     def _sync_workspace_ignore_patterns(self) -> List[str]:
         agent = getattr(self.pdb, "agent", None)

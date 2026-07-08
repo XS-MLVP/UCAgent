@@ -1,0 +1,23 @@
+# UCAgent stage timing image
+# Build on the validated UCAgent624 local image and replace only the modified source tree.
+FROM ucagent:624-local
+
+ARG UCAGENT_VERSION
+
+USER root
+WORKDIR /workspace/UCAgent
+
+COPY . .
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/workspace/UCAgent
+
+RUN : "${UCAGENT_VERSION:?Pass --build-arg UCAGENT_VERSION=<version> when building the image}" && \
+    python3 -m pip install "setuptools>=80" "setuptools-scm>=8" wheel "prometheus-client>=0.22.1" && \
+    rm -f ucagent/_version.py && \
+    SETUPTOOLS_SCM_PRETEND_VERSION_FOR_UCAGENT="${UCAGENT_VERSION}" python3 -m pip install --no-deps --no-build-isolation --force-reinstall . && \
+    UCAGENT_VERSION="${UCAGENT_VERSION}" python3 -c "import os; from ucagent.version import __version__; expected = os.environ['UCAGENT_VERSION']; assert __version__ == expected, (__version__, expected)" && \
+    python3 -c "import prometheus_client; print('prometheus_client import ok')" && \
+    ucagent --check
+
+CMD ["/bin/bash"]

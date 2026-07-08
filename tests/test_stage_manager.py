@@ -225,3 +225,27 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     assert saved["mission_name"] == "Formal Coverage Mission"
     assert saved["is_agent_exit"] is True
     assert saved["all_completed"] is False
+
+
+def test_stage_time_event_id_includes_task_id(monkeypatch):
+    monkeypatch.setenv("UCAGENT_TASK_ID", "task-123")
+    cfg = _cfg()
+    agent = _FakeAgent(cfg)
+    stage = _FakeStage(0)
+    stage.prefix = "1"
+
+    manager = StageManager.__new__(StageManager)
+    manager.agent = agent
+    manager.stages = [stage]
+    manager.stage_time_events = {}
+    manager.ucagent_info = {}
+    manager._stage_time_event_sent_ids = set()
+
+    event = manager._record_stage_event("start", stage)
+    client_event_id = "start:executable:1:0:stage-0"
+    event_id = f"task-123|{client_event_id}"
+
+    assert event["client_event_id"] == client_event_id
+    assert event["event_id"] == event_id
+    assert event["task_id"] == "task-123"
+    assert list(manager.stage_time_events) == [event_id]

@@ -36,6 +36,7 @@ dependencies = [
     "uvicorn[standard]>=0.42.0",
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
+    "prometheus-client>=0.22.1",
 ]
 dynamic = ["version"]
 

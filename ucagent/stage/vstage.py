@@ -470,6 +470,8 @@ class VerifyStage(object):
 
         if self.time_start is None:
             self.time_start = time.time()
+            if self.vmanager:
+                self.vmanager.on_executable_stage_started(self)
         else:
             warning(f"Stage {self.name} is already inited, cannot recall on_init.")
 
@@ -478,6 +480,8 @@ class VerifyStage(object):
             return
         self.time_end = time.time()
         self.is_complete = True
+        if self.vmanager:
+            self.vmanager.on_executable_stage_completed(self)
         self.hist_commit(msg="Stage completed.")
         if self.vmanager:
             self.vmanager.agent.backend.on_stage_complete(self)

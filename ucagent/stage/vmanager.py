@@ -7,6 +7,7 @@ import time
 import traceback
 import random
 from collections import OrderedDict
+from datetime import datetime, timezone
 from typing import Optional, Callable, Dict, Any
 
 from langchain_core.callbacks import (
@@ -407,6 +408,9 @@ class StageManager(object):
         self.stage_unskip_list = stage_unskip_list
         self.tool_inspect_file = tool_inspect_file
         self.reference_files = reference_files
+        raw_stage_time_events = self.ucagent_info.get("stage_time_events", {})
+        self.stage_time_events = copy.deepcopy(raw_stage_time_events) if isinstance(raw_stage_time_events, dict) else {}
+        self._stage_time_event_sent_ids = set()
 
     @staticmethod
     def _safe_int(value, default=0):
@@ -481,6 +485,8 @@ class StageManager(object):
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
+        self.time_begin = self.ucagent_info.get("time_begin", time.time())
+        self.time_end = self.ucagent_info.get("time_end", None)
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].on_init()
         self.last_check_info = {}
@@ -495,8 +501,6 @@ class StageManager(object):
                 info(f"Stage {sui} is set to be unskipped.")
         self._refresh_all_completed()
         info("Current stage index is " + str(self.stage_index) + ".")
-        self.time_begin = self.ucagent_info.get("time_begin", time.time())
-        self.time_end = self.ucagent_info.get("time_end", None)
         self.llm_fail_suggestion = get_llm_check_instance(
             self.cfg.vmanager.llm_suggestion.check_fail_refinement,
             self,
@@ -642,6 +646,158 @@ class StageManager(object):
     def _refresh_all_completed(self):
         self.all_completed = self._compute_all_completed()
         return self.all_completed
+
+    @staticmethod
+    def _event_time_utc(timestamp: float) -> str:
+        return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+
+    def _get_master_clients(self):
+        pdb = getattr(self.agent, "pdb", None)
+        return getattr(pdb, "_master_clients", {}) or {}
+
+    def _master_agent_id(self) -> str:
+        for client in self._get_master_clients().values():
+            agent_id = str(getattr(client, "agent_id", "") or "").strip()
+            if agent_id:
+                return agent_id
+        return os.environ.get("UCAGENT_AGENT_ID") or f"{os.environ.get('HOSTNAME', 'ucagent')}-{os.getpid()}"
+
+    def _task_id(self) -> str:
+        for key in ("UCAGENT_TASK_ID", "UCAGENT_WORKSPACE_ID", "UCAGENT_JOB_NAME"):
+            value = str(os.environ.get(key, "") or "").strip()
+            if value:
+                return value
+        return self._master_agent_id()
+
+    def _stage_flat_index(self, stage) -> int:
+        try:
+            return self.stages.index(stage)
+        except ValueError:
+            return -1
+
+    def _get_top_stage(self, stage):
+        top = stage
+        while getattr(top, "parent", None) is not None:
+            top = top.parent
+        return top
+
+    def _is_stage_tree_complete(self, stage) -> bool:
+        executable_stages = stage.get_substages()
+        if not executable_stages:
+            return stage.is_skipped() or stage.is_completed()
+        return all(s.is_skipped() or s.is_completed() for s in executable_stages)
+
+    def _stage_event_key(self, event_type: str, stage_kind: str, stage, trigger_stage=None) -> str:
+        trigger_index = self._stage_flat_index(trigger_stage or stage)
+        stage_part = stage.prefix or stage.name
+        return f"{event_type}:{stage_kind}:{stage_part}:{trigger_index}:{stage.name}"
+
+    @staticmethod
+    def _stage_event_id(task_id: str, client_event_id: str) -> str:
+        task_id = str(task_id or "").strip()
+        client_event_id = str(client_event_id or "").strip()
+        if task_id and client_event_id:
+            prefix = f"{task_id}|"
+            if client_event_id.startswith(prefix):
+                return client_event_id
+            return f"{task_id}|{client_event_id}"
+        return client_event_id or task_id
+
+    def _stage_event_ids(self, event_type: str, stage_kind: str, stage, trigger_stage=None) -> tuple:
+        client_event_id = self._stage_event_key(event_type, stage_kind, stage, trigger_stage=trigger_stage)
+        task_id = self._task_id()
+        return self._stage_event_id(task_id, client_event_id), client_event_id, task_id
+
+    def _build_stage_event(self, event_type: str, stage, stage_kind: str = "executable", trigger_stage=None) -> Dict[str, Any]:
+        timestamp = time.time()
+        top_stage = self._get_top_stage(stage)
+        parent = getattr(stage, "parent", None)
+        stage_index = self._stage_flat_index(stage)
+        event_id, client_event_id, task_id = self._stage_event_ids(
+            event_type, stage_kind, stage, trigger_stage=trigger_stage
+        )
+        return {
+            "event_id": event_id,
+            "client_event_id": client_event_id,
+            "event_type": event_type,
+            "timestamp": timestamp,
+            "timestamp_utc": self._event_time_utc(timestamp),
+            "namespace": os.environ.get("POD_NAMESPACE", ""),
+            "pod": os.environ.get("POD_NAME") or os.environ.get("HOSTNAME", ""),
+            "node": os.environ.get("NODE_NAME") or os.environ.get("KUBERNETES_NODE_NAME", ""),
+            "agent_id": self._master_agent_id(),
+            "task_id": task_id,
+            "dut": getattr(self.agent, "dut_name", ""),
+            "mission": self.agent.cfg.mission.name,
+            "stage_kind": stage_kind,
+            "stage_index": str(stage_index) if stage_index >= 0 else "",
+            "section_index": stage.prefix,
+            "stage_name": stage.name,
+            "parent_stage_name": getattr(parent, "name", "") if parent else "",
+            "top_stage_index": top_stage.prefix,
+            "top_stage_name": top_stage.name,
+            "is_top_level": "true" if parent is None else "false",
+        }
+
+    def _send_stage_event_to_master(self, event: Dict[str, Any]) -> bool:
+        sent = False
+        for url, client in list(self._get_master_clients().items()):
+            send_stage_event = getattr(client, "send_stage_event", None)
+            if not callable(send_stage_event):
+                continue
+            ok, msg = send_stage_event(event)
+            if ok:
+                sent = True
+                info(msg)
+            else:
+                warning(f"Failed to send stage timing event to master {url}: {msg}")
+        return sent
+
+    def _persist_stage_time_events(self) -> None:
+        self.ucagent_info["stage_time_events"] = self.stage_time_events
+        if hasattr(self, "time_begin"):
+            self.save_stage_info()
+
+    def _record_stage_event(self, event_type: str, stage, stage_kind: str = "executable", trigger_stage=None) -> Optional[Dict[str, Any]]:
+        event_id, _client_event_id, _task_id = self._stage_event_ids(
+            event_type, stage_kind, stage, trigger_stage=trigger_stage
+        )
+        if event_id in self.stage_time_events:
+            return None
+        event = self._build_stage_event(event_type, stage, stage_kind=stage_kind, trigger_stage=trigger_stage)
+        self.stage_time_events[event_id] = copy.deepcopy(event)
+        self._persist_stage_time_events()
+        if self._send_stage_event_to_master(event):
+            self._stage_time_event_sent_ids.add(event_id)
+        info(
+            f"Recorded stage {event_type} timestamp: "
+            f"{event.get('section_index')}-{event.get('stage_name')} at {event.get('timestamp_utc')}"
+        )
+        return event
+
+    def flush_stage_events_to_master(self) -> int:
+        sent_count = 0
+        for event_id, event in list(self.stage_time_events.items()):
+            if event_id in self._stage_time_event_sent_ids:
+                continue
+            if self._send_stage_event_to_master(event):
+                self._stage_time_event_sent_ids.add(event_id)
+                sent_count += 1
+        if sent_count:
+            info(f"Flushed {sent_count} stage timing event(s) to master.")
+        return sent_count
+
+    def on_executable_stage_started(self, stage) -> None:
+        self._record_stage_event("start", stage, stage_kind="executable")
+        top_stage = self._get_top_stage(stage)
+        if top_stage is not stage and top_stage.is_group():
+            self._record_stage_event("start", top_stage, stage_kind="top", trigger_stage=stage)
+
+    def on_executable_stage_completed(self, stage) -> None:
+        self._record_stage_event("complete", stage, stage_kind="executable")
+        top_stage = self._get_top_stage(stage)
+        if top_stage is not stage and top_stage.is_group() and self._is_stage_tree_complete(top_stage):
+            self._record_stage_event("complete", top_stage, stage_kind="top", trigger_stage=stage)
 
     def attach_todo_summary(self, data):
         assert isinstance(data, str), "the target data type of attach_todo_summary must be str"
@@ -882,6 +1038,7 @@ class StageManager(object):
             "time_begin": self.time_begin,
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
+            "stage_time_events": self.stage_time_events,
         })
         info["stages_info"] = {}
         for idx, stage in enumerate(self.stages):

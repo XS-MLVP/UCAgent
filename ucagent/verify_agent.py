@@ -668,6 +668,7 @@ class VerifyAgent:
         self._sync_workspace_back_on_exit_done = True
         if not self._cfg_bool("master_api.sync_workspace.on_exit", True):
             return
+        self.flush_stage_events_to_master()
         pdb = getattr(self, "pdb", None)
         master_clients = getattr(pdb, "_master_clients", {}) or {}
         if not master_clients:
@@ -680,6 +681,13 @@ class VerifyAgent:
                 info(msg)
             else:
                 info(f"Workspace sync-back skipped for {url}: {msg}")
+
+    def flush_stage_events_to_master(self):
+        stage_manager = getattr(self, "stage_manager", None)
+        flush = getattr(stage_manager, "flush_stage_events_to_master", None)
+        if callable(flush):
+            return flush()
+        return 0
 
     def protect_files_on(self, new_files: List[str]):
         for f in new_files:
@@ -744,15 +752,18 @@ class VerifyAgent:
         )
         info("Seed: " + str(self.seed))
         self.check_pdb_trace()
+        self.flush_stage_events_to_master()
         return self
 
     def run_loop(self, msg=None):
         if msg:
             self.set_continue_msg(msg)
         self._need_human = False
+        self.flush_stage_events_to_master()
         # conversation loop
         while not self.is_exit():
             self.one_loop()
+            self.flush_stage_events_to_master()
             if self.is_exit():
                 break
             if self.is_break():

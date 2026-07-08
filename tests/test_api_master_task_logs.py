@@ -21,6 +21,31 @@ from ucagent.server.api_master import (
 from ucagent.util.config import Config
 
 
+def _stage_event_payload(task_id, event_id="start:executable:1:0:stage-1", timestamp=100.0, **extra):
+    payload = {
+        "event_id": event_id,
+        "event_type": "start",
+        "timestamp": timestamp,
+        "namespace": "ucagent",
+        "pod": f"ucagent-{task_id}",
+        "node": "node7",
+        "agent_id": f"agent-{task_id}",
+        "task_id": task_id,
+        "dut": "Adder",
+        "mission": "Adder",
+        "stage_kind": "executable",
+        "stage_index": "0",
+        "section_index": "1",
+        "stage_name": "stage-1",
+        "parent_stage_name": "",
+        "top_stage_index": "1",
+        "top_stage_name": "stage-1",
+        "is_top_level": "true",
+    }
+    payload.update(extra)
+    return payload
+
+
 def test_master_launch_workspace_defaults_to_master_workspace():
     with tempfile.TemporaryDirectory() as master_ws:
         server = PdbMasterApiServer(workspace=master_ws)
@@ -146,6 +171,35 @@ def test_cluster_mounts_keep_master_source_host_path(monkeypatch):
 
         assert (os.path.abspath(task_ws), os.path.abspath(task_ws)) in mounts
         assert (source_host_path, "/UCAgent") in mounts
+
+
+def test_k8s_web_console_runtime_info_overrides_localhost_base_url():
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        task = {
+            "task_id": "task-k8s",
+            "launch_mode": "k8s",
+            "web_console": {
+                "enabled": True,
+                "host": "0.0.0.0",
+                "port": 8000,
+                "base_url_internal": "http://127.0.0.1:8000",
+                "status": "starting",
+            },
+        }
+        agent = {
+            "web_console": {
+                "enabled": True,
+                "host": "10.211.134.199",
+                "port": 8000,
+                "tcp_url": "10.211.134.199:8000",
+            },
+        }
+
+        assert server._merge_task_agent_runtime_info(task, agent) is True
+
+        assert task["web_console"]["base_url_internal"] == "10.211.134.199:8000"
+        assert server._task_service_base_url(task, task["web_console"]) == "http://10.211.134.199:8000"
 
 
 def test_master_source_overrides_process_launch_cli(monkeypatch):
@@ -1009,3 +1063,66 @@ def test_agent_delete_block_rejoin_controls_removed_set():
         unregister = client.delete("/api/agent/online-agent?block_rejoin=true")
         assert unregister.status_code == 200
         assert "online-agent" in server._removed
+
+
+def test_stage_events_use_task_scoped_persistence_key_for_legacy_worker_events(monkeypatch):
+    monkeypatch.setenv("UCAGENT_STAGE_METRICS_PORT", "0")
+    raw_event_id = "start:executable:1:0:requirement_analysis_and_planning"
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        first = server._record_stage_event(_stage_event_payload("task-a", raw_event_id, timestamp=1.0))
+        second = server._record_stage_event(_stage_event_payload("task-b", raw_event_id, timestamp=2.0))
+
+        assert first["event_id"] == f"task-a|{raw_event_id}"
+        assert first["client_event_id"] == raw_event_id
+        assert second["event_id"] == f"task-b|{raw_event_id}"
+        assert second["client_event_id"] == raw_event_id
+
+        events = server._list_stage_events()
+        assert {event["event_id"] for event in events} == {
+            f"task-a|{raw_event_id}",
+            f"task-b|{raw_event_id}",
+        }
+
+        with open(server._stage_events_path, "r", encoding="utf-8") as fh:
+            saved = json.load(fh)
+        assert set(saved["events"]) == {
+            f"task-a|{raw_event_id}",
+            f"task-b|{raw_event_id}",
+        }
+
+
+def test_stage_events_keep_new_worker_event_id_idempotent(monkeypatch):
+    monkeypatch.setenv("UCAGENT_STAGE_METRICS_PORT", "0")
+    raw_event_id = "start:executable:1:0:requirement_analysis_and_planning"
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+
+        recorded = server._record_stage_event(_stage_event_payload(
+            "task-a",
+            f"task-a|{raw_event_id}",
+            timestamp=1.0,
+            client_event_id=raw_event_id,
+        ))
+
+        assert recorded["event_id"] == f"task-a|{raw_event_id}"
+        assert recorded["client_event_id"] == raw_event_id
+
+
+def test_stage_events_reload_task_scoped_keys_without_double_prefix(monkeypatch):
+    monkeypatch.setenv("UCAGENT_STAGE_METRICS_PORT", "0")
+    raw_event_id = "start:executable:1:0:requirement_analysis_and_planning"
+    with tempfile.TemporaryDirectory() as master_ws:
+        server = PdbMasterApiServer(workspace=master_ws)
+        server._record_stage_event(_stage_event_payload("task-a", raw_event_id, timestamp=1.0))
+        server._record_stage_event(_stage_event_payload("task-b", raw_event_id, timestamp=2.0))
+
+        reloaded = PdbMasterApiServer(workspace=master_ws)
+        events = reloaded._list_stage_events()
+
+        assert {event["event_id"] for event in events} == {
+            f"task-a|{raw_event_id}",
+            f"task-b|{raw_event_id}",
+        }
+        assert {event["client_event_id"] for event in events} == {raw_event_id}
