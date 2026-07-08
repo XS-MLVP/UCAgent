@@ -4,6 +4,7 @@
 
 import os
 import sys
+import asyncio
 from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +21,8 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
 
 import ucagent.stage.vmanager as vmanager
 from ucagent.stage.vstage import VerifyStage
-from ucagent.stage.vmanager import StageManager
+from ucagent.stage.vmanager import StageManager, ToolDoCheck
+from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
 
 
@@ -120,6 +122,37 @@ class _FakeCurrentStageManager:
 
     def get_current_stage(self):
         return self._current_stage
+
+
+class _RecordingCheckStage:
+    name = "recording-stage"
+
+    def __init__(self):
+        self.calls = []
+        self._is_reached = False
+        self.init_count = 0
+
+    def do_check(self, **kwargs):
+        self.calls.append(kwargs)
+        return True, {"seen": kwargs}
+
+    def meta_get_journal(self):
+        return "journal"
+
+    def get_approved(self):
+        return True
+
+    def is_hmcheck_needed(self):
+        return False
+
+    def on_complete(self):
+        pass
+
+    def set_reached(self, value):
+        self._is_reached = value
+
+    def on_init(self):
+        self.init_count += 1
 
 
 def _cfg():
@@ -265,3 +298,80 @@ def test_on_file_read_marks_reference_files_in_parent_stage_chain():
     assert child.reference_files["shared.md"] is True
     assert root.reference_files["root_only.md"] is False
     assert child.reference_files["child_only.md"] is False
+
+
+def test_tool_do_check_passes_extra_arguments_to_function():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoCheck().set_function(check_func)
+
+    result = tool.invoke({
+        "timeout": 12,
+        "refined": {"CK-1": "done"},
+        "note": "extra",
+        "detail": True,
+    })
+
+    assert result == "ok"
+    assert calls == [(12, {"refined": {"CK-1": "done"}, "note": "extra", "detail": True})]
+
+
+def test_fastmcp_check_preserves_extra_arguments():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoCheck().set_function(check_func)
+    mcp_tool = to_fastmcp(tool)
+
+    extra_schema = mcp_tool.parameters["additionalProperties"]
+    assert extra_schema
+    assert "checker-specific" in extra_schema["description"]
+    assert "top-level JSON fields" in extra_schema["description"]
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 13,
+        "ctx": "internal context should not leak",
+        "refined": {"CK-2": "done"},
+        "detail": False,
+    }))
+
+    assert result == "ok"
+    assert calls == [(13, {"refined": {"CK-2": "done"}, "detail": False})]
+
+
+def test_stage_manager_check_and_complete_forward_extra_arguments():
+    stage = _RecordingCheckStage()
+    next_stage = _RecordingCheckStage()
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage, next_stage]
+    manager.last_check_info = None
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.all_completed = False
+    manager.gen_fail_suggestion = lambda data: data
+    manager.gen_pass_suggestion = lambda ck_info: ""
+    manager._stage_complete = lambda _stage: None
+
+    def next_stage_func():
+        manager.stage_index += 1
+        manager.all_completed = manager.stage_index >= len(manager.stages)
+        return None if manager.all_completed else manager.stages[manager.stage_index]
+
+    manager.next_stage = next_stage_func
+
+    check_ret = manager.check(9, refined={"CK": "check"}, detail=True)
+    complete_ret = manager.complete(10, refined={"CK": "complete"}, is_complete=False)
+
+    assert check_ret["check_pass"] is True
+    assert complete_ret["complete"] is True
+    assert stage.calls == [
+        {"refined": {"CK": "check"}, "detail": True, "timeout": 9},
+        {"refined": {"CK": "complete"}, "timeout": 10, "is_complete": True},
+    ]

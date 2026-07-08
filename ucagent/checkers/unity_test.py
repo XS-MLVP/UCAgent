@@ -13,6 +13,7 @@ import traceback
 import copy
 import inspect
 import ast
+import json
 
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 from ucagent.checkers.toffee_report import check_report, check_line_coverage
@@ -55,6 +56,8 @@ class UnityChipCheckerLabelStructure(Checker):
         self.min_count = min_count
         self.must_have_prefix = must_have_prefix
         self.data_key = data_key
+        self.data_val = []
+        self.need_save_data = True if data_key else False
         self.leaf_count = None
         self.set_human_check_needed(need_human_check)
 
@@ -97,8 +100,9 @@ class UnityChipCheckerLabelStructure(Checker):
                     find_prefix = True
             if not find_prefix:
                 return False, {"error": f"In the document ({self.doc_file}), it must have group/."}
-        if self.data_key:
-            self.smanager_set_value(self.data_key, data)
+        self.data_val = copy.deepcopy(data)
+        if self.data_key and self.need_save_data:
+            self.smanager_set_value(self.data_key, self.data_val)
             info(f"Cache {self.leaf_node} marks(size={len(data)}) to data key '{self.data_key}'.")
         self.leaf_count = len(data)
         return True, {"message": msg, f"{self.leaf_node}_count": len(data)}
@@ -107,6 +111,155 @@ class UnityChipCheckerLabelStructure(Checker):
         return {
             f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else ""
         }
+
+
+class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
+    def __init__(self,
+                 doc_file,
+                 leaf_node,
+                 data_key,
+                 min_count=1, must_have_prefix="FG-API", need_human_check=False,
+                 batch_size = 10,
+                 **kw):
+        super().__init__(doc_file, leaf_node, min_count, must_have_prefix, data_key, need_human_check, **kw)
+        assert data_key, "data_key must be provided for UnityChipCheckerLabelStructureRefine."
+        self.need_save_data = False
+        self.batch_size = batch_size
+        self.refine_result = {}
+        self.batch_task = UnityChipBatchTask("CK", self)
+
+    def on_init(self):
+        if not self.batch_task.source_task_list:
+            source_task_list = self.smanager_get_value(self.data_key, [])
+            if not isinstance(source_task_list, list) or not source_task_list:
+                try:
+                    source_task_list = fc.get_unity_chip_doc_marks(
+                        self.get_path(self.doc_file),
+                        self.leaf_node,
+                        self.min_count,
+                    )
+                    self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
+                    info(f"Initialized CK refine source from '{self.doc_file}' "
+                         f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
+                except Exception as e:
+                    warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
+                    source_task_list = []
+            self.batch_task.source_task_list = copy.deepcopy(source_task_list)
+        saved_refine_result = self.smanager_get_value("_CK_REFINE_RESULT", {})
+        if isinstance(saved_refine_result, dict):
+            self.refine_result = copy.deepcopy(saved_refine_result)
+        self.batch_task.update_current_tbd()
+        return super().on_init()
+
+    def get_template_data(self):
+        super_data = super().get_template_data()
+        data = self.batch_task.get_template_data(
+            "TOTAL_POINTS", "COMPLETED_POINTS", "LIST_CURRENT_POINTS"
+        )
+        super_data.update(data)
+        return super_data
+
+    def do_check(self, timeout=0, is_complete=False, refined=None, **kw):
+        """Refine CK labels by requiring every original CK to be explicitly reviewed."""
+        ck_pass, ck_error = super().do_check(timeout, **kw)
+        if not ck_pass:
+            return ck_pass, ck_error
+        error_mesg = []
+        if not self.batch_task.source_task_list:
+            return False, {
+                "error": f"No original CK labels were loaded from data key '{self.data_key}'. "
+                         "Please complete the previous CK label structure stage before refining CK labels."
+            }
+        if isinstance(refined, str):
+            refined_text = refined.strip()
+            if refined_text.startswith("```") and refined_text.endswith("```"):
+                refined_lines = refined_text.splitlines()
+                if len(refined_lines) >= 2:
+                    refined_text = "\n".join(refined_lines[1:-1]).strip()
+            if refined_text.startswith("refined="):
+                refined_text = refined_text.split("=", 1)[1].strip()
+            elif refined_text.startswith("refined:"):
+                refined_text = refined_text.split(":", 1)[1].strip()
+            try:
+                refined = json.loads(refined_text)
+            except json.JSONDecodeError:
+                try:
+                    refined = ast.literal_eval(refined_text)
+                except (SyntaxError, ValueError):
+                    return False, {
+                        "error": "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
+                                 "Pass refined as a real top-level JSON object, for example "
+                                 '{"refined": {"FG-.../FC-.../CK-...": "refine note"}}. '
+                                 f"value={refined}"
+                    }
+
+        if refined is None:
+            refined_map = {}
+        elif not isinstance(refined, dict):
+            return False, {
+                "error": "The 'refined' argument must be a dictionary like {'FG-.../FC-.../CK-...': 'refine note'}." + \
+                         f" But find type(refined)={type(refined)}. value={refined}"
+            }
+        else:
+            refined_map = OrderedDict()
+            for key, value in refined.items():
+                if key is None:
+                    continue
+                ck = str(key).strip()
+                if ck:
+                    refined_map[ck] = value
+
+        unknown_tasks = [key for key in refined_map if key not in self.batch_task.source_task_list]
+        if unknown_tasks:
+            error_mesg.extend([
+                "The following refined CK labels are not in the original list of labels. Please ensure that you are refining the correct labels:",
+                *unknown_tasks
+            ])
+
+        current_batch = set(self.batch_task.tbd_task_list)
+        out_of_batch_tasks = [
+            key for key in refined_map
+            if key in self.batch_task.source_task_list and key not in current_batch
+        ]
+        if out_of_batch_tasks and current_batch:
+            error_mesg.extend([
+                "The following refined CK labels are valid, but they are not in the current batch. Please refine the current batch first:",
+                *out_of_batch_tasks
+            ])
+
+        if unknown_tasks or out_of_batch_tasks:
+            if self.batch_task.tbd_task_list:
+                error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
+            return False, {"error": error_mesg}
+
+        valid_tasks = [
+            key for key in refined_map
+            if key in current_batch
+        ]
+        self.batch_task.update_current_tbd()
+        if len(valid_tasks) < 1 and self.batch_task.tbd_task_list:
+            error_mesg.append(
+                "No valid CK labels were refined in the current batch (need use args `refined: dict` to pass the refined labels). "
+                f"Please refine at least one of these CK labels: {', '.join(self.batch_task.tbd_task_list)}."
+            )
+            return False, {"error": error_mesg}
+
+        for ck in valid_tasks:
+            self.refine_result[ck] = refined_map[ck]
+        self.smanager_set_value("_CK_REFINE_RESULT", self.refine_result)
+
+        completed_tasks = [ck for ck in self.batch_task.gen_task_list if ck in self.batch_task.source_task_list]
+        for ck in valid_tasks:
+            if ck not in completed_tasks:
+                completed_tasks.append(ck)
+        self.batch_task.sync_gen_task(completed_tasks, error_mesg, f"Refined CKs changed.")
+        ck_pass, ck_error = self.batch_task.do_complete(error_mesg, is_complete,
+                                                        f"in Origin",
+                                                        f"in Newly Refined",
+                                                        " Please refine and mask the CKs by the task needs.")
+        if ck_pass and is_complete:
+            self.smanager_set_value(self.data_key, self.data_val)
+        return ck_pass, ck_error
 
 
 class UnityChipCheckerDutCreation(Checker):

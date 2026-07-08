@@ -258,6 +258,43 @@ stage:
               data_key: "COVER_GROUP_DOC_CK_LIST"
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
 
+  - name: functional_specification_refine
+    desc: "功能规格/测试点细化与边界条件补充{COUNT_CK}"
+    task:
+      - "目标：对功能规格进行细化，补充边界条件和异常情况"
+      - "第1步：阅读{OUT}/{DUT}_functions_and_checks.md，理解已有功能点和检测点"
+      - "第2步：分批次针对每个功能点，分析粒度是否太粗，是否覆盖了所有边界条件和异常情况"
+      - "第3步：细化太粗的功能点/检查点，补充遗漏的边界条件和异常情况，更新文档{OUT}/{DUT}_functions_and_checks.md"
+      - "第4步：确保每个功能点都有对应的检测点，并且检测点具有可测试性"
+      - "第5步：每完成当前批次中的一部分或全部原始CK细化后，调用Check(refined={...})记录这些原始CK已完成复核与细化"
+      - "第6步：所有批次都通过Check后，调用Complete完成阶段；如果最后一批尚未Check，也可以直接调用Complete(refined={...})"
+      - "注意："
+      - "  - 细化过程中，不仅仅需要增加文字描述，还需要增加新的功能点（FC）或者检测点（CK）来覆盖新增的边界条件和异常等情况"
+      - "  - 所有功能点、检查点等不要笼统，不要过于粗略，需要尽量细化"
+      - "  - 在完善过程中，不要丢失已有的功能点、检测点、状态、边界条件等"
+      - "  - Check/Complete工具支持额外参数refined，格式为refined={CK_KEY_1:Value1, CK_KEY_2:Value2, ...}；refined必须作为真实对象传入，不能写成字符串，例如不要使用refined=\"{...}\""
+      - "  - refined中的CK_KEY必须来自当前批次待分析功能点（见下方{LIST_CURRENT_POINTS}），不能传入其他批次的CK，也不能传入细化后新增/拆分出的新CK"
+      - "  - refined的Value为该原始CK的细化说明；只要某个原始CK出现在refined中，就表示该原始CK已经完成复核与细化"
+      - "  - 如果某个原始CK被拆分为多个更细的新CK，请在文档中新增这些新CK，并在refined中使用原始CK作为key说明拆分情况"
+      - "  - 示例工具参数：Check({\"refined\":{\"FG-A/FC-A-1/CK-A-1\":\"已补充边界条件，并拆分为CK-A-1-BOUND和CK-A-1-ERR\", \"FG-B/FC-B-2/CK-B-2\":\"粒度已足够，无需拆分，但补充了异常输入说明\"}})"
+      - "  - 最后一批示例工具参数：Complete({\"refined\":{\"FG-C/FC-C-3/CK-C-3\":\"已补充组合场景和预期结果\"}})；如果Check已经提示全部CK完成，则直接调用Complete()即可"
+      - "  - 对于需要进行组合测试的功能点，确保在文档中明确标注组合条件和预期结果，每种组合情况都要有对应的检测点"
+      - "  - 你需要按Spec文档中定义的功能点和检测点进行细化，确保覆盖所有边界条件和异常情况"
+      - "当前批次待分析功能点（refined的key只能从这里选择）": "{LIST_CURRENT_POINTS}"
+      - "当前分析进度": "{COMPLETED_POINTS}/{TOTAL_POINTS}"
+    output_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    reference_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_basic_info.md"
+    checker:
+      - name: functions_and_checks_refine_check
+        clss: "UnityChipCheckerLabelStructureRefine"
+        args:
+          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          leaf_node: "CK"
+          data_key: "COVER_GROUP_DOC_CK_LIST"
+
   - name: static_bug_analysis
     desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
     task:
