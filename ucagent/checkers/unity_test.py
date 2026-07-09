@@ -109,7 +109,7 @@ class UnityChipCheckerLabelStructure(Checker):
 
     def get_template_data(self):
         return {
-            f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else "-"
+            f"COUNT_{self.leaf_node}": f"{self.leaf_count}" if self.leaf_count else "-"
         }
 
 
