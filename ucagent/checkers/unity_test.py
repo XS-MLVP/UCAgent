@@ -109,7 +109,7 @@ class UnityChipCheckerLabelStructure(Checker):
 
     def get_template_data(self):
         return {
-            f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else ""
+            f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else "-"
         }
 
 
@@ -1520,3 +1520,448 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
             return ret, msg
         ret, msg, self.cur_line_coverage = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
         return ret, msg
+
+
+class UnityChipCheckerRefineTestCases(Checker):
+    def __init__(self,
+                 doc_func_check,
+                 test_dir=None,
+                 ignore_tc_prefix="",
+                 batch_size=10,
+                 data_key=None,
+                 **extra_kwargs):
+        super().__init__()
+        self.doc_func_check = doc_func_check
+        self.test_dir = test_dir
+        self.ignore_tc_prefix = ignore_tc_prefix
+        self.batch_size = batch_size
+        self.data_key = data_key
+        self.refine_result = OrderedDict()
+        self.cached_ck_file_blocks = OrderedDict()
+        self.ck_test_cases_map = OrderedDict()
+        self.unresolved_mark_function = []
+        self.total_test_cases_count = -1
+        self._refine_result_key = "_TC_REFINE_RESULT"
+        self.batch_task = UnityChipBatchTask("CK", self)
+
+    def _load_doc_cks(self, min_count=1):
+        doc_path = self.get_path(self.doc_func_check)
+        if not os.path.exists(doc_path):
+            raise FileNotFoundError(
+                f"Function and check documentation file {self.doc_func_check} does not exist in workspace."
+            )
+        return fc.get_unity_chip_doc_marks(
+            doc_path,
+            leaf_node="CK",
+            mini_leaf_count=min_count,
+            return_line_block=True,
+        )
+
+    def _sync_source_from_doc(self, current_doc_ck_list, note_msg=None):
+        if note_msg is None:
+            note_msg = []
+        self.batch_task.sync_source_task(
+            current_doc_ck_list,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
+        self.batch_task.update_tbd_and_cmp()
+        self.batch_task.gen_task_list = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        self.batch_task.update_current_tbd()
+
+    def on_init(self):
+        saved_refine_result = {}
+        if self.stage_manager is not None:
+            saved_refine_result = self.smanager_get_value(self._refine_result_key, {})
+        if isinstance(saved_refine_result, dict):
+            self.refine_result = OrderedDict(saved_refine_result)
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=0)
+            self._sync_source_from_doc(current_doc_ck_list)
+            if self.test_dir and os.path.exists(self.get_path(self.test_dir)):
+                self.ck_test_cases_map = self.get_ck_test_cases_info(current_doc_ck_list)
+        except Exception as e:
+            warning(f"Failed to initialize test-case refine context: {e}")
+        return super().on_init()
+
+    def _build_current_ck_infos(self, ck_list):
+        ck_infos = []
+        for ck in ck_list:
+            ck_infos.append(OrderedDict({
+                "CK": ck,
+                "doc_block": self.cached_ck_file_blocks.get(ck, []),
+                "related_test_cases": self.ck_test_cases_map.get(ck, []),
+            }))
+        return ck_infos
+
+    def get_template_data(self):
+        data = self.batch_task.get_template_data("TOTAL_CKS", "COMPLETED_CKS", "LIST_CURRENT_CKS")
+        data["LIST_CURRENT_CKS"] = self._build_current_ck_infos(data["LIST_CURRENT_CKS"])
+        data["TOTAL_TCS"] = self.total_test_cases_count if self.total_test_cases_count >= 0 else "-"
+        if self.unresolved_mark_function:
+            data["UNRESOLVED_MARK_FUNCTION"] = self.unresolved_mark_function
+        return data
+
+    def get_ck_test_cases_info(self, doc_ck_list=None):
+        """
+        Statically collect test cases related to each CK from test_dir.
+
+        Returns:
+            OrderedDict: {"FG-X/FC-Y/CK-Z": ["tests/test_x.py:12-20::test_case"]}
+        """
+        if doc_ck_list is None:
+            doc_ck_list, _ = self._load_doc_cks(min_count=0)
+        test_dir_full_path = self.get_path(self.test_dir)
+        if not os.path.exists(test_dir_full_path):
+            raise FileNotFoundError(f"test directory '{self.test_dir}' does not exist in workspace.")
+
+        def literal_str(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            return None
+
+        def literal_str_list(node):
+            value = literal_str(node)
+            if value is not None:
+                return [value]
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                values = []
+                for element in node.elts:
+                    element_value = literal_str(element)
+                    if element_value is None:
+                        return []
+                    values.append(element_value)
+                return values
+            return []
+
+        def split_ck_key(ck_key):
+            parts = ck_key.split("/")
+            ck_idx = None
+            for i in range(len(parts) - 1, -1, -1):
+                if parts[i].startswith("CK-"):
+                    ck_idx = i
+                    break
+            if ck_idx is None:
+                return None, None, None
+            fc_idx = None
+            for i in range(ck_idx - 1, -1, -1):
+                if parts[i].startswith("FC-"):
+                    fc_idx = i
+                    break
+            fg_idx = None
+            if fc_idx is not None:
+                for i in range(fc_idx - 1, -1, -1):
+                    if parts[i].startswith("FG-"):
+                        fg_idx = i
+                        break
+            fg_name = parts[fg_idx] if fg_idx is not None else None
+            fc_name = parts[fc_idx] if fc_idx is not None else None
+            ck_name = parts[ck_idx]
+            return fg_name, fc_name, ck_name
+
+        def extract_fg_from_receiver(node):
+            for sub_node in ast.walk(node):
+                if not isinstance(sub_node, ast.Subscript):
+                    continue
+                slice_node = sub_node.slice
+                if isinstance(slice_node, ast.Index):
+                    slice_node = slice_node.value
+                value = literal_str(slice_node)
+                if value and value.startswith("FG-"):
+                    return value
+            return None
+
+        def extract_keyword(call, names):
+            for keyword in call.keywords:
+                if keyword.arg in names:
+                    return keyword.value
+            return None
+
+        def is_test_file(path):
+            name = os.path.basename(path)
+            return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
+
+        def iter_test_functions(tree):
+            class TestFunctionVisitor(ast.NodeVisitor):
+                def __init__(self):
+                    self.class_stack = []
+                    self.test_functions = []
+
+                def visit_ClassDef(self, node):
+                    self.class_stack.append(node.name)
+                    for body_node in node.body:
+                        self.visit(body_node)
+                    self.class_stack.pop()
+
+                def visit_FunctionDef(self, node):
+                    if node.name.startswith("test_"):
+                        qualname = "::".join(self.class_stack + [node.name])
+                        self.test_functions.append((node, qualname))
+
+                visit_AsyncFunctionDef = visit_FunctionDef
+
+            visitor = TestFunctionVisitor()
+            visitor.visit(tree)
+            return visitor.test_functions
+
+        ck_test_cases_map = OrderedDict((ck, []) for ck in doc_ck_list)
+        fc_ck_index = {}
+        fg_fc_ck_index = {}
+        for ck_key in doc_ck_list:
+            fg_name, fc_name, ck_name = split_ck_key(ck_key)
+            if fc_name and ck_name:
+                fc_ck_index.setdefault((fc_name, ck_name), []).append(ck_key)
+            if fg_name and fc_name and ck_name:
+                fg_fc_ck_index.setdefault((fg_name, fc_name, ck_name), []).append(ck_key)
+
+        unresolved_mark_function = []
+        total_test_cases_count = 0
+        test_files = sorted(
+            f for f in glob.glob(os.path.join(test_dir_full_path, "**", "*.py"), recursive=True)
+            if is_test_file(f)
+        )
+        for test_file in test_files:
+            rel_file = fc.rm_workspace_prefix(self.workspace, test_file)
+            try:
+                with open(test_file, "r", encoding="utf-8") as fr:
+                    source = fr.read()
+                tree = ast.parse(source, filename=rel_file)
+            except SyntaxError as e:
+                unresolved_mark_function.append(OrderedDict({
+                    "file": rel_file,
+                    "line": e.lineno,
+                    "reason": f"SyntaxError: {e.msg}",
+                }))
+                continue
+            except Exception as e:
+                unresolved_mark_function.append(OrderedDict({
+                    "file": rel_file,
+                    "line": None,
+                    "reason": f"Failed to parse file: {e}",
+                }))
+                continue
+
+            for func_node, qualname in iter_test_functions(tree):
+                test_func_name = qualname.split("::")[-1]
+                if self.ignore_tc_prefix and test_func_name.startswith(self.ignore_tc_prefix):
+                    continue
+                total_test_cases_count += 1
+                line_to = getattr(func_node, "end_lineno", func_node.lineno)
+                test_case = f"{rel_file}:{func_node.lineno}-{line_to}::{qualname}"
+                for call in ast.walk(func_node):
+                    if not (isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Attribute)
+                            and call.func.attr == "mark_function"):
+                        continue
+                    fc_arg = call.args[0] if len(call.args) >= 1 else extract_keyword(call, ["fc_name"])
+                    ck_arg = call.args[2] if len(call.args) >= 3 else extract_keyword(
+                        call,
+                        [
+                            "ck_name", "ck_names", "ck_list", "ck_points",
+                            "check_point_names", "check_points", "checks",
+                            "bins", "checkpoints",
+                        ],
+                    )
+                    fc_name = literal_str(fc_arg) if fc_arg is not None else None
+                    ck_names = literal_str_list(ck_arg) if ck_arg is not None else []
+                    fg_name = extract_fg_from_receiver(call.func.value)
+                    if not fc_name or not fc_name.startswith("FC-") or not ck_names:
+                        unresolved_mark_function.append(OrderedDict({
+                            "test_case": test_case,
+                            "line": getattr(call, "lineno", func_node.lineno),
+                            "fg": fg_name,
+                            "fc": fc_name,
+                            "cks": ck_names,
+                            "reason": "Cannot statically parse FC/CK names from mark_function call.",
+                        }))
+                        continue
+                    for ck_name in ck_names:
+                        if not ck_name.startswith("CK-"):
+                            unresolved_mark_function.append(OrderedDict({
+                                "test_case": test_case,
+                                "line": getattr(call, "lineno", func_node.lineno),
+                                "fg": fg_name,
+                                "fc": fc_name,
+                                "ck": ck_name,
+                                "reason": "Parsed checkpoint name does not start with CK-.",
+                            }))
+                            continue
+                        matches = fc_ck_index.get((fc_name, ck_name), [])
+                        matched_ck = matches[0] if len(matches) == 1 else None
+                        if matched_ck is None and fg_name:
+                            exact_matches = fg_fc_ck_index.get((fg_name, fc_name, ck_name), [])
+                            matched_ck = exact_matches[0] if len(exact_matches) == 1 else None
+                        if matched_ck is None:
+                            reason = "No matching CK in documentation."
+                            if len(matches) > 1:
+                                reason = "Ambiguous CK in documentation; FG is required to disambiguate."
+                            unresolved_mark_function.append(OrderedDict({
+                                "test_case": test_case,
+                                "line": getattr(call, "lineno", func_node.lineno),
+                                "fg": fg_name,
+                                "fc": fc_name,
+                                "ck": ck_name,
+                                "reason": reason,
+                            }))
+                            continue
+                        if test_case not in ck_test_cases_map.setdefault(matched_ck, []):
+                            ck_test_cases_map[matched_ck].append(test_case)
+
+        self.ck_test_cases_map = ck_test_cases_map
+        self.unresolved_mark_function = unresolved_mark_function
+        self.total_test_cases_count = total_test_cases_count
+        return ck_test_cases_map
+
+    def do_check(self, timeout=0, is_complete=False, refined=None, **kw):
+        """Refine test cases in batches and check their implementation status."""
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=1)
+        except Exception as e:
+            return False, {
+                "error": f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. "
+                         "Review the file format and ensure it contains valid <FG-*>, <FC-*>, and <CK-*> labels."
+            }
+        try:
+            self.ck_test_cases_map = self.get_ck_test_cases_info(current_doc_ck_list)
+        except Exception as e:
+            return False, {"error": str(e)}
+
+        note_msg = []
+        self._sync_source_from_doc(current_doc_ck_list, note_msg)
+        completed_tasks = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        for ck in self.refine_result.keys():
+            if ck in current_doc_ck_list and ck not in completed_tasks:
+                completed_tasks.append(ck)
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Refined test-case CK records changed.",
+        )
+        self.batch_task.update_current_tbd()
+
+        if isinstance(refined, str):
+            refined_text = refined.strip()
+            if refined_text.startswith("```") and refined_text.endswith("```"):
+                refined_lines = refined_text.splitlines()
+                if len(refined_lines) >= 2:
+                    refined_text = "\n".join(refined_lines[1:-1]).strip()
+            if refined_text.startswith("refined="):
+                refined_text = refined_text.split("=", 1)[1].strip()
+            elif refined_text.startswith("refined:"):
+                refined_text = refined_text.split(":", 1)[1].strip()
+            try:
+                refined = json.loads(refined_text)
+            except json.JSONDecodeError:
+                try:
+                    refined = ast.literal_eval(refined_text)
+                except (SyntaxError, ValueError):
+                    return False, {
+                        "error": "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
+                                 "Pass refined as a real top-level JSON object, for example "
+                                 '{"refined": {"FG-.../FC-.../CK-...": "refine note"}}. '
+                                 f"value={refined}"
+                    }
+
+        if refined is None:
+            refined_map = OrderedDict()
+        elif not isinstance(refined, dict):
+            return False, {
+                "error": "The 'refined' argument must be a dictionary like "
+                         "{'FG-.../FC-.../CK-...': 'test-case refine note'}." + \
+                         f" But find type(refined)={type(refined)}. value={refined}"
+            }
+        else:
+            refined_map = OrderedDict()
+            for key, value in refined.items():
+                if key is None:
+                    continue
+                ck = str(key).strip()
+                if ck:
+                    refined_map[ck] = value
+
+        error_mesg = []
+        unknown_tasks = [key for key in refined_map if key not in current_doc_ck_list]
+        if unknown_tasks:
+            error_mesg.extend([
+                "The following refined CK labels are not in the current function/check document. "
+                "Please ensure that you are refining the correct labels:",
+                *unknown_tasks,
+            ])
+
+        current_batch = set(self.batch_task.tbd_task_list)
+        out_of_batch_tasks = [
+            key for key in refined_map
+            if key in current_doc_ck_list and key not in current_batch
+        ]
+        if out_of_batch_tasks and current_batch:
+            error_mesg.extend([
+                "The following refined CK labels are valid, but they are not in the current batch. "
+                "Please refine the current batch first:",
+                *out_of_batch_tasks,
+            ])
+
+        if unknown_tasks or (out_of_batch_tasks and current_batch):
+            if self.batch_task.tbd_task_list:
+                error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
+                error_mesg.append({"current_batch": self._build_current_ck_infos(self.batch_task.tbd_task_list)})
+            return False, {"error": error_mesg}
+
+        valid_tasks = [
+            key for key in refined_map
+            if key in current_batch
+        ]
+        remaining_current_batch = [
+            ck for ck in self.batch_task.tbd_task_list
+            if ck not in completed_tasks
+        ]
+        if len(valid_tasks) < 1 and remaining_current_batch:
+            return False, {
+                "error": [
+                    "No valid CK labels were refined in the current batch (need use args `refined: dict` "
+                    "to pass the refined labels). Please refine at least one of these CK labels: "
+                    f"{', '.join(remaining_current_batch)}.",
+                    {"current_batch": self._build_current_ck_infos(remaining_current_batch)},
+                ]
+            }
+
+        for ck in valid_tasks:
+            self.refine_result[ck] = refined_map[ck]
+            if ck not in completed_tasks:
+                completed_tasks.append(ck)
+
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Refined test-case CK records changed.",
+        )
+
+        if self.stage_manager is not None:
+            self.smanager_set_value(self._refine_result_key, copy.deepcopy(self.refine_result))
+            if self.data_key:
+                self.smanager_set_value(self.data_key, OrderedDict({
+                    "source_ck_list": current_doc_ck_list,
+                    "refine_result": copy.deepcopy(self.refine_result),
+                    "ck_test_cases_map": copy.deepcopy(self.ck_test_cases_map),
+                    "unresolved_mark_function": copy.deepcopy(self.unresolved_mark_function),
+                    "total_test_cases_count": self.total_test_cases_count,
+                }))
+
+        ck_pass, ck_error = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            f"in file: {self.doc_func_check}",
+            f"in dir: {self.test_dir}",
+            " Please review and refine the related test cases, then confirm with refined={CK: note}.",
+        )
+        if isinstance(ck_error, dict):
+            if self.batch_task.tbd_task_list:
+                ck_error["current_batch"] = self._build_current_ck_infos(self.batch_task.tbd_task_list)
+            if self.unresolved_mark_function:
+                ck_error["unresolved_mark_function"] = self.unresolved_mark_function
+        return ck_pass, ck_error

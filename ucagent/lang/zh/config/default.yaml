@@ -201,7 +201,7 @@ stage:
       - "{OUT}/{DUT}_functions_and_checks.md"
     stage:
       - name: dut_function_grouping
-        desc: "DUT功能分组与层次划分{COUNT_FG}"
+        desc: "DUT功能分组与层次划分[{COUNT_FG}]"
         task:
           - "基于{DUT}功能，将相关功能归类成组"
           - "为每组定义<FG-组名>标签，组名要有意义"
@@ -217,7 +217,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FG"
       - name: function_point_definition
-        desc: "具体功能点识别与定义{COUNT_FC}"
+        desc: "具体功能点识别与定义[{COUNT_FC}]"
         task:
           - "在每个功能分组内，定义具体的功能点"
           - "用<FC-功能名>标签标记每个功能"
@@ -236,7 +236,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FC"
       - name: check_point_design
-        desc: "检测点设计与定义{COUNT_CK}"
+        desc: "检测点设计与定义[{COUNT_CK}]"
         task:
           - "为每个功能点设计具体的检测点"
           - "用<CK-检测名>标签标记，如<CK-BASIC>基本功能，<CK-BOUNDARY>边界条件"
@@ -259,7 +259,7 @@ stage:
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
 
   - name: functional_specification_refine
-    desc: "功能规格/测试点细化与边界条件补充{COUNT_CK}"
+    desc: "功能规格/测试点细化与边界条件补充[{COUNT_CK}]"
     task:
       - "目标：对功能规格进行细化，补充边界条件和异常情况"
       - "第1步：阅读{OUT}/{DUT}_functions_and_checks.md，理解已有功能点和检测点"
@@ -1041,6 +1041,59 @@ stage:
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
         need_human_check: false # 验证复杂DUT时建议开启该人工检查
+
+  - name: refine_test_cases_based_on_functional_points
+    desc: "按功能点完善测试用例[{TOTAL_TCS}]"
+    task:
+      - "目标：按批次基于功能点和测试点完善测试用例，确保所有功能点和测试点都被充分覆盖"
+      - "第1步：阅读当前批次功能点/测试点说明和关联测试用例，理解每个CK需要验证的行为、边界条件和预期结果"
+      - "第2步：逐个分析当前批次CK对应的测试用例，确认测试逻辑是否真实覆盖该CK，而不是仅声明了mark_function"
+      - "第3步：如果覆盖不充分、断言不足、输入场景太少、预期结果不清晰，或测试逻辑有误，请修改或补充测试用例"
+      - "第4步：每完成当前批次中的一部分或全部CK测试用例完善后，调用Check(refined={...})记录这些CK已完成复核与完善"
+      - "第5步：所有批次都通过Check后，调用Complete完成阶段；如果最后一批尚未Check，也可以直接调用Complete(refined={...})"
+      - "注意："
+      - "  - 如果没必要，该阶段不要修改文件{OUT}/{DUT}_functions_and_checks.md"
+      - "  - 部分用例仅仅只是声明了覆盖某CK-*，但没有实际测试逻辑，需要补充测试逻辑"
+      - "  - 尽可能的只让一个测试用例覆盖一个功能点和测试点，避免一个测试用例覆盖过多功能点和测试点"
+      - "  - 尽可能多编写用例，也不要删除已有用例，确保每个功能点和测试点都有充分的测试"
+      - "  - Fail用例需要多次复核，确保其真正触发了Bug，并在{OUT}/{DUT}_bug_analysis.md中有完整的Bug分析和修复建议"
+      - "  - Check/Complete工具支持额外参数refined，格式为refined={CK_KEY_1:Value1, CK_KEY_2:Value2, ...}；refined必须作为真实对象传入，不能写成字符串，例如不要使用refined=\"{...}\""
+      - "  - refined中的CK_KEY必须来自当前批次待完善CK（见下方{LIST_CURRENT_CKS}中的CK字段），不能传入其他批次的CK，也不能传入文档中不存在的CK"
+      - "  - refined的Value为该CK对应测试用例的完善说明；只要某个CK出现在refined中，就表示该CK对应测试用例已经完成复核与完善"
+      - "  - 如果某个CK尚无关联测试用例，请先新增或修正测试用例及mark_function标记，再在refined中说明新增/修正情况"
+      - "  - 如果某个CK已有测试用例但覆盖不足，请补充输入场景、边界条件、异常路径、断言和预期结果，再在refined中说明完善内容"
+      - "  - 示例工具参数：Check({\"refined\":{\"FG-A/FC-A-1/CK-A-1\":\"已新增边界输入和输出断言，确认测试逻辑真实覆盖该CK\", \"FG-B/FC-B-2/CK-B-2\":\"已有用例覆盖充分，补充了预期结果注释并确认断言有效\"}})"
+      - "  - 最后一批示例工具参数：Complete({\"refined\":{\"FG-C/FC-C-3/CK-C-3\":\"已补充异常输入场景和bug复现断言\"}})；如果Check已经提示全部CK完成，则直接调用Complete()即可"
+      - "当前批次待完善CK、文档说明节选和关联测试用例（refined的key只能从这里的CK字段选择）": "{LIST_CURRENT_CKS}"
+      - "当前完善进度": "{COMPLETED_CKS}/{TOTAL_CKS}"
+    reference_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+    checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+      - name: refine_test_cases_check
+        clss: "UnityChipCheckerRefineTestCases"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          batch_size: $(BATCH_SIZE_TC: 10)
+          data_key: "TEST_TEMPLATE_IMP_REPORT"
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
+        extra_args:
+          max_try: -1
 
   - name: static_bug_validation
     desc: "静态分析Bug验证与动态关联"
