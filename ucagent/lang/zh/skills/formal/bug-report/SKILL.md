@@ -7,17 +7,21 @@ description: 从 analysis 中提取 RTL_BUG 属性，LLM 通过脚本将 Bug 详
 
 本技能指导如何从验证分析中提取 RTL Bug 并通过 **脚本** 将报告写入 `.formal_records.yaml`。
 
+本阶段的唯一事实来源是 `.formal_records.yaml.bugs`。
+
 > **文档格式与归因方法参见 `Guide_Doc/bug_report.md`**
+
+执行说明：
+- 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
+- 不要假设宿主 `python3` 环境具备所有依赖
+- `04_{DUT}_bug_report.md` 是派生产物，不要直接编辑
 
 ## 步骤
 
 ### 1. 生成 Bug 骨架
 
-使用 `RunSkillScript` 执行以下命令，从 analysis 提取 RTL_BUG 并生成骨架：
-
-```bash
-python3 .ucagent/skills/formal/bug-report/scripts/init_bug_report.py
-```
+Bug 骨架由 Checker 根据 `.formal_records.yaml.analysis.fa_entries` 中标记为 `RTL_BUG` 的属性自动生成。
+你不需要手动运行初始化脚本。
 
 ### 2. 查看待填写条目
 
@@ -51,7 +55,7 @@ python3 .ucagent/skills/formal/bug-report/scripts/update_bug.py \
 
 ### 4. 完成后调用 Check
 
-Checker 验证所有字段已填写（非 `[LLM-TODO]`），通过后自动生成 `04_{DUT}_bug_report.md`。
+Checker 验证所有字段已填写（非 `[LLM-TODO]`），通过后自动重建 `04_{DUT}_bug_report.md`。
 
 ## 核心规则
 

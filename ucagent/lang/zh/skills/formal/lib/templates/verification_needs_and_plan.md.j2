@@ -1,0 +1,77 @@
+# {{ DUT }} 形式化验证需求分析与规划
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+## 1. 项目概述
+
+{{ planning.project_overview or "" }}
+
+## 2. 设计规格分析
+
+### 2.1 参数
+
+| 参数名 | 默认值 | 取值范围 | 说明 |
+|--------|--------|----------|------|
+{% for item in planning.design_spec_analysis.parameters or [] -%}
+| {{ item.name }} | {{ item.default }} | {{ item.range }} | {{ item.note }} |
+{% endfor %}
+
+### 2.2 接口
+
+| 信号名 | 方向 | 位宽 | 说明 |
+|--------|------|------|------|
+{% for item in planning.design_spec_analysis.interfaces or [] -%}
+| {{ item.name }} | {{ item.direction }} | {{ item.width }} | {{ item.note }} |
+{% endfor %}
+
+## 3. 设计复杂度评估
+
+- 状态空间：{{ planning.complexity.state_space or "" }}
+- 算术复杂度：{{ planning.complexity.arithmetic_complexity or "" }}
+- 存储结构：{{ planning.complexity.storage_complexity or "" }}
+- 参数化程度：{{ planning.complexity.parameterization or "" }}
+
+## 4. 形式化验证范围与目标
+
+### 4.1 纳入验证范围
+
+{% for item in planning.verification_scope.included or [] -%}
+- {{ item }}
+{% endfor %}
+
+### 4.2 暂不纳入验证范围
+
+{% for item in planning.verification_scope.excluded or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 5. 假设条件与约束
+
+{% for item in planning.assumptions or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 6. 验证策略
+
+{% for item in planning.strategy or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 7. 预期交付成果
+
+{% for item in planning.deliverables or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 8. 风险评估与应对
+
+{% for item in planning.risks or [] -%}
+- 风险：{{ item.risk }}
+  应对：{{ item.mitigation }}
+{% endfor %}
+
+## 9. 初步缺陷发现
+
+{% for item in planning.initial_bug_suspicions or [] -%}
+- {{ item }}
+{% endfor %}
