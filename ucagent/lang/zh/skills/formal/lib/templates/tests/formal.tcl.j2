@@ -20,26 +20,25 @@ lappend RTL_FILES [file join $SCRIPT_DIR {{ DUT }}_wrapper.sv]
 read_design -top {{ DUT }}_wrapper -sysv -mfcu $RTL_FILES
 
 # Clock and Reset
-{%- if extra_config and extra_config.tcl %}
-{%- if extra_config.tcl.clock %}
-def_clk {{ extra_config.tcl.clock.name | default('clk') }}
-{%- else %}
+# Generic env signals `clk` / `rst_n` are only emitted when DUT actually has clock/reset.
+{%- set has_clock = basic_info and basic_info.clock_reset and basic_info.clock_reset.clock_count and basic_info.clock_reset.clock_count != '0' %}
+{%- set has_reset = basic_info and basic_info.clock_reset and basic_info.clock_reset.reset_signal and basic_info.clock_reset.reset_signal not in ['无', '不适用', 'None', 'N/A'] %}
+{%- if has_clock %}
 def_clk clk
 {%- endif %}
-{%- if extra_config.tcl.reset %}
-def_rst {{ extra_config.tcl.reset.name | default('rst_n') }} -value {{ extra_config.tcl.reset.value | default(0) }}
-{%- else %}
-def_rst rst_n -value 0
-{%- endif %}
-{%- else %}
-def_clk clk
+{%- if has_reset %}
 def_rst rst_n -value 0
 {%- endif %}
 
 # Set timeout (default 100000s)
-set_opt -time 100000
+set_opt -time {{ extra_config.tcl.timeout | default(100000) if extra_config and extra_config.tcl else 100000 }}
 
 # Start proof (default engine)
+{%- if extra_config and extra_config.tcl and extra_config.tcl.extra_commands %}
+{%- for cmd in extra_config.tcl.extra_commands %}
+{{ cmd }}
+{%- endfor %}
+{%- endif %}
 prove
 
 # Report summary

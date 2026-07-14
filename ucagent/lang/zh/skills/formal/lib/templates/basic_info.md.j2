@@ -1,0 +1,132 @@
+# {{ DUT }} 基本信息文档
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+## 1. 模块概述
+
+| 项目 | 内容 |
+|------|------|
+| 模块名称 | {{ DUT }} |
+| 模块类型 | {{ basic_info.module_type or "" }} |
+| 顶层模块 | {{ basic_info.is_top if basic_info.is_top is not none else "" }} |
+| 设计类型 | {{ basic_info.design_type or "" }} |
+
+## 2. 接口信号详细定义
+
+### 2.1 输入端口
+
+| 信号名 | 位宽 | 类型 | 功能描述 |
+|--------|------|------|----------|
+{% for item in basic_info.ports.inputs or [] -%}
+| {{ item.name }} | {{ item.width }} | {{ item.signal_type }} | {{ item.desc }} |
+{% endfor %}
+
+### 2.2 输出端口
+
+| 信号名 | 位宽 | 类型 | 功能描述 | 潜在问题 |
+|--------|------|------|----------|----------|
+{% for item in basic_info.ports.outputs or [] -%}
+| {{ item.name }} | {{ item.width }} | {{ item.signal_type }} | {{ item.desc }} | {{ item.potential_issue or "" }} |
+{% endfor %}
+
+### 2.3 参数定义
+
+| 参数名 | 默认值 | 取值范围 | 说明 |
+|--------|--------|----------|------|
+{% for item in basic_info.parameters or [] -%}
+| {{ item.name }} | {{ item.default }} | {{ item.range }} | {{ item.desc }} |
+{% endfor %}
+
+## 3. 功能描述
+
+### 3.1 核心功能
+
+{% for item in basic_info.core_functions or [] -%}
+- {{ item }}
+{% endfor %}
+
+### 3.2 功能正确性要求
+
+{% for item in basic_info.correctness_requirements or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 4. 时钟域与复位策略
+
+### 4.1 时钟域分析
+
+| 项目 | 分析结果 |
+|------|----------|
+| 主时钟信号 | {{ basic_info.clock_reset.clock_signal or "" }} |
+| 时钟数量 | {{ basic_info.clock_reset.clock_count or "" }} |
+| 时钟类型 | {{ basic_info.clock_reset.clock_type or "" }} |
+| 同步/异步 | {{ basic_info.clock_reset.cdc_note or "" }} |
+
+### 4.2 复位策略分析
+
+| 项目 | 分析结果 |
+|------|----------|
+| 复位信号 | {{ basic_info.clock_reset.reset_signal or "" }} |
+| 复位类型 | {{ basic_info.clock_reset.reset_type or "" }} |
+| 初始值 | {{ basic_info.clock_reset.reset_init_state or "" }} |
+
+## 5. 核心组成部分
+
+### 5.1 模块结构图
+
+```text
+{{ basic_info.architecture.ascii_diagram or "" }}
+```
+
+### 5.2 数据通路
+
+{{ basic_info.architecture.datapath or "" }}
+
+### 5.3 控制逻辑
+
+{{ basic_info.architecture.control_logic or "" }}
+
+## 6. 参数化分析
+
+### 6.1 参数影响分析
+
+{% for item in basic_info.parameter_impact or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 7. 需要特殊处理的单元
+
+### 7.1 算术运算单元
+
+| 单元类型 | 是否存在 | 说明 |
+|----------|----------|------|
+{% for item in basic_info.special_units.arithmetic or [] -%}
+| {{ item.unit_type }} | {{ item.exists }} | {{ item.note }} |
+{% endfor %}
+
+### 7.2 存储单元
+
+| 单元类型 | 是否存在 | 说明 |
+|----------|----------|------|
+{% for item in basic_info.special_units.storage or [] -%}
+| {{ item.unit_type }} | {{ item.exists }} | {{ item.note }} |
+{% endfor %}
+
+## 8. 形式化验证环境配置要点
+
+### 8.1 环境配置建议
+
+| 配置项 | 设置 |
+|--------|------|
+| 时钟约束 | {{ (basic_info.env_config_notes.clock_constraints or []) | join("；") }} |
+| 复位序列 | {{ basic_info.env_config_notes.reset_sequence or "" }} |
+
+### 8.2 特殊输入约束
+
+{% for item in basic_info.env_config_notes.input_constraints or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 9. 总结
+
+{{ basic_info.conclusion or "" }}

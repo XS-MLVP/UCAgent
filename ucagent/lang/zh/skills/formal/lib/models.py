@@ -77,9 +77,11 @@ class AnalysisData(BaseModel):
 
 class FormalRecords(BaseModel):
     dut: str
+    planning: Optional[Dict[str, Any]] = None
+    basic_info: Optional[Dict[str, Any]] = None
     spec: Optional[FormalSpec] = None
     run_results: Optional[RunResults] = None  # 🔵 自动层：实时反映最近一次运行结果
     analysis: Optional[AnalysisData] = None   # 🟡 分析层：LLM 填写的持久化内容
     bugs: Optional[List[BugEntry]] = None
-    extra_config: Optional[Dict[str, Any]] = Field(None, description="Extra config for tools, e.g. clock/reset settings")
-
+    extra_config: Optional[Dict[str, Any]] = Field(None, description="Extra config for tool execution, e.g. TCL timeout/commands")
+    summary: Optional[Dict[str, Any]] = None

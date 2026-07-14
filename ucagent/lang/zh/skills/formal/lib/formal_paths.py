@@ -2,6 +2,7 @@
 """Centralized formal verification path resolution."""
 import yaml
 import os
+import json
 from dataclasses import dataclass, field
 
 @dataclass
@@ -37,6 +38,27 @@ class FormalPaths:
                 except (yaml.YAMLError, OSError):
                     pass
         if not self.dut:
+            info_path = os.path.join(self.workspace, ".ucagent", "ucagent_info.json")
+            if os.path.exists(info_path):
+                try:
+                    with open(info_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self.dut = data.get("dut_name") or data.get("DUT") or ""
+                except (json.JSONDecodeError, OSError):
+                    pass
+        if not self.dut:
+            candidates = []
+            for entry in os.listdir(self.workspace):
+                path = os.path.join(self.workspace, entry)
+                if not os.path.isdir(path):
+                    continue
+                if entry.startswith(".") or entry in {self.out, "Guide_Doc"}:
+                    continue
+                if os.path.exists(os.path.join(path, f"{entry}.v")) or os.path.exists(os.path.join(path, f"{entry}.sv")):
+                    candidates.append(entry)
+            if len(candidates) == 1:
+                self.dut = candidates[0]
+        if not self.dut:
             self.dut = "N/A"
 
 
@@ -71,6 +93,18 @@ class FormalPaths:
     @property
     def spec(self) -> str:
         return os.path.join(self.base, f"03_{self.dut}_functions_and_checks.md")
+
+    @property
+    def planning(self) -> str:
+        return os.path.join(self.base, f"01_{self.dut}_verification_needs_and_plan.md")
+
+    @property
+    def basic_info(self) -> str:
+        return os.path.join(self.base, f"02_{self.dut}_basic_info.md")
+
+    @property
+    def summary(self) -> str:
+        return os.path.join(self.base, f"05_{self.dut}_formal_summary.md")
 
     @property
     def analysis(self) -> str:
