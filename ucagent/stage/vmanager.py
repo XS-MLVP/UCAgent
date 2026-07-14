@@ -502,9 +502,9 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
-            stage.set_reached(stage_info.get("reached", stage.is_reached()))
             stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
-            stage.is_complete = stage_info.get("is_completed", stage.is_completed())
+            if idx < self.stage_index:
+                stage.is_complete = stage_info.get("is_completed", stage.is_completed())
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
@@ -514,7 +514,6 @@ class StageManager(object):
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.all_completed = bool(self.ucagent_info.get("all_completed", False))
         if self.stage_skip_list:
             for si in self.stage_skip_list:
                 self.skip_stage(si)
