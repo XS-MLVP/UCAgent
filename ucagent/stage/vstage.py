@@ -4,7 +4,7 @@
 from ucagent.util.functions import import_class_from_str, find_files_by_pattern
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
-from ucagent.util.log import info, warning
+from ucagent.util.log import info, warning, message
 from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
@@ -50,7 +50,10 @@ class VerifyStage(object):
                  need_fail_llm_suggestion=None,
                  need_pass_llm_suggestion=None,
                  need_human_check=False,
-                 substages=None):
+                 substages=None,
+                 pre_cmds=None,
+                 post_cmds=None
+                 ):
         """
         Initialize the VerifyStage.
         """
@@ -111,6 +114,8 @@ class VerifyStage(object):
         self.last_do_check_info_fail = None
         self.last_do_check_info_pass = None
         self._on_complete_callbacks = []
+        self.pre_cmds = pre_cmds
+        self.post_cmds = post_cmds
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
@@ -429,7 +434,17 @@ class VerifyStage(object):
             payload["diff"] = ""
         return payload
 
+    def _process_cmds(self, cmd_list, prefix=""):
+        if not cmd_list:
+            return
+        info(f"[{self.__class__.__name__}.{self.name}] Processing {len(cmd_list)} {prefix} commands...")
+        for cmd in cmd_list:
+            fc.process_bash_cmd(self.workspace,
+                                cmd,
+                                message, self.vmanager.is_break if self.vmanager else None)
+
     def on_init(self):
+        self._process_cmds(self.pre_cmds, "Pre-Bash")
         for c in self.checker:
             c.on_init()
 
@@ -474,6 +489,7 @@ class VerifyStage(object):
             warning(f"Stage {self.name} is already inited, cannot recall on_init.")
 
     def on_complete(self):
+        self._process_cmds(self.post_cmds, "Post-Bash")
         if self.time_end is not None:
             return
         self.time_end = time.time()
@@ -940,6 +956,8 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             need_fail_llm_suggestion=need_fail_llm_suggestion,
             need_pass_llm_suggestion=need_pass_llm_suggestion,
             need_human_check=need_human_check,
+            pre_cmds=stage.get_value('pre_cmds', None),
+            post_cmds=stage.get_value('post_cmds', None)
         ))
     return ret
 
