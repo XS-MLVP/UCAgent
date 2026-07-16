@@ -559,11 +559,10 @@ class VerifyAgent:
         self._need_break = value
 
     def is_break(self):
-        return (
-            self._need_break or threading.current_thread().ident in self._break_threads
-        )
+        return self._need_break or threading.current_thread().ident in self._break_threads
 
     def set_break_thread(self, thread_id: int) -> None:
+        self.set_break(True)
         self._break_threads.add(thread_id)
 
     def clear_break_thread(self, thread_id: int) -> None:
@@ -973,6 +972,7 @@ class VerifyAgent:
                 "UCAgent": self.__version__,
                 "LLM": self.backend.model_name(),
                 "Temperature": self.backend.temperature(),
+                "IsBreak": self.is_break(),
                 "Stream": self.stream_output,
                 "Seed": self.seed,
                 "SummaryMode": self.summary_mode(),

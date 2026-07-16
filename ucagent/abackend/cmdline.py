@@ -4,11 +4,8 @@
 from .base import AgentBackendBase
 from jinja2 import Environment, FileSystemLoader
 from ucagent.util.log import warning, info
-from ucagent.util.functions import get_abs_path_cwd_ucagent
+from ucagent.util.functions import get_abs_path_cwd_ucagent, process_bash_cmd
 import os
-import selectors
-import signal
-import subprocess
 
 
 class UCAgentCmdLineBackend(AgentBackendBase):
@@ -60,40 +57,7 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         """
         Process a bash command and return the output.
         """
-        info(f'Executing bash command: {cmd}')
-        popen_kwargs = {}
-        if os.name != "nt":
-            popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(cmd, shell=True, cwd=self.CWD,
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                   bufsize=1, **popen_kwargs)
-        output_lines = []
-        interrupted = False
-
-        with selectors.DefaultSelector() as selector:
-            if process.stdout is not None:
-                selector.register(process.stdout, selectors.EVENT_READ)
-            while True:
-                if self.vagent.is_break():
-                    interrupted = True
-                    self._terminate_process(process)
-                    info(f"Bash command '{cmd}' aborted.")
-                    break
-                if process.poll() is not None:
-                    break
-                for key, _ in selector.select(timeout=0.1):
-                    output = key.fileobj.readline()
-                    if output:
-                        output_lines.append(output.strip())
-                        self._echo_message(output.strip())
-
-            if process.stdout is not None:
-                for output in process.stdout.readlines():
-                    output_lines.append(output.strip())
-                    self._echo_message(output.strip())
-
-        return_code = process.poll()
-        info(f"Bash command '{cmd}' finished with return code {return_code}.")
+        return_code, output_lines, interrupted = process_bash_cmd(self.CWD, cmd, self._echo_message, self.vagent.is_break)
         if interrupted:
             self._fail_count = 0
             return return_code, output_lines
@@ -105,31 +69,6 @@ class UCAgentCmdLineBackend(AgentBackendBase):
         else:
             self._fail_count = 0
         return return_code, output_lines
-
-    def _terminate_process(self, process):
-        if process.poll() is not None:
-            return
-        try:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
-            if os.name != "nt":
-                os.killpg(process.pid, signal.SIGKILL)
-            else:
-                process.kill()
-            process.wait(timeout=1)
-        except ProcessLookupError:
-            pass
-        except Exception as e:
-            warning(f"Failed to terminate process {process.pid}: {e}")
-            try:
-                process.kill()
-                process.wait(timeout=1)
-            except Exception:
-                pass
 
     def _get_dft_ctx(self):
         ctx = os.environ.copy()

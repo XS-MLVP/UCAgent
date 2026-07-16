@@ -15,10 +15,15 @@ import time
 import inspect
 import fnmatch
 import ast
+import codecs
+import locale
 from pathlib import Path
 import yaml
 from collections import OrderedDict
 import traceback
+import subprocess
+import selectors
+import signal
 
 
 def fmt_time_deta(sec: Union[int, float, str, None], abbr: bool = False) -> str:
@@ -2642,3 +2647,129 @@ def get_func_params_regex(source_code: str) -> list[str]:
     if current:
         params.append(current.strip())
     return params
+
+
+def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
+    """
+    Process a bash command and return the output.
+    """
+    def _terminate_process(process):
+        if process.poll() is not None:
+            info(f"Process {process.pid} already terminated.")
+            return
+        warning(f"Terminating process {process.pid}...")
+        try:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            process.wait(timeout=1)
+        except ProcessLookupError:
+            warning(f"Process {process.pid} does not exist, it may have already terminated.")
+        except Exception as e:
+            warning(f"Failed to terminate process {process.pid}: {e}, trying to force kill...")
+            try:
+                process.kill()
+                process.wait(timeout=1)
+            except Exception as e:
+                warning(f"Failed to force kill process {process.pid}: {e}")
+    info(f'Executing bash command: {cmd}')
+    popen_kwargs = {}
+    if os.name != "nt":
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(cmd, shell=True, cwd=CWD,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               bufsize=0, **popen_kwargs)
+    output_lines = []
+    interrupted = False
+    line_buffer = ""
+    decoder = codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
+
+    def _emit_output_line(line):
+        line = line.strip()
+        output_lines.append(line)
+        if callable(echo_func):
+            echo_func(line)
+
+    def _append_output_text(text):
+        nonlocal line_buffer
+        line_buffer += text
+        lines = line_buffer.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            line_buffer = lines.pop()
+        else:
+            line_buffer = ""
+        for line in lines:
+            _emit_output_line(line)
+
+    def _flush_output_buffer():
+        nonlocal line_buffer
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            _append_output_text(tail)
+        if line_buffer:
+            _emit_output_line(line_buffer)
+            line_buffer = ""
+
+    with selectors.DefaultSelector() as selector:
+        stdout_fd = None
+        stdout_open = False
+        if process.stdout is not None:
+            stdout_fd = process.stdout.fileno()
+            os.set_blocking(stdout_fd, False)
+            selector.register(stdout_fd, selectors.EVENT_READ)
+            stdout_open = True
+
+        def _drain_stdout(timeout=0):
+            nonlocal stdout_open
+            if not stdout_open or stdout_fd is None:
+                return False
+            read_any = False
+            for _, _ in selector.select(timeout=timeout):
+                while True:
+                    try:
+                        chunk = os.read(stdout_fd, 4096)
+                    except BlockingIOError:
+                        break
+                    except OSError:
+                        stdout_open = False
+                        break
+                    if not chunk:
+                        stdout_open = False
+                        try:
+                            selector.unregister(stdout_fd)
+                        except Exception:
+                            pass
+                        break
+                    read_any = True
+                    _append_output_text(decoder.decode(chunk))
+            return read_any
+
+        try:
+            while True:
+                if callable(interrupted_fc) and interrupted_fc():
+                    interrupted = True
+                    _terminate_process(process)
+                    info(f"Bash command '{cmd}' aborted.")
+                    break
+                _drain_stdout(timeout=0.1)
+                if process.poll() is not None:
+                    break
+        except KeyboardInterrupt:
+            interrupted = True
+            _terminate_process(process)
+            info(f"Bash command '{cmd}' interrupted.")
+        while _drain_stdout(timeout=0):
+            pass
+        _flush_output_buffer()
+        if process.stdout is not None:
+            process.stdout.close()
+    return_code = process.poll()
+    info(f"Bash command '{cmd}' finished with return code {return_code}.")
+    return return_code, output_lines, interrupted
