@@ -179,18 +179,17 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 except (SyntaxError, ValueError):
                     raise ValueError(
                         "The 'generated' argument was received as a string and could not be parsed as a dictionary. "
-                        'Pass generated as a real top-level JSON object, for example '
-                        '{"generated": {"FG-.../FC-.../CK-...": "record note"}}. '
-                        f"value={generated}"
+                        f"Received value: {generated}"
                     )
 
         if generated is None:
             return OrderedDict()
         if not isinstance(generated, dict):
             raise TypeError(
-                "The 'generated' argument must be a dictionary like "
-                "{'FG-.../FC-.../CK-...': 'record note'}. "
-                f"But find type(generated)={type(generated)}. value={generated}"
+                "The 'generated' argument must be a dictionary, or a string containing a JSON dictionary, "
+                "whose keys are CK labels and whose values describe the generated random test or the reason "
+                "it was skipped. "
+                f"Received type(generated)={type(generated)}; value={generated}"
             )
 
         generated_map = OrderedDict()
@@ -229,10 +228,58 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         )
         self.batch_task.update_current_tbd()
 
+        current_batch = list(self.batch_task.tbd_task_list)
+        tool_name = "Complete" if is_complete else "Check"
+
+        def generated_call_guidance(candidate_cks=None):
+            """Build an executable generated argument example for error messages."""
+            has_current_batch = bool(current_batch)
+            candidates = list(candidate_cks or current_batch or current_doc_ck_list)
+            if candidates:
+                example_ck = candidates[0]
+                example_note = (
+                    "Added deterministic random boundary cases and output assertions."
+                )
+                object_example = (
+                    f'{tool_name}(generated={{"{example_ck}": '
+                    f'"{example_note}"}})'
+                )
+                generated_json = json.dumps({example_ck: example_note})
+                string_example = (
+                    f"{tool_name}(generated={json.dumps(generated_json)})"
+                )
+                guidance = (
+                    f"Call the {tool_name} tool with the top-level `generated` argument. "
+                    "`generated` accepts either a dictionary or a string containing a JSON dictionary. "
+                    "It maps each full CK path to a processing note. "
+                    "The note may describe the generated random test, random strategy and assertions, "
+                    "or explain why random testing does not add value for that CK. "
+                    f"Object example: {object_example} "
+                    f"String fallback: {string_example} "
+                )
+                if has_current_batch or candidate_cks:
+                    guidance += (
+                        f"Allowed current-batch CK labels: {', '.join(candidates)}. "
+                        "Do not submit CK labels outside the current batch. "
+                    )
+                else:
+                    guidance += "There are currently no pending CK labels in the batch. "
+                return guidance + (
+                    "Pass `generated` directly as shown; do not nest it under `args`, `parameters`, "
+                    "or another field."
+                )
+            return (
+                f"Call the {tool_name} tool with the top-level `generated` argument. "
+                "`generated` accepts a dictionary mapping current-batch CK paths to processing notes, "
+                "or a string containing that JSON dictionary; for example: "
+                f'{tool_name}(generated="{{\\"FG-.../FC-.../CK-...\\": '
+                '\\"generated or skipped note\\"}").'
+            )
+
         try:
             generated_map = self._parse_generated_arg(generated)
         except (TypeError, ValueError) as e:
-            return False, {"error": str(e)}
+            return False, {"error": f"{e} {generated_call_guidance()}"}
 
         error_mesg = []
         unknown_tasks = [key for key in generated_map if key not in current_doc_ck_list]
@@ -243,19 +290,20 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 *unknown_tasks,
             ])
 
-        current_batch = set(self.batch_task.tbd_task_list)
+        current_batch_set = set(current_batch)
         out_of_batch_tasks = [
             key for key in generated_map
-            if key in current_doc_ck_list and key not in current_batch
+            if key in current_doc_ck_list and key not in current_batch_set
         ]
-        if out_of_batch_tasks and current_batch:
+        if out_of_batch_tasks and current_batch_set:
             error_mesg.extend([
                 "The following random-test CK labels are valid, but they are not in the current batch. "
                 "Please analyze the current batch first:",
                 *out_of_batch_tasks,
             ])
 
-        if unknown_tasks or (out_of_batch_tasks and current_batch):
+        if unknown_tasks or (out_of_batch_tasks and current_batch_set):
+            error_mesg.append(generated_call_guidance())
             if self.batch_task.tbd_task_list:
                 error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
                 error_mesg.append({"current_batch": self._build_current_ck_infos(self.batch_task.tbd_task_list)})
@@ -263,7 +311,7 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
 
         valid_tasks = [
             key for key in generated_map
-            if key in current_batch
+            if key in current_batch_set
         ]
         remaining_current_batch = [
             ck for ck in self.batch_task.tbd_task_list
@@ -272,10 +320,10 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         if len(valid_tasks) < 1 and remaining_current_batch:
             return False, {
                 "error": [
-                    "No valid CK labels were recorded in the current random-test batch (need use args `generated: dict` "
-                    "to pass CK processing records). Please analyze at least one of these CK labels: "
-                    f"{', '.join(remaining_current_batch)}.",
+                    "No valid CK labels were recorded in the current random-test batch. "
+                    f"Please analyze at least one of these CK labels: {', '.join(remaining_current_batch)}.",
                     {"current_batch": self._build_current_ck_infos(remaining_current_batch)},
+                    generated_call_guidance(remaining_current_batch),
                 ]
             }
 

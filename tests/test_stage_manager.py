@@ -334,6 +334,7 @@ def test_fastmcp_check_preserves_extra_arguments():
     assert extra_schema
     assert "checker-specific" in extra_schema["description"]
     assert "top-level JSON fields" in extra_schema["description"]
+    assert "string fallback" in extra_schema["description"]
     result = asyncio.run(mcp_tool.run({
         "timeout": 13,
         "ctx": "internal context should not leak",

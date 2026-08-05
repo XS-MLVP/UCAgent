@@ -1845,6 +1845,52 @@ class UnityChipCheckerRefineTestCases(Checker):
         )
         self.batch_task.update_current_tbd()
 
+        current_batch = list(self.batch_task.tbd_task_list)
+        tool_name = "Complete" if is_complete else "Check"
+
+        def refined_call_guidance(candidate_cks=None):
+            """Build an executable refined argument example for error messages."""
+            has_current_batch = bool(current_batch)
+            candidates = list(candidate_cks or current_batch or current_doc_ck_list)
+            if candidates:
+                example_ck = candidates[0]
+                example_note = (
+                    "Reviewed the related test cases and updated coverage for this checkpoint."
+                )
+                object_example = (
+                    f'{tool_name}(refined={{"{example_ck}": '
+                    f'"{example_note}"}})'
+                )
+                refined_json = json.dumps({example_ck: example_note})
+                string_example = (
+                    f"{tool_name}(refined={json.dumps(refined_json)})"
+                )
+                guidance = (
+                    f"Call the {tool_name} tool with the top-level `refined` argument. "
+                    "`refined` accepts either a dictionary or a string containing a JSON dictionary. "
+                    "It maps each full CK path to a review/update note. "
+                    f"Object example: {object_example} "
+                    f"String fallback: {string_example} "
+                )
+                if has_current_batch or candidate_cks:
+                    guidance += (
+                        f"Allowed current-batch CK labels: {', '.join(candidates)}. "
+                        "Do not submit CK labels outside the current batch. "
+                    )
+                else:
+                    guidance += "There are currently no pending CK labels in the batch. "
+                return guidance + (
+                    "Pass `refined` directly as shown; do not nest it under `args`, `parameters`, "
+                    "or another field."
+                )
+            return (
+                f"Call the {tool_name} tool with the top-level `refined` argument. "
+                "`refined` accepts a dictionary mapping current-batch CK paths to review/update notes, "
+                "or a string containing that JSON dictionary; for example: "
+                f'{tool_name}(refined="{{\\"FG-.../FC-.../CK-...\\": '
+                '\\"review note\\"}").'
+            )
+
         if isinstance(refined, str):
             refined_text = refined.strip()
             if refined_text.startswith("```") and refined_text.endswith("```"):
@@ -1862,19 +1908,23 @@ class UnityChipCheckerRefineTestCases(Checker):
                     refined = ast.literal_eval(refined_text)
                 except (SyntaxError, ValueError):
                     return False, {
-                        "error": "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
-                                 "Pass refined as a real top-level JSON object, for example "
-                                 '{"refined": {"FG-.../FC-.../CK-...": "refine note"}}. '
-                                 f"value={refined}"
+                        "error": (
+                            "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
+                            f"{refined_call_guidance()} "
+                            f"Received value: {refined}"
+                        )
                     }
 
         if refined is None:
             refined_map = OrderedDict()
         elif not isinstance(refined, dict):
             return False, {
-                "error": "The 'refined' argument must be a dictionary like "
-                         "{'FG-.../FC-.../CK-...': 'test-case refine note'}." + \
-                         f" But find type(refined)={type(refined)}. value={refined}"
+                "error": (
+                    "The 'refined' argument must be a dictionary, or a string containing a JSON dictionary, "
+                    "whose keys are CK labels and whose values are review/update notes. "
+                    f"{refined_call_guidance()} "
+                    f"Received type(refined)={type(refined)}; value={refined}"
+                )
             }
         else:
             refined_map = OrderedDict()
@@ -1894,19 +1944,20 @@ class UnityChipCheckerRefineTestCases(Checker):
                 *unknown_tasks,
             ])
 
-        current_batch = set(self.batch_task.tbd_task_list)
+        current_batch_set = set(current_batch)
         out_of_batch_tasks = [
             key for key in refined_map
-            if key in current_doc_ck_list and key not in current_batch
+            if key in current_doc_ck_list and key not in current_batch_set
         ]
-        if out_of_batch_tasks and current_batch:
+        if out_of_batch_tasks and current_batch_set:
             error_mesg.extend([
                 "The following refined CK labels are valid, but they are not in the current batch. "
                 "Please refine the current batch first:",
                 *out_of_batch_tasks,
             ])
 
-        if unknown_tasks or (out_of_batch_tasks and current_batch):
+        if unknown_tasks or (out_of_batch_tasks and current_batch_set):
+            error_mesg.append(refined_call_guidance())
             if self.batch_task.tbd_task_list:
                 error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
                 error_mesg.append({"current_batch": self._build_current_ck_infos(self.batch_task.tbd_task_list)})
@@ -1914,7 +1965,7 @@ class UnityChipCheckerRefineTestCases(Checker):
 
         valid_tasks = [
             key for key in refined_map
-            if key in current_batch
+            if key in current_batch_set
         ]
         remaining_current_batch = [
             ck for ck in self.batch_task.tbd_task_list
@@ -1923,10 +1974,10 @@ class UnityChipCheckerRefineTestCases(Checker):
         if len(valid_tasks) < 1 and remaining_current_batch:
             return False, {
                 "error": [
-                    "No valid CK labels were refined in the current batch (need use args `refined: dict` "
-                    "to pass the refined labels). Please refine at least one of these CK labels: "
-                    f"{', '.join(remaining_current_batch)}.",
+                    "No valid CK labels were refined in the current batch. "
+                    f"Please refine at least one of these CK labels: {', '.join(remaining_current_batch)}.",
                     {"current_batch": self._build_current_ck_infos(remaining_current_batch)},
+                    refined_call_guidance(remaining_current_batch),
                 ]
             }
 

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Tests for UnityChipCheckerRefineTestCases."""
 
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.checkers.unity_test import UnityChipCheckerRefineTestCases
 from ucagent.tools.testops import RunUnityChipTest
+from ucagent.util.config import load_yaml_with_env_vars
 
 
 class _FakeStageManager:
@@ -187,6 +189,47 @@ def test_refine_test_cases_requires_refined_argument_for_current_batch(tmp_path)
     assert passed is False
     assert "No valid CK labels were refined in the current batch" in msg["error"][0]
     assert msg["error"][1]["current_batch"][0]["CK"] == "FG-A/FC-A/CK-A"
+    assert "Call the Check tool with the top-level `refined` argument" in msg["error"][2]
+    assert 'Check(refined={"FG-A/FC-A/CK-A":' in msg["error"][2]
+    assert "string containing a JSON dictionary" in msg["error"][2]
+    assert 'Check(refined="{\\"FG-A/FC-A/CK-A\\":' in msg["error"][2]
+
+
+def test_refine_test_cases_complete_error_shows_complete_call_example(tmp_path):
+    checker, _manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+
+    passed, msg = checker.do_check(is_complete=True)
+
+    assert passed is False
+    assert "Call the Complete tool with the top-level `refined` argument" in msg["error"][2]
+    assert 'Complete(refined={"FG-A/FC-A/CK-A":' in msg["error"][2]
+    assert 'Complete(refined="{\\"FG-A/FC-A/CK-A\\":' in msg["error"][2]
+
+
+def test_refine_test_cases_invalid_refined_formats_show_check_call_example(tmp_path):
+    checker, _manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+
+    passed, msg = checker.do_check(refined=["FG-A/FC-A/CK-A"])
+
+    assert passed is False
+    error_text = msg["error"]
+    assert "must be a dictionary" in error_text
+    assert 'Check(refined={"FG-A/FC-A/CK-A":' in error_text
+    assert 'Check(refined="{\\"FG-A/FC-A/CK-A\\":' in error_text
+
+    passed, msg = checker.do_check(refined="FG-A/FC-A/CK-A reviewed")
+
+    assert passed is False
+    error_text = msg["error"]
+    assert "could not be parsed as a dictionary" in error_text
+    assert 'Check(refined={"FG-A/FC-A/CK-A":' in error_text
+    assert 'Check(refined="{\\"FG-A/FC-A/CK-A\\":' in error_text
 
 
 def test_refine_test_cases_rejects_unknown_and_out_of_batch_labels(tmp_path):
@@ -210,6 +253,8 @@ def test_refine_test_cases_rejects_unknown_and_out_of_batch_labels(tmp_path):
     assert "not in the current function/check document" in error_text
     assert "not in the current batch" in error_text
     assert "FG-A/FC-A/CK-A" in error_text
+    assert 'Check(refined={"FG-A/FC-A/CK-A":' in error_text
+    assert 'Check(refined="{\\"FG-A/FC-A/CK-A\\":' in error_text
 
 
 def test_refine_test_cases_accepts_stringified_refined_dict_and_accumulates(tmp_path):
@@ -225,6 +270,39 @@ def test_refine_test_cases_accepts_stringified_refined_dict_and_accumulates(tmp_
     assert "CK-B" in msg["error"]
     assert checker.batch_task.gen_task_list == ["FG-A/FC-A/CK-A"]
     assert checker.refine_result == {"FG-A/FC-A/CK-A": "reviewed A"}
+
+
+def test_refine_test_cases_complete_accepts_json_dictionary_string(tmp_path):
+    checker, _manager, _tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+
+    passed, message = checker.do_check(
+        is_complete=True,
+        refined='{"FG-A/FC-A/CK-A": "reviewed A"}',
+    )
+
+    assert passed is True
+    assert "complete success" in message["success"]
+    assert checker.refine_result == {"FG-A/FC-A/CK-A": "reviewed A"}
+
+
+def test_refine_test_stage_documents_json_string_fallback():
+    repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+    config = load_yaml_with_env_vars(
+        os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
+    )
+    stage = next(
+        stage for stage in config["stage"]
+        if stage["name"] == "refine_test_cases_based_on_functional_points"
+    )
+    task_text = json.dumps(stage["task"], ensure_ascii=False)
+
+    assert "内容为JSON对象的字符串" in task_text
+    assert "UnityChipCheckerRefineTestCases会在内部进行JSON解析" in task_text
+    assert "字符串调用示例" in task_text
+    assert "不能写成字符串" not in task_text
 
 
 def test_refine_test_cases_reloads_doc_each_check(tmp_path):

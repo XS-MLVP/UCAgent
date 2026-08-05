@@ -256,10 +256,11 @@ class ArgCheck(BaseModel):
 
 CHECK_EXTRA_ARGS_DESCRIPTION = (
     "Additional checker-specific arguments are allowed. Pass them as top-level "
-    "JSON fields alongside timeout, not wrapped in args/check_args. Structured "
-    "values such as objects or arrays must be passed as real JSON values, not as "
-    "stringified JSON. The accepted extra argument names depend on the current "
-    "stage checker and may be described by the task prompt or checker error message."
+    "JSON fields alongside timeout, not wrapped in args/check_args. Prefer real JSON "
+    "for structured values such as objects or arrays. A checker may explicitly document "
+    "a string fallback containing JSON when tool argument serialization fails. The accepted "
+    "extra argument names and fallback formats depend on the current stage checker and may "
+    "be described by the task prompt or checker error message."
 )
 
 
@@ -284,8 +285,8 @@ class ArgsDoCheck(BaseModel):
         description=(
             "Timeout for Check/Complete tools. Zero means use default cfg.call_time_out. "
             "Checker-specific extra arguments may also be passed as sibling top-level "
-            "JSON fields alongside timeout; pass object/array values as real JSON, "
-            "not strings."
+            "JSON fields alongside timeout. Prefer real JSON for object/array values; "
+            "use a JSON string only when the current checker explicitly documents that fallback."
         )
     )
 
