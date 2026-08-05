@@ -146,7 +146,7 @@ stage:
       - "步骤："
       - " 1) 检查 {OUT}/tests/{DUT}_api.py：定位环境 fixture、DUT 初始化、常用 helper、对外 API 函数。"
       - " 2) 根据增量需求更新/新增："
-      - "    - 环境 fixture：能稳定构建最小可复现环境（时钟/复位/接口绑定/必要配置）。"
+      - "    - 环境 fixture：能稳定构建最小可复现环境（时钟/复位/接口绑定/必要配置），并确保dut fixture在yield之后调用set_func_coverage上报功能覆盖率。"
       - "    - API：为新增/变化的功能提供清晰可复用的调用入口；API 命名必须满足前缀约束 `api_{DUT}_`。"
       - " 3) 自检：确保 API 的输入/输出/副作用明确，异常场景有可预期行为（至少能被测试断言）。"
       - " 4) 调用工具 `Check` 进行代码/结构校验；若无需更新则调用 `Complete` 结束本阶段。"
@@ -156,6 +156,10 @@ stage:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_mock.md"
     checker:
+      - name: dut_fixture_check
+        clss: "UnityChipCheckerDutFixture"
+        args:
+          target_file: "{OUT}/tests/{DUT}_api.py"
       - name: env_fixture_check
         clss: "UnityChipCheckerEnvFixture"
         args:

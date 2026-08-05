@@ -447,17 +447,74 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         self.source_code_need = {
             "get_coverage_data_path": (msg, None)
         }
-        self.source_code_cb = self._check_yield
+        self.source_code_cb = self._check_lifecycle
 
-    def _check_yield(self, source_code, dut_func):
+    @staticmethod
+    def _call_name(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return None
+
+    @staticmethod
+    def _is_valid_set_func_coverage_call(call):
+        positional_request = (
+            len(call.args) >= 1
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "request"
+        )
+        keyword_names = {keyword.arg for keyword in call.keywords}
+        has_request = positional_request or "request" in keyword_names
+        has_groups = len(call.args) >= 2 or "g" in keyword_names
+        return has_request and has_groups
+
+    def _check_lifecycle(self, source_code, dut_func):
         tree = ast.parse(source_code)
-        has_yield = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Yield) or isinstance(node, ast.YieldFrom):
-                has_yield = True
-                break
-        if not has_yield:
+        yield_lines = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.Yield, ast.YieldFrom))
+        ]
+        if not yield_lines:
             return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
+
+        func_coverage_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and self._call_name(node.func) == "set_func_coverage"
+        ]
+        if not func_coverage_calls:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    "'set_func_coverage(request, func_coverage_group)' during teardown. "
+                    "Calling mark_function in tests is not enough: without set_func_coverage, "
+                    "Toffee reports no functional coverage groups and every test appears unmarked."
+            }
+
+        valid_func_coverage_calls = [
+            call
+            for call in func_coverage_calls
+            if self._is_valid_set_func_coverage_call(call)
+        ]
+        if not valid_func_coverage_calls:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must pass both "
+                    "the pytest 'request' and the coverage group data to "
+                    "'set_func_coverage(request, func_coverage_group)'."
+            }
+
+        first_yield_line = min(yield_lines)
+        if not any(call.lineno > first_yield_line for call in valid_func_coverage_calls):
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    "'set_func_coverage(request, func_coverage_group)' after 'yield' so the final "
+                    "coverage samples and mark_function mappings are attached to the test report."
+            }
         return True, {}
 
 
@@ -1321,6 +1378,20 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests
 
+    @staticmethod
+    def _missing_functional_coverage_message(report):
+        total_points = report.get("total_funct_point", 0)
+        total_check_points = report.get("total_check_point", 0)
+        if total_points > 0 and total_check_points > 0:
+            return None
+        return (
+            "Functional coverage data is missing or empty in the Toffee report "
+            f"(function points: {total_points}, check points: {total_check_points}). "
+            "The test functions may already call mark_function correctly; do not duplicate those calls. "
+            "Ensure the 'dut' fixture creates and samples the coverage groups, then calls "
+            "'set_func_coverage(request, func_coverage_group)' during teardown after 'yield'."
+        )
+
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Perform the check for DUT API tests."""
         test_files = [fc.rm_workspace_prefix(self.workspace, f) for f in glob.glob(os.path.join(self.workspace, self.target_file_tests))]
@@ -1371,6 +1442,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if "Signal bind error" in str_err:
                 msg["WARNING"] = "The DUT signals are not handled properly by toffee Bundle, you should fix this issue first."
             return msg
+        missing_coverage_message = self._missing_functional_coverage_message(report)
+        if missing_coverage_message:
+            return False, get_emsg(missing_coverage_message)
         if api_un_tested:
             info(f"Missed APIs: {','.join(api_un_tested)}")
             info(f"Found test APIs: {','.join(test_functions)}")

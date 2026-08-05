@@ -55,6 +55,7 @@ mission:
           - 使用`CurrentTips`获取当前阶段/子阶段的具体任务指导
           - 确认完成后用`Complete`工具正式推进到下一阶段
           - 如果仅仅想判断是否完成阶段任务，又不想进入下一个阶段请调用`Check`工具进行检查
+          - 根据不同阶段的checker配置，Complete和Check工具可以接受特定格式的参数
 
       **工作原则：**
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
@@ -442,6 +443,7 @@ stage:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
          - "- 确保在dut fixture的清理阶段，调用通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage"
+         - "- 确保在dut fixture的清理阶段（yield之后）调用set_func_coverage(request, func_coverage_group)，将功能覆盖率和mark_function映射传递给toffee-test"
          - "- 确保dut fixture能正确初始化和清理芯片"
          - "- 确保dut fixture的scope设置为function"
        checker:
