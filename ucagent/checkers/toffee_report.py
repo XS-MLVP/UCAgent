@@ -4,7 +4,22 @@
 from ucagent.util.log import warning, info
 import ucagent.util.functions as fc
 import os
+import re
 import traceback
+
+
+def parse_bug_label(label: str) -> tuple[str, float]:
+    """Parse a ``BG-NAME-XX`` label into its name and 0.0-1.0 confidence."""
+    raw = str(label or "").strip().strip("<>")
+    match = re.fullmatch(r"BG-(.+)-(\d{1,3})", raw)
+    if not match or not match.group(1).strip():
+        raise ValueError(
+            f"'{label}' must use BG-NAME-XX format with an integer confidence from 0 to 100."
+        )
+    confidence = int(match.group(2))
+    if not 0 <= confidence <= 100:
+        raise ValueError(f"'{label}' confidence must be between 0 and 100.")
+    return match.group(1), confidence / 100.0
 
 
 def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_prefix:str):
@@ -32,10 +47,8 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
                            "[Example] <BG-OVERFLOW-80> means bug named OVERFLOW with 80% confidence. " + \
                            "Please fix according to Guide_Doc/dut_bug_analysis.md."
         try:
-            confidence = int(labels[-1].split("-")[-1])
-            if not (0 <= confidence <= 100):
-                raise ValueError("Confidence must be 0-100")
-        except (IndexError, ValueError):
+            parse_bug_label(labels[-1])
+        except ValueError:
             return False, f"[Invalid Confidence] Bug analysis document '{bug_analysis_file}': '{labels[-1]}' has invalid confidence value. " + \
                            "[Requirement] Confidence must be an integer between 0 and 100. " + \
                            "[Example] <BG-ERROR-OVERFLOW-75> means bug ERROR-OVERFLOW with 75% confidence."

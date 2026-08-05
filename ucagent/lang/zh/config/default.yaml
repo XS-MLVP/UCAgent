@@ -1287,3 +1287,40 @@ stage:
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_mock_"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
+
+  - name: record_and_report_bugs
+    desc: "记录并同步所有已确定的Bug[{COMPLETED_BUGS}/{TOTAL_BUGS}]"
+    task:
+      - "目标：完整记录{OUT}/{DUT}_bug_analysis.md中置信度不为0的所有Bug，并关联{OUT}/{DUT}_static_bug_analysis.md中已经动态确认的静态Bug；置信度为0的Bug无效，必须忽略"
+      - "第1步：阅读下方当前批次待记录Bug及其document_blocks、alias和ref，确认每个Bug关联的CK、置信度、静态Bug别名及文档上下文"
+      - "第2步：根据当前批次信息整理bug_list，并调用Check(bug_list=[...])记录当前批次的一部分或全部Bug"
+      - "第3步：根据更新后的当前批次列表继续记录，直到{OUT}/{DUT}_bug_analysis.md中所有置信度不为0的Bug全部完成；记录不能多于或少于current_batch要求的有效Bug，置信度为0的Bug不记录且不计入总数"
+      - "第4步：全部Bug记录完成后调用Complete()完成当前阶段；如果最后一批尚未通过Check记录，也可以直接调用Complete(bug_list=[...])，对象形式发生格式错误时可使用Complete(bug_list=\"[...]\")"
+      - "bug_list参数格式：bug_list可以传入真实的JSON数组，也可以传入内容为JSON数组的字符串；字符串会在Checker内部通过JSON解析后继续校验；数组中的每个对象表示一个唯一Bug，并且必须包含bug_name、alias、CK、desc、locations、confidence和ref字段"
+      - "bug_name：字符串，填写{OUT}/{DUT}_bug_analysis.md中<BG-BUG_NAME-XX>标签的BUG_NAME部分，例如CIN_OVERFLOW；不要额外创造文档中不存在的Bug"
+      - "alias：字符串数组，必须完整填写{OUT}/{DUT}_static_bug_analysis.md中通过<LINK-BUG-[BG-BUG_NAME-XX]>确认关联到该动态Bug的全部<BG-STATIC-*>标签名，例如[\"BG-STATIC-001-CIN_OVERFLOW\"]；一个动态Bug可有多个alias，一个静态Bug也可关联多个动态Bug；没有已确认静态Bug时填写空数组[]；BG-TBD、BG-NA和BG-STATIC-NULL不能作为alias"
+      - "CK：非空字符串数组，必须包含该Bug在文档中关联的全部CK；优先使用FG/FC/CK完整路径，例如FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW；同一Bug关联多个CK时，将所有CK路径放在同一个Bug对象的CK数组中"
+      - "desc：非空字符串，需要同时说明Bug现象和基于源码分析得到的根本原因，不能只填写Bug名称或简单结论"
+      - "locations：非空字符串数组，每项格式为相对工作区的源码路径:起始行-结束行，例如{DUT}.v:8-14；多个不连续范围可以写成{DUT}.sv:20-24,30-32"
+      - "confidence：非零数值，使用0.0-1.0小数或0-100百分数，例如0.98或98；数值必须与文档中<BG-BUG_NAME-XX>标签的XX完全一致；XX为0的Bug不会出现在current_batch中，禁止提交"
+      - "ref：非空字符串数组，精确填写该Bug在静态和动态Bug文档中的记录行；同一文档的多个区间合并在同一个字符串中并用逗号分隔，例如[\"{OUT}/{DUT}_static_bug_analysis.md:29-39,88-100\",\"{OUT}/{DUT}_bug_analysis.md:30-100\"]；没有alias时只填写动态Bug文档的ref"
+      - "调用示例：Check(bug_list=[{\"bug_name\":\"CIN_OVERFLOW\",\"alias\":[\"BG-STATIC-001-CIN_OVERFLOW\"],\"CK\":[\"FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW\"],\"desc\":\"最大输入叠加进位时输出被截断；根因是加法结果信号位宽不足，最高位进位被丢弃\",\"locations\":[\"{DUT}.v:8-14\",\"{DUT}.sv:20-24,30-32\"],\"confidence\":0.98,\"ref\":[\"{OUT}/{DUT}_static_bug_analysis.md:29-39\",\"{OUT}/{DUT}_bug_analysis.md:30-40\"]}])"
+      - "字符串调用示例：Check(bug_list=\"[{\\\"bug_name\\\":\\\"CIN_OVERFLOW\\\",\\\"alias\\\":[\\\"BG-STATIC-001-CIN_OVERFLOW\\\"],\\\"CK\\\":[\\\"FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW\\\"],\\\"desc\\\":\\\"最大输入叠加进位时输出被截断；根因是加法结果信号位宽不足\\\",\\\"locations\\\":[\\\"{DUT}.v:8-14\\\"],\\\"confidence\\\":0.98,\\\"ref\\\":[\\\"{OUT}/{DUT}_static_bug_analysis.md:29-39\\\",\\\"{OUT}/{DUT}_bug_analysis.md:30-40\\\"]}]\")"
+      - "批次要求：只提交current_batch中列出的Bug；可以一次提交当前批次的一部分或全部Bug，完成后根据下一次Check返回的新current_batch继续记录"
+      - "当前批次待记录Bug（bug_list只能包含以下Bug）": "{LIST_CURRENT_BUGS}"
+      - "当前记录进度": "{COMPLETED_BUGS}/{TOTAL_BUGS}"
+    reference_files:
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "{OUT}/{DUT}_bug_analysis.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+    checker:
+      - name: bug_recorder
+        clss: "Recorder"
+        args:
+          type: "bug"
+          data_key: "BUG_RECORDS"
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          static_bug_file: "{OUT}/{DUT}_static_bug_analysis.md"
+          output: "{OUT}/{DUT}_bug_summary.md"
+          batch_size: $(BATCH_SIZE_BUG_RECORD: 10)
+    need_human_check: false
