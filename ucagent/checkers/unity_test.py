@@ -994,7 +994,12 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                               and the second element is a message string.
         """
         pytest_ex_env={"UC_IS_IMP_TEMPLATE":"true"}
-        report, str_out, str_err = super().do_check(pytest_ex_env=pytest_ex_env, timeout=timeout, **kw)
+        kw["return_test_details"] = True
+        report, str_out, str_err = super().do_check(
+            pytest_ex_env=pytest_ex_env,
+            timeout=timeout,
+            **kw,
+        )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg
@@ -1002,6 +1007,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         all_bins_test = report.get("all_check_point_list", [])
         msg_report = fc.clean_report_with_keys(report,
                                                ["tests.test_cases",
+                                                "tests.test_case_details",
                                                 "failed_test_case_with_check_point_list"])
         info_report = OrderedDict({"TEST_REPORT": msg_report})
         info_runtest = OrderedDict({"TEST_REPORT": msg_report})
@@ -1011,6 +1017,10 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if self.ret_std_error:
             info_report.update({"STDERR": str_err})
             info_runtest.update({"STDERR": str_err})
+        collection_error = self._get_pytest_collection_error(str_out, str_err)
+        if collection_error:
+            info_runtest["error"] = collection_error
+            return False, info_runtest
         test_cases = report.get("tests", {}).get("test_cases", None)
         if test_cases is None:
             info_runtest["error"] = "No test cases found in the report. " +\
@@ -1120,36 +1130,187 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         Returns:
             Tuple[bool, str]: Validation result and message
         """
-        # Check that all tests failed as expected in template
-        passed_test = []
         test_cases = report.get("tests", {}).get("test_cases", None)
         if test_cases is None:
             return False, "Test template structure validation failed: No test cases found in the report. " +\
                           "Please ensure that the test report is generated correctly."
-        for fv, rt in test_cases.items():
-            if self.ignore_tc_prefix and ":"+self.ignore_tc_prefix in fv:
-                continue
-            if rt == "PASSED":
-                passed_test.append(fv + "=" + rt)
 
         must_fail = self.extra_kwargs.get("template_must_fail", True)
-        if passed_test and must_fail:
-            return False, f"Test template structure validation failed: Not all test functions ({fc.list_str_abbr(passed_test)}) are properly failing. " + \
-                          f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_tc_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
-                           "This prevents incomplete templates from being accidentally considered as passing tests. " + \
-                           "Please ensure every test function ends with the required fail assertion."
-        # Check for proper TODO comments (this would require parsing the actual test files)
-        # For now, we rely on the fact that properly structured templates should fail with "Not implemented"
-        if self.ret_std_out and self.ret_std_error:
-            if must_fail:
-                if "Not implemented" not in str_out and "Not implemented" not in str_err:
-                    info(f"STDOUT: {str_out}")
-                    info(f"STDERR: {str_err}")
-                    return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
-                                  "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
-                                  "This helps distinguish between actual test failures and template placeholders. " + \
-                                  "If you have implemented as the template requires, please make sure the `mark_function` works correctly."
+        if not must_fail:
+            return True, "Template structure validation passed."
+        assert_example = 'assert False, "Not implemented"'
+        expected_assertion = (
+            "AssertionError('Not implemented') "
+            f"(Correct example: {assert_example})"
+        )
+
+        def is_ignored(test_case):
+            test_name = test_case.rsplit("::", 1)[-1]
+            return bool(self.ignore_tc_prefix and test_name.startswith(self.ignore_tc_prefix))
+
+        checked_cases = {
+            test_case: status
+            for test_case, status in test_cases.items()
+            if not is_ignored(test_case)
+        }
+        test_details = report.get("tests", {}).get("test_case_details", {})
+
+        def describe(test_case, status):
+            detail = test_details.get(test_case, {})
+            exception = detail.get("exception") or detail.get("exception_type")
+            phase = detail.get("phase")
+            description = f"{test_case}={status}"
+            if exception:
+                description += f" ({phase + ': ' if phase else ''}{exception})"
+            return description
+
+        execution_error_cases = [
+            test_case
+            for test_case, status in checked_cases.items()
+            if status not in {"PASSED", "FAILED"}
+        ]
+        execution_errors = [
+            describe(test_case, checked_cases[test_case])
+            for test_case in execution_error_cases
+        ]
+        if execution_errors:
+            guidance = self._get_template_execution_guidance(
+                execution_error_cases, test_details
+            )
+            return False, (
+                "Test template execution failed: Some tests ended with execution or lifecycle "
+                f"errors instead of the required {expected_assertion}: "
+                f"{fc.list_str_abbr(execution_errors, max_items=20, show_counts=True)} "
+                "These are not missing template assertions "
+                f"and are not necessarily caused by the test function itself. {guidance}"
+            )
+
+        passed_tests = [
+            describe(test_case, status)
+            for test_case, status in checked_cases.items()
+            if status == "PASSED"
+        ]
+        if passed_tests:
+            return False, (
+                "Test template structure validation failed: The following test functions passed "
+                "instead of reaching the required fail assertion: "
+                f"{fc.list_str_abbr(passed_tests, max_items=20, show_counts=True)} "
+                f"Required outcome: {expected_assertion}."
+            )
+
+        unexpected_failure_cases = []
+        missing_failure_details = []
+        wrong_assert_messages = []
+        for test_case, status in checked_cases.items():
+            if status != "FAILED":
+                continue
+            detail = test_details.get(test_case, {})
+            exception_type = detail.get("exception_type")
+            exception = detail.get("exception", "")
+            if not exception_type:
+                missing_failure_details.append(describe(test_case, status))
+            elif exception_type != "AssertionError":
+                unexpected_failure_cases.append(test_case)
+            elif "Not implemented" not in exception:
+                wrong_assert_messages.append(describe(test_case, status))
+
+        if unexpected_failure_cases:
+            unexpected_failures = [
+                describe(test_case, checked_cases[test_case])
+                for test_case in unexpected_failure_cases
+            ]
+            guidance = self._get_template_execution_guidance(
+                unexpected_failure_cases, test_details
+            )
+            return False, (
+                "Test template execution failed: Some tests raised unexpected exceptions instead "
+                f"of the required {expected_assertion}: "
+                f"{fc.list_str_abbr(unexpected_failures, max_items=20, show_counts=True)} "
+                "The underlying exception may come from "
+                f"the test, a called component, or the execution environment. {guidance}"
+            )
+        if missing_failure_details:
+            return False, (
+                "Test template assertion validation failed: Could not determine the exception type "
+                "for these tests: "
+                f"{fc.list_str_abbr(missing_failure_details, max_items=20, show_counts=True)} "
+                "Review the first relevant "
+                "traceback in STDOUT/STDERR and fix the component that owns the failing frame. "
+                f"Required outcome: {expected_assertion}."
+            )
+        if wrong_assert_messages:
+            return False, (
+                "Test template structure validation failed: The following tests raised AssertionError "
+                "without the required 'Not implemented' message: "
+                f"{fc.list_str_abbr(wrong_assert_messages, max_items=20, show_counts=True)} "
+                f"Required outcome: {expected_assertion}."
+            )
         return True, "Template structure validation passed."
+
+    @staticmethod
+    def _get_template_execution_guidance(test_cases, test_details):
+        """Build ownership-aware advice from pytest lifecycle phases."""
+        phases = {
+            str(test_details.get(test_case, {}).get("phase", "")).lower()
+            for test_case in test_cases
+        }
+        phases.discard("")
+        suggestions = []
+        if "setup" in phases:
+            suggestions.append(
+                "For setup-phase failures, the test body may not have run: check fixtures, "
+                "DUT/simulator environment initialization, imports and dependencies, build "
+                "artifacts, and configuration"
+            )
+        if "call" in phases:
+            suggestions.append(
+                "For call-phase failures, check both the test body and the code it invokes, "
+                "including fixture objects, APIs, reference models, the DUT/simulator, and "
+                "external dependencies"
+            )
+        if "teardown" in phases:
+            suggestions.append(
+                "For teardown-phase failures, check fixture finalizers, resource release, "
+                "simulator shutdown, and cleanup hooks"
+            )
+        if not suggestions:
+            suggestions.append(
+                "The failing phase is unknown, so check collection/imports, fixtures, "
+                "DUT/environment initialization, dependencies, and the test body"
+            )
+        return (
+            "Resolution guidance: "
+            + "; ".join(suggestions)
+            + ". Follow the earliest relevant traceback frame to the owning module and fix that "
+              "underlying issue before changing or adding the placeholder assertion."
+        )
+
+    @staticmethod
+    def _get_pytest_collection_error(str_out, str_err):
+        """Return a specific message for failures that prevent test collection."""
+        output = "\n".join(part for part in (str_out, str_err) if part)
+        collection_markers = (
+            "ERROR collecting",
+            "error during collection",
+            "errors during collection",
+            "ImportError while importing test module",
+            "INTERNALERROR",
+        )
+        if not any(marker.lower() in output.lower() for marker in collection_markers):
+            return None
+
+        exception_types = re.findall(
+            r"\b(SyntaxError|IndentationError|TabError|ImportError|ModuleNotFoundError)\b",
+            output,
+        )
+        exception_desc = ", ".join(dict.fromkeys(exception_types)) or "pytest collection error"
+        return (
+            "Test template collection failed before the expected assertion failures could be "
+            f"validated ({exception_desc}). This is a test execution/collection error, not a "
+            "missing template assertion, and it may be in the test module or an imported module, "
+            "dependency, plugin, or configuration. Follow the first collection traceback to the "
+            "owning file/module and fix that underlying issue before checking assertions."
+        )
 
 
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):

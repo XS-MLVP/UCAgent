@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Tests for UnityChipCheckerTestTemplate assertion-failure validation."""
+
+import json
+import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
+
+from ucagent.checkers.unity_test import (
+    BaseUnityChipCheckerTestCase,
+    UnityChipCheckerTestTemplate,
+)
+from ucagent.util.functions import list_str_abbr, load_toffee_report
+
+
+ASSERT_EXAMPLE = 'Correct example: assert False, "Not implemented"'
+
+
+def _checker(template_must_fail=True):
+    return UnityChipCheckerTestTemplate(template_must_fail=template_must_fail)
+
+
+def _report(cases, details=None):
+    return {
+        "tests": {
+            "total": len(cases),
+            "test_cases": cases,
+            "test_case_details": details or {},
+        }
+    }
+
+
+def _assertion_detail(message="Not implemented"):
+    return {
+        "status": "FAILED",
+        "phase": "call",
+        "exception_type": "AssertionError",
+        "exception": f"AssertionError('{message}')",
+    }
+
+
+def test_template_validation_accepts_expected_assertion_failure_per_test():
+    cases = {
+        "tests/test_template.py:1-2::test_a": "FAILED",
+        "tests/test_template.py:4-5::test_b": "FAILED",
+    }
+    details = {test_case: _assertion_detail() for test_case in cases}
+
+    passed, message = _checker()._validate_template_structure(
+        _report(cases, details), "", ""
+    )
+
+    assert passed is True
+    assert message == "Template structure validation passed."
+
+
+def test_template_validation_reports_runtime_exception_in_mixed_failures():
+    expected_case = "tests/test_template.py:1-2::test_expected"
+    broken_case = "tests/test_template.py:4-6::test_broken"
+    cases = {expected_case: "FAILED", broken_case: "FAILED"}
+    details = {
+        expected_case: _assertion_detail(),
+        broken_case: {
+            "status": "FAILED",
+            "phase": "call",
+            "exception_type": "NameError",
+            "exception": "NameError(\"name 'missing_value' is not defined\")",
+        },
+    }
+
+    passed, message = _checker()._validate_template_structure(
+        _report(cases, details), "AssertionError: Not implemented", ""
+    )
+
+    assert passed is False
+    assert "unexpected exceptions" in message
+    assert "NameError" in message
+    assert "test_broken" in message
+    assert "called component" in message
+    assert "APIs, reference models, the DUT/simulator" in message
+    assert "owning module" in message
+    assert ASSERT_EXAMPLE in message
+    assert message.index(ASSERT_EXAMPLE) - message.index("AssertionError") < 80
+
+
+def test_template_validation_reports_setup_error_with_environment_guidance():
+    test_case = "tests/test_template.py:1-2::test_setup_error"
+    cases = {test_case: "ERROR"}
+    details = {
+        test_case: {
+            "status": "ERROR",
+            "phase": "setup",
+            "exception_type": "UnboundLocalError",
+            "exception": "UnboundLocalError('DUT initialization failed')",
+        }
+    }
+
+    passed, message = _checker()._validate_template_structure(
+        _report(cases, details), "", ""
+    )
+
+    assert passed is False
+    assert "execution or lifecycle errors" in message
+    assert "setup: UnboundLocalError" in message
+    assert "not necessarily caused by the test function itself" in message
+    assert "test body may not have run" in message
+    assert "fixtures" in message
+    assert "DUT/simulator environment initialization" in message
+    assert "build artifacts" in message
+    assert ASSERT_EXAMPLE in message
+    assert message.index(ASSERT_EXAMPLE) - message.index("AssertionError") < 80
+
+
+def test_template_validation_limits_same_category_errors_to_first_twenty():
+    cases = {
+        f"tests/test_template.py:{index + 1}-{index + 1}::test_error_{index}": "ERROR"
+        for index in range(25)
+    }
+    details = {
+        test_case: {
+            "status": "ERROR",
+            "phase": "setup",
+            "exception_type": "RuntimeError",
+            "exception": f"RuntimeError('setup failed {index}')",
+        }
+        for index, test_case in enumerate(cases)
+    }
+
+    passed, message = _checker()._validate_template_structure(
+        _report(cases, details), "", ""
+    )
+
+    assert passed is False
+    assert "Total: 25." in message
+    assert "First 20:" in message
+    assert "Remaining: 5 not shown." in message
+    assert "::test_error_0=ERROR" in message
+    assert "::test_error_19=ERROR" in message
+    assert "::test_error_20=ERROR" not in message
+    assert "::test_error_24=ERROR" not in message
+
+
+def test_list_str_abbr_count_summary_shows_all_when_count_is_twenty_or_less():
+    items = [f"error-{index}" for index in range(20)]
+
+    summary = list_str_abbr(items, max_items=20, show_counts=True)
+
+    assert "Total: 20." in summary
+    assert "Details:" in summary
+    assert "Remaining:" not in summary
+    assert "error-19" in summary
+
+
+def test_list_str_abbr_default_output_remains_backward_compatible():
+    assert list_str_abbr(["a", "b"], max_items=1) == "a, ..."
+
+
+def test_template_execution_guidance_handles_teardown_and_unknown_phases():
+    teardown_case = "tests/test_template.py:1-2::test_teardown_error"
+    teardown_guidance = _checker()._get_template_execution_guidance(
+        [teardown_case],
+        {teardown_case: {"phase": "teardown"}},
+    )
+    unknown_guidance = _checker()._get_template_execution_guidance(
+        ["tests/test_template.py:4-5::test_unknown"],
+        {},
+    )
+
+    assert "fixture finalizers" in teardown_guidance
+    assert "resource release" in teardown_guidance
+    assert "simulator shutdown" in teardown_guidance
+    assert "failing phase is unknown" in unknown_guidance
+    assert "DUT/environment initialization" in unknown_guidance
+    assert "owning module" in teardown_guidance
+    assert "owning module" in unknown_guidance
+
+
+def test_template_validation_requires_not_implemented_assertion_message():
+    test_case = "tests/test_template.py:1-2::test_wrong_assert"
+
+    passed, message = _checker()._validate_template_structure(
+        _report(
+            {test_case: "FAILED"},
+            {test_case: _assertion_detail("different assertion")},
+        ),
+        "",
+        "",
+    )
+
+    assert passed is False
+    assert "without the required 'Not implemented' message" in message
+    assert ASSERT_EXAMPLE in message
+
+
+def test_template_validation_skips_assertion_check_when_disabled():
+    test_case = "tests/test_template.py:1-2::test_runtime_error"
+
+    passed, _message = _checker(template_must_fail=False)._validate_template_structure(
+        _report(
+            {test_case: "FAILED"},
+            {
+                test_case: {
+                    "status": "FAILED",
+                    "exception_type": "NameError",
+                    "exception": "NameError('broken')",
+                }
+            },
+        ),
+        "",
+        "",
+    )
+
+    assert passed is True
+
+
+def test_template_collection_syntax_error_has_execution_error_message():
+    stdout = """
+    ERROR collecting tests/test_invalid.py
+    E   SyntaxError: invalid syntax
+    Interrupted: 1 error during collection
+    """
+
+    message = _checker()._get_pytest_collection_error(stdout, "")
+
+    assert "SyntaxError" in message
+    assert "collection error" in message
+    assert "not a missing template assertion" in message
+    assert "imported module, dependency, plugin, or configuration" in message
+    assert "owning file/module" in message
+
+
+def test_template_do_check_prioritizes_collection_syntax_error(monkeypatch):
+    captured_kwargs = {}
+    stdout = """
+    ERROR collecting tests/test_invalid.py
+    E   SyntaxError: invalid syntax
+    Interrupted: 1 error during collection
+    """
+
+    def fake_base_check(_self, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {"run_test_success": True}, stdout, ""
+
+    monkeypatch.setattr(BaseUnityChipCheckerTestCase, "do_check", fake_base_check)
+
+    passed, message = _checker().do_check()
+
+    assert passed is False
+    assert "SyntaxError" in message["error"]
+    assert "not a missing template assertion" in message["error"]
+    assert captured_kwargs["return_test_details"] is True
+
+
+def test_load_toffee_report_optionally_extracts_failure_type(tmp_path):
+    test_file = tmp_path / "test_template.py"
+    test_file.write_text(
+        "def test_template():\n    assert False, 'Not implemented'\n",
+        encoding="utf-8",
+    )
+    test_id = f"{test_file}:1-2::test_template"
+    report_file = tmp_path / "toffee_report.json"
+    report_file.write_text(
+        json.dumps(
+            {
+                "test_abstract_info": {test_id: "FAILED"},
+                "tests": [
+                    {
+                        "phases": [
+                            {
+                                "call": (
+                                    "<CallInfo when='call' excinfo=<ExceptionInfo "
+                                    "AssertionError('Not implemented') tblen=5>>"
+                                ),
+                                "status": {"word": "FAILED"},
+                            }
+                        ]
+                    }
+                ],
+                "coverages": {"functional": {}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = load_toffee_report(
+        str(report_file),
+        str(tmp_path),
+        run_test_success=True,
+        return_all_checks=True,
+        return_test_details=True,
+    )
+
+    details = next(iter(report["tests"]["test_case_details"].values()))
+    assert details["phase"] == "call"
+    assert details["exception_type"] == "AssertionError"
+    assert "Not implemented" in details["exception"]

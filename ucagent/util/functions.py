@@ -381,10 +381,12 @@ def load_toffee_report(
     workspace: str,
     run_test_success: bool,
     return_all_checks: bool,
+    return_test_details: bool = False,
 ) -> dict:
     """
     Load a Toffee JSON report from the specified path.
-    :param path: Path to the Toffee JSON report file.
+    :param result_json_path: Path to the Toffee JSON report file.
+    :param return_test_details: Include per-test failure phase and exception details.
     :return: Parsed Toffee report data.
     """
     assert os.path.exists(result_json_path), f"Toffee report file {result_json_path} does not exist."
@@ -426,6 +428,10 @@ def load_toffee_report(
         "fails": len(fails),
     }
     ret_data["tests"]["test_cases"] = tests_map
+    if return_test_details:
+        ret_data["tests"]["test_case_details"] = _get_toffee_test_case_details(
+            data, tests
+        )
     # coverages
     # functional coverage
     fc_data = data.get("coverages", {}).get("functional", {})
@@ -486,6 +492,60 @@ def load_toffee_report(
     if len(test_fc_no_check_points) > 0:
         ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
     return ret_data
+
+
+def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
+    """Extract per-test exception information from a Toffee report."""
+    raw_tests = data.get("tests", [])
+    if not isinstance(raw_tests, list):
+        return {}
+
+    details = {}
+    # Toffee builds test_abstract_info and tests from the same ordered context.
+    # Pairing them preserves the source-location key produced above while the raw
+    # test entry supplies phase and exception information.
+    for index, (test_key, status) in enumerate(tests):
+        detail = {"status": status}
+        if index >= len(raw_tests) or not isinstance(raw_tests[index], dict):
+            details[test_key] = detail
+            continue
+
+        failure_phases = []
+        for phase in raw_tests[index].get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            call_text = str(phase.get("call", ""))
+            phase_status = phase.get("status", {})
+            phase_status = phase_status.get("word", "") if isinstance(phase_status, dict) else ""
+            if "excinfo=<ExceptionInfo" not in call_text and phase_status not in {"FAILED", "ERROR"}:
+                continue
+
+            phase_detail = {"status": phase_status}
+            when_match = re.search(r"\bwhen=['\"]([^'\"]+)", call_text)
+            if when_match:
+                phase_detail["phase"] = when_match.group(1)
+
+            exception_match = re.search(
+                r"excinfo=<ExceptionInfo\s+(.+?)\s+tblen=\d+>>",
+                call_text,
+                re.DOTALL,
+            )
+            if exception_match:
+                exception = exception_match.group(1).strip()
+                phase_detail["exception"] = exception[:1000]
+                type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
+                if type_match:
+                    phase_detail["exception_type"] = type_match.group(1)
+            failure_phases.append(phase_detail)
+
+        if failure_phases:
+            detail["failure_phases"] = failure_phases
+            primary = failure_phases[0]
+            for key in ("phase", "exception", "exception_type"):
+                if key in primary:
+                    detail[key] = primary[key]
+        details[test_key] = detail
+    return details
 
 
 def del_report_keys(report: dict, keys: List[str]) -> dict:
@@ -2013,10 +2073,20 @@ def make_llm_tool_ret(ret, check_pass=True):
     return ret_str
 
 
-def list_str_abbr(data: list, max_items=50):
-    """Convert a list to a string representation with a maximum number of items."""
+def list_str_abbr(data: list, max_items=50, show_counts=False):
+    """Abbreviate a list and optionally report total, shown, and remaining counts."""
     if not isinstance(data, list):
         return str(data)
+    if show_counts:
+        total = len(data)
+        if total <= max_items:
+            return f"Total: {total}. Details: {', '.join(str(item) for item in data)}."
+        remaining = total - max_items
+        shown = ", ".join(str(item) for item in data[:max_items])
+        return (
+            f"Total: {total}. First {max_items}: {shown}. "
+            f"Remaining: {remaining} not shown."
+        )
     subfix = ", ..."
     if len(data) <= max_items:
         subfix = ""

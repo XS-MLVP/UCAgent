@@ -229,6 +229,7 @@ class RunUnityChipTest(RunPyTest):
              run_manager: CallbackManagerForToolRun = None, return_all_checks=False,
              **kw) -> dict:
         """Run the Unity chip tests."""
+        return_test_details = kw.get("return_test_details", False)
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
                                           os.path.join(self.workspace, test_dir_or_file),
@@ -244,7 +245,13 @@ class RunUnityChipTest(RunPyTest):
             "run_test_success": all_pass,
         }
         if os.path.exists(result_json_path):
-            ret_data = load_toffee_report(result_json_path, self.workspace, all_pass, return_all_checks)
+            ret_data = load_toffee_report(
+                result_json_path,
+                self.workspace,
+                all_pass,
+                return_all_checks,
+                return_test_details=return_test_details,
+            )
         info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 
