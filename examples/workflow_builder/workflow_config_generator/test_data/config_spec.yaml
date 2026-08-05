@@ -1,0 +1,36 @@
+workflow:
+  name: generated_business_workflow
+  version: 0.2.0
+  description: "Generated runtime config regression workflow."
+mode: default
+
+template_overwrite:
+  INPUT_ROOT: input/{DUT}
+  OUTPUT_ROOT: "{OUT}/{DUT}"
+
+model:
+  provider: openai-compatible
+  name: default-model
+
+loop_settings:
+  max_loop_retry: 4
+  retry_delay_start: 2
+
+guide_docs:
+  - Guide_Doc/overview.md
+
+write_dirs:
+  - "{OUT}/{DUT}"
+
+mission:
+  name: "Generated business workflow"
+  prompt:
+    system: "Follow the generated stages and validate every output before completion."
+
+stages:
+  - name: analyze_input
+    desc: "Read and analyze the input."
+    task:
+      - "Read input/{DUT}/README.md and inspect every declared source file, then summarize the input purpose, structure, constraints, and any missing evidence before starting analysis."
+      - "Use the registered analysis tool to produce {OUT}/{DUT}/analysis.json, validate its required fields and semantic conclusions with the planned Checker, and retain concrete failure evidence."
+      - "When validation fails, correct the analysis rather than bypassing the Checker; otherwise record inputs, tool results, output paths, and validation evidence in the stage journal before completing."

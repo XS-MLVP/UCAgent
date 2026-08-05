@@ -1,0 +1,333 @@
+workflow:
+  name: test_ref_model_workflow
+  description: "测试用 DUT 参考模型生成工作流，用于验证 workflow_builder 是否能够正确生成工程骨架。"
+  version: "0.1.0"
+
+root:
+  path: "./test_ref_model_workflow"
+  overwrite: false
+
+runtime_contract:
+  target_variable: TARGET
+  input_root: input
+  output_root: output
+  example_target: example
+  required_input:
+    - path: README.md
+      type: file
+      example_content: |
+        # Reference-model example
+    - path: rtl
+      type: directory
+  modes:
+    default:
+      config: config.yaml
+      make_target: run
+      description: "Run the generated reference model workflow."
+
+directories:
+  public:
+    - tools
+    - checkers
+    - Guide_Doc
+    - docs
+    - input
+    - output
+    - tmp
+    - .install
+  internal:
+    - .workflow
+    - .workflow/local
+    - .workflow/tool_specs
+    - .workflow/tool_tests
+    - .workflow/tool_tests/cases
+    - .workflow/tool_tests/logs
+    - .workflow/checker_specs
+    - .workflow/checker_tests
+    - .workflow/checker_tests/cases
+    - .workflow/checker_tests/logs
+    - .workflow/checkers
+    - .workflow/logs
+
+files:
+  public:
+    - path: "README.md"
+      template: "readme_basic"
+    - path: "setup.py"
+      template: "workflow_environment_setup"
+    - path: "requirements.txt"
+      template: "requirements_txt"
+    - path: "config/environment.schema.yaml"
+      template: "environment_schema"
+    - path: "ucagent_setup.sh"
+      template: "ucagent_setup"
+    - path: "input/README.md"
+      template: "input_readme"
+    - path: "input/example/README.md"
+      template: "input_example_readme"
+    - path: "output/README.md"
+      template: "output_readme"
+    - path: "docs/README.md"
+      template: "docs_readme"
+    - path: "docs/01快速启动.md"
+      template: "docs_quickstart"
+    - path: "docs/02输入输出.md"
+      template: "docs_input_output"
+    - path: "docs/03步骤及检查.md"
+      template: "docs_stages_checks"
+    - path: "docs/04开发者文档-tools.md"
+      template: "docs_developer_tools"
+    - path: "docs/05开发者文档-checkers.md"
+      template: "docs_developer_checkers"
+    - path: "Makefile"
+      template: "makefile_basic"
+    - path: "config.yaml"
+      template: "config_basic"
+    - path: "Guide_Doc/environment_setup.md"
+      template: "guidedoc_environment_setup"
+    - path: "Guide_Doc/overview.md"
+      template: "guidedoc_overview"
+    - path: "install.py"
+      template: "workflow_installer"
+    - path: ".install/README.md"
+      template: "workflow_install_readme"
+    - path: ".install/manifest.json"
+      template: "workflow_install_manifest"
+  internal:
+    - path: ".workflow/workflow_spec.yaml"
+      template: "workflow_spec_basic"
+    - path: ".workflow/acceptance_rules.yaml"
+      template: "acceptance_rules_basic"
+    - path: ".workflow/build_report.md"
+      template: "empty"
+    - path: ".workflow/checkers/tool_spec_checker.py"
+      template: "tool_spec_checker"
+    - path: ".workflow/checkers/tool_static_checker.py"
+      template: "tool_static_checker"
+    - path: ".workflow/checkers/tool_direct_runner.py"
+      template: "tool_direct_runner"
+    - path: ".workflow/checkers/checker_spec_checker.py"
+      template: "checker_spec_checker"
+    - path: ".workflow/checkers/checker_static_checker.py"
+      template: "checker_static_checker"
+    - path: ".workflow/checkers/checker_direct_runner.py"
+      template: "checker_direct_runner"
+    - path: ".workflow/tool_tests/run_mcp_tests.py"
+      template: "mcp_tool_test_runner"
+    - path: "tools/mcp_adapters.py"
+      template: "mcp_tool_adapters"
+
+makefile:
+  python: "$(HOME)/FDocB/UCAgent/.venv/bin/python"
+  pytest: "pytest"
+  targets:
+    - help
+    - configure
+    - configure-check
+    - check
+    - check_config
+    - check_inc_config
+    - check_layout
+    - check_docs
+    - check_tool_specs
+    - check_tools
+    - test_tools
+    - check_checker_specs
+    - check_checkers
+    - test_checkers
+    - check_package
+    - package
+    - test_mcp
+    - run
+    - run_tui
+    - smoke
+    - session
+    - tmux
+    - clean
+
+config:
+  model:
+    provider: "openai-compatible"
+    name: "default-model"
+  loop_settings:
+    max_loop_retry: 5
+    retry_delay_start: 3
+  tools:
+    RunTestCases:
+      test_dir: .workflow/tool_tests/cases
+    GeneratedTools: []
+  checkers: []
+  guide_docs:
+    - "Guide_Doc/overview.md"
+    - "Guide_Doc/environment_setup.md"
+
+workflow_spec:
+  input:
+    - name: source_path
+      type: path
+      required: true
+      description: "源码路径"
+    - name: top_module
+      type: string
+      required: true
+      description: "顶层模块名"
+  outputs:
+    - name: ref_model_path
+      type: path
+      required: true
+      description: "生成的参考模型路径"
+    - name: verification_report
+      type: path
+      required: true
+      description: "交叉验证报告路径"
+  checkers:
+    - name: PlannedArtifactChecker
+      description: "检查阶段声明的关键文件是否存在且为普通文件，用于验证初始构建能够直接交付可执行 Checker、明确的正反 fixture，以及后续配置阶段可复用的统一注册入口。"
+      entry:
+        file: checkers/planned_artifact_checker.py
+        class_name: PlannedArtifactChecker
+        method: do_check
+      source: |
+        from pathlib import Path
+        from ucagent.checkers.base import Checker
+
+
+        class PlannedArtifactChecker(Checker):
+            """Validate a file artifact planned by workflow_build.yaml."""
+
+            def __init__(self, path: str, **kwargs):
+                super().__init__()
+                self.path = path
+
+            def do_check(self, **kwargs):
+                """Pass only when the planned artifact exists as a regular file."""
+                target = Path(self.path)
+                if not target.is_file():
+                    return False, {"error": "planned artifact is missing", "path": self.path}
+                return True, {"path": self.path, "size": target.stat().st_size}
+      fixtures:
+        - path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+          content: |
+            initial checker fixture
+      tests:
+        - name: planned_artifact_present
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+          expected_pass: true
+        - name: planned_artifact_missing
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/missing.txt
+          expected_pass: false
+  stages:
+    - name: analyze
+      description: "读取 DUT 源码，分析模块接口、输入输出端口和基本行为。"
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/analysis.json"
+      checker:
+        - name: PlannedArtifactChecker
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+    - name: generate_ref_model
+      description: "根据 DUT 行为说明生成 Python 参考模型。"
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/reference_model.py"
+      checker:
+        - name: PlannedArtifactChecker
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+    - name: generate_stimulus
+      description: "生成基础测试激励和边界测试激励。"
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/stimulus.json"
+      checker:
+        - name: PlannedArtifactChecker
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+    - name: cross_validate
+      description: "运行 DUT 与参考模型，比较输出结果。"
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/comparison.json"
+      checker:
+        - name: PlannedArtifactChecker
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+    - name: generate_report
+      description: "生成验证结果报告。"
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/verification_report.md"
+      checker:
+        - name: PlannedArtifactChecker
+          args:
+            path: .workflow/checker_tests/cases/PlannedArtifactChecker/present.txt
+
+acceptance:
+  required_public_files:
+    - Makefile
+    - README.md
+    - setup.py
+    - requirements.txt
+    - ucagent_setup.sh
+    - config.yaml
+    - config/environment.schema.yaml
+    - Guide_Doc/environment_setup.md
+    - Guide_Doc/overview.md
+    - input/README.md
+    - input/example/README.md
+    - docs/README.md
+    - docs/01快速启动.md
+    - docs/02输入输出.md
+    - docs/03步骤及检查.md
+    - docs/04开发者文档-tools.md
+    - docs/05开发者文档-checkers.md
+    - tools/mcp_adapters.py
+    - install.py
+    - .install/README.md
+    - .install/manifest.json
+  required_public_dirs:
+    - tools
+    - checkers
+    - Guide_Doc
+    - docs
+    - input
+    - input/example
+    - input/example/rtl
+    - output
+    - tmp
+    - .install
+  required_internal_files:
+    - .workflow/workflow_spec.yaml
+    - .workflow/acceptance_rules.yaml
+    - .workflow/build_report.md
+    - .workflow/checkers/config_syntax_checker.py
+    - .workflow/checkers/layout_checker.py
+    - .workflow/checkers/guidedoc_basic_checker.py
+    - .workflow/checkers/tool_spec_checker.py
+    - .workflow/checkers/tool_static_checker.py
+    - .workflow/checkers/tool_direct_runner.py
+    - .workflow/checkers/checker_spec_checker.py
+    - .workflow/checkers/checker_static_checker.py
+    - .workflow/checkers/checker_direct_runner.py
+    - .workflow/tool_tests/run_mcp_tests.py
+  required_internal_dirs:
+    - .workflow
+    - .workflow/local
+    - .workflow/tool_specs
+    - .workflow/tool_tests
+    - .workflow/tool_tests/cases
+    - .workflow/tool_tests/logs
+    - .workflow/checker_specs
+    - .workflow/checker_tests
+    - .workflow/checker_tests/cases
+    - .workflow/checker_tests/logs
+    - .workflow/checkers
+    - .workflow/logs

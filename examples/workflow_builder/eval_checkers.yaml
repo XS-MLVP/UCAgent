@@ -1,0 +1,31 @@
+ex_tools:
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+  REPORT: "eval/checkers_report.json"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Generated Workflow Checker Static Evaluation"
+  prompt:
+    system: |
+      你只审查 Checker，不运行 default/inc 子工作流，也不修复被评估工程。
+      JSON 通过 StructuredJsonStore 增删查改；测试夹具只能位于 tmp/，res/ 永远只读。
+      报告中的标题、描述、分析、结论、影响、建议和证据说明等表述性文字必须使用中文；规则 ID、字段名、路径、命令、类名、函数名、库名和真实源码保持原文。
+stage:
+  - name: evaluate_checker_contracts
+    desc: "审查 Checker 存在性、注册签名、判定行为和需求覆盖"
+    task:
+      - |
+        完整读取 Guide_Doc/evaluation_execution.md，再读取当前报告和资源；禁止全文读取 evaluation_contract.md 或 eval_checkers.md。先调用 StaticEvaluationAudit，从 workflow_spec、配置绑定和审计结果建立 Checker 队列。每次只读取一个 Checker 的实现、对应 spec、阶段绑定、正例和一个最相关反例 fixture，验证 docstring、构造参数、do_check、正负边界、畸形产物、时机与关键产物覆盖；取得证据和一次误报反证后立即写入报告，再处理下一项。测试不能只使用 Checker 自己生成的样例，也不能把异常默认视为通过。完成 CHECKERS-INVENTORY、CHECKERS-REGISTRATION、CHECKERS-SIGNATURE、CHECKERS-POSITIVE、CHECKERS-NEGATIVE、CHECKERS-BINDING、CHECKERS-TIMING、CHECKERS-SEMANTICS、CHECKERS-FALSE-RESULT、CHECKERS-CHALLENGE，每项形成同名 check 和精确证据。使用 contract_version=2 模板追加报告，高危或漏做必检项时必须 failed。
+    reference_files: ["Guide_Doc/evaluation_execution.md", "eval/checkers_report.json", "res/common.json", "res/checkers.json"]
+    output_files: ["eval/checkers_report.json"]
+    checker:
+      - name: checkers_report_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args: {report_path: "eval/checkers_report.json", expected_report_type: "checkers"}
+      - name: checkers_guide_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/eval_checkers.md", required_markers: ["CHECKERS-INVENTORY", "CHECKERS-CHALLENGE"], min_effective_lines: 300}

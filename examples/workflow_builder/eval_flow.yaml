@@ -1,0 +1,37 @@
+ex_tools:
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+  REPORT: "eval/flow_report.json"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Generated Workflow Flow Contract Evaluation"
+  prompt:
+    system: |
+      你静态评估配置、阶段衔接、检查时机和指导文档，不启动子工作流，不修改 workflow/。
+      结构化结果只通过 StructuredJsonStore 写入，临时产物只进入 tmp/，res/ 只读。
+      报告中的标题、描述、分析、结论、影响、建议和证据说明等表述性文字必须使用中文；规则 ID、字段名、路径、命令、类名、函数名、库名和真实源码保持原文。
+stage:
+  - name: evaluate_flow_contracts
+    desc: "审查配置语义、文件依赖、Checker 时序与指导文档一致性"
+    task:
+      - |
+        完整读取 Guide_Doc/evaluation_execution.md，随后调用 StaticEvaluationAudit(output_path='tmp/eval_static_audit/flow.json')，不得忽略其任何 finding；禁止全文读取 evaluation_contract.md 或 eval_flow.md。审计 finding 进入报告时保留原始 rule_id、path 和 location，requirement_refs 不得替代审计身份字段。以 config 文件和中心 workflow_spec 的同名阶段建立小队列，每次只读取一个配置段、对应 spec 段、直接工具/Checker 声明与必要文档片段；证据写入后再进入下一组，禁止为路径或变量问题读取全部工具源码。完成 FLOW-PARSE、FLOW-PLACEHOLDERS、FLOW-PATHS、FLOW-DAG、FLOW-PROVENANCE、FLOW-TOOLS、FLOW-CHECKERS、FLOW-OUTPUTS、FLOW-RETRY、FLOW-DOCUMENTATION、FLOW-SEMANTICS、FLOW-CHALLENGE。变量检查必须完整建立符号表和两步展开模型；阶段图检查文件型引用、前序来源、冲突、绑定与重试。报告使用 contract_version=2，缺少强制项或存在高危问题必须 failed。
+    reference_files: ["Guide_Doc/evaluation_execution.md", "eval/flow_report.json", "res/common.json", "res/flow.json"]
+    output_files: ["eval/flow_report.json"]
+    checker:
+      - name: flow_report_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args: {report_path: "eval/flow_report.json", expected_report_type: "flow"}
+      - name: flow_guide_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/eval_flow.md", required_markers: ["FLOW-PARSE", "FLOW-PLACEHOLDERS", "FLOW-CHALLENGE"], min_effective_lines: 300}
+      - name: evaluation_contract_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/evaluation_contract.md", required_markers: ["critical", "passed_with_findings", "反证"], min_effective_lines: 300}
+      - name: deterministic_audit_covered
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.StaticAuditCoverageChecker"
+        args: {audit_path: "tmp/eval_static_audit/flow.json", report_path: "eval/flow_report.json"}
