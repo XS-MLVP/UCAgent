@@ -23,6 +23,9 @@ pytest.ini
 .pytest_cache/
 .codex
 
+# macos
+.DS_Store
+
 # C extensions
 *.so
 

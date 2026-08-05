@@ -18,12 +18,14 @@ import posixpath
 import shutil
 import stat
 import tarfile
-from typing import Dict, List, Any, Optional, Union
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Any, Optional, Tuple, Union
 import tempfile
 import traceback
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+import yaml
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -451,6 +453,87 @@ def get_meta_dict(meta_args) -> Dict[str, str]:
     for key, value in meta_args or []:
         meta[str(key)] = str(value)
     return meta
+
+
+@dataclass(frozen=True)
+class RequiredArgument:
+    """One argument that can satisfy a CLI dependency requirement."""
+
+    dest: str
+    option: str
+    is_satisfied: Callable[[Any], bool] = bool
+
+
+@dataclass(frozen=True)
+class ArgumentRequirement:
+    """A requirement satisfied when any of its argument alternatives is enabled."""
+
+    alternatives: Tuple[RequiredArgument, ...]
+
+
+@dataclass(frozen=True)
+class ArgumentDependency:
+    """Declarative dependency between one CLI argument and other arguments."""
+
+    source_dest: str
+    source_option: str
+    applies: Callable[[Any], bool]
+    requires: Tuple[ArgumentRequirement, ...]
+    reason: str
+
+
+ARGUMENT_DEPENDENCIES = (
+    ArgumentDependency(
+        source_dest="backend",
+        source_option="--backend",
+        applies=lambda value: value is not None and value != "langchain",
+        requires=(
+            ArgumentRequirement(
+                alternatives=(
+                    RequiredArgument("mcp_server_no_file_tools", "--mcp-server-no-file-tools"),
+                    RequiredArgument("mcp_server", "--mcp-server"),
+                ),
+            ),
+        ),
+        reason=(
+            "non-langchain backends communicate with UCAgent through MCP; enable "
+            "'--mcp-server-no-file-tools' (recommended) to avoid exposing MCP file "
+            "tools, or use '--mcp-server' when those file tools are needed"
+        ),
+    ),
+)
+
+
+def validate_argument_dependencies(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    dependencies: Tuple[ArgumentDependency, ...] = ARGUMENT_DEPENDENCIES,
+) -> None:
+    """Validate declarative cross-argument dependencies."""
+    for dependency in dependencies:
+        source_value = getattr(args, dependency.source_dest, None)
+        if not dependency.applies(source_value):
+            continue
+
+        missing = [
+            requirement
+            for requirement in dependency.requires
+            if not any(
+                alternative.is_satisfied(getattr(args, alternative.dest, None))
+                for alternative in requirement.alternatives
+            )
+        ]
+        if not missing:
+            continue
+
+        required_options = " and ".join(
+            " or ".join(f"'{alternative.option}'" for alternative in requirement.alternatives)
+            for requirement in missing
+        )
+        parser.error(
+            f"{dependency.source_option}={source_value!r} requires {required_options}: "
+            f"{dependency.reason}."
+        )
 
 
 def get_args() -> argparse.Namespace:
@@ -924,6 +1007,7 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+    validate_argument_dependencies(parser, args)
     merged_override = []
     for override in args.override or []:
         if isinstance(override, list):
@@ -1157,7 +1241,6 @@ def run() -> None:
     template_cfg_overrides = {}
     if args.template_cfg_override:
         for cfg_file in args.template_cfg_override:
-            import yaml
             assert os.path.isfile(cfg_file), f"Template config override file not found: {cfg_file}"
             with open(cfg_file, 'r') as f:
                 cfg_data = yaml.safe_load(f)
