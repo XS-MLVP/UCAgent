@@ -75,6 +75,8 @@ class BugRecordType(RecordType):
     """Record every non-zero-confidence Bug declared in an analysis document."""
 
     record_type = "bug"
+    _SEVERITY_VALUES = ("lowest", "low", "medium", "high", "highest")
+    _SEVERITY_VALUES_TEXT = ", ".join(_SEVERITY_VALUES)
 
     def __init__(
         self,
@@ -550,15 +552,34 @@ class BugRecordType(RecordType):
                     f"'{bug_name}'. Missing: {missing_refs}; extra: {extra_refs}."
                 )
 
-            normalized.append({
+            if "severity" not in raw_bug:
+                raise ValueError(
+                    f"{label}.severity is required; allowed values: "
+                    f"{self._SEVERITY_VALUES_TEXT} (case-insensitive)."
+                )
+            raw_severity = raw_bug["severity"]
+            if not isinstance(raw_severity, str) or not raw_severity.strip():
+                raise ValueError(
+                    f"{label}.severity must be a non-empty string; "
+                    f"allowed values: {self._SEVERITY_VALUES_TEXT} (case-insensitive)."
+                )
+            severity = raw_severity.strip()
+            if severity.lower() not in self._SEVERITY_VALUES:
+                raise ValueError(
+                    f"{label}.severity must be one of {self._SEVERITY_VALUES_TEXT} "
+                    f"(case-insensitive), got {raw_severity!r}."
+                )
+            normalized_record = {
                 "bug_name": bug_name,
                 "alias": list(expected_bug["alias"]),
                 "CK": list(expected_bug["CK"]),
                 "desc": desc.strip(),
                 "locations": locations,
+                "severity": severity,
                 "confidence": confidence,
                 "ref": list(expected_bug["ref"]),
-            })
+            }
+            normalized.append(normalized_record)
         return normalized
 
     @staticmethod
@@ -683,6 +704,7 @@ class BugRecordType(RecordType):
                 "locations": [
                     "REPLACE_WITH_WORKSPACE_RELATIVE_SOURCE_PATH:START-END"
                 ],
+                "severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST",
                 "confidence": expected_bug["confidence"],
                 "ref": list(expected_bug["ref"]),
             }
@@ -691,9 +713,11 @@ class BugRecordType(RecordType):
                 f"Call the {tool_name} tool with the top-level `bug_list` argument. "
                 "`bug_list` accepts either a JSON array or a string containing that JSON array. "
                 "The template below already contains the exact bug_name, alias, CK, confidence, "
-                f"and ref values for '{example_name}'. Replace only the `desc` and `locations` "
-                "placeholders with the analyzed Bug description, source-level root cause, and real "
-                "workspace-relative source lines before submitting it. "
+                f"and ref values for '{example_name}'. Replace the `desc`, `locations`, and "
+                "`severity` placeholders with the analyzed Bug description, source-level root "
+                "cause, real workspace-relative source lines, and Bug severity before submitting "
+                f"it. Required `severity` accepts {self._SEVERITY_VALUES_TEXT} "
+                "(case-insensitive). "
                 f"Object template: {tool_name}(bug_list={bug_list_json}) "
                 f"String fallback: {tool_name}(bug_list={json.dumps(bug_list_json, ensure_ascii=False)}) "
                 f"Allowed current-batch bug_name values: {', '.join(candidates)}. "
@@ -861,10 +885,11 @@ class BugRecordType(RecordType):
             "",
             f"Total Bugs: {len(records)}",
             "",
-            "| Name | Alias | CK | Analysis | Locations | Confidence | Ref |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| Name | Severity | Alias | CK | Analysis | Locations | Confidence | Ref |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for record in records:
+            severity = record["severity"]
             aliases = "<br>".join(
                 self._escape_markdown_cell(alias) for alias in record["alias"]
             )
@@ -875,6 +900,7 @@ class BugRecordType(RecordType):
                 "| "
                 + " | ".join([
                     self._escape_markdown_cell(record["bug_name"]),
+                    self._escape_markdown_cell(severity),
                     aliases,
                     ck_paths,
                     self._escape_markdown_cell(record["desc"]),
@@ -1017,7 +1043,8 @@ class Recorder(Checker):
         ``Check(bug_list=[{'bug_name': 'overflow_bug', 'alias': [],
         'CK': ['CK-OVERFLOW'],
         'desc': 'Description and root cause', 'locations': ['rtl/dut.sv:128-229'],
-        'confidence': 0.76, 'ref': ['DUT_bug_analysis.md:30-42']}])``.
+        'severity': 'high', 'confidence': 0.76,
+        'ref': ['DUT_bug_analysis.md:30-42']}])``.
         Configure it with dynamic and static Bug document paths plus ``batch_size``.
         When ``output`` is a non-empty workspace-relative path, the Bug type writes a
         Markdown summary with line-linked source and document references from the

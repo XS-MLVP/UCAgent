@@ -172,6 +172,7 @@ def _with_expected_bug_metadata(recorder, records):
         if expected is not None:
             item.setdefault("alias", list(expected["alias"]))
             item.setdefault("ref", list(expected["ref"]))
+            item.setdefault("severity", "medium")
         enriched.append(item)
     return enriched
 
@@ -199,9 +200,82 @@ def test_bug_recorder_normalizes_and_caches_bug_list(tmp_path):
         "CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW", "FG-GROUP/FC-FUNCTION/CK-BOUNDARY"],
         "desc": "The result width truncates the carry bit; the output declaration is too narrow.",
         "locations": ["rtl/adder.sv:128-229", "rtl/adder.sv:240,250-252"],
+        "severity": "medium",
         "confidence": 0.76,
         "ref": ["Adder_bug_analysis.md:8-9,12-13"],
     }]
+
+
+def test_bug_recorder_preserves_severity(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+
+    passed, _message = recorder.do_check(bug_list=_with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "The result width truncates the carry bit.",
+        "locations": ["rtl/adder.sv:128-229"],
+        "confidence": 0.76,
+        "severity": " HIGH ",
+    }]))
+
+    assert passed is True
+    assert manager.data["BUG_RECORDS"][0]["severity"] == "HIGH"
+
+
+@pytest.mark.parametrize(
+    ("severity", "error_text"),
+    [
+        ("", "must be a non-empty string"),
+        ("urgent", "must be one of"),
+        (123, "must be a non-empty string"),
+        (None, "must be a non-empty string"),
+    ],
+)
+def test_bug_recorder_reports_invalid_severity_values(tmp_path, severity, error_text):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+
+    passed, message = recorder.do_check(
+        bug_list=_with_expected_bug_metadata(
+            recorder,
+            [
+                {
+                    "bug_name": "overflow_bug",
+                    "CK": ["CK-OVERFLOW"],
+                    "desc": "The result width truncates the carry bit.",
+                    "locations": ["rtl/adder.sv:128-229"],
+                    "confidence": 0.76,
+                    "severity": severity,
+                }
+            ],
+        )
+    )
+
+    assert passed is False
+    assert error_text in message["error"]
+    assert "lowest, low, medium, high, highest" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
+
+
+def test_bug_recorder_requires_severity(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+    record = _with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "The result width truncates the carry bit.",
+        "locations": ["rtl/adder.sv:128-229"],
+        "confidence": 0.76,
+    }])[0]
+    record.pop("severity")
+
+    passed, message = recorder.do_check(bug_list=[record])
+
+    assert passed is False
+    assert ".severity is required" in message["error"]
+    assert "lowest, low, medium, high, highest" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
 
 
 def test_bug_recorder_reuses_existing_records_on_complete(tmp_path):
@@ -247,6 +321,8 @@ def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tm
     assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in error_text
     assert '"confidence": 0.76' in error_text
     assert '"ref": ["Adder_bug_analysis.md:8-9"]' in error_text
+    assert '"severity": "REPLACE_WITH_LOWEST_LOW_MEDIUM_HIGH_HIGHEST"' in error_text
+    assert "Required `severity` accepts lowest, low, medium, high, highest" in error_text
 
 
 def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
@@ -759,6 +835,7 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
         "desc": "The result is truncated | the root cause is an undersized signal.\nCarry is lost.",
         "locations": ["rtl/adder.sv:10-12,20"],
         "confidence": 0.90,
+        "severity": "high",
     }])
 
     passed, message = recorder.do_check(bug_list=record)
@@ -774,7 +851,8 @@ def test_bug_recorder_generates_linked_markdown_summary_on_stage_complete(tmp_pa
     markdown = summary_path.read_text(encoding="utf-8")
     assert "# Adder Bug Summary" in markdown
     assert "Total Bugs: 1" in markdown
-    assert "| Name | Alias | CK | Analysis | Locations | Confidence | Ref |" in markdown
+    assert "| Name | Severity | Alias | CK | Analysis | Locations | Confidence | Ref |" in markdown
+    assert "| overflow | high |" in markdown
     assert "BG-STATIC-001-OVERFLOW" in markdown
     assert "BG-STATIC-002-OVERFLOW" in markdown
     assert "FG-GROUP/FC-FUNCTION/CK-OVERFLOW" in markdown
@@ -1220,8 +1298,19 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
     assert "vibe" not in task_text.lower()
     assert "launch" not in task_text.lower()
     assert "master" not in task_text.lower()
-    for field in ("bug_name", "alias", "CK", "desc", "locations", "confidence", "ref"):
+    for field in (
+        "bug_name",
+        "alias",
+        "CK",
+        "desc",
+        "locations",
+        "severity",
+        "confidence",
+        "ref",
+    ):
         assert field in task_text
+    assert "lowest、low、medium、high、highest" in task_text
+    assert "severity：必填" in task_text
     assert "Check(bug_list=[" in task_text
     assert "JSON数组的字符串" in task_text
     assert "字符串调用示例" in task_text
