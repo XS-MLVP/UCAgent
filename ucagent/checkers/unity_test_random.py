@@ -63,7 +63,11 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                     return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
                 func_source = inspect.getsource(tfunc)
                 for mc, v in self.must_func_code_snippet.items():
-                    if mc not in func_source:
+                    if mc == ".mark_function":
+                        snippet_found = fc.has_executable_mark_function_call(func_source)
+                    else:
+                        snippet_found = mc in func_source
+                    if not snippet_found:
                         return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function must contain "
                                                 f"'{mc}', {v}"}
         if total_test_count < self.min_test_count:
@@ -90,7 +94,6 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
                                    check_fail_ck_in_bug=False,
-                                   func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout
                                    )
         if not ret:
             return ret, get_emsg(msg)

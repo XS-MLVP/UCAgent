@@ -24,6 +24,7 @@ import traceback
 import subprocess
 import selectors
 import signal
+import textwrap
 
 
 def fmt_time_deta(sec: Union[int, float, str, None], abbr: bool = False) -> str:
@@ -1822,7 +1823,7 @@ def description_func_doc():
     ]
 
 
-def check_file_block(file_blocks, workspace, checker=None):
+def check_file_block(file_blocks, workspace, checker=None, strip_comments=True):
     """
     Check if the file blocks exist in the workspace.
 
@@ -1830,6 +1831,7 @@ def check_file_block(file_blocks, workspace, checker=None):
         file_blocks (dict): The file blocks to check. eg: {'file1.py': {"k1": [line_from, line_to], 'k2': [line_from, line_to]}, ...}
         workspace (str): The workspace directory.
         checker (callable, optional): A function to further check each code block. It should accept the file block string as input.
+        strip_comments (bool): Remove comments before invoking checker. Disable for syntax-aware checkers.
     """
     assert isinstance(file_blocks, dict), "file_blocks must be a dictionary."
     ret_map = {}
@@ -1862,8 +1864,10 @@ def check_file_block(file_blocks, workspace, checker=None):
             block_key = _get_code_block_key(index)
             if block_key is None:
                 continue
-            # Remove comments and check if line is empty
-            line = line.split("#", 1)[0]
+            # Text-based checkers historically ignore comments. Syntax-aware
+            # checkers need the original line so strings containing '#' remain valid.
+            if strip_comments:
+                line = line.split("#", 1)[0]
             if not line.strip():
                 continue
             if not line.endswith("\n"):
@@ -1908,59 +1912,165 @@ def parse_test_case_name(tc, workspace=None):
     return f"{tc_file}::{tc_name}", (tc_rfile, line_from, line_to)
 
 
+def get_missing_functional_coverage_message(report):
+    """Return an actionable diagnostic when Toffee reports no usable coverage."""
+    if not isinstance(report, dict):
+        return (
+            "[Functional Coverage Report Missing] The Toffee report is unavailable or has an "
+            "invalid structure, so checkpoint associations cannot be validated."
+        )
+
+    total_points = report.get("total_funct_point", 0)
+    total_check_points = report.get("total_check_point", 0)
+    if (
+        isinstance(total_points, (int, float))
+        and not isinstance(total_points, bool)
+        and isinstance(total_check_points, (int, float))
+        and not isinstance(total_check_points, bool)
+        and total_points > 0
+        and total_check_points > 0
+    ):
+        return None
+
+    return (
+        "[Functional Coverage Missing] Functional coverage data is missing or empty in the "
+        f"Toffee report (function points: {total_points}, checkpoints: {total_check_points}). "
+        "The test functions may already call mark_function correctly; do not duplicate those "
+        "calls based only on this report. Verify that coverage groups define function points and "
+        "checkpoints, that the test uses the same group objects exposed by the DUT, and that the "
+        "fixture calls `set_func_coverage(request, func_coverage_group)` on a reachable teardown "
+        "path after `yield`."
+    )
+
+
+def description_checkpoint_association_missing(check_points):
+    """Explain checkpoint-to-test association gaps without assuming source calls are absent."""
+    check_points = list(check_points or [])
+    return (
+        "[Checkpoint Association Missing] Toffee defined the following checkpoint(s), but "
+        "recorded no associated test execution: "
+        f"{list_str_abbr(check_points)}. This report state does not prove that `mark_function` "
+        "is absent from the source. Before adding another call, verify that an existing call is "
+        "executed on every relevant path, references the current test function, uses exact "
+        "case-sensitive FG/FC/CK names with a non-empty checkpoint list, and that the fixture "
+        "reports the same coverage-group objects after `yield`."
+    )
+
+
+def has_executable_mark_function_call(source_code):
+    """Return whether source contains an actual ``.mark_function(...)`` call."""
+    try:
+        tree = ast.parse(textwrap.dedent(source_code))
+    except (SyntaxError, IndentationError, TypeError):
+        return False
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "mark_function"
+        for node in ast.walk(tree)
+    )
+
+
 def description_mark_function_doc(
     func_list=[], workspace=None, func_RunTestCases=None, timeout_RunTestCases=0
 ):
     """
     Description for marking functions in test cases.
+
+    ``func_RunTestCases`` and ``timeout_RunTestCases`` are retained for caller
+    compatibility. Diagnostics use the original STDOUT/STDERR already returned
+    by Check/Complete and never rerun tests here.
     """
     simple_msg = (
-        "You need to use `mark_function` at the beginning of test functions to associate them with checkpoints. "
-        "Example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
+        "Add an executable `mark_function` call near the beginning of each test and associate "
+        "it with at least one checkpoint. Example: "
+        "env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
         "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). "
-        "If a test case covers checkpoints of multiple functions, call mark_function multiple times. "
-        "If the test case is redundant, delete it. (See Guide_Doc/dut_test_case.md)"
+        "If a test covers checkpoints from multiple function points, call `mark_function` once "
+        "for each function point. If the test is redundant, delete it. "
+        "(See Guide_Doc/dut_test_case.md)"
     )
 
     if len(func_list) > 0:
-        assert workspace is not None, "workspace must be provided if func_list is empty."
+        assert workspace is not None, "workspace must be provided if func_list is not empty."
         func_file_blocks = {}
         func_test_cases = {}
+        unreadable_tc_list = []
         for tc in func_list:
-            tc_name, (file_path, line_from, line_to) = parse_test_case_name(tc, workspace)
+            try:
+                tc_name, (file_path, line_from, line_to) = parse_test_case_name(tc, workspace)
+            except Exception as e:
+                warning(f"Cannot resolve test case location '{tc}': {e}")
+                unreadable_tc_list.append(tc)
+                continue
             func_test_cases[tc] = tc_name
             if file_path not in func_file_blocks:
                 func_file_blocks[file_path] = {}
             func_file_blocks[file_path][tc] = [line_from, line_to]
+
         blocks = {}
-        for _, v in check_file_block(func_file_blocks, workspace, lambda x: ".mark_function" in x).items():
-            blocks.update(v)
+        try:
+            checked_blocks = check_file_block(
+                func_file_blocks,
+                workspace,
+                has_executable_mark_function_call,
+                strip_comments=False,
+            )
+            for _, value in checked_blocks.items():
+                blocks.update(value)
+        except (AssertionError, OSError, UnicodeError) as e:
+            warning(f"Cannot inspect test source for mark_function calls: {e}")
+            unreadable_tc_list.extend(
+                tc for tc in func_test_cases if tc not in unreadable_tc_list
+            )
+
         no_mark_tc_list = []
-        er_mark_tc_list = []
-        nf_mark_tc_list = []
+        recorded_no_association_tc_list = []
         for tc in func_list:
+            if tc in unreadable_tc_list:
+                continue
             if tc not in blocks:
-                nf_mark_tc_list.append(tc)
-            elif blocks[tc] == True:
-                er_mark_tc_list.append(tc)
+                unreadable_tc_list.append(tc)
+            elif blocks[tc] is True:
+                recorded_no_association_tc_list.append(tc)
             else:
                 no_mark_tc_list.append(tc)
-        if len(nf_mark_tc_list) > 0:
-            warning(f"Test cases not found in workspace {workspace}: {nf_mark_tc_list}")
-        emsg = ""
-        if len(er_mark_tc_list) > 0:
-            tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
-            tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors. " + \
-                    f"Please call RunTestCases('{tc_to_run}') to see detailed errors and verify that function point, test case, and checkpoint names match the documentation."
-            if func_RunTestCases is not None:
-                warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
-                _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
-                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors:\n STDOUT:\n{run_msg['STDOUT']}\nSTDERR:\n{run_msg['STDERR']}\n" + \
-                         f"Note: If you cannot find the root cause, call RunTestCases('{tc_to_run}') to get more detailed information."
-            emsg += tc_msg
-        if len(no_mark_tc_list) > 0:
-            emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
-        return emsg
+
+        messages = []
+        if recorded_no_association_tc_list:
+            tc_msg = (
+                "[Call present, association absent] Source inspection found an executable "
+                f"`mark_function` call in: {', '.join(recorded_no_association_tc_list)}. "
+                "Do not add a duplicate call: the call exists, but Toffee did not record a "
+                "checkpoint association for these test executions. Check, in order: "
+                "(1) the call executes on every path before `return` or `pytest.skip`; "
+                "(2) its test-function argument refers to the current test; "
+                "(3) FG/FC/CK names exactly match the coverage definition, including case, and "
+                "the checkpoint list is non-empty; "
+                "(4) the fixture reports the same coverage-group objects via "
+                "`set_func_coverage(request, func_coverage_group)` after `yield`. "
+                "Inspect the original `STDERR` and `STDOUT` fields attached to this "
+                "Check/Complete result for Toffee warnings and the corresponding runtime "
+                "error."
+            )
+            messages.append(tc_msg)
+
+        if no_mark_tc_list:
+            messages.append(
+                "[Call missing] No executable `mark_function` call was found in: "
+                f"{', '.join(no_mark_tc_list)}. {simple_msg}"
+            )
+
+        if unreadable_tc_list:
+            warning(f"Test cases not found in workspace {workspace}: {unreadable_tc_list}")
+            messages.append(
+                "[Source location unavailable] The report locations could not be matched to "
+                f"readable source blocks for: {', '.join(unreadable_tc_list)}. Re-run the tests "
+                "from the current workspace and verify that the report does not contain stale or "
+                "external file paths."
+            )
+
+        return " ".join(messages)
     return simple_msg
 
 

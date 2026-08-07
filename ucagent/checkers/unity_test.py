@@ -1158,36 +1158,31 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                     f"minimum required is {self.min_tests}. " + \
                                      "Please ensure that the test cases are defined in the correct format and location."
             return False, info_runtest
-        try:
-            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
-        except Exception as e:
-            info_report["error"] = f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. " + \
-                                    "Review your task requirements and the file format to fix your documentation file."
-            return False, info_report
-
         # Additional template-specific validations
         template_validation_result = self._validate_template_structure(report, str_out, str_err)
         if not template_validation_result[0]:
             info_runtest["error"] = template_validation_result[1]
             return False, info_runtest
 
-        # check batch
-        note_msg = []
-        if report['unmarked_check_points'] > 0:
-            marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_point_list']]
-        else:
-            marked_bins = all_bins_test
-        self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
-        self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
-        ckpass, emssage = self.batch_task.do_complete(note_msg,
-                                                      is_complete,
-                                                      f"in file: {self.doc_func_check}",
-                                                      f"in dir: {self.test_dir}",
-                                                      " Please mark the check points in its related test functions using 'mark_function' correctly.")
-        if not ckpass:
-            return ckpass, emssage
+        missing_coverage_message = fc.get_missing_functional_coverage_message(report)
+        if missing_coverage_message:
+            info_runtest["error"] = missing_coverage_message
+            return False, info_runtest
 
-        # complete check
+        try:
+            all_bins_docs = fc.get_unity_chip_doc_marks(
+                self.get_path(self.doc_func_check), leaf_node="CK"
+            )
+        except Exception as e:
+            info_report["error"] = (
+                "Failed to parse the function and check documentation file "
+                f"{self.doc_func_check}: {str(e)}. Review your task requirements and the "
+                "file format to fix your documentation file."
+            )
+            return False, info_report
+
+        # Validate report/document consistency before updating batch progress so
+        # a root-cause diagnostic is not hidden behind a generic incomplete batch.
         bins_not_in_docs = []
         bins_not_in_test = []
         for b in all_bins_test:
@@ -1207,23 +1202,56 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                      "Review your task requirements and the test cases."
             return False, info_runtest
 
-        if report['unmarked_check_points'] > 0:
-            unmark_check_points = report['unmarked_check_point_list']
-            if len(unmark_check_points) > 0:
-                info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
-                                         "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                                         fc.description_mark_function_doc() + \
-                                         "This ensures proper coverage mapping between documentation and test implementation. " + \
-                                         "Review your task requirements and complete the check point markings. "
-                return False, info_runtest
+        unassociated_test_count = report.get(
+            'test_function_with_no_check_point_mark', 0
+        )
+        if unassociated_test_count > 0:
+            unmarked_functions = report.get(
+                'test_function_with_no_check_point_mark_list', []
+            )
+            mark_function_desc = fc.description_mark_function_doc(
+                unmarked_functions,
+                self.workspace,
+            )
+            info_runtest["error"] = (
+                "[Test Association Missing] Toffee recorded "
+                f"{unassociated_test_count} executed test function(s) without any checkpoint "
+                f"association. {mark_function_desc}"
+            )
+            return False, info_runtest
 
-        if report['test_function_with_no_check_point_mark'] > 0:
-            unmarked_functions = report['test_function_with_no_check_point_mark_list']
-            if len(unmarked_functions) > 0:
-                mark_function_desc = fc.description_mark_function_doc(unmarked_functions, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
-                info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without correct check point marks. " + \
-                                         mark_function_desc
-                return False, info_runtest
+        unmarked_doc_checkpoints = [
+            ck for ck in report.get('unmarked_check_point_list', [])
+            if ck in all_bins_docs
+        ]
+        if unmarked_doc_checkpoints:
+            info_runtest["error"] = fc.description_checkpoint_association_missing(
+                unmarked_doc_checkpoints
+            )
+            return False, info_runtest
+
+        # All structural and association checks passed; batch progress can now
+        # be derived without masking the reason a checkpoint was omitted.
+        note_msg = []
+        self.batch_task.sync_source_task(
+            all_bins_docs,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
+        self.batch_task.sync_gen_task(
+            all_bins_test,
+            note_msg,
+            "Test cases CK points changed.",
+        )
+        ckpass, emssage = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            f"in file: {self.doc_func_check}",
+            f"in dir: {self.test_dir}",
+            " Please define and associate every required checkpoint with its related tests.",
+        )
+        if not ckpass:
+            return ckpass, emssage
 
         # Success message with template-specific details
         info_report["success"] = ["Test template validation successful!",
@@ -1445,17 +1473,7 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
 
     @staticmethod
     def _missing_functional_coverage_message(report):
-        total_points = report.get("total_funct_point", 0)
-        total_check_points = report.get("total_check_point", 0)
-        if total_points > 0 and total_check_points > 0:
-            return None
-        return (
-            "Functional coverage data is missing or empty in the Toffee report "
-            f"(function points: {total_points}, check points: {total_check_points}). "
-            "The test functions may already call mark_function correctly; do not duplicate those calls. "
-            "Ensure the 'dut' fixture creates and samples the coverage groups, then calls "
-            "'set_func_coverage(request, func_coverage_group)' during teardown after 'yield'."
-        )
+        return fc.get_missing_functional_coverage_message(report)
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Perform the check for DUT API tests."""
@@ -1517,16 +1535,29 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {fc.list_str_abbr(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
                                    f"Please create the missing functions: {fc.list_str_abbr(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
-        test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
+        test_count_no_check_point_mark = report.get("test_function_with_no_check_point_mark", 0)
         if test_count_no_check_point_mark > 0:
-            func_list = report['test_function_with_no_check_point_mark_list']
-            mark_function_desc = fc.description_mark_function_doc(func_list, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
-            return False, get_emsg(f"Find {test_count_no_check_point_mark} functions do not have correct check point marks. " + \
-                                     mark_function_desc + \
-                                    "This ensures proper coverage mapping between documentation and test implementation. " + \
-                                    "Review your task requirements and complete the check point markings. ")
+            unmarked_functions = report.get(
+                "test_function_with_no_check_point_mark_list", []
+            )
+            mark_function_desc = fc.description_mark_function_doc(
+                unmarked_functions,
+                self.workspace,
+            )
+            return False, get_emsg(
+                "[Checkpoint Association Missing] Toffee did not record any checkpoint "
+                f"association for {test_count_no_check_point_mark} executed API test "
+                f"function(s): {fc.list_str_abbr(unmarked_functions)}. "
+                f"{mark_function_desc}"
+            )
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/", func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
+        ret, msg, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            "FG-API/",
+        )
         if not ret:
             return ret, get_emsg(msg)
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
@@ -1651,7 +1682,13 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
+        ret, msg, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            only_marked_ckp_in_tc=True,
+        )
         report  = fc.clean_report_with_keys(report, ["all_check_point_list", "unmarked_check_points", "unmarked_check_point_list", "failed_check_point_list"])
         error_msgs["REPORT"] = report
         if not ret:
@@ -1751,7 +1788,12 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         zero_rate_msg = f"Note: Found {len(zero_list)} bug mark(s) with confidence 0: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
                          "If these bugs are confirmed during testing, please update their confidence; otherwise this message can be ignored."
 
-        ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
+        ret, msg, marked_bugs = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+        )
         if not ret:
             info_runtest["error"] = msg
             if len(zero_list) > 0:

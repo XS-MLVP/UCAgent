@@ -166,15 +166,18 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     # tc not mark their checkpoints
     tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
     if len(tc_not_mark_the_cks_list) > 0:
-        ftc_msg = fc.list_str_abbr([f"{x[0]}(needs mark: {x[1]})" for x in tc_not_mark_the_cks_list])
-        return False, [f"[Checkpoint Not Marked] Bug analysis document '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test case(s) ({ftc_msg}) that have not called mark_function for their associated checkpoints.",
-                       "[Cause] The test case is placed under a checkpoint in the bug analysis document, but the test code does not call mark_function for that checkpoint.",
+        ftc_msg = fc.list_str_abbr([
+            f"{test_case}(expected checkpoint relation: {checkpoint})"
+            for test_case, checkpoint in tc_not_mark_the_cks_list
+        ])
+        return False, [f"[Bug Checkpoint Association Missing] Bug analysis document '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test case(s) ({ftc_msg}) that the Toffee report does not associate with the documented checkpoint.",
+                       "[Cause] The report relation is missing. This does not by itself prove that the source lacks a mark_function call.",
                        "[Solution]",
                           "1. Ensure the test case is placed under the correct checkpoint in the bug analysis document",
-                          "2. Call mark_function at the beginning of the test function, e.g.: env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])",
-                          "3. If the test case relates to multiple function groups, call mark_function multiple times for each",
-                          "4. If the test case is unrelated to this checkpoint, remove the corresponding <TC-*> tag from the bug analysis document",
-                          "5. If the test case is unrelated to any checkpoint, consider removing it from the bug analysis document",
+                          "2. Before adding another call, inspect any existing mark_function call and verify its FG/FC/CK names, current-test-function argument, execution path, and non-empty checkpoint list",
+                          "3. Verify that the fixture reports the same coverage-group objects after yield so Toffee can retain the association",
+                          "4. If no call exists, add mark_function at the beginning of the test, e.g.: env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])",
+                          "5. If the test case is unrelated to this checkpoint, remove the corresponding <TC-*> tag from the bug analysis document",
                         "Note: Failed test cases must mark the checkpoints related to the bugs they trigger (see Guide_Doc/dut_bug_analysis.md and Guide_Doc/dut_test_case.md)"
                        ]
     # fail tc not in bug doc
@@ -267,6 +270,8 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         post_checker: An optional post-checker function.
         only_marked_ckp_in_tc: Whether to only consider marked check points in test cases (enable this in batch testing mode).
         check_fail_ck_in_bug: Whether to check failed check points in bug analysis document.
+        func_RunTestCases: Retained for caller compatibility; no diagnostic rerun is performed.
+        timeout_RunTestCases: Retained for caller compatibility; no diagnostic rerun is performed.
     Returns:
         A tuple indicating the success or failure of the check, along with an optional message.
     """
@@ -274,10 +279,13 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
     ret, doc_ck_list = get_doc_ck_list_from_doc(workspace, doc_file, target_ck_prefix)
     if not ret:
         return ret, doc_ck_list, -1
-    if report["test_function_with_no_check_point_mark"] > 0:
-        unmarked_functions = report['test_function_with_no_check_point_mark_list']
-        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace, func_RunTestCases=func_RunTestCases, timeout_RunTestCases=timeout_RunTestCases)
-        return False, f"[Unmarked Test Functions] {report['test_function_with_no_check_point_mark']} test function(s) are not associated with any checkpoint. " + \
+    missing_coverage_message = fc.get_missing_functional_coverage_message(report)
+    if missing_coverage_message:
+        return False, missing_coverage_message, -1
+    if report.get("test_function_with_no_check_point_mark", 0) > 0:
+        unmarked_functions = report.get('test_function_with_no_check_point_mark_list', [])
+        mark_function_desc = fc.description_mark_function_doc(unmarked_functions, workspace)
+        return False, f"[Test Association Missing] Toffee recorded {report['test_function_with_no_check_point_mark']} executed test function(s) without any checkpoint association. " + \
                        mark_function_desc, -1
 
     checks_in_tc  = [b for b in report.get("all_check_point_list", []) if b.startswith(target_ck_prefix)]
@@ -314,13 +322,15 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
         if not ret:
             return ret, msg, -1
 
-    if report['unmarked_check_points'] > 0 and not only_marked_ckp_in_tc:
-        unmark_check_points = [ck for ck in report['unmarked_check_point_list'] if ck.startswith(target_ck_prefix)]
+    if report.get('unmarked_check_points', 0) > 0 and not only_marked_ckp_in_tc:
+        unmark_check_points = [
+            ck for ck in report.get('unmarked_check_point_list', [])
+            if ck.startswith(target_ck_prefix)
+        ]
         if len(unmark_check_points) > 0:
-            return False, f"[Unassociated Checkpoints] The following {len(unmark_check_points)} checkpoint(s) have no associated test cases: `{fc.list_str_abbr(unmark_check_points)}`. " + \
-                           "All checkpoints defined in the document must be associated with test cases via mark_function. " + \
-                            fc.description_mark_function_doc() + \
-                           "This ensures correct coverage mapping between documentation and test implementation. Please check the task requirements and complete the checkpoint marking.", -1
+            return False, fc.description_checkpoint_association_missing(
+                unmark_check_points
+            ), -1
 
     if callable(post_checker):
         ret, msg = post_checker(report)

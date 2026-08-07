@@ -254,6 +254,120 @@ def test_template_do_check_prioritizes_collection_syntax_error(monkeypatch):
     assert captured_kwargs["return_test_details"] is True
 
 
+def test_template_do_check_prioritizes_missing_functional_coverage(monkeypatch):
+    test_case = "tests/test_template.py:1-2::test_template"
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 1,
+            "test_cases": {test_case: "FAILED"},
+            "test_case_details": {test_case: _assertion_detail()},
+        },
+        "total_funct_point": 0,
+        "total_check_point": 0,
+        "unmarked_check_points": 0,
+        "test_function_with_no_check_point_mark": 1,
+        "test_function_with_no_check_point_mark_list": [test_case],
+    }
+
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+
+    passed, message = _checker().do_check()
+
+    assert passed is False
+    assert "[Functional Coverage Missing]" in message["error"]
+    assert "do not duplicate" in message["error"]
+    assert "Not all 'check_points'" not in message["error"]
+
+
+def test_template_do_check_prioritizes_execution_error_over_missing_coverage(
+    monkeypatch,
+):
+    test_case = "tests/test_template.py:1-2::test_setup_error"
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 1,
+            "test_cases": {test_case: "ERROR"},
+            "test_case_details": {
+                test_case: {
+                    "status": "ERROR",
+                    "phase": "setup",
+                    "exception_type": "RuntimeError",
+                    "exception": "RuntimeError('fixture failed')",
+                }
+            },
+        },
+        "total_funct_point": 0,
+        "total_check_point": 0,
+        "unmarked_check_points": 0,
+        "test_function_with_no_check_point_mark": 1,
+        "test_function_with_no_check_point_mark_list": [test_case],
+    }
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+
+    passed, message = _checker().do_check()
+
+    assert passed is False
+    assert "execution or lifecycle errors" in message["error"]
+    assert "setup: RuntimeError" in message["error"]
+    assert "[Functional Coverage Missing]" not in message["error"]
+
+
+def test_template_do_check_reports_checkpoint_relation_before_batch(
+    tmp_path, monkeypatch
+):
+    checkpoint = "FG-A/FC-A/CK-A"
+    test_case = "tests/test_template.py:1-2::test_template"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n",
+        encoding="utf-8",
+    )
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 0,
+            "test_cases": {test_case: "PASSED"},
+            "test_case_details": {},
+        },
+        "total_funct_point": 1,
+        "total_check_point": 1,
+        "all_check_point_list": [checkpoint],
+        "unmarked_check_points": 1,
+        "unmarked_check_point_list": [checkpoint],
+        "test_function_with_no_check_point_mark": 0,
+    }
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        template_must_fail=False,
+    ).set_workspace(str(tmp_path))
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert "[Checkpoint Association Missing]" in message["error"]
+    assert "does not prove that `mark_function` is absent" in message["error"]
+    assert "Not all 'check_points'" not in message["error"]
+
+
 def test_load_toffee_report_optionally_extracts_failure_type(tmp_path):
     test_file = tmp_path / "test_template.py"
     test_file.write_text(

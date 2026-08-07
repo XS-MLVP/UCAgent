@@ -9,6 +9,7 @@ from types import SimpleNamespace
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
+import ucagent.util.functions as fc
 from ucagent.checkers.unity_test import (
     UnityChipCheckerDutApiTest,
     UnityChipCheckerDutFixture,
@@ -176,3 +177,137 @@ def test_api_checker_accepts_nonempty_functional_coverage():
     })
 
     assert message is None
+
+
+def test_mark_function_diagnostic_treats_comment_as_missing_call(tmp_path):
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_Demo_operate(env):\n"
+        "    # env.dut.fc_cover['FG-API'].mark_function('FC-OPERATE', test_api_Demo_operate, ['CK-BASIC'])\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    message = fc.description_mark_function_doc(
+        ["test_Demo_api.py:1-3::test_api_Demo_operate"],
+        str(tmp_path),
+    )
+
+    assert "[Call missing]" in message
+    assert "No executable `mark_function` call" in message
+    assert "[Call present, association absent]" not in message
+
+
+def test_mark_function_diagnostic_explains_unrecorded_call(tmp_path):
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_Demo_operate(env):\n"
+        "    env.dut.fc_cover['FG-API'].mark_function(\n"
+        "        'FC-OPERATE', test_api_Demo_operate, ['CK-BASIC']\n"
+        "    )\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+
+    callback_called = False
+
+    def unexpected_rerun(**kwargs):
+        nonlocal callback_called
+        callback_called = True
+        raise AssertionError(f"diagnostic unexpectedly reran tests: {kwargs}")
+
+    message = fc.description_mark_function_doc(
+        ["test_Demo_api.py:1-5::test_api_Demo_operate"],
+        str(tmp_path),
+        func_RunTestCases=unexpected_rerun,
+        timeout_RunTestCases=30,
+    )
+
+    assert "[Call present, association absent]" in message
+    assert "Do not add a duplicate call" in message
+    assert "FG/FC/CK names exactly match" in message
+    assert "set_func_coverage" in message
+    assert "Check/Complete result" in message
+    assert "`STDERR`" in message
+    assert "`STDOUT`" in message
+    assert "RunTestCases" not in message
+    assert callback_called is False
+    assert "encountered errors" not in message
+
+
+def test_mark_function_diagnostic_preserves_hash_inside_string(tmp_path):
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_Demo_operate(env):\n"
+        "    note = '# is part of this string'\n"
+        "    env.dut.fc_cover['FG-API'].mark_function(\n"
+        "        'FC-OPERATE', test_api_Demo_operate, ['CK-BASIC']\n"
+        "    )\n"
+        "    assert note\n",
+        encoding="utf-8",
+    )
+
+    message = fc.description_mark_function_doc(
+        ["test_Demo_api.py:1-6::test_api_Demo_operate"],
+        str(tmp_path),
+    )
+
+    assert "[Call present, association absent]" in message
+    assert "[Call missing]" not in message
+
+
+def test_api_checker_reports_checkpoint_association_cause(tmp_path):
+    (tmp_path / "dut_api.py").write_text(
+        "def api_Demo_operate(env):\n    return None\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_Demo_operate(env):\n"
+        "    env.dut.fc_cover['FG-API'].mark_function(\n"
+        "        'FC-OPERATE', test_api_Demo_operate, ['CK-BASIC']\n"
+        "    )\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "functions_and_checks.md").write_text(
+        "<FG-API>\n<FC-OPERATE>\n<CK-BASIC>\n",
+        encoding="utf-8",
+    )
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 0,
+            "test_cases": {
+                "test_Demo_api.py:1-5::test_api_Demo_operate": "PASSED",
+            },
+        },
+        "total_funct_point": 1,
+        "total_check_point": 1,
+        "test_function_with_no_check_point_mark": 1,
+        "test_function_with_no_check_point_mark_list": [
+            "test_Demo_api.py:1-5::test_api_Demo_operate",
+        ],
+    }
+    checker = UnityChipCheckerDutApiTest(
+        "api_Demo_",
+        "dut_api.py",
+        "test_Demo_api.py",
+        "functions_and_checks.md",
+        "bug_analysis.md",
+    ).set_workspace(str(tmp_path))
+    checker.run_test = SimpleNamespace(
+        do=lambda *args, **kwargs: (
+            report,
+            "original pytest output",
+            "original Toffee mark_function warning",
+        )
+    )
+
+    passed, message = checker.do_check()
+
+    assert passed is False
+    assert "[Checkpoint Association Missing]" in message["error"]
+    assert "Toffee did not record any checkpoint association" in message["error"]
+    assert "[Call present, association absent]" in message["error"]
+    assert "Do not add a duplicate call" in message["error"]
+    assert message["STDOUT"] == "original pytest output"
+    assert message["STDERR"] == "original Toffee mark_function warning"
+    assert "RunTestCases" not in message["error"]

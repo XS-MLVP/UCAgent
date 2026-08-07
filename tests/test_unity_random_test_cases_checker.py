@@ -75,6 +75,30 @@ def _make_checker(tmp_path, entries, batch_size=2):
     return checker, manager
 
 
+def test_random_test_checker_rejects_mark_function_in_comment(tmp_path):
+    checker, _manager = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tmp_path / "tests" / "test_random_comment.py"
+    test_file.write_text(
+        "\n".join([
+            "import ucagent",
+            "",
+            "def test_random_comment(env):",
+            "    ucagent.repeat_count(1)",
+            "    # env.cover.mark_function('FC-A', test_random_comment, ['CK-A'])",
+            "    assert True",
+        ]),
+        encoding="utf-8",
+    )
+
+    passed, message = checker.test_check()
+
+    assert passed is False
+    assert ".mark_function" in message["error"]
+
+
 def test_random_test_cases_requires_generated_argument_with_check_example(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
