@@ -64,7 +64,10 @@ def test_check_report_describes_unassociated_checkpoint_as_report_state(tmp_path
     assert passed is False
     assert "[Checkpoint Association Missing]" in message
     assert "recorded no associated test execution" in message
-    assert "does not prove that `mark_function` is absent" in message
+    assert "does not identify why the association was not recorded" in message
+    assert "Check/Complete result" in message
+    assert "`STDERR`" in message
+    assert "mark_function" not in message
 
 
 def test_check_report_does_not_rerun_legacy_mark_function_diagnostic(tmp_path):

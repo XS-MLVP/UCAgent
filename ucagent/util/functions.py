@@ -1944,16 +1944,15 @@ def get_missing_functional_coverage_message(report):
 
 
 def description_checkpoint_association_missing(check_points):
-    """Explain checkpoint-to-test association gaps without assuming source calls are absent."""
+    """Explain checkpoint-to-test runtime association gaps without inferring a source cause."""
     check_points = list(check_points or [])
     return (
         "[Checkpoint Association Missing] Toffee defined the following checkpoint(s), but "
         "recorded no associated test execution: "
-        f"{list_str_abbr(check_points)}. This report state does not prove that `mark_function` "
-        "is absent from the source. Before adding another call, verify that an existing call is "
-        "executed on every relevant path, references the current test function, uses exact "
-        "case-sensitive FG/FC/CK names with a non-empty checkpoint list, and that the fixture "
-        "reports the same coverage-group objects after `yield`."
+        f"{list_str_abbr(check_points)}. This runtime report state does not identify why the "
+        "association was not recorded. Inspect the original `STDERR` and `STDOUT` attached to "
+        "the Check/Complete result for Toffee warnings, then verify that the expected tests "
+        "executed and that the fixture reported the active coverage-group objects after `yield`."
     )
 
 

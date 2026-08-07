@@ -364,7 +364,8 @@ def test_template_do_check_reports_checkpoint_relation_before_batch(
 
     assert passed is False
     assert "[Checkpoint Association Missing]" in message["error"]
-    assert "does not prove that `mark_function` is absent" in message["error"]
+    assert "does not identify why the association was not recorded" in message["error"]
+    assert "mark_function" not in message["error"]
     assert "Not all 'check_points'" not in message["error"]
 
 
