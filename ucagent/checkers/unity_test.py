@@ -471,20 +471,67 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
 
     def _check_lifecycle(self, source_code, dut_func):
         tree = ast.parse(source_code)
-        yield_lines = [
-            node.lineno
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.Yield, ast.YieldFrom))
-        ]
+        fixture_node = next(
+            (
+                node for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == dut_func.__name__
+            ),
+            None,
+        )
+        if fixture_node is None:
+            return False, {
+                "error": f"Cannot parse the '{dut_func.__name__}' fixture body in "
+                         f"'{self.target_file}'."
+            }
+
+        class LifecycleVisitor(ast.NodeVisitor):
+            conditional_nodes = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Match)
+
+            def __init__(self, root):
+                self.root = root
+                self.conditional_depth = 0
+                self.yields = []
+                self.func_coverage_calls = []
+
+            def visit_FunctionDef(self, node):
+                if node is self.root:
+                    for statement in node.body:
+                        self.visit(statement)
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, node):
+                return
+
+            def generic_visit(self, node):
+                is_conditional = isinstance(node, self.conditional_nodes)
+                if is_conditional:
+                    self.conditional_depth += 1
+                super().generic_visit(node)
+                if is_conditional:
+                    self.conditional_depth -= 1
+
+            def visit_Yield(self, node):
+                self.yields.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+            def visit_YieldFrom(self, node):
+                self.yields.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+            def visit_Call(self, node):
+                if UnityChipCheckerDutFixture._call_name(node.func) == "set_func_coverage":
+                    self.func_coverage_calls.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+        visitor = LifecycleVisitor(fixture_node)
+        visitor.visit(fixture_node)
+        yield_lines = [node.lineno for node, _ in visitor.yields]
         if not yield_lines:
             return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
 
-        func_coverage_calls = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and self._call_name(node.func) == "set_func_coverage"
-        ]
+        func_coverage_calls = [call for call, _ in visitor.func_coverage_calls]
         if not func_coverage_calls:
             return False, {
                 "error":
@@ -495,8 +542,8 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
             }
 
         valid_func_coverage_calls = [
-            call
-            for call in func_coverage_calls
+            (call, conditional_depth)
+            for call, conditional_depth in visitor.func_coverage_calls
             if self._is_valid_set_func_coverage_call(call)
         ]
         if not valid_func_coverage_calls:
@@ -507,13 +554,31 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
                     "'set_func_coverage(request, func_coverage_group)'."
             }
 
-        first_yield_line = min(yield_lines)
-        if not any(call.lineno > first_yield_line for call in valid_func_coverage_calls):
+        unconditional_yield_lines = [
+            node.lineno for node, conditional_depth in visitor.yields
+            if conditional_depth == 0
+        ]
+        if not unconditional_yield_lines:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must yield the "
+                    "DUT on an unconditional fixture path; a yield nested under if/loop/match "
+                    "cannot guarantee setup for every test."
+            }
+
+        first_yield_line = min(unconditional_yield_lines)
+        teardown_calls = [
+            call for call, conditional_depth in valid_func_coverage_calls
+            if call.lineno > first_yield_line and conditional_depth == 0
+        ]
+        if not teardown_calls:
             return False, {
                 "error":
                     f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
-                    "'set_func_coverage(request, func_coverage_group)' after 'yield' so the final "
-                    "coverage samples and mark_function mappings are attached to the test report."
+                    "'set_func_coverage(request, func_coverage_group)' on an unconditional "
+                    "teardown path after 'yield'. Calls before yield, inside nested functions, "
+                    "or under if/loop/match branches cannot guarantee that final coverage "
+                    "samples and mark_function mappings are attached to every test report."
             }
         return True, {}
 

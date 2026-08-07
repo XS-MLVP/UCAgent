@@ -81,6 +81,33 @@ def test_dut_fixture_accepts_set_func_coverage_during_teardown(tmp_path):
     assert "passed" in message["message"]
 
 
+def test_dut_fixture_rejects_conditional_set_func_coverage(tmp_path):
+    passed, message = _check_fixture(tmp_path, [
+        "func_coverage_group = []",
+        "get_coverage_data_path(request, new_path=False)",
+        "yield object()",
+        "if False:",
+        "    set_func_coverage(request, func_coverage_group)",
+    ])
+
+    assert passed is False
+    assert "unconditional teardown path" in message["error"]
+
+
+def test_dut_fixture_accepts_set_func_coverage_in_finally(tmp_path):
+    passed, message = _check_fixture(tmp_path, [
+        "func_coverage_group = []",
+        "get_coverage_data_path(request, new_path=False)",
+        "try:",
+        "    yield object()",
+        "finally:",
+        "    set_func_coverage(request, func_coverage_group)",
+    ])
+
+    assert passed is True
+    assert "passed" in message["message"]
+
+
 def test_api_checker_reports_missing_functional_coverage_before_mark_errors():
     message = UnityChipCheckerDutApiTest._missing_functional_coverage_message({
         "total_funct_point": 0,
