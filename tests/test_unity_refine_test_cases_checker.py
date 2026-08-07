@@ -126,6 +126,50 @@ def test_get_ck_test_cases_info_handles_multiline_call_and_ambiguous_fg(tmp_path
     assert checker.unresolved_mark_function == []
 
 
+def test_get_ck_test_cases_info_rejects_wrong_test_function_argument(tmp_path):
+    checker, _manager, tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tests_dir / "test_wrong_target.py"
+    test_file.write_text(
+        "\n".join([
+            "def test_a(env):",
+            "    env.cover.mark_function(\"FC-A\", test_b, [\"CK-A\"])",
+            "    assert True",
+        ]),
+        encoding="utf-8",
+    )
+
+    ck_map = checker.get_ck_test_cases_info(["FG-A/FC-A/CK-A"])
+
+    assert ck_map["FG-A/FC-A/CK-A"] == []
+    assert len(checker.unresolved_mark_function) == 1
+    assert "enclosing test function" in checker.unresolved_mark_function[0]["reason"]
+
+
+def test_get_ck_test_cases_info_rejects_wrong_fg_even_when_fc_ck_is_unique(tmp_path):
+    checker, _manager, tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-A", "FC-A", "CK-A")],
+    )
+    test_file = tests_dir / "test_wrong_fg.py"
+    test_file.write_text(
+        "\n".join([
+            "def test_a(env):",
+            "    env.cover[\"FG-WRONG\"].mark_function(\"FC-A\", test_a, [\"CK-A\"])",
+            "    assert True",
+        ]),
+        encoding="utf-8",
+    )
+
+    ck_map = checker.get_ck_test_cases_info(["FG-A/FC-A/CK-A"])
+
+    assert ck_map["FG-A/FC-A/CK-A"] == []
+    assert len(checker.unresolved_mark_function) == 1
+    assert "FG does not match" in checker.unresolved_mark_function[0]["reason"]
+
+
 def test_get_ck_test_cases_info_records_unresolved_dynamic_marks_and_ignores_prefix(tmp_path):
     checker, _manager, tests_dir, _doc = _make_checker(
         tmp_path,

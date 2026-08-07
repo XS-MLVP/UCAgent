@@ -2022,6 +2022,18 @@ class UnityChipCheckerRefineTestCases(Checker):
                     return keyword.value
             return None
 
+        def references_enclosing_test(node, expected_name):
+            if isinstance(node, ast.Name):
+                return node.id == expected_name
+            if isinstance(node, ast.Attribute):
+                return node.attr == expected_name
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                return any(
+                    references_enclosing_test(element, expected_name)
+                    for element in node.elts
+                )
+            return False
+
         def is_test_file(path):
             name = os.path.basename(path)
             return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
@@ -2099,6 +2111,13 @@ class UnityChipCheckerRefineTestCases(Checker):
                             and call.func.attr == "mark_function"):
                         continue
                     fc_arg = call.args[0] if len(call.args) >= 1 else extract_keyword(call, ["fc_name"])
+                    test_arg = call.args[1] if len(call.args) >= 2 else extract_keyword(
+                        call,
+                        [
+                            "test_function_or_list", "test_function", "test_functions",
+                            "test_func", "test_funcs", "func", "functions",
+                        ],
+                    )
                     ck_arg = call.args[2] if len(call.args) >= 3 else extract_keyword(
                         call,
                         [
@@ -2110,6 +2129,16 @@ class UnityChipCheckerRefineTestCases(Checker):
                     fc_name = literal_str(fc_arg) if fc_arg is not None else None
                     ck_names = literal_str_list(ck_arg) if ck_arg is not None else []
                     fg_name = extract_fg_from_receiver(call.func.value)
+                    if not references_enclosing_test(test_arg, test_func_name):
+                        unresolved_mark_function.append(OrderedDict({
+                            "test_case": test_case,
+                            "line": getattr(call, "lineno", func_node.lineno),
+                            "fg": fg_name,
+                            "fc": fc_name,
+                            "cks": ck_names,
+                            "reason": "mark_function does not statically reference the enclosing test function.",
+                        }))
+                        continue
                     if not fc_name or not fc_name.startswith("FC-") or not ck_names:
                         unresolved_mark_function.append(OrderedDict({
                             "test_case": test_case,
@@ -2132,14 +2161,21 @@ class UnityChipCheckerRefineTestCases(Checker):
                             }))
                             continue
                         matches = fc_ck_index.get((fc_name, ck_name), [])
-                        matched_ck = matches[0] if len(matches) == 1 else None
-                        if matched_ck is None and fg_name:
+                        matched_ck = None
+                        reason = "No matching CK in documentation."
+                        if fg_name:
                             exact_matches = fg_fc_ck_index.get((fg_name, fc_name, ck_name), [])
                             matched_ck = exact_matches[0] if len(exact_matches) == 1 else None
+                            if matched_ck is None and matches:
+                                reason = (
+                                    "FG does not match the documented FG for this FC/CK, "
+                                    "or the full FG/FC/CK path is ambiguous."
+                                )
+                        elif len(matches) == 1:
+                            matched_ck = matches[0]
+                        elif len(matches) > 1:
+                            reason = "Ambiguous CK in documentation; FG is required to disambiguate."
                         if matched_ck is None:
-                            reason = "No matching CK in documentation."
-                            if len(matches) > 1:
-                                reason = "Ambiguous CK in documentation; FG is required to disambiguate."
                             unresolved_mark_function.append(OrderedDict({
                                 "test_case": test_case,
                                 "line": getattr(call, "lineno", func_node.lineno),
