@@ -1,0 +1,32 @@
+ex_tools:
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+  REPORT: "eval/tools_report.json"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Generated Workflow Tool Static Evaluation"
+  prompt:
+    system: |
+      你只评估生成工作流中的工具，不启动任何 UCAgent 子工作流，不直接编辑 eval/res JSON。
+      所有结构化读写必须使用 StructuredJsonStore；临时 fixture、日志和案例只能写入 tmp/。
+      res/ 是用户提供的只读专业知识。发现失败时应形成 finding，而不是修改生成工作流。
+      报告中的标题、描述、分析、结论、影响、建议和证据说明等表述性文字必须使用中文；规则 ID、字段名、路径、命令、类名、函数名、库名和真实源码保持原文。
+stage:
+  - name: evaluate_tool_contracts
+    desc: "审查工具存在性、注册规范、可执行性和需求覆盖"
+    task:
+      - |
+        完整读取 Guide_Doc/evaluation_execution.md，并通过 StructuredJsonStore 读取 res/common.json、res/tools.json 和现有报告历史；禁止读取 evaluation_contract.md 或 eval_tools.md 的全文，它们由静态 Checker 维护规则目录。首先调用 StaticEvaluationAudit 保存紧凑索引，再从 workflow_spec、配置和审计结果建立工具队列。每次只读取一个工具的实现、对应 spec、注册位置、直接测试和一个真实输入输出例子，取得证据与反证后立即写入当前 report，再处理下一个工具；不得在第一次 report 更新前读取全部工具。执行 TOOLS-INVENTORY、TOOLS-REGISTRATION、TOOLS-CONTRACT、TOOLS-POSITIVE、TOOLS-NEGATIVE、TOOLS-OUTPUT、TOOLS-FAILURE、TOOLS-SAFETY、TOOLS-SEMANTICS、TOOLS-CHALLENGE 十项检查，每项必须生成同名 check。白名单测试验证参数、错误传播、重复运行、路径边界、真实产物与用户需求；finding 只在重新读取其精确源码一次反证后提交。报告使用 contract_version=2 的结构化 evidence；存在 critical/high 或必检项失败时 status 必须为 failed。
+    reference_files: ["Guide_Doc/evaluation_execution.md", "eval/tools_report.json", "res/common.json", "res/tools.json"]
+    output_files: ["eval/tools_report.json"]
+    checker:
+      - name: tools_report_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args: {report_path: "eval/tools_report.json", expected_report_type: "tools"}
+      - name: tools_guide_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/eval_tools.md", required_markers: ["TOOLS-INVENTORY", "TOOLS-CHALLENGE"], min_effective_lines: 300}
