@@ -51,13 +51,13 @@ theme:
 nav:
   - 首页: content/00_index.md
   - 开始使用：
-    - 前置依赖安装： content/01_start/01_installation.md
-    - 底层运行架构： content/01_start/02_architecture.md
-    - 三大交互模式总览： content/01_start/03_modes_overview.md
-    - 模式一：MCP集成协同： content/01_start/04_mcp_mode.md
-    - 模式二：纯TUI本地直连： content/01_start/05_tui_mode.md
-    - 模式三：Master Web交互： content/01_start/06_master_mode.md
-    - 结果分析与流程总结： content/01_start/07_summary.md
+    - 前置依赖安装： content/01_start/00_installation.md
+    - 底层运行架构： content/01_start/01_architecture.md
+    - 三大交互模式总览： content/01_start/02_modes_overview.md
+    - 模式一：MCP集成协同： content/01_start/03_mcp_mode.md
+    - 模式二：纯TUI本地直连： content/01_start/04_tui_mode.md
+    - 模式三：Master Web交互： content/01_start/05_master_mode.md
+    - 结果分析与流程总结： content/01_start/06_summary.md
 
 
   - 功能介绍:

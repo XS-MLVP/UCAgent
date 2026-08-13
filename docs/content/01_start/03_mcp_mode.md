@@ -124,7 +124,7 @@ ucagent output/ Adder -s -hm --tui --mcp-server-no-file-tools
 
 启动后终端展示 TUI 分栏界面，监听 `127.0.0.1:5000` 等待 Codex 客户端连接。
 
-![MCP TUI 界面](media/image2.png)
+![MCP TUI 界面](image2.png)
 
 ## 4.6 启动 Codex 客户端（终端 B，新开独立终端）
 
@@ -136,7 +136,7 @@ codex
 
 出现 `>` 输入提示符即启动成功：
 
-![Codex 启动](media/image3.png)
+![Codex 启动](image3.png)
 
 输入提示词驱动验证流程：
 

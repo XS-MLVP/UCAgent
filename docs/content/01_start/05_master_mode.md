@@ -24,7 +24,7 @@ ucagent --as-master-persist
 
 启动成功后，终端输出 Web 访问地址：`http://127.0.0.1:8800`，浏览器打开该地址，即可进入 Master 主控面板。
 
-![Master 面板](media/image4.png)
+![Master 面板](image4.png)
 
 ### 6.1.2 准备 DUT（待测模块）
 
@@ -64,7 +64,7 @@ mkdir -p Adder
    - 绿色成功提示：编译通过，生成 Python 可调用的 DUT 封装库
    - 红色错误提示：RTL 语法错误或参数配置错误，根据日志定位问题
 
-![编译界面](media/image5.png)
+![编译界面](image5.png)
 
 编译完成后，当前的目录结构如下：
 
@@ -107,7 +107,7 @@ mkdir -p Adder
 }
 ```
 
-![环境变量配置](media/image6.png)
+![环境变量配置](image6.png)
 
 > 注意：此处环境变量设置需要与 `config.yaml` 文件中一致。
 
@@ -125,7 +125,7 @@ mkdir -p Adder
 
 点击任务行的 **Open** 按钮，进入任务详情页：
 
-![任务详情](media/image7.png)
+![任务详情](image7.png)
 
 任务详情页包含：
 

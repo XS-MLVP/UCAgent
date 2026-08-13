@@ -36,7 +36,7 @@ pip3 install git+https://git@github.com/XS-MLVP/UCAgent@main
 
 安装完成后可通过 `ucagent --help` 查看全部命令行参数：
 
-![ucagent --help](media/image1.png)
+![ucagent --help](image1.png)
 
 ## 参数解释
 
