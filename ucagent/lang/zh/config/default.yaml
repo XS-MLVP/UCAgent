@@ -258,6 +258,51 @@ stage:
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+      - name: functional_line_mapping_gap_analysis
+        desc: "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}]"
+        task:
+          - "目标：按批次检查 checker 的 file_list 展开后每个目标文件的非空白行是否已纳入功能规格，避免 DUT 功能遗漏"
+          - "当前进度：{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS} 个行块；单个行块上限为 {MAX_LINE_BLOCK_LINES} 行"
+          - "当前批次：{CURRENT_LINE_BLOCKS}"
+          - "Check/Complete返回格式：current_line_block_contents和next_line_block_contents是行块列表，每个行块包含line_block、file、start_line、end_line、content；content是按物理行号升序排列的有序映射，转为YAML后形如content: {1: '第一行原文', 2: '', 3: '第三行原文'}，空白行的值为空字符串"
+          - "Check/Complete返回中会直接包含当前批次和下一批次的逐行内容；以返回内容为准处理当前批次，必要时也可以使用ReadTextFile重新读取源文件"
+          - "第1步：读取当前批次列出的文件行块，逐行判断其是否描述 DUT 功能、接口、约束、状态、时序、异常或边界行为"
+          - "第2步：有关功能的行必须映射到 {OUT}/{DUT}_functions_and_checks.md 中已有的精确 FG/FC/CK 路径"
+          - "第3步：如果发现功能行没有对应的 FG/FC/CK，先补充 {OUT}/{DUT}_functions_and_checks.md 中的 FG、FC、CK，再在映射文件中使用新标签；不得在映射文件中凭空创建标签"
+          - "第4步：与功能无关但非空白的行使用 IGNORE/FC-.../CK-... 映射，并在映射行末尾写明具体忽略原因；只处理 checker 当前批次给出的文件"
+          - "第5步：为当前文件建立 {OUT}/line_map/ 下对应的独立映射文件，映射格式遵循 Guide_Doc/dut_line_func_map.md"
+          - "第6步：每个映射区间不能超过 100 行；即使同一 CK 连续覆盖很多行，也必须拆成不超过 100 行的多个区间"
+          - "第7步：将当前完成的每个行块追加到 {OUT}/{DUT}_line_map_progress.md，使用唯一标记，例如：| <file>path/to/file.md:1-100</file> | 100 | 完成 |"
+          - "第8步：保留历史进度标记，不得删除或伪造已完成标记；每批完成后调用 Check 获取下一批，所有行块完成且 Check 通过后才能调用 Complete"
+          - "重要：不得使用 MISSMT 作为最终结果；如果功能缺失，必须补充正式 FG/FC/CK 并重新检查"
+        skill_list:
+          - "unitytest/functions-and-checks"
+        reference_files:
+          - "Guide_Doc/dut_functions_and_checks.md"
+          - "Guide_Doc/dut_line_func_map.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        output_files:
+          - "{OUT}/{DUT}_line_map_progress.md"
+          - "{OUT}/line_map/*_line_func_map.txt"
+        checker:
+          - name: functional_line_mapping_batch_check
+            clss: "UnityChipBatchCheckerFileLineMap"
+            args:
+              name: "functional_line_mapping"
+              file_list:
+                - "{DUT}/*.md"
+                - "{DUT}_Doc/*.md"
+                - "{OUT}/{DUT}_basic_info.md"
+                - "{OUT}/{DUT}_verification_needs_and_plan.md"
+              func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+              progress_file: "{OUT}/{DUT}_line_map_progress.md"
+              map_location: "{OUT}/line_map"
+              map_suffix: "_line_func_map.txt"
+              batch_size: $(FUNCTION_LINE_MAP_BATCH_SIZE: 1)
+              max_block_lines: 100
+              max_example_lines: 20
+              ignore_blank_lines: true
+              must_has_no_miss_match: true
 
   - name: functional_specification_refine
     desc: "功能规格/测试点细化与边界条件补充[{COUNT_CK}]"

@@ -42,6 +42,34 @@ MISSMT/FC-FUNC2/CK-ASSERT:   1030-1042         # TODO: 补充断言
 - 单行映射也使用相同格式，例如 `12-12` 表示仅覆盖第 12 行；不允许省略结束值。
 - 以下写法视为非法：仅写单个数字（如 `1`）、起止颠倒（如 `200-10`）、包含非数字字符或混合不同分隔符。
 
+### 批处理行块与进度标记
+
+逐行查漏补缺阶段使用 `UnityChipBatchTask` 将目标文件切分为行块。每个映射区间最多覆盖 100 行，超过该上限必须拆分为多个区间；空白或仅包含空白字符的行可以不映射，其他行不能遗漏。每个目标文件使用独立的映射文件，默认放在 `{OUT}/line_map/`，文件名由源文件相对路径安全化后加 `_line_func_map.txt` 后缀生成。
+
+每完成一个行块，需要在 `{OUT}/{DUT}_line_map_progress.md` 中保留唯一进度标记。标记内容包含源文件和物理行范围：
+
+```markdown
+| <file>path/to/file.md:1-100</file> | 97 | 完成 |
+```
+
+进度标记只有在对应映射文件通过行范围、CK 标签和非空白行覆盖校验后才有效。源文件内容或行数变化会使受影响的旧行块失效，必须重新分析。`MISSMT/...` 只能用于中间记录，不能作为最终完成结果；`IGNORE/FC-*/CK-*` 必须在行末注释中说明具体忽略原因。逐行覆盖目标完全由 checker 的 `file_list` 决定；`Guide_Doc/` 只作为格式参考，不应配置到该列表中。
+
+`Check` 和批次尚未全部完成时的 `Complete` 返回值会附带 `current_line_block_contents`，批次推进时还会附带 `next_line_block_contents`。两者都是行块列表，每个行块包含 `line_block`、`file`、`start_line`、`end_line` 和 `content`。`content` 是按物理行号升序排列的有序映射，键为物理行号，值为该行原文；空白行的值为空字符串。转换为 YAML 后示例如下：
+
+```yaml
+current_line_block_contents:
+  - line_block: path/to/file.md:1-3
+    file: path/to/file.md
+    start_line: 1
+    end_line: 3
+    content:
+      1: 第一行原文
+      2: ''
+      3: 第三行原文
+```
+
+这种结构不为每行重复创建 `line` 和 `content` 字段，并避免把整个行块序列化成包含换行转义的长字符串。这些内容用于减少重复读取，但映射判断仍必须以源文件实际内容为准。
+
 ### 特殊前缀约定
 
 | 前缀      | 适用场景                         | 必须说明的内容                          |
