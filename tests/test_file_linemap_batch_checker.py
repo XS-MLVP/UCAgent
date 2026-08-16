@@ -101,10 +101,54 @@ def test_batch_line_gap_detail_has_no_redundant_header(tmp_path):
         ignore_blank_lines=True,
         require_ignore_reason=True,
         include_line_detail_header=False,
+        compact_unmapped_blocks=True,
     )
     assert passed is False
     assert "line: line_content" not in str(message)
-    assert "2: unmapped" in str(message)
+    assert "2: unmapped" not in str(message)
+    assert "[2-2]" in str(message)
+    assert message["uncovered_line_count"] == 1
+    assert message["uncovered_line_blocks"] == ["2-2"]
+
+
+def test_batch_checker_groups_uncovered_lines_without_repeating_content(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text(
+        "\n".join(f"source content {line_number}" for line_number in range(1, 11))
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt").write_text(
+        "FG-API/FC-API/CK-API: 1-2, 6-7, 10-10\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        progress_file="out/progress.md",
+        map_location="out/line_map",
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    checker.on_init()
+
+    passed, result = checker.do_check(is_complete=False)
+
+    assert passed is False
+    details = result["invalid_mappings"][0]["details"]
+    assert details["uncovered_line_count"] == 5
+    assert details["uncovered_line_blocks"] == ["3-5", "8-9"]
+    assert "[3-5, 8-9]" in details["error"]
+    assert "source content 3" not in details["error"]
+    assert result["uncovered_lines"] == [
+        {
+            "line_block": "src/dut.md:1-10",
+            "uncovered_line_count": 5,
+            "uncovered_blocks": ["3-5", "8-9"],
+        }
+    ]
+    assert len(result["current_line_block_contents"][0]["content"]) == 10
 
 
 def test_strict_line_map_requires_valid_ck_and_ignore_reason(tmp_path):
@@ -245,6 +289,7 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
         "TOTAL_LINE_BLOCKS": "-",
         "COMPLETED_LINE_BLOCKS": "-",
         "LINE_MAP_PROGRESS": "-/-",
+        "COUNT_CK": "-",
         "CURRENT_LINE_BLOCKS": "",
         "MAX_LINE_BLOCK_LINES": 100,
     }
@@ -262,6 +307,10 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
         "ucagent.checkers.file_linemap.fc.find_files_by_pattern", fail_if_scanned
     )
     assert checker.get_template_data()["LINE_MAP_PROGRESS"] == "0/1"
+    assert checker.get_template_data()["COUNT_CK"] == 1
+    assert checker.filter_vstage_description(
+        "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
+    ) == "功能规格逐行查漏补缺[0/1|1]"
 
 
 def test_batch_checker_rejects_future_progress_marker(tmp_path):
@@ -346,6 +395,11 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
 
     child = parent["stage"][child_index]
     checker_args = child["checker"][0]["args"]
+    assert child["desc"] == "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
+    task_text = "\n".join(child["task"])
+    assert "不是对应源文件的完整内容" in task_text
+    assert "建议使用ReadTextFile查看file字段指向的原文件" in task_text
+    assert "例如[99-120, 456-888]" in task_text
     assert child["reference_files"] == [
         "Guide_Doc/dut_functions_and_checks.md",
         "Guide_Doc/dut_line_func_map.md",

@@ -171,12 +171,39 @@ def _unmapped_lines_for_ranges(source_lines, mapped_lines, required_ranges, igno
     return missing
 
 
+def _line_numbers_to_blocks(line_numbers):
+    """Compact physical line numbers into ordered ``start-end`` strings."""
+    normalized = sorted(set(int(line_number) for line_number in line_numbers))
+    if not normalized:
+        return []
+    blocks = []
+    start_line = previous_line = normalized[0]
+    for line_number in normalized[1:]:
+        if line_number == previous_line + 1:
+            previous_line = line_number
+            continue
+        blocks.append(f"{start_line}-{previous_line}")
+        start_line = previous_line = line_number
+    blocks.append(f"{start_line}-{previous_line}")
+    return blocks
+
+
+def _format_line_blocks(line_blocks, max_blocks):
+    """Render compact line-range diagnostics without repeating source text."""
+    displayed = line_blocks[:max_blocks]
+    values = list(displayed)
+    if len(line_blocks) > max_blocks:
+        values.append(f"... ({len(line_blocks) - max_blocks} more block(s))")
+    return f"[{', '.join(values)}]"
+
+
 def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_file, map_suffix,
                             map_location, max_example_lines: int, must_has_no_miss_match: bool,
                             cb_unmatch_ck=None, cb_match_ck=None, max_block_lines=None,
                             strict_line_bounds=False, required_ranges=None,
                             ignore_blank_lines=True, require_ignore_reason=False,
-                            include_line_detail_header=True):
+                            include_line_detail_header=True,
+                            compact_unmapped_blocks=False):
     """Check one file for unmapped lines based on line-function mapping."""
     info(f"Checking line-function mapping for file '{source_file}'...")
     abs_source_file = os.path.abspath(workspace + os.path.sep + source_file)
@@ -252,7 +279,12 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
         un_mapped_lines = _unmapped_lines_for_ranges(
             source_lines, mapped_lines, required_ranges, ignore_blank_lines
         )
-        if un_mapped_lines:
+        if un_mapped_lines and compact_unmapped_blocks:
+            uncovered_line_blocks = _line_numbers_to_blocks(un_mapped_lines)
+            detail_msg = _format_line_blocks(
+                uncovered_line_blocks, max_example_lines
+            )
+        elif un_mapped_lines:
             detail_msg = "\n".join(
                 f"{line_num}: {source_lines[line_num - 1].rstrip()}"
                 for line_num in un_mapped_lines[:max_example_lines]
@@ -264,7 +296,22 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
         else:
             detail_msg = "All requested lines are mapped."
     if len(un_mapped_lines) > 0:
-        emsg = f"Found {len(un_mapped_lines)} un-mapped line block(s) in source file '{source_file}':\n" + detail_msg        
+        if compact_unmapped_blocks:
+            uncovered_line_blocks = _line_numbers_to_blocks(un_mapped_lines)
+            emsg = (
+                f"Found {len(un_mapped_lines)} un-mapped line(s), grouped into "
+                f"{len(uncovered_line_blocks)} block(s), in source file "
+                f"'{source_file}':\n{detail_msg}"
+            )
+            return False, {
+                "error": emsg,
+                "uncovered_line_count": len(un_mapped_lines),
+                "uncovered_line_blocks": uncovered_line_blocks,
+            }
+        emsg = (
+            f"Found {len(un_mapped_lines)} un-mapped line block(s) in source file "
+            f"'{source_file}':\n{detail_msg}"
+        )
         return False, {"error": emsg}
     info(f"All lines in file '{source_file}' are properly mapped.")
     return True, f"All lines in file '{source_file}' are properly mapped."
@@ -343,6 +390,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         self.batch_task = UnityChipBatchTask(name, self)
         self._task_errors = []
         self._source_files = []
+        self._ck_count = "-"
         self._is_init = False
         self.set_human_check_needed(need_human_check)
 
@@ -453,6 +501,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             ignore_blank_lines=self.ignore_blank_lines,
             require_ignore_reason=True,
             include_line_detail_header=False,
+            compact_unmapped_blocks=True,
         )
 
     @staticmethod
@@ -481,10 +530,27 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             )
             diagnostics["missing_mapping_files"].append(map_file)
         if "un-mapped line" in error_text:
-            line_numbers = [int(value) for value in re.findall(r"(?:^|\n)\s*(\d+):", error_text)]
+            uncovered_blocks = (
+                message.get("uncovered_line_blocks", [])
+                if isinstance(message, dict)
+                else []
+            )
+            uncovered_count = (
+                message.get("uncovered_line_count", 0)
+                if isinstance(message, dict)
+                else 0
+            )
+            if not uncovered_blocks:
+                line_numbers = [
+                    int(value)
+                    for value in re.findall(r"(?:^|\n)\s*(\d+):", error_text)
+                ]
+                uncovered_blocks = _line_numbers_to_blocks(line_numbers)
+                uncovered_count = len(line_numbers)
             diagnostics["uncovered_lines"].append({
                 "line_block": _line_block_base(task),
-                "lines": line_numbers,
+                "uncovered_line_count": uncovered_count,
+                "uncovered_blocks": uncovered_blocks,
             })
         if "not found in documentation" in error_text:
             diagnostics["unknown_ck"].append({
@@ -552,6 +618,8 @@ class UnityChipBatchCheckerFileLineMap(Checker):
 
     def on_init(self):
         super().on_init()
+        success, ck_list = get_func_check_marks(self.workspace, self.func_check_file)
+        self._ck_count = len(ck_list) if success else "-"
         self._refresh_batch_state()
         return self
 
@@ -585,6 +653,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "TOTAL_LINE_BLOCKS": "-",
                 "COMPLETED_LINE_BLOCKS": "-",
                 "LINE_MAP_PROGRESS": "-/-",
+                "COUNT_CK": "-",
                 "CURRENT_LINE_BLOCKS": "",
                 "MAX_LINE_BLOCK_LINES": self.max_block_lines,
             }
@@ -596,6 +665,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             "TOTAL_LINE_BLOCKS": total,
             "COMPLETED_LINE_BLOCKS": completed,
             "LINE_MAP_PROGRESS": f"{completed}/{total}",
+            "COUNT_CK": self._ck_count,
             "CURRENT_LINE_BLOCKS": ", ".join(
                 _line_block_base(task) for task in self.batch_task.tbd_task_list
             ),
@@ -668,6 +738,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 ck_list_or_msg, self.batch_task.tbd_task_list
             )
         ck_list = ck_list_or_msg
+        self._ck_count = len(ck_list)
         markers, marker_errors = self._progress_markers()
         current_by_base = {_line_block_base(task): task for task in source_tasks}
         unknown_markers = [marker for marker in markers if marker not in current_by_base]

@@ -259,13 +259,15 @@ stage:
               data_key: "COVER_GROUP_DOC_CK_LIST"
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
       - name: functional_line_mapping_gap_analysis
-        desc: "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}]"
+        desc: "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
         task:
           - "目标：按批次检查 checker 的 file_list 展开后每个目标文件的非空白行是否已纳入功能规格，避免 DUT 功能遗漏"
           - "当前进度：{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS} 个行块；单个行块上限为 {MAX_LINE_BLOCK_LINES} 行"
           - "当前批次：{CURRENT_LINE_BLOCKS}"
           - "Check/Complete返回格式：current_line_block_contents和next_line_block_contents是行块列表，每个行块包含line_block、file、start_line、end_line、content；content是按物理行号升序排列的有序映射，转为YAML后形如content: {1: '第一行原文', 2: '', 3: '第三行原文'}，空白行的值为空字符串"
-          - "Check/Complete返回中会直接包含当前批次和下一批次的逐行内容；以返回内容为准处理当前批次，必要时也可以使用ReadTextFile重新读取源文件"
+          - "未覆盖诊断按连续物理行区间汇总为uncovered_blocks字符串列表，例如[99-120, 456-888]；不会使用start_line、end_line、line_count等冗余键，也不会在错误详情中逐行重复原文，当前批次行块的完整原文仍以current_line_block_contents为准"
+          - "Check/Complete返回中的content只包含当前批次或下一批次指定行块（每块最多{MAX_LINE_BLOCK_LINES}行），不是对应源文件的完整内容；错误详情中的uncovered_blocks也只给出未覆盖区间，不包含完整上下文"
+          - "如果判断一行的功能含义需要文件标题层级、表格表头、术语定义、前置说明或相邻行块等上下文，建议使用ReadTextFile查看file字段指向的原文件后再决定FG/FC/CK或IGNORE映射，不得把返回的局部片段误当成全文进行推断"
           - "第1步：读取当前批次列出的文件行块，逐行判断其是否描述 DUT 功能、接口、约束、状态、时序、异常或边界行为"
           - "第2步：有关功能的行必须映射到 {OUT}/{DUT}_functions_and_checks.md 中已有的精确 FG/FC/CK 路径"
           - "第3步：如果发现功能行没有对应的 FG/FC/CK，先补充 {OUT}/{DUT}_functions_and_checks.md 中的 FG、FC、CK，再在映射文件中使用新标签；不得在映射文件中凭空创建标签"
@@ -305,7 +307,7 @@ stage:
               must_has_no_miss_match: true
 
   - name: functional_specification_refine
-    desc: "功能规格/测试点细化与边界条件补充[{COUNT_CK}]"
+    desc: "功能规格/测试点细化与边界条件补充[{COMPLETED_POINTS}/{TOTAL_POINTS}|{COUNT_CK}]"
     task:
       - "目标：对功能规格进行细化，补充边界条件和异常情况"
       - "第1步：阅读{OUT}/{DUT}_functions_and_checks.md，理解已有功能点和检测点"
