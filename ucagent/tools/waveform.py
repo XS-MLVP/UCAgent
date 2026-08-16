@@ -1346,16 +1346,20 @@ class WaveInfo(UCTool):
             fields["wave_step"] = event_steps[0] if event_steps else None
         fields["timeline_truncated"] = False
 
-        result["bug_document_fields"] = fields
+        result["bug_document_fields"] = OrderedDict(
+            [("waveform_analysis", fields)]
+        )
         result["bug_document_completion_required"] = [
             "alignment_evidence",
             "observed_behavior",
             "source_correlation",
         ]
         result["bug_document_note"] = (
-            "Copy bug_document_fields under the matching <TC-*> and add the three "
-            "required LLM-authored fields after checking the returned timeline and RTL. "
-            "Do not copy analysis_window.effective_* as requested call arguments."
+            "Put a ```yaml fence immediately after the matching <TC-*>, copy "
+            "bug_document_fields as the complete YAML mapping, and add the three required "
+            "LLM-authored fields under waveform_analysis after checking the returned "
+            "timeline and RTL. Do not use the legacy <WAVEFORM-ANALYSIS> tag, JSON, or bare "
+            "YAML. Do not copy analysis_window.effective_* as requested call arguments."
         )
 
     @staticmethod

@@ -95,6 +95,15 @@ def _write_functions(tmp_path: Path) -> None:
     )
 
 
+def _waveform_block_lines(block: dict) -> list[str]:
+    payload = yaml.safe_dump(
+        {"waveform_analysis": block},
+        allow_unicode=True,
+        sort_keys=False,
+    ).rstrip()
+    return ["```yaml", payload, "```"]
+
+
 def _report() -> dict:
     return {
         "total_funct_point": 1,
@@ -122,13 +131,7 @@ def _write_bug_doc(tmp_path: Path, block: dict | None) -> None:
         f"<TC-{DOCUMENT_TEST}>",
     ]
     if block is not None:
-        lines.extend(
-            [
-                "<WAVEFORM-ANALYSIS>",
-                yaml.safe_dump(block, allow_unicode=True, sort_keys=False).rstrip(),
-                "</WAVEFORM-ANALYSIS>",
-            ]
-        )
+        lines.extend(_waveform_block_lines(block))
     (tmp_path / "bugs.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -301,11 +304,14 @@ def test_check_report_accepts_explicit_wave_window_receipt(tmp_path):
     )
     assert result["status"] == "events_found"
     assert result["evidence_usable"] is True
-    assert result["bug_document_fields"]["analysis_mode"] == "explicit_window"
-    assert result["bug_document_fields"]["start_step"] == 10
-    assert result["bug_document_fields"]["end_step"] == 25
-    assert result["bug_document_fields"]["wave_step"] == 15
-    assert result["bug_document_fields"]["receipt_id"] == result[
+    document_fields = result["bug_document_fields"]
+    assert set(document_fields) == {"waveform_analysis"}
+    analysis_fields = document_fields["waveform_analysis"]
+    assert analysis_fields["analysis_mode"] == "explicit_window"
+    assert analysis_fields["start_step"] == 10
+    assert analysis_fields["end_step"] == 25
+    assert analysis_fields["wave_step"] == 15
+    assert analysis_fields["receipt_id"] == result[
         "waveform_analysis_receipt"
     ]["receipt_id"]
     assert result["bug_document_completion_required"] == [
@@ -561,9 +567,7 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
             [
                 f"<{bug_label}>",
                 f"<TC-{test_case}>",
-                "<WAVEFORM-ANALYSIS>",
-                yaml.safe_dump(block, allow_unicode=True, sort_keys=False).rstrip(),
-                "</WAVEFORM-ANALYSIS>",
+                *_waveform_block_lines(block),
             ]
         )
     (tmp_path / "bugs.md").write_text(
@@ -644,9 +648,7 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
         cycle_tolerance=2,
         clock_signal="TOP.dut.clk",
     )
-    block_text = yaml.safe_dump(
-        _confirmed_block(result, pattern), allow_unicode=True, sort_keys=False
-    ).rstrip()
+    block_lines = _waveform_block_lines(_confirmed_block(result, pattern))
     (tmp_path / "bugs.md").write_text(
         "\n".join(
             [
@@ -655,12 +657,8 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
                 "<CK-A>",
                 "<BG-DYNAMIC-80>",
                 f"<TC-{DOCUMENT_TEST}>",
-                "<WAVEFORM-ANALYSIS>",
-                block_text,
-                "</WAVEFORM-ANALYSIS>",
-                "<WAVEFORM-ANALYSIS>",
-                block_text,
-                "</WAVEFORM-ANALYSIS>",
+                *block_lines,
+                *block_lines,
             ]
         )
         + "\n",
@@ -677,26 +675,36 @@ def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
     malformed_documents = (
         (
             "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n<WAVEFORM-ANALYSIS>\nstatus: [\n",
-            "missing </WAVEFORM-ANALYSIS>",
+            f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: confirmed\n",
+            "missing a standalone closing",
         ),
         (
             "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n<WAVEFORM-ANALYSIS>\nstatus: [\n"
-            "</WAVEFORM-ANALYSIS>\n",
+            f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: [\n```\n",
             "[Waveform Analysis YAML Error]",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<WAVEFORM-ANALYSIS>\n"
-            "status: confirmed\n</WAVEFORM-ANALYSIS>\n"
+            "<FG-A>\n<FC-A>\n<CK-A>\n```yaml\n"
+            "waveform_analysis:\n  status: confirmed\n```\n"
             f"<BG-DYNAMIC-80>\n<TC-{DOCUMENT_TEST}>\n",
             "[Waveform Analysis Association Missing]",
         ),
         (
             "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n"
-            "<WAVEFORM-ANALYSIS> status: unavailable; reason: static bug\n",
-            "must be on a standalone line",
+            "```json\n{\"waveform_analysis\": {\"status\": \"confirmed\"}}\n```\n",
+            "must be ```yaml",
+        ),
+        (
+            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            f"<TC-{DOCUMENT_TEST}>\n"
+            "```yml\nwaveform_analysis:\n  status: confirmed\n```\n",
+            "must be ```yaml",
+        ),
+        (
+            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            f"<TC-{DOCUMENT_TEST}>\n<WAVEFORM-ANALYSIS>\n",
+            "[Legacy Waveform Analysis Format]",
         ),
     )
     _write_functions(tmp_path)
@@ -720,7 +728,7 @@ def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
     document = (
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n\n  \n"
-        "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -732,12 +740,81 @@ def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
     assert ("BG-DYNAMIC-80", f"TC-{DOCUMENT_TEST}") in blocks
 
 
+def test_waveform_block_rejects_legacy_tag_format(tmp_path):
+    document = (
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n"
+        "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Legacy Waveform Analysis Format]" in str(error)
+
+
+def test_waveform_block_accepts_markdown_fenced_yaml(tmp_path):
+    document = (
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n"
+        "  ```yaml\n"
+        "  waveform_analysis:\n"
+        "    status: confirmed\n"
+        "    receipt_id: receipt-1\n"
+        "  ```\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, error
+    block = blocks[("BG-DYNAMIC-80", f"TC-{DOCUMENT_TEST}")]
+    assert block["data"] == {
+        "status": "confirmed",
+        "receipt_id": "receipt-1",
+    }
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_error"),
+    [
+        ("```yaml\nstatus: confirmed\n```", "top-level key"),
+        ("```yaml\nwaveform_analysis: confirmed\n```", "must contain a YAML mapping"),
+        (
+            "```yaml\nwaveform_analysis:\n  status: confirmed\nextra: true\n```",
+            "exactly one top-level key",
+        ),
+    ],
+)
+def test_waveform_block_rejects_invalid_markdown_fences(
+    tmp_path, payload, expected_error
+):
+    document = (
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n"
+        f"{payload}\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert expected_error in str(error)
+
+
 def test_waveform_block_must_be_the_first_nonempty_line_after_tc(tmp_path):
     document = (
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n"
         "根因分析正文不能插在测试标签和波形块之间。\n"
-        "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -756,7 +833,7 @@ def test_waveform_block_after_multiple_tests_belongs_only_to_last_test(tmp_path)
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{first_test}>\n"
         f"<TC-{second_test}>\n"
-        "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 

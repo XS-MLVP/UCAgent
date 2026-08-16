@@ -7,12 +7,53 @@ from ucagent.checkers.base import Checker
 from datetime import datetime
 import os
 import re
+import textwrap
 import traceback
 import yaml
 
 
-_WAVEFORM_BLOCK_OPEN = "<WAVEFORM-ANALYSIS>"
-_WAVEFORM_BLOCK_CLOSE = "</WAVEFORM-ANALYSIS>"
+_WAVEFORM_BLOCK_KEY = "waveform_analysis"
+_WAVEFORM_FENCE_OPEN = "```yaml"
+_WAVEFORM_FENCE_CLOSE = "```"
+
+
+def _extract_waveform_yaml_payload(
+    payload_lines: list[str],
+    *,
+    block_line: int,
+    bug_file: str,
+) -> tuple[bool, object, object]:
+    """Parse the canonical fenced YAML waveform marker and return its mapping."""
+
+    yaml_text = textwrap.dedent("\n".join(payload_lines))
+    try:
+        payload = yaml.safe_load(yaml_text)
+    except yaml.YAMLError as error:
+        return False, "", {
+            "error": (
+                f"[Waveform Analysis YAML Error] Block at line {block_line} in "
+                f"'{bug_file}' is invalid YAML: {error}"
+            )
+        }
+    if not isinstance(payload, dict) or set(payload) != {_WAVEFORM_BLOCK_KEY}:
+        return False, "", {
+            "error": (
+                f"[Waveform Analysis Marker Error] YAML block at line {block_line} in "
+                f"'{bug_file}' must contain exactly one top-level key named "
+                f"'{_WAVEFORM_BLOCK_KEY}'."
+            )
+        }
+    analysis = payload[_WAVEFORM_BLOCK_KEY]
+    if not isinstance(analysis, dict):
+        return False, "", {
+            "error": (
+                f"[Waveform Analysis Format Error] '{_WAVEFORM_BLOCK_KEY}' at line "
+                f"{block_line} in '{bug_file}' must contain a YAML mapping."
+            )
+        }
+    return True, analysis, ""
+
+
 def parse_bug_label(label: str) -> tuple[str, float]:
     """Parse a ``BG-NAME-XX`` label into its name and 0.0-1.0 confidence."""
     raw = str(label or "").strip().strip("<>")
@@ -76,7 +117,7 @@ def _parse_waveform_analysis_blocks(
     workspace: str,
     bug_file: str,
 ) -> tuple[bool, dict, object]:
-    """Parse YAML waveform blocks that are direct children of BG/TC tags."""
+    """Parse fenced ``waveform_analysis`` mappings directly following BG/TC tags."""
 
     path = os.path.join(workspace, bug_file)
     if not os.path.isfile(path):
@@ -97,56 +138,42 @@ def _parse_waveform_analysis_blocks(
 
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if _WAVEFORM_BLOCK_OPEN in stripped and stripped != _WAVEFORM_BLOCK_OPEN:
+        if "<WAVEFORM-ANALYSIS>" in stripped or "</WAVEFORM-ANALYSIS>" in stripped:
             return False, {}, {
                 "error": (
-                    f"[Waveform Analysis Format Error] {_WAVEFORM_BLOCK_OPEN} at line "
-                    f"{line_number} in '{bug_file}' must be on a standalone line. Put the "
-                    "YAML mapping on following lines and close it with a standalone "
-                    f"{_WAVEFORM_BLOCK_CLOSE}."
+                    f"[Legacy Waveform Analysis Format] Line {line_number} in '{bug_file}' "
+                    "uses the unsupported <WAVEFORM-ANALYSIS> tag. Put a ```yaml fence "
+                    "directly after the corresponding <TC-*> and use 'waveform_analysis:' "
+                    "as the only top-level YAML key."
                 )
             }
-        if _WAVEFORM_BLOCK_CLOSE in stripped and stripped != _WAVEFORM_BLOCK_CLOSE:
-            return False, {}, {
-                "error": (
-                    f"[Waveform Analysis Format Error] {_WAVEFORM_BLOCK_CLOSE} at line "
-                    f"{line_number} in '{bug_file}' must be on a standalone line."
-                )
-            }
+
         if opened is not None:
-            if stripped == _WAVEFORM_BLOCK_OPEN:
+            if stripped.startswith("```") and stripped != _WAVEFORM_FENCE_CLOSE:
                 return False, {}, {
                     "error": (
-                        f"[Waveform Analysis Format Error] Nested {_WAVEFORM_BLOCK_OPEN} "
-                        f"at line {line_number} in '{bug_file}'."
+                        f"[Waveform Analysis Fence Error] Nested or malformed fence "
+                        f"{stripped!r} at line {line_number} in '{bug_file}'. Close the "
+                        "current YAML block with a standalone ``` first."
                     )
                 }
-            if stripped != _WAVEFORM_BLOCK_CLOSE:
+            if stripped != _WAVEFORM_FENCE_CLOSE:
                 payload_lines.append(line)
                 continue
 
-            try:
-                payload = yaml.safe_load("\n".join(payload_lines))
-            except yaml.YAMLError as error:
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis YAML Error] Block at line {opened['line']} "
-                        f"in '{bug_file}' is invalid YAML: {error}"
-                    )
-                }
-            if not isinstance(payload, dict):
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis Format Error] Block at line {opened['line']} "
-                        "must contain a YAML mapping."
-                    )
-                }
+            payload_ok, payload, payload_error = _extract_waveform_yaml_payload(
+                payload_lines,
+                block_line=opened["line"],
+                bug_file=bug_file,
+            )
+            if not payload_ok:
+                return False, {}, payload_error
             pair = (opened["bug"], opened["test_case"])
             if pair in blocks:
                 return False, {}, {
                     "error": (
                         f"[Duplicate Waveform Analysis] '{pair[0]}/{pair[1]}' has more "
-                        f"than one {_WAVEFORM_BLOCK_OPEN} block in '{bug_file}'."
+                        f"than one {_WAVEFORM_BLOCK_KEY} block in '{bug_file}'."
                     )
                 }
             blocks[pair] = {
@@ -157,18 +184,10 @@ def _parse_waveform_analysis_blocks(
             payload_lines = []
             continue
 
-        if stripped == _WAVEFORM_BLOCK_CLOSE:
-            return False, {}, {
-                "error": (
-                    f"[Waveform Analysis Format Error] Unexpected {_WAVEFORM_BLOCK_CLOSE} "
-                    f"at line {line_number} in '{bug_file}'."
-                )
-            }
-
         if pending_test is not None:
             if not stripped:
                 continue
-            if stripped == _WAVEFORM_BLOCK_OPEN:
+            if stripped.lower() == _WAVEFORM_FENCE_OPEN:
                 opened = {
                     "line": line_number,
                     "test_line": pending_test["line"],
@@ -178,32 +197,47 @@ def _parse_waveform_analysis_blocks(
                 pending_test = None
                 payload_lines = []
                 continue
+            if stripped.startswith("```"):
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Analysis Fence Error] The first non-empty content after "
+                        f"<{pending_test['test_case']}> at line {line_number} in "
+                        f"'{bug_file}' must be ```yaml, not {stripped!r}."
+                    )
+                }
+            if stripped == f"{_WAVEFORM_BLOCK_KEY}:":
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Analysis Fence Required] Bare '{_WAVEFORM_BLOCK_KEY}:' "
+                        f"at line {line_number} in '{bug_file}' is not accepted. Put the "
+                        "mapping inside a ```yaml ... ``` block."
+                    )
+                }
             pending_test = None
 
-        if stripped == _WAVEFORM_BLOCK_OPEN:
+        if stripped.lower() == _WAVEFORM_FENCE_OPEN:
             if current_bug is not None and current_test is not None:
                 pair = (current_bug, current_test)
                 if pair in blocks:
                     return False, {}, {
                         "error": (
                             f"[Duplicate Waveform Analysis] '{pair[0]}/{pair[1]}' has more "
-                            f"than one {_WAVEFORM_BLOCK_OPEN} block in '{bug_file}'."
+                            f"than one {_WAVEFORM_BLOCK_KEY} block in '{bug_file}'."
                         )
                     }
                 return False, {}, {
                     "error": (
-                        f"[Waveform Analysis Cascade Error] {_WAVEFORM_BLOCK_OPEN} at line "
-                        f"{line_number} in '{bug_file}' is not the direct child of "
-                        f"<{current_test}>. Put the opening tag on the first non-empty line "
-                        "after its exact <TC-*> tag; do not place descriptions, another tag, "
-                        "Bug analysis text, or other content between them."
+                        f"[Waveform Analysis Cascade Error] YAML fence at line "
+                        f"{line_number} in '{bug_file}' is not the first non-empty content "
+                        f"after <{current_test}>. Put ```yaml immediately after its exact "
+                        "<TC-*> tag and use 'waveform_analysis:' as the top-level key."
                     )
                 }
             return False, {}, {
                 "error": (
-                    f"[Waveform Analysis Association Missing] {_WAVEFORM_BLOCK_OPEN} at "
-                    f"line {line_number} must be the direct child of a dynamic <BG-*>/"
-                    "<TC-*> entry."
+                    f"[Waveform Analysis Association Missing] YAML fence at line "
+                    f"{line_number} must be the first non-empty content after a dynamic "
+                    "<BG-*>/<TC-*> entry."
                 )
             }
 
@@ -228,8 +262,8 @@ def _parse_waveform_analysis_blocks(
     if opened is not None:
         return False, {}, {
             "error": (
-                f"[Waveform Analysis Format Error] Block opened at line {opened['line']} "
-                f"in '{bug_file}' is missing {_WAVEFORM_BLOCK_CLOSE}."
+                f"[Waveform Analysis Fence Error] YAML block opened at line "
+                f"{opened['line']} in '{bug_file}' is missing a standalone closing ```."
             )
         }
     return True, blocks, ""
@@ -492,10 +526,10 @@ def check_waveform_bug_analysis(
     if missing:
         return _waveform_error(
             f"[Waveform Analysis Missing] {len(missing)} dynamic Bug/test association(s) "
-            f"lack a {_WAVEFORM_BLOCK_OPEN} block: {fc.list_str_abbr(missing)}. Call "
-            "WaveInfo for each failing test and place the returned receipt and structured "
-            "analysis as the direct child of the corresponding <TC-*> entry: the opening "
-            "tag must be its first non-empty following line. Static-only findings "
+            f"lack a fenced '{_WAVEFORM_BLOCK_KEY}' mapping: {fc.list_str_abbr(missing)}. "
+            "Call WaveInfo for each failing test, then put a ```yaml block as the first "
+            "non-empty content after the corresponding <TC-*>. The block must contain only "
+            "the top-level 'waveform_analysis:' key and its structured evidence. Static-only findings "
             "belong in the separate static Bug document and cannot be represented here with "
             "a <BG-STATIC-*> tag.",
             missing=missing,
@@ -914,10 +948,10 @@ def _get_documented_dynamic_test_map(
     inside_waveform_block = False
     for line in lines:
         stripped = line.strip()
-        if stripped == _WAVEFORM_BLOCK_OPEN:
+        if not inside_waveform_block and stripped.lower() == _WAVEFORM_FENCE_OPEN:
             inside_waveform_block = True
             continue
-        if stripped == _WAVEFORM_BLOCK_CLOSE:
+        if inside_waveform_block and stripped == _WAVEFORM_FENCE_CLOSE:
             inside_waveform_block = False
             continue
         if inside_waveform_block:
