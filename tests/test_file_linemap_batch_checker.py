@@ -407,7 +407,7 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     ]
     assert checker_args["file_list"] == [
         "{DUT}/*.md",
-        "{DUT}_Doc/*.md",
+        "{DOC_PATH}/*.md",
         "{OUT}/{DUT}_basic_info.md",
         "{OUT}/{DUT}_verification_needs_and_plan.md",
     ]

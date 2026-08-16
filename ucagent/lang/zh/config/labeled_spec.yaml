@@ -5,7 +5,7 @@
 
 stage[2].task:
   - "目标：基于已标注的规格文档，生成完整、可测试的功能点与检查点文档：{OUT}/{DUT}_functions_and_checks.md"
-  - "第1步：阅读{DUT}/, {DUT}_Doc/等目录下的所有规格/需求文档，重点识别其中已有的<FG-*>、<FC-*>、<CK-*>标签"
+  - "第1步：阅读{DUT}/、{DOC_PATH}/等目录下的所有规格/需求文档，重点识别其中已有的<FG-*>、<FC-*>、<CK-*>标签"
   - "第3步：将每个功能组<FG-*>整理到{OUT}/{DUT}_functions_and_checks.md"
   - "第3步：将每个功能组下的<FC-*>功能点整理到{OUT}/{DUT}_functions_and_checks.md"
   - "第4步：将每个功能点下的<CK-*>检测点完整迁移/补充到{OUT}/{DUT}_functions_and_checks.md"
@@ -31,6 +31,6 @@ stage[2].checker:
     args:
       source_files:
         - "$(LABELED_SPEC_FILES: {DUT}/*.md)"
-        - "{DUT}_Doc/*.md"
+        - "{DOC_PATH}/*.md"
       funcs_and_checks_doc: "{OUT}/{DUT}_functions_and_checks.md"
       leaf_node: "CK"

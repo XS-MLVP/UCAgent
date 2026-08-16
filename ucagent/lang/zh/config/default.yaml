@@ -1,6 +1,7 @@
 
 template_overwrite:
   DOC_GEN_LANG: "中文"
+  DOC_PATH: "{DUT}_Doc"
   RTL_PATH: "{DUT}_RTL"
 
 runtime_options:
@@ -220,7 +221,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
-      - "{DUT}_Doc/*.md"
+      - "{DOC_PATH}/*.md"
       - "{DUT}/__init__.py"
       - "{OUT}/{DUT}_basic_info.md"
       - "{OUT}/{DUT}_verification_needs_and_plan.md"
@@ -319,7 +320,7 @@ stage:
               name: "functional_line_mapping"
               file_list:
                 - "{DUT}/*.md"
-                - "{DUT}_Doc/*.md"
+                - "{DOC_PATH}/*.md"
                 - "{OUT}/{DUT}_basic_info.md"
                 - "{OUT}/{DUT}_verification_needs_and_plan.md"
               func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
