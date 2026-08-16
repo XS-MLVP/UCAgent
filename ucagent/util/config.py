@@ -3,9 +3,17 @@
 import os
 import re
 import yaml
+from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from yaml.constructor import SafeConstructor
-from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
+from .functions import (
+    render_template,
+    dump_as_json,
+    replace_bash_var,
+    get_abs_path_cwd_ucagent,
+    load_json_file,
+    save_json_file,
+)
 from .log import info
 import base64
 
@@ -15,6 +23,11 @@ _NEGATED_BOOL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _DELETE_OVERRIDE = object()
+RUNTIME_CONFIG_FILENAME = "runtime_config.json"
+REQUIRED_RUNTIME_BOOL_OPTIONS = (
+    "need_ref_model",
+    "mock_components_enabled",
+)
 
 
 class UCAgentConfigLoader(yaml.SafeLoader):
@@ -495,6 +508,89 @@ class Config:
             for key, value in v.items():
                 self.set_value(key, value)
         return self
+
+
+def build_runtime_config(cfg: Config) -> Dict[str, Any]:
+    """Build the non-secret runtime snapshot shared with workspace consumers."""
+    if not isinstance(cfg, Config):
+        raise TypeError("Runtime config can only be built from a Config instance.")
+
+    runtime_options = cfg.get_value("runtime_options", None)
+    if runtime_options is None:
+        raise ValueError("Configuration is missing required 'runtime_options'.")
+    if isinstance(runtime_options, Config):
+        runtime_options = runtime_options.as_dict()
+    elif isinstance(runtime_options, dict):
+        runtime_options = dict(runtime_options)
+    else:
+        raise TypeError("Configuration value 'runtime_options' must be a mapping.")
+
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Configuration value 'runtime_options.{key}' must be a boolean."
+            )
+
+    template_values = cfg.__dict__.get("_temp_cfg")
+    if not isinstance(template_values, dict):
+        raise ValueError("Configuration is missing resolved DUT/OUT template values.")
+    dut = template_values.get("DUT")
+    output = template_values.get("OUT")
+    if not isinstance(dut, str) or not dut.strip():
+        raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
+    if not isinstance(output, str) or not output.strip():
+        raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
+
+    return {
+        "schema_version": 1,
+        "DUT": dut,
+        "OUT": output,
+        "runtime_options": runtime_options,
+    }
+
+
+def validate_runtime_config(data: Any) -> Dict[str, Any]:
+    """Validate a runtime snapshot before it is consumed."""
+    if not isinstance(data, dict):
+        raise ValueError("Resolved runtime config must be a JSON object.")
+    if data.get("schema_version") != 1:
+        raise ValueError("Resolved runtime config has an unsupported schema_version.")
+    for key in ("DUT", "OUT"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ValueError(
+                f"Resolved runtime config value '{key}' must be a non-empty string."
+            )
+
+    runtime_options = data.get("runtime_options")
+    if not isinstance(runtime_options, dict):
+        raise ValueError("Resolved runtime config has no runtime_options mapping.")
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Resolved config value runtime_options.{key} must be a boolean."
+            )
+    return data
+
+
+def save_runtime_config(workspace: str, cfg: Config) -> Path:
+    """Persist resolved runtime options for skills, checkers, and other consumers."""
+    runtime_path = Path(
+        get_abs_path_cwd_ucagent(workspace, RUNTIME_CONFIG_FILENAME)
+    )
+    runtime_data = validate_runtime_config(build_runtime_config(cfg))
+    save_json_file(str(runtime_path), runtime_data)
+    return runtime_path
+
+
+def load_runtime_config(workspace: str) -> Dict[str, Any]:
+    """Load the shared resolved runtime snapshot from a workspace."""
+    runtime_path = Path(workspace) / ".ucagent" / RUNTIME_CONFIG_FILENAME
+    if not runtime_path.is_file():
+        raise FileNotFoundError(
+            f"Resolved runtime config not found: {runtime_path}. "
+            "Start UCAgent for this workspace before using runtime consumers."
+        )
+    return validate_runtime_config(load_json_file(str(runtime_path)))
 
 
 def find_file_in_paths(filename, search_paths):

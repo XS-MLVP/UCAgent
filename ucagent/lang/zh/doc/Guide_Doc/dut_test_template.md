@@ -11,6 +11,19 @@
 4. **并发开发**：多人协作时可以并行开发不同的测试用例
 5. **覆盖率规划**：提前明确测试覆盖的功能点和检查点
 
+## 测试参数由当前配置决定
+
+普通DUT测试模板必须使用当前阶段任务显示的参考模型配置：
+
+| 是否启用参考模型 | 参数签名 |
+|---|---|
+| `false` | `def test_xxx(env):` |
+| `true` | `def test_xxx(env, ref_model):` |
+
+`ref_model`启用时必须紧跟`env`，作为第二个参数。UCAgent初始化时将`agent.cfg`中已解析的非敏感运行选项写入`.ucagent/runtime_config.json`；模板生成脚本读取其中的`runtime_options.need_ref_model`并生成唯一正确签名，不直接读取进程环境变量。
+
+启用Mock组件不会改变普通DUT测试参数。是否启用以`runtime_options.mock_components_enabled`的正向布尔值为准，不能在脚本中重新读取或反转`IGNORE_MOCK_COMPONENT`。`mock_dut`仅用于`test_api_{DUT}_mock_*`形式的Mock组件独立测试，不属于本阶段生成的普通DUT模板。
+
 ## 空测试用例示例
 
 ### 基本示例
@@ -50,11 +63,19 @@ def test_overflow_scenarios(env):
 
 - **函数名称**：必须以 `test_` 开头，符合pytest规范
 - **命名规范**：使用有意义的名称，清晰表达测试意图
-- **参数规范**：固定使用 `env` 作为参数，表示被测设计单元环境
+- **参数规范**：第一个参数固定为`env`；启用参考模型时第二个参数固定为`ref_model`
 
 ```python
-def test_boundary_conditions(env):  # ✓ 良好的命名
-def test_func_a(env):              # ✗ 命名不明确
+def test_boundary_conditions(env):  # 未启用参考模型
+def test_boundary_conditions(env, ref_model):  # 启用参考模型
+```
+
+以下签名均不允许用于普通DUT模板：
+
+```python
+def test_boundary_conditions(ref_model, env): ...  # 参数顺序错误
+def test_boundary_conditions(mock_dut): ...  # 这是Mock单元测试fixture
+def test_boundary_conditions(dut): ...  # 必须通过env和API访问DUT
 ```
 
 ### 2. 用例注释
@@ -127,6 +148,22 @@ def test_basic_addition(env):
         
 ```
 
+启用参考模型时，完整实现必须保留`env, ref_model`签名，并用参考模型依据规格独立计算预期：
+
+```python
+def test_basic_addition(env, ref_model):
+    """测试基本加法功能。"""
+    env.dut.fc_cover["FG-ADD"].mark_function(
+        "FC-BASIC", test_basic_addition, ["CK-NORM"]
+    )
+
+    actual, carry = api_adder_add(env, 1, 2, 0)
+    expected = ref_model.add(1, 2, 0)
+    assert actual == expected
+```
+
+参考模型不能读取`actual`后返回同值，也不能照抄疑似有缺陷的RTL实现；否则比较失去独立性。
+
 ## 最佳实践
 
 ### 1. 确保反标成功
@@ -155,3 +192,5 @@ from {DUT}_api import *  # 导入DUT相关的API函数, 必须用 import *， �
 - 确保每个测试用例至少覆盖一个检查点
 - 确保每个检查点至少被一个测试用例覆盖
 - 避免重复标记相同的检查点
+- 启用参考模型时，确保所有普通DUT模板都使用`env, ref_model`；关闭时不要添加不存在的`ref_model` fixture
+- 无论Mock组件是否启用，普通DUT模板都不能使用`mock_dut`

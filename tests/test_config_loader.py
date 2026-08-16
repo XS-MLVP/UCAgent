@@ -15,6 +15,19 @@ from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_f
 
 
 class TestConfigLoader(unittest.TestCase):
+    def test_default_prompt_requires_stage_local_reference_file_reads(self):
+        config_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+
+        config = load_yaml_with_env_vars(config_path)
+        system_prompt = config["mission"]["prompt"]["system"]
+
+        self.assertIn("各stage相互独立", system_prompt)
+        self.assertIn("逐一用`ReadTextFile`读取其`reference_files`", system_prompt)
+        self.assertIn("`count=1`轻量复核", system_prompt)
+        self.assertIn("`count=0`仅登记已读而不返回正文", system_prompt)
+
     def test_load_yaml_with_negated_bool_scalars(self):
         yaml_content = """
 plain_true: true

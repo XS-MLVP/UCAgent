@@ -2,7 +2,7 @@
 
 from curses import echo
 from .tools.context import ArbitContextSummary
-from .util.config import get_config
+from .util.config import get_config, save_runtime_config
 from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
 from .util.functions import (
     fmt_time_deta,
@@ -140,6 +140,7 @@ class VerifyAgent:
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
+        self.runtime_config_path = save_runtime_config(self.workspace, self.cfg)
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, self.cfg.guide_doc.path)

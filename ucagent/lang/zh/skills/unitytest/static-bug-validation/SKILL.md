@@ -9,6 +9,15 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 
 本阶段的目标是逐个处理`{OUT}/{DUT}_static_bug_analysis.md`中的`<LINK-BUG-[BG-TBD]>`占位标签,通过动态测试给出验证结论,并将静态Bug与动态Bug建立稳定的一一或一对多追踪关系.
 
+## 测试参数契约
+
+新建`test_static_{DUT}_*`动态验证测试时，参考当前工作区已有的普通DUT测试模板，沿用其fixture参数和顺序。通常签名为`def test_static_{DUT}_xxx(env):`或`def test_static_{DUT}_xxx(env, ref_model):`。不得自行增加、删除或交换fixture；若Check报告参数契约不符，按其明确要求修正。
+
+- 测试签名中已有`ref_model`时，必须保持为第二个参数，并依据功能规格独立给出预期；不能读取DUT结果生成预期，也不能照抄被怀疑有缺陷的RTL算法。
+- DUT与参考模型不一致时，必须先判定参考模型、测试时序、API、fixture或DUT哪一方违反规格。参考模型错误必须修复到Pass，不能被链接成动态DUT Bug。
+- 真实DUT验证使用普通DUT测试模板的`env[, ref_model]`参数。`mock_dut`仅用于Mock组件独立单元测试，不能用于证实静态RTL候选。
+- 如果静态候选只在Mock错误、Mock回调顺序或验证环境异常下出现，修复基础设施并将候选判为误报；不得创建动态Bug或WaveInfo证据。
+
 本技能提供两个脚本:
 - `recordbug.py`: 将新证实的动态Bug按规范写入`{OUT}/{DUT}_bug_analysis.md`
 - `linkbug.py`: 将静态Bug与动态Bug的关联关系回填到`{OUT}/{DUT}_static_bug_analysis.md`
@@ -85,6 +94,7 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 动态Bug标签形如`BG-XXX-90`
 - 动态Bug标签严禁使用`BG-STATIC-*`命名；`<BG-STATIC-*>`标签只保留在`{OUT}/{DUT}_static_bug_analysis.md`
 - 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据
+- `recordbug.py`会把问题描述、源码位置、根因和修复建议集中写入对应`<BG-*>`条目，不再生成独立的全局根因章节；脚本不会生成或伪造波形字段，运行后必须把真实`bug_document_fields`插入每个`<TC-*>`后
 - 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整
 
 2. 静态分析误报

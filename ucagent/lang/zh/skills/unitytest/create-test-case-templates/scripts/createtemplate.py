@@ -2,6 +2,8 @@ import argparse
 import re
 import os
 
+from ucagent.util.config import load_runtime_config
+
 project_root = os.getcwd()
 
 
@@ -108,9 +110,10 @@ def parse_function_md(file_path):
     return hierarchy
 
 
-def generate_templates(DUT, OUT, function_dict):
+def generate_templates(DUT, OUT, function_dict, need_ref_model=False):
     out_dir = os.path.join(project_root, OUT, 'tests')
     os.makedirs(out_dir, exist_ok=True)
+    test_args = "env, ref_model" if need_ref_model else "env"
     
     for fg_name, fc_dict in function_dict.items():
         # if fg_name == "FG-API":
@@ -128,7 +131,7 @@ from {DUT}_api import *\n'''
                     ck_suffix = ck_name.split('-', 1)[1].lower().replace('-', '_') if '-' in ck_name else ck_name.lower()
                     func_name = f"test_{ck_suffix}"
                     
-                    template += f'''def {func_name}(env):
+                    template += f'''def {func_name}({test_args}):
     env.dut.fc_cover["{fg_name}"].mark_function("{fc_name}", {func_name}, ["{ck_name}"])
 
     # TASK: 实现 {ck_name} 测试逻辑
@@ -137,8 +140,11 @@ from {DUT}_api import *\n'''
             f.write(template + '\n')
 
 def main():
-    DUT = os.environ.get("DUT")
-    OUT = os.environ.get("OUT")
+    runtime_config = load_runtime_config(project_root)
+    DUT = runtime_config["DUT"]
+    OUT = runtime_config["OUT"]
+    runtime_options = runtime_config["runtime_options"]
+    need_ref_model = runtime_options["need_ref_model"]
 
     function_dict_file = os.path.join(project_root, OUT, f'{DUT}_functions_and_checks.md')
     if not os.path.exists(function_dict_file):
@@ -146,7 +152,7 @@ def main():
         return
 
     function_dict = parse_function_md(function_dict_file)
-    generate_templates(DUT, OUT, function_dict)
+    generate_templates(DUT, OUT, function_dict, need_ref_model=need_ref_model)
     print("Test templates generated successfully, use Tool `Complete` to push stage.")
 
 if __name__ == '__main__':

@@ -48,9 +48,9 @@ def test_basic_functionality(env):
     assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
 ```
 
-### API 测试函数的参数规范（重要）
+### DUT功能测试函数的参数规范（重要）
 
-以 `test_api_{DUT}_` 为前缀的 **API 测试函数**有严格的参数顺序要求：
+API测试、功能测试模板、静态Bug动态验证测试和随机测试都必须遵守当前参考模型配置的参数顺序：
 
 | 参数位置 | 参数名 | 说明 |
 |---------|--------|------|
@@ -89,7 +89,9 @@ def test_api_{DUT}_add_basic(ref_model, env): ...
 def test_api_{DUT}_add_basic(dut, env, ref_model): ...
 ```
 
-> **注意：** 检查器会自动验证所有 `test_api_{DUT}_*` 函数的参数顺序。若启用了 `ref_model` fixture，则必须将 `ref_model` 作为第二个参数，否则检查将不通过。
+> **注意：** 对应阶段的检查器会验证目标测试函数的参数顺序。若启用了`ref_model` fixture，则必须将`ref_model`作为第二个参数，否则检查不通过。
+
+Mock组件独立测试使用另一套固定契约：`def test_api_{DUT}_mock_xxx(mock_dut):`。运行配置中的`need_ref_model: true`不会给Mock测试增加`ref_model`；`mock_components_enabled: true`也不会让普通DUT测试把`env`替换为`mock_dut`。这两个值必须取自已解析的`agent.cfg.runtime_options`或`.ucagent/runtime_config.json`，不能由测试代码直接读取环境变量。
 
 ## 覆盖率关联机制
 

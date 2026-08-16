@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mock 组件实现与测试"
+  short_description: "实现 Mock、mock_dut fixture 和独立单元测试"
+  default_prompt: "按照当前 Mock 阶段实现或测试 Mock 组件，并严格区分 mock_dut 与普通 DUT 测试的 env/ref_model 参数契约。"
