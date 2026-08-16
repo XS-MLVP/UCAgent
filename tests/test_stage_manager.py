@@ -282,7 +282,7 @@ def _make_verify_stage(name, reference_files, parent=None):
     return stage
 
 
-def test_on_file_read_marks_reference_files_in_parent_stage_chain():
+def test_on_file_read_marks_only_the_current_stage_reference():
     root = _make_verify_stage("root", {"shared.md": False, "root_only.md": False})
     parent = _make_verify_stage("parent", {"shared.md": False}, parent=root)
     child = _make_verify_stage("child", {"shared.md": False, "child_only.md": False}, parent=parent)
@@ -291,10 +291,10 @@ def test_on_file_read_marks_reference_files_in_parent_stage_chain():
     parent.vmanager = manager
     child.vmanager = manager
 
-    child.on_file_read(True, "shared.md", "content")
+    child.on_file_read(True, "shared.md", "")
 
-    assert root.reference_files["shared.md"] is True
-    assert parent.reference_files["shared.md"] is True
+    assert root.reference_files["shared.md"] is False
+    assert parent.reference_files["shared.md"] is False
     assert child.reference_files["shared.md"] is True
     assert root.reference_files["root_only.md"] is False
     assert child.reference_files["child_only.md"] is False

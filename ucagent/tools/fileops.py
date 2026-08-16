@@ -561,7 +561,10 @@ class ArgReadTextFile(BaseModel):
     )
     count: int = Field(
         default=-1,
-        description="Number of lines to read. -1 means to end of file."
+        description=(
+            "Number of lines to return. -1 means to end of file; 0 validates "
+            "the file and records a successful read without returning content."
+        )
     )
 
 
@@ -569,7 +572,8 @@ class ReadTextFile(UCTool, BaseReadWrite):
     """Read lines from a text file in the workspace. (line index starts from 1)"""
     name: str = "ReadTextFile"
     description: str = (
-        "Read lines from a text file in the workspace. Supports start line and line count. "
+        "Read lines from a text file in the workspace. Supports start line and line count; "
+        "count=0 validates the file and records a successful read without returning content. "
         "Max read size is %d characters. Each line is prefixed with its index."
         "Note: The file content in return data is after prefix '[TXT_DATA]\\n' and each line has prefix '<index>: '.\n"
         "For example, the raw data in file is:\n"
@@ -594,11 +598,21 @@ class ReadTextFile(UCTool, BaseReadWrite):
             self.do_callback(False, path, emsg)
             return str_error(emsg)
         info(f"Reading text file {real_path} from line {start} with count {count}")
-        if count == 0:
-            self.do_callback(False, path, None)
-            return str_error(f"Count is 0, no lines to read from file {path}.")
+        if count < -1:
+            emsg = (
+                f"Invalid count {count}. Use -1 for all remaining lines, "
+                "0 for confirmation only, or a positive line count."
+            )
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
         try:
             with open(real_path, 'r', encoding='utf-8') as f:
+                if count == 0:
+                    f.read(0)
+                    self.do_callback(True, path, "")
+                    return str_info(
+                        f"\nConfirmed text file '{path}'; read 0 lines and returned no content (count=0).\n\n"
+                    ) + str_data("", "TXT_DATA")
                 lines = f.readlines()
                 lines_count = len(lines)
                 # Handle empty file

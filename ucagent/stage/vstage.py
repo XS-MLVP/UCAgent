@@ -582,12 +582,9 @@ class VerifyStage(object):
         return abs_file_path.startswith(skill_root)
 
     def _mark_reference_file_read(self, file_path):
-        stage = self
-        while stage is not None:
-            if file_path in stage.reference_files and not stage.reference_files[file_path]:
-                stage.reference_files[file_path] = True
-                info(f"[{stage.__class__.__name__}.{stage.name}] Reference file {file_path} has been read by the LLM.")
-            stage = stage.parent
+        if file_path in self.reference_files and not self.reference_files[file_path]:
+            self.reference_files[file_path] = True
+            info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
     
     def on_file_read(self, success, file_path, content):
         if not self.is_curent_active():
