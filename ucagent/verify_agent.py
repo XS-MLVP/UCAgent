@@ -251,6 +251,13 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        self.tool_list_waveform = [
+            WaveInfo(
+                workspace=self.workspace,
+                test_dir=self.cfg.tools.RunTestCases.test_dir,
+                dut_name=self.dut_name,
+            )
+        ]
         self.tool_list_file = [
             # Directory and file listing tools
             self.tool_list_dir,
@@ -399,6 +406,7 @@ class VerifyAgent:
                 )
         self.test_tools = fc.get_tools_from_cfg(
             self.tool_list_base
+            + self.tool_list_waveform
             + self.tool_list_file
             + self.tool_list_task
             + self.tool_list_ext
