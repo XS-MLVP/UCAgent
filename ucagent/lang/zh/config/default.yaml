@@ -61,8 +61,14 @@ mission:
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作，例如编写测试用例
       - 测试用例失败时，优先怀疑是芯片设计问题，不是测试问题
+      - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
+      - 对每个已实现测试的Fail必须先排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有确认属于DUT设计Bug时才保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
+      - `create_test_case_templates`模板构建阶段是明确例外：该阶段所有尚未实现的测试模板都必须以`assert False, "Not implemented"`结尾，防止空模板意外Pass；进入批量实现阶段后必须删除该占位断言并换成真实激励和预期检查。模板Fail仅表示“尚未实现”，不作为DUT Bug，不写入Bug文档
+      - Mock、fixture、参考模型以及只验证测试框架/API调用链自身且不以DUT功能输出为判定对象的测试属于验证基础设施自检，必须全部Pass，不能作为DUT Bug记录；任何使用正确功能预期检查真实DUT输出的测试（包括API功能测试、综合验证、静态Bug动态验证和随机验证）若确认复现DUT Bug，则必须保持Fail并完整取证。这两个要求适用于不同测试目标，不矛盾
       - 深入分析发现的问题
       - 触发bug对应的测试用例必须 Fail，不能误报为 Pass
+      - 动态Bug确认必须基于真实失败用例和真实波形：准备将非零置信度<BG-*>记录到`{OUT}/{DUT}_bug_analysis.md`前，必须调用`WaveInfo`分析该测试用例的最新波形，并在对应<TC-*>后的第一个非空行放置独立<WAVEFORM-ANALYSIS>块（只允许空白行和Markdown缩进，不能插入正文、其他标签或另一个<TC-*>），记录工具返回的真实receipt_id和波形证据。不能伪造receipt、文件名、时间或其他波形字段
+      - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
       - 发现bug要基于源码（有上层语言源码如scala，则基于上层语言源码进行分析，没有则基于verilog源码进行分析）进行详细分析：什么问题、为什么出现、如何修复
       - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议
@@ -93,6 +99,14 @@ mission:
       - 需要根据Complete（或者Check）的结果调整你的工作，目标是保证所有Complete都通过
       - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
       - 除非Complete工具（或者Check工具）要求等待人工确认，否则不需要人工介入，不需要询问任何问题
+      - 对可复现失败用例进行动态Bug确认时，`WaveInfo`是必须调用的诊断工具。先运行失败用例生成新波形，再以测试名和相关pin/event pattern调用`WaveInfo`；波形内部信号仅可通过该工具按需获取，不能用shell猜测或手工编造波形结果
+      - `WaveInfo`无参数inventory返回recommended_call后，下一次必须逐字使用其中的非空test_case_name；inventory不产生receipt且不能作为Bug证据。如果实际工具调用仍为空测试名，不得重复inventory，应改正调用参数；MCP调用中未使用的参数使用工具schema给出的空字符串、空数组或-1哨兵，不要传null。工具会把这些哨兵规范化为receipt/返回中的null，这是正常的内部表示，不能把返回的null再次作为MCP参数
+      - 当前DUT的`WaveInfo`调用范例：先调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[], logged_cycle=-1, clock_signal="", start_step=-1, end_step=-1)`读取该用例的step范围和signal_catalog；将`test_{DUT}_xxx`替换为inventory的recommended_call.test_case_name或失败用例的精确函数名
+      - metadata确认信号存在后，再调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[{{"signal":"TOP.{DUT}_top.{DUT}.a","event":"change","value":""}},{{"signal":"TOP.{DUT}_top.{DUT}.result","event":"change","value":""}}], logged_cycle=-1, clock_signal="", start_step=0, end_step=20, context_steps=1, max_points=200)`；示例层级只在signal_catalog中确实存在时使用，否则替换成catalog返回的精确路径，不要反复猜测层级或参数。若日志有cycle，则改用logged_cycle、精确clock_signal和cycle_tolerance进行对齐，不要同时臆测wave step
+      - 只传test_case_name和pattern、但既未提供logged_cycle+clock_signal也未同时提供start_step+end_step时，是全波形探索调用；即使找到事件也会返回`status: evidence_window_required`和`evidence_usable: false`，不能写成confirmed。必须逐字使用返回的`recommended_evidence_call`重新调用WaveInfo，并用新receipt取证；不能把`analysis_window.effective_start_step/effective_end_step`手工写入文档来冒充原调用参数
+      - 最终显式窗口调用必须同时传非负start_step和end_step，不能只传其中一个，也不能和logged_cycle混在同一次调用。最终调用成功后优先复制返回的`bug_document_fields`，再根据timeline和RTL真实补写alignment_evidence、observed_behavior、source_correlation；不要照搬整个WaveInfo返回结构或自行改变receipt字段
+      - `WaveInfo`的真实分析receipt会签名持久化到workspace的`.ucagent` checkpoint中；中断或重启后，使用相同workspace和测试目录时可以直接复用文档中的有效receipt_id，不需要重新调用WaveInfo或重写所有<WAVEFORM-ANALYSIS>。只有receipt不存在、签名无效、参数/波形重放失败或波形证据已失效时，才重新运行对应用例并更新该用例的波形块；不要手工编辑receipt存储文件
+      - 如果DUT目标说明中写有“不需要波形验证”或类似表述，其含义仅是无需开展独立的波形覆盖率或内部接口验证，不得豁免动态Bug的`WaveInfo`取证；`WaveInfo`用于确认外部功能失败的根因，属于动态Bug确认流程
       - 非必要情况下，不要尝试获取{DUT}的内部信号状态，除非Complete工具（或者Check工具）要求你这么做
       - 你要通过{DUT}的输入输出端口去验证其功能，而不是通过内部信号状态去验证，更不要尝试验证其内部子模块的功能
       - 在计划通过Complete工具推进到下一个阶段前，需要通过工具SetCurrentStageJournal进行阶段日志记录，方便后续追踪和分析
@@ -919,6 +933,7 @@ stage:
       - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
       - "  - 发现的bug需要计入bug分析文档{OUT}/{DUT}_bug_analysis.md，格式请参考Guide_Doc/dut_bug_analysis.md"
       - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
+      - "  - API功能测试使用正确预期检查真实DUT输出，适用统一完成条件：测试/API/fixture/ref_model/时序/环境问题必须修复到Pass；只有正确测试确认的DUT设计Bug保留Fail，并完成非零置信度动态Bug、CK、源码根因和真实WaveInfo confirmed证据。不要把此前基础设施自检的‘全部Pass’要求套用到已确认DUT Bug复现用例"
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
       - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
@@ -932,6 +947,11 @@ stage:
           target_files:
            - ["{OUT}/**/conftest.py",
               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
         args:
@@ -1021,13 +1041,22 @@ stage:
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixtures (必须用 import *)"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
       - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
-      - "  - 不要尝试修复确定为触发DUT bug的测试用例，而是保留测试用例为Fail"
+      - "  - 阶段完成条件：除已确认DUT Bug复现用例外，其他用例必须全部Pass；剩余每个Fail必须与非零置信度动态Bug、对应CK、源码根因和真实WaveInfo confirmed证据一一对应。不是要求已确认Bug用例也Pass"
+      - "  - 确定为DUT Bug后，不要修改正确的测试预期或弱化断言，应保留由DUT错误行为自然触发的Fail；已实现测试禁止使用assert False等人工失败。create_test_case_templates阶段的空模板必须assert False，但进入本阶段实现该模板时必须删除占位断言。若属于测试、断言、预期值、fixture/API、参考模型、复位/时序或环境问题，必须修复并重跑到Pass，不能记录为DUT Bug"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
-      - "  - 对<BG-*-0>标记置信度为0的bug进行分析{BUG_ZERO_RATE_LIST}，确认是否真的需要"
+      - "  - 清理<BG-*-0>无效占位{BUG_ZERO_RATE_LIST}：它不能解释任何Fail；对应测试若不是DUT Bug必须修复到Pass，若确认是DUT Bug则改为非零置信度并补齐CK、源码根因和WaveInfo证据"
       - "  - 优先尝试复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
-      - "  - 静态分析确认的Bug需在{OUT}/{DUT}_bug_analysis.md中添加对应完整记录（源码分析+修复建议）"
+      - "  - {OUT}/{DUT}_static_bug_analysis.md中的结论只是动态复现候选：必须先运行对应失败用例并真实调用WaveInfo确认波形，才可用新的非BG-STATIC-*标签写入{OUT}/{DUT}_bug_analysis.md；不能直接复制静态Bug标签或以静态分析代替波形证据"
+      - "  - 每一个准备记录到{OUT}/{DUT}_bug_analysis.md的非零置信度动态Bug都必须关联至少一个Fail测试用例，并在每个对应<TC-*>后的第一个非空行保存独立的真实WaveInfo receipt和事件级波形证据；不能把多个用例的波形统一放在Bug条目末尾。无可用波形时修复生成流程、重跑用例，不能以unavailable或占位字段完成阶段"
+      - "  - 不确定波形测试名时只调用一次无参数WaveInfo inventory；随后逐字使用recommended_call中的非空test_case_name进行metadata和pattern分析。inventory不产生receipt，实际调用参数仍为空时必须修正参数而不是重复inventory"
+      - "  - Check/Complete失败时必须读取顶部failure_summary，并引用failed_checker_name、error_code和具体阻塞项继续修复；count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部Checker机制’"
     checker:
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
       - name: test_check
         clss: "UnityChipCheckerTestCase"
         args:
@@ -1056,9 +1085,13 @@ stage:
           - "第6步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
           - "第7步：分析测试结果："
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
-          - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
+          - "  - 如果Fail：先核对功能规格和源码，排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；属于这些问题时修复后必须Pass，不得以测试Bug或BG-*-0占位保留Fail"
+          - "  - 只有正确测试稳定复现DUT设计缺陷时才保留Fail：必须按Guide_Doc/dut_bug_analysis.md记录非零置信度动态Bug、CK和源码根因，真实调用WaveInfo，并紧随每个对应<TC-*>（第一个非空行，允许空白行）写入独立的真实receipt_id、status: confirmed的<WAVEFORM-ANALYSIS>标签；中间不得插入说明、根因正文或其他标签，不能把多个用例的波形集中到条目末尾。无波形时先修复生成流程并重跑，status: unavailable不能完成阶段"
+          - "  - WaveInfo inventory只允许用于发现测试名；拿到recommended_call后，下一次调用必须使用其中的非空test_case_name。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
+          - "  - 只传pattern且没有logged_cycle+clock_signal或完整start_step+end_step时只是探索调用；返回evidence_window_required后必须逐字使用recommended_evidence_call重调，并优先复制新返回的bug_document_fields。不能把analysis_window.effective_*手工写入Bug文档冒充原调用参数"
+          - "  - 重跑时在断言日志中打印cycle_basis、transaction ID和相关pin；日志cycle必须经clock occurrence index对齐，不能直接当作wave step；<BG-STATIC-*>只允许存在于{DUT}_static_bug_analysis.md，动态bug文档必须使用独立<BG-NAME-xx>并提供confirmed波形证据"
           - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
-          - "  - 如果Fail不合理：修正测试逻辑"
+          - "  - 当前批次通过条件：Pass用例行为正确；每个Fail都是完成上述全部动态证据的DUT Bug。任何未分类Fail、测试/基础设施Fail或仅BG-*-0占位的Fail都必须继续修正"
           - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"
           - "注意："
           - "  - 在该阶段，有需要可以增加测试用例，但不能删除已有用例"
@@ -1079,6 +1112,11 @@ stage:
           - "Guide_Doc/dut_bug_analysis.md"
           - "{OUT}/{DUT}_static_bug_analysis.md"
         checker:
+        - name: waveform_bug_analysis_check
+          clss: "UnityChipCheckerWaveformBugAnalysis"
+          args:
+            bug_file: "{OUT}/{DUT}_bug_analysis.md"
+            test_dir: "{OUT}/tests"
         - name: no_conftest_file
           clss: FilesMustNotExist
           args:
@@ -1095,6 +1133,8 @@ stage:
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
+            ret_std_out: false
+            ret_std_error: false
         need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: refine_test_cases_based_on_functional_points
@@ -1111,7 +1151,7 @@ stage:
       - "  - 部分用例仅仅只是声明了覆盖某CK-*，但没有实际测试逻辑，需要补充测试逻辑"
       - "  - 尽可能的只让一个测试用例覆盖一个功能点和测试点，避免一个测试用例覆盖过多功能点和测试点"
       - "  - 尽可能多编写用例，也不要删除已有用例，确保每个功能点和测试点都有充分的测试"
-      - "  - Fail用例需要多次复核，确保其真正触发了Bug，并在{OUT}/{DUT}_bug_analysis.md中有完整的Bug分析和修复建议"
+      - "  - 每个Fail必须先排除测试/断言/预期值/fixture/API/参考模型/时序/环境问题；非DUT Bug失败必须修复到Pass。只有确认的DUT设计Bug复现用例可保留Fail，并且必须在{OUT}/{DUT}_bug_analysis.md中具有非零置信度动态Bug、CK、源码根因和真实WaveInfo confirmed证据；BG-*-0不能解释Fail"
       - "  - Check/Complete工具支持额外参数refined；既可以传入真实JSON对象refined={CK_KEY_1:Value1, CK_KEY_2:Value2, ...}，也可以传入内容为JSON对象的字符串refined=\"{...}\"；如果对象形式发生工具参数格式错误，请改用字符串形式，UnityChipCheckerRefineTestCases会在内部进行JSON解析"
       - "  - refined中的CK_KEY必须来自当前批次待完善CK（见下方{LIST_CURRENT_CKS}中的CK字段），不能传入其他批次的CK，也不能传入文档中不存在的CK"
       - "  - refined的Value为该CK对应测试用例的完善说明；只要某个CK出现在refined中，就表示该CK对应测试用例已经完成复核与完善"
@@ -1127,6 +1167,11 @@ stage:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
     checker:
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
       - name: no_conftest_file
         clss: FilesMustNotExist
         args:
@@ -1164,6 +1209,8 @@ stage:
       - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
       - "  - 通过`from {DUT}_api import *`导入env fixture和API"
       - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
+      - "  - 失败日志应包含cycle_basis、transaction ID、相关输入输出pin、握手/状态、expected和actual；动态复现后必须真实调用WaveInfo，并在{OUT}/{DUT}_bug_analysis.md每个对应<TC-*>后的第一个非空行写入独立的带真实receipt_id的<WAVEFORM-ANALYSIS>标签"
+      - "  - 只有{OUT}/{DUT}_bug_analysis.md中的动态Bug需要波形；{OUT}/{DUT}_static_bug_analysis.md中的纯静态分析条目不需要<WAVEFORM-ANALYSIS>；<BG-STATIC-*>严禁写入动态Bug文档，动态测试证实后必须新建<BG-NAME-xx>并提供status: confirmed波形证据"
       - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
       - "  情况A - 测试Fail（Bug已证实）："
       - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
@@ -1182,6 +1229,7 @@ stage:
       - "  - 阶段完成时{OUT}/{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
       - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/{DUT}_bug_analysis.md中"
       - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
+      - "  - 已实现测试的Fail只有两种处理结果：确认DUT设计Bug后保留正确断言的Fail并完成动态波形取证；否则修复测试或验证基础设施直到Pass。禁止用测试Bug、assert False或BG-*-0保留失败；该限制不适用于此前create_test_case_templates阶段按要求生成的未实现空模板，但实现模板时必须删除其assert False占位"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
     skill_list:
       - "unitytest/static-bug-validation"
@@ -1273,6 +1321,8 @@ stage:
       - " - 其他用例要求请参考文档 Guide_Doc/dut_test_case.md"
       - " - 需要有合理的断言来检查输出是否符合预期，是否正确"
       - " - 如果随机测试Fail且测试逻辑合理，可能发现了芯片bug，需要保留Fail用例并在{OUT}/{DUT}_bug_analysis.md中基于源码分析bug和修复建议"
+      - " - 随机测试中的测试代码、oracle/预期值、fixture/API、参考模型、复位/时序或环境失败必须修复到Pass；只有正确测试稳定复现DUT设计Bug时才保留Fail，并完成非零置信度动态Bug、CK、源码根因和WaveInfo confirmed证据"
+      - " - 随机测试动态复现Bug后必须真实调用WaveInfo，并在{OUT}/{DUT}_bug_analysis.md每个对应<TC-*>后的第一个非空行写入独立的带真实receipt_id、status: confirmed的<WAVEFORM-ANALYSIS>；不能把多个用例的波形集中到条目末尾。无波形时必须按WaveInfo诊断修复后重跑，status: unavailable不能完成阶段；<BG-STATIC-*>只能写入静态分析文档"
       - " - Check/Complete工具支持额外参数generated；既可以传入真实JSON对象generated={CK_KEY_1:Value1, CK_KEY_2:Value2, ...}，也可以传入内容为JSON对象的字符串generated=\"{...}\"；如果对象形式发生工具参数格式错误，请改用字符串形式，RandomTestCasesChecker会在内部进行JSON解析"
       - " - generated中的CK_KEY必须来自当前批次待分析CK（见下方{LIST_CURRENT_CKS}中的CK字段），不能传入其他批次的CK，也不能传入文档中不存在的CK"
       - " - generated的Value只需要说明该CK的处理结果即可，可以是简单字符串，也可以是包含更多信息的对象，不强制固定字段"
@@ -1334,6 +1384,11 @@ stage:
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
     checker:
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
       - name: test_check
         clss: "UnityChipCheckerTestCase"
         args:
@@ -1351,6 +1406,7 @@ stage:
       - "第2步：根据当前批次信息整理bug_list，并调用Check(bug_list=[...])记录当前批次的一部分或全部Bug"
       - "第3步：根据更新后的当前批次列表继续记录，直到{OUT}/{DUT}_bug_analysis.md中所有置信度不为0的Bug全部完成；记录不能多于或少于current_batch要求的有效Bug，置信度为0的Bug不记录且不计入总数"
       - "第4步：全部Bug记录完成后调用Complete()完成当前阶段；如果最后一批尚未通过Check记录，也可以直接调用Complete(bug_list=[...])，对象形式发生格式错误时可使用Complete(bug_list=\"[...]\")"
+      - "最终波形门禁：Check/Complete会再次扫描动态Bug文档中的全部非零置信度Bug，只接受真实WaveInfo收据支持且可在当前最新波形重放的status: confirmed证据；status: unavailable不能完成；动态Bug文档禁止<BG-STATIC-*>，静态发现只能保留在独立静态文档并通过<LINK-BUG-*>关联；没有动态Bug或只有置信度0条目时不要求WaveInfo"
       - "bug_list参数格式：bug_list可以传入真实的JSON数组，也可以传入内容为JSON数组的字符串；字符串会在Checker内部通过JSON解析后继续校验；数组中的每个对象表示一个唯一Bug，并且必须包含bug_name、alias、CK、desc、locations、severity、confidence和ref字段"
       - "bug_name：字符串，填写{OUT}/{DUT}_bug_analysis.md中<BG-BUG_NAME-XX>标签的BUG_NAME部分，例如CIN_OVERFLOW；不要额外创造文档中不存在的Bug"
       - "alias：字符串数组，必须完整填写{OUT}/{DUT}_static_bug_analysis.md中通过<LINK-BUG-[BG-BUG_NAME-XX]>确认关联到该动态Bug的全部<BG-STATIC-*>标签名，例如[\"BG-STATIC-001-CIN_OVERFLOW\"]；一个动态Bug可有多个alias，一个静态Bug也可关联多个动态Bug；没有已确认静态Bug时填写空数组[]；BG-TBD、BG-NA和BG-STATIC-NULL不能作为alias"
@@ -1370,6 +1426,11 @@ stage:
       - "{OUT}/{DUT}_bug_analysis.md"
       - "{OUT}/{DUT}_static_bug_analysis.md"
     checker:
+      - name: final_waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
       - name: bug_recorder
         clss: "Recorder"
         args:

@@ -682,7 +682,14 @@ class UnityChipCheckerTestMustPass(Checker):
         tc_failed = report["tests"]["fails"]
         if tc_failed > 0:
             return False, {
-                "error": f"Test failed: {tc_failed}/{tc_total} test cases failed. Need all test cases to pass.",
+                "error": (
+                    f"[Infrastructure Self-Test Failure] {tc_failed}/{tc_total} test "
+                    "case(s) failed. UnityChipCheckerTestMustPass validates mock, fixture, "
+                    "or reference-model infrastructure, so every case in this stage must "
+                    "pass. Fix the verification infrastructure; do not record these failures "
+                    "as DUT Bugs. This all-Pass rule does not apply to correctly implemented "
+                    "tests that reproduce real DUT design Bugs in DUT verification stages."
+                ),
                 "STD_OUT": str_out,
                 "STD_ERR": str_err,
             }
@@ -947,6 +954,13 @@ class BaseUnityChipCheckerTestCase(Checker):
             if not os.path.exists(self.get_path(self.test_dir)):
                 warning(f"Test directory '{self.test_dir}' does not exist in workspace.")
         return self
+
+    def get_waveform_tool_for_checker(self):
+        """Return the active WaveInfo instance whose real calls carry receipts."""
+
+        if self.stage_manager is None:
+            return None
+        return self.get_tool_by_name("WaveInfo")
 
     def _check_test_func_args(self, report, str_out, str_err):
         """
@@ -1557,6 +1571,8 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             self.doc_func_check,
             self.doc_bug_analysis,
             "FG-API/",
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=os.path.dirname(self.target_file_api),
         )
         if not ret:
             return ret, get_emsg(msg)
@@ -1607,6 +1623,26 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
 
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
+
+    @staticmethod
+    def _compact_validation_report(report, return_tests):
+        tests = report.get("tests", {})
+        return {
+            "run_test_success": report.get("run_test_success", False),
+            "tests": {
+                "total": tests.get("total", len(return_tests)),
+                "fails": tests.get(
+                    "fails",
+                    sum(status != "PASSED" for status in return_tests.values()),
+                ),
+                "test_cases": return_tests,
+            },
+            "failed_checkpoints": report.get("failed_check_point_list", []),
+            "failed_test_case_checkpoints": report.get(
+                "failed_test_case_with_check_point_list", {}
+            ),
+            "unmarked_checkpoints": report.get("unmarked_check_point_list", []),
+        }
 
     def on_init(self):
         self.check_data()
@@ -1688,9 +1724,10 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             self.doc_func_check,
             self.doc_bug_analysis,
             only_marked_ckp_in_tc=True,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
         )
-        report  = fc.clean_report_with_keys(report, ["all_check_point_list", "unmarked_check_points", "unmarked_check_point_list", "failed_check_point_list"])
-        error_msgs["REPORT"] = report
+        error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
         if not ret:
             error_msgs["error"] = msg
             return ret, error_msgs
@@ -1785,14 +1822,16 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         
         # Parse documentation marks for validation
         zero_list = self.get_zero_bug_rate_list()
-        zero_rate_msg = f"Note: Found {len(zero_list)} bug mark(s) with confidence 0: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
-                         "If these bugs are confirmed during testing, please update their confidence; otherwise this message can be ignored."
+        zero_rate_msg = f"Note: Found {len(zero_list)} invalid zero-confidence dynamic Bug placeholder(s): {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
+                         " They cannot explain failed tests. Fix non-DUT failures to Pass, or promote a confirmed DUT Bug to non-zero confidence and add all required dynamic evidence."
 
         ret, msg, marked_bugs = check_report(
             self.workspace,
             report,
             self.doc_func_check,
             self.doc_bug_analysis,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
         )
         if not ret:
             info_runtest["error"] = msg
@@ -1811,12 +1850,15 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         # Success: All validations passed
+        failed_count = report["tests"].get("fails", 0)
+        passed_count = report["tests"]["total"] - failed_count
         success_msg = ["Test case verification passed!",
                       f"+ Executed {report['tests']['total']} test case(s).",
+                      f"+ {passed_count} case(s) passed; {failed_count} remaining failed case(s) are confirmed DUT Bug reproducers with complete required evidence.",
                       f"+ All {len(all_bins_test)} checkpoint(s) correctly implemented and consistent with documentation.",
                       f"+ Test-documentation consistency check passed.",
                       f"+ {marked_bugs} bug(s) marked in bug analysis document {self.doc_bug_analysis}.",
-                      "Test implementation successfully verified DUT functionality!"]
+                      "Completion does not require confirmed DUT Bug reproducers to pass; every other case must pass."]
         if len(zero_list) > 0:
             success_msg.append(zero_rate_msg)
         if marked_bugs == 0:

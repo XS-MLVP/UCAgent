@@ -8,7 +8,11 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.checkers.toffee_report import check_bug_tc_analysis, check_report
+from ucagent.checkers.toffee_report import (
+    check_bug_ck_analysis,
+    check_bug_tc_analysis,
+    check_report,
+)
 
 
 def _write_function_doc(path):
@@ -135,3 +139,117 @@ def test_bug_analysis_reports_missing_relation_without_claiming_call_absent(tmp_
     assert "report does not associate" in message[0]
     assert "does not by itself prove" in message[1]
     assert "have not called mark_function" not in " ".join(message)
+
+
+def test_zero_confidence_placeholder_cannot_explain_failed_test(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    test_case = "tests/test_a.py:1-3::test_a"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-PLACEHOLDER-0>\n"
+        "<TC-test_a.py::test_a>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {test_case: [checkpoint]},
+        [],
+        False,
+    )
+
+    assert passed is False
+    assert "[Unresolved Failed Cases]" in message[0]
+    assert "<BG-*-0> placeholder does not explain" in " ".join(message)
+
+
+def test_zero_confidence_placeholder_cannot_explain_failed_checkpoint(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-PLACEHOLDER-0>\n",
+        encoding="utf-8",
+    )
+
+    passed, message, marked_count = check_bug_ck_analysis(
+        str(tmp_path),
+        "bugs.md",
+        [checkpoint],
+    )
+
+    assert passed is False
+    assert marked_count == -1
+    assert "[Unanalyzed Failed Checkpoints]" in message[0]
+    assert "lambda x: True" in " ".join(message)
+    assert "Never use" in " ".join(message)
+
+
+def test_nonzero_dut_bug_record_allows_failed_test_classification(tmp_path):
+    checkpoint = "FG-A/FC-A/CK-A"
+    test_case = "tests/test_a.py:1-3::test_a"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DUT-DEFECT-90>\n"
+        "<TC-test_a.py::test_a>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "",
+        {test_case: [checkpoint]},
+        [],
+        False,
+    )
+
+    assert passed is True
+    assert message == ""
+
+
+def test_failed_test_must_be_documented_under_target_checkpoint_prefix(tmp_path):
+    checkpoint = "FG-API/FC-OP/CK-ADD"
+    test_case = "tests/test_api.py:1-3::test_add"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-OTHER>\n<FC-OP>\n<CK-ADD>\n<BG-DUT-DEFECT-90>\n"
+        "<TC-test_api.py::test_add>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [checkpoint],
+        "bugs.md",
+        "FG-API/",
+        {test_case: [checkpoint]},
+        [],
+        False,
+    )
+
+    assert passed is False
+    assert "[Unresolved Failed Cases]" in message[0]
+
+
+def test_target_prefix_check_accepts_bug_at_actual_failed_checkpoint(tmp_path):
+    api_checkpoint = "FG-API/FC-OP/CK-ADD"
+    actual_failed_checkpoint = "FG-ADD/FC-BASIC/CK-RESULT"
+    test_case = "tests/test_api.py:1-3::test_add"
+    (tmp_path / "bugs.md").write_text(
+        "<FG-ADD>\n<FC-BASIC>\n<CK-RESULT>\n<BG-DUT-DEFECT-90>\n"
+        "<TC-test_api.py::test_add>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_bug_tc_analysis(
+        str(tmp_path),
+        [api_checkpoint],
+        "bugs.md",
+        "FG-API/",
+        {test_case: [api_checkpoint, actual_failed_checkpoint]},
+        [],
+        False,
+    )
+
+    assert passed is True
+    assert message == ""

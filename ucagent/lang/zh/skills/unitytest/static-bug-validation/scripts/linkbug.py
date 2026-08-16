@@ -64,6 +64,12 @@ def parse_link_targets(raw_link_bg: str) -> List[str]:
     seen = set()
     normalized = []
     for tag in targets:
+        if tag.startswith("BG-STATIC-"):
+            raise ValueError(
+                f"Error: linked BG tag '{tag}' is a static Bug tag. -LBG must "
+                "reference the distinct BG-NAME-xx tag created in the dynamic "
+                "bug_analysis.md document."
+            )
         if not re.fullmatch(r"BG-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{1,3}", tag):
             raise ValueError(
                 f"Error: linked BG tag '{tag}' format invalid. Expected 'BG-NAME-xx' "

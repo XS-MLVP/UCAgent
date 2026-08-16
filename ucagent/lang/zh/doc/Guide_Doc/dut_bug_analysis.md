@@ -12,11 +12,353 @@
 
 **注意：**
 - 所有Bug都需要有至少一个Fail的测试用例与其对应
-- 没检测通过的检查点（Checkpoint）当bug处理，就没有对应Fail的测试用例，也需要添加一个`assert False`的测试用例用于标记
+- 没检测通过的检查点必须继续补充真实激励和严格断言来判定原因，不能在已实现测试中添加`assert False`伪造Bug复现；如果没有真实Fail用例，就不能把它确认为动态Bug
 - <FG-*> 等标签结构为树状结构，同一个父节点下的子节点不能出现同名
 - 在 <BG-*-xx> 中给bug命名时，应当取简洁、有意义、可读性强、容易理解的名字
 - 在 <TC-*>标签中，测试用例如果是基于Class的，也需要带上类名，例如： <TC-test_example.py::TestMyClassName::test_function_name>
-- 在 <TC-*>标签中标记的测试用例必须为 Fail ，只有测试用例没有通过才能证明它触发了bug
+- 在 <TC-*> 标签中标记的测试用例必须为 Fail，但 Fail 只是 DUT Bug 的必要条件，不是充分证据；还必须确认测试和验证基础设施正确、与失败 CK 一致、基于源码定位根因，并由真实 `WaveInfo` 动态确认
+
+## 动态 Bug 的波形确认
+
+`{OUT}/{DUT}_bug_analysis.md` 是动态确认文档。写入其中的每个置信度非 0 Bug 都必须已经由 Fail 测试动态复现，并真实调用 `WaveInfo` 提取事件证据，最终记录为 `status: confirmed`。`WaveInfo` 找不到或无法解析波形时，其返回只用于诊断和修复波形生成流程，`status: unavailable` 不能作为已确认 Bug 的最终证据，也不能让阶段完成。波形证据用于确认失败发生时 DUT 的真实输入、握手、状态和输出，但不能替代正确的失败断言和基于源代码的根因分析。
+
+测试阶段的完成条件不是“所有真实 DUT 测试都必须 Pass”，而是：所有非 DUT-Bug 用例必须 Pass；所有剩余 Fail 必须恰好是正确测试稳定复现的 DUT 设计 Bug，并且已完成非零置信度动态 Bug 记录、CK 关联、源码根因分析和真实 `WaveInfo` confirmed 证据。Mock、fixture、参考模型以及只验证测试框架/API 调用链自身且不以 DUT 功能输出为判定对象的测试属于验证基础设施，必须全部 Pass，不能作为 DUT Bug 记录；使用正确预期检查真实 DUT 输出的 API 功能测试仍适用 DUT-Bug Fail 规则。
+
+每个已实现测试的 Fail 必须先排除测试代码、断言、预期值、检测点、fixture/API、参考模型、复位/时序和环境问题。属于这些问题时必须修复后重跑到 Pass；禁止以“测试 Bug”、`assert False` 或 `<BG-*-0>` 占位保留 Fail。确认属于 DUT 设计 Bug 后，必须保留正确、严格的预期和断言，让 DUT 的错误行为自然触发 Fail；不得修改预期或弱化断言来误报 Pass。
+
+这里对 `assert False` 的限制只适用于已经进入执行和 Bug 分析的真实测试。`create_test_case_templates` 阶段的所有未实现空模板必须保留 `assert False, "Not implemented"`，以防模板意外 Pass；模板进入实现阶段后必须删除该占位并替换为真实测试逻辑。模板阶段的这种 Fail 只表示尚未实现，不是 DUT Bug，也不写入动态 Bug 文档。
+
+- 如果当前用例有有效波形，Bug 记录必须包含 `WaveInfo` 证据。
+- 如果没有波形或波形暂时无法解析，必须按 `WaveInfo` 的详细诊断检查测试名称、最新 session、`SetWaveform`、`dut.Finish()`、空文件或损坏文件，修复后重跑失败用例并重新调用工具；在获得 confirmed 证据前不能完成阶段。
+- 仅由静态分析发现且尚未动态复现的潜在 Bug 只能保留在 `{OUT}/{DUT}_static_bug_analysis.md`。动态复现后，必须在动态文档新建不带 `STATIC` 前缀的 `<BG-NAME-xx>`，并从静态文档用 `<LINK-BUG-[BG-NAME-xx]>` 关联。
+- `{OUT}/{DUT}_bug_analysis.md` 禁止出现任何 `<BG-STATIC-*>` 标签；`<BG-STATIC-*>` 和 `<BG-STATIC-NULL>` 仅属于 `{OUT}/{DUT}_static_bug_analysis.md`。
+- `stale_waveform_only`、输出被截断、周期对齐有歧义、没有候选事件，或未确认时钟基准的结果，不能作为最终 Bug 证据。
+
+### 失败日志要求
+
+运行或重跑可能触发 Bug 的用例时，断言消息应打印足够的定位信息，至少包括：
+
+- `cycle` 及 `cycle_basis`：cycle 0 从何时开始、使用哪个时钟边沿、计数在驱动前还是采样后更新、reset 周期是否计入；
+- transaction ID 或请求序号；
+- 与失败有关的输入、输出 pin；
+- `valid/ready` 等握手信号和关键状态；
+- expected 和 actual 值，以及 opcode、地址、长度等事务属性。
+
+例如：
+
+```python
+assert actual == expected, (
+    "cycle=%d cycle_basis=after_reset_rising_edge txn=%d "
+    "valid=%d ready=%d op=0x%x a=0x%x b=0x%x "
+    "expected=0x%x actual=0x%x overflow=%d"
+    % (
+        cycle,
+        txn_id,
+        valid,
+        ready,
+        op,
+        a,
+        b,
+        expected,
+        actual,
+        overflow,
+    )
+)
+```
+
+增加日志不能额外调用 `Step()`、改变 callback 顺序、增加 DUT 周期或改变原测试时序。日志只用于提高失败事件与波形事件的可对齐性。
+
+### 波形发现与新鲜度
+
+不知道当前有哪些波形或不确定测试名称时，先调用不带参数的 `WaveInfo()`。它只列出最新 `toffee_tmp_*` session，不混入旧 session，返回 session 开始/修改/观察时间、波形总数、格式和 worker 分布、总大小，以及每个文件的文件名、测试名提示、相对路径、格式、worker、大小、创建时间、修改时间、年龄和 `freshness_identity`。默认每页最多显示 20 个文件，可用 `max_files` 调整页大小，并用返回的 `next_offset` 作为下一次调用的 `file_offset`；`has_more` 表示是否还有下一页，`waveform_files_truncated` 表示当前结果不是完整明细。
+
+```yaml
+status: waveform_inventory
+inventory_scope: newest_session_only
+latest_session: unity_test/tests/data/toffee_tmp_20260815045449_961
+session_started_at: '2026-08-15T04:54:49.961+08:00'
+observed_at: '2026-08-15T05:02:00.000+08:00'
+waveform_file_count: 2
+waveform_files_offset: 0
+has_more: false
+next_offset: null
+format_counts:
+  fst: 2
+waveform_files:
+  - file_name: test_div_inf_by_num.fst
+    test_case_name_hint: test_div_inf_by_num
+    waveform_file: unity_test/tests/data/toffee_tmp_.../master/test_div_inf_by_num.fst
+    size_bytes: 1631
+    created_at: '2026-08-15T04:54:50.857+08:00'
+    creation_time_source: filesystem_birthtime
+    modified_at: '2026-08-15T04:54:50.857+08:00'
+    freshness_identity: unity_test/tests/data/toffee_tmp_.../master/test_div_inf_by_num.fst:1631:1786740890857000000
+receipt_created: false
+evidence_usable: false
+recommended_call:
+  test_case_name: test_div_inf_by_num
+  pattern: []
+```
+
+无参数 inventory 只用于发现文件，不批量解析所有波形，也不生成 `waveform_analysis_receipt`，因此不能作为 Bug 波形证据。返回 `recommended_call` 后，下一次必须逐字使用其中的非空 `test_case_name` 调用 `WaveInfo`，先获取 wave step 和信号目录，再构建事件 pattern。如果工具调用记录仍显示 `test_case_name` 为空，不得重复调用 inventory；应修正工具参数，使实际调用中出现非空字符串。`recommended_call.pattern: []` 表示先做 metadata 调用，不是最终事件证据。
+
+MCP 参数使用非空哨兵而不是 `null`：不使用测试名、pattern、cycle、clock 或时间窗时，分别传 `test_case_name: ""`、`pattern: []`、`logged_cycle: -1`、`clock_signal: ""`、`start_step: -1`、`end_step: -1`。一旦分析具体波形，`test_case_name` 必须是 inventory 中的真实非空测试名；不要显式传 `null`。工具内部会把 `-1`、空字符串、空 pattern 规范化成 receipt 和返回结果中的 `null`，这是调用后的 canonical 表示，不是下一次 MCP 调用应传的值。例如 `arguments.start_step: null` 表示原调用没有请求显式窗口，而不是请求了 `analysis_window.effective_start_step` 所显示的范围。
+
+`WaveInfo(test_case_name=...)` 会从配置的测试目录下查找最新的 `toffee_tmp_YYYYMMDDHHMMSS_mmm` 会话，只使用该会话中与测试用例精确同名的 `.fst` 或 `.vcd` 文件；优先使用 FST，再选择最高数字后缀和最新修改时间。工具不会用旧会话或其他测试用例的波形代替目标波形。
+
+每次成功发现波形后的返回结果都包含 `waveform_selection` 和 `waveform_info`：
+
+- `session_started_at`：从最新 session 目录名解析出的会话开始时间；
+- `modified_at` 和 `modified_time_ns`：波形文件修改时间；
+- `observed_at` 和 `age_seconds_at_observation`：本次工具观察时间及波形年龄；
+- `waveform_info.first_wave_step`、`last_wave_step`、`wave_step_span` 和 `wave_step_count`：波形覆盖的 wavekit 仿真时间范围；它们不是 DUT 周期数；
+- `waveform_selection.size_bytes`、`waveform_file` 和 `freshness_identity`。
+
+单独重跑失败用例后，应再次调用 `WaveInfo`，比较两次返回的 `freshness_identity`。如果路径、大小和 `modified_time_ns` 都没有变化，不能直接假定产生了新波形，应检查测试是否实际运行、`SetWaveform` 是否调用、测试是否在 `dut.Finish()` 前崩溃，以及波形是否完成刷新。
+
+找不到波形时，应按工具返回的诊断处理。常见原因包括测试名称或参数化名称不正确、目标测试没有在最新 session 运行、只有 `.dat` 而没有波形、测试异常退出、`SetWaveform` 未调用、`dut.Finish()` 未执行、文件为空或损坏，以及 `wavekit` 依赖不可用。
+
+### `WaveInfo` pattern 格式
+
+`pattern` 是结构化列表，不允许传入 Python、NumPy 或任意表达式。每项格式如下：
+
+```yaml
+- signal: TOP.dut.valid
+  event: rising
+- signal: TOP.dut.op[2:0]
+  event: equals
+  value: "0x3"
+- signal: TOP.dut.{overflow,underflow}
+  event: change
+- signal: TOP.dut.**
+  event: unknown
+```
+
+`signal` 使用 wavekit 查询语法，支持精确路径、`*`、`**`、`/{regex}/` 和花括号候选/范围。事件含义为：
+
+| event | 含义 |
+|-------|------|
+| `change` | 值发生变化，包括已知值与 X/Z 之间的变化 |
+| `rising` | 单比特信号从已知 0 变为已知 1 |
+| `falling` | 单比特信号从已知 1 变为已知 0 |
+| `equals` | 信号转换进入指定整数、十进制、十六进制、二进制或 Verilog 字面值 |
+| `unknown` | 信号出现 X 或 Z，结果保留具体 X/Z 位 |
+
+不传 `pattern` 时，工具只返回波形元数据和信号目录，可先用这种方式确认层级与信号全名。
+
+只传 `test_case_name` 和非空 `pattern`，但既没有 `logged_cycle + clock_signal`，也没有同时提供 `start_step + end_step` 时，工具会搜索完整波形帮助发现事件，但这只是探索调用。即使找到事件，结果也会明确返回：
+
+```yaml
+status: evidence_window_required
+evidence_usable: false
+analysis_window:
+  requested_start_step: null
+  requested_end_step: null
+  effective_start_step: 0
+  effective_end_step: 40
+recommended_evidence_call:
+  test_case_name: test_mux_select
+  pattern:
+    - signal: TOP.dut.sel
+      event: change
+      value: ''
+  logged_cycle: -1
+  clock_signal: ''
+  start_step: 0
+  end_step: 40
+  context_steps: 1
+  max_points: 200
+```
+
+必须逐字使用 `recommended_evidence_call` 重新调用 `WaveInfo`，并在 Bug 文档中引用新调用产生的 receipt。探索 receipt 不能通过修改 Bug 文档变成最终证据；尤其不能把 `effective_start_step/effective_end_step` 手工复制为顶层 `start_step/end_step`，因为 Checker 校验的是 receipt 中真实的 requested 参数。`start_step` 和 `end_step` 必须同时提供，不能只提供一个；显式窗口与 `logged_cycle` 对齐是两个独立证据模式，不能混在同一次调用中。
+
+### cycle 与 wave step 对齐
+
+测试日志的 `cycle` 不能直接当作 wavekit 的 step。必须区分：
+
+- `logged_cycle`：失败日志打印的周期编号；
+- `clock_occurrence_index`：指定时钟有效边沿在完整波形中的全局序号；
+- `wave_step`：wavekit 的仿真时间戳；
+- `cycle_delta`：候选时钟边沿换算出的周期编号与 `logged_cycle` 的差，单位是时钟边沿，不是时间戳。
+
+一个 DUT 周期可能跨越多个 wave step；日志的 cycle 还可能因为 reset、驱动/采样顺序、callback、流水线或计数起点与波形中的周期相差 0 到数个周期。因此禁止使用 `wave_step - logged_cycle` 计算周期偏移，也不能因为 `cycle_delta` 为 0 就认定对齐成功。
+
+建议使用两次调用完成对齐。
+
+第一次调用在日志周期附近寻找候选时钟边沿：
+
+```python
+WaveInfo(
+    test_case_name="tests/test_fadd.py::test_fadd_nan",
+    logged_cycle=120,
+    cycle_tolerance=5,
+    clock_signal="TOP.dut.clk",
+    clock_edge="rising",
+    pattern=[
+        {"signal": "TOP.dut.valid", "event": "rising"},
+        {"signal": "TOP.dut.op[2:0]", "event": "equals", "value": "0x3"},
+        {"signal": "TOP.dut.a[31:0]", "event": "equals", "value": "0xffffffff"},
+    ],
+)
+```
+
+`cycle_tolerance` 的单位是时钟边沿，默认检查 `logged_cycle +/- 5`，最大为 100。必须用日志中的 transaction ID、输入、opcode/地址、握手、状态和关键 pin，从 `candidate_anchors` 中确认唯一候选。`clock_signal` 缺失或匹配多个信号时，先根据工具给出的候选时钟改用精确路径重试。
+
+例如，以下结果表示日志 cycle 120 最可能对应波形中第 121 个有效上升沿，该边沿发生在 wave step 2440，周期编号差为 +1：
+
+```yaml
+cycle_alignment:
+  status: candidate_selected
+  confirmed: false
+  logged_cycle: 120
+  cycle_delta_unit: clock_edges
+  wave_step_unit: wavekit_simulation_timestamp
+  candidate_anchors:
+  - clock_occurrence_index: 121
+    cycle_delta: 1
+    wave_step: 2440
+    trigger_count: 3
+```
+
+`candidate_selected` 仍只是工具按事件匹配选出的候选，`confirmed: false` 提醒分析者必须核对上下文。
+
+第二次调用使用确认后的 wave step 做精确取证：
+
+```python
+WaveInfo(
+    test_case_name="test_fadd_nan",
+    clock_signal="TOP.dut.clk",
+    start_step=2420,
+    end_step=2500,
+    pattern=[
+        {"signal": "TOP.dut.clk", "event": "rising"},
+        {"signal": "TOP.dut.valid", "event": "change"},
+        {"signal": "TOP.dut.ready", "event": "change"},
+        {"signal": "TOP.dut.result[31:0]", "event": "change"},
+        {"signal": "TOP.dut.overflow", "event": "change"},
+    ],
+)
+```
+
+如果多个候选无法区分，工具返回 `insufficient_anchor`；应增强失败日志后重跑。如果没有事件，工具返回 `no_candidate`；应检查信号名、时钟边沿、cycle 基准和容差，而不是任选一个相邻周期。
+
+### Bug 文档中的波形证据
+
+`{OUT}/{DUT}_bug_analysis.md` 中每个置信度非 0、且由 Fail 用例动态复现的 `<BG-*>/<TC-*>` 组合，都必须在对应 `<TC-*>` 后放置一个 `<WAVEFORM-ANALYSIS>...</WAVEFORM-ANALYSIS>` 标签块。该块必须是这个 `<TC-*>` 之后的第一个非空内容；允许缩进和空白行，但不允许在中间插入说明、根因分析正文、另一个 `<TC-*>`、其他标签或普通文本。每个 `<TC-*>` 都独立拥有自己的波形块，不能把多个用例的波形统一堆在 Bug 条目末尾。动态文档只允许 `<BG-NAME-xx>`，禁止 `<BG-STATIC-*>`。`<BG-STATIC-*>` 只能写在 `{OUT}/{DUT}_static_bug_analysis.md` 中，静态文档本身不添加波形标签；静态发现一旦被测试证实，应新建动态 Bug 标签并通过 `<LINK-BUG-*>` 关联两个文档。
+
+标签内容是 YAML 映射。`receipt_id` 和 `result_fingerprint` 必须来自 LLM 对 `WaveInfo` 的真实调用返回；Checker 会在当前 agent 内存和 workspace 的签名 checkpoint 中查询该收据，并核对调用的测试名、pattern、参数和结果。仅复制或编造波形路径、时间、step、候选值，或者只调用 metadata 而没有完成事件分析，均不能通过 Checker。agent 中断或重启后，如果使用相同 workspace、DUT 和测试目录，签名有效的 receipt 会自动恢复，不需要重新调用 `WaveInfo` 或重写所有波形块；签名无效、收据丢失、作用域改变或重放失败时，才需要重新运行对应测试并更新该用例的收据。不要手工编辑 `.ucagent` 中的 receipt 存储文件。
+
+`Check` 会重新运行测试，因此可能生成比文档记录更新的波形。Checker 不要求旧 `freshness_identity` 等于 Check 新生成文件的身份，而是同时执行两项验证：
+
+1. 标签中的波形身份和结论必须与其 `receipt_id` 对应的真实历史调用完全一致；
+2. Checker 使用同一收据中的 pattern 和参数，对本次 Check 生成的最新波形重新分析，确认 Bug 事件仍可复现且候选没有变化。
+
+#### 时钟对齐模式
+
+有日志 cycle 的时序 Bug 使用 `analysis_mode: clock_aligned`。以下块必须紧随对应 `<TC-tests/test_adder.py::test_add_with_cin_overflow_boundary>`（仅可有空白行），不能放在 Bug 条目末尾或另一个测试用例之后：
+
+```markdown
+<WAVEFORM-ANALYSIS>
+status: confirmed
+receipt_id: 真实WaveInfo返回的receipt_id
+result_fingerprint: 真实WaveInfo返回的result_fingerprint
+waveform_file: unity_test/tests/data/toffee_tmp_.../master/test_add_with_cin_overflow_boundary.fst
+freshness_identity: unity_test/tests/data/toffee_tmp_.../master/test_add_with_cin_overflow_boundary.fst:12345:1786702064722832592
+size_bytes: 12345
+session_started_at: '2026-08-14T15:00:00.123+08:00'
+modified_at: '2026-08-14T15:00:02.456+08:00'
+modified_time_ns: 1786702064722832592
+observed_at: '2026-08-14T15:00:03.000+08:00'
+analysis_mode: clock_aligned
+pattern:
+  - signal: TOP.dut.valid
+    event: rising
+  - signal: TOP.dut.op[2:0]
+    event: equals
+    value: "0x3"
+  - signal: TOP.dut.result[31:0]
+    event: change
+logged_cycle: 120
+cycle_tolerance: 5
+clock_signal: TOP.dut.clk
+clock_edge: rising
+cycle_origin: 0
+context_steps: 1
+max_points: 200
+clock_occurrence_index: 121
+cycle_delta: 1
+wave_step: 2440
+timeline_truncated: false
+alignment_evidence: txn=17、valid/ready、op=3和输入值与失败日志唯一一致，确认日志cycle 120对应边沿121
+observed_behavior: wave step 2440后result和overflow与expected不一致，具体值为...
+source_correlation: 波形中的错误输出与RTL文件...第...行的位宽截断逻辑一致
+</WAVEFORM-ANALYSIS>
+```
+
+`clock_occurrence_index`、`cycle_delta` 和 `wave_step` 必须与收据中的 `selected_candidate` 完全一致。收据必须是 `candidate_selected`、`evidence_usable: true` 且时间线未截断；`insufficient_anchor`、`no_candidate` 或 metadata-only 调用不能填写为 confirmed。
+
+#### 显式时间窗模式
+
+没有测试 cycle、组合逻辑或已由事件确定仿真时间窗时，使用 `analysis_mode: explicit_window`。最终取证调用必须在调用 `WaveInfo` 时真实传入完整窗口，例如：
+
+```python
+WaveInfo(
+    test_case_name="test_mux_select",
+    pattern=[
+        {"signal": "TOP.dut.sel[1:0]", "event": "equals", "value": "0x3"},
+        {"signal": "TOP.dut.out[31:0]", "event": "change", "value": ""},
+    ],
+    logged_cycle=-1,
+    clock_signal="",
+    start_step=20,
+    end_step=80,
+    context_steps=1,
+    max_points=200,
+)
+```
+
+成功的最终取证返回会包含 `bug_document_fields`，其中的 receipt、波形身份、pattern、调用窗口和 `wave_step` 已与真实调用绑定，应优先复制该映射，而不是根据 `analysis_window` 手工重建。然后必须查看 `timeline` 和 RTL，真实补写返回中列出的 `bug_document_completion_required`：`alignment_evidence`、`observed_behavior` 和 `source_correlation`。工具不会替 LLM 编造这三个分析结论。
+
+`wave_step` 必须是收据和当前波形时间线中真正带有 trigger 的事件点：
+
+```markdown
+<WAVEFORM-ANALYSIS>
+status: confirmed
+receipt_id: 真实WaveInfo返回的receipt_id
+result_fingerprint: 真实WaveInfo返回的result_fingerprint
+waveform_file: unity_test/tests/data/toffee_tmp_.../master/test_mux_select.fst
+freshness_identity: unity_test/tests/data/toffee_tmp_.../master/test_mux_select.fst:4567:1786702064722832592
+size_bytes: 4567
+session_started_at: '2026-08-14T15:00:00.123+08:00'
+modified_at: '2026-08-14T15:00:02.456+08:00'
+modified_time_ns: 1786702064722832592
+observed_at: '2026-08-14T15:00:03.000+08:00'
+analysis_mode: explicit_window
+pattern:
+  - signal: TOP.dut.sel[1:0]
+    event: equals
+    value: "0x3"
+  - signal: TOP.dut.out[31:0]
+    event: change
+start_step: 20
+end_step: 80
+context_steps: 1
+max_points: 200
+wave_step: 40
+timeline_truncated: false
+alignment_evidence: sel进入3时的输入和测试失败日志一致，wave step 40是唯一对应事务
+observed_behavior: sel=3后out仍保持旧输入值，actual为...，expected为...
+source_correlation: 波形行为与RTL文件...第...行缺失的sel=3分支一致
+</WAVEFORM-ANALYSIS>
+```
+
+#### 波形暂不可用时的处理
+
+找不到或无法解析波形时，应先用 `WaveInfo(test_case_name=...)` 做一次不带 pattern 的真实调用，利用返回的状态、候选测试名称、最新 session 路径、`.dat`/`.fst` 情况和修复建议定位原因。该调用是诊断步骤，不是最终 Bug 证据，不得在动态 Bug 文档中用 `status: unavailable` 冒充确认结果。
+
+处理顺序必须是：核对完整 pytest node ID和参数化名称；确认失败用例确实在最新 session 运行；检查 `SetWaveform` 和 `dut.Finish()`；修复波形生成、flush、依赖或文件损坏问题；单独重跑失败用例；再次调用 `WaveInfo`，用有效 pattern 获得 `evidence_usable: true` 的事件证据；最后写入 `status: confirmed` 块。完成前 checker 会持续失败。
+
+每个 confirmed 记录都必须说明候选为何唯一、是否发生截断、观测到的行为如何支持源码根因。波形只能证明实际动态行为，最终 Bug 结论仍需要源码位置、根因和可执行的修复建议。
 
 
 ### 在进行缺陷根因分析时，需要结合源代码进行分析（{DUT}的源文件通常为{DUT}.v、{DUT}.sv、或者{DUT}.scala），并在文档中把bug相关的部分列出来，用注释说明bug原因，例如：
@@ -58,8 +400,10 @@
 - 使用功能组标签 `<FG-*>` 对失败检查点进行分组
 - 使用功能点标签 `<FC-*>` 标识具体功能
 - 使用检查点标签 `<CK-*>` 标识失败的具体检查点
-- 使用Bug标签 `<BG-*-xx>` 标识缺陷名称和置信度（xx取值0-100）
+- 使用Bug标签 `<BG-*-xx>` 标识动态复现的DUT缺陷名称和置信度（有效动态Bug的xx取值1-100）
 - 使用多个测试用例标签 `<TC-*>` 标识测出bug的所有测试用例，这些测试用例必须为Fail（Fail的测试用例意味着bug）
+- 每个置信度非0的动态 `<BG-*>/<TC-*>` 组合必须关联一个 `status: confirmed`、经过真实 `WaveInfo` 收据验证的 `<WAVEFORM-ANALYSIS>` 标签；动态文档禁止 `<BG-STATIC-*>`，静态Bug只写入独立的静态分析文档
+- `<WAVEFORM-ANALYSIS>` 必须是对应 `<TC-*>` 后的第一个非空行；允许空白行和 Markdown 缩进，不允许插入描述、根因、其他标签或另一个测试标签。每一个 `<TC-*>` 都必须有独立波形块，不能在 Bug 条目末尾汇总
 
 例如：
 
@@ -85,13 +429,13 @@
 | 90-100% | 确认存在缺陷 | 立即修复 |
 | 70-89% | 很可能存在缺陷 | 优先修复 |
 | 50-69% | 可能存在缺陷 | 进一步调查 |
-| 20-49% | 不确定是否缺陷 | 低优先级调查 |
-| 1-19% | 很可能是测试问题 | 检查测试用例 |
-| 0% | 已知忽略点 | 需要说明忽略原因 |
+| 20-49% | 尚未充分确认，不应作为最终动态Bug | 继续调查；完成阶段前确认并提高置信度，或修复非DUT问题到Pass |
+| 1-19% | 很可能是测试或验证基础设施问题 | 不得保留Fail；修复后Pass，不能作为有效动态Bug |
+| 0% | 无效/历史占位，不是动态Bug证据 | 不得用于解释Fail，清理占位或修复非DUT问题到Pass |
 
-### 完整示例
+### Bug条目示例
 
-下列示例演示了一个（虚构的）算术逻辑单元（ALU）在一次回归中发现的缺陷记录方式。示例重点演示：标签层级、置信度书写、一条 Bug 下多测试用例的列出方式、以及临时占位测试用例的用法。
+下列示例演示了一个（虚构的）算术逻辑单元（ALU）在一次回归中发现的缺陷层级。为避免重复展示大段 YAML，下列列表省略了每个 `<TC-*>` 后的波形块；实际 `{OUT}/{DUT}_bug_analysis.md` 不得省略，必须按“Bug 文档中的波形证据”一节，为每个非零置信度动态 `<BG-*>/<TC-*>` 组合写入完整且带真实收据的 `status: confirmed` `<WAVEFORM-ANALYSIS>`。纯静态Bug条目不得出现在该动态文档中；零置信度标签不能解释或保留任何Fail。
 
 ## 未测试通过检测点分析
 
@@ -141,10 +485,7 @@
 <FG-CONTROL>
 
 #### 分支预测 <FC-BRANCH>
-- <CK-MISPREDICT> 特定随机模式下预测准确率低：确认是当前版本有意降级策略；Bug 置信度 0% <BG-BR_PRED_POLICY-0>
-  - 占位测试用例（设计已知限制）：
-    - <TC-tests/test_branch.py::test_branch_random_policy_guard>  // assert False 标记（未来删除）
-  - 说明：作为已知策略限制记录，后续版本若策略升级需重新评估
+- 确认属于设计规范允许的策略差异时，不记录动态Bug，也不使用人工失败占位；测试应按正确规范断言并Pass。若需要保留说明，写在规格或验证计划中，而不是用 `<BG-*-0>/<TC-*>` 保留Fail
 
 
 ### 标签与字段书写要点（示例总结）
@@ -160,7 +501,7 @@
 补充规范：
 1. 一个 <CK-*> 允许关联多个 <BG-*>
 2. 若一个 Bug 影响多个检查点，需在`根因分析`部分统一列出受影响集合
-3. 临时占位测试需带有清晰注释，避免长期遗留
+3. 禁止临时失败占位；未确认问题不得用 `assert False` 或 `<BG-*-0>` 留在 Fail 集合中
 
 ## 缺陷根因分析
 
@@ -372,8 +713,8 @@ val operand_b = MuxCase(rf.read_data2, Seq(
 - 在文本中引用标签时，为防止被解析导致错误，需要去掉尖括号，例如`FG-CONTROL`、`CK-MISPREDICT`、`BG-*-xx`等
 - Bug 对应的测试用例应该 Fail，功能正常的检查点对应的测试用例应该 Pass；若出现`全部测试用例 Fail`，应优先排查：测试基线 / 复位时序 / 公共依赖环境。
 - 当一个测试用例覆盖多个测试点时，如可行，应拆分为多个细粒度用例，使定位和覆盖统计更清晰。
-- 标签`BG-*-xx`中xx为0时，表示该标签用于为占位，其后续的测试用例标签`TC-*`可以为Pass或者Fail，如果不为零，这些测试用例必须为Fail。
-- 当Check Point为Fail且并没有对应的Fail测试用例说明其是否有bug时，需要用标签`BG-*-0`进行标记，在后续验证中需要再次对Bug置信度为0的标记进行深入分析。
+- 标签`BG-*-xx`中xx为0时不构成有效动态Bug，也不能解释任何Fail。对应测试若不是DUT Bug必须修复到Pass；若确认是DUT Bug，则改为非零置信度并补齐真实动态证据。
+- Check Point或测试Fail但尚未确认DUT Bug时，阶段仍未完成；继续诊断并得到“修复非DUT问题后Pass”或“确认DUT Bug并完整取证后保留Fail”的结论，不能用`BG-*-0`绕过。
 
 ---
 

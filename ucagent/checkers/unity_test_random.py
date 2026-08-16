@@ -94,6 +94,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
                                    check_fail_ck_in_bug=False,
+                                   waveform_tool=self.get_waveform_tool_for_checker(),
+                                   waveform_test_dir=self.test_dir,
                                    )
         if not ret:
             return ret, get_emsg(msg)

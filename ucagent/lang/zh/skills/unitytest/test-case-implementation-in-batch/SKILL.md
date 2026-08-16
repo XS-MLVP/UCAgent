@@ -16,8 +16,7 @@ description: 分批测试用例实现与对应bug分析阶段专属技能,用于
 注意:
 - 若约束条件是`lambda`表达式,则测试激励必须满足该`lambda`表达式
 - 若约束条件是一个函数,则测试激励必须满足该函数返回True的条件
-- 该部分需要详细分析,在无`设计Bug`和`测试Bug`的前提下,设计出满足约束条件的测试激励
-- 若后续分析发现存在`设计Bug`或`测试Bug`,则允许不符合约束情况
+- 该部分需要详细分析；测试激励本身必须满足有效约束。DUT设计Bug可能导致输出不满足预期，但不能把不满足输入约束的测试错误当作DUT Bug
 
 ### 步骤2: 测试用例实现
 
@@ -30,6 +29,7 @@ description: 分批测试用例实现与对应bug分析阶段专属技能,用于
 - 添加断言检查输出是否符合预期（Eg: assert output == excepted_output, error_msg）
 - 断言必须有意义，不允许类型判断、大范围的数值比较等无效断言
 - 不能为了通过测试而写断言,也不能在已知有Bug的情况下写能通过测试的断言
+- 可能触发Bug的断言消息应打印cycle及cycle_basis、transaction ID、相关输入输出pin、valid/ready或状态、expected和actual，便于后续用`WaveInfo`构建精确pattern；增加日志不能新增Step、改变callback顺序或改变测试时序
 
 ### 步骤3: 测试用例执行
 
@@ -42,30 +42,39 @@ description: 分批测试用例实现与对应bug分析阶段专属技能,用于
 
 操作: 分析测试结果，针对待实现的测试用例的执行结果进行如下分析:
 - 分析`failed_ck`中与当前批次待实现的测试用例相关的检测点:
-  - 若是设计缺陷,导致对输出的约束始终无法得到满足,属于`设计Bug`,则`标记`
-  - 若是测试缺陷,误设计了完全不合理的检测点,例如两个正数相加检测下溢这类,属于`测试Bug`,则`标记`,且必须保证该测试用例是`FAILED`的,不能`PASSED`
-  - 若不属于上述两种情况,则对该测试用例重复上述步骤(1,2,3),直到满足为止
+  - 若正确测试稳定复现DUT设计缺陷,导致输出约束无法满足,则进入动态Bug确认与标记流程
+  - 若是测试代码、断言、预期值、检测点、fixture/API、参考模型、复位/时序或环境问题,必须修复并重跑到`PASSED`,不得标记为DUT Bug或保留`FAILED`
 - 分析`failed_tc`中当前批次待实现的测试用例:
-  - 若`FAILED`是合理的,即确实发现了`设计Bug`或是`测试Bug`,则标记
-  - 否则,则对该测试用例重复上述步骤(1,2,3)，直到结果合理为止
+  - 若确认是DUT设计Bug,保留正确断言自然触发的`FAILED`,并完成非零置信度动态Bug记录、CK关联、源码根因和真实WaveInfo证据
+  - 否则修正测试或验证基础设施并重跑,直到`PASSED`
 
 总之,当前批次的测试用例有以下情况:
-1. 测试用例在`failed_tc`中,且对应检测点在`failed_ck`中: `标记`
-2. 测试用例在`failed_tc`中,但对应检测点不在`failed_ck`中: `标记`
-3. 测试用例不在`failed_tc`中,但对应检测点不在`failed_ck`中: 跳过
-4. 测试用例不在`failed_tc`中,但对应检测点在`failed_ck`中: 不存在这种情况,修改测试用例的实现,使其满足以上3种情况
+1. 测试用例`FAILED`且对应检测点失败：先分类；确认DUT Bug才标记，否则修复到`PASSED`
+2. 测试用例`FAILED`但对应检测点未失败：关联或测试逻辑异常，必须修正；不能仅凭测试Fail标记Bug
+3. 测试用例`PASSED`且对应检测点通过：正常
+4. 测试用例`PASSED`但对应检测点失败：覆盖关联、采样或断言存在矛盾，必须修正
 
 以下述结构对测试用例进行标记:
-  - `BG`: Bug标签，格式为BG-NAME-NUM,必须是BG-前缀,以及数字后缀NUM,其中数字为置信度,范围为[0,100].示例: BG-CIN-OVERFLOW-98;若是`测试Bug`,则置信度必须置为0
+  - `BG`: 仅用于已动态复现的DUT设计Bug，格式为BG-NAME-NUM，NUM为1到100的置信度。示例：BG-CIN-OVERFLOW-98；BG-*-0不能解释失败用例
   - `TC`: 测试用例标签，必须是TC-前缀,以及测试用例路径.示例: TC-tests/test_adder.py::test_xxx
-  - `BD`: Bug的简要描述;若是`测试Bug`,则描述测试设计的不合理之处
-  - `FILE`: Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与潜在Bug相关的代码);若是`测试Bug`,则列出{DUT}_function_and_check.md中对应检测点所在行数,路径必须是相对于当前工作目录的相关路径
+  - `BD`: DUT Bug的简要描述
+  - `FILE`: Bug涉及的DUT源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与Bug相关的代码)
   - `ROOT`: Bug根因分析,必须基于源码进行详细分析,说明为什么有这个缺陷,导致了什么问题(ROOT和FILE里的源码必须对应);如果源码不存在,则需要基于设计进行缺陷分析
   - `FIX`: Bug修复建议,以`FILE`所指的多行源代码为基础,直接在其上进行修改,最终仅返回修改后的源代码(注意添加换行符'\n',保持美观)
 
 注意:
 - 通常情况下,测试用例与检测点一一关联,例如:test_Adder_api.py:56-90::test_result_sample这个测试用例就关联FG-API/FC-API-OPERATION/CK-RESULT-SAMPLE
+- 阶段完成不要求已确认DUT Bug的复现用例Pass；精确条件是：所有非DUT-Bug用例Pass，所有剩余Fail均为已完成动态取证的DUT Bug复现用例
+- `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
+- 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
+- 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后写入带工具返回`receipt_id`、`status: confirmed`的`<WAVEFORM-ANALYSIS>`结构化标签；Checker会核对内存收据并在当前波形上重放pattern，不能伪造波形字段
+- 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
+- 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`
+- 有波形时用结构化pattern匹配输入、握手、状态和输出；无波形时先用metadata-only调用获取诊断，修复测试名称或波形生成流程并重跑，`status: unavailable`不能完成阶段
+- `<BG-STATIC-*>`只允许写在`{DUT}_static_bug_analysis.md`；一旦测试动态证实，必须在`{DUT}_bug_analysis.md`新建独立`<BG-NAME-xx>`并提供confirmed波形证据，再从静态文档用`<LINK-BUG-*>`关联
+- 日志中的cycle与wavekit的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
+- 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
 
 ### 步骤5: Bug记录
 

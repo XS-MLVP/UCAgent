@@ -47,6 +47,17 @@ def validate_tag(tag, prefix):
         raise ValueError(f"Error: {prefix} tag format invalid: {tag}")
 
 
+def validate_dynamic_bg_tag(tag):
+    validate_tag(tag, "BG")
+    if tag.startswith("BG-STATIC-"):
+        raise ValueError(
+            "Error: -BG is a dynamic Bug tag and cannot use the BG-STATIC-* "
+            "namespace. Keep <BG-STATIC-*> in {DUT}_static_bug_analysis.md, "
+            "create a distinct BG-NAME-XX tag here, and link it with LINK-BUG."
+        )
+    bg_confidence(tag)
+
+
 def parse_tc_target(tc_tag):
     validate_tag(tc_tag, "TC")
     payload = tc_tag[len("TC-") :]
@@ -401,7 +412,7 @@ def insert_root_cause_content(lines, fg, fc, ck, bg, tc, bd, root, file, fix):
 
 def main():
     args = parse_args()
-    validate_tag(args.BG, "BG")
+    validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
 
     escaped_bd = escape_markdown_asterisk(args.BD)

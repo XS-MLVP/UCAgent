@@ -65,7 +65,8 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 
 注意:
 - 测试目标是验证静态分析提出的缺陷是否真实存在
-- 若验证结果是Fail且Fail合理,应保留该测试为Fail
+- 每个Fail都必须先排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；这些问题必须修复到Pass
+- 只有正确测试稳定复现DUT设计缺陷时才保留由正确断言自然触发的Fail，并完成非零置信度动态Bug和WaveInfo证据；本阶段已实现的验证测试禁止assert False和BG-*-0占位。此限制不影响create_test_case_templates阶段要求空模板使用assert False
 - 不允许为了让测试通过而修改断言或弱化测试
 - 若某个静态Bug本身是误报,则测试结果应支持其为误报的结论
 
@@ -74,12 +75,16 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 操作:
 - 运行动态验证测试
 - 结合测试结果、功能预期、源码分析形成结论
+- 运行或重跑测试时，在失败日志中打印`cycle_basis`、transaction ID、相关输入输出pin、握手/状态、expected和actual
+- 对合理且稳定的Fail用例真实调用`WaveInfo`，使用结构化pattern确认失败事务的输入、状态和错误输出
 
 结论分为两类:
 
 1. Bug已证实
 - 在`{OUT}/{DUT}_bug_analysis.md`中补充完整动态Bug记录
 - 动态Bug标签形如`BG-XXX-90`
+- 动态Bug标签严禁使用`BG-STATIC-*`命名；`<BG-STATIC-*>`标签只保留在`{OUT}/{DUT}_static_bug_analysis.md`
+- 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据
 - 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整
 
 2. 静态分析误报
@@ -89,6 +94,8 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 注意:
 - 先有动态Bug记录,再回填静态Bug链接
 - 不能先把静态Bug链接改掉,再回头补`bug_analysis.md`
+- `WaveInfo`找不到波形时，使用其诊断检查测试名、最新session、`.dat`/`.fst`、`SetWaveform`和`dut.Finish()`，修复后重跑；`status: unavailable`不能作为已证实动态Bug的最终证据
+- 测试日志cycle与wavekit wave step可能相差0到数个周期，必须通过指定时钟的occurrence index和事务上下文对齐，不能直接相减
 
 当Bug已证实时,使用`RunSkillScript`执行`recordbug.py`,命令格式如下:
 
@@ -99,6 +106,7 @@ python3 script -BG 'BG-ADD-SPECIAL-VALUE-90' -TC 'TC-unity_test/tests/test_ALU75
 其中:
 - `script`替换为`recordbug.py`脚本路径
 - `-BG`是动态Bug标签
+- `-BG`不能是`BG-STATIC-*`；例如静态标签`BG-STATIC-007-OVERFLOW`被动态证实后，应另取`BG-MUL-OVERFLOW-THRESHOLD-85`
 - `-TC`是用于证实该Bug的失败测试用例标签
 - `-BD`是Bug简述
 - `-ROOT`是根因分析
@@ -169,10 +177,12 @@ python3 script -SBG 'BG-STATIC-003-ZZZ' -LBG 'BG-FSM-DEAD-92,BG-FSM-DEFAULT-85'
 - 5.**误报显式标记**: 误报必须写为`BG-NA`,不能保留`BG-TBD`
 - 6.**先记动态Bug,再回填静态Bug**: 新发现的动态Bug必须先通过`recordbug.py`写入`bug_analysis.md`,再通过`linkbug.py`建立关联
 - 7.**脚本唯一入口**: `bug_analysis.md`中的新增动态Bug记录必须通过`recordbug.py`, `static_bug_analysis.md`中的链接回填必须通过`linkbug.py`,不要手工直接编辑
+- 8.**动态证据必需**: 非零置信度动态Bug必须有Fail测试和可重放的confirmed WaveInfo证据；波形暂不可用时不能完成该Bug记录
 
 ## 关键规则
 
 - `-SBG`必须是`BG-STATIC-*`格式
+- `-BG`和`-LBG`表示动态Bug标签，禁止使用`BG-STATIC-*`格式
 - `-LBG`必须是以下两种之一:
   - 单个`BG-*`
   - 多个`BG-*`用英文逗号分隔

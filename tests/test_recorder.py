@@ -515,7 +515,34 @@ def test_bug_recorder_rejects_records_not_declared_in_document(tmp_path):
     assert "BUG_RECORDS" not in manager.data
 
 
-def test_bug_recorder_requires_bug_analysis_document(tmp_path):
+def test_bug_recorder_treats_missing_bug_document_as_no_bugs(tmp_path):
+    recorder, manager, stage = _make_recorder(
+        tmp_path,
+        initialize=False,
+        output="reports/{{DUT}}_bug_summary.md",
+    )
+    Path(tmp_path, "Adder_bug_analysis.md").unlink()
+    recorder.on_init()
+
+    passed, message = recorder.do_check(is_complete=True)
+
+    assert passed is True
+    assert message["bug_count"] == 0
+    assert message["progress"] == "0/0"
+    assert manager.data["BUG_RECORDS"] == []
+
+    stage.complete()
+
+    summary = Path(tmp_path, "reports/Adder_bug_summary.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Total Bugs: 0" in summary
+
+
+def test_bug_recorder_requires_dynamic_document_for_confirmed_static_links(tmp_path):
+    _write_static_bug_doc(tmp_path, [
+        ("BG-STATIC-001-CONFIRMED", ["BG-dynamic-90"], "CK-STATIC"),
+    ])
     recorder, manager, _stage = _make_recorder(tmp_path, initialize=False)
     Path(tmp_path, "Adder_bug_analysis.md").unlink()
     recorder.on_init()
@@ -524,6 +551,7 @@ def test_bug_recorder_requires_bug_analysis_document(tmp_path):
 
     assert passed is False
     assert "does not exist" in message["error"]
+    assert "confirmed dynamic links" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -1325,18 +1353,29 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
     assert "{COMPLETED_BUGS}/{TOTAL_BUGS}" in task_text
     assert "置信度为0的Bug" in task_text
     assert "调用Check()获取当前批次" not in task_text
-    assert [checker["args"]["type"] for checker in stage["checker"]] == ["bug"]
-    assert stage["checker"][0]["args"]["bug_file"] == (
+    assert [checker["clss"] for checker in stage["checker"]] == [
+        "UnityChipCheckerWaveformBugAnalysis",
+        "Recorder",
+    ]
+    recorder_checkers = [
+        checker for checker in stage["checker"] if checker["clss"] == "Recorder"
+    ]
+    assert [checker["args"]["type"] for checker in recorder_checkers] == ["bug"]
+    waveform_checker = stage["checker"][0]
+    recorder_checker = recorder_checkers[0]
+    assert waveform_checker["args"]["bug_file"] == (
         "{OUT}/{DUT}_bug_analysis.md"
     )
-    assert stage["checker"][0]["args"]["static_bug_file"] == (
+    assert waveform_checker["args"]["test_dir"] == "{OUT}/tests"
+    assert recorder_checker["args"]["bug_file"] == "{OUT}/{DUT}_bug_analysis.md"
+    assert recorder_checker["args"]["static_bug_file"] == (
         "{OUT}/{DUT}_static_bug_analysis.md"
     )
-    assert stage["checker"][0]["args"]["output"] == (
+    assert recorder_checker["args"]["output"] == (
         "{OUT}/{DUT}_bug_summary.md"
     )
     assert "output_files" not in stage
-    assert "bug_files" not in stage["checker"][0]["args"]
+    assert "bug_files" not in recorder_checker["args"]
     assert all("Complete(task_list" not in instruction for instruction in stage["task"])
 
 

@@ -193,12 +193,30 @@ class BugRecordType(RecordType):
             self.bug_file,
             "bug_file",
             "bug analysis document",
+            require_file=False,
         )
         static_document, static_document_path = self._resolve_path(
             self.static_bug_file,
             "static_bug_file",
             "static bug analysis document",
         )
+
+        try:
+            static_links = parse_confirmed_static_bug_links(static_document_path)
+        except (AssertionError, ValueError) as exc:
+            raise ValueError(
+                f"Failed to parse static bug analysis document '{static_document}': {exc}"
+            ) from exc
+        if not os.path.isfile(document_path):
+            if static_links:
+                aliases = [link["alias"] for link in static_links]
+                raise ValueError(
+                    f"Bug analysis document '{document}' does not exist, but the static Bug "
+                    "analysis contains confirmed dynamic links for "
+                    f"{fc.list_str_abbr(aliases)}. Restore the dynamic Bug document and its "
+                    "verified waveform evidence before recording Bugs."
+                )
+            return document, {}
 
         try:
             document_marks, document_blocks = fc.get_unity_chip_doc_marks(
@@ -299,12 +317,6 @@ class BugRecordType(RecordType):
             label_offsets[bug_label] = label_index + 1
             expected_by_label[bug_label.upper()] = bug_name
 
-        try:
-            static_links = parse_confirmed_static_bug_links(static_document_path)
-        except (AssertionError, ValueError) as exc:
-            raise ValueError(
-                f"Failed to parse static bug analysis document '{static_document}': {exc}"
-            ) from exc
         for static_link in static_links:
             for dynamic_tag in static_link["dynamic_bug_tags"]:
                 normalized_dynamic_tag = dynamic_tag.upper()
@@ -861,6 +873,7 @@ class BugRecordType(RecordType):
             self.bug_file,
             "bug_file",
             "bug analysis document",
+            require_file=bool(expected_bugs or records),
         )
         _static_name, static_bug_path = self._resolve_path(
             self.static_bug_file,
