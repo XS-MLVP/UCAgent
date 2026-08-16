@@ -74,6 +74,12 @@ mission:
       - `ReadTextFile`: 读取文件内容（让工具知晓你阅读了哪些文件）
       - 其他文件操作和搜索工具按需使用
 
+      **Check/Complete失败处理：**
+      - Check或Complete返回失败时，必须先读取返回顶部的`failure_summary`，并按其中的`failed_checker_name`、`error_code`、`error`和`next_action`处理具体阻塞项
+      - 向用户或阶段日志说明失败原因时，必须引用`error_code`和至少一个具体文件、测试、标签或缺失项；禁止仅表述为“内部Checker机制不通过”“Checker计数异常”或“需要人工确认”
+      - `count_fail`是该Checker的历史失败调用累计值，不是当前失败测试数；`failed_funct_point: 0`、`failed_check_point: 0`或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
+      - Checker失败默认表示仍有可修复的验证项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断，以顶部`failure_summary`为准，不得反复调用Complete而忽略具体错误
+
       **指导文档：**
       - 位于Guide_Doc/目录下
       - 根据需要进行查阅

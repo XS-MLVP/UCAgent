@@ -747,23 +747,34 @@ class VerifyStage(object):
             return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
                                        "failed_patterns": success_out_msg})
         self.check_pass = True
+        for checker_info in self.check_info:
+            if checker_info is not None:
+                checker_info["checked_in_last_run"] = False
         for i, c in enumerate(self.checker):
             self.is_batch_success = False
             ck_pass, ck_msg = c.check(*a, **kwargs)
             if self.check_info[i] is None:
-                self.check_info[i] = {
+                checker_config_name = self._checker[i].name if i < len(self._checker) else ""
+                self.check_info[i] = OrderedDict({
                     "name": c.__class__.__name__,
+                    "checker_name": checker_config_name,
+                    "checker_class": c.__class__.__name__,
+                    "checked_in_last_run": True,
+                    "last_check_pass": ck_pass,
+                    "last_msg": ck_msg,
                     "count_pass": 0,
                     "count_fail": 0,
                     "count_check": 0,
-                    "last_msg": "",
-                }
+                })
+            else:
+                self.check_info[i]["checked_in_last_run"] = True
+                self.check_info[i]["last_check_pass"] = ck_pass
+                self.check_info[i]["last_msg"] = ck_msg
             count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
             if self.is_batch_success:
                 count_fail = 0
             self.check_info[i]["count_pass"] += count_pass
             self.check_info[i]["count_fail"] += count_fail
-            self.check_info[i]["last_msg"] = ck_msg
             self.check_info[i]["count_check"] += 1
             if not ck_pass:
                 self.check_pass = False

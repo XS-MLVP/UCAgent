@@ -376,3 +376,140 @@ def test_stage_manager_check_and_complete_forward_extra_arguments():
         {"refined": {"CK": "check"}, "detail": True, "timeout": 9},
         {"refined": {"CK": "complete"}, "timeout": 10, "is_complete": True},
     ]
+
+
+def test_check_failure_summary_precedes_verbose_diagnostics():
+    class FailingStage:
+        name = "comprehensive_verification_and_bug_analysis"
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "UnityChipCheckerTestCase",
+                "checker_name": "test_check",
+                "checker_class": "UnityChipCheckerTestCase",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "count_fail": 866,
+                "last_msg": {
+                    "STDOUT": "verbose pytest output" * 5000,
+                    "error": (
+                        "[Test Association Missing] Toffee recorded 8 executed tests without "
+                        "checkpoint associations: test_ALU754_env_fixture.py::test_env_input."
+                    ),
+                },
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 25
+    manager.stages = [None] * 25 + [FailingStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda data: data
+
+    result = manager.check(30)
+    rendered = fc.make_llm_tool_ret(result)
+
+    assert next(iter(result)) == "failure_summary"
+    assert result["failure_summary"]["stage_index"] == 25
+    assert result["failure_summary"]["failed_checker_name"] == "test_check"
+    assert result["failure_summary"]["failed_checker_class"] == "UnityChipCheckerTestCase"
+    assert result["failure_summary"]["error_code"] == "TEST_ASSOCIATION_MISSING"
+    assert "test_ALU754_env_fixture.py::test_env_input" in result["failure_summary"]["error"]
+    assert rendered.index("failure_summary:") < rendered.index("verbose pytest output")
+
+
+def test_failure_summary_uses_current_run_not_historical_count_fail():
+    check_info = [
+        {
+            "name": "HistoricalChecker",
+            "checker_name": "historical_check",
+            "checked_in_last_run": False,
+            "last_check_pass": False,
+            "count_fail": 100,
+            "last_msg": {"error": "[Old Failure] stale diagnostic"},
+        },
+        {
+            "name": "CurrentChecker",
+            "checker_name": "current_check",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "count_fail": 1,
+            "last_msg": {"error": "[Current Failure] concrete current diagnostic"},
+        },
+        None,
+    ]
+
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="stage"), check_info, "fix current failure", stage_index=7
+    )
+
+    assert summary["failed_checker_index"] == 1
+    assert summary["failed_checker_name"] == "current_check"
+    assert summary["error_code"] == "CURRENT_FAILURE"
+    assert summary["remaining_checkers_not_run"] == 1
+
+
+def test_compact_check_result_keeps_legacy_diagnostics():
+    legacy_result = {
+        "check_pass": False,
+        "check_info": [{"last_msg": {"error": "legacy concrete error"}}],
+    }
+
+    assert StageManager._compact_check_result(legacy_result) is legacy_result
+
+
+def test_verify_stage_marks_only_current_checker_as_run():
+    class StubChecker:
+        def __init__(self, passed, message):
+            self.passed = passed
+            self.message = message
+
+        def check(self, *_args, **_kwargs):
+            return self.passed, self.message
+
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
+    stage.skill_list = {}
+    stage._is_reached = False
+    stage.reference_files = {}
+    stage.output_files = []
+    stage.workspace = ""
+    stage.checker = [StubChecker(False, {"error": "current"}), StubChecker(True, "unused")]
+    stage._checker = [SimpleNamespace(name="current"), SimpleNamespace(name="later")]
+    stage.check_info = [
+        {
+            "name": "OldChecker",
+            "checker_name": "old",
+            "checker_class": "OldChecker",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": {"error": "old"},
+            "count_pass": 0,
+            "count_fail": 5,
+            "count_check": 5,
+        },
+        {
+            "name": "LaterChecker",
+            "checker_name": "later",
+            "checker_class": "LaterChecker",
+            "checked_in_last_run": True,
+            "last_check_pass": True,
+            "last_msg": "previous",
+            "count_pass": 1,
+            "count_fail": 0,
+            "count_check": 1,
+        },
+    ]
+    stage.is_batch_success = False
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+
+    passed, check_info = stage._do_check()
+
+    assert passed is False
+    assert check_info[0]["checked_in_last_run"] is True
+    assert check_info[0]["last_check_pass"] is False
+    assert check_info[0]["last_msg"] == {"error": "current"}
+    assert check_info[1]["checked_in_last_run"] is False
+    assert check_info[1]["count_check"] == 1

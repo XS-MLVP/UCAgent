@@ -3,6 +3,7 @@
 
 import copy
 import os
+import re
 import time
 import traceback
 import random
@@ -791,7 +792,7 @@ class StageManager(object):
             ret["current_stage_index"] = self.stage_index
             ret["current_stage_name"] = cstage.name
             ret["current_task"] = cstage.task_info()
-        ret["last_check_result"] = self.last_check_info
+        ret["last_check_result"] = self._compact_check_result(self.last_check_info)
         return ret
 
     def get_current_stage(self):
@@ -889,18 +890,117 @@ class StageManager(object):
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
             **{**check_args, "timeout": timeout}
         )
-        ret_data = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+        ret_data = OrderedDict()
         if not ck_pass:
-            ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            action = (
+                "Apply the remediation stated in 'failure_summary.error', then call `Check` "
+                "again. This is a validation failure to resolve, not an internal Checker failure."
+            )
+            ret_data["failure_summary"] = self._build_failure_summary(
+                self.stages[self.stage_index], ck_info, action, self.stage_index
+            )
+        ret_data["check_pass"] = ck_pass
+        if not ck_pass:
+            ret_data["action"] = action
+        ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
+
+    @staticmethod
+    def _error_text(error_data):
+        if isinstance(error_data, str):
+            return error_data
+        if isinstance(error_data, dict):
+            return " ".join(
+                StageManager._error_text(value)
+                for value in error_data.values()
+                if value not in (None, "", [], {})
+            )
+        if isinstance(error_data, (list, tuple)):
+            return " ".join(
+                StageManager._error_text(value)
+                for value in error_data
+                if value not in (None, "", [], {})
+            )
+        return str(error_data)
+
+    @staticmethod
+    def _extract_checker_error(last_msg):
+        if isinstance(last_msg, dict):
+            if last_msg.get("error") not in (None, "", [], {}):
+                return last_msg["error"]
+            for key in ("errors", "message", "reason"):
+                if last_msg.get(key) not in (None, "", [], {}):
+                    return last_msg[key]
+        if last_msg not in (None, "", [], {}):
+            return last_msg
+        return "The checker failed without a concrete error message. Call `Check` again and inspect the returned failure_summary."
+
+    @classmethod
+    def _build_failure_summary(cls, stage, check_info, next_action, stage_index=None):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        failed_index = None
+        failed_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                failed_index = index
+                failed_entry = entry
+                break
+        if failed_entry is None:
+            for index, entry in enumerate(checker_entries):
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("last_check_pass") is False or entry.get("count_fail", 0) > 0:
+                    failed_index = index
+                    failed_entry = entry
+                    break
+
+        if failed_entry is None:
+            failed_entry = {"last_msg": check_info}
+        error_data = cls._extract_checker_error(failed_entry.get("last_msg"))
+        error_text = cls._error_text(error_data)
+        error_label = re.search(r"\[([^\]]+)\]", error_text)
+        error_code = "CHECKER_FAILED"
+        if error_label:
+            error_code = re.sub(r"[^A-Z0-9]+", "_", error_label.group(1).upper()).strip("_")
+
+        checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
+        checker_name = failed_entry.get("checker_name") or checker_class
+        remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
+        return OrderedDict({
+            "status": "checker_failed",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "failed_checker_index": failed_index,
+            "failed_checker_name": checker_name,
+            "failed_checker_class": checker_class,
+            "error_code": error_code,
+            "error": error_data,
+            "next_action": next_action,
+            "remaining_checkers_not_run": remaining_checkers,
+            "diagnostic_note": (
+                "Cumulative count_fail is historical. Use last_check_pass and this failure_summary "
+                "to diagnose the current Check/Complete call. Detailed diagnostics follow in check_info."
+            ),
+        })
+
+    @staticmethod
+    def _compact_check_result(check_result):
+        if not isinstance(check_result, dict):
+            return check_result
+        if not check_result.get("failure_summary"):
+            return check_result
+        compact_result = OrderedDict()
+        for key in ("failure_summary", "check_pass", "complete", "action", "message"):
+            if key in check_result:
+                compact_result[key] = copy.deepcopy(check_result[key])
+        return compact_result or check_result
 
     def save_stage_info(self):
         all_completed = self._refresh_all_completed()
@@ -1013,10 +1113,19 @@ class StageManager(object):
                 assert hm_passed is True, "hm_passed should be True here"
                 info("Human check approved for stage " + stage.name)
 
-        self.last_check_info = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+        self.last_check_info = OrderedDict()
+        if not ck_pass:
+            action = (
+                "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
+                "again. This is a validation failure to resolve, not an internal Checker failure."
+            )
+            self.last_check_info["failure_summary"] = self._build_failure_summary(
+                stage, ck_info, action, self.stage_index
+            )
+        self.last_check_info["check_pass"] = ck_pass
+        if not ck_pass:
+            self.last_check_info["action"] = action
+        self.last_check_info["check_info"] = ck_info
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
@@ -1038,7 +1147,6 @@ class StageManager(object):
             "last_check_result": self.last_check_info,
         })
         if not ck_pass:
-            ret["action"] = "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
             return self.gen_fail_suggestion(self.last_check_info)
         return ret
 
