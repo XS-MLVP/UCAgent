@@ -270,7 +270,15 @@ def has_confirmed_waveform_analysis(block: str) -> bool:
             and isinstance(payload["waveform_analysis"], dict)
             and payload["waveform_analysis"].get("status") == "confirmed"
         ):
-            return True
+            index += 1
+            while index < len(lines) and not lines[index].strip():
+                index += 1
+            if index < len(lines) and re.fullmatch(
+                r"\s*<WAVEFORM-VIEWER>\s+\[[^\]\r\n]+\]"
+                r"\(/surfer/\?wave=[A-Za-z0-9_-]+\)\s*",
+                lines[index],
+            ):
+                return True
         index += 1
     return False
 
@@ -298,7 +306,7 @@ def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
                 if empty_fields
                 else f"unfinished marker {DYNAMIC_BUG_TODO_MARKER!r} remains"
                 if has_todo
-                else "confirmed waveform_analysis is missing"
+                else "confirmed waveform_analysis or its WAVEFORM-VIEWER link is missing"
             )
             raise ValueError(
                 f"Error: linked BG tag '{target_bg}' is only an incomplete scaffold ({detail}). "

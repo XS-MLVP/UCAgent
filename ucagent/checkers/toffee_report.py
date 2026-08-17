@@ -3,6 +3,12 @@
 
 from ucagent.util.log import warning, info
 import ucagent.util.functions as fc
+from ucagent.util.waveform_viewer import (
+    WaveformViewerProtocolError,
+    WAVEFORM_VIEWER_MARKER,
+    build_waveform_viewer_url,
+    parse_waveform_viewer_markdown_link,
+)
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS as _BUG_ANALYSIS_SECTION_MARKERS,
     BUG_SOURCE_EVIDENCE_MARKERS as _BUG_SOURCE_EVIDENCE_MARKERS,
@@ -16,6 +22,7 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_LLM_ANALYSIS_FIELDS as _WAVEFORM_LLM_ANALYSIS_FIELDS,
 )
 from ucagent.checkers.base import Checker
+import copy
 from datetime import datetime
 import os
 import re
@@ -291,6 +298,7 @@ def _parse_waveform_analysis_blocks(
     current_bug = None
     current_test = None
     pending_test = None
+    pending_viewer = None
     opened = None
     payload_lines: list[str] = []
     blocks = {}
@@ -307,6 +315,20 @@ def _parse_waveform_analysis_blocks(
             }
 
         if opened is not None:
+            if WAVEFORM_VIEWER_MARKER in stripped or "/surfer/?wave=" in stripped:
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Viewer Link Inside YAML] Line {line_number} in "
+                        f"'{bug_file}' places the online viewer link inside the YAML "
+                        "fence. Close the fence first, then copy the complete "
+                        "bug_document_viewer_link as the next non-empty line."
+                    ),
+                    "details": {
+                        "bug": opened["bug"],
+                        "test_case": opened["test_case"],
+                        "line": line_number,
+                    },
+                }
             if stripped.startswith("```") and stripped != _WAVEFORM_FENCE_CLOSE:
                 return False, {}, {
                     "error": (
@@ -338,8 +360,48 @@ def _parse_waveform_analysis_blocks(
                 "line": opened["line"],
                 "data": payload,
             }
+            pending_viewer = {
+                "bug": opened["bug"],
+                "test_case": opened["test_case"],
+                "block_line": opened["line"],
+            }
             opened = None
             payload_lines = []
+            continue
+
+        if pending_viewer is not None:
+            if not stripped:
+                continue
+            try:
+                viewer_token, viewer_payload = parse_waveform_viewer_markdown_link(
+                    stripped
+                )
+            except WaveformViewerProtocolError as error:
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Viewer Link Invalid] The first non-empty content after "
+                        f"the YAML block at line {pending_viewer['block_line']} for "
+                        f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' must be "
+                        "the exact bug_document_viewer_link returned by WaveInfo. "
+                        f"Line {line_number} is invalid: {error}."
+                    ),
+                    "details": {
+                        "bug": pending_viewer["bug"],
+                        "test_case": pending_viewer["test_case"],
+                        "block_line": pending_viewer["block_line"],
+                        "viewer_line": line_number,
+                    },
+                }
+            pair = (pending_viewer["bug"], pending_viewer["test_case"])
+            blocks[pair].update(
+                {
+                    "viewer_line": line_number,
+                    "viewer_token": viewer_token,
+                    "viewer_payload": viewer_payload,
+                    "viewer_url": build_waveform_viewer_url(viewer_payload),
+                }
+            )
+            pending_viewer = None
             continue
 
         if pending_test is not None:
@@ -399,6 +461,17 @@ def _parse_waveform_analysis_blocks(
                 )
             }
 
+        if WAVEFORM_VIEWER_MARKER in stripped or "/surfer/?wave=" in stripped:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Viewer Link Unassociated] Viewer link at line "
+                    f"{line_number} in '{bug_file}' is duplicated or is not the first "
+                    "non-empty line after a waveform YAML fence. Remove it and copy the "
+                    "WaveInfo-generated link after the matching BG/TC block."
+                ),
+                "details": {"line": line_number},
+            }
+
         for match in _DOCUMENT_TAG_PATTERN.finditer(line):
             kind, value = match.groups()
             label = f"{kind}-{value}"
@@ -423,6 +496,21 @@ def _parse_waveform_analysis_blocks(
                 f"[Waveform Analysis Fence Error] YAML block opened at line "
                 f"{opened['line']} in '{bug_file}' is missing a standalone closing ```."
             )
+        }
+    if pending_viewer is not None:
+        return False, {}, {
+            "error": (
+                f"[Waveform Viewer Link Missing] YAML block at line "
+                f"{pending_viewer['block_line']} for "
+                f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' has no online "
+                "viewer link. Copy bug_document_viewer_link from the same final WaveInfo "
+                "result as the first non-empty line after the closing fence."
+            ),
+            "details": {
+                "bug": pending_viewer["bug"],
+                "test_case": pending_viewer["test_case"],
+                "block_line": pending_viewer["block_line"],
+            },
         }
     return True, blocks, ""
 
@@ -912,6 +1000,35 @@ def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
     )
 
 
+_DEFERRED_WAVEFORM_REPLAY_STATUSES = frozenset(
+    {
+        "test_directory_missing",
+        "waveform_data_directory_missing",
+        "waveform_session_missing",
+        "waveform_not_found_in_latest_session",
+        "stale_waveform_only",
+    }
+)
+
+
+def _viewer_replay_contract(viewer: object) -> dict[str, object] | None:
+    """Return viewer fields that describe behavior rather than a volatile file path."""
+
+    if not isinstance(viewer, dict):
+        return None
+    payload = viewer.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    contract = {
+        key: copy.deepcopy(payload.get(key))
+        for key in ("v", "start", "end", "cursor", "signals")
+    }
+    if payload.get("v") == 2:
+        contract["test_dir"] = copy.deepcopy(payload.get("test_dir"))
+        contract["test_case"] = copy.deepcopy(payload.get("test_case"))
+    return contract
+
+
 def check_waveform_bug_analysis(
     workspace: str,
     bug_file: str,
@@ -920,6 +1037,7 @@ def check_waveform_bug_analysis(
     waveform_tool=None,
     waveform_test_dir: str | None = None,
     require_all_documented: bool = False,
+    require_current_replay: bool = False,
 ) -> tuple[bool, object]:
     """Require verified WaveInfo receipts for every non-zero dynamic Bug/TC pair."""
 
@@ -1129,6 +1247,34 @@ def check_waveform_bug_analysis(
 
         field_differences = {}
         errors = _validate_receipt_identity(data, receipt, field_differences)
+        receipt_viewer = receipt_result.get("waveform_viewer")
+        documented_viewer = {
+            "payload": block.get("viewer_payload"),
+            "url": block.get("viewer_url"),
+        }
+        if (
+            not isinstance(receipt_viewer, dict)
+            or not isinstance(receipt_viewer.get("payload"), dict)
+            or not _is_nonempty_string(receipt_viewer.get("url"))
+        ):
+            errors.append(
+                "the WaveInfo receipt has no complete signed waveform_viewer; it may "
+                "come from an older or interrupted WaveInfo call. Session cleanup or a "
+                "changed current waveform path cannot alter an immutable signed receipt. "
+                "Rerun final WaveInfo and replace both the YAML block and viewer link"
+            )
+            field_differences["waveform_viewer"] = {
+                "documented": documented_viewer,
+                "receipt": receipt_viewer,
+            }
+        elif documented_viewer != receipt_viewer:
+            errors.append(
+                "the online viewer link payload does not match the signed WaveInfo receipt"
+            )
+            field_differences["waveform_viewer"] = {
+                "documented": documented_viewer,
+                "receipt": receipt_viewer,
+            }
 
         def compare_receipt_value(key: str, expected: object, message: str):
             if data.get(key) == expected:
@@ -1265,21 +1411,64 @@ def check_waveform_bug_analysis(
             )
             continue
 
-        replay = waveform_tool.analyze(**receipt_args)
+        if not require_current_replay:
+            continue
+
+        replay_method = getattr(waveform_tool, "replay_analysis", None)
+        if not callable(replay_method):
+            replay_method = waveform_tool.analyze
+        replay = replay_method(**receipt_args)
         if replay.get("success") is not True or replay.get("evidence_usable") is not True:
+            replay_status = replay.get("status")
+            if replay_status in _DEFERRED_WAVEFORM_REPLAY_STATUSES:
+                replay_message = (
+                    f"[Waveform Current Replay Required] The latest test session does not "
+                    f"contain a current waveform for '{item['test_case']}' (status "
+                    f"'{replay_status}'). The signed receipt and logical viewer link "
+                    "remain valid historical evidence, but this final gate requires a fresh "
+                    "all-tests run that emits every documented Bug waveform in one session."
+                )
+            else:
+                replay_message = (
+                    f"[Waveform Analysis No Longer Reproduces] Current WaveInfo replay for "
+                    f"'{item['test_case']}' returned status '{replay_status}'. The "
+                    "documented pattern is not valid evidence for the waveform generated "
+                    "by this Check; call WaveInfo again and update the block."
+                )
             issues.append(
                 {
-                    "message": (
-                        f"[Waveform Analysis No Longer Reproduces] Current WaveInfo replay for "
-                        f"'{item['test_case']}' returned status '{replay.get('status')}'. The "
-                        "documented pattern is not valid evidence for the waveform generated "
-                        "by this Check; call WaveInfo again and update the block."
-                    ),
+                    "message": replay_message,
                     "details": {
                         "bug": item["bug"],
                         "test_case": item["test_case"],
                         "line": line,
                         "current_waveinfo": replay,
+                    },
+                }
+            )
+            continue
+        current_viewer = replay.get("waveform_viewer")
+        documented_replay_contract = _viewer_replay_contract(documented_viewer)
+        current_replay_contract = _viewer_replay_contract(current_viewer)
+        if current_replay_contract != documented_replay_contract:
+            issues.append(
+                {
+                    "message": (
+                        f"[Waveform Viewer Link Changed] Current WaveInfo replay for "
+                        f"'{item['test_case']}' produced a different window, cursor, or "
+                        "signal list than the link at line "
+                        f"{block.get('viewer_line')}. Call final WaveInfo again and replace "
+                        "both the YAML block and bug_document_viewer_link."
+                    ),
+                    "details": {
+                        "bug": item["bug"],
+                        "test_case": item["test_case"],
+                        "line": line,
+                        "viewer_line": block.get("viewer_line"),
+                        "documented_waveform_viewer": documented_viewer,
+                        "current_waveform_viewer": current_viewer,
+                        "documented_replay_contract": documented_replay_contract,
+                        "current_replay_contract": current_replay_contract,
                     },
                 }
             )
@@ -1347,7 +1536,15 @@ def check_waveform_bug_analysis(
     if not content_ok:
         return False, content_message
 
-    return True, f"Validated WaveInfo receipts for {len(required)} dynamic Bug/test association(s)."
+    message = (
+        f"Validated WaveInfo receipts for {len(required)} dynamic Bug/test association(s)."
+    )
+    if not require_current_replay:
+        message += (
+            " Current waveform replay is disabled for this stage; later waveform file "
+            "changes do not invalidate the verified receipts."
+        )
+    return True, message
 
 
 def _get_documented_dynamic_test_map(
@@ -1396,6 +1593,7 @@ def check_all_documented_waveform_bug_analysis(
     bug_file: str,
     waveform_tool=None,
     waveform_test_dir: str | None = None,
+    require_current_replay: bool = False,
 ) -> tuple[bool, object]:
     """Validate analysis content and waveform evidence at a workflow boundary."""
 
@@ -1419,16 +1617,26 @@ def check_all_documented_waveform_bug_analysis(
         waveform_tool=waveform_tool,
         waveform_test_dir=waveform_test_dir,
         require_all_documented=True,
+        require_current_replay=require_current_replay,
     )
 
 
 class UnityChipCheckerWaveformBugAnalysis(Checker):
     """Independent analysis-and-waveform gate for the dynamic Bug document."""
 
-    def __init__(self, bug_file: str, test_dir: str, **kwargs):
+    def __init__(
+        self,
+        bug_file: str,
+        test_dir: str,
+        require_current_replay: bool = False,
+        **kwargs,
+    ):
         del kwargs
+        if type(require_current_replay) is not bool:
+            raise ValueError("require_current_replay must be a boolean")
         self.bug_file = bug_file
         self.test_dir = test_dir
+        self.require_current_replay = require_current_replay
 
     def do_check(self, **kwargs) -> tuple[bool, object]:
         """Validate dynamic Bug analysis and active WaveInfo receipts."""
@@ -1441,6 +1649,7 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
             self.bug_file,
             waveform_tool=waveform_tool,
             waveform_test_dir=self.test_dir,
+            require_current_replay=self.require_current_replay,
         )
         if passed:
             return True, {"success": message}
@@ -1765,6 +1974,7 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
             failed_funcs_bins,
             waveform_tool=waveform_tool,
             waveform_test_dir=waveform_test_dir,
+            require_current_replay=False,
         )
         if not ret:
             return ret, msg, -1

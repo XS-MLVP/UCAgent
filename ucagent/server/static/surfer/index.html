@@ -8,15 +8,33 @@
 <head>
     <title>Surfer</title>
 
+    <script src="deep-link.js"></script>
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
         <script type="module">
-        import init from './surfer.js';
-        await init({module_or_path: './surfer_bg.wasm'});
-        import {WebHandle, inject_message, id_of_name, draw_text_arrow} from './surfer.js';
-        window.inject_message = inject_message;
-        window.id_of_name = id_of_name;
-        window.draw_text_arrow = draw_text_arrow;
-        /*SURFER_SETUP_HOOKS*/
+        let deepLink;
+        try {
+            deepLink = window.UCAgentSurferDeepLink.prepareLocation(window.location, window.history);
+        } catch (error) {
+            window.addEventListener("DOMContentLoaded", () => window.on_surfer_error(
+                "无效的 UCAgent 波形深链接：" + error.message
+            ));
+        }
+        if (deepLink) {
+            const surfer = await import('./surfer.js');
+            await surfer.default({module_or_path: './surfer_bg.wasm'});
+            window.inject_message = surfer.inject_message;
+            window.id_of_name = surfer.id_of_name;
+            window.draw_text_arrow = surfer.draw_text_arrow;
+            try {
+                await window.UCAgentSurferDeepLink.applyWhenReady(
+                    deepLink.payload,
+                    {inject_message: surfer.inject_message, id_of_name: surfer.id_of_name}
+                );
+            } catch (error) {
+                window.on_surfer_error(error.message || "波形加载失败或目标信号不可用");
+            }
+            /*SURFER_SETUP_HOOKS*/
+        }
     </script>
     
     <!-- this is the base url relative to which other urls will be constructed. trunk will insert this from the public-url option -->
@@ -26,7 +44,7 @@
     <script>
         function on_surfer_error(msg) {
             console.log("Setting error message")
-            document.getElementById("error_message").innerHTML = msg
+            document.getElementById("error_message").textContent = msg
             document.getElementById("error_container").style.display = "block"
         }
         window.on_surfer_error = on_surfer_error;

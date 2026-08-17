@@ -172,6 +172,7 @@ class PdbCmdApiServer:
     DELETE /api/file                   - Delete file or empty directory  (?path=...)
     GET  /api/file/download            - Download file or directory as attachment  (?path=...)
     GET  /api/workspace/download       - Download whole workspace as {DUT}.tar.gz
+    GET  /api/waveform/latest          - Resolve a logical viewer token to the newest matching waveform
     POST /api/file/upload              - Upload file (multipart)  (?path=target_dir)
     GET  /workspace/{path}             - Serve workspace files as static assets (redirects to dashboard for root)
     GET  /static/{path}                - Serve bundled static assets
@@ -284,6 +285,11 @@ class PdbCmdApiServer:
             list_files_by_mtime,
         )
         from ucagent.util.log import L_GREEN, L_RED, L_YELLOW, RESET
+        from ucagent.util.waveform_viewer import (
+            WaveformViewerProtocolError,
+            decode_waveform_viewer_token,
+            resolve_latest_waveform_file,
+        )
 
         app = FastAPI(
             title="UCAgent PDB CMD API",
@@ -2195,6 +2201,65 @@ class PdbCmdApiServer:
                 raise
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
+
+        # ── GET /api/waveform/latest ───────────────────────────────────
+        @app.get(
+            "/api/waveform/latest",
+            summary="Resolve the newest waveform for a logical viewer token",
+        )
+        def latest_waveform(
+            request: Request,
+            wave: str = Query(..., description="Canonical v2 waveform viewer token"),
+        ):
+            try:
+                payload = decode_waveform_viewer_token(wave)
+            except WaveformViewerProtocolError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if payload.get("v") != 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail="The latest-waveform endpoint requires a v2 logical viewer token.",
+                )
+            try:
+                workspace_root, _, _ = _request_workspace(request)
+                waveform_path = resolve_latest_waveform_file(
+                    workspace_root,
+                    payload["test_dir"],
+                    payload["test_case"],
+                )
+            except HTTPException:
+                raise
+            except WaveformViewerProtocolError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Could not inspect waveform sessions: {exc}",
+                ) from exc
+            if waveform_path is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        "No available waveform matches "
+                        f"test_dir='{payload['test_dir']}', test_case='{payload['test_case']}'. "
+                        "Run that test, or run the full test suite before final Bug validation, "
+                        "then open the link again."
+                    ),
+                )
+            relative_path = waveform_path.relative_to(
+                pathlib.Path(workspace_root).resolve()
+            ).as_posix()
+            from urllib.parse import quote
+
+            media_type, _ = mimetypes.guess_type(str(waveform_path))
+            return FileResponse(
+                path=str(waveform_path),
+                media_type=media_type or "application/octet-stream",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-UCAgent-Waveform-Path": quote(relative_path, safe="/"),
+                },
+            )
 
         # ── GET /workspace — redirect to dashboard ────────────────────
         @app.get("/workspace", summary="Workspace root (redirects to dashboard)", include_in_schema=False)

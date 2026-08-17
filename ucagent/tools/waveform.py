@@ -27,6 +27,12 @@ from pydantic import BaseModel, Field, model_validator
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.bug_analysis_contract import WAVEFORM_LLM_ANALYSIS_FIELDS
 from ucagent.util.log import warning
+from ucagent.util.waveform_viewer import (
+    WaveformViewerProtocolError,
+    build_waveform_viewer_markdown_link,
+    build_waveform_viewer_url,
+    normalize_waveform_viewer_payload,
+)
 from .uctool import UCTool
 
 
@@ -446,8 +452,14 @@ class WaveInfo(UCTool):
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
         "logged_cycle is only a test-log hint: provide clock_signal so the tool can "
         "map clock occurrence indices to wavekit simulation timestamps. Always "
-        "confirm a candidate with logged inputs, handshake/state, transaction IDs, "
-        "and relevant pins before using it as Bug evidence."
+        "confirm a candidate with the interface specification, test-driver/API Step "
+        "ordering, logged inputs, ready/valid or the DUT's equivalent acceptance and "
+        "response conditions, backpressure/latency, state, transaction IDs, and relevant "
+        "pins before using it as Bug evidence. One simulation Step does not by itself make "
+        "a request accepted or an output valid; inspect whether the API already steps/waits "
+        "and what edge, latency, response-valid, done, or busy condition permits sampling. "
+        "WaveInfo finds reproducible events; it does not decide that a value is valid at "
+        "an arbitrary timestamp or classify a DUT Bug."
     )
     args_schema: Optional[ArgsSchema] = ArgWaveInfo
     return_direct: bool = False
@@ -1189,6 +1201,10 @@ class WaveInfo(UCTool):
                             ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
                             ("event_steps", event_steps),
                             (
+                                "waveform_viewer",
+                                copy.deepcopy(result.get("waveform_viewer")),
+                            ),
+                            (
                                 "recommended_evidence_call",
                                 copy.deepcopy(result.get("recommended_evidence_call")),
                             ),
@@ -1353,12 +1369,112 @@ class WaveInfo(UCTool):
         result["bug_document_completion_required"] = list(
             WAVEFORM_LLM_ANALYSIS_FIELDS
         )
+        viewer = result.get("waveform_viewer")
+        if isinstance(viewer, dict) and isinstance(viewer.get("url"), str):
+            result["bug_document_viewer_link"] = build_waveform_viewer_markdown_link(
+                viewer["payload"]
+            )
         result["bug_document_note"] = (
             "Put a ```yaml fence immediately after the matching <TC-*>, copy "
             "bug_document_fields as the complete YAML mapping, and add the three required "
             "LLM-authored fields under waveform_analysis after checking the returned "
-            "timeline and RTL. Do not use the legacy <WAVEFORM-ANALYSIS> tag, JSON, or bare "
-            "YAML. Do not copy analysis_window.effective_* as requested call arguments."
+            "timeline and RTL. Close the YAML fence, then copy bug_document_viewer_link "
+            "as the first non-empty line after it. The Markdown link text may be localized, "
+            "but do not change the <WAVEFORM-VIEWER> marker, URL, or viewer token. Do not "
+            "construct the viewer token manually. Before completing alignment_evidence and "
+            "observed_behavior, inspect the specification and test-driver/API Step ordering, "
+            "then prove the request acceptance condition, response-valid sampling point, "
+            "backpressure/latency, and transaction identity. Ready/valid is only one possible "
+            "protocol; use the DUT's actual equivalent conditions. A single Step is not proof "
+            "that an output is valid: inspect whether the API already advances or waits, and "
+            "the required edge, cycle count, valid/done, handshake, or busy-clear condition. "
+            "A value mismatch while the transaction or response is invalid is only an "
+            "investigation clue, not Bug proof. "
+            "Do not use the legacy "
+            "<WAVEFORM-ANALYSIS> tag, JSON, "
+            "or bare YAML. Do not copy analysis_window.effective_* as requested call arguments."
+        )
+
+    def _attach_waveform_viewer(
+        self,
+        result: OrderedDict,
+    ) -> None:
+        """Attach a canonical viewer payload only to reproducible final evidence."""
+
+        if result.get("evidence_usable") is not True:
+            return
+        selection = result.get("waveform_selection") or {}
+        window = result.get("analysis_window") or {}
+        alignment = result.get("cycle_alignment") or {}
+        selected_candidate = alignment.get("selected_candidate") or {}
+        event_steps = self._event_steps(result)
+        cursor = selected_candidate.get("wave_step")
+        if cursor is None and event_steps:
+            cursor = event_steps[0]
+
+        signals = []
+        resolved_clock = (alignment.get("clock") or {}).get("signal")
+        if isinstance(resolved_clock, str) and resolved_clock:
+            signals.append(resolved_clock)
+        for signal in (result.get("signals") or {}):
+            if signal not in signals:
+                signals.append(signal)
+
+        try:
+            workspace = Path(self.workspace).resolve()
+            test_dir = Path(self.test_dir).resolve()
+            try:
+                relative_test_dir = test_dir.relative_to(workspace)
+            except ValueError as error:
+                raise WaveformViewerProtocolError(
+                    "test directory must be workspace-relative"
+                ) from error
+            waveform_file = selection.get("waveform_file")
+            if not isinstance(waveform_file, str) or not waveform_file:
+                raise WaveformViewerProtocolError(
+                    "waveform evidence source must be workspace-relative"
+                )
+            waveform_path = Path(waveform_file)
+            if not waveform_path.is_absolute():
+                waveform_path = workspace / waveform_path
+            try:
+                waveform_path.resolve().relative_to(workspace)
+            except ValueError as error:
+                raise WaveformViewerProtocolError(
+                    "waveform evidence source must be workspace-relative"
+                ) from error
+            payload = normalize_waveform_viewer_payload(
+                OrderedDict(
+                    [
+                        ("v", 2),
+                        ("test_dir", relative_test_dir.as_posix() or "."),
+                        ("test_case", selection.get("normalized_test_case")),
+                        ("start", str(window.get("effective_start_step"))),
+                        ("end", str(window.get("effective_end_step"))),
+                        ("cursor", str(cursor)),
+                        ("signals", signals),
+                    ]
+                )
+            )
+        except WaveformViewerProtocolError as error:
+            result["waveform_viewer_error"] = str(error)
+            if "workspace-relative" in str(error):
+                result["waveform_viewer_suggestion"] = (
+                    "Generate the failing test waveform inside the current UCAgent workspace, "
+                    "rerun the test, and call WaveInfo again."
+                )
+            else:
+                result["waveform_viewer_suggestion"] = (
+                    "Narrow the WaveInfo signal patterns to at most 64 actual signals and "
+                    "ensure the final window contains a real triggered event, then call "
+                    "WaveInfo again."
+                )
+            return
+        result["waveform_viewer"] = OrderedDict(
+            [
+                ("payload", payload),
+                ("url", build_waveform_viewer_url(payload)),
+            ]
         )
 
     @staticmethod
@@ -2013,8 +2129,13 @@ class WaveInfo(UCTool):
         else:
             result["evidence_usable"] = True
             result["evidence_warning"] = (
-                "Waveform evidence supplements the failing assertion and source root-cause "
-                "analysis; the LLM must still confirm the candidate against logged context."
+                "WaveInfo found reproducible waveform events, not an automatic DUT Bug. The "
+                "LLM must inspect the specification and test-driver/API Step ordering, then "
+                "confirm the real request acceptance and response-valid conditions, "
+                "including whether one Step is sufficient or the API already steps/waits, "
+                "backpressure/latency, transaction identity, failing assertion, and source "
+                "root cause. Do not classify a mismatch at an arbitrary or protocol-invalid "
+                "timestamp as a Bug."
             )
         return result
 
@@ -2276,7 +2397,13 @@ class WaveInfo(UCTool):
                     "If the failure persists after rerunning, inspect simulator/waveform-generation logs.",
                 ],
             )
+        self._attach_waveform_viewer(result)
         return result
+
+    def replay_analysis(self, **arguments: Any) -> OrderedDict:
+        """Replay signed arguments without creating another receipt."""
+
+        return self.analyze(**arguments)
 
     def _run(
         self,

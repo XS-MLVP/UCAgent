@@ -48,9 +48,10 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 5. 动态 Bug 详情位于 `<BG-*>` 之后。详情内部使用粗体小标题、五级或六级标题，不要使用一级到三级标题；Recorder 会把一级到三级标题视为 Bug 条目范围结束。
 6. 每个 `<BG-*>` 至少有一个 `<TC-*>` 子标签。每个非零置信度 `<TC-*>` 必须对应真实 Fail 用例。
 7. ` ```yaml` 必须是对应 `<TC-*>` 后的第一个非空内容。中间只允许空白行和 Markdown 缩进。
-8. 不再使用 `<WAVEFORM-ANALYSIS>` 自定义标签。旧标签、裸 YAML、` ```json`、` ```yml` 和额外顶层键都不接受。
-9. 动态文档的 `<FILE-*>`、`<LINK-BUG-*>` 和 `<BG-STATIC-*>` 没有合法含义；这些标签只属于静态文档。
-10. 标签区分大小写。动态和静态文档中的 FG、FC、CK 必须与 `{OUT}/{DUT}_functions_and_checks.md` 完全一致。
+8. YAML 关闭围栏后的第一条非空内容必须是 `<WAVEFORM-VIEWER> [显示文字](/surfer/?wave=<token>)`。显示文字不参与解析，可以由 AI 改写或本地化；`<WAVEFORM-VIEWER>`、相对路由和 token 必须来自同一次最终 WaveInfo 调用，不得修改或手工构造。
+9. 不再使用 `<WAVEFORM-ANALYSIS>` 自定义标签。旧标签、裸 YAML、` ```json`、` ```yml` 和额外顶层键都不接受。
+10. 动态文档的 `<FILE-*>`、`<LINK-BUG-*>` 和 `<BG-STATIC-*>` 没有合法含义；这些标签只属于静态文档。
+11. 标签区分大小写。动态和静态文档中的 FG、FC、CK 必须与 `{OUT}/{DUT}_functions_and_checks.md` 完全一致。
 
 不要为每个 Bug 重新创建相同的 FG、FC 或 CK。应先按功能层级分组，再把多个 Bug 放在对应 CK 下；同一父节点下重复定义相同标签会触发 duplicate tag 错误。
 
@@ -81,6 +82,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `<BG-NAME-XX>` | 动态 Bug 名称和置信度 | `XX` 是 0 到 100 的整数；真正解释 Fail 的动态 Bug 必须为 1 到 100 |
 | `<TC-test_file.py::test_name>` | 复现 Bug 的 pytest 用例 | 文件名和函数名必须匹配真实 Fail；类用例写成 `<TC-test_file.py::ClassName::test_name>` |
 | `waveform_analysis` | 波形证据块的唯一 YAML 顶层键 | 不是尖括号标签；必须放在 fenced YAML 代码块中并直接跟随对应 TC |
+| `<WAVEFORM-VIEWER>` | 在线波形深链接 | 必须是 YAML 围栏后的第一条非空内容；显示文字可本地化，URL 与签名 receipt 必须完全一致 |
 | `<BUG-OVERVIEW>` 到 `<BUG-RETEST>` | 八个分析字段边界 | 使用 6.1.1 节列出的完整标记序列；唯一、有序、内容非空，展示标题不参与解析 |
 | `<BUG-TODO>` | Skill 骨架尚未完成 | `recordbug.py` 生成；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
 | `<BUG-SOURCE-UNAVAILABLE>` | 无可访问源码 | 仅在 `<BUG-SOURCE-EVIDENCE>` 字段内使用一次，并以真实黑盒证据替代源码块 |
@@ -94,6 +96,8 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 
 成功的最终取证返回会包含 `bug_document_fields`。它已经包含唯一顶层键 `waveform_analysis`，应完整复制到对应 TC 后，不要再次包一层。
 
+同一次最终取证还会返回 `bug_document_viewer_link`。关闭 YAML 围栏后，必须把这条带 `<WAVEFORM-VIEWER>` 标签的 Markdown 链接放在第一条非空内容。`[...]` 内是纯展示文字，可以按语言和上下文修改；Checker 只验证稳定标签、`/surfer/?wave=` 相对路由、Base64URL 载荷及其与签名 receipt 的一致性。不要把链接放进 YAML 或代码块，不要手工拼接、解码后重编码或修改 token。
+
 `waveform_analysis:` 必须是唯一顶层键；下面所有字段都属于这一次 BG/TC 关联的独立证据。
 
 | 字段 | 来源 | 说明 |
@@ -101,7 +105,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `status` | 固定结论 | 动态 Bug 必须为 `confirmed`；`unavailable` 不能完成阶段 |
 | `receipt_id` | WaveInfo | 真实工具调用收据；Checker 会从当前实例或签名 checkpoint 恢复并核对 |
 | `result_fingerprint` | WaveInfo | 工具结果指纹，必须与 receipt 完全一致 |
-| `waveform_file` | WaveInfo | 被分析波形的相对路径 |
+| `waveform_file` | WaveInfo | 取证当时被分析波形的相对路径，属于签名 receipt 的一部分；必须原样复制工具结果 |
 | `freshness_identity` | WaveInfo | 必须等于 `waveform_file:size_bytes:modified_time_ns` |
 | `size_bytes` | WaveInfo | 波形文件大小，正整数 |
 | `session_started_at` | WaveInfo | 仿真 session 开始时间，带时区的 ISO-8601 时间 |
@@ -114,11 +118,11 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `max_points` | WaveInfo 调用参数 | 最大返回点数，必须与 receipt 一致 |
 | `wave_step` | WaveInfo 结果 | 真正触发 pattern 的波形 step，不是直接复制测试日志 cycle |
 | `timeline_truncated` | WaveInfo 结果 | 必须为 `false` |
-| `alignment_evidence` | LLM 阅读日志和 timeline 后填写 | 解释该波形事务为何与失败日志唯一对应 |
-| `observed_behavior` | LLM 阅读 timeline 后填写 | 写清实际信号行为、actual 和 expected 的差异 |
+| `alignment_evidence` | LLM 阅读规格、测试驱动代码、日志和 timeline 后填写 | 解释输入在哪个 Step/边沿驱动、事务按什么条件被接受、输出何时允许采样，以及该波形事务为何与失败日志唯一对应 |
+| `observed_behavior` | LLM 阅读 timeline 后填写 | 只在协议规定的有效事务/响应窗口内写清实际信号行为、actual 和 expected 的差异；无效周期的单点数据不能作为结论 |
 | `source_correlation` | LLM 阅读源码后填写 | 解释波形现象如何对应到具体源码逻辑和根因 |
 
-最后三个字段不能照抄模板，也不能由工具虚构。它们必须是非空字符串，并形成“日志事务 -> 波形事件 -> RTL 逻辑”的闭环。
+最后三个字段不能照抄模板，也不能由工具虚构。它们必须是非空字符串，并形成“测试驱动与协议接受 -> 日志事务 -> 波形事件 -> RTL 逻辑”的闭环。Checker 只能验证结构、receipt 和波形重放，不能仅凭信号名称或某个时间点的数据值自动判断协议是否成立；事务语义必须由 LLM 结合规格、测试 API/回调和 RTL 审查。
 
 ### 3.3 时钟对齐模式字段
 
@@ -189,14 +193,29 @@ assert actual == expected, (
 
 日志只用于建立锚点，不能替代波形证据。
 
-### 4.2 调用顺序
+### 4.2 先确认事务有效，再判断数据是否错误
+
+波形中的任意一个数据点都不自动代表有效事务。调用 `WaveInfo` 前，先阅读功能规格、测试用例、所调用的 API/driver、callback 和 `Step` 顺序，确定以下事实：
+
+1. 输入在什么时间、哪个边沿之前或之后被驱动，`Step` 何时真正推进 DUT。
+2. DUT 使用什么条件接受请求。可能是 `ready && valid`，也可能是 `req/ack`、`enable`、`start && !busy`、状态机条件、固定采样边沿或其他自定义协议，不能只按信号名字猜测。
+3. 输出在什么条件下有效，以及延迟从哪个真实接受事件开始计算。固定 latency、可变 latency、pipeline、queue、backpressure、stall 和 bubble 都必须纳入对齐。
+4. 如何用 transaction ID、tag、操作码、输入组合、状态或顺序，把输出归属到失败事务，而不是前一笔、后一笔或尚未完成的事务。
+
+对于 ready/valid 接口，通常只有协议约定采样边沿上的 `valid && ready` 才表示该通道发生 transfer；`valid=1, ready=0` 一般表示 backpressure，并不表示请求已经被接受；`valid=0` 时的数据可能是旧值、预驱动值或 don't-care。对于输出通道，也必须等待其自身的有效/接受条件。复位、空闲、过渡状态、尚未达到响应 latency 或协议声明数据无效的周期中的 data mismatch，不能直接标记为 DUT Bug。若规格本身要求在未接受请求、busy 或非法输入期间保持/忽略某些行为，则应按该明确约束审查，而不是机械套用 ready/valid 规则。
+
+特别注意：调用一次 `Step(1)` 只表示仿真时间推进了一步，不表示请求必然已被接受，也不表示结果必然有效。必须从规格以及 API/driver 的真实实现确认应该在何时读取结果，例如组合逻辑 settle 后、下一个指定采样边沿、固定 N 个周期后、`out_valid/response_valid/done` 成立时、req/ack 完成时，或 `busy` 清零时。还要检查 API 内部是否已经调用 `Step`、等待握手或采样结果，避免外层测试少等一个周期、重复推进或错过有效窗口。若无法从规格、API、测试代码和 RTL 确定结果有效条件，应继续调查或改进测试日志，不能在任意一次 Step 后读取 data 并判 Bug。
+
+最终波形证据应覆盖事务接受前的驱动上下文、真实接受点、必要的内部传播/等待过程和协议允许的输出采样点。一次单点 data mismatch 只能作为继续调查的线索；只有 LLM 证明驱动方式正确、事务已成立、等待时间满足、输出属于同一事务且 expected 来自规格后，才能形成动态 Bug 结论。这项语义判断不能由 Checker 根据特定信号名自动完成。
+
+### 4.3 调用顺序
 
 1. 无参数调用只用于 inventory：列出当前波形文件、测试名、创建/修改时间、大小和 session 摘要，不生成最终 receipt。
 2. 使用 inventory 返回的 `recommended_call.test_case_name` 做 metadata 调用，确认最新波形、step 范围和 `signal_catalog`。
-3. 只使用 `signal_catalog` 中真实存在的信号构建结构化 pattern。
+3. 根据 4.2 节确认的真实协议，只使用 `signal_catalog` 中存在的信号构建结构化 pattern；除目标数据外，还应包含实际的请求有效/接受条件、响应有效条件、状态、事务标识或等价锚点。
 4. 有日志 cycle 时调用时钟对齐模式；没有可靠 cycle 时先探索，再使用推荐的显式时间窗重调。
 5. 只有 `evidence_usable: true` 且时间线未截断的最终调用才能写入动态 Bug 文档。
-6. 复制完整 `bug_document_fields`，再基于真实 timeline 和源码补写三个 LLM 分析字段。
+6. 复制完整 `bug_document_fields`，关闭围栏后复制同一结果的 `bug_document_viewer_link`，再基于规格、测试驱动代码、真实 timeline 和源码补写三个 LLM 分析字段。`evidence_usable: true` 只说明波形事件可重放，不表示工具已经判定 DUT Bug。
 
 Metadata 调用示例：
 
@@ -217,7 +236,8 @@ WaveInfo(
 WaveInfo(
     test_case_name="test_{DUT}_overflow",
     pattern=[
-        {"signal": "TOP.dut.valid", "event": "rising", "value": ""},
+        {"signal": "TOP.dut.valid", "event": "equals", "value": "0x1"},
+        {"signal": "TOP.dut.ready", "event": "equals", "value": "0x1"},
         {"signal": "TOP.dut.op[2:0]", "event": "equals", "value": "0x3"},
         {"signal": "TOP.dut.result[31:0]", "event": "change", "value": ""},
     ],
@@ -251,7 +271,7 @@ WaveInfo(
 
 MCP 调用中未使用的可选参数使用工具 schema 规定的空字符串、空数组或 `-1` 哨兵，不要传 `null`。返回结果中的 canonical 表示可能把这些哨兵规范化为 `null`，不能把返回的 `null` 再作为下一次 MCP 参数。
 
-### 4.3 找不到波形时
+### 4.4 找不到波形时
 
 不能用 `status: unavailable` 创建动态 Bug。先执行 metadata 调用并根据返回诊断逐项检查：
 
@@ -262,9 +282,9 @@ MCP 调用中未使用的可选参数使用工具 schema 规定的空字符串�
 5. WaveInfo 的 `test_dir` 是否与 Checker 运行测试的目录一致。
 6. 修复后单独重跑失败用例，利用返回时间戳确认确实生成了新波形，再重新取证。
 
-真实 receipt 会签名持久化到 workspace 的 `.ucagent` checkpoint。中断或重启后，只要 workspace、DUT、测试目录、调用参数和波形重放仍有效，可以继续复用；不要手工编辑 receipt 存储文件。
+中断或重启后，只要使用同一 workspace 和测试目录，Checker 可以恢复并验证已有 receipt；不要手工编辑工具证据。任务中途只运行部分用例时，也不要据此删除已有 TC/BG、改写有效 receipt 字段或重造 viewer 链接。
 
-Check/Complete 可能重新运行测试并生成比文档 receipt 更新的波形。Checker 会先验证文档中的文件身份、时间和参数与历史 receipt 完全一致，再使用同一组参数在本次最新波形上重放 pattern。新波形出现本身不要求改写历史 receipt；只有重放失败、候选变化或事件 step 变化时，才重新调用 WaveInfo 并更新该 TC 的证据块。
+非最终阶段的 Check/Complete 只验证文档与签名 receipt，不会因为后续波形文件新增、删除或更新而重新重放已经通过的证据。不要把“本轮未运行某个历史 TC”误当成该 Bug 已消失。最终 `record_and_report_bugs` 阶段必须先运行完整 DUT 测试集合，并对全部动态 Bug TC 执行严格当前波形重放；只有该最终重放明确报告窗口、信号、事件或候选行为发生变化时，才重新调用 WaveInfo 并更新对应证据块。
 
 ## 5. 如何写清楚根因
 
@@ -397,7 +417,11 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
     analysis_mode: clock_aligned
     pattern:
       - signal: TOP.dut.valid
-        event: rising
+        event: equals
+        value: "0x1"
+      - signal: TOP.dut.ready
+        event: equals
+        value: "0x1"
       - signal: TOP.dut.op[2:0]
         event: equals
         value: "0x3"
@@ -423,10 +447,11 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
     cycle_delta: 1
     wave_step: 2440
     timeline_truncated: false
-    alignment_evidence: txn=17、op=3、a=MAX、b=0和cin=1与失败日志唯一对应，日志cycle 120映射到第121个上升沿
-    observed_behavior: wave step 2440采样到sum已截断而overflow仍为0，expected overflow为1
+    alignment_evidence: 测试driver在第121个上升沿前驱动txn=17；该边沿valid=1且ready=1，op=3、a=MAX、b=0和cin=1与失败日志唯一对应，协议规定在该接受边沿采样组合结果
+    observed_behavior: 在txn=17的有效接受/采样点wave step 2440，sum已截断而overflow仍为0，规格expected overflow为1；未使用valid=0或ready=0周期的数据判错
     source_correlation: 波形中carry链已产生最高位进位，但overflow只读取a+b的中间carry，与Adder.sv第25-28行遗漏cin一致
   ```
+  <WAVEFORM-VIEWER> [查看加法溢出波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2FkZF93aXRoX2Npbl9vdmVyZmxvd19ib3VuZGFyeSIsInN0YXJ0IjoiMjMwMCIsImVuZCI6IjI1MDAiLCJjdXJzb3IiOiIyNDQwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQudmFsaWQiLCJUT1AuZHV0LnJlYWR5IiwiVE9QLmR1dC5vcFsyOjBdIiwiVE9QLmR1dC5hIiwiVE9QLmR1dC5iIiwiVE9QLmR1dC5jaW4iLCJUT1AuZHV0Lm92ZXJmbG93Il19)
 
 <BUG-TRIGGER>
 **触发条件与影响范围**
@@ -489,7 +514,7 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 
 ### 标签与字段书写要点
 
-- 一个 BG 下可以有多个 TC，但每个 TC 都要有独立的 fenced YAML 波形块。
+- 一个 BG 下可以有多个 TC，但每个 TC 都要有独立的 fenced YAML 波形块及紧随其后的 `<WAVEFORM-VIEWER>` 链接。
 - 同一个 BG/TC 组合不能重复出现，否则 Checker 会判定波形块重复。
 - 同一物理根因影响多个 CK 时，可以在各 CK 下使用相同 BG 名称和相同置信度；每个 BG 出现位置都必须有与该 CK 对应的失败 TC。Recorder 会按 BG 名称聚合 CK。
 - 如果同一个测试同时失败多个 CK，不要复制同一 BG/TC 波形块到多个位置。优先拆分为每个 CK 都能明确归因的定向用例；若表现是不同缺陷，则使用不同 BG 名称。
@@ -676,16 +701,19 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
         event: rising
       - signal: TOP.dut.state[1:0]
         event: change
+      - signal: TOP.dut.bit_cnt[3:0]
+        event: change
     start_step: 80
     end_step: 120
     context_steps: 1
     max_points: 200
     wave_step: 100
     timeline_truncated: false
-    alignment_evidence: tx_busy=1期间的第二次start与失败日志txn=9唯一对应，wave step 100是start上升沿
-    observed_behavior: start上升后state提前离开SEND并重置bit counter，expected为保持当前发送
+    alignment_evidence: 测试driver在wave step 100对应上升沿前驱动txn=9的第二次start，此时tx_busy=1；接口契约规定busy期间start不得被接受，因此该脉冲应被忽略而当前发送事务继续
+    observed_behavior: 在该驱动边沿之后，state/bit_cnt响应了本应被拒绝的start并把当前帧计数重置；expected为保持SEND进度，结论来自明确的busy接受规则而不是任意时点的输出值
     source_correlation: 该状态跳转与rtl/UartTx.v第50-63行在状态机之前无条件接受start并清零bit_cnt一致
   ```
+  <WAVEFORM-VIEWER> [查看状态机重入波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2ZzbV9yZWVudHJhbnQiLCJzdGFydCI6IjgwIiwiZW5kIjoiMTIwIiwiY3Vyc29yIjoiMTAwIiwic2lnbmFscyI6WyJUT1AuZHV0LnR4X2J1c3kiLCJUT1AuZHV0LnN0YXJ0IiwiVE9QLmR1dC5zdGF0ZVsxOjBdIiwiVE9QLmR1dC5iaXRfY250WzM6MF0iXX0)
 
 <BUG-TRIGGER>
 **触发条件与影响范围**
@@ -848,8 +876,14 @@ Check/Complete 返回失败时，优先读取 `failure_summary` 中的 `failed_c
 - [ ] 每个非零 BG 至少有一个真实失败 TC。
 - [ ] 每个 TC 后的第一个非空内容都是独立 ` ```yaml` 波形块。
 - [ ] `waveform_analysis:` 是唯一顶层键，receipt 字段与真实 WaveInfo 调用完全一致。
+- [ ] 每个 YAML 关闭围栏后的第一条非空内容都是同一最终 WaveInfo 返回的 `<WAVEFORM-VIEWER>` Markdown 链接；URL/token 未被修改，链接不在代码块内。
 - [ ] `status` 为 `confirmed`，pattern 非空，timeline 未截断，当前波形可以重放。
-- [ ] `alignment_evidence`、`observed_behavior`、`source_correlation` 都基于真实日志、timeline 和源码。
+- [ ] 增量运行未因缺少历史 TC 波形而删除或改写有效 receipt；最终记录阶段已经运行完整测试集合，并让所有动态 Bug TC 通过严格 current replay。
+- [ ] 已阅读规格、测试 API/driver、callback 和 `Step` 顺序，明确真实的驱动边沿、请求接受条件、响应有效条件和 latency 起点。
+- [ ] 没有把一次 `Step(1)` 当成“事务已完成”；已确认 API 内部是否推进/等待，并按规定边沿、周期数、valid/done/ack 或 busy 条件采样。
+- [ ] pattern/timeline 包含 ready/valid 或 DUT 实际使用的等价握手、enable、busy、状态、事务 ID 等必要锚点，而不只包含目标 data。
+- [ ] 没有把 `valid=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未到响应 latency 或其他协议无效窗口中的单点 data mismatch 当作 Bug；若验证的是拒绝/保持语义，已引用对应规格约束。
+- [ ] `alignment_evidence`、`observed_behavior`、`source_correlation` 都基于真实驱动方式、日志、timeline 和源码，并证明输出属于同一有效事务。
 - [ ] 每个 BG 在源码证据之前都有可独立阅读的 Bug 概述。
 - [ ] 有可访问源码时，根因分析包含带真实路径、行号和三个 `<BUG-SOURCE-*>` 因果标签的最小源码块；无源码时明确说明且没有伪造内容。
 - [ ] 根因、源码位置、修复、风险和复验计划都集中在所属 BG 条目内。

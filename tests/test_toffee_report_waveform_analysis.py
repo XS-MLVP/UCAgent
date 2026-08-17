@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import base64
 import copy
+import json
 import sys
 from types import SimpleNamespace
 
@@ -30,6 +32,7 @@ from ucagent.checkers.unity_test import (
 from ucagent.checkers.unity_test_random import RandomTestCasesChecker
 from ucagent.tools.waveform import WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.waveform_viewer import build_waveform_viewer_markdown_link
 
 
 VCD_CONTENT = """$date
@@ -75,6 +78,9 @@ CHECKPOINT = "FG-A/FC-A/CK-A"
 REPORT_TEST = "tests/test_a.py:1-20::test_a"
 DOCUMENT_TEST = "test_a.py::test_a"
 WORKSPACE_RELATIVE_DOCUMENT_TEST = "unity_test/tests/test_a.py::test_a"
+VIEWER_LINK = build_waveform_viewer_markdown_link(
+    {"v": 1, "file": "tests/data/placeholder.vcd"}
+)
 SOURCE_EVIDENCE_BLOCK = """
 ```systemverilog
 // rtl/Demo.sv:12-14
@@ -147,12 +153,19 @@ def _write_functions(tmp_path: Path) -> None:
 
 
 def _waveform_block_lines(block: dict) -> list[str]:
+    block = copy.deepcopy(block)
+    viewer_link = block.pop(
+        "_viewer_link",
+        build_waveform_viewer_markdown_link(
+            {"v": 1, "file": "tests/data/placeholder.vcd"}
+        ),
+    )
     payload = yaml.safe_dump(
         {"waveform_analysis": block},
         allow_unicode=True,
         sort_keys=False,
     ).rstrip()
-    return ["```yaml", payload, "```"]
+    return ["```yaml", payload, "```", viewer_link]
 
 
 def _report() -> dict:
@@ -203,6 +216,7 @@ def _confirmed_block(result: dict, pattern: list[dict]) -> dict:
     receipt = result["waveform_analysis_receipt"]
     candidate = result["cycle_alignment"]["selected_candidate"]
     return {
+        "_viewer_link": result["bug_document_viewer_link"],
         "status": "confirmed",
         "receipt_id": receipt["receipt_id"],
         "result_fingerprint": receipt["result_fingerprint"],
@@ -236,6 +250,12 @@ def _explicit_block(result: dict, pattern: list[dict], wave_step: int) -> dict:
     selection = result["waveform_selection"]
     receipt = result["waveform_analysis_receipt"]
     return {
+        "_viewer_link": result.get(
+            "bug_document_viewer_link",
+            build_waveform_viewer_markdown_link(
+                {"v": 1, "file": "tests/data/placeholder.vcd"}
+            ),
+        ),
         "status": "confirmed",
         "receipt_id": receipt["receipt_id"],
         "result_fingerprint": receipt["result_fingerprint"],
@@ -290,7 +310,9 @@ def _check(tmp_path: Path, tool: WaveInfo):
     )
 
 
-def test_check_report_accepts_real_waveinfo_receipt_and_replays_pattern(tmp_path):
+def test_check_report_accepts_receipt_without_replaying_updated_waveform(
+    tmp_path, monkeypatch
+):
     _write_functions(tmp_path)
     test_dir = tmp_path / "tests"
     _write_waveform(test_dir)
@@ -309,10 +331,89 @@ def test_check_report_accepts_real_waveinfo_receipt_and_replays_pattern(tmp_path
     )
     _write_bug_doc(tmp_path, _confirmed_block(result, pattern))
 
+    def unexpected_replay(self, **kwargs):
+        raise AssertionError("non-final waveform checks must not replay current files")
+
+    monkeypatch.setattr(WaveInfo, "analyze", unexpected_replay)
+
     passed, message, bug_count = _check(tmp_path, tool)
 
     assert passed is True, message
     assert bug_count == 1
+
+
+def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        logged_cycle=0,
+        cycle_tolerance=2,
+        clock_signal="TOP.dut.clk",
+    )
+    block = _confirmed_block(result, pattern)
+    _write_bug_doc(tmp_path, block)
+    bug_file = tmp_path / "bugs.md"
+    document = bug_file.read_text(encoding="utf-8")
+    bug_file.write_text(
+        "\n".join(
+            line for line in document.splitlines() if "<WAVEFORM-VIEWER>" not in line
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "[Waveform Viewer Link Invalid]" in str(message)
+
+    tampered = copy.deepcopy(result["waveform_viewer"]["payload"])
+    tampered["cursor"] = str(int(tampered["cursor"]) + 1)
+    block["_viewer_link"] = build_waveform_viewer_markdown_link(tampered)
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "online viewer link payload does not match" in str(message)
+
+
+def test_noncanonical_viewer_token_and_old_receipt_are_rejected(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    block = _explicit_block(result, pattern, wave_step=15)
+    payload = result["waveform_viewer"]["payload"]
+    noncanonical = base64.urlsafe_b64encode(
+        json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    block["_viewer_link"] = (
+        f"<WAVEFORM-VIEWER> [viewer](/surfer/?wave={noncanonical})"
+    )
+    _write_bug_doc(tmp_path, block)
+
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "not in canonical Base64URL form" in str(message)
+
+    block["_viewer_link"] = result["bug_document_viewer_link"]
+    tool.analysis_receipts[-1]["result"].pop("waveform_viewer")
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "receipt has no complete signed waveform_viewer" in str(message)
 
 
 def test_check_report_accepts_persisted_receipt_after_tool_restart(tmp_path):
@@ -689,7 +790,13 @@ def test_current_replay_must_keep_the_documented_clock_candidate(
 
     monkeypatch.setattr(WaveInfo, "analyze", changed_candidate)
 
-    passed, message, _ = _check(tmp_path, tool)
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
 
     assert passed is False
     assert "[Waveform Candidate Changed]" in str(message)
@@ -791,6 +898,7 @@ def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n\n  \n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
+        f"{VIEWER_LINK}\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -827,6 +935,7 @@ def test_waveform_block_accepts_markdown_fenced_yaml(tmp_path):
         "    status: confirmed\n"
         "    receipt_id: receipt-1\n"
         "  ```\n"
+        f"{VIEWER_LINK}\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -896,6 +1005,7 @@ def test_waveform_block_after_multiple_tests_belongs_only_to_last_test(tmp_path)
         f"<TC-{first_test}>\n"
         f"<TC-{second_test}>\n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
+        f"{VIEWER_LINK}\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -1566,6 +1676,107 @@ def test_final_waveform_checker_accepts_workspace_relative_tc_path(tmp_path):
     assert "Validated WaveInfo receipts for 1" in message
 
 
+def test_partial_run_defers_replay_but_final_gate_requires_current_waveform(tmp_path):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    first_tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        first_tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+
+    unrelated = (
+        test_dir
+        / "data"
+        / "toffee_tmp_20260814160000_123"
+        / "master"
+        / "test_other.vcd"
+    )
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
+    unrelated.write_text(VCD_CONTENT, encoding="ascii")
+
+    resumed_tool = WaveInfo(
+        workspace=str(tmp_path),
+        test_dir="tests",
+        dut_name="Demo",
+    )
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=resumed_tool,
+        waveform_test_dir="tests",
+        require_current_replay=False,
+    )
+
+    assert passed is True, message
+    assert "Current waveform replay is disabled for this stage" in message
+    assert resumed_tool.get_analysis_receipt(
+        result["waveform_analysis_receipt"]["receipt_id"]
+    ) is not None
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=resumed_tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Current Replay Required]" in str(message)
+    assert "stale_waveform_only" in str(message)
+
+
+def test_new_session_path_does_not_change_logical_viewer_contract(tmp_path):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    original_viewer = copy.deepcopy(result["waveform_viewer"])
+    _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
+
+    newer = (
+        test_dir
+        / "data"
+        / "toffee_tmp_20260814160000_123"
+        / "master"
+        / "test_a.vcd"
+    )
+    newer.parent.mkdir(parents=True, exist_ok=True)
+    newer.write_text(VCD_CONTENT, encoding="ascii")
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is True, message
+    replay = tool.replay_analysis(
+        **tool.get_analysis_receipt(
+            result["waveform_analysis_receipt"]["receipt_id"]
+        )["arguments"]
+    )
+    assert replay["waveform_selection"]["waveform_file"] != result[
+        "waveform_selection"
+    ]["waveform_file"]
+    assert replay["waveform_viewer"] == original_viewer
+
+
 def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     config = load_yaml_with_env_vars(
         Path(__file__).resolve().parents[1]
@@ -1584,4 +1795,6 @@ def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     description = str(checker)
 
     assert checker_config["clss"] == "UnityChipCheckerWaveformBugAnalysis"
+    assert checker_config["args"]["require_current_replay"] is True
+    assert checker.require_current_replay is True
     assert description == "Validate dynamic Bug analysis and active WaveInfo receipts."

@@ -90,6 +90,10 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     )
     assert document.count(module.TODO_MARKER) >= 8
     assert "waveform_analysis:" in document
+    assert (
+        f"<WAVEFORM-VIEWER> [{module.TODO_MARKER}]"
+        f"(/surfer/?wave={module.TODO_MARKER})"
+    ) in document
     assert "replace with WaveInfo" not in document
     assert "填写严重度" not in document
     assert "插入带真实路径" not in document
@@ -108,6 +112,7 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
         "<TC-tests/test_adder.py::test_overflow_random>"
     ) < document.index(module.OVERVIEW_MARKER)
     assert document.count("waveform_analysis:") == 2
+    assert document.count("<WAVEFORM-VIEWER>") == 2
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
@@ -197,6 +202,7 @@ def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DIV-INF-BY-NUM-95>\n"
         "<TC-tests/test_a.py::test_a>\n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
+        "<WAVEFORM-VIEWER> [localized viewer](/surfer/?wave=eyJ2IjoxfQ)\n"
         f"{sections}\n",
         encoding="utf-8",
     )
@@ -239,7 +245,7 @@ def test_static_bug_link_script_requires_structured_confirmed_waveform(tmp_path)
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="confirmed waveform_analysis is missing"):
+    with pytest.raises(ValueError, match="confirmed waveform_analysis.*missing"):
         module.ensure_link_targets_exist_in_bug_analysis(
             ["BG-DIV-INF-BY-NUM-95"], str(bug_file)
         )

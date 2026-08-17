@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ucagent.tools import WaveInfo
 from ucagent.tools import waveform as waveform_module
 from ucagent.util.functions import get_tools_from_cfg
+from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 
 VCD_CONTENT = """$date
@@ -332,6 +333,25 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert result["cycle_alignment"]["wave_step_unit"] == "wavekit_simulation_timestamp"
     assert result["cycle_alignment"]["confirmed"] is False
     assert result["timeline"][15]["values"]["TOP.dut.data[3:0]"] == "4'h3"
+    viewer = result["waveform_viewer"]
+    assert viewer["payload"] == {
+        "v": 2,
+        "test_dir": "unity_test/tests",
+        "test_case": "test_bug[param-a]",
+        "start": "5",
+        "end": "35",
+        "cursor": "15",
+        "signals": ["TOP.dut.clk", "TOP.dut.valid", "TOP.dut.data[3:0]"],
+    }
+    token = viewer["url"].split("wave=", 1)[1]
+    assert decode_waveform_viewer_token(token) == viewer["payload"]
+    assert result["bug_document_viewer_link"] == (
+        f"<WAVEFORM-VIEWER> [test_bug(param-a)]({viewer['url']})"
+    )
+    receipt = tool.get_analysis_receipt(
+        result["waveform_analysis_receipt"]["receipt_id"]
+    )
+    assert receipt["result"]["waveform_viewer"] == viewer
 
 
 @pytest.mark.parametrize(
@@ -401,6 +421,8 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
     }
     assert "current receipt is exploratory" in result["next_action"]
     assert "bug_document_fields" not in result
+    assert "waveform_viewer" not in result
+    assert "bug_document_viewer_link" not in result
     assert result["timeline"][25]["values"]["TOP.dut.result[3:0]"] == "4'b0x1z"
     assert result["timeline"][35]["triggers"]["TOP.dut.valid"] == [
         {"event": "falling"}
@@ -413,6 +435,79 @@ def test_all_event_types_and_xz_values_are_preserved(tmp_path):
         "equals": 1,
         "unknown": 1,
     }
+
+
+def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_path):
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_explicit_viewer")
+    result = _call(
+        _tool(tmp_path, test_dir),
+        test_case_name="test_explicit_viewer",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10,
+        end_step=25,
+    )
+
+    assert result["waveform_viewer"]["payload"] == {
+        "v": 2,
+        "test_dir": "tests",
+        "test_case": "test_explicit_viewer",
+        "start": "10",
+        "end": "25",
+        "cursor": "15",
+        "signals": ["TOP.dut.valid"],
+    }
+    assert result["bug_document_viewer_link"].startswith(
+        "<WAVEFORM-VIEWER> [test_explicit_viewer](/surfer/?wave="
+    )
+
+
+def test_waveinfo_requires_llm_to_confirm_protocol_valid_sampling(tmp_path):
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_protocol_sampling")
+    tool = _tool(tmp_path, test_dir)
+    result = _call(
+        tool,
+        test_case_name="test_protocol_sampling",
+        pattern=[
+            {"signal": "TOP.dut.valid", "event": "rising"},
+            {"signal": "TOP.dut.ready", "event": "equals", "value": "0x1"},
+        ],
+        start_step=10,
+        end_step=25,
+    )
+
+    assert "One simulation Step does not by itself" in tool.description
+    assert "does not decide that a value is valid" in tool.description
+    assert "A single Step is not proof" in result["bug_document_note"]
+    assert "request acceptance condition" in result["bug_document_note"]
+    assert "only an investigation clue" in result["bug_document_note"]
+    assert "not an automatic DUT Bug" in result["evidence_warning"]
+    assert "whether one Step is sufficient" in result["evidence_warning"]
+    assert "protocol-invalid timestamp" in result["evidence_warning"]
+
+
+def test_workspace_external_waveform_cannot_create_bug_viewer_link(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    test_dir = tmp_path / "external" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_external")
+    result = _call(
+        WaveInfo(workspace=str(workspace), test_dir=str(test_dir), dut_name="Demo"),
+        test_case_name="test_external",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10,
+        end_step=25,
+    )
+
+    assert result["evidence_usable"] is True
+    assert "waveform_viewer" not in result
+    assert "bug_document_viewer_link" not in result
+    assert "current UCAgent workspace" in result["waveform_viewer_suggestion"]
+    assert "workspace-relative" in result["waveform_viewer_error"]
 
 
 def test_runtime_generated_fst_is_parsed_and_preferred(tmp_path):
@@ -712,6 +807,8 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
         first_tool,
         test_case_name="test_receipt_resume",
         pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10,
+        end_step=25,
     )
     receipt_info = result["waveform_analysis_receipt"]
     receipt_id = receipt_info["receipt_id"]
@@ -728,6 +825,16 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
     assert restored["receipt_id"] == receipt_id
     assert restored["arguments"]["test_case_name"] == "test_receipt_resume"
     assert restored["result"]["result_fingerprint"] == receipt_info["result_fingerprint"]
+    assert restored["result"]["waveform_viewer"] == result["waveform_viewer"]
+    assert restored["result"]["waveform_viewer"]["payload"] == {
+        "v": 2,
+        "test_dir": "tests",
+        "test_case": "test_receipt_resume",
+        "start": "10",
+        "end": "25",
+        "cursor": "15",
+        "signals": ["TOP.dut.valid"],
+    }
 
 
 def test_tampered_persisted_receipt_is_not_restored(tmp_path):

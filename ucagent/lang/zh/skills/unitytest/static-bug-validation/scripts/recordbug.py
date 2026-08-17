@@ -191,6 +191,7 @@ def make_tc_scaffold(tc, bd):
         f"        status: \"{TODO_MARKER}\"\n"
         f"        receipt_id: \"{TODO_MARKER}\"\n"
         "      ```\n"
+        f"      <WAVEFORM-VIEWER> [{TODO_MARKER}](/surfer/?wave={TODO_MARKER})\n"
     )
 
 

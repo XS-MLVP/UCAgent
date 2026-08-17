@@ -340,6 +340,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
 <link rel="stylesheet" href="/static/highlight-atom-one-dark.min.css">
 <script src="/static/highlight.min.js"></script>
 <script src="/static/marked.min.js"></script>
+<script src="/surfer/deep-link.js"></script>
 </head>
 <body>
 <!-- header -->
@@ -747,13 +748,39 @@ function _withSubWorkspaceParam(path){
   if(!_subWorkspace)return path;
   try{
     const u=new URL(path,window.location.origin);
-    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/"))){
+    if(u.origin===window.location.origin&&(u.pathname.startsWith("/api/")||u.pathname.startsWith("/workspace/")||u.pathname.startsWith("/surfer/"))){
       u.searchParams.set("sub_worspace",_subWorkspace);
       return u.pathname+u.search+u.hash;
     }
   }catch(e){}
   const sep=String(path).includes("?")?"&":"?";
   return path+sep+"sub_worspace="+encodeURIComponent(_subWorkspace);
+}
+
+function _cmdApiPathPrefix(){
+  const match=window.location.pathname.match(/^\/(?:task|agent)\/[^/]+\/cmd(?:\/.*)?$/);
+  return match?match[0].replace(/\/cmd(?:\/.*)?$/,"/cmd"):"";
+}
+
+function _surferUrlForToken(token){
+  const base=_cmdApiPathPrefix()+"/"+"surfer/?wave="+encodeURIComponent(token);
+  return _withSubWorkspaceParam(base);
+}
+
+function _decorateWaveformViewerLinks(root){
+  if(!root)return;
+  root.querySelectorAll('a[href]').forEach(anchor=>{
+    try{
+      const url=new URL(anchor.getAttribute("href"),window.location.origin);
+      if(url.origin!==window.location.origin||url.pathname!=="/"+"surfer/"||!url.searchParams.has("wave"))return;
+      const prefix=_cmdApiPathPrefix();
+      if(prefix)url.pathname=prefix+url.pathname;
+      if(_subWorkspace)url.searchParams.set("sub_worspace",_subWorkspace);
+      anchor.href=url.pathname+url.search+url.hash;
+      anchor.target="_blank";
+      anchor.rel="noopener noreferrer";
+    }catch(e){}
+  });
 }
 
 function _workspaceFileUrl(path){
@@ -2253,6 +2280,7 @@ function _renderViewMarkdown(content){
   if(!el)return;
   try{el.innerHTML=typeof marked!=="undefined"?marked.parse(content):'<pre>'+esc(content)+'</pre>';}
   catch(e){el.innerHTML='<pre>'+esc(content)+'</pre>';}
+  _decorateWaveformViewerLinks(el);
 }
 
 async function openView(path,name,ext){
@@ -2304,8 +2332,12 @@ function toggleViewRaw(){
 
 /* ── waveform viewer ── */
 function openWaveform(path){
-  const fileUrl=window.location.origin+_workspaceFileUrl(path);
-  window.open("/surfer/?load_url="+encodeURIComponent(fileUrl),"_blank");
+  try{
+    const token=window.UCAgentSurferDeepLink.encodePayload({v:1,file:path});
+    window.open(_surferUrlForToken(token),"_blank","noopener,noreferrer");
+  }catch(error){
+    alert("Cannot open waveform: "+error.message);
+  }
 }
 
 /* ── serve / download ── */
