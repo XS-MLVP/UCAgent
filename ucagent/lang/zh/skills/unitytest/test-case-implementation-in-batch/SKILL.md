@@ -52,6 +52,8 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - 完成前逐个复核：模板注释中的测试意图已经落实，CK原文的关键条件均有对应激励，CK预期结果均有严格的expected/actual断言；`mark_function`本身不等于完成CK验证
 - 不能为了通过测试而写断言,也不能在已知有Bug的情况下写能通过测试的断言
 - 可能触发Bug的断言消息应打印cycle及cycle_basis、transaction ID、相关输入输出pin、valid/ready或状态、expected和actual，便于后续用`WaveInfo`构建精确pattern；增加日志不能新增Step、改变callback顺序或改变测试时序
+- 判断输出前必须先阅读本测试实际调用的API/driver、callback和`Step`顺序，确认输入在哪个边沿驱动、请求何时被DUT接受、输出何时有效。ready/valid只是常见形式，也可能是req/ack、enable、start/busy、固定延迟或其他自定义协议，不能按信号名称猜测
+- 一次`Step(1)`只推进仿真，不自动表示请求已接受或结果已有效。必须确认API内部是否已经执行Step/等待握手，并依据规格选择组合settle、指定采样边沿、固定N周期、`out_valid/done/ack`成立或`busy`清零等真实采样条件；禁止API调用后机械地只Step一次就读取结果并判错
 
 ### 步骤3: 测试用例执行
 
@@ -88,13 +90,18 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
 - `recordbug.py`只负责生成`FG/FC/CK/BG/TC`结构、波形占位块和分析章节骨架，不负责根因判断；脚本成功只表示骨架已创建，绝不表示Bug分析完成
-- 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后立即写入```yaml代码块；该块必须且只能包含顶层`waveform_analysis`映射，并在其下保存工具返回的`receipt_id`和`status: confirmed`。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据并在当前波形上重放pattern，不能伪造波形字段
+- 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后立即写入```yaml代码块；该块必须且只能包含顶层`waveform_analysis`映射，并在其下保存工具返回的`receipt_id`和`status: confirmed`。YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的`bug_document_viewer_link`，以`<WAVEFORM-VIEWER>`标记并使用`/surfer/?wave=`相对路由。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据、链接和当前波形重放，不能伪造波形字段或token
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
-- 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`
+- 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再把`bug_document_viewer_link`整行放在YAML围栏后，最后根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`。链接的`[...]`展示文字可本地化，但不得修改`<WAVEFORM-VIEWER>`、URL或token，也不得手工构造token
 - 有波形时用结构化pattern匹配输入、握手、状态和输出；无波形时先用metadata-only调用获取诊断，修复测试名称或波形生成流程并重跑，`status: unavailable`不能完成阶段
+- `WaveInfo`匹配到事件只说明该波形片段可重放，不会自动判定Bug。LLM必须结合规格和测试驱动方式审查真实接受条件、backpressure/stall、pipeline或响应latency、事务ID/顺序以及输出有效窗口；pattern和timeline应包含ready/valid或DUT实际使用的等价协议锚点
+- `valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未达到响应latency或协议声明data无效时看到的单点data mismatch只能作为调查线索，不能直接生成BG。若规格明确要求busy期间忽略请求或保持某值，则应引用该约束判断，而不是机械套用握手规则
+- 波形审查还要核对测试到底推进了多少Step、API内部是否已推进/等待以及实际输出有效信号何时成立；如果断言过早采样，属于测试时序问题，必须修复到正确采样后再分类
 - `<BG-STATIC-*>`只允许写在`{DUT}_static_bug_analysis.md`；一旦测试动态证实，必须在`{DUT}_bug_analysis.md`新建独立`<BG-NAME-xx>`并提供confirmed波形证据，再从静态文档用`<LINK-BUG-*>`关联
 - 日志中的cycle与wavekit的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
 - 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
+- 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC
+- 只能复制工具返回的`bug_document_viewer_link`整行；除方括号内的展示文字外，不得修改标记、URL或token
 
 ### 步骤5: Bug记录
 
@@ -111,8 +118,8 @@ python3 script -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overfl
 
 脚本返回后，必须继续完成以下工作，不能结束当前任务：
 
-1. 读取失败断言的expected/actual、事务上下文和对应CK原文。
-2. 调用`WaveInfo`取得最终confirmed证据，用真实`bug_document_fields`完整替换每个TC后的波形占位块。
+1. 读取失败断言的expected/actual、事务上下文和对应CK原文，并阅读测试使用的API/driver、callback与`Step`顺序，确认真实驱动边沿、接受条件和输出采样窗口。
+2. 调用`WaveInfo`取得最终confirmed证据，用真实`bug_document_fields`完整替换每个TC后的波形YAML占位块，并用同一结果的`bug_document_viewer_link`整行替换紧随围栏的`<WAVEFORM-VIEWER>`链接占位。
 3. 打开DUT RTL/HDL，定位能解释波形错误的首个错误决策和传播路径；不要只复述测试失败或`source_correlation`。
 4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker只识别`<BUG-TODO>`，不解析“待补充”等自然语言。
 5. 有源码时，源码证据必须包含真实`path:L1-L2`和完整HDL fenced代码块；`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`必须各出现一次并位于代码块的语言原生注释中，标签后方写具体解释。无源码时在`<BUG-SOURCE-EVIDENCE>`字段中加入独立行`<BUG-SOURCE-UNAVAILABLE>`，并用接口协议、失败日志和波形完成黑盒因果链，禁止伪造源码。两种分支互斥，不能同时使用无源码标记与HDL代码块或三个源码因果标签。

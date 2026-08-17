@@ -311,6 +311,25 @@ def test_unitytest_skills_document_fixture_boundaries():
     assert "普通DUT测试是否包含`ref_model`不改变Mock单元测试签名" in mock_skill
     assert "不调用`mark_function`" in mock_skill
     assert "不调用WaveInfo" in mock_skill
+    for protocol_text in (
+        "一次`Step(1)`只推进仿真",
+        "API内部是否已经",
+        "ready/valid",
+        "响应latency",
+        "单点data mismatch",
+    ):
+        assert protocol_text in implementation_skill
+        assert protocol_text in static_skill
+    for viewer_text in (
+        "中断或重启后可以复用通过验证的`WaveInfo` receipt",
+        "不得删除历史TC/BG",
+        "只能复制工具返回的`bug_document_viewer_link`整行",
+    ):
+        assert viewer_text in implementation_skill
+    assert "单独运行当前静态候选用例时" in static_skill
+    assert "最终记录阶段仍需完整测试运行" in static_skill
+    assert "CMD API" not in implementation_skill
+    assert "CMD API" not in static_skill
 
 
 def test_batch_test_implementation_requires_ck_driven_tests(monkeypatch):
@@ -358,5 +377,7 @@ def test_batch_test_implementation_requires_ck_driven_tests(monkeypatch):
         "仅调用API",
         "expected/actual",
         "`mark_function`本身不等于完成CK验证",
+        "一次`Step(1)`只推进仿真",
+        "禁止API调用后机械地只Step一次",
     ):
         assert required_text in implementation_skill

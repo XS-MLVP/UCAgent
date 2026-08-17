@@ -85,7 +85,10 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 运行动态验证测试
 - 结合测试结果、功能预期、源码分析形成结论
 - 运行或重跑测试时，在失败日志中打印`cycle_basis`、transaction ID、相关输入输出pin、握手/状态、expected和actual
-- 对合理且稳定的Fail用例真实调用`WaveInfo`，使用结构化pattern确认失败事务的输入、状态和错误输出
+- 调用波形前阅读测试使用的API/driver、callback和`Step`顺序，确认输入驱动边沿、请求接受条件和输出有效窗口；ready/valid只是常见形式，也可能是req/ack、enable、start/busy、固定延迟或其他自定义协议
+- 一次`Step(1)`只推进仿真，不能证明请求已经接受或结果已经有效。检查API内部是否已经Step/等待，并按规格要求的采样边沿、固定N周期、`out_valid/done/ack`或`busy`条件读取结果；过早断言属于测试时序问题，不得用于证实静态Bug
+- 对合理且稳定的Fail用例真实调用`WaveInfo`，使用结构化pattern确认失败事务的输入、实际握手/接受条件、状态、响应有效条件和错误输出
+- `WaveInfo`匹配到事件不等于确认Bug。LLM必须审查backpressure/stall、pipeline或响应latency和事务归属；`valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未到响应latency或协议声明data无效时的单点data mismatch只能作为调查线索。若静态候选本身涉及busy期间拒绝请求等语义，应依据规格明确判断该输入是否应被接受
 
 结论分为两类:
 
@@ -93,7 +96,8 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 在`{OUT}/{DUT}_bug_analysis.md`中补充完整动态Bug记录
 - 动态Bug标签形如`BG-XXX-90`
 - 动态Bug标签严禁使用`BG-STATIC-*`命名；`<BG-STATIC-*>`标签只保留在`{OUT}/{DUT}_static_bug_analysis.md`
-- 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据
+- 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据；YAML围栏后的第一条非空内容必须是同一次最终WaveInfo返回的`bug_document_viewer_link`，并保留`<WAVEFORM-VIEWER>`标记及`/surfer/?wave=` URL
+- 中断或重启后可以复用通过验证的WaveInfo receipt；单独运行当前静态候选用例时，不得据此删除已有TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段仍需完整测试运行和严格波形重放
 - `recordbug.py`只生成带`<BUG-TODO>`的动态Bug骨架，不做根因判断，也不生成真实波形字段。运行后必须由LLM读取失败日志、WaveInfo timeline和RTL，直接填完该BG内的全部标记字段
 - 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整
 
@@ -106,6 +110,7 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 不能先把静态Bug链接改掉,再回头补`bug_analysis.md`
 - `WaveInfo`找不到波形时，使用其诊断检查测试名、最新session、`.dat`/`.fst`、`SetWaveform`和`dut.Finish()`，修复后重跑；`status: unavailable`不能作为已证实动态Bug的最终证据
 - 测试日志cycle与wavekit wave step可能相差0到数个周期，必须通过指定时钟的occurrence index和事务上下文对齐，不能直接相减
+- `alignment_evidence`必须说明测试如何驱动、事务按什么条件接受、输出何时有效以及为何属于失败事务；`observed_behavior`只能在协议允许的响应/采样窗口比较expected与actual。该语义由LLM结合规格、测试和RTL审查，不能交给Checker按特定信号名推断
 
 当Bug已证实时，先使用`RunSkillScript`执行`recordbug.py`生成骨架：
 
@@ -123,7 +128,7 @@ python3 script -BG 'BG-ADD-SPECIAL-VALUE-90' -TC 'TC-unity_test/tests/test_ALU75
 
 注意:
 - `recordbug.py`只把未完成骨架写入`{OUT}/{DUT}_bug_analysis.md`
-- 脚本返回后必须继续：用真实`bug_document_fields`替换每个TC后的波形占位块；读取RTL并用文本编辑工具替换所有`<BUG-TODO>`及其提示文字；完成Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker不解析自然语言占位词。有源码时三个`<BUG-SOURCE-*>`因果标签必须位于完整HDL fenced代码块内；无源码时使用`<BUG-SOURCE-UNAVAILABLE>`完成黑盒分析，两个分支互斥
+- 脚本返回后必须继续：用真实`bug_document_fields`替换每个TC后的波形YAML占位块，并用同一结果的`bug_document_viewer_link`整行替换紧随围栏的链接占位；链接`[...]`中的展示文字可改，但不得修改`<WAVEFORM-VIEWER>`、URL或token，也不得手工构造token。随后读取RTL并用文本编辑工具替换所有`<BUG-TODO>`及其提示文字；完成Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker不解析自然语言占位词。有源码时三个`<BUG-SOURCE-*>`因果标签必须位于完整HDL fenced代码块内；无源码时使用`<BUG-SOURCE-UNAVAILABLE>`完成黑盒分析，两个分支互斥
 - 八个字段由固定顺序的独立行标记定义：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。只填标记之间的内容，禁止删除、复制、改名或调换标记；中文粗体标题只是可本地化的展示文字，Checker和脚本不解析标题。旧的仅标题格式不兼容
 - 有源码时必须写真实`path:L1-L2`、HDL代码块，以及各出现一次的`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`；无源码时在`<BUG-SOURCE-EVIDENCE>`字段中加入独立行`<BUG-SOURCE-UNAVAILABLE>`并完成黑盒因果分析
 - 仍有占位符或缺少任一标记字段时，动态Bug记录未完成，不能调用`linkbug.py`、`Check`或`Complete`
