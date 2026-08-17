@@ -56,7 +56,14 @@ def _write_doc(path, entries):
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _make_checker(tmp_path, entries, batch_size=2, data_key="REFINE_DATA", manager_data=None):
+def _make_checker(
+    tmp_path,
+    entries,
+    batch_size=2,
+    data_key="REFINE_DATA",
+    manager_data=None,
+    ignore_tc_prefix="test_ignore_",
+):
     doc = tmp_path / "functions_and_checks.md"
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir(exist_ok=True)
@@ -65,7 +72,7 @@ def _make_checker(tmp_path, entries, batch_size=2, data_key="REFINE_DATA", manag
     checker = UnityChipCheckerRefineTestCases(
         "functions_and_checks.md",
         test_dir="tests",
-        ignore_tc_prefix="test_ignore_",
+        ignore_tc_prefix=ignore_tc_prefix,
         batch_size=batch_size,
         data_key=data_key,
     ).set_workspace(str(tmp_path)).set_stage(_FakeStage()).set_stage_manager(manager)
@@ -193,6 +200,37 @@ def test_get_ck_test_cases_info_records_unresolved_dynamic_marks_and_ignores_pre
     assert ck_map["FG-A/FC-A/CK-A"] == []
     assert len(checker.unresolved_mark_function) == 1
     assert checker.unresolved_mark_function[0]["test_case"] == "tests/test_dynamic.py:1-3::test_dynamic"
+
+
+def test_refine_checker_keeps_api_functional_tests_with_infrastructure_prefix_list(
+    tmp_path,
+):
+    checkpoint = "FG-API/FC-OP/CK-ADD"
+    checker, _manager, tests_dir, _doc = _make_checker(
+        tmp_path,
+        [("FG-API", "FC-OP", "CK-ADD")],
+        ignore_tc_prefix=[
+            "test_api_Demo_env_",
+            "test_api_Demo_reference_model_",
+            "test_api_Demo_mock_",
+        ],
+    )
+    (tests_dir / "test_api.py").write_text(
+        "def test_api_Demo_add(env):\n"
+        "    env.dut.fc_cover['FG-API'].mark_function(\n"
+        "        'FC-OP', test_api_Demo_add, ['CK-ADD'])\n"
+        "\n"
+        "def test_api_Demo_env_basic(env):\n"
+        "    assert env is not None\n",
+        encoding="utf-8",
+    )
+
+    ck_map = checker.get_ck_test_cases_info([checkpoint])
+
+    assert ck_map[checkpoint] == [
+        "tests/test_api.py:1-3::test_api_Demo_add"
+    ]
+    assert checker.total_test_cases_count == 1
 
 
 def test_get_template_data_only_reports_cached_total_test_cases(tmp_path):

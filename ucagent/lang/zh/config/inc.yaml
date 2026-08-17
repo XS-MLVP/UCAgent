@@ -231,7 +231,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
@@ -262,7 +265,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
@@ -291,7 +297,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
     need_human_check: false # 验证复杂DUT时建议开启该人工检查

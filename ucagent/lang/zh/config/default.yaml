@@ -1030,6 +1030,7 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_"
+          ignore_ck_prefix: "FG-API/"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
@@ -1070,7 +1071,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
       - name: waveform_bug_analysis_check
@@ -1142,7 +1146,10 @@ stage:
             doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
             doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
             test_dir: "{OUT}/tests"
-            ignore_tc_prefix: "test_api_{DUT}_mock_"
+            ignore_tc_prefix:
+              - "test_api_{DUT}_env_"
+              - "test_api_{DUT}_reference_model_"
+              - "test_api_{DUT}_mock_"
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
@@ -1199,7 +1206,10 @@ stage:
         args:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
           batch_size: $(BATCH_SIZE_TC: 10)
           data_key: "TEST_TEMPLATE_IMP_REPORT"
       - name: test_check
@@ -1208,7 +1218,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
       - name: waveform_bug_analysis_check
@@ -1280,7 +1293,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_static_{DUT}_"
@@ -1310,7 +1326,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
           min_line_coverage: $(MIN_LINE_COV_RATE: 0.9) # 根据需要调整覆盖率要求，例如0.7表示70%，建议初始要求不要太高，完成所有功能测试后再提升该值大于95%
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
@@ -1422,7 +1441,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
       - name: waveform_bug_analysis_check
         clss: "UnityChipCheckerWaveformBugAnalysis"
         args:
@@ -1465,7 +1487,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
       - name: final_waveform_bug_analysis_check
         clss: "UnityChipCheckerWaveformBugAnalysis"
         args:

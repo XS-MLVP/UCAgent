@@ -5,6 +5,7 @@
 import json
 import os
 import sys
+from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.abspath(os.path.join(current_dir, "..")))
@@ -13,6 +14,7 @@ from ucagent.checkers.unity_test import (
     BaseUnityChipCheckerTestCase,
     UnityChipCheckerTestTemplate,
 )
+from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.functions import list_str_abbr, load_toffee_report
 
 
@@ -367,6 +369,186 @@ def test_template_do_check_reports_checkpoint_relation_before_batch(
     assert "does not identify why the association was not recorded" in message["error"]
     assert "mark_function" not in message["error"]
     assert "Not all 'check_points'" not in message["error"]
+
+
+def test_base_checker_supports_multiple_infrastructure_ignore_prefixes(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n",
+        encoding="utf-8",
+    )
+
+    class CaptureRunner:
+        def __init__(self):
+            self.pytest_args = None
+
+        def set_workspace(self, _workspace):
+            return self
+
+        def set_pre_call_back(self, _callback):
+            return self
+
+        def do(self, *_args, **kwargs):
+            self.pytest_args = kwargs["pytest_ex_args"]
+            return {"run_test_success": True}, "", ""
+
+    checker = BaseUnityChipCheckerTestCase(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        ignore_tc_prefix=[
+            "test_api_Demo_env_",
+            "test_api_Demo_reference_model_",
+            "test_api_Demo_mock_",
+        ],
+    ).set_workspace(str(tmp_path))
+    runner = CaptureRunner()
+    checker.run_test = runner
+
+    checker.do_check()
+
+    assert runner.pytest_args == [
+        "-k",
+        "not test_api_Demo_env_ and not test_api_Demo_reference_model_ and not test_api_Demo_mock_",
+        ".",
+    ]
+    assert checker._is_ignored_test_case(
+        "tests/test_env.py:1-2::test_api_Demo_env_basic"
+    )
+    assert not checker._is_ignored_test_case(
+        "tests/test_api.py:1-2::test_api_Demo_operate_add"
+    )
+
+
+def test_template_scope_excludes_only_configured_api_checkpoints(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-API>\n<FC-OP>\n<CK-API>\n"
+        "<FG-DATA>\n<FC-RESULT>\n<CK-NON-API>\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        ignore_tc_prefix="test_api_Demo_",
+        ignore_ck_prefix="FG-API/",
+        template_must_fail=True,
+    ).set_workspace(str(tmp_path)).set_stage(
+        SimpleNamespace(name="create_test_case_templates")
+    )
+
+    checker.on_init()
+
+    assert checker.ignored_source_checkpoints == ["FG-API/FC-OP/CK-API"]
+    assert checker.batch_task.source_task_list == [
+        "FG-DATA/FC-RESULT/CK-NON-API"
+    ]
+    assert checker.get_template_data()["TOTAL_CKS"] == 1
+
+
+def test_template_accepts_api_checkpoint_unmarked_when_api_scope_is_excluded(
+    tmp_path, monkeypatch
+):
+    api_checkpoint = "FG-API/FC-OP/CK-API"
+    normal_checkpoint = "FG-DATA/FC-RESULT/CK-NON-API"
+    test_case = "tests/test_result.py:1-3::test_result"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "functions.md").write_text(
+        "<FG-API>\n<FC-OP>\n<CK-API>\n"
+        "<FG-DATA>\n<FC-RESULT>\n<CK-NON-API>\n",
+        encoding="utf-8",
+    )
+    report = {
+        "run_test_success": True,
+        "tests": {
+            "total": 1,
+            "fails": 1,
+            "test_cases": {test_case: "FAILED"},
+            "test_case_details": {test_case: _assertion_detail()},
+        },
+        "total_funct_point": 2,
+        "total_check_point": 2,
+        "all_check_point_list": [api_checkpoint, normal_checkpoint],
+        "failed_check_point": 2,
+        "failed_check_point_list": [api_checkpoint, normal_checkpoint],
+        "unmarked_check_points": 1,
+        "unmarked_check_point_list": [api_checkpoint],
+        "test_function_with_no_check_point_mark": 0,
+        "failed_test_case_with_check_point_list": {
+            test_case: [normal_checkpoint],
+        },
+    }
+    monkeypatch.setattr(
+        BaseUnityChipCheckerTestCase,
+        "do_check",
+        lambda _self, **_kwargs: (report, "", ""),
+    )
+    checker = UnityChipCheckerTestTemplate(
+        doc_func_check="functions.md",
+        test_dir="tests",
+        ignore_tc_prefix="test_api_Demo_",
+        ignore_ck_prefix="FG-API/",
+        template_must_fail=True,
+    ).set_workspace(str(tmp_path)).set_stage(
+        SimpleNamespace(name="create_test_case_templates")
+    )
+    checker.on_init()
+
+    passed, message = checker.do_check(is_complete=True)
+
+    assert passed is True
+    assert "All 1 in-scope check points" in " ".join(message["success"])
+    assert checker.batch_task.source_task_list == [normal_checkpoint]
+    assert checker.batch_task.gen_task_list == [normal_checkpoint]
+
+
+def _iter_stage_checkers(stages, parent=""):
+    for stage in stages:
+        stage_path = f"{parent}/{stage['name']}" if parent else stage["name"]
+        for checker in stage.get("checker", []):
+            yield stage_path, checker
+        yield from _iter_stage_checkers(stage.get("stage", []), stage_path)
+
+
+def test_workflows_keep_api_tests_and_ignore_only_infrastructure():
+    repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+    config_dir = os.path.join(repo_root, "ucagent/lang/zh/config")
+    default_config = load_yaml_with_env_vars(
+        os.path.join(config_dir, "default.yaml")
+    )
+    stages = {stage["name"]: stage for stage in default_config["stage"]}
+    template_checker = next(
+        checker
+        for checker in stages["create_test_case_templates"]["checker"]
+        if checker["name"] == "template_check"
+    )
+    assert template_checker["args"]["ignore_tc_prefix"] == "test_api_{DUT}_"
+    assert template_checker["args"]["ignore_ck_prefix"] == "FG-API/"
+
+    expected_infrastructure_prefixes = [
+        "test_api_{DUT}_env_",
+        "test_api_{DUT}_reference_model_",
+        "test_api_{DUT}_mock_",
+    ]
+    checked_later_stages = []
+    for config_name in ("default.yaml", "inc.yaml", "vibe.yaml"):
+        config = load_yaml_with_env_vars(os.path.join(config_dir, config_name))
+        for stage_path, checker in _iter_stage_checkers(config["stage"]):
+            ignored_prefixes = checker.get("args", {}).get("ignore_tc_prefix")
+            if ignored_prefixes is None or checker["clss"] == "UnityChipCheckerTestTemplate":
+                continue
+            assert ignored_prefixes == expected_infrastructure_prefixes, (
+                config_name,
+                stage_path,
+                checker["name"],
+            )
+            assert "test_api_{DUT}_" not in ignored_prefixes
+            checked_later_stages.append((config_name, stage_path, checker["name"]))
+
+    assert {item[0] for item in checked_later_stages} == {
+        "default.yaml",
+        "inc.yaml",
+        "vibe.yaml",
+    }
 
 
 def test_load_toffee_report_optionally_extracts_failure_type(tmp_path):

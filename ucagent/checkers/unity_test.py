@@ -19,6 +19,55 @@ from ucagent.checkers.base import Checker, UnityChipBatchTask
 from ucagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
+
+def _normalize_test_prefixes(prefixes):
+    if prefixes in (None, ""):
+        return []
+    if isinstance(prefixes, str):
+        values = [prefixes]
+    elif isinstance(prefixes, (list, tuple)):
+        values = list(prefixes)
+    else:
+        raise TypeError(
+            "ignore_tc_prefix must be a string or a list/tuple of strings."
+        )
+    normalized = []
+    for prefix in values:
+        if not isinstance(prefix, str):
+            raise TypeError(
+                "ignore_tc_prefix entries must be strings."
+            )
+        prefix = prefix.strip()
+        if prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return normalized
+
+
+def _normalize_checkpoint_prefixes(prefixes):
+    if prefixes in (None, ""):
+        return []
+    if isinstance(prefixes, str):
+        values = [prefixes]
+    elif isinstance(prefixes, (list, tuple)):
+        values = list(prefixes)
+    else:
+        raise TypeError(
+            "ignore_ck_prefix must be a string or a list/tuple of strings."
+        )
+    normalized = []
+    for prefix in values:
+        if not isinstance(prefix, str):
+            raise TypeError("ignore_ck_prefix entries must be strings.")
+        prefix = prefix.strip()
+        if prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return normalized
+
+
+def _test_name_matches_prefixes(test_name, prefixes):
+    return any(test_name.startswith(prefix) for prefix in prefixes)
+
+
 class UnityChipCheckerMarkdownFileFormat(Checker):
     def __init__(self, markdown_file_list, no_line_break=False, **kw):
         self.markdown_file_list = markdown_file_list if isinstance(markdown_file_list, list) else [markdown_file_list]
@@ -962,6 +1011,19 @@ class BaseUnityChipCheckerTestCase(Checker):
             return None
         return self.get_tool_by_name("WaveInfo")
 
+    def _ignored_test_prefixes(self):
+        return _normalize_test_prefixes(self.ignore_tc_prefix)
+
+    def _is_ignored_test_case(self, test_case):
+        test_name = str(test_case).rsplit("::", 1)[-1]
+        return _test_name_matches_prefixes(test_name, self._ignored_test_prefixes())
+
+    def _pytest_ignore_expression(self):
+        prefixes = self._ignored_test_prefixes()
+        if not prefixes:
+            return None
+        return " and ".join(f"not {prefix}" for prefix in prefixes)
+
     def _check_test_func_args(self, report, str_out, str_err):
         """
         Check test function argument names against self.args_pattern.
@@ -1029,10 +1091,11 @@ class BaseUnityChipCheckerTestCase(Checker):
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
         timeout = timeout if timeout > 0 else self.timeout
-        if self.ignore_tc_prefix:
+        ignore_expression = self._pytest_ignore_expression()
+        if ignore_expression:
             pytest_args = pytest_args if pytest_args else "."
             pytest_args = pytest_args.split()
-            pytest_args = ["-k", f"not {self.ignore_tc_prefix}"] + pytest_args
+            pytest_args = ["-k", ignore_expression] + pytest_args
         report, str_out, str_err = self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
@@ -1097,6 +1160,31 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
+    def _load_checkpoint_scope(self):
+        all_doc_checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
+            self.get_path(self.doc_func_check),
+            leaf_node="CK",
+            return_line_block=True,
+        )
+        ignored_prefixes = _normalize_checkpoint_prefixes(
+            self.extra_kwargs.get("ignore_ck_prefix", "")
+        )
+        ignored_checkpoints = [
+            checkpoint
+            for checkpoint in all_doc_checkpoints
+            if any(
+                checkpoint.startswith(prefix)
+                for prefix in ignored_prefixes
+            )
+        ]
+        target_checkpoints = [
+            checkpoint
+            for checkpoint in all_doc_checkpoints
+            if checkpoint not in ignored_checkpoints
+        ]
+        self.ignored_source_checkpoints = ignored_checkpoints
+        return all_doc_checkpoints, target_checkpoints, file_blocks
+
     def get_template_data(self):
         if hasattr(self, "batch_task"):
             data = self.batch_task.get_template_data("TOTAL_CKS", "COVERED_CKS", "LIST_CKS_TO_BE_COVERED")
@@ -1116,9 +1204,14 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
     def on_init(self):
         self.total_tests_count = 0
         self.batch_task = UnityChipBatchTask("check_points", self)
-        self.batch_task.source_task_list, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK", return_line_block=True)
+        _, target_checkpoints, self.cached_ck_file_blocks = self._load_checkpoint_scope()
+        self.batch_task.source_task_list = target_checkpoints
         self.batch_task.update_current_tbd()
-        info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
+        info(
+            f"Load template ck list(size={len(target_checkpoints)}, "
+            f"ignored={len(self.ignored_source_checkpoints)}) from doc file "
+            f"'{self.doc_func_check}'."
+        )
         return super().on_init()
 
     def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
@@ -1162,7 +1255,11 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test report is generated correctly."
             return False, info_runtest
-        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_tc_prefix in k or ":"+self.ignore_tc_prefix in k)])
+        self.total_tests_count = len([
+            test_case
+            for test_case in test_cases
+            if not self._is_ignored_test_case(test_case)
+        ])
         if report.get("tests") is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test cases are defined correctly in the workspace."
@@ -1184,8 +1281,8 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         try:
-            all_bins_docs = fc.get_unity_chip_doc_marks(
-                self.get_path(self.doc_func_check), leaf_node="CK"
+            all_bins_docs, target_bins_docs, self.cached_ck_file_blocks = (
+                self._load_checkpoint_scope()
             )
         except Exception as e:
             info_report["error"] = (
@@ -1236,7 +1333,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
         unmarked_doc_checkpoints = [
             ck for ck in report.get('unmarked_check_point_list', [])
-            if ck in all_bins_docs
+            if ck in target_bins_docs
         ]
         if unmarked_doc_checkpoints:
             info_runtest["error"] = fc.description_checkpoint_association_missing(
@@ -1246,14 +1343,19 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
         # All structural and association checks passed; batch progress can now
         # be derived without masking the reason a checkpoint was omitted.
+        target_bins_test = [
+            checkpoint
+            for checkpoint in all_bins_test
+            if checkpoint in target_bins_docs
+        ]
         note_msg = []
         self.batch_task.sync_source_task(
-            all_bins_docs,
+            target_bins_docs,
             note_msg,
             f"{self.doc_func_check} file CK points changed.",
         )
         self.batch_task.sync_gen_task(
-            all_bins_test,
+            target_bins_test,
             note_msg,
             "Test cases CK points changed.",
         )
@@ -1270,7 +1372,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         # Success message with template-specific details
         info_report["success"] = ["Test template validation successful!",
                                  f"✓ Generated {report['tests']['total']} test case templates (all properly failing as expected).",
-                                 f"✓ All {len(all_bins_test)} check points are properly documented and marked in test functions.",
+                                 f"✓ All {len(target_bins_test)} in-scope check points are properly documented and marked in test functions.",
                                  f"✓ Coverage mapping is consistent between documentation and test implementation.",
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
@@ -1309,8 +1411,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         )
 
         def is_ignored(test_case):
-            test_name = test_case.rsplit("::", 1)[-1]
-            return bool(self.ignore_tc_prefix and test_name.startswith(self.ignore_tc_prefix))
+            return self._is_ignored_test_case(test_case)
 
         checked_cases = {
             test_case: status
@@ -1664,7 +1765,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             passed_tc = []
             failed_tc = []
             for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
-                if ":"+self.ignore_tc_prefix in k:
+                if self._is_ignored_test_case(k):
                     info(f"{self.__class__.__name__} ignore test case: {k}")
                     continue
                 if v == "PASSED":
@@ -2142,7 +2243,10 @@ class UnityChipCheckerRefineTestCases(Checker):
 
             for func_node, qualname in iter_test_functions(tree):
                 test_func_name = qualname.split("::")[-1]
-                if self.ignore_tc_prefix and test_func_name.startswith(self.ignore_tc_prefix):
+                if _test_name_matches_prefixes(
+                    test_func_name,
+                    _normalize_test_prefixes(self.ignore_tc_prefix),
+                ):
                     continue
                 total_test_cases_count += 1
                 line_to = getattr(func_node, "end_lineno", func_node.lineno)

@@ -32,7 +32,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
           checker:
       - name: vibe_workspace_init
         clss: "VibeWorkSpaceInit"
