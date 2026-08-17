@@ -24,6 +24,20 @@
 
 启用Mock组件不会改变普通DUT测试参数。是否启用以`runtime_options.mock_components_enabled`的正向布尔值为准，不能在脚本中重新读取或反转`IGNORE_MOCK_COMPONENT`。`mock_dut`仅用于`test_api_{DUT}_mock_*`形式的Mock组件独立测试，不属于本阶段生成的普通DUT模板。
 
+## API、fixture与覆盖率定义的只读边界
+
+进入测试模板创建阶段时，`{OUT}/tests/{DUT}_api.py`和`{OUT}/tests/{DUT}_function_coverage_def.py`已经由前置阶段生成并通过对应Checker，它们不是当前模板的一部分。本阶段只能创建或修正普通`test_*.py`模板，不能改写API、`create_dut`、`dut/env` fixture、fake DUT分支、`get_coverage_groups(dut)`、`dut.fc_cover`绑定、采样回调或coverage上报。
+
+fake DUT也必须沿用同一个`dut` fixture：fixture会为它创建功能覆盖组并绑定`fc_cover`，从而让模板开头的`mark_function`正常执行。不要在测试文件中自己构造fake DUT、空覆盖组、`fc_cover`字典或替代fixture；这会绕过真实的FG/FC/CK关系，使Checker无法确认模板覆盖范围。
+
+如果`mark_function`出现`KeyError`、缺少`fc_cover`或setup错误，应先完成以下检查：
+
+1. 模板中的FG/FC/CK字符串是否与功能文档完全一致。
+2. 对应FG/FC/CK是否确实存在于当前覆盖率定义。
+3. 最早traceback指向新模板还是已有基础设施。
+
+模板自身错误只修改模板。只有明确证据证明上游API/fixture/覆盖率实现违反其既有契约时，才回到所属阶段做最小修复并重跑专用Checker；禁止通过删除`mark_function`、忽略异常或改造提供的API模板来让模板阶段表面通过。
+
 ## 空测试用例示例
 
 ### 基本示例

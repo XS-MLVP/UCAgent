@@ -148,6 +148,7 @@ stage:
       - " 2) 根据增量需求更新/新增："
       - "    - 环境 fixture：能稳定构建最小可复现环境（时钟/复位/接口绑定/必要配置），并确保dut fixture在yield之后调用set_func_coverage上报功能覆盖率。"
       - "    - API：为新增/变化的功能提供清晰可复用的调用入口；API 命名必须满足前缀约束 `api_{DUT}_`。"
+      - "    - 只修改WorkDiff明确涉及的API/fixture代码；没有需求变更时不要重写已提供模板。必须保留ucagent.is_imp_test_template()下的fake DUT路径、get_coverage_groups(dut)创建覆盖组、dut.fc_cover绑定、StepRis采样和yield后的set_func_coverage上报，不能用自建空对象或删除覆盖率初始化来规避后续mark_function错误。"
       - " 3) 自检：确保 API 的输入/输出/副作用明确，异常场景有可预期行为（至少能被测试断言）。"
       - " 4) 调用工具 `Check` 进行代码/结构校验；若无需更新则调用 `Complete` 结束本阶段。"
     reference_files:
@@ -187,6 +188,7 @@ stage:
       - "    - `RunTestCases('test_{DUT}_env_fixture.py')` 用于验证环境 fixture（若存在）"
       - " 4) 失败处理："
       - "    - API用例失败，先确认是测试问题还是 API/fixture 问题，分别修正后重跑。"
+      - "    - 只有WorkDiff或最早traceback明确证明API/fixture实现本身有缺陷时才做最小修改；不得为了让mark_function、fake DUT或覆盖率报告通过而改写API模板、覆盖组定义或fixture生命周期。"
       - "    - env用例测试不能失败，否则说明环境搭建有问题，必须修正环境代码后重跑。"
       - "    - env用例仅仅用来验证环境搭建的正确性，不应当涉及 DUT 行为验证。"
       - " 5) 调用 `Check` 做静态/结构校验；若无需更新则 `Complete`。"
@@ -328,4 +330,3 @@ stage:
     checker:
       - name: commit_check
         clss: "GitNotDirtyChecker"
-

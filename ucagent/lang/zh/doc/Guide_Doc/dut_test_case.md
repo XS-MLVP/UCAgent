@@ -103,6 +103,8 @@ env.dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, 
 
 需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。一次调用mark_function只能关联一个功能点中的多个测试点，如果一个测试用例覆盖多个功能点，需要多次调用mark_function分别进行标记
 
+测试阶段应把现有`{DUT}_api.py`、`dut/env` fixture、fake DUT路径和`{DUT}_function_coverage_def.py`视为公共契约。`mark_function`失败时先核对FG/FC/CK字面量并读取最早traceback；不得在测试文件中伪造`fc_cover`，也不得为了单个测试通过而重写提供的API模板、替换fixture、删除覆盖标记或破坏覆盖率上报。只有证据明确证明公共基础设施本身违反契约时，才做最小修复并重跑其专用Checker。
+
 
 **参数说明：**
 - **功能分组**：对应功能描述文档中的 `<FG-*>` 标签

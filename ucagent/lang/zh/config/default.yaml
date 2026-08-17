@@ -69,6 +69,7 @@ mission:
       - 测试用例失败时，优先怀疑是芯片设计问题，不是测试问题
       - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
       - 对每个已实现测试的Fail必须先排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有确认属于DUT设计Bug时才保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
+      - 测试用例阶段默认把已提供的{OUT}/tests/{DUT}_api.py、{OUT}/tests/{DUT}_function_coverage_def.py及其中的create_dut、dut/env fixture、fake DUT路径、覆盖组创建和fc_cover绑定视为验证基础设施契约；除当前stage明确要求更新API/fixture外，不得为了绕过fixture、fake DUT、mark_function或覆盖率错误而重写、替换、复制或局部伪造这些实现，也不得删除覆盖标记或取消set_func_coverage上报。只有最早traceback和对应源码共同证明基础设施本身有缺陷时，才允许在其所属stage做最小修复，并先重跑对应的fixture/API Checker
       - `create_test_case_templates`模板构建阶段是明确例外：该阶段所有尚未实现的测试模板都必须以`assert False, "Not implemented"`结尾，防止空模板意外Pass；进入批量实现阶段后必须删除该占位断言并换成真实激励和预期检查。模板Fail仅表示“尚未实现”，不作为DUT Bug，不写入Bug文档
       - Mock、fixture、参考模型以及只验证测试框架/API调用链自身且不以DUT功能输出为判定对象的测试属于验证基础设施自检，必须全部Pass，不能作为DUT Bug记录；任何使用正确功能预期检查真实DUT输出的测试（包括API功能测试、综合验证、静态Bug动态验证和随机验证）若确认复现DUT Bug，则必须保持Fail并完整取证。这两个要求适用于不同测试目标，不矛盾
       - 深入分析发现的问题
@@ -954,7 +955,7 @@ stage:
       - "  - API功能测试使用正确预期检查真实DUT输出，适用统一完成条件：测试/API/fixture/ref_model/时序/环境问题必须修复到Pass；只有正确测试确认的DUT设计Bug保留Fail，并完成非零置信度动态Bug、CK、源码根因和真实WaveInfo confirmed证据。不要把此前基础设施自检的‘全部Pass’要求套用到已确认DUT Bug复现用例"
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
       - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
-      - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
+      - "  - 只有最早traceback、API契约和源码共同证明已实现的API函数或Env fixture存在缺陷时，才做与根因直接相关的最小修复并重跑专用API/fixture测试；不得为了让测试、mark_function或覆盖率门禁通过而重写提供的API模板、替换fake DUT或破坏fc_cover绑定"
       - "  - 注意{DUT}相关的文件名，用例名等大小写敏感"
       - "  - 测试函数包含ref_model fixture时，请使用其进行比对验证；如果发现参考模型实现有误，也请及时修正参考模型代码，确保测试结果可信"
     checker:
@@ -1004,6 +1005,8 @@ stage:
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "注意："
       - "  - 该阶段dut fixture为fake值，仅用于执行加速，因此请仅仅编写用例模板，不要去测试DUT"
+      - "  - 本阶段{OUT}/tests/{DUT}_api.py和{OUT}/tests/{DUT}_function_coverage_def.py是已提供的只读基础设施契约；只能新增/修改普通测试模板，禁止改动API、create_dut、dut/env fixture、fake DUT分支、覆盖组定义、fc_cover绑定、StepRis采样或coverage上报，也不能在测试文件中自建dut、fc_cover、CovGroup或替代fixture"
+      - "  - 如果fake DUT上执行mark_function失败，先核对当前模板中的FG/FC/CK字面量与函数文档和覆盖率定义；不得删除mark_function、改成空覆盖组、绕过fixture或把问题改写成普通断言。若最早traceback明确指向基础设施缺陷，应记录具体文件/行并回到对应API/fixture/覆盖率阶段处理"
       - "  - 测试函数模板不要实现具体的测试逻辑，只需添加TODO注释，功能覆盖标记和assert False语句"
       - "  - 确保每个功能点<FC-*>至少有一个测试用例"
       - "  - 测试用例应当具有针对性，不要冗余，不要一个测试用例关联过多功能点、测试点"
@@ -1051,10 +1054,11 @@ stage:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
       - "重要：测试用例失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
-      - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
+      - "上述过程中若发现之前步骤可能有误，必须先用最早traceback、API契约和源码确认责任文件；只有证据明确时才回到所属阶段最小修正API或功能覆盖，不能在测试阶段凭猜测重写已提供模板"
       - "注意："
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixtures (必须用 import *)"
+      - "  - 实现测试时必须把现有{DUT}_api.py和{DUT}_function_coverage_def.py当作稳定接口使用；默认只修改当前测试文件。除非最早traceback和源码证据明确证明基础设施缺陷，否则不要改API模板、fixture或覆盖组定义来规避测试失败"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
       - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
       - "  - 阶段完成条件：除已确认DUT Bug复现用例外，其他用例必须全部Pass；剩余每个Fail必须与非零置信度动态Bug、对应CK、源码根因和真实WaveInfo confirmed证据一一对应。不是要求已确认Bug用例也Pass"
@@ -1097,6 +1101,7 @@ stage:
         desc: "分批测试用例实现与对应bug分析[{COMPLETED_CASES}/{TOTAL_CASES}]"
         task:
           - "第1步：逐个打开以下当前批次测试模板，完整阅读函数的docstring、注释、TASK/TODO、已有mark_function和覆盖约束；这些内容定义模板的原始测试意图，不能跳过或只按文件名、函数名猜测": "{LIST_CURRENT_CASES}"
+          - "第1步补充：保留模板已经提供的fixture参数、import、mark_function和普通DUT访问路径；当前批次默认禁止编辑{OUT}/tests/{DUT}_api.py及{OUT}/tests/{DUT}_function_coverage_def.py，不得通过修改fake DUT或fixture绕过覆盖率关联"
           - "第2步：对每个模板，从mark_function确定完整FG/FC/CK路径，并在{OUT}/{DUT}_functions_and_checks.md中定位对应CK原文；逐项分析其触发前提、输入组合、状态/时序、边界/异常行为和预期输出，并结合{OUT}/tests/{DUT}_function_coverage_def.py中的对应覆盖约束形成测试契约"
           - "第3步：依据模板注释和测试契约设计针对性激励与严格断言；CK的每项关键条件都要有对应输入或状态设置，每项预期结果都要有能够区分DUT正确与错误行为的expected/actual检查"
           - "  - 设计断言前必须确认结果何时有效：一次Step只推进仿真，不代表事务完成。阅读API/driver实现，确认其是否已Step或等待，并按规格要求的采样边沿、固定N周期、response valid/done/ack或busy清零条件读取输出；禁止API调用后机械地Step一次就断言data"

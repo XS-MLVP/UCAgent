@@ -10,6 +10,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 
 def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
@@ -46,13 +47,23 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     static_validation_task = "\n".join(
         str(item) for item in static_validation_stage["task"]
     )
+    template_stage = next(
+        stage
+        for stage in config["stage"]
+        if stage["name"] == "create_test_case_templates"
+    )
+    template_task = "\n".join(str(item) for item in template_stage["task"])
 
     assert "必须调用`WaveInfo`" in system_prompt
     assert "不得豁免动态Bug的`WaveInfo`取证" in system_prompt
     assert "不能伪造receipt" in system_prompt
     assert 'WaveInfo(test_case_name="test_{DUT}_xxx"' in system_prompt
     assert "signal_catalog中确实存在时使用" in system_prompt
-    assert "receipt会签名持久化" in system_prompt
+    assert "可以直接复用文档中通过验证的receipt_id" in system_prompt
+    assert "任务中途只运行部分用例时" in system_prompt
+    assert "最终record_and_report_bugs阶段必须先运行完整DUT测试集合" in system_prompt
+    assert "CMD API" not in system_prompt
+    assert "v2 token" not in system_prompt
     assert "不需要重新调用WaveInfo或重写所有waveform_analysis YAML块" in system_prompt
     assert "status: evidence_window_required" in system_prompt
     assert "recommended_evidence_call" in system_prompt
@@ -60,6 +71,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "最终显式窗口调用必须同时传非负start_step和end_step" in system_prompt
     assert "将返回的`bug_document_fields`作为```yaml代码块的完整映射" in system_prompt
     assert "它已包含唯一顶层键waveform_analysis，不要再包一层" in system_prompt
+    assert "`bug_document_viewer_link`" in system_prompt
+    assert "`<WAVEFORM-VIEWER>`标签" in system_prompt
+    assert "方括号中的显示文字可以本地化" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
     assert "recordbug.py`只生成带`<BUG-TODO>`" in system_prompt
@@ -81,6 +95,17 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
     assert "不得因recordbug.py成功、字段非空或Checker尚未报错" in review_task
     assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
+    assert "一次`Step(1)`只表示仿真推进一步" in system_prompt
+    assert "不能由Checker按固定信号名自动推断" in system_prompt
+    assert "已提供的{OUT}/tests/{DUT}_api.py" in system_prompt
+    assert "只有最早traceback和对应源码共同证明基础设施本身有缺陷" in system_prompt
+    assert "是已提供的只读基础设施契约" in template_task
+    assert "禁止改动API、create_dut、dut/env fixture" in template_task
+    assert "不得删除mark_function、改成空覆盖组、绕过fixture" in template_task
+    assert "ready/valid或等价接受条件" in batch_task
+    assert "禁止API调用后机械地Step一次就断言data" in batch_task
+    assert "协议无效窗口或任意单点data mismatch" in static_validation_task
+    assert "observed_behavior是否只在协议允许的响应采样窗口" in review_task
     for marker in (
         "<STATIC-BUG-SUMMARY>",
         "<STATIC-BUG-DETAILS>",
@@ -108,6 +133,71 @@ def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
     assert "只验证测试框架/API调用链自身且不以DUT功能输出为判定对象" in system_prompt
     assert "包括API功能测试、综合验证、静态Bug动态验证和随机验证" in system_prompt
     assert "确认复现DUT Bug，则必须保持Fail并完整取证" in system_prompt
+    assert "不得为了绕过fixture、fake DUT、mark_function或覆盖率错误" in system_prompt
+
+
+def test_fixture_guidance_is_consistent_across_runtime_docs_and_skills():
+    root = Path(__file__).parents[1]
+    template_guide = (
+        root / "ucagent/lang/zh/doc/Guide_Doc/dut_test_template.md"
+    ).read_text(encoding="utf-8")
+    fixture_guide = (
+        root / "ucagent/lang/zh/doc/Guide_Doc/dut_fixture.md"
+    ).read_text(encoding="utf-8")
+    test_case_guide = (
+        root / "ucagent/lang/zh/doc/Guide_Doc/dut_test_case.md"
+    ).read_text(encoding="utf-8")
+    create_skill = (
+        root
+        / "ucagent/lang/zh/skills/unitytest/create-test-case-templates/SKILL.md"
+    ).read_text(encoding="utf-8")
+    implementation_skill = (
+        root
+        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+    ).read_text(encoding="utf-8")
+    static_skill = (
+        root
+        / "ucagent/lang/zh/skills/unitytest/static-bug-validation/SKILL.md"
+    ).read_text(encoding="utf-8")
+    api_template = (
+        root / "ucagent/lang/zh/template/unity_test/tests/{{DUT}}_api.py"
+    ).read_text(encoding="utf-8")
+
+    for document in (
+        template_guide,
+        fixture_guide,
+        test_case_guide,
+        create_skill,
+        implementation_skill,
+        static_skill,
+    ):
+        assert "fc_cover" in document
+        assert "最早traceback" in document
+        assert any(keyword in document for keyword in ("不得", "禁止", "不能"))
+
+    assert "API、fixture与覆盖率定义的只读边界" in template_guide
+    assert "只能创建或修正普通`test_*.py`模板" in template_guide
+    assert "不得在测试文件中伪造`fc_cover`" in test_case_guide
+    assert "不修改`{DUT}_api.py`" in create_skill
+    assert "默认只编辑当前测试文件" in implementation_skill
+    assert "默认只新增或修改当前静态验证测试" in static_skill
+    assert "同时服务于真实DUT与模板阶段fake DUT" in api_template
+    assert "进入测试模板创建和测试实现阶段后" in api_template
+    assert "删除覆盖组/fc_cover绑定" in api_template
+
+    inc_config = load_yaml_with_env_vars(
+        str(root / "ucagent/lang/zh/config/inc.yaml")
+    )
+    inc_stages = {stage["name"]: stage for stage in inc_config["stage"]}
+    update_api_task = "\n".join(
+        str(item) for item in inc_stages["update_test_env_and_api"]["task"]
+    )
+    update_api_test_task = "\n".join(
+        str(item) for item in inc_stages["update_env_and_api_test"]["task"]
+    )
+    assert "没有需求变更时不要重写已提供模板" in update_api_task
+    assert "必须保留ucagent.is_imp_test_template()下的fake DUT路径" in update_api_task
+    assert "最早traceback明确证明API/fixture实现本身有缺陷" in update_api_test_task
 
 
 def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
@@ -125,8 +215,21 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "成功的最终取证返回会包含 `bug_document_fields`" in guide
     assert "```yaml" in guide
     assert "`waveform_analysis:` 必须是唯一顶层键" in guide
+    assert "`bug_document_viewer_link`" in guide
+    assert "`<WAVEFORM-VIEWER>`" in guide
+    assert "CMD API" not in guide
+    assert "v2 逻辑定位" not in guide
+    assert "非最终阶段的 Check/Complete 只验证文档与签名 receipt" in guide
+    assert "最终 `record_and_report_bugs` 阶段必须先运行完整 DUT 测试集合" in guide
+    assert "显示文字不参与解析" in guide
     assert "不再使用 `<WAVEFORM-ANALYSIS>` 自定义标签" in guide
     assert "省略了每个 `<TC-*>` 后的波形块" not in guide
+    assert "先确认事务有效，再判断数据是否错误" in guide
+    assert "调用一次 `Step(1)` 只表示仿真时间推进了一步" in guide
+    assert "API 内部是否已经调用 `Step`、等待握手或采样结果" in guide
+    assert "一次单点 data mismatch 只能作为继续调查的线索" in guide
+    assert "不能由 Checker 根据特定信号名自动完成" in guide
+    assert "TOP.dut.ready" in guide
     clock_call = guide.split("时钟对齐最终调用示例：", 1)[1].split(
         "显式时间窗最终调用示例：", 1
     )[0]
@@ -159,6 +262,9 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "complete WaveInfo bug_document_fields" in help_text
     assert "alignment_evidence, observed_behavior, source_correlation" in help_text
     assert "Do not invent or copy example receipt values" in help_text
+    assert "One Step only advances simulation" in help_text
+    assert "request-accept and response-valid conditions" in help_text
+    assert "only an investigation clue" in help_text
     assert "complete HDL fenced block containing each marker" in help_text
     assert "This branch cannot contain an HDL fence" in help_text
     assert "Display headings are optional/localizable and are not parsed" in help_text
@@ -227,6 +333,25 @@ def _assert_test_tags_cascade_to_waveform_yaml(example: str) -> None:
         else:
             assert analysis["analysis_mode"] == "explicit_window"
             assert {"start_step", "end_step"} <= set(analysis)
+        viewer_line = next(
+            index
+            for index in range(closing_line + 1, len(lines))
+            if lines[index].strip()
+        )
+        viewer_match = re.fullmatch(
+            r"<WAVEFORM-VIEWER> \[[^\]]+\]\(/surfer/\?wave=([A-Za-z0-9_-]+)\)",
+            lines[viewer_line].strip(),
+        )
+        assert viewer_match
+        viewer_payload = decode_waveform_viewer_token(viewer_match.group(1))
+        assert viewer_payload["v"] == 2
+        assert viewer_payload["test_dir"] == "unity_test/tests"
+        assert viewer_payload["test_case"] == Path(
+            analysis["waveform_file"]
+        ).stem
+        assert viewer_payload["cursor"] == str(analysis["wave_step"])
+        pattern_signals = [item["signal"] for item in analysis["pattern"]]
+        assert all(signal in viewer_payload["signals"] for signal in pattern_signals)
 
 
 def test_bug_analysis_guide_examples_cascade_fenced_waveform_blocks_from_tests():
@@ -261,6 +386,7 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<BG-NAME-XX>",
         "<TC-test_file.py::test_name>",
         "waveform_analysis",
+        "<WAVEFORM-VIEWER>",
         "<BG-STATIC-NNN-NAME>",
         "<LINK-BUG-[BG-TBD]>",
         "<LINK-BUG-[BG-NAME-XX]>",
@@ -408,6 +534,15 @@ def test_dynamic_test_classification_precedes_global_waveform_sweep():
         assert checker_names.index(downstream_checker) < checker_names.index(
             "UnityChipCheckerWaveformBugAnalysis"
         )
+        waveform_checker = next(
+            item
+            for item in stage["checker"]
+            if item["clss"] == "UnityChipCheckerWaveformBugAnalysis"
+        )
+        if name == "record_and_report_bugs":
+            assert waveform_checker["args"]["require_current_replay"] is True
+        else:
+            assert waveform_checker["args"].get("require_current_replay", False) is False
 
     for name in (
         "static_bug_validation",

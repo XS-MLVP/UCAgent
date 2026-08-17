@@ -20,6 +20,8 @@ DUT fixture负责：
 3. **时钟管理**：为时序电路初始化时钟
 4. **测试清理**：测试结束后的资源清理和数据收集
 
+> **阶段边界：** 本节模板只允许在DUT/API/fixture所属实现阶段按任务要求完善。进入测试模板创建、批量测试实现、静态Bug验证或随机测试阶段后，`{DUT}_api.py`中的`create_dut`、`dut/env` fixture、fake DUT分支和覆盖率绑定应作为稳定公共基础设施使用。不得为绕过某个测试的setup、`mark_function`或覆盖率错误而重写fixture、返回自建fake对象、移除`get_coverage_groups(dut)`/`fc_cover`绑定或取消`set_func_coverage`。若确有基础设施缺陷，必须用最早traceback和接口契约定位后做最小修复，并重新运行对应fixture/API Checker。
+
 在实现 dut Fixture 之前，需要先实现 `create_dut(request)` 函数，它的作用是创建 DUT。其基本结构如下：
 
 ```python

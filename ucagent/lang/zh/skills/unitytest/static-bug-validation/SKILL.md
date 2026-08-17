@@ -17,6 +17,7 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - DUT与参考模型不一致时，必须先判定参考模型、测试时序、API、fixture或DUT哪一方违反规格。参考模型错误必须修复到Pass，不能被链接成动态DUT Bug。
 - 真实DUT验证使用普通DUT测试模板的`env[, ref_model]`参数。`mock_dut`仅用于Mock组件独立单元测试，不能用于证实静态RTL候选。
 - 如果静态候选只在Mock错误、Mock回调顺序或验证环境异常下出现，修复基础设施并将候选判为误报；不得创建动态Bug或WaveInfo证据。
+- `{OUT}/tests/{DUT}_api.py`及其fixture、fake DUT和`fc_cover`绑定是已有公共基础设施。默认只新增或修改当前静态验证测试；不得为了让`mark_function`或覆盖率门禁通过而改写API模板、替换fixture或伪造覆盖组。只有最早traceback和接口契约明确证明公共基础设施缺陷时，才允许做最小修复并重跑其专用检查。
 
 本技能提供两个脚本:
 - `recordbug.py`: 将新证实的动态Bug按规范写入`{OUT}/{DUT}_bug_analysis.md`

@@ -18,6 +18,8 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - DUT与参考模型不一致时，先用规格、边界定义和源码判断哪一方错误。参考模型错误属于验证基础设施问题，必须修复到测试能够给出可信预期；不能记录为DUT Bug。
 - 普通DUT测试通过`env`使用已集成的验证环境和外部组件。当前技能不实现`test_api_{DUT}_mock_*`测试，也不能把`env`改成`mock_dut`。
 - Mock行为、回调注册或响应时序错误属于验证环境问题，必须修复Mock或`env`后重跑；不能作为DUT Bug保留Fail。
+- `{OUT}/tests/{DUT}_api.py`和`{OUT}/tests/{DUT}_function_coverage_def.py`是当前批次的稳定输入，默认只编辑当前测试文件。不得为绕过setup、fake DUT、`mark_function`或覆盖率错误而重写API模板、替换fixture、伪造`fc_cover`、删除覆盖标记或改变coverage上报。
+- 若最早traceback确实落在API/fixture/覆盖率实现中，先结合接口契约和源码证明根因；只有当前stage允许且证据明确时才做最小修复，并先运行对应的API/fixture专用测试。不能仅因某个测试失败就猜测并重构公共模板。
 
 ## 执行步骤
 
