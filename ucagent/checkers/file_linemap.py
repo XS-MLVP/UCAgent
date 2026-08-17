@@ -189,12 +189,39 @@ def _line_numbers_to_blocks(line_numbers):
 
 
 def _format_line_blocks(line_blocks, max_blocks):
-    """Render compact line-range diagnostics without repeating source text."""
+    """Render a bounded summary of compact physical line ranges."""
     displayed = line_blocks[:max_blocks]
     values = list(displayed)
     if len(line_blocks) > max_blocks:
         values.append(f"... ({len(line_blocks) - max_blocks} more block(s))")
     return f"[{', '.join(values)}]"
+
+
+def _indexed_line_content(source_lines, line_numbers):
+    """Return source text keyed by its physical line number."""
+    return OrderedDict(
+        (
+            line_number,
+            source_lines[line_number - 1].rstrip("\r\n"),
+        )
+        for line_number in line_numbers
+    )
+
+
+def _format_indexed_line_content(indexed_content, max_lines):
+    """Render a bounded numbered excerpt from indexed source content."""
+    content_items = list(indexed_content.items())
+    displayed_items = content_items[:max_lines]
+    lines = [
+        f"{line_number}: {line_content}"
+        for line_number, line_content in displayed_items
+    ]
+    remaining_count = len(content_items) - len(displayed_items)
+    if remaining_count:
+        lines.append(
+            f"... (and {remaining_count} more uncovered lines; see uncovered_content)"
+        )
+    return "\n".join(lines)
 
 
 def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_file, map_suffix,
@@ -270,6 +297,7 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
         return False, {"error": emsg}
     # Find unmapped lines.  ``required_ranges`` is used by the batch checker so
     # a partially completed file can be validated one line block at a time.
+    uncovered_content = OrderedDict()
     if required_ranges is None:
         un_mapped_lines, detail_msg = fc.get_un_mapped_lines(
             workspace, source_file, line_ck_map, max_example_lines
@@ -281,8 +309,14 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
         )
         if un_mapped_lines and compact_unmapped_blocks:
             uncovered_line_blocks = _line_numbers_to_blocks(un_mapped_lines)
-            detail_msg = _format_line_blocks(
-                uncovered_line_blocks, max_example_lines
+            uncovered_content = _indexed_line_content(
+                source_lines, un_mapped_lines
+            )
+            detail_msg = (
+                "Uncovered blocks: "
+                f"{_format_line_blocks(uncovered_line_blocks, max_example_lines)}\n"
+                "Uncovered source lines:\n"
+                f"{_format_indexed_line_content(uncovered_content, max_example_lines)}"
             )
         elif un_mapped_lines:
             detail_msg = "\n".join(
@@ -298,6 +332,10 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
     if len(un_mapped_lines) > 0:
         if compact_unmapped_blocks:
             uncovered_line_blocks = _line_numbers_to_blocks(un_mapped_lines)
+            if not uncovered_content:
+                uncovered_content = _indexed_line_content(
+                    source_lines, un_mapped_lines
+                )
             emsg = (
                 f"Found {len(un_mapped_lines)} un-mapped line(s), grouped into "
                 f"{len(uncovered_line_blocks)} block(s), in source file "
@@ -307,6 +345,7 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
                 "error": emsg,
                 "uncovered_line_count": len(un_mapped_lines),
                 "uncovered_line_blocks": uncovered_line_blocks,
+                "uncovered_content": uncovered_content,
             }
         emsg = (
             f"Found {len(un_mapped_lines)} un-mapped line block(s) in source file "
@@ -540,6 +579,12 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 if isinstance(message, dict)
                 else 0
             )
+            uncovered_content = (
+                OrderedDict(message.get("uncovered_content", {}).items())
+                if isinstance(message, dict)
+                and isinstance(message.get("uncovered_content"), dict)
+                else OrderedDict()
+            )
             if not uncovered_blocks:
                 line_numbers = [
                     int(value)
@@ -551,6 +596,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "line_block": _line_block_base(task),
                 "uncovered_line_count": uncovered_count,
                 "uncovered_blocks": uncovered_blocks,
+                "uncovered_content": uncovered_content,
             })
         if "not found in documentation" in error_text:
             diagnostics["unknown_ck"].append({

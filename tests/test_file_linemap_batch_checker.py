@@ -77,7 +77,7 @@ def test_strict_line_map_allows_blank_lines_and_rejects_oversized_ranges(tmp_pat
     assert "100-line block limit" in str(message)
 
 
-def test_batch_line_gap_detail_has_no_redundant_header(tmp_path):
+def test_batch_line_gap_detail_includes_numbered_uncovered_source(tmp_path):
     (tmp_path / "out" / "line_map").mkdir(parents=True)
     _write_spec(tmp_path / "out" / "spec.md")
     source = tmp_path / "source.md"
@@ -105,13 +105,35 @@ def test_batch_line_gap_detail_has_no_redundant_header(tmp_path):
     )
     assert passed is False
     assert "line: line_content" not in str(message)
-    assert "2: unmapped" not in str(message)
-    assert "[2-2]" in str(message)
+    assert "Uncovered blocks: [2-2]" in message["error"]
+    assert "2: unmapped" in message["error"]
     assert message["uncovered_line_count"] == 1
     assert message["uncovered_line_blocks"] == ["2-2"]
+    assert list(message["uncovered_content"].items()) == [(2, "unmapped")]
 
 
-def test_batch_checker_groups_uncovered_lines_without_repeating_content(tmp_path):
+def test_compact_line_gap_detail_without_required_ranges_includes_source(tmp_path):
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "source.md").write_text("mapped\nunmapped\n", encoding="utf-8")
+    (tmp_path / "out" / "line_map" / "source_md_line_func_map.txt").write_text(
+        "FG-API/FC-API/CK-API: 1-1\n",
+        encoding="utf-8",
+    )
+
+    passed, message = _strict_check(
+        tmp_path,
+        "source.md",
+        "out/line_map/source_md_line_func_map.txt",
+        compact_unmapped_blocks=True,
+    )
+
+    assert passed is False
+    assert "2: unmapped" in message["error"]
+    assert list(message["uncovered_content"].items()) == [(2, "unmapped")]
+
+
+def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "out" / "line_map").mkdir(parents=True)
     _write_spec(tmp_path / "out" / "spec.md")
@@ -139,16 +161,71 @@ def test_batch_checker_groups_uncovered_lines_without_repeating_content(tmp_path
     details = result["invalid_mappings"][0]["details"]
     assert details["uncovered_line_count"] == 5
     assert details["uncovered_line_blocks"] == ["3-5", "8-9"]
-    assert "[3-5, 8-9]" in details["error"]
-    assert "source content 3" not in details["error"]
+    assert "Uncovered blocks: [3-5, 8-9]" in details["error"]
+    assert "3: source content 3" in details["error"]
+    assert "9: source content 9" in details["error"]
+    assert list(details["uncovered_content"].items()) == [
+        (3, "source content 3"),
+        (4, "source content 4"),
+        (5, "source content 5"),
+        (8, "source content 8"),
+        (9, "source content 9"),
+    ]
     assert result["uncovered_lines"] == [
         {
             "line_block": "src/dut.md:1-10",
             "uncovered_line_count": 5,
             "uncovered_blocks": ["3-5", "8-9"],
+            "uncovered_content": {
+                3: "source content 3",
+                4: "source content 4",
+                5: "source content 5",
+                8: "source content 8",
+                9: "source content 9",
+            },
         }
     ]
     assert len(result["current_line_block_contents"][0]["content"]) == 10
+
+
+def test_batch_checker_bounds_error_excerpt_but_keeps_all_uncovered_content(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text(
+        "\n".join(f"source line {line_number}" for line_number in range(1, 9)) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt").write_text(
+        "",
+        encoding="utf-8",
+    )
+    checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        progress_file="out/progress.md",
+        map_location="out/line_map",
+        max_example_lines=3,
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    checker.on_init()
+
+    passed, result = checker.do_check(is_complete=False)
+
+    assert passed is False
+    details = result["invalid_mappings"][0]["details"]
+    assert "1: source line 1" in details["error"]
+    assert "3: source line 3" in details["error"]
+    assert "4: source line 4" not in details["error"]
+    assert "... (and 5 more uncovered lines; see uncovered_content)" in details["error"]
+    assert list(details["uncovered_content"].items()) == [
+        (line_number, f"source line {line_number}")
+        for line_number in range(1, 9)
+    ]
+    assert list(result["uncovered_lines"][0]["uncovered_content"].items()) == [
+        (line_number, f"source line {line_number}")
+        for line_number in range(1, 9)
+    ]
 
 
 def test_strict_line_map_requires_valid_ck_and_ignore_reason(tmp_path):
@@ -398,8 +475,9 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     assert child["desc"] == "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
     task_text = "\n".join(child["task"])
     assert "不是对应源文件的完整内容" in task_text
-    assert "建议使用ReadTextFile查看file字段指向的原文件" in task_text
+    assert "再使用ReadTextFile查看file字段指向的原文件" in task_text
     assert "例如[99-120, 456-888]" in task_text
+    assert "uncovered_content" in task_text
     assert child["reference_files"] == [
         "Guide_Doc/dut_functions_and_checks.md",
         "Guide_Doc/dut_line_func_map.md",

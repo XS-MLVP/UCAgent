@@ -68,7 +68,24 @@ current_line_block_contents:
       3: 第三行原文
 ```
 
-这种结构不为每行重复创建 `line` 和 `content` 字段，并避免把整个行块序列化成包含换行转义的长字符串。这些内容用于减少重复读取，但映射判断仍必须以源文件实际内容为准。
+未覆盖校验还会返回 `uncovered_lines`。`uncovered_blocks` 汇总连续物理行区间，`uncovered_content` 则按物理行号保存当前行块内全部未覆盖非空白行的原文：
+
+```yaml
+uncovered_lines:
+  - line_block: path/to/file.md:1-100
+    uncovered_line_count: 3
+    uncovered_blocks:
+      - 12-13
+      - 20-20
+    uncovered_content:
+      12: 第十二行原文
+      13: 第十三行原文
+      20: 第二十行原文
+```
+
+`invalid_mappings[].details.error` 会按 Checker 的 `max_example_lines` 限制展示“物理行号: 原文”摘录，避免错误字符串过长；结构化的 `uncovered_content` 不受该摘录上限影响。通常可直接使用这些内容补齐映射，无需再次读取源文件。只有判断功能含义依赖跨行块的标题层级、表格表头、术语定义或前置说明时，才需要读取 `file` 指向的完整文件。
+
+这些结构不为每行重复创建 `line` 和 `content` 字段，并避免把整个行块序列化成包含换行转义的长字符串。它们用于减少重复读取，但映射判断仍必须以源文件实际内容为准。
 
 ### 特殊前缀约定
 
