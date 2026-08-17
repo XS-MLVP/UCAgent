@@ -5,6 +5,16 @@ import shutil
 import socket
 import stat
 from collections.abc import Sequence
+from ucagent.util.bug_analysis_contract import (
+    BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_SOURCE_EVIDENCE_MARKERS,
+    BUG_SOURCE_UNAVAILABLE_MARKER,
+    BUG_TODO_MARKER,
+    DYNAMIC_BUGS_MARKER,
+    WAVEFORM_BLOCK_KEY,
+    WAVEFORM_FENCE_OPEN,
+    WAVEFORM_LLM_ANALYSIS_FIELDS,
+)
 from ucagent.util.log import info, warning
 import os
 from typing import List, Tuple, Union
@@ -1777,39 +1787,25 @@ def clean_report_with_keys(
 
 
 def description_bug_doc():
+    section_markers = " -> ".join(
+        marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
+    )
+    source_markers = ", ".join(BUG_SOURCE_EVIDENCE_MARKERS)
+    waveform_analysis_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
     return [
-        "[Bug Analysis Document Format] (see Guide_Doc/dut_bug_analysis.md for details)",
-        "  Tag hierarchy: <FG-GROUP> / <FC-FUNCTION> / <CK-CHECKPOINT> / <BG-BUGNAME-XX> / <TC-FAILEDTESTCASE>",
-        "  - Confidence(XX): integer 1~100 for a dynamically reproduced DUT Bug; zero-confidence entries are ignored and cannot explain a failed test",
-        "  - <TC-*> format: <TC-test_xxx.py::[ClassName::]test_func_name>, ClassName is optional",
-        "  - Each non-zero <BG-*> must have at least one correctly implemented FAILED <TC-*> test case",
-        "  - The first non-empty content after every <TC-*> must be a ```yaml block whose only top-level key is waveform_analysis",
-        "  - Copy WaveInfo bug_document_fields into that block, keep status: confirmed, and add alignment_evidence, observed_behavior, and source_correlation",
-        "  - Keep the symptom, source location, root cause, fix suggestion, risk, and revalidation plan inside the same <BG-*> entry; do not create a separate global root-cause section",
-        "  - In implemented DUT tests, never use assert False, a weakened/incorrect assertion, or <BG-*-0> to preserve a non-Bug failure; assert False is required only while creating unimplemented test templates",
-        "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass",
-        "  Format example:",
-        "    <FG-LOGIC>",
-        "            <FC-ADD>",
-        "                <CK-BASIC>",
-        "                    <BG-ADD_OVERFLOW-80> Addition overflow handling error, 80% confidence",
-        "                       <TC-test_add.py::test_add_overflow> Overflow boundary test",
-        "                       ```yaml",
-        "                       waveform_analysis:",
-        "                         status: confirmed",
-        "                         receipt_id: <real WaveInfo receipt_id>",
-        "                         # Copy every remaining bug_document_fields value exactly, then add the three analysis fields",
-        "                       ```",
-        "                       The YAML above is an abbreviated layout illustration, not a complete evidence block; never copy it as-is",
-        "                   Root cause analysis inside this BG entry:",
-        "                   ```verilog",
-        "                     // Adder.v line 10, bit-width error",
-        "                     10: output [WIDTH-2:0] sum,  // BUG: should be [WIDTH-1:0]",
-        "                   ```",
-        "                   Fix suggestion:",
-        "                   ```verilog",
-        "                     10: output [WIDTH-1:0] sum,  // FIX: restore correct bit-width",
-        "                   ```",
+        "[Dynamic Bug Analysis Contract] Read Guide_Doc/dut_bug_analysis.md and the active stage Skill for the complete workflow.",
+        f"  - Put one standalone {DYNAMIC_BUGS_MARKER} container marker before dynamic Bug entries.",
+        "  - Use standalone tags in this hierarchy: <FG-GROUP> -> <FC-FUNCTION> -> <CK-CHECKPOINT> -> <BG-BUGNAME-XX> -> <TC-WORKSPACE_RELATIVE_TEST::[ClassName::]test_name>.",
+        "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
+        "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",
+        f"  - The first non-empty content after every TC must start with {WAVEFORM_FENCE_OPEN} and contain a mapping whose only top-level key is {WAVEFORM_BLOCK_KEY}. Paste the complete WaveInfo bug_document_fields mapping from a final evidence call; keep status confirmed, then add non-empty {waveform_analysis_fields} from the returned timeline and RTL. Do not invent or copy example receipt values.",
+        f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
+        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Display headings are optional/localizable and are not parsed.",
+        f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
+        f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
+        "  - recordbug.py creates only the BG/TC scaffold. After it returns, use the complete WaveInfo evidence and RTL/HDL analysis to fill that same BG before Check/Complete.",
+        "  - Keep all symptoms, trigger conditions, root cause, source evidence, causal chain, fix guidance, risk, and revalidation content inside the owning BG; do not create a detached global root-cause section.",
+        "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]
 
 

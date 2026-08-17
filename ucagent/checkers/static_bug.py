@@ -36,6 +36,7 @@ import os
 from typing import List, Tuple
 
 import ucagent.util.functions as fc
+from ucagent.util.bug_analysis_contract import STATIC_BUG_SECTION_MARKERS
 from ucagent.util.log import info, warning
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 
@@ -86,6 +87,31 @@ _NULL_CK_KEY = "CK-NULL"
 _RE_FILE_KEY = re.compile(
     r'^(.+):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$'
 )
+
+
+def _check_static_bug_section_markers(path: str) -> List[str]:
+    """Validate the canonical language-independent static report sections."""
+
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    positions = []
+    errors = []
+    for marker in STATIC_BUG_SECTION_MARKERS:
+        matches = [index + 1 for index, line in enumerate(lines) if line.strip() == marker]
+        if len(matches) != 1:
+            errors.append(
+                f"Static report marker '{marker}' must occur on a standalone line "
+                f"exactly once; found {len(matches)} occurrence(s)."
+            )
+        else:
+            positions.append(matches[0])
+    if not errors and positions != sorted(positions):
+        errors.append(
+            "Static report section markers are out of canonical order; expected "
+            + " -> ".join(STATIC_BUG_SECTION_MARKERS)
+            + "."
+        )
+    return errors
 
 # Regex for parsing <file>path</file> completion markers written by the LLM
 # into the static doc at the end of each batch.  Using a plain regex (not
@@ -317,6 +343,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 "error": f"Static bug analysis document '{self.static_doc}' does not exist."
             }
 
+        section_errors = _check_static_bug_section_markers(real_path)
+
         # ── parse hierarchy ──────────────────────────────────────────────────
         try:
             data = fc.parse_nested_keys(
@@ -344,6 +372,14 @@ class UnityChipCheckerStaticBugFormat(Checker):
         # ── no BG-STATIC tags at all ──────────────────────────────────────────
         if not klist and not blist:
             if empty_is_ok:
+                if section_errors:
+                    return False, {
+                        "error": section_errors,
+                        "check_list": [
+                            "Keep the three canonical static report section markers even while a batch is in progress",
+                            "Display headings may be localized and are not parsed",
+                        ],
+                    }
                 return True, {"message": "No static bugs recorded."}
             return False, {
                 "error": (
@@ -361,7 +397,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 ],
             }
 
-        errors: List[str] = []
+        errors: List[str] = list(section_errors)
 
         # ── CK path cross-reference against functions_and_checks ─────────────
         fc_path = self.get_path(self.functions_and_checks_doc)
@@ -537,6 +573,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
                 "error": f"Static bug analysis document '{self.static_doc}' does not exist."
             }
 
+        section_errors = _check_static_bug_section_markers(static_path)
+
         # ── parse hierarchy ──────────────────────────────────────────────────
         try:
             data = fc.parse_nested_keys(
@@ -558,7 +596,7 @@ class UnityChipCheckerStaticBugValidation(Checker):
         null_entries = [item for item in blist if item[1].split("/")[-1] == _NULL_SENTINEL_KEY]
         real_broken  = [item for item in blist if item[1].split("/")[-1] != _NULL_SENTINEL_KEY]
 
-        errors: List[str] = []
+        errors: List[str] = list(section_errors)
         confirmed_refs = [
             (tag[3:].upper(), 0)
             for link in parse_confirmed_static_bug_links(static_path, data)
@@ -850,6 +888,15 @@ class UnityChipBatchCheckerStaticBug(Checker):
                 content = ""
 
         if content:
+            section_errors = _check_static_bug_section_markers(doc_path)
+            if section_errors:
+                return False, {
+                    "error": section_errors,
+                    "task": [
+                        "Use the canonical tagged static report structure even in black-box mode.",
+                        "Keep the explanation between <STATIC-BUG-DETAILS> and <STATIC-BUG-PROGRESS>.",
+                    ],
+                }
             warning(
                 f"UnityChipBatchCheckerStaticBug: No source files found "
                 f"matching {self.file_list}. Black-box verification mode — "

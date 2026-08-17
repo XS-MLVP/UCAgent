@@ -1,3 +1,5 @@
+<STATIC-BUG-SUMMARY>
+<STATIC-BUG-DETAILS>
 <FG-CTRL>
 
 #### 控制功能 <FC-FSM>
@@ -5,3 +7,4 @@
   - <LINK-BUG-[BG-TBD]>
     - <FILE-rtl/DUT.v:13>
     - <FILE-rtl/DUT.v:14-15>
+<STATIC-BUG-PROGRESS>

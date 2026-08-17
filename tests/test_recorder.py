@@ -1353,7 +1353,9 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
     assert "{COMPLETED_BUGS}/{TOTAL_BUGS}" in task_text
     assert "置信度为0的Bug" in task_text
     assert "调用Check()获取当前批次" not in task_text
+    assert "不得删除仍由正确测试稳定复现的动态Bug" in task_text
     assert [checker["clss"] for checker in stage["checker"]] == [
+        "UnityChipCheckerTestCase",
         "UnityChipCheckerWaveformBugAnalysis",
         "Recorder",
     ]
@@ -1361,7 +1363,11 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
         checker for checker in stage["checker"] if checker["clss"] == "Recorder"
     ]
     assert [checker["args"]["type"] for checker in recorder_checkers] == ["bug"]
-    waveform_checker = stage["checker"][0]
+    waveform_checker = next(
+        checker
+        for checker in stage["checker"]
+        if checker["clss"] == "UnityChipCheckerWaveformBugAnalysis"
+    )
     recorder_checker = recorder_checkers[0]
     assert waveform_checker["args"]["bug_file"] == (
         "{OUT}/{DUT}_bug_analysis.md"

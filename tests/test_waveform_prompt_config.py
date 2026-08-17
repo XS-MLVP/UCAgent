@@ -30,6 +30,22 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
         if stage["name"] == "test_case_implementation_in_batch"
     )
     batch_task = "\n".join(str(item) for item in batch_stage["task"])
+    review_stage = next(
+        stage
+        for stage in config["stage"]
+        if stage["name"] == "verification_review_and_summary"
+    )
+    review_task = "\n".join(str(item) for item in review_stage["task"])
+    static_stage = next(
+        stage for stage in config["stage"] if stage["name"] == "static_bug_analysis"
+    )
+    static_task = "\n".join(str(item) for item in static_stage["task"])
+    static_validation_stage = next(
+        stage for stage in config["stage"] if stage["name"] == "static_bug_validation"
+    )
+    static_validation_task = "\n".join(
+        str(item) for item in static_validation_stage["task"]
+    )
 
     assert "必须调用`WaveInfo`" in system_prompt
     assert "不得豁免动态Bug的`WaveInfo`取证" in system_prompt
@@ -46,12 +62,34 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "它已包含唯一顶层键waveform_analysis，不要再包一层" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
+    assert "recordbug.py`只生成带`<BUG-TODO>`" in system_prompt
+    assert "Checker不解析“待补充”等自然语言占位词" in system_prompt
+    assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
+    assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
+    assert "<BUG-SOURCE-OBSERVABLE>" in system_prompt
+    assert "旧`-ROOT/-FILE/-FIX`参数已删除" in system_prompt
+    assert "都不能通过Check/Complete" in system_prompt
     assert "不能直接复制静态Bug标签" in parent_task
     assert "无可用波形时" in parent_task
     assert "除已确认DUT Bug复现用例外，其他用例必须全部Pass" in parent_task
     assert "不是要求已确认Bug用例也Pass" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
+    assert "recordbug.py只接收BG/TC/BD并生成含`<BUG-TODO>`" in batch_task
+    assert "脚本成功当成分析完成" in batch_task
+    assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
+    assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
+    assert "不得因recordbug.py成功、字段非空或Checker尚未报错" in review_task
+    assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
+    for marker in (
+        "<STATIC-BUG-SUMMARY>",
+        "<STATIC-BUG-DETAILS>",
+        "<STATIC-BUG-PROGRESS>",
+    ):
+        assert marker in static_task
+        assert marker in static_validation_task
+    assert "Skill脚本和Checker不解析中文标题" in static_task
+    assert "linkbug.py和Checker不解析中文标题" in static_validation_task
 
 
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
@@ -95,13 +133,38 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert clock_call.count("context_steps=1") == 1
 
 
-def test_bug_document_error_help_marks_waveform_yaml_as_abbreviated():
+def test_bug_document_error_help_uses_current_machine_contract():
     from ucagent.util.functions import description_bug_doc
 
     help_text = "\n".join(description_bug_doc())
-    assert "...: copy the remaining" not in help_text
-    assert "abbreviated layout illustration" in help_text
-    assert "never copy it as-is" in help_text
+    for marker in (
+        "<DYNAMIC-BUGS>",
+        "<BUG-OVERVIEW>",
+        "<BUG-SYMPTOMS>",
+        "<BUG-TRIGGER>",
+        "<BUG-ROOT-CAUSE>",
+        "<BUG-SOURCE-EVIDENCE>",
+        "<BUG-CAUSAL-CHAIN>",
+        "<BUG-FIX>",
+        "<BUG-RETEST>",
+        "<BUG-TODO>",
+        "<BUG-SOURCE-FIRST-ERROR>",
+        "<BUG-SOURCE-PROPAGATION>",
+        "<BUG-SOURCE-OBSERVABLE>",
+        "<BUG-SOURCE-UNAVAILABLE>",
+    ):
+        assert marker in help_text
+    assert "```yaml" in help_text
+    assert "waveform_analysis" in help_text
+    assert "complete WaveInfo bug_document_fields" in help_text
+    assert "alignment_evidence, observed_behavior, source_correlation" in help_text
+    assert "Do not invent or copy example receipt values" in help_text
+    assert "complete HDL fenced block containing each marker" in help_text
+    assert "This branch cannot contain an HDL fence" in help_text
+    assert "Display headings are optional/localizable and are not parsed" in help_text
+    assert "Root cause analysis inside this BG entry" not in help_text
+    assert "receipt_id: <real WaveInfo receipt_id>" not in help_text
+    assert "Adder.v line 10" not in help_text
 
 
 def _assert_test_tags_cascade_to_waveform_yaml(example: str) -> None:
@@ -194,6 +257,7 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<FG-NAME>",
         "<FC-NAME>",
         "<CK-NAME>",
+        "<DYNAMIC-BUGS>",
         "<BG-NAME-XX>",
         "<TC-test_file.py::test_name>",
         "waveform_analysis",
@@ -204,6 +268,22 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<FILE-path/to/file.v:L1-L2>",
         "<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>",
         "<file>path/to/file.v</file>",
+        "<BUG-OVERVIEW>",
+        "<BUG-SYMPTOMS>",
+        "<BUG-TRIGGER>",
+        "<BUG-ROOT-CAUSE>",
+        "<BUG-SOURCE-EVIDENCE>",
+        "<BUG-CAUSAL-CHAIN>",
+        "<BUG-FIX>",
+        "<BUG-RETEST>",
+        "<BUG-TODO>",
+        "<BUG-SOURCE-UNAVAILABLE>",
+        "<BUG-SOURCE-FIRST-ERROR>",
+        "<BUG-SOURCE-PROPAGATION>",
+        "<BUG-SOURCE-OBSERVABLE>",
+        "<STATIC-BUG-SUMMARY>",
+        "<STATIC-BUG-DETAILS>",
+        "<STATIC-BUG-PROGRESS>",
     )
     for marker in required_markers:
         assert marker in guide
@@ -226,11 +306,11 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
     assert bug_example.index("**Bug 概述**") < bug_example.index(
         "**源码证据与逐行分析**"
     )
-    assert "[分析-首错]" in bug_example
-    assert "[分析-传播]" in bug_example
-    assert "[分析-可见后果]" in bug_example
+    assert "<BUG-SOURCE-FIRST-ERROR>" in bug_example
+    assert "<BUG-SOURCE-PROPAGATION>" in bug_example
+    assert "<BUG-SOURCE-OBSERVABLE>" in bug_example
     assert "有可访问源码时，根因分析必须包含源码代码块" in guide
-    assert "无可访问源码" in guide
+    assert "<BUG-SOURCE-UNAVAILABLE>" in guide
     assert "## 缺陷根因分析" not in guide
     assert "不要在文档末尾再建立一个与 BG 标签分离的“根因分析汇总”" in guide
 
@@ -262,10 +342,9 @@ def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
     ) < confirmed_example.index("**动态因果链**")
 
     for example in (dynamic_example, static_example, confirmed_example):
-        assert "[分析-首错]" in example
-        assert "[分析-传播]" in example
-    assert "[分析-可见后果]" in dynamic_example
-    assert "[分析-可见后果]" in confirmed_example
+        assert "<BUG-SOURCE-FIRST-ERROR>" in example
+        assert "<BUG-SOURCE-PROPAGATION>" in example
+        assert "<BUG-SOURCE-OBSERVABLE>" in example
     assert "UartTx.v:50-56" not in guide
 
 
@@ -277,11 +356,26 @@ def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
     template = template_path.read_text(encoding="utf-8")
 
     assert template.startswith("# {{DUT}} 动态 Bug 分析")
+    assert "<DYNAMIC-BUGS>" in template
     assert "## 未测试通过检测点分析" in template
     assert "## 缺陷根因分析" not in template
 
 
-def test_waveform_checker_is_available_before_dynamic_test_checkers():
+def test_bug_analysis_guide_requires_skill_scaffold_completion():
+    guide_path = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    )
+    guide = guide_path.read_text(encoding="utf-8")
+
+    assert "Skill 模式的两阶段写入" in guide
+    assert "脚本成功不代表分析完成" in guide
+    assert "旧 `-ROOT/-FILE/-FIX` 参数已经删除" in guide
+    assert "替换所有 `<BUG-TODO>`" in guide
+    assert "Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`" in guide
+
+
+def test_dynamic_test_classification_precedes_global_waveform_sweep():
     config_path = (
         Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"
     )
@@ -293,10 +387,12 @@ def test_waveform_checker_is_available_before_dynamic_test_checkers():
         stage["name"]: stage for stage in comprehensive.get("stage", [])
     }
     expected_stages = {
+        "basic_api_functional_test": "UnityChipCheckerDutApiTest",
         "comprehensive_verification_and_bug_analysis": "UnityChipCheckerTestCase",
         "test_case_implementation_in_batch": "UnityChipCheckerBatchTestsImplementation",
         "refine_test_cases_based_on_functional_points": "UnityChipCheckerTestCase",
         "verification_review_and_summary": "UnityChipCheckerTestCase",
+        "record_and_report_bugs": "UnityChipCheckerTestCase",
     }
 
     for name, downstream_checker in expected_stages.items():
@@ -309,8 +405,8 @@ def test_waveform_checker_is_available_before_dynamic_test_checkers():
         )
         checker_names = [item["clss"] for item in stage.get("checker", [])]
         assert "UnityChipCheckerWaveformBugAnalysis" in checker_names
-        assert checker_names.index("UnityChipCheckerWaveformBugAnalysis") < checker_names.index(
-            downstream_checker
+        assert checker_names.index(downstream_checker) < checker_names.index(
+            "UnityChipCheckerWaveformBugAnalysis"
         )
 
     for name in (

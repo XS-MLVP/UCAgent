@@ -76,13 +76,10 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 3. 测试用例`PASSED`且对应检测点通过：正常
 4. 测试用例`PASSED`但对应检测点失败：覆盖关联、采样或断言存在矛盾，必须修正
 
-以下述结构对测试用例进行标记:
+以下述结构生成测试用例的 Bug 骨架:
   - `BG`: 仅用于已动态复现的DUT设计Bug，格式为BG-NAME-NUM，NUM为1到100的置信度。示例：BG-CIN-OVERFLOW-98；BG-*-0不能解释失败用例
   - `TC`: 测试用例标签，必须是TC-前缀,以及测试用例路径.示例: TC-tests/test_adder.py::test_xxx
   - `BD`: DUT Bug的简要描述
-  - `FILE`: Bug涉及的DUT源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与Bug相关的代码)
-  - `ROOT`: Bug根因分析,必须基于源码进行详细分析,说明为什么有这个缺陷,导致了什么问题(ROOT和FILE里的源码必须对应);如果源码不存在,则需要基于设计进行缺陷分析
-  - `FIX`: Bug修复建议,以`FILE`所指的多行源代码为基础,直接在其上进行修改,最终仅返回修改后的源代码(注意添加换行符'\n',保持美观)
 
 注意:
 - 通常情况下,测试用例与检测点一一关联,例如:test_Adder_api.py:56-90::test_result_sample这个测试用例就关联FG-API/FC-API-OPERATION/CK-RESULT-SAMPLE
@@ -90,7 +87,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
-- `recordbug.py`必须把问题描述、源码位置、根因和修复建议写在对应`<BG-*>`条目内部，不再创建独立的`## 缺陷根因分析`汇总章节；一个Bug的标签、证据和结论必须集中
+- `recordbug.py`只负责生成`FG/FC/CK/BG/TC`结构、波形占位块和分析章节骨架，不负责根因判断；脚本成功只表示骨架已创建，绝不表示Bug分析完成
 - 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后立即写入```yaml代码块；该块必须且只能包含顶层`waveform_analysis`映射，并在其下保存工具返回的`receipt_id`和`status: confirmed`。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据并在当前波形上重放pattern，不能伪造波形字段
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`
@@ -101,13 +98,31 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 
 ### 步骤5: Bug记录
 
-操作:分析完当前批次测试用例后,针对`标记`的测试用例,使用`RunSkillScript`工具执行`recordbug.py`脚本,将这些测试用例记录下来,以便后续阶段进行Bug修复和回归测试,命令格式如下:
+#### 5.1 生成骨架
+
+针对确认的DUT Bug，使用`RunSkillScript`执行`recordbug.py`。脚本只接收`BG/TC/BD`，并在动态Bug文档中生成带`<BUG-TODO>`的未完成骨架：
 ```bash
-python3 script -BG 'BG' -TC 'TC' -BD 'BD' -ROOT 'ROOT' -FILE 'FILE' -FIX 'FIX'
-python3 script -BG 'BG' -TC 'TC' -BD 'BD' -ROOT 'ROOT' -FILE 'FILE' -FIX 'FIX'
-...
+python3 script -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'
 ```
 
+不要向脚本传`ROOT/FILE/FIX`；这些参数已删除。不要把脚本输出当成完成结果，也不要在仍有`<BUG-TODO>`时调用`Check`或`Complete`。
+
+#### 5.2 LLM 填写分析
+
+脚本返回后，必须继续完成以下工作，不能结束当前任务：
+
+1. 读取失败断言的expected/actual、事务上下文和对应CK原文。
+2. 调用`WaveInfo`取得最终confirmed证据，用真实`bug_document_fields`完整替换每个TC后的波形占位块。
+3. 打开DUT RTL/HDL，定位能解释波形错误的首个错误决策和传播路径；不要只复述测试失败或`source_correlation`。
+4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker只识别`<BUG-TODO>`，不解析“待补充”等自然语言。
+5. 有源码时，源码证据必须包含真实`path:L1-L2`和完整HDL fenced代码块；`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`必须各出现一次并位于代码块的语言原生注释中，标签后方写具体解释。无源码时在`<BUG-SOURCE-EVIDENCE>`字段中加入独立行`<BUG-SOURCE-UNAVAILABLE>`，并用接口协议、失败日志和波形完成黑盒因果链，禁止伪造源码。两种分支互斥，不能同时使用无源码标记与HDL代码块或三个源码因果标签。
+6. 重新读取整个BG条目，确认根因、源码、波形和修复互相一致，且该BG内没有任何占位文本。
+
+WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用例并重新调用 WaveInfo，然后替换该 TC 的证据块。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来规避 Checker；只有正确测试已经 Pass，或复查证明它不是 DUT Bug 时，才可同步重新分类或删除记录。
+
+动态条目容器使用独立行`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。LLM只填写标记之间的内容，不能删除、复制、改名或调换标记。相邻中文粗体标题只是展示文字，可以本地化；Checker和Skill脚本不依赖标题文字。旧的仅标题格式不兼容。
+
+脚本生成结构，LLM负责分析和填空；两步缺一不可。所有根因、修复和复验内容必须留在所属BG条目内，不建立全局根因汇总。
 
 ### 步骤6：阶段检查
 
@@ -117,7 +132,7 @@ python3 script -BG 'BG' -TC 'TC' -BD 'BD' -ROOT 'ROOT' -FILE 'FILE' -FIX 'FIX'
 - 允许一次性列举多条命令,但每条命令必须独立完整,且必须符合格式要求,例如记录Fail但合理的测试用例时,若有10个Fail但合理的测试用例待记录
 - 其他参数值替换为每个测试用例记录内容,只允许使用定义的参数,禁止额外参数,且参数值必须符合上述格式要求,每个参数必须使用单括号括起来
 - 使用`RunSkillScript`工具时,若有10条命令要执行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有命令执行完毕
-- **最重要**:{DUT}_bug_analysis.md的修改只能通过`RunSkillScript`工具执行,严禁使用其他tool对该文件进行任何修改操作.
+- `recordbug.py`是新增BG/TC结构的唯一入口；脚本生成骨架后，必须使用文本编辑工具在该BG内部填写真实波形与分析内容。不得手工创建另一套BG层级，也不得跳过填空步骤。
 
 
 ### 约束条件示例

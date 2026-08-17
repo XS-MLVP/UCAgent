@@ -18,6 +18,7 @@ from ucagent.checkers.toffee_report import (
     UnityChipCheckerWaveformBugAnalysis,
     _parse_waveform_analysis_blocks,
     check_all_documented_waveform_bug_analysis,
+    check_dynamic_bug_analysis_content,
     check_report,
     check_waveform_bug_analysis,
 )
@@ -73,6 +74,56 @@ b0010 &
 CHECKPOINT = "FG-A/FC-A/CK-A"
 REPORT_TEST = "tests/test_a.py:1-20::test_a"
 DOCUMENT_TEST = "test_a.py::test_a"
+WORKSPACE_RELATIVE_DOCUMENT_TEST = "unity_test/tests/test_a.py::test_a"
+SOURCE_EVIDENCE_BLOCK = """
+```systemverilog
+// rtl/Demo.sv:12-14
+12: logic [4:0] intermediate; // <BUG-SOURCE-FIRST-ERROR> width is too narrow for the full result
+13: assign intermediate = data + 1; // <BUG-SOURCE-PROPAGATION> truncation enters the result path
+14: assign result = intermediate[3:0]; // <BUG-SOURCE-OBSERVABLE> output exposes the truncated value
+```
+""".strip()
+COMPLETE_BUG_ANALYSIS = f"""
+<BUG-OVERVIEW>
+**Bug 概述**
+
+The result path truncates the expected value for the reproduced request.
+
+<BUG-SYMPTOMS>
+**现象与等级**
+
+High severity; expected result 3 but observed result 2 in a stable reproducer.
+
+<BUG-TRIGGER>
+**触发条件与影响范围**
+
+The request is valid with data 3 and affects the result output at CK-A.
+
+<BUG-ROOT-CAUSE>
+**根因分析**
+
+The RTL slices the intermediate value before it reaches the result output.
+
+<BUG-SOURCE-EVIDENCE>
+**源码证据与逐行分析**
+
+{SOURCE_EVIDENCE_BLOCK}
+
+<BUG-CAUSAL-CHAIN>
+**动态因果链**
+
+Input data 3 reaches the request, truncation occurs in RTL, result becomes 2, and CK-A fails.
+
+<BUG-FIX>
+**修复建议**
+
+Preserve the complete intermediate width until the result assignment.
+
+<BUG-RETEST>
+**风险与复验计划**
+
+Retest boundary values, regress result-path cases, and confirm the corrected waveform event.
+""".strip()
 
 
 def _write_waveform(test_dir: Path) -> Path:
@@ -122,16 +173,24 @@ def _report() -> dict:
     }
 
 
-def _write_bug_doc(tmp_path: Path, block: dict | None) -> None:
+def _write_bug_doc(
+    tmp_path: Path,
+    block: dict | None,
+    *,
+    test_case: str = DOCUMENT_TEST,
+    analysis: str = COMPLETE_BUG_ANALYSIS,
+) -> None:
     lines = [
+        "<DYNAMIC-BUGS>",
         "<FG-A>",
         "<FC-A>",
         "<CK-A>",
         "<BG-DYNAMIC-80>",
-        f"<TC-{DOCUMENT_TEST}>",
+        f"<TC-{test_case}>",
     ]
     if block is not None:
         lines.extend(_waveform_block_lines(block))
+    lines.append(analysis)
     (tmp_path / "bugs.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -403,6 +462,7 @@ def test_missing_or_invented_receipt_cannot_pass(tmp_path):
     assert passed is False
     assert "[WaveInfo Receipt Not Found]" in str(message)
     assert "invented" in str(message)
+    assert "Do not delete a TC, BG, or enclosing FG/FC/CK branch" in str(message)
 
 
 def test_dynamic_bug_requires_active_waveinfo_tool_instance(tmp_path):
@@ -558,7 +618,7 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
     second_block = _confirmed_block(second_result, pattern)
     second_block["logged_cycle"] = 1
 
-    document_lines = ["<FG-A>", "<FC-A>", "<CK-A>"]
+    document_lines = ["<DYNAMIC-BUGS>", "<FG-A>", "<FC-A>", "<CK-A>"]
     for bug_label, test_case, block in (
         ("BG-DYNAMIC-A-80", DOCUMENT_TEST, first_block),
         ("BG-DYNAMIC-B-80", "test_b.py::test_b", second_block),
@@ -589,6 +649,7 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
 
     assert passed is False
     assert "[Waveform Analysis Batch Validation]" in message["error"]
+    assert "Do not delete a TC, BG, or enclosing FG/FC/CK branch" in message["error"]
     issues = message["details"]["issues"]
     assert len(issues) == 2
     issues_by_test = {issue["test_case"]: issue for issue in issues}
@@ -652,6 +713,7 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
     (tmp_path / "bugs.md").write_text(
         "\n".join(
             [
+                "<DYNAMIC-BUGS>",
                 "<FG-A>",
                 "<FC-A>",
                 "<CK-A>",
@@ -674,35 +736,35 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
 def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
     malformed_documents = (
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: confirmed\n",
             "missing a standalone closing",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: [\n```\n",
             "[Waveform Analysis YAML Error]",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n```yaml\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n```yaml\n"
             "waveform_analysis:\n  status: confirmed\n```\n"
             f"<BG-DYNAMIC-80>\n<TC-{DOCUMENT_TEST}>\n",
             "[Waveform Analysis Association Missing]",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n"
             "```json\n{\"waveform_analysis\": {\"status\": \"confirmed\"}}\n```\n",
             "must be ```yaml",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n"
             "```yml\nwaveform_analysis:\n  status: confirmed\n```\n",
             "must be ```yaml",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
             f"<TC-{DOCUMENT_TEST}>\n<WAVEFORM-ANALYSIS>\n",
             "[Legacy Waveform Analysis Format]",
         ),
@@ -726,7 +788,7 @@ def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
 
 def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n\n  \n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
     )
@@ -742,7 +804,7 @@ def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
 
 def test_waveform_block_rejects_legacy_tag_format(tmp_path):
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n"
         "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
     )
@@ -758,7 +820,7 @@ def test_waveform_block_rejects_legacy_tag_format(tmp_path):
 
 def test_waveform_block_accepts_markdown_fenced_yaml(tmp_path):
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n"
         "  ```yaml\n"
         "  waveform_analysis:\n"
@@ -795,7 +857,7 @@ def test_waveform_block_rejects_invalid_markdown_fences(
     tmp_path, payload, expected_error
 ):
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n"
         f"{payload}\n"
     )
@@ -811,7 +873,7 @@ def test_waveform_block_rejects_invalid_markdown_fences(
 
 def test_waveform_block_must_be_the_first_nonempty_line_after_tc(tmp_path):
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n"
         "根因分析正文不能插在测试标签和波形块之间。\n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
@@ -830,7 +892,7 @@ def test_waveform_block_after_multiple_tests_belongs_only_to_last_test(tmp_path)
     first_test = "test_first.py::test_first"
     second_test = "test_second.py::test_second"
     document = (
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{first_test}>\n"
         f"<TC-{second_test}>\n"
         "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
@@ -850,6 +912,7 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
     (tmp_path / "zero.md").write_text(
         "\n".join(
             [
+                "<DYNAMIC-BUGS>",
                 "<FG-A>",
                 "<FC-A>",
                 "<CK-A>",
@@ -877,7 +940,7 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
 def test_prefix_check_requires_waveform_for_actual_failed_checkpoint(tmp_path):
     _write_functions(tmp_path)
     (tmp_path / "bugs.md").write_text(
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n",
         encoding="utf-8",
     )
@@ -965,11 +1028,332 @@ def test_dynamic_bug_document_rejects_static_labels_without_failed_report(tmp_pa
     assert "invalid_static_labels" in str(message)
 
 
+def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
+    scaffold = COMPLETE_BUG_ANALYSIS.replace(
+        "The RTL slices the intermediate value before it reaches the result output.",
+        "<BUG-TODO>\nRead RTL and fill the root cause.",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{scaffold}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Dynamic Bug Analysis Incomplete]" in message["error"]
+    assert "unfinished marker '<BUG-TODO>'" in message["error"]
+    assert "BG-DYNAMIC-80" in message["error"]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "expected_error"),
+    [
+        ("", "[Dynamic Bug Container Format Error]"),
+        (
+            "<DYNAMIC-BUGS>\n<DYNAMIC-BUGS>\n",
+            "[Dynamic Bug Container Format Error]",
+        ),
+        (
+            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            "<DYNAMIC-BUGS>\n",
+            "[Dynamic Bug Container Order Error]",
+        ),
+    ],
+)
+def test_dynamic_bug_content_requires_one_container_before_bugs(
+    tmp_path, prefix, expected_error
+):
+    if "<BG-DYNAMIC-80>" in prefix:
+        contents = f"{prefix}<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n"
+    else:
+        contents = (
+            f"{prefix}<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            f"<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n"
+        )
+    (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert expected_error in message["error"]
+    assert "<DYNAMIC-BUGS>" in message["error"]
+
+
+@pytest.mark.parametrize("contents", ("", "# Dynamic Bug analysis\n"))
+def test_existing_no_bug_document_still_requires_container(tmp_path, contents):
+    (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Dynamic Bug Container Format Error]" in message["error"]
+    assert "found 0 occurrence(s)" in message["error"]
+
+
+def test_dynamic_bug_content_does_not_parse_natural_language_placeholders(tmp_path):
+    analysis = COMPLETE_BUG_ANALYSIS.replace(
+        "Preserve the complete intermediate width until the result assignment.",
+        "The phrase 待补充 may appear in quoted review history; the actual fix preserves "
+        "the complete intermediate width until the result assignment.",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, message
+
+
+def test_dynamic_bug_content_does_not_apply_prose_length_threshold(tmp_path):
+    analysis = COMPLETE_BUG_ANALYSIS.replace(
+        "Preserve the complete intermediate width until the result assignment.",
+        "x",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, message
+
+
+def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n**根因分析**\n只有泛化结论。\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "marker '<BUG-OVERVIEW>' occurs 0 time(s)" in message["error"]
+    assert "marker '<BUG-SOURCE-EVIDENCE>' occurs 0 time(s)" in message["error"]
+    assert "marker '<BUG-RETEST>' occurs 0 time(s)" in message["error"]
+
+
+def test_dynamic_bug_content_ignores_localized_display_headings(tmp_path):
+    localized = COMPLETE_BUG_ANALYSIS
+    for original, replacement in (
+        ("**Bug 概述**", "**Overview**"),
+        ("**现象与等级**", "**Symptoms and severity**"),
+        ("**触发条件与影响范围**", "**Trigger and impact**"),
+        ("**根因分析**", "**Root cause**"),
+        ("**源码证据与逐行分析**", "**Source evidence**"),
+        ("**动态因果链**", "**Causal chain**"),
+        ("**修复建议**", "**Fix**"),
+        ("**风险与复验计划**", "**Risk and retest**"),
+    ):
+        localized = localized.replace(original, replacement)
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{localized}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, message
+
+
+def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
+    source_without_markers = SOURCE_EVIDENCE_BLOCK
+    for marker in (
+        "<BUG-SOURCE-FIRST-ERROR>",
+        "<BUG-SOURCE-PROPAGATION>",
+        "<BUG-SOURCE-OBSERVABLE>",
+    ):
+        source_without_markers = source_without_markers.replace(marker, "")
+    misplaced = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK,
+        source_without_markers
+        + "\n<BUG-SOURCE-FIRST-ERROR>\n"
+        + "<BUG-SOURCE-PROPAGATION>\n"
+        + "<BUG-SOURCE-OBSERVABLE>",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{misplaced}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "inside an HDL fenced code block" in message["error"]
+
+
+def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path):
+    mixed = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK,
+        f"<BUG-SOURCE-UNAVAILABLE>\n{SOURCE_EVIDENCE_BLOCK}",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{mixed}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "is mutually exclusive with" in message["error"]
+
+
+@pytest.mark.parametrize(
+    ("analysis", "expected_problem"),
+    [
+        (
+            COMPLETE_BUG_ANALYSIS.replace("<BUG-FIX>\n", ""),
+            "marker '<BUG-FIX>' occurs 0 time(s)",
+        ),
+        (
+            COMPLETE_BUG_ANALYSIS.replace(
+                "<BUG-FIX>\n", "<BUG-FIX>\n<BUG-FIX>\n"
+            ),
+            "marker '<BUG-FIX>' occurs 2 time(s)",
+        ),
+        (
+            COMPLETE_BUG_ANALYSIS.replace(
+                "<BUG-TRIGGER>\n", "<BUG-ROOT-CAUSE>\n"
+            ).replace(
+                "<BUG-ROOT-CAUSE>\n**根因分析**",
+                "<BUG-TRIGGER>\n**根因分析**",
+            ),
+            "analysis markers are out of canonical order",
+        ),
+    ],
+)
+def test_dynamic_bug_content_rejects_invalid_marker_contract(
+    tmp_path, analysis, expected_problem
+):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert expected_problem in message["error"]
+
+
+def test_dynamic_bug_content_accepts_source_backed_analysis(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True
+    assert "Validated completed analysis for 1 dynamic Bug entry" in message
+
+
+def test_dynamic_bug_content_accepts_explicit_black_box_analysis(tmp_path):
+    black_box = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK,
+        "<BUG-SOURCE-UNAVAILABLE>\n"
+        "The source is unavailable; the interface contract, failure log, and waveform "
+        "show truncation at the output boundary.",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{black_box}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, message
+
+
+def test_dynamic_bug_content_rejects_black_box_marker_without_analysis(tmp_path):
+    black_box = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK,
+        "<BUG-SOURCE-UNAVAILABLE>",
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{black_box}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "field 'source_evidence'" in message["error"]
+    assert "has no content beyond display/control markers" in message["error"]
+
+
+def test_dynamic_bug_content_rejects_legacy_source_annotation_text(tmp_path):
+    legacy_source = SOURCE_EVIDENCE_BLOCK.replace(
+        "<BUG-SOURCE-FIRST-ERROR>", "[分析-首错]"
+    ).replace(
+        "<BUG-SOURCE-PROPAGATION>", "[分析-传播]"
+    ).replace(
+        "<BUG-SOURCE-OBSERVABLE>", "[分析-可见后果]"
+    )
+    analysis = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK, legacy_source
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "<BUG-SOURCE-FIRST-ERROR>" in message["error"]
+    assert "<BUG-SOURCE-PROPAGATION>" in message["error"]
+    assert "<BUG-SOURCE-OBSERVABLE>" in message["error"]
+
+
 @pytest.mark.parametrize(
     "contents",
     [
-        "# No Bugs found\n",
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-0>\n"
+        "# No Bugs found\n<DYNAMIC-BUGS>\n",
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-0>\n"
         f"<TC-{DOCUMENT_TEST}>\n",
     ],
 )
@@ -1008,7 +1392,8 @@ def test_final_waveform_gate_rejects_static_bug_labels_in_dynamic_document(tmp_p
 
 def test_final_waveform_gate_allows_static_bug_name_as_plain_text(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        "# Review note\nRelated static finding: BG-STATIC-001-SOURCE\n",
+        "# Review note\n<DYNAMIC-BUGS>\n"
+        "Related static finding: BG-STATIC-001-SOURCE\n",
         encoding="utf-8",
     )
 
@@ -1037,7 +1422,7 @@ def test_final_waveform_gate_allows_missing_document_as_no_bug_case(tmp_path):
 
 def test_final_waveform_gate_requires_test_for_each_dynamic_bug(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n",
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n",
         encoding="utf-8",
     )
 
@@ -1072,6 +1457,56 @@ def test_final_waveform_gate_rejects_document_only_forged_receipt(tmp_path):
     assert "[WaveInfo Receipt Not Found]" in str(message)
 
 
+def test_final_waveform_gate_rejects_incomplete_workspace_relative_tc(tmp_path):
+    analysis = COMPLETE_BUG_ANALYSIS.replace(
+        "The RTL slices the intermediate value before it reaches the result output.",
+        "<BUG-TODO>",
+    )
+    _write_bug_doc(
+        tmp_path,
+        None,
+        test_case=WORKSPACE_RELATIVE_DOCUMENT_TEST,
+        analysis=analysis,
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=None,
+        waveform_test_dir="tests",
+    )
+
+    assert passed is False
+    assert "[Dynamic Bug Analysis Incomplete]" in str(message)
+    assert "unfinished marker '<BUG-TODO>'" in str(message)
+
+
+def test_final_waveform_gate_does_not_silently_drop_unmatched_tc(tmp_path):
+    block = {
+        "status": "confirmed",
+        "receipt_id": "unused-receipt",
+    }
+    _write_bug_doc(
+        tmp_path,
+        block,
+        test_case=WORKSPACE_RELATIVE_DOCUMENT_TEST,
+    )
+
+    passed, message = check_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        "",
+        {"tests/test_other.py::test_other": [CHECKPOINT]},
+        waveform_tool=None,
+        waveform_test_dir="tests",
+        require_all_documented=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Analysis Association Incomplete]" in str(message)
+    assert WORKSPACE_RELATIVE_DOCUMENT_TEST in str(message)
+
+
 def test_final_waveform_checker_uses_active_tool_and_accepts_real_receipt(tmp_path):
     test_dir = tmp_path / "tests"
     _write_waveform(test_dir)
@@ -1101,13 +1536,47 @@ def test_final_waveform_checker_uses_active_tool_and_accepts_real_receipt(tmp_pa
     assert "Validated WaveInfo receipts" in message["success"]
 
 
+def test_final_waveform_checker_accepts_workspace_relative_tc_path(tmp_path):
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        logged_cycle=0,
+        cycle_tolerance=2,
+        clock_signal="TOP.dut.clk",
+    )
+    _write_bug_doc(
+        tmp_path,
+        _confirmed_block(result, pattern),
+        test_case=WORKSPACE_RELATIVE_DOCUMENT_TEST,
+    )
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_test_dir="tests",
+    )
+
+    assert passed is True, message
+    assert "Validated WaveInfo receipts for 1" in message
+
+
 def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     config = load_yaml_with_env_vars(
         Path(__file__).resolve().parents[1]
         / "ucagent/lang/zh/config/default.yaml"
     )
     final_stage = config["stage"][-1]
-    checker_config = final_stage["checker"][0]
+    checker_config = next(
+        item
+        for item in final_stage["checker"]
+        if item["clss"] == "UnityChipCheckerWaveformBugAnalysis"
+    )
     checker = UnityChipCheckerWaveformBugAnalysis(
         **checker_config["args"]
     ).set_workspace(str(tmp_path))
@@ -1115,6 +1584,4 @@ def test_configured_final_waveform_checker_has_startup_description(tmp_path):
     description = str(checker)
 
     assert checker_config["clss"] == "UnityChipCheckerWaveformBugAnalysis"
-    assert description == (
-        "Validate dynamic Bug waveform evidence using active WaveInfo receipts."
-    )
+    assert description == "Validate dynamic Bug analysis and active WaveInfo receipts."

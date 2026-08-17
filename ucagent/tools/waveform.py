@@ -25,6 +25,7 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field, model_validator
 
 from ucagent.util.functions import make_llm_tool_ret
+from ucagent.util.bug_analysis_contract import WAVEFORM_LLM_ANALYSIS_FIELDS
 from ucagent.util.log import warning
 from .uctool import UCTool
 
@@ -1349,11 +1350,9 @@ class WaveInfo(UCTool):
         result["bug_document_fields"] = OrderedDict(
             [("waveform_analysis", fields)]
         )
-        result["bug_document_completion_required"] = [
-            "alignment_evidence",
-            "observed_behavior",
-            "source_correlation",
-        ]
+        result["bug_document_completion_required"] = list(
+            WAVEFORM_LLM_ANALYSIS_FIELDS
+        )
         result["bug_document_note"] = (
             "Put a ```yaml fence immediately after the matching <TC-*>, copy "
             "bug_document_fields as the complete YAML mapping, and add the three required "

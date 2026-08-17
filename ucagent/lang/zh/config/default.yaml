@@ -75,6 +75,7 @@ mission:
       - 触发bug对应的测试用例必须 Fail，不能误报为 Pass
       - 动态Bug确认必须基于真实失败用例和真实波形：准备将非零置信度<BG-*>记录到`{OUT}/{DUT}_bug_analysis.md`前，必须调用`WaveInfo`分析该测试用例的最新波形，并在对应<TC-*>后的第一个非空行直接放置```yaml代码块（只允许空白行和Markdown缩进，不能插入正文、其他标签或另一个<TC-*>）；代码块必须且只能包含顶层键waveform_analysis，其下记录工具返回的真实receipt_id和波形证据。不能使用旧<WAVEFORM-ANALYSIS>标签、裸YAML或JSON围栏，也不能伪造receipt、文件名、时间或其他波形字段
       - 动态Bug文档中，一个Bug的问题描述、全部失败TC及各自波形、触发条件、源码位置、根因因果链、修复建议、风险和复验计划必须集中在对应<BG-*>条目内；不得在文档末尾另建与标签分离的全局根因分析章节。详情内部使用粗体或五、六级标题，不要使用一到三级标题，避免Recorder在根因之前截断Bug引用范围
+      - Skill模式下，`recordbug.py`只生成带`<BUG-TODO>`的BG/TC与分析字段骨架，不执行根因判断。脚本返回后LLM必须继续读取失败日志、WaveInfo timeline和RTL/HDL，并用文本编辑工具替换全部`<BUG-TODO>`及其提示内容；Checker不解析“待补充”等自然语言占位词。旧`-ROOT/-FILE/-FIX`参数已删除，仅标题格式也已删除且不兼容。动态条目容器使用`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构依次是`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`，LLM不得删除、复制、改名或调换；中文粗体标题只是展示文字，Checker不读取标题。有源码时完整HDL fenced代码块必须各含一次`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`；无源码时在源码证据字段加入独立行`<BUG-SOURCE-UNAVAILABLE>`并完成黑盒分析。两种源码分支互斥，不得同时出现无源码标记与HDL代码块或三个源码因果标签。任一非零BG缺少、重复、乱序标记，字段为空或仍有`<BUG-TODO>`，都不能通过Check/Complete
       - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
       - 发现bug要基于源码（有上层语言源码如scala，则基于上层语言源码进行分析，没有则基于verilog源码进行分析）进行详细分析：什么问题、为什么出现、如何修复
@@ -386,7 +387,8 @@ stage:
       - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
       - "  第4步：将发现的潜在Bug按以下严格标签层级记录到{OUT}/{DUT}_static_bug_analysis.md"
       - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
-      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾维护 '## 批次分析进度' 表格，记录本批次每个文件的分析结果"
+      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md的<STATIC-BUG-PROGRESS>分区维护批次进度表格，记录本批次每个文件的分析结果"
+      - "  静态报告的唯一机器分区依次是独立行<STATIC-BUG-SUMMARY>、<STATIC-BUG-DETAILS>、<STATIC-BUG-PROGRESS>；三者必须各出现一次且顺序固定。相邻标题只是展示文字，可以本地化；Skill脚本和Checker不解析中文标题。旧的仅标题格式不兼容"
       - ""
       - "=== 关于 <FG-*>/<FC-*>/<CK-*> 标签的来源（重要）==="
       - "  {OUT}/{DUT}_static_bug_analysis.md 中使用的所有 <FG-*>/<FC-*>/<CK-*> 标签"
@@ -443,8 +445,8 @@ stage:
       - "  - <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目，且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）"
       - ""
       - "=== 批次进度追踪（必须写在 {OUT}/{DUT}_static_bug_analysis.md 末尾）==="
-      - "  本批次分析完毕后，将每个已分析文件追加到 '## 批次分析进度' 表格中。若该章节不存在则先创建："
-      - "  ## 批次分析进度"
+      - "  本批次分析完毕后，将每个已分析文件追加到<STATIC-BUG-PROGRESS>后的表格中。若规范骨架不存在，使用Skill脚本创建，不能只补中文标题："
+      - "  <STATIC-BUG-PROGRESS>"
       - "  | 源文件 | 发现疑似Bug数 | 状态 |"
       - "  |--------|-------------|------|"
       - "  | <file>rtl/dut.v</file> | 2 | ✅ 完成 |"
@@ -959,11 +961,6 @@ stage:
           target_files:
            - ["{OUT}/**/conftest.py",
               "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
-      - name: waveform_bug_analysis_check
-        clss: "UnityChipCheckerWaveformBugAnalysis"
-        args:
-          bug_file: "{OUT}/{DUT}_bug_analysis.md"
-          test_dir: "{OUT}/tests"
       - name: api_test_check
         clss: "UnityChipCheckerDutApiTest"
         args:
@@ -976,6 +973,11 @@ stage:
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_api_{DUT}_"
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
@@ -1062,11 +1064,6 @@ stage:
       - "  - 不确定波形测试名时只调用一次无参数WaveInfo inventory；随后逐字使用recommended_call中的非空test_case_name进行metadata和pattern分析。inventory不产生receipt，实际调用参数仍为空时必须修正参数而不是重复inventory"
       - "  - Check/Complete失败时必须读取顶部failure_summary，并引用failed_checker_name、error_code和具体阻塞项继续修复；count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部Checker机制’"
     checker:
-      - name: waveform_bug_analysis_check
-        clss: "UnityChipCheckerWaveformBugAnalysis"
-        args:
-          bug_file: "{OUT}/{DUT}_bug_analysis.md"
-          test_dir: "{OUT}/tests"
       - name: test_check
         clss: "UnityChipCheckerTestCase"
         args:
@@ -1076,6 +1073,11 @@ stage:
           ignore_tc_prefix: "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_case.md"
@@ -1100,6 +1102,8 @@ stage:
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
           - "  - 如果Fail：先核对功能规格和源码，排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；属于这些问题时修复后必须Pass，不得以测试Bug或BG-*-0占位保留Fail"
           - "  - 只有正确测试稳定复现DUT设计缺陷时才保留Fail：必须按Guide_Doc/dut_bug_analysis.md记录非零置信度动态Bug、CK和源码根因，真实调用WaveInfo，并紧随每个对应<TC-*>（第一个非空行，允许空白行）写入独立```yaml代码块；代码块只能有顶层waveform_analysis映射，其下包含真实receipt_id和status: confirmed。中间不得插入说明、根因正文或其他标签，不能使用旧<WAVEFORM-ANALYSIS>标签、裸YAML或JSON围栏，也不能把多个用例的波形集中到条目末尾。无波形时先修复生成流程并重跑，status: unavailable不能完成阶段"
+          - "  - Skill中的recordbug.py只接收BG/TC/BD并生成含`<BUG-TODO>`的未完成骨架。脚本返回后当前任务不能结束：必须用真实bug_document_fields替换每个TC后的波形占位块，读取RTL/HDL定位首个错误决策与传播路径，再用文本编辑工具填完`<BUG-OVERVIEW>`至`<BUG-RETEST>`八个固定标记之间的字段并删除全部`<BUG-TODO>`及其提示文字；有源码时分别用`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`标记首错、传播和可见后果。结构标记不得删除、复制、改名或调换，中文标题和自然语言占位词不属于机器结构；不得向脚本传已删除的ROOT/FILE/FIX参数，也不得把脚本成功当成分析完成"
+          - "  - WaveInfo收据陈旧、缺失或无法重放时，必须重跑对应失败用例并重新调用WaveInfo更新证据；只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁。只有正确测试已经Pass或证据证明该记录并非DUT Bug时，才可按Guide重新分类或删除动态记录"
           - "  - WaveInfo inventory只允许用于发现测试名；拿到recommended_call后，下一次调用必须使用其中的非空test_case_name。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
           - "  - 只传pattern且没有logged_cycle+clock_signal或完整start_step+end_step时只是探索调用；返回evidence_window_required后必须逐字使用recommended_evidence_call重调，并把新返回的bug_document_fields作为```yaml中的完整waveform_analysis映射直接使用，不要重复包裹。不能把analysis_window.effective_*手工写入Bug文档冒充原调用参数"
           - "  - 重跑时在断言日志中打印cycle_basis、transaction ID和相关pin；日志cycle必须经clock occurrence index对齐，不能直接当作wave step；<BG-STATIC-*>只允许存在于{DUT}_static_bug_analysis.md，动态bug文档必须使用独立<BG-NAME-xx>并提供confirmed波形证据"
@@ -1126,11 +1130,6 @@ stage:
           - "Guide_Doc/dut_bug_analysis.md"
           - "{OUT}/{DUT}_static_bug_analysis.md"
         checker:
-        - name: waveform_bug_analysis_check
-          clss: "UnityChipCheckerWaveformBugAnalysis"
-          args:
-            bug_file: "{OUT}/{DUT}_bug_analysis.md"
-            test_dir: "{OUT}/tests"
         - name: no_conftest_file
           clss: FilesMustNotExist
           args:
@@ -1152,6 +1151,11 @@ stage:
             args_error_msg: "第一个参数必须为env，第二个参数必须为ref_model"
             ret_std_out: false
             ret_std_error: false
+        - name: waveform_bug_analysis_check
+          clss: "UnityChipCheckerWaveformBugAnalysis"
+          args:
+            bug_file: "{OUT}/{DUT}_bug_analysis.md"
+            test_dir: "{OUT}/tests"
         need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: refine_test_cases_based_on_functional_points
@@ -1184,11 +1188,6 @@ stage:
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
     checker:
-      - name: waveform_bug_analysis_check
-        clss: "UnityChipCheckerWaveformBugAnalysis"
-        args:
-          bug_file: "{OUT}/{DUT}_bug_analysis.md"
-          test_dir: "{OUT}/tests"
       - name: no_conftest_file
         clss: FilesMustNotExist
         args:
@@ -1212,11 +1211,17 @@ stage:
           ignore_tc_prefix: "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
 
   - name: static_bug_validation
     desc: "静态分析Bug验证与动态关联"
     task:
       - "目标：通过动态测试消除{OUT}/{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
+      - "静态报告使用独立行<STATIC-BUG-SUMMARY>、<STATIC-BUG-DETAILS>、<STATIC-BUG-PROGRESS>作为唯一机器分区，必须各出现一次且顺序固定；linkbug.py和Checker不解析中文标题，旧的仅标题格式不兼容"
       - "第1步：扫描{OUT}/{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
       - "第2步：检查{OUT}/{DUT}_bug_analysis.md及已有测试用例，确认是否有测试用例已能对应某些<LINK-BUG-[BG-TBD]>条目"
       - "  - 若已有Fail测试用例可证实该静态Bug：直接执行第3步替换，无需重复编写"
@@ -1231,6 +1236,7 @@ stage:
       - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
       - "  情况A - 测试Fail（Bug已证实）："
       - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
+      - "       - Skill模式下先用recordbug.py生成含`<BUG-TODO>`的BG/TC骨架，再由LLM读取失败日志、WaveInfo和RTL/HDL，用文本编辑工具填完`<BUG-OVERVIEW>`至`<BUG-RETEST>`八个固定标记之间的字段并清除全部`<BUG-TODO>`及其提示文字；有源码时必须写齐三个`<BUG-SOURCE-*>`因果标签。结构标记不得删除、复制、改名或调换，骨架未填完时不得执行linkbug.py"
       - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
       - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
       - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
@@ -1388,7 +1394,13 @@ stage:
     desc: "验证审查与总结"
     task:
       - "目标：查漏补缺，对测试过程进行回顾，提炼经验教训"
-      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
+      - "第1步：逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>，不能只检查标签存在或删除占位符："
+      - "  1.1 重新打开该BG关联的每个失败<TC-*>及其失败日志，确认严格断言、expected/actual、事务上下文和FG/FC/CK关联均正确；测试或基础设施问题必须修复到Pass，不得保留为DUT Bug"
+      - "  1.2 使用文档中的真实receipt重放confirmed WaveInfo证据，核对alignment_evidence、observed_behavior和source_correlation确实对应同一失败事务；若波形或关联不成立，重新运行用例并重新取证"
+      - "  1.3 重新读取<BUG-SOURCE-EVIDENCE>引用的真实RTL/HDL行及其上下文，独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策、<BUG-SOURCE-PROPAGATION>是否解释错误如何到达输出、<BUG-SOURCE-OBSERVABLE>是否与波形可见后果一致；禁止只复述失败现象、测试名称或source_correlation"
+      - "  1.4 逐项核对<BUG-OVERVIEW>至<BUG-RETEST>八个字段：根因必须同时解释expected/actual和波形，修复必须直接消除首错而不是只掩盖输出，风险与复验必须覆盖受影响路径；发现泛化、猜测、行号不实或证据矛盾时直接重写对应字段"
+      - "  1.5 有源码分支必须使用真实path:L1-L2和完整HDL fenced代码块，三个<BUG-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<BUG-SOURCE-UNAVAILABLE>并完成黑盒因果分析，两种分支不得混用。不得依赖中文展示标题或自然语言占位词判断完成状态"
+      - "  1.6 完成一个BG后重新读取其完整范围，确认所有TC波形、根因、源码证据、因果链、修复和复验互相一致，再继续下一个BG；不得因recordbug.py成功、字段非空或Checker尚未报错而跳过语义审查"
       - "第2步：回顾{OUT}/{DUT}_static_bug_analysis.md，确认所有静态分析Bug的验证结论已完整记录，已证实的Bug在{OUT}/{DUT}_bug_analysis.md中均有对应完整记录"
       - "第3步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
       - "第4步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"
@@ -1404,11 +1416,6 @@ stage:
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
     checker:
-      - name: waveform_bug_analysis_check
-        clss: "UnityChipCheckerWaveformBugAnalysis"
-        args:
-          bug_file: "{OUT}/{DUT}_bug_analysis.md"
-          test_dir: "{OUT}/tests"
       - name: test_check
         clss: "UnityChipCheckerTestCase"
         args:
@@ -1416,6 +1423,11 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_mock_"
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
   - name: record_and_report_bugs
@@ -1426,6 +1438,7 @@ stage:
       - "第2步：根据当前批次信息整理bug_list，并调用Check(bug_list=[...])记录当前批次的一部分或全部Bug"
       - "第3步：根据更新后的当前批次列表继续记录，直到{OUT}/{DUT}_bug_analysis.md中所有置信度不为0的Bug全部完成；记录不能多于或少于current_batch要求的有效Bug，置信度为0的Bug不记录且不计入总数"
       - "第4步：全部Bug记录完成后调用Complete()完成当前阶段；如果最后一批尚未通过Check记录，也可以直接调用Complete(bug_list=[...])，对象形式发生格式错误时可使用Complete(bug_list=\"[...]\")"
+      - "最终分类门禁：每次Check/Complete先重跑全部DUT测试并核对Fail与BG/TC/CK；因此不得删除仍由正确测试稳定复现的动态Bug来缩小current_batch或规避收据错误。测试/基础设施问题修复到Pass后才能移除错误记录，真实DUT Bug必须保留Fail并更新证据"
       - "最终波形门禁：Check/Complete会再次扫描动态Bug文档中的全部非零置信度Bug，只接受真实WaveInfo收据支持且可在当前最新波形重放的status: confirmed证据；status: unavailable不能完成；动态Bug文档禁止<BG-STATIC-*>，静态发现只能保留在独立静态文档并通过<LINK-BUG-*>关联；没有动态Bug或只有置信度0条目时不要求WaveInfo"
       - "bug_list参数格式：bug_list可以传入真实的JSON数组，也可以传入内容为JSON数组的字符串；字符串会在Checker内部通过JSON解析后继续校验；数组中的每个对象表示一个唯一Bug，并且必须包含bug_name、alias、CK、desc、locations、severity、confidence和ref字段"
       - "bug_name：字符串，填写{OUT}/{DUT}_bug_analysis.md中<BG-BUG_NAME-XX>标签的BUG_NAME部分，例如CIN_OVERFLOW；不要额外创造文档中不存在的Bug"
@@ -1446,6 +1459,13 @@ stage:
       - "{OUT}/{DUT}_bug_analysis.md"
       - "{OUT}/{DUT}_static_bug_analysis.md"
     checker:
+      - name: final_test_classification_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix: "test_api_{DUT}_mock_"
       - name: final_waveform_bug_analysis_check
         clss: "UnityChipCheckerWaveformBugAnalysis"
         args:

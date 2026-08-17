@@ -5,14 +5,17 @@ import re
 
 project_root = os.getcwd()
 script_dir = os.path.dirname(os.path.abspath(__file__))
-potential_bug_summary = "潜在Bug汇总"
-detail_analysis = "详细分析"
-batch_analysis = "批次分析进度"
+STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
+STATIC_BUG_DETAILS_MARKER = "<STATIC-BUG-DETAILS>"
+STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
 static_bug_analysis_md_template = "# {DUT} RTL 源码静态分析报告\n\n"\
+f"{STATIC_BUG_SUMMARY_MARKER}\n\n"\
 "## 一、潜在Bug汇总\n\n"\
 "| 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |\n"\
 "|------|---------|----------|----------|--------|----------|-------------|\n\n"\
+f"{STATIC_BUG_DETAILS_MARKER}\n\n"\
 "## 二、详细分析\n\n"\
+f"{STATIC_BUG_PROGRESS_MARKER}\n\n"\
 "## 三、批次分析进度\n\n"\
 "| 源文件 | 发现疑似Bug数 | 状态 |\n"\
 "|--------|---------------|------|\n"
@@ -34,6 +37,13 @@ def str_replace_to(text, old_list, new_str):
 
 def escape_md_table_cell(text):
     return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def find_marker_index(lines, marker):
+    matches = [index for index, line in enumerate(lines) if line.strip() == marker]
+    if len(matches) != 1:
+        return -1
+    return matches[0]
 
 
 def get_sub_str(text, prefix, suffix):
@@ -345,11 +355,7 @@ def update_target_md(target_md_path, formatted_output):
         f"        ```\n"
     )
 
-    summary_idx = -1
-    for i, line in enumerate(lines):
-        if potential_bug_summary in line:
-            summary_idx = i
-            break
+    summary_idx = find_marker_index(lines, STATIC_BUG_SUMMARY_MARKER)
 
     if summary_idx != -1:
         table_end_idx = summary_idx
@@ -362,24 +368,15 @@ def update_target_md(target_md_path, formatted_output):
                 break
         lines.insert(table_end_idx + 1, summary_line)
     else:
-        return f"Error: '{potential_bug_summary}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
+        return f"Error: marker '{STATIC_BUG_SUMMARY_MARKER}' must occur exactly once in target file {target_md_path}."
 
-    detail_idx = -1
-    for i in range(table_end_idx + 1, len(lines)):
-        line = lines[i]
-        if detail_analysis in line:
-            detail_idx = i
-            break
-    if detail_idx == -1:
-        return f"Error: '{detail_analysis}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
+    detail_idx = find_marker_index(lines, STATIC_BUG_DETAILS_MARKER)
+    if detail_idx == -1 or detail_idx <= table_end_idx:
+        return f"Error: marker '{STATIC_BUG_DETAILS_MARKER}' must occur exactly once after '{STATIC_BUG_SUMMARY_MARKER}' in target file {target_md_path}."
 
-    batch_analysis_idx = -1
-    for i in range(detail_idx + 1, len(lines)):
-        if batch_analysis in lines[i]:
-            batch_analysis_idx = i
-            break
-    if batch_analysis_idx == -1:
-        return f"Error: '{batch_analysis}' section not found in target file {target_md_path}, please ensure the overall format of the target file is correct and use `RunSkillScript` tool again."
+    batch_analysis_idx = find_marker_index(lines, STATIC_BUG_PROGRESS_MARKER)
+    if batch_analysis_idx == -1 or batch_analysis_idx <= detail_idx:
+        return f"Error: marker '{STATIC_BUG_PROGRESS_MARKER}' must occur exactly once after '{STATIC_BUG_DETAILS_MARKER}' in target file {target_md_path}."
 
     fg_tag = f"<{fg}>"
     fc_tag = f"<{fc}>"

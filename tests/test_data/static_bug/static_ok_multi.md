@@ -1,3 +1,5 @@
+<STATIC-BUG-SUMMARY>
+<STATIC-BUG-DETAILS>
 <FG-CTRL>
 
 #### 控制功能 <FC-FSM>
@@ -14,3 +16,4 @@
 - <CK-PIPE-WIDTH> 数据通路位宽可能不足；置信度：低 <BG-STATIC-003-WIDTH>
   - <LINK-BUG-[BG-TBD]>
     - <FILE-rtl/DUT.v:7>
+<STATIC-BUG-PROGRESS>

@@ -3,6 +3,18 @@
 
 from ucagent.util.log import warning, info
 import ucagent.util.functions as fc
+from ucagent.util.bug_analysis_contract import (
+    BUG_ANALYSIS_SECTION_MARKERS as _BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_SOURCE_EVIDENCE_MARKERS as _BUG_SOURCE_EVIDENCE_MARKERS,
+    BUG_SOURCE_UNAVAILABLE_MARKER as _BUG_SOURCE_UNAVAILABLE_MARKER,
+    BUG_TODO_MARKER as _BUG_TODO_MARKER,
+    DOCUMENT_TAG_PATTERN as _DOCUMENT_TAG_PATTERN,
+    DYNAMIC_BUGS_MARKER as _DYNAMIC_BUGS_MARKER,
+    WAVEFORM_BLOCK_KEY as _WAVEFORM_BLOCK_KEY,
+    WAVEFORM_FENCE_CLOSE as _WAVEFORM_FENCE_CLOSE,
+    WAVEFORM_FENCE_OPEN as _WAVEFORM_FENCE_OPEN,
+    WAVEFORM_LLM_ANALYSIS_FIELDS as _WAVEFORM_LLM_ANALYSIS_FIELDS,
+)
 from ucagent.checkers.base import Checker
 from datetime import datetime
 import os
@@ -12,9 +24,15 @@ import traceback
 import yaml
 
 
-_WAVEFORM_BLOCK_KEY = "waveform_analysis"
-_WAVEFORM_FENCE_OPEN = "```yaml"
-_WAVEFORM_FENCE_CLOSE = "```"
+_HDL_SOURCE_LOCATION = re.compile(
+    r"[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala):\d+(?:-\d+)?",
+    re.IGNORECASE,
+)
+_HDL_FENCED_BLOCK = re.compile(
+    r"^[ \t]*```(?:systemverilog|verilog|vhdl|scala|chisel)[ \t]*\r?\n"
+    r"(?P<body>.*?)^[ \t]*```[ \t]*$",
+    re.IGNORECASE | re.MULTILINE | re.DOTALL,
+)
 
 
 def _extract_waveform_yaml_payload(
@@ -113,6 +131,148 @@ def _validate_dynamic_bug_document_labels(
     }
 
 
+def _parse_documented_dynamic_bug_records(
+    workspace: str,
+    bug_file: str,
+) -> tuple[bool, list[dict], object]:
+    """Parse canonical non-zero dynamic Bug records without serializing tag paths."""
+
+    path = os.path.join(workspace, bug_file)
+    if not os.path.isfile(path):
+        return True, [], ""
+    valid_labels, label_error = _validate_dynamic_bug_document_labels(
+        workspace, bug_file
+    )
+    if not valid_labels:
+        return False, [], label_error
+
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+
+    hierarchy = {"FG": None, "FC": None, "CK": None}
+    records = []
+    current = None
+    fence_open = False
+    dynamic_container_lines = []
+    first_bug_line = None
+
+    def close_current(end_index: int):
+        nonlocal current
+        if current is None:
+            return
+        current["content"] = "\n".join(lines[current["start"] + 1 : end_index])
+        records.append(current)
+        current = None
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fence_open = not fence_open
+            continue
+        if fence_open:
+            continue
+        if stripped == _DYNAMIC_BUGS_MARKER:
+            dynamic_container_lines.append(index + 1)
+            continue
+
+        matches = list(_DOCUMENT_TAG_PATTERN.finditer(line))
+        if not matches:
+            continue
+        if current is not None and any(
+            match.group(1) in {"FG", "FC", "CK", "BG"} for match in matches
+        ):
+            close_current(index)
+
+        for match in matches:
+            kind, value = match.groups()
+            label = f"{kind}-{value}"
+            if kind == "FG":
+                hierarchy.update({"FG": label, "FC": None, "CK": None})
+            elif kind == "FC":
+                hierarchy.update({"FC": label, "CK": None})
+            elif kind == "CK":
+                hierarchy["CK"] = label
+            elif kind == "BG":
+                if first_bug_line is None:
+                    first_bug_line = index + 1
+                try:
+                    _bug_name, confidence = parse_bug_label(label)
+                except ValueError as error:
+                    return False, [], {"error": f"[Invalid Bug Label] {error}"}
+                if confidence == 0:
+                    continue
+                checkpoint = "/".join(
+                    item
+                    for item in (
+                        hierarchy["FG"],
+                        hierarchy["FC"],
+                        hierarchy["CK"],
+                    )
+                    if item is not None
+                )
+                current = {
+                    "bug": label,
+                    "path": "/".join(
+                        item for item in (checkpoint, label) if item
+                    ),
+                    "checkpoint": checkpoint,
+                    "line": index + 1,
+                    "start": index,
+                    "tests": [],
+                }
+            elif kind == "TC" and current is not None:
+                test_case = value.strip()
+                if not test_case:
+                    return False, [], {
+                        "error": (
+                            f"[Waveform Analysis Test Format Error] Dynamic Bug "
+                            f"'{current['bug']}' contains an empty <TC-*> label at "
+                            f"line {index + 1}."
+                        )
+                    }
+                current["tests"].append(
+                    {
+                        "test_label": f"TC-{test_case}",
+                        "test_case": test_case,
+                        "line": index + 1,
+                    }
+                )
+
+    close_current(len(lines))
+    if len(dynamic_container_lines) != 1:
+        location_requirement = (
+            "before the first BG entry" if first_bug_line is not None else "in the document"
+        )
+        return False, [], {
+            "error": (
+                f"[Dynamic Bug Container Format Error] Existing dynamic Bug document "
+                f"'{bug_file}' must contain standalone marker {_DYNAMIC_BUGS_MARKER!r} "
+                f"exactly once {location_requirement}; found "
+                f"{len(dynamic_container_lines)} occurrence(s)."
+            ),
+            "details": {
+                "marker": _DYNAMIC_BUGS_MARKER,
+                "marker_lines": dynamic_container_lines,
+                "first_bug_line": first_bug_line,
+            },
+        }
+    if first_bug_line is not None:
+        if dynamic_container_lines[0] > first_bug_line:
+            return False, [], {
+                "error": (
+                    f"[Dynamic Bug Container Order Error] Standalone marker "
+                    f"{_DYNAMIC_BUGS_MARKER!r} at line {dynamic_container_lines[0]} "
+                    f"must appear before the first BG entry at line {first_bug_line}."
+                ),
+                "details": {
+                    "marker": _DYNAMIC_BUGS_MARKER,
+                    "marker_line": dynamic_container_lines[0],
+                    "first_bug_line": first_bug_line,
+                },
+            }
+    return True, records, ""
+
+
 def _parse_waveform_analysis_blocks(
     workspace: str,
     bug_file: str,
@@ -134,8 +294,6 @@ def _parse_waveform_analysis_blocks(
     opened = None
     payload_lines: list[str] = []
     blocks = {}
-    tag_pattern = re.compile(r"<(FG|FC|CK|BG|TC)-([^<>]+)>")
-
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
         if "<WAVEFORM-ANALYSIS>" in stripped or "</WAVEFORM-ANALYSIS>" in stripped:
@@ -241,7 +399,7 @@ def _parse_waveform_analysis_blocks(
                 )
             }
 
-        for match in tag_pattern.finditer(line):
+        for match in _DOCUMENT_TAG_PATTERN.finditer(line):
             kind, value = match.groups()
             label = f"{kind}-{value}"
             if kind in {"FG", "FC", "CK"}:
@@ -274,54 +432,76 @@ def _required_waveform_pairs(
     bug_file: str,
     target_ck_prefix: str,
     failed_tc_and_cks: dict,
+    require_all_documented: bool = False,
 ) -> tuple[bool, list[dict], object]:
-    valid_labels, label_error = _validate_dynamic_bug_document_labels(
+    ok, records, error = _parse_documented_dynamic_bug_records(
         workspace, bug_file
     )
-    if not valid_labels:
-        return False, [], label_error
-    if not failed_tc_and_cks:
+    if not ok:
+        return False, [], error
+    if not failed_tc_and_cks and not require_all_documented:
         return True, [], ""
-    try:
-        tc_marks = fc.get_unity_chip_doc_marks(
-            os.path.join(workspace, bug_file), leaf_node="TC"
-        )
-    except Exception as error:
-        return False, [], {
-            "error": f"[Waveform Analysis Parse Error] Cannot parse '{bug_file}': {error}"
-        }
 
     required = {}
-    for mark in tc_marks:
-        segments = mark.split("/")
-        bug_label = next(
-            (segment for segment in reversed(segments[:-1]) if segment.startswith("BG-")),
-            None,
-        )
-        test_label = segments[-1] if segments[-1].startswith("TC-") else None
-        if bug_label is None or test_label is None:
-            continue
-        try:
-            _bug_name, confidence = parse_bug_label(bug_label)
-        except ValueError as error:
-            return False, [], {"error": f"[Invalid Bug Label] {error}"}
-        if confidence == 0:
-            continue
-        test_case = test_label[3:]
-        matched, report_name = _find_matching_test_case(
-            test_case.split("::"), failed_tc_and_cks.keys()
-        )
-        if not matched:
-            continue
-        checkpoint = mark.split("/BG-", 1)[0]
-        if checkpoint not in failed_tc_and_cks.get(report_name, []):
-            continue
-        pair = (bug_label, test_label)
-        required[pair] = {
-            "bug": bug_label,
-            "test_label": test_label,
-            "test_case": test_case,
-            "report_test_case": report_name,
+    unmatched = []
+    for record in records:
+        for test in record["tests"]:
+            matched, report_name = _find_matching_test_case(
+                test["test_case"].split("::"), failed_tc_and_cks.keys()
+            )
+            if not matched:
+                if require_all_documented:
+                    unmatched.append(
+                        {
+                            "bug": record["bug"],
+                            "test_case": test["test_case"],
+                            "checkpoint": record["checkpoint"],
+                            "line": test["line"],
+                            "reason": "test case is absent from the validation set",
+                        }
+                    )
+                continue
+            if record["checkpoint"] not in failed_tc_and_cks.get(report_name, []):
+                if require_all_documented:
+                    unmatched.append(
+                        {
+                            "bug": record["bug"],
+                            "test_case": test["test_case"],
+                            "checkpoint": record["checkpoint"],
+                            "line": test["line"],
+                            "reason": (
+                                "documented checkpoint is absent from the test's "
+                                "validation set"
+                            ),
+                        }
+                    )
+                continue
+            pair = (record["bug"], test["test_label"])
+            required[pair] = {
+                "bug": record["bug"],
+                "test_label": test["test_label"],
+                "test_case": test["test_case"],
+                "report_test_case": report_name,
+                "checkpoint": record["checkpoint"],
+                "line": test["line"],
+            }
+    if unmatched:
+        summaries = [
+            f"- {item['bug']}/TC-{item['test_case']} (line {item['line']}): "
+            f"{item['reason']}; checkpoint={item['checkpoint'] or '<missing>'}"
+            for item in unmatched[:20]
+        ]
+        if len(unmatched) > len(summaries):
+            summaries.append(f"- ... and {len(unmatched) - len(summaries)} more pair(s)")
+        return False, [], {
+            "error": (
+                f"[Waveform Analysis Association Incomplete] {len(unmatched)} documented "
+                "dynamic Bug/test pair(s) could not be mapped for validation:\n"
+                + "\n".join(summaries)
+                + "\nEvery non-zero dynamic Bug/TC pair must map to its exact failing "
+                "test and checkpoint before Check/Complete can pass."
+            ),
+            "details": {"unmatched_pairs": unmatched},
         }
     return True, list(required.values()), ""
 
@@ -331,6 +511,231 @@ def _waveform_error(message: str, **details) -> tuple[bool, object]:
     if details:
         result["details"] = details
     return False, result
+
+
+def _documented_dynamic_bug_blocks(
+    workspace: str,
+    bug_file: str,
+) -> tuple[bool, list[dict], object]:
+    """Return line-bounded blocks for each non-zero dynamic Bug occurrence."""
+
+    return _parse_documented_dynamic_bug_records(workspace, bug_file)
+
+
+def _parse_bug_analysis_sections(content: str) -> tuple[dict[str, str], list[str]]:
+    """Split one Bug block using the canonical language-independent markers."""
+
+    matches_by_key = {}
+    problems = []
+    for key, marker in _BUG_ANALYSIS_SECTION_MARKERS:
+        matches = list(
+            re.finditer(
+                rf"(?m)^[ \t]*{re.escape(marker)}[ \t]*$",
+                content,
+            )
+        )
+        if len(matches) != 1:
+            problems.append(
+                f"marker {marker!r} occurs {len(matches)} time(s); exactly one is required"
+            )
+        else:
+            matches_by_key[key] = matches[0]
+
+    if len(matches_by_key) != len(_BUG_ANALYSIS_SECTION_MARKERS):
+        return {}, problems
+
+    expected_keys = [key for key, _marker in _BUG_ANALYSIS_SECTION_MARKERS]
+    ordered = sorted(matches_by_key.items(), key=lambda item: item[1].start())
+    actual_keys = [key for key, _match in ordered]
+    if actual_keys != expected_keys:
+        expected_markers = " -> ".join(
+            marker for _key, marker in _BUG_ANALYSIS_SECTION_MARKERS
+        )
+        problems.append(
+            "analysis markers are out of canonical order; expected "
+            + expected_markers
+        )
+        return {}, problems
+
+    sections = {}
+    for index, (key, match) in enumerate(ordered):
+        content_end = (
+            ordered[index + 1][1].start()
+            if index + 1 < len(ordered)
+            else len(content)
+        )
+        sections[key] = content[match.end() : content_end].strip()
+    return sections, problems
+
+
+def _normalized_bug_analysis_field_text(content: str) -> str:
+    """Remove display/control markers before checking whether a field is empty."""
+
+    without_display_headings = re.sub(
+        r"(?m)^[ \t]*(?:#{1,6}[ \t]+.+|\*\*[^*\n]+\*\*)[ \t]*$",
+        "",
+        content,
+    )
+    without_optional_markers = re.sub(
+        rf"(?m)^[ \t]*(?:{re.escape(_BUG_SOURCE_UNAVAILABLE_MARKER)}|"
+        rf"{re.escape(_BUG_TODO_MARKER)})[ \t]*$",
+        "",
+        without_display_headings,
+    )
+    return re.sub(r"\s+", "", without_optional_markers)
+
+
+def check_dynamic_bug_analysis_content(
+    workspace: str,
+    bug_file: str,
+) -> tuple[bool, object]:
+    """Require every non-zero dynamic Bug scaffold to contain completed analysis."""
+
+    ok, blocks, error = _documented_dynamic_bug_blocks(workspace, bug_file)
+    if not ok:
+        return False, error
+    if not blocks:
+        return True, (
+            "No documented non-zero-confidence dynamic Bugs require content validation."
+        )
+
+    issues = []
+    for block in blocks:
+        content = block["content"]
+        sections, section_problems = _parse_bug_analysis_sections(content)
+        for problem in section_problems:
+            issues.append(
+                {
+                    "bug": block["bug"],
+                    "path": block["path"],
+                    "line": block["line"],
+                    "problem": problem,
+                }
+            )
+
+        if _BUG_TODO_MARKER in content:
+            issues.append(
+                {
+                    "bug": block["bug"],
+                    "path": block["path"],
+                    "line": block["line"],
+                    "problem": f"unfinished marker {_BUG_TODO_MARKER!r} remains",
+                }
+            )
+
+        if sections:
+            markers_by_key = dict(_BUG_ANALYSIS_SECTION_MARKERS)
+            for key, section_content in sections.items():
+                if not _normalized_bug_analysis_field_text(section_content):
+                    issues.append(
+                        {
+                            "bug": block["bug"],
+                            "path": block["path"],
+                            "line": block["line"],
+                            "problem": (
+                                f"field {key!r} after {markers_by_key[key]!r} "
+                                "has no content beyond display/control markers"
+                            ),
+                        }
+                    )
+
+            source_content = sections["source_evidence"]
+            unavailable_markers = list(
+                re.finditer(
+                    rf"(?m)^[ \t]*{re.escape(_BUG_SOURCE_UNAVAILABLE_MARKER)}[ \t]*$",
+                    source_content,
+                )
+            )
+            if len(unavailable_markers) > 1:
+                issues.append(
+                    {
+                        "bug": block["bug"],
+                        "path": block["path"],
+                        "line": block["line"],
+                        "problem": (
+                            f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} occurs "
+                            f"{len(unavailable_markers)} time(s); at most one is allowed"
+                        ),
+                    }
+                )
+            elif unavailable_markers:
+                conflicting_evidence = []
+                if _HDL_FENCED_BLOCK.search(source_content) is not None:
+                    conflicting_evidence.append("HDL fenced code block")
+                present_source_markers = [
+                    marker
+                    for marker in _BUG_SOURCE_EVIDENCE_MARKERS
+                    if marker in source_content
+                ]
+                if present_source_markers:
+                    conflicting_evidence.append(
+                        "source marker(s) " + ", ".join(present_source_markers)
+                    )
+                if conflicting_evidence:
+                    issues.append(
+                        {
+                            "bug": block["bug"],
+                            "path": block["path"],
+                            "line": block["line"],
+                            "problem": (
+                                f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} is mutually "
+                                "exclusive with " + " and ".join(conflicting_evidence)
+                            ),
+                        }
+                    )
+            else:
+                missing_source_evidence = []
+                if _HDL_SOURCE_LOCATION.search(source_content) is None:
+                    missing_source_evidence.append("real HDL path and line range")
+                hdl_blocks = list(_HDL_FENCED_BLOCK.finditer(source_content))
+                if not hdl_blocks:
+                    missing_source_evidence.append("complete HDL fenced code block")
+                fenced_source = "\n".join(
+                    match.group("body") for match in hdl_blocks
+                )
+                for marker in _BUG_SOURCE_EVIDENCE_MARKERS:
+                    marker_count = source_content.count(marker)
+                    if marker_count != 1:
+                        missing_source_evidence.append(
+                            f"marker {marker!r} exactly once (found {marker_count})"
+                        )
+                    elif fenced_source.count(marker) != 1:
+                        missing_source_evidence.append(
+                            f"marker {marker!r} inside an HDL fenced code block"
+                        )
+                if missing_source_evidence:
+                    issues.append(
+                        {
+                            "bug": block["bug"],
+                            "path": block["path"],
+                            "line": block["line"],
+                            "problem": (
+                                "source analysis lacks "
+                                + ", ".join(missing_source_evidence)
+                            ),
+                        }
+                    )
+
+    if issues:
+        summaries = [
+            f"- {issue['path']} (line {issue['line']}): {issue['problem']}"
+            for issue in issues[:20]
+        ]
+        if len(issues) > len(summaries):
+            summaries.append(f"- ... and {len(issues) - len(summaries)} more issue(s)")
+        return False, {
+            "error": (
+                f"[Dynamic Bug Analysis Incomplete] {len(issues)} content issue(s) in "
+                f"'{bug_file}':\n"
+                + "\n".join(summaries)
+                + "\nRun recordbug.py only to create the BG/TC scaffold. Then read the "
+                "failing assertion, confirmed WaveInfo timeline, and RTL/HDL source; replace "
+                "every scaffold field with evidence-backed analysis inside that BG before "
+                "calling Check/Complete."
+            ),
+            "details": {"issues": issues},
+        }
+    return True, f"Validated completed analysis for {len(blocks)} dynamic Bug entry(s)."
 
 
 def _is_nonempty_string(value) -> bool:
@@ -465,9 +870,18 @@ def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
     """Return one concise error for one or many invalid waveform blocks."""
     if not issues:
         return True, ""
+    deletion_guard = (
+        " Do not delete a TC, BG, or enclosing FG/FC/CK branch merely to remove this "
+        "validation error while the correctly implemented test still fails. Rerun the "
+        "test and WaveInfo, then replace the evidence block. Remove a dynamic record only "
+        "after a correct test passes or other evidence proves it is not a DUT Bug."
+    )
     if len(issues) == 1:
         issue = issues[0]
-        return _waveform_error(issue["message"], **issue.get("details", {}))
+        return _waveform_error(
+            issue["message"] + deletion_guard,
+            **issue.get("details", {}),
+        )
 
     summaries = []
     for issue in issues:
@@ -486,7 +900,8 @@ def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
         "WaveInfo call with the recommended explicit window; copying effective window "
         "values into the document cannot change that receipt's original arguments. For "
         "ordinary field mismatches, copy exact values from the referenced final-evidence "
-        "receipt. Do not invent receipt fields.",
+        "receipt. Do not invent receipt fields."
+        + deletion_guard,
         issues=[
             {
                 "message": issue["message"],
@@ -504,15 +919,25 @@ def check_waveform_bug_analysis(
     failed_tc_and_cks: dict,
     waveform_tool=None,
     waveform_test_dir: str | None = None,
+    require_all_documented: bool = False,
 ) -> tuple[bool, object]:
     """Require verified WaveInfo receipts for every non-zero dynamic Bug/TC pair."""
 
     ok, required, error = _required_waveform_pairs(
-        workspace, bug_file, target_ck_prefix, failed_tc_and_cks
+        workspace,
+        bug_file,
+        target_ck_prefix,
+        failed_tc_and_cks,
+        require_all_documented=require_all_documented,
     )
     if not ok:
         return False, error
     if not required:
+        content_ok, content_message = check_dynamic_bug_analysis_content(
+            workspace, bug_file
+        )
+        if not content_ok:
+            return False, content_message
         return True, "No dynamically reproduced non-zero-confidence bugs require waveform analysis."
 
     ok, blocks, error = _parse_waveform_analysis_blocks(workspace, bug_file)
@@ -742,7 +1167,7 @@ def check_waveform_bug_analysis(
             errors.append("timeline_truncated must be false")
         if (receipt_result.get("event_summary") or {}).get("timeline_truncated") is not False:
             errors.append("the referenced WaveInfo timeline was truncated")
-        for key in ("alignment_evidence", "observed_behavior", "source_correlation"):
+        for key in _WAVEFORM_LLM_ANALYSIS_FIELDS:
             if not _is_nonempty_string(data.get(key)):
                 errors.append(f"'{key}' must be a non-empty string")
 
@@ -916,6 +1341,12 @@ def check_waveform_bug_analysis(
     if issues:
         return _waveform_issue_result(issues)
 
+    content_ok, content_message = check_dynamic_bug_analysis_content(
+        workspace, bug_file
+    )
+    if not content_ok:
+        return False, content_message
+
     return True, f"Validated WaveInfo receipts for {len(required)} dynamic Bug/test association(s)."
 
 
@@ -931,95 +1362,18 @@ def _get_documented_dynamic_test_map(
             f"Bug analysis document '{bug_file}' does not exist; no dynamic Bugs require "
             "final waveform validation."
         )
-    with open(path, "r", encoding="utf-8") as handle:
-        lines = handle.read().splitlines()
-
-    valid_labels, label_error = _validate_dynamic_bug_document_labels(
+    ok, records, error = _parse_documented_dynamic_bug_records(
         workspace, bug_file
     )
-    if not valid_labels:
-        return False, {}, label_error
-
-    hierarchy = {"FG": None, "FC": None, "CK": None, "BG": None}
-    required_bug_paths = {}
-    documented_test_map = {}
-    bugs_with_tests = set()
-    tag_pattern = re.compile(r"<(FG|FC|CK|BG|TC)-([^<>]+)>")
-    inside_waveform_block = False
-    for line in lines:
-        stripped = line.strip()
-        if not inside_waveform_block and stripped.lower() == _WAVEFORM_FENCE_OPEN:
-            inside_waveform_block = True
-            continue
-        if inside_waveform_block and stripped == _WAVEFORM_FENCE_CLOSE:
-            inside_waveform_block = False
-            continue
-        if inside_waveform_block:
-            continue
-
-        for match in tag_pattern.finditer(line):
-            kind, value = match.groups()
-            label = f"{kind}-{value}"
-            if kind == "FG":
-                hierarchy.update({"FG": label, "FC": None, "CK": None, "BG": None})
-            elif kind == "FC":
-                hierarchy.update({"FC": label, "CK": None, "BG": None})
-            elif kind == "CK":
-                hierarchy.update({"CK": label, "BG": None})
-            elif kind == "BG":
-                hierarchy["BG"] = label
-                try:
-                    _bug_name, confidence = parse_bug_label(label)
-                except ValueError as error:
-                    return False, {}, {"error": f"[Invalid Bug Label] {error}"}
-                if confidence == 0:
-                    continue
-                bug_path = "/".join(
-                    item
-                    for item in (
-                        hierarchy["FG"],
-                        hierarchy["FC"],
-                        hierarchy["CK"],
-                        hierarchy["BG"],
-                    )
-                    if item is not None
-                )
-                required_bug_paths[bug_path] = label
-            elif kind == "TC":
-                bug_path = "/".join(
-                    item
-                    for item in (
-                        hierarchy["FG"],
-                        hierarchy["FC"],
-                        hierarchy["CK"],
-                        hierarchy["BG"],
-                    )
-                    if item is not None
-                )
-                if bug_path not in required_bug_paths:
-                    continue
-                test_case = value.strip()
-                if not test_case:
-                    return False, {}, {
-                        "error": (
-                            f"[Waveform Analysis Test Format Error] Dynamic Bug "
-                            f"'{required_bug_paths[bug_path]}' contains an empty <TC-*> label."
-                        )
-                    }
-                checkpoint = bug_path.split("/BG-", 1)[0]
-                documented_test_map.setdefault(test_case, []).append(checkpoint)
-                bugs_with_tests.add(bug_path)
-
-    if not required_bug_paths:
+    if not ok:
+        return False, {}, error
+    if not records:
         return True, {}, (
             "No documented non-zero-confidence dynamic Bugs require final waveform validation."
         )
 
-    missing_tests = [
-        required_bug_paths[bug_path]
-        for bug_path in required_bug_paths
-        if bug_path not in bugs_with_tests
-    ]
+    documented_test_map = {}
+    missing_tests = [record["bug"] for record in records if not record["tests"]]
     if missing_tests:
         return False, {}, {
             "error": (
@@ -1029,6 +1383,11 @@ def _get_documented_dynamic_test_map(
             ),
             "details": {"bugs_without_test_cases": missing_tests},
         }
+    for record in records:
+        for test in record["tests"]:
+            checkpoints = documented_test_map.setdefault(test["test_case"], [])
+            if record["checkpoint"] not in checkpoints:
+                checkpoints.append(record["checkpoint"])
     return True, documented_test_map, ""
 
 
@@ -1038,7 +1397,7 @@ def check_all_documented_waveform_bug_analysis(
     waveform_tool=None,
     waveform_test_dir: str | None = None,
 ) -> tuple[bool, object]:
-    """Validate every documented dynamic Bug at a workflow boundary."""
+    """Validate analysis content and waveform evidence at a workflow boundary."""
 
     ok, documented_test_map, message = _get_documented_dynamic_test_map(
         workspace, bug_file
@@ -1047,6 +1406,11 @@ def check_all_documented_waveform_bug_analysis(
         return False, message
     if not documented_test_map:
         return True, message
+    content_ok, content_message = check_dynamic_bug_analysis_content(
+        workspace, bug_file
+    )
+    if not content_ok:
+        return False, content_message
     return check_waveform_bug_analysis(
         workspace,
         bug_file,
@@ -1054,11 +1418,12 @@ def check_all_documented_waveform_bug_analysis(
         documented_test_map,
         waveform_tool=waveform_tool,
         waveform_test_dir=waveform_test_dir,
+        require_all_documented=True,
     )
 
 
 class UnityChipCheckerWaveformBugAnalysis(Checker):
-    """Independent waveform-evidence gate for the dynamic Bug document."""
+    """Independent analysis-and-waveform gate for the dynamic Bug document."""
 
     def __init__(self, bug_file: str, test_dir: str, **kwargs):
         del kwargs
@@ -1066,7 +1431,7 @@ class UnityChipCheckerWaveformBugAnalysis(Checker):
         self.test_dir = test_dir
 
     def do_check(self, **kwargs) -> tuple[bool, object]:
-        """Validate dynamic Bug waveform evidence using active WaveInfo receipts."""
+        """Validate dynamic Bug analysis and active WaveInfo receipts."""
         del kwargs
         waveform_tool = None
         if self.stage_manager is not None:

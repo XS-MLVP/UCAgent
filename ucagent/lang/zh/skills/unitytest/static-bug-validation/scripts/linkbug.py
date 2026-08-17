@@ -1,13 +1,29 @@
 import argparse
 import os
 import re
+import textwrap
 from typing import List
+
+import yaml
 
 
 PROJECT_ROOT = os.getcwd()
-SUMMARY_TITLE = "## 一、潜在Bug汇总"
-DETAIL_TITLE = "## 二、详细分析"
-PROGRESS_TITLE = "## 三、批次分析进度"
+DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
+STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
+STATIC_BUG_DETAILS_MARKER = "<STATIC-BUG-DETAILS>"
+STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
+DYNAMIC_BUG_TODO_MARKER = "<BUG-TODO>"
+DYNAMIC_BUG_SOURCE_UNAVAILABLE_MARKER = "<BUG-SOURCE-UNAVAILABLE>"
+DYNAMIC_BUG_SECTION_MARKERS = (
+    ("overview", "<BUG-OVERVIEW>"),
+    ("symptoms", "<BUG-SYMPTOMS>"),
+    ("trigger", "<BUG-TRIGGER>"),
+    ("root_cause", "<BUG-ROOT-CAUSE>"),
+    ("source_evidence", "<BUG-SOURCE-EVIDENCE>"),
+    ("causal_chain", "<BUG-CAUSAL-CHAIN>"),
+    ("fix", "<BUG-FIX>"),
+    ("retest", "<BUG-RETEST>"),
+)
 
 
 def parse_args():
@@ -118,52 +134,176 @@ def get_bug_analysis_md_path() -> str:
     return path
 
 
-def find_section_index(lines: List[str], title: str) -> int:
-    for idx, line in enumerate(lines):
-        if line.strip() == title:
-            return idx
+def find_marker_index(lines: List[str], marker: str) -> int:
+    matches = [idx for idx, line in enumerate(lines) if line.strip() == marker]
+    if len(matches) == 1:
+        return matches[0]
     raise ValueError(
-        f"Error: section '{title}' not found in target markdown. Please ensure the file format is correct and use `RunSkillScript` tool again."
+        f"Error: marker '{marker}' must occur exactly once in target markdown; "
+        f"found {len(matches)} occurrence(s). Use the canonical tagged format."
     )
 
 
 def find_detail_start_index(lines: List[str]) -> int:
-    for idx, line in enumerate(lines):
-        if line.strip() == DETAIL_TITLE:
-            return idx + 1
-
-    summary_start = find_section_index(lines, SUMMARY_TITLE)
-    in_summary_table = False
-    summary_end = summary_start
-    for idx in range(summary_start + 1, len(lines)):
-        stripped = lines[idx].strip()
-        if stripped.startswith("|"):
-            in_summary_table = True
-            summary_end = idx
-            continue
-        if in_summary_table and not stripped:
-            summary_end = idx
-            continue
-        if in_summary_table:
-            return idx
-
-    raise ValueError(
-        "Error: detailed analysis content not found in target markdown. "
-        "Please ensure the file format is correct and use `RunSkillScript` tool again."
-    )
+    summary_start = find_marker_index(lines, STATIC_BUG_SUMMARY_MARKER)
+    detail_start = find_marker_index(lines, STATIC_BUG_DETAILS_MARKER)
+    progress_start = find_marker_index(lines, STATIC_BUG_PROGRESS_MARKER)
+    if not summary_start < detail_start < progress_start:
+        raise ValueError(
+            "Error: static Bug section markers are out of canonical order; expected "
+            f"{STATIC_BUG_SUMMARY_MARKER} -> {STATIC_BUG_DETAILS_MARKER} -> "
+            f"{STATIC_BUG_PROGRESS_MARKER}."
+        )
+    return detail_start + 1
 
 
 def collect_bg_tags_from_bug_analysis(lines: List[str]) -> set[str]:
     tags = set()
     pattern = re.compile(r"<(BG-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{1,3})>")
-    alt_pattern = re.compile(r"^\*\*Bug标签\*\*:\s*(BG-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{1,3})\s*$")
     for line in lines:
         for match in pattern.findall(line):
             tags.add(match)
-        alt_match = alt_pattern.match(line.strip())
-        if alt_match:
-            tags.add(alt_match.group(1))
     return tags
+
+
+def collect_dynamic_bg_blocks(lines: List[str], target_bg: str) -> List[str]:
+    blocks = []
+    tag_pattern = re.compile(r"<(FG|FC|CK|BG)-([^<>]+)>")
+    start = None
+    fence_open = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fence_open = not fence_open
+            continue
+        if fence_open:
+            continue
+        matches = list(tag_pattern.finditer(line))
+        boundary_matches = [
+            match for match in matches if match.group(1) in {"FG", "FC", "CK", "BG"}
+        ]
+        if start is not None and boundary_matches:
+            blocks.append("".join(lines[start:index]))
+            start = None
+        if any(
+            match.group(1) == "BG" and f"BG-{match.group(2)}" == target_bg
+            for match in matches
+        ):
+            start = index
+    if start is not None:
+        blocks.append("".join(lines[start:]))
+    return blocks
+
+
+def parse_dynamic_bug_sections(block: str) -> tuple[dict[str, str], List[str]]:
+    matches_by_key = {}
+    problems = []
+    for key, marker in DYNAMIC_BUG_SECTION_MARKERS:
+        matches = list(
+            re.finditer(rf"(?m)^[ \t]*{re.escape(marker)}[ \t]*$", block)
+        )
+        if len(matches) != 1:
+            problems.append(f"{marker} occurs {len(matches)} time(s)")
+        else:
+            matches_by_key[key] = matches[0]
+
+    if len(matches_by_key) != len(DYNAMIC_BUG_SECTION_MARKERS):
+        return {}, problems
+
+    expected_keys = [key for key, _marker in DYNAMIC_BUG_SECTION_MARKERS]
+    ordered = sorted(matches_by_key.items(), key=lambda item: item[1].start())
+    if [key for key, _match in ordered] != expected_keys:
+        problems.append(
+            "markers are out of canonical order; expected "
+            + " -> ".join(marker for _key, marker in DYNAMIC_BUG_SECTION_MARKERS)
+        )
+        return {}, problems
+
+    sections = {}
+    for index, (key, match) in enumerate(ordered):
+        content_end = (
+            ordered[index + 1][1].start()
+            if index + 1 < len(ordered)
+            else len(block)
+        )
+        sections[key] = block[match.end() : content_end].strip()
+    return sections, problems
+
+
+def has_dynamic_bug_field_content(content: str) -> bool:
+    without_display_headings = re.sub(
+        r"(?m)^[ \t]*(?:#{1,6}[ \t]+.+|\*\*[^*\n]+\*\*)[ \t]*$",
+        "",
+        content,
+    )
+    without_optional_markers = re.sub(
+        rf"(?m)^[ \t]*(?:{re.escape(DYNAMIC_BUG_SOURCE_UNAVAILABLE_MARKER)}|"
+        rf"{re.escape(DYNAMIC_BUG_TODO_MARKER)})[ \t]*$",
+        "",
+        without_display_headings,
+    )
+    return bool(re.sub(r"\s+", "", without_optional_markers))
+
+
+def has_confirmed_waveform_analysis(block: str) -> bool:
+    lines = block.splitlines()
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() != "```yaml":
+            index += 1
+            continue
+        payload_lines = []
+        index += 1
+        while index < len(lines) and lines[index].strip() != "```":
+            payload_lines.append(lines[index])
+            index += 1
+        if index >= len(lines):
+            return False
+        try:
+            payload = yaml.safe_load(textwrap.dedent("\n".join(payload_lines)))
+        except yaml.YAMLError:
+            index += 1
+            continue
+        if (
+            isinstance(payload, dict)
+            and set(payload) == {"waveform_analysis"}
+            and isinstance(payload["waveform_analysis"], dict)
+            and payload["waveform_analysis"].get("status") == "confirmed"
+        ):
+            return True
+        index += 1
+    return False
+
+
+def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
+    blocks = collect_dynamic_bg_blocks(lines, target_bg)
+    if not blocks:
+        raise ValueError(
+            f"Error: linked BG tag '{target_bg}' has no canonical dynamic Bug block."
+        )
+    for block in blocks:
+        sections, marker_problems = parse_dynamic_bug_sections(block)
+        empty_fields = [
+            key
+            for key, content in sections.items()
+            if not has_dynamic_bug_field_content(content)
+        ]
+        has_todo = DYNAMIC_BUG_TODO_MARKER in block
+        missing_waveform = not has_confirmed_waveform_analysis(block)
+        if marker_problems or empty_fields or has_todo or missing_waveform:
+            detail = (
+                "invalid markers: " + "; ".join(marker_problems)
+                if marker_problems
+                else "empty analysis fields: " + ", ".join(empty_fields)
+                if empty_fields
+                else f"unfinished marker {DYNAMIC_BUG_TODO_MARKER!r} remains"
+                if has_todo
+                else "confirmed waveform_analysis is missing"
+            )
+            raise ValueError(
+                f"Error: linked BG tag '{target_bg}' is only an incomplete scaffold ({detail}). "
+                "Fill its real WaveInfo evidence and all analysis fields before linking."
+            )
 
 
 def ensure_static_bg_exists_in_static_report(lines: List[str], static_bg: str) -> None:
@@ -197,6 +337,17 @@ def ensure_link_targets_exist_in_bug_analysis(link_targets: List[str], bug_analy
     with open(bug_analysis_path, "r", encoding="utf-8") as f:
         bug_lines = f.readlines()
 
+    container_lines = [
+        index + 1
+        for index, line in enumerate(bug_lines)
+        if line.strip() == DYNAMIC_BUGS_MARKER
+    ]
+    if len(container_lines) != 1:
+        raise ValueError(
+            f"Error: dynamic Bug document marker '{DYNAMIC_BUGS_MARKER}' must occur "
+            f"on a standalone line exactly once; found {len(container_lines)} occurrence(s)."
+        )
+
     existing_bg_tags = collect_bg_tags_from_bug_analysis(bug_lines)
     missing = [tag for tag in link_targets if tag not in existing_bg_tags]
     if missing:
@@ -205,6 +356,8 @@ def ensure_link_targets_exist_in_bug_analysis(link_targets: List[str], bug_analy
             + ", ".join(missing)
             + ". Record the dynamic bug first, then use `RunSkillScript` tool again."
         )
+    for tag in link_targets:
+        ensure_dynamic_bg_complete(bug_lines, tag)
 
 
 def update_summary_table(lines: List[str], static_bg: str, summary_value: str) -> bool:
@@ -245,7 +398,7 @@ def find_bg_detail_range(lines: List[str], static_bg: str, detail_start: int, de
 
 def update_detail_link(lines: List[str], static_bg: str, detail_value: str) -> bool:
     detail_start = find_detail_start_index(lines)
-    progress_start = find_section_index(lines, PROGRESS_TITLE)
+    progress_start = find_marker_index(lines, STATIC_BUG_PROGRESS_MARKER)
     bg_line_idx, bg_end_idx = find_bg_detail_range(lines, static_bg, detail_start, progress_start)
     if bg_line_idx < 0:
         return False
@@ -281,8 +434,8 @@ def update_static_bug_link(target_md: str, static_bg: str, link_targets: List[st
     with open(target_md, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
-    find_section_index(lines, SUMMARY_TITLE)
-    find_section_index(lines, PROGRESS_TITLE)
+    find_marker_index(lines, STATIC_BUG_SUMMARY_MARKER)
+    find_marker_index(lines, STATIC_BUG_PROGRESS_MARKER)
     find_detail_start_index(lines)
     ensure_static_bg_exists_in_static_report(lines, static_bg)
 

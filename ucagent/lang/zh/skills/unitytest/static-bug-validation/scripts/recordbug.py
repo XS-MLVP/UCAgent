@@ -3,12 +3,14 @@ import json
 import os
 import re
 
-project_root = os.getcwd()
-SECTION_TITLE = "## 未测试通过检测点分析"
+DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
+TODO_MARKER = "<BUG-TODO>"
+OVERVIEW_MARKER = "<BUG-OVERVIEW>"
 bug_analysis_template = '''
 # {DUT} 动态 Bug 分析
 
-{SECTION_TITLE}
+## 未测试通过检测点分析
+{DYNAMIC_BUGS_MARKER}
 '''
 
 def parse_args():
@@ -28,13 +30,6 @@ def parse_args():
         ),
     )
     parser.add_argument("-BD", required=True, help="Bug description")
-    parser.add_argument(
-        "-ROOT",
-        required=True,
-        help="Root cause analysis of bug",
-    )
-    parser.add_argument("-FILE", required=True, help="Source file path and start, end line numbers, e.g., ALU754_RTL/ALU754.v:13-14")
-    parser.add_argument("-FIX", required=True, help="Suggestions for repairing defects")
     return parser.parse_args()
 
 
@@ -51,7 +46,10 @@ def validate_dynamic_bg_tag(tag):
             "namespace. Keep <BG-STATIC-*> in {DUT}_static_bug_analysis.md, "
             "create a distinct BG-NAME-XX tag here, and link it with LINK-BUG."
         )
-    bg_confidence(tag)
+    if bg_confidence(tag) == 0:
+        raise ValueError(
+            "Error: -BG confidence must be greater than 0 for a confirmed dynamic Bug."
+        )
 
 
 def parse_tc_target(tc_tag):
@@ -145,20 +143,15 @@ def bg_confidence(bg_tag):
 def locate_section(lines):
     start = -1
     for i, line in enumerate(lines):
-        if line.strip() == SECTION_TITLE:
+        if line.strip() == DYNAMIC_BUGS_MARKER:
             start = i
             break
     if start < 0:
         raise ValueError(
-            f"Error: section '{SECTION_TITLE}' not found in target markdown."
+            f"Error: marker '{DYNAMIC_BUGS_MARKER}' not found in target markdown."
         )
 
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## "):
-            end = i
-            break
-    return start, end
+    return start, len(lines)
 
 
 def find_tag_line(lines, start, end, tag):
@@ -190,10 +183,51 @@ def escape_markdown_asterisk(text):
     return re.sub(r"(?<!\\)\*", r"\\*", text)
 
 
+def make_tc_scaffold(tc, bd):
+    return ensure_trailing_newline_block(
+        f"    - <{tc}> {bd}\n"
+        "      ```yaml\n"
+        "      waveform_analysis:\n"
+        f"        status: \"{TODO_MARKER}\"\n"
+        f"        receipt_id: \"{TODO_MARKER}\"\n"
+        "      ```\n"
+    )
+
+
+def make_bug_analysis_scaffold(bd):
+    return ensure_trailing_newline_block(
+        f"    {OVERVIEW_MARKER}\n"
+        "    **Bug 概述**\n\n"
+        f"    {bd}\n\n"
+        "    <BUG-SYMPTOMS>\n"
+        "    **现象与等级**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-TRIGGER>\n"
+        "    **触发条件与影响范围**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-ROOT-CAUSE>\n"
+        "    **根因分析**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-SOURCE-EVIDENCE>\n"
+        "    **源码证据与逐行分析**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-CAUSAL-CHAIN>\n"
+        "    **动态因果链**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-FIX>\n"
+        "    **修复建议**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-RETEST>\n"
+        "    **风险与复验计划**\n\n"
+        f"    {TODO_MARKER}\n"
+    )
+
+
 def make_bg_tc_block(bg, bd, tc, confidence):
     return ensure_trailing_newline_block(
         f"  - <{bg}> Bug 置信度 {confidence}%\n"
-        f"    - <{tc}> {bd}\n"
+        f"{make_tc_scaffold(tc, bd)}"
+        f"{make_bug_analysis_scaffold(bd)}"
     )
 
 
@@ -269,12 +303,12 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
                 (
                     i
                     for i in range(bg_line + 1, bg_end)
-                    if lines[i].strip() == "**问题描述**"
+                    if lines[i].strip() == OVERVIEW_MARKER
                 ),
                 bg_end,
             )
-            lines.insert(details_line, f"    - <{tc}> {bd}\n")
-            return "CK/BG exist; appended missing TC entry."
+            lines.insert(details_line, make_tc_scaffold(tc, bd))
+            return "CK/BG exist; appended missing TC scaffold."
 
         lines.insert(ck_end, bg_tc_block)
         return "CK exists; appended new BG/TC under this FC."
@@ -282,154 +316,12 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
     lines.insert(fc_end, ck_bg_block)
     return "Inserted new CK/BG/TC under existing FG/FC."
 
-
-def _locate_bug_block(lines, fg, fc, ck, bg):
-    sec_start, sec_end = locate_section(lines)
-    fg_line = find_tag_line(lines, sec_start + 1, sec_end, fg)
-    if fg_line < 0:
-        raise ValueError(f"Error: FG '<{fg}>' not found after insertion.")
-    fg_end = next_boundary(
-        lines, fg_line + 1, sec_end, [lambda text: text.startswith("<FG-")]
-    )
-    fc_line = find_tag_line(lines, fg_line + 1, fg_end, fc)
-    if fc_line < 0:
-        raise ValueError(f"Error: FC '<{fc}>' not found after insertion.")
-    fc_end = next_boundary(
-        lines,
-        fc_line + 1,
-        fg_end,
-        [lambda text: text.startswith("#### ") and "<FC-" in text],
-    )
-    ck_line = find_tag_line(lines, fc_line + 1, fc_end, ck)
-    if ck_line < 0:
-        raise ValueError(f"Error: CK '<{ck}>' not found after insertion.")
-    ck_end = next_boundary(
-        lines,
-        ck_line + 1,
-        fc_end,
-        [lambda text: text.startswith("- <CK-"), lambda text: text.startswith("#### ")],
-    )
-    bg_line = find_tag_line(lines, ck_line + 1, ck_end, bg)
-    if bg_line < 0:
-        raise ValueError(f"Error: BG '<{bg}>' not found after insertion.")
-    bg_end = next_boundary(
-        lines,
-        bg_line + 1,
-        ck_end,
-        [
-            lambda text: text.startswith("  - <BG-"),
-            lambda text: text.startswith("- <CK-"),
-            lambda text: text.startswith("#### "),
-        ],
-    )
-    return bg_line, bg_end
-
-
-def _build_bug_details_block(bd, root, file, lang, code_snippet, fix):
-    indented_code = code_snippet.replace("\n", "\n    ")
-    return ensure_trailing_newline_block(
-        "    **问题描述**\n\n"
-        f"    {bd}\n\n"
-        "    **源码位置**\n\n"
-        f"    `{file}`\n\n"
-        "    **根因分析**\n\n"
-        f"    {root}\n\n"
-        f"    ```{lang}\n"
-        f"    // {file}\n"
-        f"    {indented_code}\n"
-        "    ```\n\n"
-        "    **修复建议**\n\n"
-        f"    {fix}\n\n"
-        "    **波形证据说明**\n\n"
-        "    本脚本不生成波形字段。每个 TC 的首个非空子内容必须是由真实 "
-        "WaveInfo 返回的 fenced YAML `waveform_analysis` 块，并包含基于 timeline "
-        "和源码补写的对齐、现象与根因关联。\n"
-    )
-
-
-def get_code_snippet(file_path, start_line, end_line, indent_level=0):
-    abs_path = os.path.join(project_root, file_path)
-    if not os.path.exists(abs_path):
-        return [0, f"Error: File {abs_path} not found. Please use the correct path and use `RunSkillScript` tool again."]
-
-    try:
-        with open(abs_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        start_index = start_line - 1
-        end_index = end_line
-
-        if start_index < 0 or end_index > len(lines):
-            return [0, f"Error: Line numbers {start_line}-{end_line} are out of file range. Please use correct line numbers and use `RunSkillScript` tool again."]
-
-        snippet_lines = lines[start_index:end_index]
-
-        formatted_snippet = ""
-        indent_str = " " * indent_level
-        for i, line in enumerate(snippet_lines):
-            line_content = line.rstrip()
-            formatted_snippet += f"{indent_str}{start_line + i}:  {line_content}"
-            if i < len(snippet_lines) - 1:
-                formatted_snippet += "\n"
-
-        return [1, formatted_snippet]
-
-    except Exception as e:
-        return [0, f"Error reading file {abs_path}: {e}"]
-
-
-def insert_root_cause_content(lines, fg, fc, ck, bg, tc, bd, root, file, fix):
-    if not root:
-        return "Error: ROOT must not be empty."
-
-    lines[:] = "".join(lines).splitlines(keepends=True)
-
-    file_match = re.fullmatch(r'([^:]+):(\d+)(?:-(\d+))?', file)
-    if file_match is None:
-        return f"Error: FILE format invalid: {file}. Expected path:L1-L2."
-    relative_path, start_str, end_str = file_match.groups()
-    start_line = int(start_str)
-    end_line = int(end_str) if end_str else start_line
-
-    correct, code_snippet = get_code_snippet(relative_path, start_line, end_line, indent_level=0)
-    if not correct:
-        return code_snippet
-
-    lang = ""
-    if relative_path.endswith('.sv'):
-        lang = "systemverilog"
-    elif relative_path.endswith('.v'):
-        lang = "verilog"
-    elif relative_path.endswith('.scala'):
-        lang = "scala"
-
-    bg_line, bg_end = _locate_bug_block(lines, fg, fc, ck, bg)
-    details_start = next(
-        (
-            i
-            for i in range(bg_line + 1, bg_end)
-            if lines[i].strip() == "**问题描述**"
-        ),
-        -1,
-    )
-    details = _build_bug_details_block(
-        bd, root, file, lang, code_snippet, fix
-    )
-    if details_start >= 0:
-        lines[details_start:bg_end] = [details]
-        return "Updated Bug details inside existing BG entry."
-    lines.insert(bg_end, details)
-    return "Inserted Bug details inside BG entry."
-
-
 def main():
     args = parse_args()
     validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
 
     escaped_bd = escape_markdown_asterisk(args.BD)
-    escaped_root = escape_markdown_asterisk(args.ROOT)
-    escaped_fix = escape_markdown_asterisk(args.FIX)
 
     dut = os.environ.get("DUT")
     out = os.environ.get("OUT")
@@ -448,7 +340,7 @@ def main():
         os.makedirs(os.path.dirname(target), exist_ok=True)
         initial_content = bug_analysis_template.format(
             DUT=dut,
-            SECTION_TITLE=SECTION_TITLE,
+            DYNAMIC_BUGS_MARKER=DYNAMIC_BUGS_MARKER,
         ).lstrip()
         with open(target, "w", encoding="utf-8") as f:
             f.write(initial_content)
@@ -459,15 +351,15 @@ def main():
     msgs = []
     for fg, fc, ck in fg_fc_ck_list:
         msg = insert_content(lines, fg, fc, ck, args.BG, args.TC, escaped_bd)
-        root_msg = insert_root_cause_content(
-            lines, fg, fc, ck, args.BG, args.TC, escaped_bd, escaped_root, args.FILE, escaped_fix
-        )
-        msgs.append(f"{msg} {root_msg} (resolved: {fg}/{fc}/{ck})")
+        msgs.append(f"{msg} (resolved: {fg}/{fc}/{ck})")
 
     with open(target, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-    print("; ".join(msgs) + f" -> {target}")
+    print(
+        "; ".join(msgs)
+        + f" -> {target}. Incomplete scaffold marker: {TODO_MARKER}."
+    )
 
 
 if __name__ == "__main__":
