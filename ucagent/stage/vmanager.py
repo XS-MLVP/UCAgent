@@ -2,13 +2,14 @@
 """Verification manager for UCAgent stage execution."""
 
 import copy
+import json
 import os
 import re
 import time
 import traceback
 import random
 from collections import OrderedDict
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Union
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -24,6 +25,9 @@ from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
 from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.tools.skill import _list_skills, list_skills_in_format
+
+
+_INTERNAL_STAGE_ARG_NAMES = frozenset({"timeout", "is_complete"})
 
 
 class ManagerTool(UCTool):
@@ -255,40 +259,54 @@ class ArgCheck(BaseModel):
     )
 
 
-CHECK_EXTRA_ARGS_DESCRIPTION = (
-    "Additional checker-specific arguments are allowed. Pass them as top-level "
-    "JSON fields alongside timeout, not wrapped in args/check_args. Prefer real JSON "
-    "for structured values such as objects or arrays. A checker may explicitly document "
-    "a string fallback containing JSON when tool argument serialization fails. The accepted "
-    "extra argument names and fallback formats depend on the current stage checker and may "
-    "be described by the task prompt or checker error message."
-)
+def _prepare_stage_args(stage_args):
+    """Validate and copy stage-defined arguments before checker dispatch."""
+    if stage_args is None:
+        return {}
+    if isinstance(stage_args, str):
+        try:
+            stage_args = json.loads(stage_args)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "stage_args string must contain a valid JSON object"
+            ) from exc
+    if not isinstance(stage_args, dict):
+        raise TypeError(
+            "stage_args must be a JSON object or a string containing one"
+        )
+    if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
+        raise ValueError("stage_args contains fields reserved for internal dispatch")
+    return dict(stage_args)
 
 
 class ArgsDoCheck(BaseModel):
-    """Arguments for Check/Complete; checker-specific top-level extras are allowed."""
+    """Stable arguments for Check/Complete across all verification stages."""
 
     model_config = ConfigDict(
-        extra="allow",
+        extra="forbid",
         json_schema_extra={
             "description": (
-                "Arguments for Check/Complete. Besides timeout, this schema accepts "
-                "checker-specific extra top-level JSON fields."
-            ),
-            "additionalProperties": {
-                "description": CHECK_EXTRA_ARGS_DESCRIPTION
-            },
+                "Arguments for Check/Complete. Put all current-stage custom input in "
+                "the stage_args JSON object using the structure documented by the "
+                "current stage task or checker diagnostic."
+            )
         },
     )
 
     timeout: int = Field(
         default=0,
         description=(
-            "Timeout for Check/Complete tools. Zero means use default cfg.call_time_out. "
-            "Checker-specific extra arguments may also be passed as sibling top-level "
-            "JSON fields alongside timeout. Prefer real JSON for object/array values; "
-            "use a JSON string only when the current checker explicitly documents that fallback."
+            "Timeout for Check/Complete tools. Zero means use default cfg.call_time_out."
         )
+    )
+    stage_args: Union[Dict[str, Any], str] = Field(
+        default_factory=dict,
+        description=(
+            "Current-stage custom arguments as a JSON object. Its keys and value shapes "
+            "are defined by the current stage task and checker diagnostics. Prefer the "
+            "object itself; if the caller cannot serialize a nested object correctly, pass "
+            "a string containing the complete valid JSON object as a fallback."
+        ),
     )
 
 
@@ -321,27 +339,29 @@ class ToolDoCheck(ManagerTool):
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
         "The tool provides detailed feedback.\n"
-        "You may pass additional checker-specific arguments as extra JSON fields; "
-        "they will be forwarded to the current stage checkers."
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
     )
     args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None, **check_args) -> str:
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
         
         Args:
             timeout: Check timeout in seconds.
-            **check_args: Additional keyword args passed to checkers.
+            stage_args: Current-stage custom arguments passed to checkers.
             run_manager: Callback manager for tool execution
             
         Returns:
             str: Comprehensive validation report in JSON format
         """
         try:
+            stage_args = _prepare_stage_args(stage_args)
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout, **check_args)
+            return self.function(timeout, stage_args=stage_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
@@ -358,17 +378,18 @@ class ToolDoComplete(ManagerTool):
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
         "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
-        "You may pass additional checker-specific arguments as extra JSON fields; "
-        "they will be forwarded to the current stage checkers. "
-        "The 'is_complete' flag is reserved and is always set to true by this tool."
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
     )
     args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, run_manager: Optional[CallbackManagerForToolRun] = None, **check_args) -> str:
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            stage_args = _prepare_stage_args(stage_args)
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout, **check_args)
+            return self.function(timeout, stage_args=stage_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Completion failed: {str(e)}"
@@ -881,14 +902,15 @@ class StageManager(object):
             return True
         return False
 
-    def check(self, timeout, **check_args):
+    def check(self, timeout, stage_args=None):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
-            **{**check_args, "timeout": timeout}
+            timeout=timeout,
+            stage_args=_prepare_stage_args(stage_args),
         )
         ret_data = OrderedDict()
         if not ck_pass:
@@ -1071,7 +1093,7 @@ class StageManager(object):
         if self.llm_pass_suggestion:
             self.llm_pass_suggestion.on_stage_complete(stage)
 
-    def complete(self, timeout, **check_args):
+    def complete(self, timeout, stage_args=None):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
@@ -1080,7 +1102,9 @@ class StageManager(object):
                 "last_check_result": self.last_check_info,
             }
         ck_pass, ck_info = self.stages[self.stage_index].do_check(
-            **{**check_args, "timeout": timeout, "is_complete": True}
+            timeout=timeout,
+            stage_args=_prepare_stage_args(stage_args),
+            is_complete=True,
         )
         stage = self.stages[self.stage_index]
         if ck_pass:
@@ -1214,8 +1238,8 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)
 
-    def tool_check(self, timeout, **check_args):
-        ret = make_llm_tool_ret(self.check(timeout, **check_args))
+    def tool_check(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.check(timeout, stage_args=stage_args))
         info("ToolCheck:\n" + ret)
         return self.attach_todo_summary(ret)
 
@@ -1224,8 +1248,8 @@ class StageManager(object):
         info("ToolExit:\n" + ret)
         return ret
 
-    def tool_complete(self, timeout, **check_args):
-        ret = make_llm_tool_ret(self.complete(timeout, **check_args))
+    def tool_complete(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.complete(timeout, stage_args=stage_args))
         info("ToolComplete:\n" + ret)
         return self.attach_todo_summary(ret)
 

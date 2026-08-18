@@ -5,6 +5,7 @@
 import os
 import sys
 import asyncio
+import pytest
 from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,7 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
 
 import ucagent.stage.vmanager as vmanager
 from ucagent.stage.vstage import VerifyStage
-from ucagent.stage.vmanager import StageManager, ToolDoCheck
+from ucagent.stage.vmanager import ArgsDoCheck, StageManager, ToolDoCheck, ToolDoComplete
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
 
@@ -300,7 +301,7 @@ def test_on_file_read_marks_only_the_current_stage_reference():
     assert child.reference_files["child_only.md"] is False
 
 
-def test_tool_do_check_passes_extra_arguments_to_function():
+def test_tool_do_check_passes_stage_args_to_function():
     calls = []
 
     def check_func(timeout, **kwargs):
@@ -311,16 +312,27 @@ def test_tool_do_check_passes_extra_arguments_to_function():
 
     result = tool.invoke({
         "timeout": 12,
-        "refined": {"CK-1": "done"},
-        "note": "extra",
-        "detail": True,
+        "stage_args": {
+            "refined": {"CK-1": "done"},
+            "note": "extra",
+            "detail": True,
+        },
     })
 
     assert result == "ok"
-    assert calls == [(12, {"refined": {"CK-1": "done"}, "note": "extra", "detail": True})]
+    assert calls == [(
+        12,
+        {
+            "stage_args": {
+                "refined": {"CK-1": "done"},
+                "note": "extra",
+                "detail": True,
+            },
+        },
+    )]
 
 
-def test_fastmcp_check_preserves_extra_arguments():
+def test_fastmcp_check_preserves_stage_args():
     calls = []
 
     def check_func(timeout, **kwargs):
@@ -330,23 +342,144 @@ def test_fastmcp_check_preserves_extra_arguments():
     tool = ToolDoCheck().set_function(check_func)
     mcp_tool = to_fastmcp(tool)
 
-    extra_schema = mcp_tool.parameters["additionalProperties"]
-    assert extra_schema
-    assert "checker-specific" in extra_schema["description"]
-    assert "top-level JSON fields" in extra_schema["description"]
-    assert "string fallback" in extra_schema["description"]
     result = asyncio.run(mcp_tool.run({
         "timeout": 13,
-        "ctx": "internal context should not leak",
-        "refined": {"CK-2": "done"},
-        "detail": False,
+        "stage_args": {
+            "refined": {"CK-2": "done"},
+            "detail": False,
+        },
     }))
 
     assert result == "ok"
-    assert calls == [(13, {"refined": {"CK-2": "done"}, "detail": False})]
+    assert calls == [(
+        13,
+        {
+            "stage_args": {
+                "refined": {"CK-2": "done"},
+                "detail": False,
+            },
+        },
+    )]
 
 
-def test_stage_manager_check_and_complete_forward_extra_arguments():
+def test_check_and_complete_schemas_expose_one_stage_args_object():
+    expected_properties = {"timeout", "stage_args"}
+    schemas = [
+        ArgsDoCheck.model_json_schema(),
+        to_fastmcp(ToolDoCheck()).parameters,
+        to_fastmcp(ToolDoComplete()).parameters,
+    ]
+
+    for schema in schemas:
+        assert set(schema["properties"]) == expected_properties
+        assert schema["additionalProperties"] is False
+        stage_arg_types = {
+            item.get("type")
+            for item in schema["properties"]["stage_args"]["anyOf"]
+        }
+        assert stage_arg_types == {"object", "string"}
+        assert "is_complete" not in str(schema)
+
+
+def test_check_arguments_accept_only_stage_args_json_object():
+    structured = ArgsDoCheck.model_validate({
+        "stage_args": {
+            "refined": {"FG-A/FC-A/CK-A": "reviewed"},
+            "generated": {"FG-A/FC-A/CK-A": "generated"},
+            "bug_list": [{"bug_name": "overflow"}],
+        },
+    })
+
+    assert structured.stage_args == {
+        "refined": {"FG-A/FC-A/CK-A": "reviewed"},
+        "generated": {"FG-A/FC-A/CK-A": "generated"},
+        "bug_list": [{"bug_name": "overflow"}],
+    }
+    with pytest.raises(ValueError):
+        ArgsDoCheck.model_validate({"refined": {"CK": "reviewed"}})
+
+
+def test_check_accepts_json_string_stage_args_fallback():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    result = ToolDoCheck().set_function(check_func).invoke({
+        "timeout": 15,
+        "stage_args": '{"refined":{"FG-A/FC-A/CK-A":"reviewed"}}',
+    })
+
+    assert result == "ok"
+    assert calls == [(
+        15,
+        {"stage_args": {"refined": {"FG-A/FC-A/CK-A": "reviewed"}}},
+    )]
+
+
+def test_fastmcp_check_accepts_json_string_stage_args_fallback():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    mcp_tool = to_fastmcp(ToolDoCheck().set_function(check_func))
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 16,
+        "stage_args": '{"generated":{"FG-A/FC-A/CK-A":"generated"}}',
+    }))
+
+    assert result == "ok"
+    assert calls == [(
+        16,
+        {"stage_args": {"generated": {"FG-A/FC-A/CK-A": "generated"}}},
+    )]
+
+
+def test_check_rejects_invalid_or_non_object_stage_args_string():
+    tool = ToolDoCheck().set_function(lambda timeout, **kwargs: "not called")
+
+    invalid_json = tool.invoke({"stage_args": "not-json"})
+    json_array = tool.invoke({"stage_args": '[{"refined":{}}]'})
+
+    assert "must contain a valid JSON object" in invalid_json
+    assert "must be a JSON object or a string containing one" in json_array
+
+
+def test_fastmcp_complete_preserves_stage_args():
+    calls = []
+
+    def complete_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoComplete().set_function(complete_func)
+    mcp_tool = to_fastmcp(tool)
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 14,
+        "stage_args": {
+            "generated": {"CK-3": "done"},
+            "bug_list": [{"bug_name": "overflow"}],
+            "detail": True,
+        },
+    }))
+
+    assert result == "ok"
+    assert calls == [(
+        14,
+        {
+            "stage_args": {
+                "generated": {"CK-3": "done"},
+                "bug_list": [{"bug_name": "overflow"}],
+                "detail": True,
+            },
+        },
+    )]
+
+
+def test_stage_manager_check_and_complete_forward_stage_args():
     stage = _RecordingCheckStage()
     next_stage = _RecordingCheckStage()
     manager = StageManager.__new__(StageManager)
@@ -367,15 +500,67 @@ def test_stage_manager_check_and_complete_forward_extra_arguments():
 
     manager.next_stage = next_stage_func
 
-    check_ret = manager.check(9, refined={"CK": "check"}, detail=True)
-    complete_ret = manager.complete(10, refined={"CK": "complete"}, is_complete=False)
+    check_ret = manager.check(9, stage_args={
+        "refined": {"CK": "check"},
+        "detail": True,
+    })
+    complete_ret = manager.complete(10, stage_args={
+        "refined": {"CK": "complete"},
+    })
 
     assert check_ret["check_pass"] is True
     assert complete_ret["complete"] is True
     assert stage.calls == [
-        {"refined": {"CK": "check"}, "detail": True, "timeout": 9},
-        {"refined": {"CK": "complete"}, "timeout": 10, "is_complete": True},
+        {
+            "stage_args": {"refined": {"CK": "check"}, "detail": True},
+            "timeout": 9,
+        },
+        {
+            "stage_args": {"refined": {"CK": "complete"}},
+            "timeout": 10,
+            "is_complete": True,
+        },
     ]
+
+
+def test_verify_stage_expands_stage_args_at_checker_boundary(tmp_path):
+    calls = []
+
+    class _Checker:
+        def check(self, **kwargs):
+            calls.append(kwargs)
+            return True, "ok"
+
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
+    stage.skill_list = {}
+    stage.reference_files = {}
+    stage.output_files = []
+    stage.workspace = str(tmp_path)
+    stage._is_reached = False
+    stage.check_pass = False
+    stage.checker = [_Checker()]
+    stage._checker = [SimpleNamespace(name="fake_checker")]
+    stage.check_info = [None]
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+    stage.is_batch_success = False
+
+    passed, _info = stage._do_check(
+        timeout=9,
+        stage_args={
+            "refined": {"FG-A/FC-A/CK-A": "done"},
+            "detail": True,
+        },
+    )
+
+    assert passed is True
+    assert calls == [{
+        "timeout": 9,
+        "refined": {"FG-A/FC-A/CK-A": "done"},
+        "detail": True,
+    }]
 
 
 def test_check_failure_summary_precedes_verbose_diagnostics():

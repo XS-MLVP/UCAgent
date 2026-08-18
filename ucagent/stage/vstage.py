@@ -744,12 +744,18 @@ class VerifyStage(object):
             return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
                                        "failed_patterns": success_out_msg})
         self.check_pass = True
+        stage_args = kwargs.pop("stage_args", {})
+        if stage_args is None:
+            stage_args = {}
+        if not isinstance(stage_args, dict):
+            return False, {"error": "stage_args must be a JSON object."}
+        checker_kwargs = {**stage_args, **kwargs}
         for checker_info in self.check_info:
             if checker_info is not None:
                 checker_info["checked_in_last_run"] = False
         for i, c in enumerate(self.checker):
             self.is_batch_success = False
-            ck_pass, ck_msg = c.check(*a, **kwargs)
+            ck_pass, ck_msg = c.check(*a, **checker_kwargs)
             if self.check_info[i] is None:
                 checker_config_name = self._checker[i].name if i < len(self._checker) else ""
                 self.check_info[i] = OrderedDict({
