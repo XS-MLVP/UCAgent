@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple, Type, Union
 from urllib.parse import quote
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import Checker
+from ucagent.checkers.base import Checker, format_stage_args_examples
 from ucagent.checkers.static_bug import (
     parse_confirmed_static_bug_links,
     parse_source_location,
@@ -360,8 +360,15 @@ class BugRecordType(RecordType):
         bug_list: Any,
         expected_bugs: Dict[str, Dict[str, Any]],
         argument_name: str,
+        allow_legacy_string: bool = False,
     ) -> list:
         if isinstance(bug_list, str):
+            if not allow_legacy_string:
+                raise ValueError(
+                    f"'{argument_name}' must be a JSON array, got str. Pass the "
+                    "complete stage_args object as a JSON string when the tool caller "
+                    "cannot serialize nested JSON."
+                )
             bug_list_text = bug_list.strip()
             if bug_list_text.startswith("```") and bug_list_text.endswith("```"):
                 bug_list_lines = bug_list_text.splitlines()
@@ -380,7 +387,7 @@ class BugRecordType(RecordType):
                 ) from exc
         if not isinstance(bug_list, list):
             raise ValueError(
-                f"'{argument_name}' must be a JSON array or a string containing one, "
+                f"'{argument_name}' must be a JSON array, "
                 f"got {type(bug_list).__name__}."
             )
 
@@ -637,6 +644,7 @@ class BugRecordType(RecordType):
                     current_payload,
                     self._expected_bugs,
                     "stored_bug_list",
+                    allow_legacy_string=True,
                 )
                 if current_payload is not None
                 else []
@@ -662,7 +670,7 @@ class BugRecordType(RecordType):
         self,
         current_payload: Any,
         is_complete: bool = False,
-        bug_list: Optional[Union[list, str]] = None,
+        bug_list: Optional[list] = None,
         **kwargs,
     ) -> Tuple[bool, Any, object]:
         if self._initialization_error is not None:
@@ -684,6 +692,7 @@ class BugRecordType(RecordType):
                     current_payload,
                     expected_bugs,
                     "stored_bug_list",
+                    allow_legacy_string=True,
                 )
             except ValueError as exc:
                 return False, current_payload, {"error": str(exc)}
@@ -702,7 +711,7 @@ class BugRecordType(RecordType):
             )
             if not candidates:
                 return (
-                    "No Bug records are pending. Call Complete() without `bug_list` "
+                    "No Bug records are pending. Call Complete() without stage_args "
                     "to finish the stage."
                 )
 
@@ -720,21 +729,24 @@ class BugRecordType(RecordType):
                 "confidence": expected_bug["confidence"],
                 "ref": list(expected_bug["ref"]),
             }
-            bug_list_json = json.dumps([example_record], ensure_ascii=False)
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"bug_list": [example_record]},
+            )
             return (
-                f"Call the {tool_name} tool with the top-level `bug_list` argument. "
-                "`bug_list` accepts either a JSON array or a string containing that JSON array. "
+                f"Call the {tool_name} tool with the stage_args JSON object. "
+                "For this stage, stage_args.bug_list must be a JSON array. "
                 "The template below already contains the exact bug_name, alias, CK, confidence, "
                 f"and ref values for '{example_name}'. Replace the `desc`, `locations`, and "
                 "`severity` placeholders with the analyzed Bug description, source-level root "
                 "cause, real workspace-relative source lines, and Bug severity before submitting "
                 f"it. Required `severity` accepts {self._SEVERITY_VALUES_TEXT} "
                 "(case-insensitive). "
-                f"Object template: {tool_name}(bug_list={bug_list_json}) "
-                f"String fallback: {tool_name}(bug_list={json.dumps(bug_list_json, ensure_ascii=False)}) "
+                f"Object template: {object_example} "
+                f"JSON-string fallback: {string_example} "
                 f"Allowed current-batch bug_name values: {', '.join(candidates)}. "
-                "Do not submit Bugs outside the current batch. Pass `bug_list` directly as shown; "
-                "do not nest it under `args`, `parameters`, or another field."
+                "Do not submit Bugs outside the current batch. Pass stage_args directly as shown; "
+                "do not use a top-level bug_list field or nest stage_args under args or parameters."
             )
 
         if bug_list is None:
@@ -840,6 +852,7 @@ class BugRecordType(RecordType):
             current_payload if current_payload is not None else [],
             expected_bugs,
             "stored_bug_list",
+            allow_legacy_string=True,
         )
         recorded_names = {record["bug_name"] for record in records}
         missing_names = [name for name in expected_bugs if name not in recorded_names]
@@ -1053,11 +1066,11 @@ class Recorder(Checker):
 
         The built-in ``bug`` type reads every BG entry from its configured bug
         analysis document and accepts records for the current batch:
-        ``Check(bug_list=[{'bug_name': 'overflow_bug', 'alias': [],
+        ``Check(stage_args={'bug_list': [{'bug_name': 'overflow_bug', 'alias': [],
         'CK': ['CK-OVERFLOW'],
         'desc': 'Description and root cause', 'locations': ['rtl/dut.sv:128-229'],
         'severity': 'high', 'confidence': 0.76,
-        'ref': ['DUT_bug_analysis.md:30-42']}])``.
+        'ref': ['DUT_bug_analysis.md:30-42']}]})``.
         Configure it with dynamic and static Bug document paths plus ``batch_size``.
         When ``output`` is a non-empty workspace-relative path, the Bug type writes a
         Markdown summary with line-linked source and document references from the

@@ -13,9 +13,8 @@ import traceback
 import copy
 import inspect
 import ast
-import json
 
-from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.base import Checker, UnityChipBatchTask, format_stage_args_examples
 from ucagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
 
@@ -219,34 +218,12 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
                 "error": f"No original CK labels were loaded from data key '{self.data_key}'. "
                          "Please complete the previous CK label structure stage before refining CK labels."
             }
-        if isinstance(refined, str):
-            refined_text = refined.strip()
-            if refined_text.startswith("```") and refined_text.endswith("```"):
-                refined_lines = refined_text.splitlines()
-                if len(refined_lines) >= 2:
-                    refined_text = "\n".join(refined_lines[1:-1]).strip()
-            if refined_text.startswith("refined="):
-                refined_text = refined_text.split("=", 1)[1].strip()
-            elif refined_text.startswith("refined:"):
-                refined_text = refined_text.split(":", 1)[1].strip()
-            try:
-                refined = json.loads(refined_text)
-            except json.JSONDecodeError:
-                try:
-                    refined = ast.literal_eval(refined_text)
-                except (SyntaxError, ValueError):
-                    return False, {
-                        "error": "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
-                                 "Pass refined as a real top-level JSON object, for example "
-                                 '{"refined": {"FG-.../FC-.../CK-...": "refine note"}}. '
-                                 f"value={refined}"
-                    }
-
         if refined is None:
             refined_map = {}
         elif not isinstance(refined, dict):
             return False, {
-                "error": "The 'refined' argument must be a dictionary like {'FG-.../FC-.../CK-...': 'refine note'}." + \
+                "error": "stage_args.refined must be a JSON object like {'FG-.../FC-.../CK-...': 'refine note'}; "
+                         "pass it as stage_args={'refined': {...}}." + \
                          f" But find type(refined)={type(refined)}. value={refined}"
             }
         else:
@@ -288,7 +265,7 @@ class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
         self.batch_task.update_current_tbd()
         if len(valid_tasks) < 1 and self.batch_task.tbd_task_list:
             error_mesg.append(
-                "No valid CK labels were refined in the current batch (need use args `refined: dict` to pass the refined labels). "
+                "No valid CK labels were refined in the current batch (pass a CK mapping in stage_args.refined). "
                 f"Please refine at least one of these CK labels: {', '.join(self.batch_task.tbd_task_list)}."
             )
             return False, {"error": error_mesg}
@@ -2430,20 +2407,15 @@ class UnityChipCheckerRefineTestCases(Checker):
                 example_note = (
                     "Reviewed the related test cases and updated coverage for this checkpoint."
                 )
-                object_example = (
-                    f'{tool_name}(refined={{"{example_ck}": '
-                    f'"{example_note}"}})'
-                )
-                refined_json = json.dumps({example_ck: example_note})
-                string_example = (
-                    f"{tool_name}(refined={json.dumps(refined_json)})"
+                object_example, string_example = format_stage_args_examples(
+                    tool_name,
+                    {"refined": {example_ck: example_note}},
                 )
                 guidance = (
-                    f"Call the {tool_name} tool with the top-level `refined` argument. "
-                    "`refined` accepts either a dictionary or a string containing a JSON dictionary. "
-                    "It maps each full CK path to a review/update note. "
+                    f"Call the {tool_name} tool with the stage_args JSON object. "
+                    "For this stage, stage_args.refined maps each full CK path to a review/update note. "
                     f"Object example: {object_example} "
-                    f"String fallback: {string_example} "
+                    f"JSON-string fallback: {string_example} "
                 )
                 if has_current_batch or candidate_cks:
                     guidance += (
@@ -2453,48 +2425,25 @@ class UnityChipCheckerRefineTestCases(Checker):
                 else:
                     guidance += "There are currently no pending CK labels in the batch. "
                 return guidance + (
-                    "Pass `refined` directly as shown; do not nest it under `args`, `parameters`, "
-                    "or another field."
+                    "Pass stage_args directly as shown; do not use a top-level refined field, "
+                    "or nest stage_args under args or parameters."
                 )
-            return (
-                f"Call the {tool_name} tool with the top-level `refined` argument. "
-                "`refined` accepts a dictionary mapping current-batch CK paths to review/update notes, "
-                "or a string containing that JSON dictionary; for example: "
-                f'{tool_name}(refined="{{\\"FG-.../FC-.../CK-...\\": '
-                '\\"review note\\"}").'
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"refined": {"FG-.../FC-.../CK-...": "review note"}},
             )
-
-        if isinstance(refined, str):
-            refined_text = refined.strip()
-            if refined_text.startswith("```") and refined_text.endswith("```"):
-                refined_lines = refined_text.splitlines()
-                if len(refined_lines) >= 2:
-                    refined_text = "\n".join(refined_lines[1:-1]).strip()
-            if refined_text.startswith("refined="):
-                refined_text = refined_text.split("=", 1)[1].strip()
-            elif refined_text.startswith("refined:"):
-                refined_text = refined_text.split(":", 1)[1].strip()
-            try:
-                refined = json.loads(refined_text)
-            except json.JSONDecodeError:
-                try:
-                    refined = ast.literal_eval(refined_text)
-                except (SyntaxError, ValueError):
-                    return False, {
-                        "error": (
-                            "The 'refined' argument was received as a string and could not be parsed as a dictionary. "
-                            f"{refined_call_guidance()} "
-                            f"Received value: {refined}"
-                        )
-                    }
+            return (
+                f"Call the {tool_name} tool with {object_example}. "
+                f"If nested object serialization fails, use {string_example}."
+            )
 
         if refined is None:
             refined_map = OrderedDict()
         elif not isinstance(refined, dict):
             return False, {
                 "error": (
-                    "The 'refined' argument must be a dictionary, or a string containing a JSON dictionary, "
-                    "whose keys are CK labels and whose values are review/update notes. "
+                    "stage_args.refined must be a JSON object whose keys are CK labels and whose values "
+                    "are review/update notes. "
                     f"{refined_call_guidance()} "
                     f"Received type(refined)={type(refined)}; value={refined}"
                 )
@@ -2581,7 +2530,7 @@ class UnityChipCheckerRefineTestCases(Checker):
             is_complete,
             f"in file: {self.doc_func_check}",
             f"in dir: {self.test_dir}",
-            " Please review and refine the related test cases, then confirm with refined={CK: note}.",
+            " Please review and refine the related test cases, then confirm with stage_args={refined: {CK: note}}.",
         )
         if isinstance(ck_error, dict):
             if self.batch_task.tbd_task_list:

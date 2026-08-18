@@ -1,14 +1,12 @@
 #coding=utf-8
 
-import ast
 import copy
-import json
 import os
 from collections import OrderedDict
 from typing import Tuple
 
 import ucagent.util.functions as fc
-from ucagent.checkers.base import UnityChipBatchTask
+from ucagent.checkers.base import UnityChipBatchTask, format_stage_args_examples
 from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from typing import Tuple
 import inspect
@@ -166,32 +164,11 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
 
     @staticmethod
     def _parse_generated_arg(generated):
-        if isinstance(generated, str):
-            generated_text = generated.strip()
-            if generated_text.startswith("```") and generated_text.endswith("```"):
-                generated_lines = generated_text.splitlines()
-                if len(generated_lines) >= 2:
-                    generated_text = "\n".join(generated_lines[1:-1]).strip()
-            for prefix in ["generated=", "generated:"]:
-                if generated_text.startswith(prefix):
-                    generated_text = generated_text.split(prefix[-1], 1)[1].strip()
-                    break
-            try:
-                generated = json.loads(generated_text)
-            except json.JSONDecodeError:
-                try:
-                    generated = ast.literal_eval(generated_text)
-                except (SyntaxError, ValueError):
-                    raise ValueError(
-                        "The 'generated' argument was received as a string and could not be parsed as a dictionary. "
-                        f"Received value: {generated}"
-                    )
-
         if generated is None:
             return OrderedDict()
         if not isinstance(generated, dict):
             raise TypeError(
-                "The 'generated' argument must be a dictionary, or a string containing a JSON dictionary, "
+                "stage_args.generated must be a JSON object, "
                 "whose keys are CK labels and whose values describe the generated random test or the reason "
                 "it was skipped. "
                 f"Received type(generated)={type(generated)}; value={generated}"
@@ -245,22 +222,17 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 example_note = (
                     "Added deterministic random boundary cases and output assertions."
                 )
-                object_example = (
-                    f'{tool_name}(generated={{"{example_ck}": '
-                    f'"{example_note}"}})'
-                )
-                generated_json = json.dumps({example_ck: example_note})
-                string_example = (
-                    f"{tool_name}(generated={json.dumps(generated_json)})"
+                object_example, string_example = format_stage_args_examples(
+                    tool_name,
+                    {"generated": {example_ck: example_note}},
                 )
                 guidance = (
-                    f"Call the {tool_name} tool with the top-level `generated` argument. "
-                    "`generated` accepts either a dictionary or a string containing a JSON dictionary. "
-                    "It maps each full CK path to a processing note. "
+                    f"Call the {tool_name} tool with the stage_args JSON object. "
+                    "For this stage, stage_args.generated maps each full CK path to a processing note. "
                     "The note may describe the generated random test, random strategy and assertions, "
                     "or explain why random testing does not add value for that CK. "
                     f"Object example: {object_example} "
-                    f"String fallback: {string_example} "
+                    f"JSON-string fallback: {string_example} "
                 )
                 if has_current_batch or candidate_cks:
                     guidance += (
@@ -270,15 +242,16 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                 else:
                     guidance += "There are currently no pending CK labels in the batch. "
                 return guidance + (
-                    "Pass `generated` directly as shown; do not nest it under `args`, `parameters`, "
-                    "or another field."
+                    "Pass stage_args directly as shown; do not use a top-level generated field, "
+                    "or nest stage_args under args or parameters."
                 )
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"generated": {"FG-.../FC-.../CK-...": "generated or skipped note"}},
+            )
             return (
-                f"Call the {tool_name} tool with the top-level `generated` argument. "
-                "`generated` accepts a dictionary mapping current-batch CK paths to processing notes, "
-                "or a string containing that JSON dictionary; for example: "
-                f'{tool_name}(generated="{{\\"FG-.../FC-.../CK-...\\": '
-                '\\"generated or skipped note\\"}").'
+                f"Call the {tool_name} tool with {object_example}. "
+                f"If nested object serialization fails, use {string_example}."
             )
 
         try:
@@ -359,8 +332,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
             note_msg,
             is_complete,
             f"in file: {self.doc_func_check}",
-            f"in generated argument for random test cases",
-            " Please record generated={CK: note} for the current batch.",
+            "in stage_args.generated for random test cases",
+            " Please record stage_args={generated: {CK: note}} for the current batch.",
         )
         if isinstance(ck_error, dict) and self.batch_task.tbd_task_list:
             ck_error["current_batch"] = self._build_current_ck_infos(self.batch_task.tbd_task_list)

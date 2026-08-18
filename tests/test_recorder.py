@@ -288,7 +288,26 @@ def test_bug_recorder_reuses_existing_records_on_complete(tmp_path):
     assert message["bug_count"] == 0
 
 
-def test_bug_recorder_accepts_json_string_bug_list(tmp_path):
+def test_bug_recorder_reads_legacy_string_checkpoint(tmp_path):
+    _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
+    recorder, manager, _stage = _make_recorder(tmp_path)
+    records = _with_expected_bug_metadata(recorder, [{
+        "bug_name": "overflow_bug",
+        "CK": ["CK-OVERFLOW"],
+        "desc": "The output is truncated because the result signal is too narrow.",
+        "locations": ["rtl/adder.sv:128-229"],
+        "confidence": 0.76,
+    }])
+    manager.data["BUG_RECORDS"] = json.dumps(records)
+
+    assert recorder.get_template_data()["COMPLETED_BUGS"] == 1
+    passed, message = recorder.do_check(is_complete=True)
+
+    assert passed is True
+    assert message["bug_count"] == 1
+
+
+def test_bug_recorder_rejects_nested_json_string_bug_list(tmp_path):
     _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
     recorder, manager, _stage = _make_recorder(tmp_path)
     bug_list = json.dumps(_with_expected_bug_metadata(recorder, [{
@@ -301,9 +320,10 @@ def test_bug_recorder_accepts_json_string_bug_list(tmp_path):
 
     passed, message = recorder.do_check(bug_list=bug_list)
 
-    assert passed is True
-    assert message["bug_count"] == 1
-    assert manager.data["BUG_RECORDS"][0]["bug_name"] == "overflow_bug"
+    assert passed is False
+    assert "must be a JSON array, got str" in message["error"]
+    assert "complete stage_args object as a JSON string" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
 
 
 def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tmp_path):
@@ -315,9 +335,9 @@ def test_bug_recorder_missing_bug_list_shows_check_object_and_string_examples(tm
     assert passed is False
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
     error_text = message["error"]
-    assert "Call the Check tool with the top-level `bug_list` argument" in error_text
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in error_text
-    assert 'String fallback: Check(bug_list="[{\\"bug_name\\": \\"overflow_bug\\"' in error_text
+    assert "Call the Check tool with the stage_args JSON object" in error_text
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in error_text
+    assert 'JSON-string fallback: Check(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in error_text
     assert '"CK": ["FG-GROUP/FC-FUNCTION/CK-OVERFLOW"]' in error_text
     assert '"confidence": 0.76' in error_text
     assert '"ref": ["Adder_bug_analysis.md:8-9"]' in error_text
@@ -333,9 +353,9 @@ def test_bug_recorder_missing_bug_list_shows_complete_examples(tmp_path):
 
     assert passed is False
     error_text = message["error"]
-    assert "Call the Complete tool with the top-level `bug_list` argument" in error_text
-    assert 'Object template: Complete(bug_list=[{"bug_name": "overflow_bug"' in error_text
-    assert 'String fallback: Complete(bug_list="[{\\"bug_name\\": \\"overflow_bug\\"' in error_text
+    assert "Call the Complete tool with the stage_args JSON object" in error_text
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in error_text
+    assert 'JSON-string fallback: Complete(stage_args="{\\"bug_list\\": [{\\"bug_name\\": \\"overflow_bug\\"' in error_text
 
 
 def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
@@ -345,10 +365,10 @@ def test_bug_recorder_rejects_invalid_json_string_bug_list(tmp_path):
     passed, message = recorder.do_check(bug_list="[{'bug_name': 'not-json'}]")
 
     assert passed is False
-    assert "must contain a valid JSON array" in message["error"]
+    assert "must be a JSON array, got str" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
+    assert "JSON-string fallback: Check(stage_args=" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -361,14 +381,14 @@ def test_bug_recorder_rejects_non_array_bug_list_with_call_examples(tmp_path):
     })
 
     assert passed is False
-    assert "must be a JSON array or a string containing one" in message["error"]
+    assert "must be a JSON array" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
+    assert "JSON-string fallback: Check(stage_args=" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
 
-def test_bug_recorder_complete_accepts_json_string_bug_list(tmp_path):
+def test_bug_recorder_complete_rejects_nested_json_string_bug_list(tmp_path):
     _write_bug_doc(tmp_path, [("overflow_bug", 76, "CK-OVERFLOW")])
     recorder, manager, _stage = _make_recorder(tmp_path)
     bug_list = json.dumps(_with_expected_bug_metadata(recorder, [{
@@ -384,9 +404,9 @@ def test_bug_recorder_complete_accepts_json_string_bug_list(tmp_path):
         bug_list=bug_list,
     )
 
-    assert passed is True
-    assert message["bug_count"] == 1
-    assert manager.data["BUG_RECORDS"][0]["bug_name"] == "overflow_bug"
+    assert passed is False
+    assert "must be a JSON array, got str" in message["error"]
+    assert "BUG_RECORDS" not in manager.data
 
 
 def test_bug_recorder_reuses_existing_bug_label_parser(tmp_path):
@@ -421,8 +441,8 @@ def test_bug_recorder_rejects_invalid_source_location(tmp_path):
     assert passed is False
     assert "invalid line range" in message["error"]
     assert message["current_batch"][0]["bug_name"] == "overflow_bug"
-    assert 'Object template: Check(bug_list=[{"bug_name": "overflow_bug"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "overflow_bug"' in message["error"]
+    assert "JSON-string fallback: Check(stage_args=" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
 
@@ -458,8 +478,8 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is False
     assert "not in the current batch" in message["error"]
-    assert 'Object template: Check(bug_list=[{"bug_name": "bug-a"' in message["error"]
-    assert "String fallback: Check(bug_list=" in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-a"' in message["error"]
+    assert "JSON-string fallback: Check(stage_args=" in message["error"]
     assert "BUG_RECORDS" not in manager.data
 
     passed, message = recorder.do_check(
@@ -476,13 +496,13 @@ def test_bug_recorder_records_document_bugs_in_batches(tmp_path):
     passed, message = recorder.do_check(bug_list=[records["bug-a"]])
     assert passed is False
     assert "already recorded" in message["error"]
-    assert 'Object template: Check(bug_list=[{"bug_name": "bug-c"' in message["error"]
+    assert 'Object template: Check(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["error"]
 
     passed, message = recorder.do_check(is_complete=True)
     assert passed is False
     assert message["progress"] == "2/3"
-    assert 'Object template: Complete(bug_list=[{"bug_name": "bug-c"' in message["error"]
-    assert "String fallback: Complete(bug_list=" in message["error"]
+    assert 'Object template: Complete(stage_args={"bug_list": [{"bug_name": "bug-c"' in message["error"]
+    assert "JSON-string fallback: Complete(stage_args=" in message["error"]
 
     passed, message = recorder.do_check(bug_list=[records["bug-c"]])
     assert passed is True
@@ -704,7 +724,7 @@ def test_bug_recorder_maps_confirmed_static_aliases_and_exact_document_refs(tmp_
             "confidence": 0.80,
         },
     ])
-    passed, message = recorder.do_check(bug_list=json.dumps(records))
+    passed, message = recorder.do_check(bug_list=records)
 
     assert passed is True
     assert message["bug_count"] == 2
@@ -1339,15 +1359,12 @@ def test_default_workflow_ends_with_record_and_report_bugs_stage():
         assert field in task_text
     assert "lowest、low、medium、high、highest" in task_text
     assert "severity：必填" in task_text
-    assert "Check(bug_list=[" in task_text
-    assert "JSON数组的字符串" in task_text
-    assert "字符串调用示例" in task_text
-    assert "Complete(bug_list=[...])" in task_text
-    assert any(
-        'Complete(bug_list="[...]")' in item
-        for item in stage["task"]
-        if isinstance(item, str)
-    )
+    assert "Check(stage_args=" in task_text
+    assert "bug_list" in task_text
+    assert "完整stage_args JSON对象作为字符串" in task_text
+    assert "字符串fallback示例" in task_text
+    assert "Complete(stage_args=" in task_text
+    assert "Check(bug_list=" not in task_text
     assert "FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW" in task_text
     assert "{LIST_CURRENT_BUGS}" in task_text
     assert "{COMPLETED_BUGS}/{TOTAL_BUGS}" in task_text

@@ -93,7 +93,7 @@ def test_label_structure_refine_rejects_unknown_and_out_of_batch_labels(tmp_path
     assert "FG-API/FC-BASIC/CK-A" in error_text
 
 
-def test_label_structure_refine_accepts_stringified_refined_dict(tmp_path):
+def test_label_structure_refine_rejects_nested_stringified_refined_dict(tmp_path):
     checker, _manager = _make_checker(tmp_path, ["A", "B"], batch_size=2)
 
     passed, msg = checker.do_check(
@@ -101,8 +101,8 @@ def test_label_structure_refine_accepts_stringified_refined_dict(tmp_path):
     )
 
     assert passed is False
-    assert "CK-B" in msg["error"]
-    assert checker.batch_task.gen_task_list == ["FG-API/FC-BASIC/CK-A"]
+    assert "stage_args.refined must be a JSON object" in msg["error"]
+    assert checker.batch_task.gen_task_list == []
 
 
 def test_label_structure_refine_rejects_unparseable_refined_string(tmp_path):
@@ -111,7 +111,7 @@ def test_label_structure_refine_rejects_unparseable_refined_string(tmp_path):
     passed, msg = checker.do_check(refined="FG-API/FC-BASIC/CK-A reviewed")
 
     assert passed is False
-    assert "could not be parsed as a dictionary" in msg["error"]
+    assert "stage_args.refined must be a JSON object" in msg["error"]
 
 
 def test_label_structure_refine_accumulates_completed_tasks_across_checks(tmp_path):

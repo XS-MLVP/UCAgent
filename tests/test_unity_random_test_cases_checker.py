@@ -111,10 +111,10 @@ def test_random_test_cases_requires_generated_argument_with_check_example(tmp_pa
     assert "No valid CK labels were recorded" in message["error"][0]
     assert message["error"][1]["current_batch"][0]["CK"] == "FG-A/FC-A/CK-A"
     guidance = message["error"][2]
-    assert "Call the Check tool with the top-level `generated` argument" in guidance
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in guidance
-    assert "string containing a JSON dictionary" in guidance
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in guidance
+    assert "Call the Check tool with the stage_args JSON object" in guidance
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in guidance
+    assert "JSON-string fallback" in guidance
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in guidance
 
 
 def test_random_test_cases_complete_error_uses_complete_example(tmp_path):
@@ -127,9 +127,9 @@ def test_random_test_cases_complete_error_uses_complete_example(tmp_path):
 
     assert passed is False
     guidance = message["error"][2]
-    assert "Call the Complete tool with the top-level `generated` argument" in guidance
-    assert 'Complete(generated={"FG-A/FC-A/CK-A":' in guidance
-    assert 'Complete(generated="{\\"FG-A/FC-A/CK-A\\":' in guidance
+    assert "Call the Complete tool with the stage_args JSON object" in guidance
+    assert 'Complete(stage_args={"generated": {"FG-A/FC-A/CK-A":' in guidance
+    assert 'Complete(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in guidance
 
 
 def test_random_test_cases_invalid_generated_formats_show_check_example(tmp_path):
@@ -141,16 +141,16 @@ def test_random_test_cases_invalid_generated_formats_show_check_example(tmp_path
     passed, message = checker.do_check(generated=["FG-A/FC-A/CK-A"])
 
     assert passed is False
-    assert "must be a dictionary" in message["error"]
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in message["error"]
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in message["error"]
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in message["error"]
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in message["error"]
 
     passed, message = checker.do_check(generated="FG-A/FC-A/CK-A generated")
 
     assert passed is False
-    assert "could not be parsed as a dictionary" in message["error"]
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in message["error"]
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in message["error"]
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in message["error"]
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in message["error"]
 
 
 def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(tmp_path):
@@ -173,11 +173,11 @@ def test_random_test_cases_unknown_and_out_of_batch_labels_show_current_example(
     error_text = "\n".join(str(item) for item in message["error"])
     assert "not in the current function/check document" in error_text
     assert "not in the current batch" in error_text
-    assert 'Check(generated={"FG-A/FC-A/CK-A":' in error_text
-    assert 'Check(generated="{\\"FG-A/FC-A/CK-A\\":' in error_text
+    assert 'Check(stage_args={"generated": {"FG-A/FC-A/CK-A":' in error_text
+    assert 'Check(stage_args="{\\"generated\\": {\\"FG-A/FC-A/CK-A\\":' in error_text
 
 
-def test_random_test_cases_accepts_json_dictionary_string(tmp_path):
+def test_random_test_cases_rejects_nested_json_dictionary_string(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
         [("FG-A", "FC-A", "CK-A")],
@@ -188,14 +188,12 @@ def test_random_test_cases_accepts_json_dictionary_string(tmp_path):
         generated='{"FG-A/FC-A/CK-A": "generated deterministic random test"}',
     )
 
-    assert passed is True
-    assert "All CK are done" in message["success"]
-    assert checker.random_result == {
-        "FG-A/FC-A/CK-A": "generated deterministic random test",
-    }
+    assert passed is False
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert checker.random_result == {}
 
 
-def test_random_test_cases_complete_accepts_json_dictionary_string(tmp_path):
+def test_random_test_cases_complete_rejects_nested_json_string(tmp_path):
     checker, _manager = _make_checker(
         tmp_path,
         [("FG-A", "FC-A", "CK-A")],
@@ -207,14 +205,12 @@ def test_random_test_cases_complete_accepts_json_dictionary_string(tmp_path):
         generated='{"FG-A/FC-A/CK-A": "completed random-test analysis"}',
     )
 
-    assert passed is True
-    assert "complete success" in message["success"]
-    assert checker.random_result == {
-        "FG-A/FC-A/CK-A": "completed random-test analysis",
-    }
+    assert passed is False
+    assert "stage_args.generated must be a JSON object" in message["error"]
+    assert checker.random_result == {}
 
 
-def test_random_test_stage_documents_json_string_fallback():
+def test_random_test_stage_documents_unified_stage_args_fallback():
     repo_root = os.path.abspath(os.path.join(current_dir, ".."))
     config = load_yaml_with_env_vars(
         os.path.join(repo_root, "ucagent/lang/zh/config/default.yaml")
@@ -225,7 +221,7 @@ def test_random_test_stage_documents_json_string_fallback():
     )
     task_text = json.dumps(stage["task"], ensure_ascii=False)
 
-    assert "内容为JSON对象的字符串" in task_text
-    assert "RandomTestCasesChecker会在内部进行JSON解析" in task_text
-    assert "字符串调用示例" in task_text
-    assert "不能写成字符串" not in task_text
+    assert "stage_args" in task_text
+    assert "字符串fallback示例" in task_text
+    assert "完整合法JSON对象" in task_text
+    assert "Check(generated=" not in task_text
