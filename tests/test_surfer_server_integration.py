@@ -61,16 +61,45 @@ def test_surfer_adapter_and_readiness_command_are_served_before_wasm(tmp_path):
         client = TestClient(server._app)
         page = client.get("/surfer/")
         adapter = client.get("/surfer/deep-link.js")
+        fallback = client.get("/surfer/fst-fallback.js")
+        worker = client.get("/surfer/fst-fallback-worker.js")
+        converter = client.get("/surfer/fst-converter.wasm")
         readiness = client.get("/surfer/ucagent-wave-ready.sucl")
 
         assert page.status_code == 200
         assert adapter.status_code == 200
+        assert fallback.status_code == 200
+        assert worker.status_code == 200
+        assert converter.status_code == 200
+        assert converter.headers["content-type"] == "application/wasm"
+        assert len(converter.content) > 100_000
         assert readiness.status_code == 200
         assert readiness.text.strip() == "divider_add __UCAGENT_WAVE_READY_V1__"
+        for response in (page, adapter, fallback, worker, converter, readiness):
+            assert response.headers["cross-origin-embedder-policy"] == "require-corp"
+            assert response.headers["cross-origin-opener-policy"] == "same-origin"
+            assert response.headers["cache-control"] == "no-store"
+        surfer_wasm = client.get("/surfer/surfer_bg.wasm")
+        assert surfer_wasm.status_code == 200
+        assert "cache-control" not in surfer_wasm.headers
         assert page.text.index('src="deep-link.js"') < page.text.index(
             "await surfer.default"
         )
+        assert page.text.index('src="fst-fallback.js"') < page.text.index(
+            "UCAgentSurferFstFallback.prepareWaveform"
+        )
+        assert page.text.index("UCAgentSurferFstFallback.prepareWaveform") < page.text.index(
+            "await import('./surfer.js')"
+        )
         assert "prepareLocation(window.location, window.history)" in page.text
+        assert 'id="ucagent_wave_progress_bar"' in page.text
+        assert 'id="ucagent_wave_progress_percent"' in page.text
+
+        head = client.head("/surfer/")
+        assert head.status_code == 200
+        assert head.content == b""
+        assert head.headers["cross-origin-embedder-policy"] == "require-corp"
+        assert head.headers["cross-origin-opener-policy"] == "same-origin"
     finally:
         server._running = True
         server.stop()
@@ -114,7 +143,8 @@ def test_latest_waveform_api_resolves_newest_session_containing_target(tmp_path)
     )
     server = _server(tmp_path)
     try:
-        response = TestClient(server._app).get(
+        client = TestClient(server._app)
+        response = client.get(
             "/api/waveform/latest",
             params={"wave": _logical_token()},
         )
@@ -126,6 +156,19 @@ def test_latest_waveform_api_resolves_newest_session_containing_target(tmp_path)
         assert response.headers["x-ucagent-waveform-path"].endswith(
             "/toffee_tmp_20260817130000_001/master/test_bug010.fst"
         )
+
+        head = client.head(
+            "/api/waveform/latest",
+            params={"wave": _logical_token()},
+        )
+        assert head.status_code == 200
+        assert head.content == b""
+        assert head.headers["content-length"] == str(expected.stat().st_size)
+        assert head.headers["etag"] == response.headers["etag"]
+        assert head.headers["last-modified"] == response.headers["last-modified"]
+        assert head.headers["x-ucagent-waveform-path"] == response.headers[
+            "x-ucagent-waveform-path"
+        ]
     finally:
         server._running = True
         server.stop()
@@ -179,6 +222,16 @@ def test_latest_waveform_api_uses_selected_sub_workspace(tmp_path):
 
         assert response.status_code == 200
         assert response.content == expected.read_bytes()
+
+        workspace_head = TestClient(server._app).head(
+            "/workspace/unity_test/tests/data/"
+            "toffee_tmp_20260817140000_001/master/test_bug.fst",
+            params={"sub_worspace": "child"},
+        )
+        assert workspace_head.status_code == 200
+        assert workspace_head.content == b""
+        assert workspace_head.headers["content-length"] == str(expected.stat().st_size)
+        assert "etag" in workspace_head.headers
     finally:
         server._running = True
         server.stop()

@@ -2203,8 +2203,9 @@ class PdbCmdApiServer:
                 raise HTTPException(status_code=500, detail=str(exc))
 
         # ── GET /api/waveform/latest ───────────────────────────────────
-        @app.get(
+        @app.api_route(
             "/api/waveform/latest",
+            methods=["GET", "HEAD"],
             summary="Resolve the newest waveform for a logical viewer token",
         )
         def latest_waveform(
@@ -2269,7 +2270,11 @@ class PdbCmdApiServer:
             return RedirectResponse(url="/")
 
         # ── GET /workspace/{path} — static asset serving ──────────────
-        @app.get("/workspace/{path:path}", summary="Serve workspace file as static asset")
+        @app.api_route(
+            "/workspace/{path:path}",
+            methods=["GET", "HEAD"],
+            summary="Serve workspace file as static asset",
+        )
         def serve_workspace_file(path: str, request: Request):
             try:
                 workspace_root, _, _ = _request_workspace(request)
@@ -2301,20 +2306,59 @@ class PdbCmdApiServer:
 
         # ── GET /surfer — waveform viewer (redirects to /surfer/) ─────
         _SURFER_DIR = _STATIC_DIR / "surfer"
+        _SURFER_ISOLATION_HEADERS = {
+            "Cross-Origin-Embedder-Policy": "require-corp",
+            "Cross-Origin-Opener-Policy": "same-origin",
+        }
+        _SURFER_BOOTSTRAP_ASSETS = {
+            "deep-link.js",
+            "fst-converter.wasm",
+            "fst-fallback-worker.js",
+            "fst-fallback.js",
+            "sw.js",
+            "ucagent-wave-ready.sucl",
+        }
+
+        def _surfer_file_response(
+            path: pathlib.Path,
+            media_type: str,
+            *,
+            prevent_stale_cache: bool = False,
+        ):
+            headers = dict(_SURFER_ISOLATION_HEADERS)
+            if prevent_stale_cache:
+                headers["Cache-Control"] = "no-store"
+            return FileResponse(
+                path=str(path),
+                media_type=media_type,
+                headers=headers,
+            )
 
         @app.get("/surfer", include_in_schema=False)
         def serve_surfer_redirect():
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/surfer/")
 
-        @app.get("/surfer/", include_in_schema=False)
+        @app.api_route(
+            "/surfer/",
+            methods=["GET", "HEAD"],
+            include_in_schema=False,
+        )
         def serve_surfer_root():
             abs_path = _SURFER_DIR / "index.html"
             if not abs_path.is_file():
                 raise HTTPException(status_code=404, detail="Surfer waveform viewer not found")
-            return FileResponse(path=str(abs_path), media_type="text/html")
+            return _surfer_file_response(
+                abs_path,
+                "text/html",
+                prevent_stale_cache=True,
+            )
 
-        @app.get("/surfer/{path:path}", include_in_schema=False)
+        @app.api_route(
+            "/surfer/{path:path}",
+            methods=["GET", "HEAD"],
+            include_in_schema=False,
+        )
         def serve_surfer_asset(path: str):
             abs_path = (_SURFER_DIR / path).resolve()
             if not str(abs_path).startswith(str(_SURFER_DIR)):
@@ -2322,7 +2366,11 @@ class PdbCmdApiServer:
             if not abs_path.is_file():
                 raise HTTPException(status_code=404, detail=f"Surfer asset '{path}' not found")
             media_type, _ = mimetypes.guess_type(str(abs_path))
-            return FileResponse(path=str(abs_path), media_type=media_type or "application/octet-stream")
+            return _surfer_file_response(
+                abs_path,
+                media_type or "application/octet-stream",
+                prevent_stale_cache=path in _SURFER_BOOTSTRAP_ASSETS,
+            )
 
         return app
 

@@ -9,31 +9,39 @@
     <title>Surfer</title>
 
     <script src="deep-link.js"></script>
+    <script src="fst-fallback.js"></script>
     <!-- config for our rust wasm binary. go to https://trunkrs.dev/assets/#rust for more customization -->
         <script type="module">
         let deepLink;
         try {
             deepLink = window.UCAgentSurferDeepLink.prepareLocation(window.location, window.history);
+            await window.UCAgentSurferFstFallback.prepareWaveform(
+                window.location,
+                window.history,
+                {onProgress: window.on_ucagent_wave_progress}
+            );
         } catch (error) {
-            window.addEventListener("DOMContentLoaded", () => window.on_surfer_error(
-                "无效的 UCAgent 波形深链接：" + error.message
-            ));
+            deepLink = null;
+            window.hide_ucagent_wave_progress();
+            window.on_surfer_error("UCAgent 波形准备失败：" + error.message);
         }
         if (deepLink) {
-            const surfer = await import('./surfer.js');
-            await surfer.default({module_or_path: './surfer_bg.wasm'});
-            window.inject_message = surfer.inject_message;
-            window.id_of_name = surfer.id_of_name;
-            window.draw_text_arrow = surfer.draw_text_arrow;
             try {
+                const surfer = await import('./surfer.js');
+                await surfer.default({module_or_path: './surfer_bg.wasm'});
+                window.inject_message = surfer.inject_message;
+                window.id_of_name = surfer.id_of_name;
+                window.draw_text_arrow = surfer.draw_text_arrow;
                 await window.UCAgentSurferDeepLink.applyWhenReady(
                     deepLink.payload,
                     {inject_message: surfer.inject_message, id_of_name: surfer.id_of_name}
                 );
+                window.hide_ucagent_wave_progress();
+                /*SURFER_SETUP_HOOKS*/
             } catch (error) {
+                window.hide_ucagent_wave_progress();
                 window.on_surfer_error(error.message || "波形加载失败或目标信号不可用");
             }
-            /*SURFER_SETUP_HOOKS*/
         }
     </script>
     
@@ -42,6 +50,38 @@
 
 
     <script>
+        let ucagentWaveProgressState = null;
+        let ucagentWaveProgressListenerInstalled = false;
+
+        function render_ucagent_wave_progress() {
+            const container = document.getElementById("ucagent_wave_progress");
+            if (!container || !ucagentWaveProgressState) return;
+            const state = ucagentWaveProgressState;
+            container.style.display = "block";
+            document.getElementById("ucagent_wave_progress_message").textContent = state.message;
+            document.getElementById("ucagent_wave_progress_percent").textContent = state.percent + "%";
+            const progressBar = document.getElementById("ucagent_wave_progress_bar");
+            progressBar.style.width = state.percent + "%";
+            progressBar.setAttribute("aria-valuenow", String(state.percent));
+        }
+
+        function on_ucagent_wave_progress(state) {
+            ucagentWaveProgressState = state;
+            render_ucagent_wave_progress();
+            if (!document.getElementById("ucagent_wave_progress") && !ucagentWaveProgressListenerInstalled) {
+                ucagentWaveProgressListenerInstalled = true;
+                window.addEventListener("DOMContentLoaded", render_ucagent_wave_progress, {once: true});
+            }
+        }
+
+        function hide_ucagent_wave_progress() {
+            const container = document.getElementById("ucagent_wave_progress");
+            if (container) container.style.display = "none";
+        }
+
+        window.on_ucagent_wave_progress = on_ucagent_wave_progress;
+        window.hide_ucagent_wave_progress = hide_ucagent_wave_progress;
+
         function on_surfer_error(msg) {
             console.log("Setting error message")
             document.getElementById("error_message").textContent = msg
@@ -165,6 +205,45 @@
             overflow: scroll;
             white-space: break-spaces;
         }
+
+        #ucagent_wave_progress {
+            display: none;
+            position: fixed;
+            z-index: 20;
+            width: min(520px, calc(100% - 48px));
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            padding: 22px;
+            border-radius: 8px;
+            color: #f0f0f0;
+            background: rgba(24, 24, 28, 0.94);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+            font-family: Ubuntu-Light, Helvetica, sans-serif;
+        }
+
+        #ucagent_wave_progress_header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 12px;
+            font-size: 16px;
+        }
+
+        #ucagent_wave_progress_track {
+            height: 10px;
+            overflow: hidden;
+            border-radius: 5px;
+            background: #4a4a50;
+        }
+
+        #ucagent_wave_progress_bar {
+            width: 0;
+            height: 100%;
+            border-radius: 5px;
+            background: #65d6a5;
+            transition: width 120ms linear;
+        }
     </style>
 <link rel="modulepreload" href="./surfer.js" crossorigin="anonymous" integrity="sha384-IYc9u4reXVdgjhaLLFA9APJSpAtmPhjb+mJu3o4THV1OKffzqkIi7tl170GNPkME"><link rel="preload" href="./surfer_bg.wasm" crossorigin="anonymous" integrity="sha384-hQs7vZkAoEMkJ1QEXadgWoB5I3TveYJUxyzay32kwunflYABQhkraTq7Wp4tHdJM" as="fetch" type="application/wasm"></head>
 
@@ -172,6 +251,17 @@
     <!-- The WASM code will resize the canvas dynamically -->
     <!-- the id is hardcoded in main.rs . so, make sure both match. -->
     <canvas id="the_canvas_id"></canvas>
+
+    <div id="ucagent_wave_progress" role="status" aria-live="polite">
+        <div id="ucagent_wave_progress_header">
+            <span id="ucagent_wave_progress_message">正在准备波形</span>
+            <span id="ucagent_wave_progress_percent">0%</span>
+        </div>
+        <div id="ucagent_wave_progress_track">
+            <div id="ucagent_wave_progress_bar" role="progressbar"
+                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+        </div>
+    </div>
 
     <div id="error_container" style="display: none;">
         <h1>Sorry, Surfer crashed 🔥</h1>

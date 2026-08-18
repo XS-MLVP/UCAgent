@@ -221,13 +221,13 @@
 
   function decimalToBigIntJson(decimal) {
     let value = BigInt(normalizeDecimal("time", decimal));
-    if (value === 0n) return ["NoSign", []];
+    if (value === 0n) return [0, []];
     const limbs = [];
     while (value > 0n) {
       limbs.push(Number(value & 0xffffffffn));
       value >>= 32n;
     }
-    return ["Plus", limbs];
+    return [1, limbs];
   }
 
   function variableRef(fullName) {

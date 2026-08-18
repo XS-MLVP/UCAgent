@@ -75,9 +75,9 @@ assert.equal(
   `https://example.test/task/task-1/cmd/api/waveform/latest?wave=${logicalToken}&sub_worspace=child-a`,
 );
 
-assert.deepEqual(api.decimalToBigIntJson("0"), ["NoSign", []]);
-assert.deepEqual(api.decimalToBigIntJson("4294967297"), ["Plus", [1, 1]]);
-assert.deepEqual(api.decimalToBigIntJson("18446744073709551616"), ["Plus", [0, 0, 1]]);
+assert.deepEqual(api.decimalToBigIntJson("0"), [0, []]);
+assert.deepEqual(api.decimalToBigIntJson("4294967297"), [1, [1, 1]]);
+assert.deepEqual(api.decimalToBigIntJson("18446744073709551616"), [1, [0, 0, 1]]);
 
 assert.deepEqual(api.variableRef("TOP.dut.clk"), {
   path: {strs: ["TOP", "dut"], id: "None"},
@@ -94,6 +94,12 @@ assert.deepEqual(api.variableRef("TOP.dut.arr[3]"), {
 assert.deepEqual(api.variableRef("TOP.dut.data[3:0]"), {
   path: {strs: ["TOP", "dut"], id: "None"},
   name: "data",
+  id: "None",
+  index: null,
+});
+assert.deepEqual(api.variableRef("TOP.dut.A[31:1]"), {
+  path: {strs: ["TOP", "dut"], id: "None"},
+  name: "A",
   id: "None",
   index: null,
 });
@@ -188,11 +194,11 @@ void (async () => {
     ]},
     {Batch: [
       {ZoomToRange: {
-        start: ["Plus", [0, 1]],
-        end: ["Plus", [2, 1]],
+        start: [1, [0, 1]],
+        end: [1, [2, 1]],
         viewport_idx: 0,
       }},
-      {CursorSet: ["Plus", [1, 1]]},
+      {CursorSet: [1, [1, 1]]},
     ]},
   ]);
   await assert.rejects(
