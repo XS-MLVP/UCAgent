@@ -282,10 +282,42 @@ html[data-theme="light"] #console-output-wrap.sub-workspace-mode{background:line
 .upload-area input{display:none}
 .upload-area p{font-size:13px;margin-top:8px}
 #upload-list{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-dim);font-family:var(--mono)}
-/* ── modal resize handle ── */
-.modal-resize-handle{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:se-resize;z-index:10;border-bottom-right-radius:8px;opacity:0.4;transition:opacity .15s}
-.modal-resize-handle::after{content:'';position:absolute;right:3px;bottom:3px;width:11px;height:11px;background:linear-gradient(135deg,transparent 0%,transparent 30%,var(--text-dim) 30%,var(--text-dim) 42%,transparent 42%,transparent 58%,var(--text-dim) 58%,var(--text-dim) 70%,transparent 70%,transparent 86%,var(--text-dim) 86%,var(--text-dim) 100%)}
-.modal-resize-handle:hover{opacity:1}
+/* ── modal resize handles ── */
+.modal-resize-handle{position:absolute;z-index:12;touch-action:none;user-select:none}
+.modal-resize-handle[data-resize-direction="n"]{left:16px;right:16px;top:-6px;height:12px;cursor:n-resize}
+.modal-resize-handle[data-resize-direction="e"]{right:-6px;top:16px;bottom:16px;width:12px;cursor:e-resize}
+.modal-resize-handle[data-resize-direction="s"]{left:16px;right:16px;bottom:-6px;height:12px;cursor:s-resize}
+.modal-resize-handle[data-resize-direction="w"]{left:-6px;top:16px;bottom:16px;width:12px;cursor:w-resize}
+.modal-resize-handle[data-resize-direction="ne"],.modal-resize-handle[data-resize-direction="se"],.modal-resize-handle[data-resize-direction="sw"],.modal-resize-handle[data-resize-direction="nw"]{width:22px;height:22px}
+.modal-resize-handle[data-resize-direction="ne"]{right:-6px;top:-6px;cursor:ne-resize}
+.modal-resize-handle[data-resize-direction="se"]{right:-6px;bottom:-6px;cursor:se-resize}
+.modal-resize-handle[data-resize-direction="sw"]{left:-6px;bottom:-6px;cursor:sw-resize}
+.modal-resize-handle[data-resize-direction="nw"]{left:-6px;top:-6px;cursor:nw-resize}
+.modal-resize-handle::after{content:'';position:absolute;pointer-events:none;opacity:0;transition:opacity .15s;background:var(--text-dim)}
+.modal-resize-handle[data-resize-direction="n"]::after,.modal-resize-handle[data-resize-direction="s"]::after{left:50%;width:34px;height:2px;transform:translateX(-50%)}
+.modal-resize-handle[data-resize-direction="n"]::after{top:5px}
+.modal-resize-handle[data-resize-direction="s"]::after{bottom:5px}
+.modal-resize-handle[data-resize-direction="e"]::after,.modal-resize-handle[data-resize-direction="w"]::after{top:50%;width:2px;height:34px;transform:translateY(-50%)}
+.modal-resize-handle[data-resize-direction="e"]::after{right:5px}
+.modal-resize-handle[data-resize-direction="w"]::after{left:5px}
+.modal-resize-handle[data-resize-direction="ne"]::after,.modal-resize-handle[data-resize-direction="se"]::after,.modal-resize-handle[data-resize-direction="sw"]::after,.modal-resize-handle[data-resize-direction="nw"]::after{width:9px;height:9px;background:none}
+.modal-resize-handle[data-resize-direction="ne"]::after{right:5px;top:5px;border-right:2px solid var(--text-dim);border-top:2px solid var(--text-dim)}
+.modal-resize-handle[data-resize-direction="se"]::after{right:5px;bottom:5px;border-right:2px solid var(--text-dim);border-bottom:2px solid var(--text-dim)}
+.modal-resize-handle[data-resize-direction="sw"]::after{left:5px;bottom:5px;border-left:2px solid var(--text-dim);border-bottom:2px solid var(--text-dim)}
+.modal-resize-handle[data-resize-direction="nw"]::after{left:5px;top:5px;border-left:2px solid var(--text-dim);border-top:2px solid var(--text-dim)}
+.modal-box:hover>.modal-resize-handle::after{opacity:.24}
+.modal-box>.modal-resize-handle:hover::after,.modal-box>.modal-resize-handle.resizing::after{opacity:1}
+@media (pointer:coarse),(max-width:600px){
+  .modal-resize-handle[data-resize-direction="n"]{left:22px;right:22px;top:-9px;height:18px}
+  .modal-resize-handle[data-resize-direction="e"]{right:-9px;top:22px;bottom:22px;width:18px}
+  .modal-resize-handle[data-resize-direction="s"]{left:22px;right:22px;bottom:-9px;height:18px}
+  .modal-resize-handle[data-resize-direction="w"]{left:-9px;top:22px;bottom:22px;width:18px}
+  .modal-resize-handle[data-resize-direction="ne"],.modal-resize-handle[data-resize-direction="se"],.modal-resize-handle[data-resize-direction="sw"],.modal-resize-handle[data-resize-direction="nw"]{width:30px;height:30px}
+  .modal-resize-handle[data-resize-direction="ne"]{right:-9px;top:-9px}
+  .modal-resize-handle[data-resize-direction="se"]{right:-9px;bottom:-9px}
+  .modal-resize-handle[data-resize-direction="sw"]{left:-9px;bottom:-9px}
+  .modal-resize-handle[data-resize-direction="nw"]{left:-9px;top:-9px}
+}
 /* ── changed files bar ── */
 #changed-files-bar{display:flex;flex-direction:column;padding:4px 12px 6px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;max-height:160px;overflow-y:auto}
 #cf-meta{display:flex;align-items:center;gap:4px;flex-shrink:0}
@@ -507,7 +539,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" onclick="closeModal('edit-modal')">Cancel</button>
       <button class="fm-btn primary" onclick="saveFile()">Save</button>
     </div>
-    <div class="modal-resize-handle"></div>
+    <div class="modal-resize-handle" data-resize-direction="se" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -523,7 +555,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" id="view-raw-btn" onclick="toggleViewRaw()" style="display:none;margin-right:auto">Show Raw</button>
       <button class="fm-btn" onclick="closeModal('view-modal')">Close</button>
     </div>
-    <div class="modal-resize-handle"></div>
+    <div class="modal-resize-handle" data-resize-direction="se" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -569,7 +601,7 @@ pre code.hljs,code.hljs{background:transparent!important;padding:0!important}
       <button class="fm-btn" onclick="closeModal('newfile-modal')">Cancel</button>
       <button class="fm-btn primary" id="newfile-create-btn" onclick="doNewFile()">Create</button>
     </div>
-    <div class="modal-resize-handle"></div>
+    <div class="modal-resize-handle" data-resize-direction="se" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -670,6 +702,7 @@ function openModal(id){
   }else{
     box.style.left='50%';box.style.top='50%';box.style.transform='translate(-50%,-50%)';
   }
+  _applyStoredModalResize(id);
 }
 function showErr(msg){alert("Error: "+msg)}
 function _initFileDeleteControls(){
@@ -2882,6 +2915,53 @@ document.addEventListener('mousedown',function(e){
 
 /* ── resizable modals ── */
 const _modalResizeState=(function(){try{return JSON.parse(localStorage.getItem('ucagent.modal.resize')||'{}');}catch(e){return {};}})();
+const _MODAL_RESIZE_DIRECTIONS=['n','ne','e','se','s','sw','w','nw'];
+function _clampModalValue(value,minimum,maximum){return Math.max(minimum,Math.min(maximum,value));}
+function _modalResizeLimits(){
+  const margin=window.innerWidth<=480||window.innerHeight<=480?4:8;
+  const maxW=Math.max(1,window.innerWidth-margin*2);
+  const maxH=Math.max(1,window.innerHeight-margin*2);
+  return {
+    left:margin,top:margin,right:window.innerWidth-margin,bottom:window.innerHeight-margin,
+    minW:Math.min(maxW,Math.max(240,Math.min(400,maxW*.6))),
+    minH:Math.min(maxH,Math.max(160,Math.min(260,maxH*.55))),
+    maxW,maxH
+  };
+}
+function _fitModalRect(rect,limits){
+  const width=_clampModalValue(Number(rect.width)||limits.minW,limits.minW,limits.maxW);
+  const height=_clampModalValue(Number(rect.height)||limits.minH,limits.minH,limits.maxH);
+  const left=_clampModalValue(Number(rect.left)||limits.left,limits.left,limits.right-width);
+  const top=_clampModalValue(Number(rect.top)||limits.top,limits.top,limits.bottom-height);
+  return {left,top,width,height};
+}
+function _calculateModalResizeRect(direction,start,deltaX,deltaY,limits){
+  let left=start.left,top=start.top;
+  let right=start.left+start.width,bottom=start.top+start.height;
+  if(direction.includes('w'))left=_clampModalValue(start.left+deltaX,limits.left,right-limits.minW);
+  if(direction.includes('e'))right=_clampModalValue(right+deltaX,left+limits.minW,limits.right);
+  if(direction.includes('n'))top=_clampModalValue(start.top+deltaY,limits.top,bottom-limits.minH);
+  if(direction.includes('s'))bottom=_clampModalValue(bottom+deltaY,top+limits.minH,limits.bottom);
+  return {
+    left:Math.round(left),top:Math.round(top),
+    width:Math.round(right-left),height:Math.round(bottom-top)
+  };
+}
+function _setModalRect(box,rect){
+  box.style.left=rect.left+'px';box.style.top=rect.top+'px';box.style.transform='none';
+  box.style.width=rect.width+'px';box.style.maxWidth='none';
+  box.style.height=rect.height+'px';box.style.maxHeight='none';
+}
+function _rememberModalRect(modalId,rect,persist){
+  if(!modalId)return;
+  _modalResizeState[modalId]={w:Math.round(rect.width),h:Math.round(rect.height)};
+  _modalDragState[modalId]={x:Math.round(rect.left),y:Math.round(rect.top)};
+  if(!persist)return;
+  try{
+    localStorage.setItem('ucagent.modal.resize',JSON.stringify(_modalResizeState));
+    localStorage.setItem('ucagent.modal.drag',JSON.stringify(_modalDragState));
+  }catch(e){}
+}
 function _resizeModalContent(box){
   const hdr=box.querySelector('.modal-hdr');
   const footer=box.querySelector('.modal-footer');
@@ -2905,42 +2985,88 @@ function _resizeModalContent(box){
   // view-wrap / view-md / view-frame use height:100% → they auto-fill the body
 }
 function _applyStoredModalResize(modalId){
-  const s=_modalResizeState[modalId];
-  if(!s)return;
   const box=qs('#'+modalId+' .modal-box');
   if(!box)return;
-  box.style.width=s.w+'px';box.style.maxWidth='none';
-  box.style.height=s.h+'px';box.style.maxHeight='none';
+  const limits=_modalResizeLimits();
+  const s=_modalResizeState[modalId];
+  if(s){
+    box.style.width=_clampModalValue(Number(s.w)||limits.minW,limits.minW,limits.maxW)+'px';
+    box.style.maxWidth='none';
+    box.style.height=_clampModalValue(Number(s.h)||limits.minH,limits.minH,limits.maxH)+'px';
+    box.style.maxHeight='none';
+  }
+  const rect=box.getBoundingClientRect();
+  const fitted=_fitModalRect(rect,limits);
+  const outside=Math.abs(rect.left-fitted.left)>.5||Math.abs(rect.top-fitted.top)>.5
+    ||Math.abs(rect.width-fitted.width)>.5||Math.abs(rect.height-fitted.height)>.5;
+  if(outside||box.style.transform==='none')_setModalRect(box,fitted);
   _resizeModalContent(box);
 }
 (function(){
   document.addEventListener('DOMContentLoaded',function(){
+    const boxes=new Set();
+    document.querySelectorAll('.modal-resize-handle').forEach(function(handle){
+      const box=handle.closest('.modal-box');
+      if(box)boxes.add(box);
+    });
+    boxes.forEach(function(box){
+      const present=new Set(Array.from(box.children)
+        .filter(child=>child.classList&&child.classList.contains('modal-resize-handle'))
+        .map(child=>child.dataset.resizeDirection));
+      for(const direction of _MODAL_RESIZE_DIRECTIONS){
+        if(present.has(direction))continue;
+        const handle=document.createElement('div');
+        handle.className='modal-resize-handle';
+        handle.dataset.resizeDirection=direction;
+        handle.setAttribute('aria-hidden','true');
+        box.appendChild(handle);
+      }
+    });
     document.querySelectorAll('.modal-resize-handle').forEach(function(handle){
       handle.addEventListener('pointerdown',function(e){
-        if(e.button!==0)return;
+        if(e.button!==0||e.isPrimary===false)return;
         const box=handle.closest('.modal-box');
         if(!box)return;
         const backdrop=box.closest('.modal-backdrop');
+        if(backdrop&&backdrop.classList.contains('hidden'))return;
         const modalId=backdrop?backdrop.id:null;
+        if(modalId)_applyStoredModalResize(modalId);
+        const limits=_modalResizeLimits();
+        const start=_fitModalRect(box.getBoundingClientRect(),limits);
+        _setModalRect(box,start);
         const startX=e.clientX,startY=e.clientY;
-        const startW=box.offsetWidth,startH=box.offsetHeight;
+        const direction=handle.dataset.resizeDirection||'se';
+        let current=start;
         handle.setPointerCapture(e.pointerId);
         document.body.style.userSelect='none';
+        document.body.style.cursor=window.getComputedStyle(handle).cursor;
+        handle.classList.add('resizing');
         function onMove(me){
-          const newW=Math.min(window.innerWidth*0.98,Math.max(400,startW+(me.clientX-startX)));
-          const newH=Math.min(window.innerHeight*0.97,Math.max(260,startH+(me.clientY-startY)));
-          box.style.width=newW+'px';box.style.maxWidth='none';
-          box.style.height=newH+'px';box.style.maxHeight='none';
+          if(me.pointerId!==e.pointerId)return;
+          current=_calculateModalResizeRect(direction,start,me.clientX-startX,me.clientY-startY,limits);
+          _setModalRect(box,current);
           _resizeModalContent(box);
-          if(modalId){_modalResizeState[modalId]={w:newW,h:newH};try{localStorage.setItem('ucagent.modal.resize',JSON.stringify(_modalResizeState));}catch(e){}}
+          _rememberModalRect(modalId,current,false);
         }
-        function onUp(){
+        function onUp(me){
+          if(me.pointerId!==e.pointerId)return;
           document.body.style.userSelect='';
+          document.body.style.cursor='';
+          handle.classList.remove('resizing');
           handle.removeEventListener('pointermove',onMove);
+          handle.removeEventListener('pointerup',onUp);
+          handle.removeEventListener('pointercancel',onUp);
+          _rememberModalRect(modalId,current,true);
         }
         handle.addEventListener('pointermove',onMove);
-        handle.addEventListener('pointerup',onUp,{once:true});
+        handle.addEventListener('pointerup',onUp);
+        handle.addEventListener('pointercancel',onUp);
         e.preventDefault();e.stopPropagation();
+      });
+    });
+    window.addEventListener('resize',function(){
+      document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(function(backdrop){
+        if(backdrop.querySelector('.modal-resize-handle'))_applyStoredModalResize(backdrop.id);
       });
     });
   });
