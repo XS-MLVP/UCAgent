@@ -93,10 +93,20 @@ assert.deepEqual(api.variableRef("TOP.dut.arr[3]"), {
 });
 assert.deepEqual(api.variableRef("TOP.dut.data[3:0]"), {
   path: {strs: ["TOP", "dut"], id: "None"},
-  name: "data[3:0]",
+  name: "data",
   id: "None",
   index: null,
 });
+assert.deepEqual(api.variableRef("TOP.dut.mem[3][7:0]"), {
+  path: {strs: ["TOP", "dut"], id: "None"},
+  name: "mem",
+  id: "None",
+  index: 3,
+});
+assert.equal(
+  api.variableDisplayName(api.variableRef("TOP.dut.mem[3][7:0]")),
+  "TOP.dut.mem[3]",
+);
 
 const location = {
   href: `https://example.test/agent/a-1/cmd/surfer/?wave=${token}&sub_worspace=child-a`,
@@ -153,6 +163,7 @@ void (async () => {
   const identifiers = new Map([
     [api.READY_DIVIDER, 7],
     ["TOP.dut.clk", 8],
+    ["TOP.dut.data", 9],
   ]);
   await api.applyWhenReady(
     {
@@ -172,7 +183,7 @@ void (async () => {
       {RemoveItems: [7]},
       {AddVariables: [
         {path: {strs: ["TOP", "dut"], id: "None"}, name: "clk", id: "None", index: null},
-        {path: {strs: ["TOP", "dut"], id: "None"}, name: "data[3:0]", id: "None", index: null},
+        {path: {strs: ["TOP", "dut"], id: "None"}, name: "data", id: "None", index: null},
       ]},
     ]},
     {Batch: [
@@ -184,6 +195,22 @@ void (async () => {
       {CursorSet: ["Plus", [1, 1]]},
     ]},
   ]);
+  await assert.rejects(
+    api.applyWhenReady(
+      {
+        start: "0",
+        end: "1",
+        cursor: "1",
+        signals: ["TOP.dut.clk", "TOP.dut.missing[31:0]"],
+      },
+      {
+        inject_message() {},
+        async id_of_name(name) { return identifiers.get(name); },
+      },
+      {attempts: 1, interval: 0},
+    ),
+    /TOP\.dut\.missing/,
+  );
   console.log("Surfer deep-link pure-function tests passed");
 })().catch(error => {
   console.error(error);

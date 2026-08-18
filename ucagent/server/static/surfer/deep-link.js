@@ -235,13 +235,22 @@
     const parts = fullName.split(".");
     if (parts.some(part => !part)) throw protocolError(`signal '${fullName}' contains an empty hierarchy component`);
     let name = parts.pop();
+    while (/\[-?[0-9]+:-?[0-9]+\]$/.test(name)) {
+      name = name.replace(/\[-?[0-9]+:-?[0-9]+\]$/, "");
+    }
     let index = null;
     const arrayMatch = name.match(/^(.*)\[([0-9]+)\]$/);
     if (arrayMatch && !arrayMatch[1].includes("[") && Number.isSafeInteger(Number(arrayMatch[2]))) {
       name = arrayMatch[1];
       index = Number(arrayMatch[2]);
     }
+    if (!name) throw protocolError(`signal '${fullName}' has no base variable name`);
     return {path: {strs: parts, id: "None"}, name, id: "None", index};
+  }
+
+  function variableDisplayName(reference) {
+    const suffix = reference.index === null ? "" : `[${reference.index}]`;
+    return [...reference.path.strs, `${reference.name}${suffix}`].join(".");
   }
 
   function inject(api, message) {
@@ -261,17 +270,36 @@
     return undefined;
   }
 
+  async function waitForNames(api, names, attempts, interval) {
+    let missing = [...new Set(names)];
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const identifiers = await Promise.all(missing.map(name => api.id_of_name(name)));
+      missing = missing.filter((_name, index) => identifiers[index] === undefined || identifiers[index] === null);
+      if (!missing.length) return [];
+      await delay(interval);
+    }
+    return missing;
+  }
+
   async function applyWhenReady(payload, api, options) {
     if (!payload || !payload.signals) return;
     const settings = Object.assign({attempts: 200, interval: 100}, options || {});
     const dividerId = await waitForName(api, READY_DIVIDER, settings.attempts, settings.interval);
     if (dividerId === undefined) throw new Error("波形加载失败或 readiness 标记不可用");
+    const references = payload.signals.map(variableRef);
     inject(api, {Batch: [
       {RemoveItems: [dividerId]},
-      {AddVariables: payload.signals.map(variableRef)},
+      {AddVariables: references},
     ]});
-    const signalId = await waitForName(api, payload.signals[0], settings.attempts, settings.interval);
-    if (signalId === undefined) throw new Error("波形加载失败或目标信号不可用");
+    const missing = await waitForNames(
+      api,
+      references.map(variableDisplayName),
+      settings.attempts,
+      settings.interval,
+    );
+    if (missing.length) {
+      throw new Error(`波形加载失败或目标信号不可用：${missing.join(", ")}`);
+    }
     inject(api, {Batch: [
       {ZoomToRange: {
         start: decimalToBigIntJson(payload.start),
@@ -294,6 +322,7 @@
     prepareLocation,
     decimalToBigIntJson,
     variableRef,
+    variableDisplayName,
     applyWhenReady,
   };
 });
