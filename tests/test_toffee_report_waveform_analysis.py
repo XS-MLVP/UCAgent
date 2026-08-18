@@ -73,6 +73,15 @@ b0010 &
 0!
 """
 
+FINAL_SIGNAL_GROUPS = {
+    "clock_mode": "clocked",
+    "clocks": ["TOP.dut.clk"],
+    "inputs": ["TOP.dut.data[3:0]", "TOP.dut.valid"],
+    "outputs": ["TOP.dut.result[3:0]"],
+    "protocol": ["TOP.dut.valid"],
+    "key_signals": ["TOP.dut.data[3:0]"],
+}
+
 
 CHECKPOINT = "FG-A/FC-A/CK-A"
 REPORT_TEST = "tests/test_a.py:1-20::test_a"
@@ -208,6 +217,9 @@ def _write_bug_doc(
 
 
 def _call_waveinfo(tool: WaveInfo, **kwargs) -> dict:
+    is_final = kwargs.get("logged_cycle") is not None or kwargs.get("start_step") is not None
+    if is_final and "signal_groups" not in kwargs:
+        kwargs["signal_groups"] = FINAL_SIGNAL_GROUPS
     return yaml.safe_load(tool._run(**kwargs))
 
 
@@ -229,6 +241,7 @@ def _confirmed_block(result: dict, pattern: list[dict]) -> dict:
         "observed_at": selection["observed_at"],
         "analysis_mode": "clock_aligned",
         "pattern": pattern,
+        "signal_groups": result["signal_groups"],
         "logged_cycle": 0,
         "cycle_tolerance": 2,
         "clock_signal": "TOP.dut.clk",
@@ -268,6 +281,7 @@ def _explicit_block(result: dict, pattern: list[dict], wave_step: int) -> dict:
         "observed_at": selection["observed_at"],
         "analysis_mode": "explicit_window",
         "pattern": pattern,
+        "signal_groups": result["signal_groups"],
         "start_step": 10,
         "end_step": 25,
         "context_steps": 1,
@@ -375,6 +389,39 @@ def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
     tampered = copy.deepcopy(result["waveform_viewer"]["payload"])
     tampered["cursor"] = str(int(tampered["cursor"]) + 1)
     block["_viewer_link"] = build_waveform_viewer_markdown_link(tampered)
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "online viewer link payload does not match" in str(message)
+
+
+def test_signal_groups_and_viewer_must_cover_required_context(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        logged_cycle=0,
+        cycle_tolerance=2,
+        clock_signal="TOP.dut.clk",
+    )
+    block = _confirmed_block(result, pattern)
+
+    block["signal_groups"] = copy.deepcopy(FINAL_SIGNAL_GROUPS)
+    block["signal_groups"]["outputs"] = ["TOP.dut.valid"]
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is False
+    assert "signal_groups" in str(message)
+
+    block = _confirmed_block(result, pattern)
+    tampered_payload = copy.deepcopy(result["waveform_viewer"]["payload"])
+    tampered_payload["signals"] = tampered_payload["signals"][:1]
+    block["_viewer_link"] = build_waveform_viewer_markdown_link(tampered_payload)
     _write_bug_doc(tmp_path, block)
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False

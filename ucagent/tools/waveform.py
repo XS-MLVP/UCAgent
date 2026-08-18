@@ -25,7 +25,10 @@ from langchain_core.tools.base import ArgsSchema
 from pydantic import BaseModel, Field, model_validator
 
 from ucagent.util.functions import make_llm_tool_ret
-from ucagent.util.bug_analysis_contract import WAVEFORM_LLM_ANALYSIS_FIELDS
+from ucagent.util.bug_analysis_contract import (
+    WAVEFORM_LLM_ANALYSIS_FIELDS,
+    WAVEFORM_SIGNAL_GROUP_FIELDS,
+)
 from ucagent.util.log import warning
 from ucagent.util.waveform_viewer import (
     WaveformViewerProtocolError,
@@ -38,6 +41,7 @@ from .uctool import UCTool
 
 WaveEvent = Literal["change", "rising", "falling", "equals", "unknown"]
 ClockEdge = Literal["rising", "falling"]
+WaveClockMode = Literal["", "clocked", "combinational"]
 
 
 class WaveSignalPattern(BaseModel):
@@ -75,6 +79,88 @@ class WaveSignalPattern(BaseModel):
         return self
 
 
+class WaveSignalGroups(BaseModel):
+    """Exact waveform paths grouped by their role in final Bug evidence."""
+
+    clock_mode: WaveClockMode = Field(
+        default="",
+        description=(
+            "Use clocked when the DUT has a relevant clock, combinational when it does "
+            "not, or leave empty when final Bug evidence is not being requested."
+        ),
+    )
+    clocks: list[str] = Field(
+        default_factory=list,
+        description="Exact full paths of relevant DUT clock signals.",
+    )
+    inputs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact full paths of relevant DUT data, selector, enable, request, and other inputs."
+        ),
+    )
+    outputs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact full paths of relevant DUT data, status, valid, and other outputs."
+        ),
+    )
+    protocol: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact full paths of request/response acceptance and validity signals such as "
+            "enable, ready, valid, busy, done, or the DUT's equivalent; empty only when "
+            "the interface has no such protocol signals."
+        ),
+    )
+    key_signals: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Exact full paths of function-specific selectors, state, flags, or internal "
+            "signals needed to explain selection and error propagation."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_groups(self):
+        for field_name in WAVEFORM_SIGNAL_GROUP_FIELDS:
+            normalized = []
+            seen = set()
+            for value in getattr(self, field_name):
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"signal_groups.{field_name} entries must be non-empty strings"
+                    )
+                value = value.strip()
+                if value not in seen:
+                    seen.add(value)
+                    normalized.append(value)
+            setattr(self, field_name, normalized)
+
+        has_signals = any(
+            getattr(self, field) for field in WAVEFORM_SIGNAL_GROUP_FIELDS
+        )
+        if not self.clock_mode:
+            if has_signals:
+                raise ValueError(
+                    "signal_groups.clock_mode is required when signal groups are provided"
+                )
+            return self
+        if self.clock_mode == "clocked" and not self.clocks:
+            raise ValueError("signal_groups.clocks must contain a DUT clock in clocked mode")
+        if self.clock_mode == "combinational" and self.clocks:
+            raise ValueError("signal_groups.clocks must be empty in combinational mode")
+        for field_name in ("inputs", "outputs", "key_signals"):
+            if not getattr(self, field_name):
+                raise ValueError(
+                    f"signal_groups.{field_name} must contain at least one relevant signal"
+                )
+        return self
+
+    def is_empty(self) -> bool:
+        return not self.clock_mode
+
+
 class WaveInfoAnalysisArgs(BaseModel):
     """Canonical arguments used by :class:`WaveInfo` analysis and receipts."""
 
@@ -92,6 +178,15 @@ class WaveInfoAnalysisArgs(BaseModel):
         description=(
             "Structured signal/event queries. Omit this to inspect waveform metadata "
             "and the signal catalog."
+        ),
+    )
+    signal_groups: WaveSignalGroups | None = Field(
+        default=None,
+        description=(
+            "Required for final Bug-document evidence. Group exact full paths for the DUT "
+            "clock (if any), relevant inputs, relevant outputs, protocol controls, and "
+            "function-specific key signals. These signals are loaded for context and the "
+            "online viewer but do not become event triggers."
         ),
     )
     logged_cycle: int | None = Field(
@@ -144,7 +239,10 @@ class WaveInfoAnalysisArgs(BaseModel):
         default=32,
         ge=1,
         le=64,
-        description="Maximum number of matched signals (catalog output may be truncated).",
+        description=(
+            "Maximum combined event/context signals; analysis fails instead of truncating "
+            "a requested signal set."
+        ),
     )
     max_points: int = Field(
         default=200,
@@ -176,6 +274,7 @@ class WaveInfoAnalysisArgs(BaseModel):
             value is not None
             for value in (
                 self.pattern,
+                self.signal_groups,
                 self.logged_cycle,
                 self.clock_signal,
                 self.start_step,
@@ -187,8 +286,20 @@ class WaveInfoAnalysisArgs(BaseModel):
                 "alignment, or a wave-step window; omit all analysis arguments to list "
                 "the newest session's waveform files"
             )
+        if self.signal_groups is not None and self.signal_groups.is_empty():
+            self.signal_groups = None
+        if self.signal_groups is not None and not self.pattern:
+            raise ValueError("signal_groups requires a non-empty event pattern")
         if self.clock_signal is not None:
             self.clock_signal = self.clock_signal.strip() or None
+        if (
+            self.signal_groups is not None
+            and self.signal_groups.clock_mode == "combinational"
+            and self.clock_signal is not None
+        ):
+            raise ValueError(
+                "clock_signal is not valid when signal_groups.clock_mode is combinational"
+            )
         if (
             self.start_step is not None
             and self.end_step is not None
@@ -260,6 +371,13 @@ class ArgWaveInfo(BaseModel):
             "and the signal catalog."
         ),
     )
+    signal_groups: WaveSignalGroups = Field(
+        default_factory=WaveSignalGroups,
+        description=(
+            "Required for final Bug-document evidence. Use exact full paths and classify "
+            "the DUT clock mode, relevant inputs, outputs, protocol controls, and key signals."
+        ),
+    )
     logged_cycle: int = Field(
         default=-1,
         ge=-1,
@@ -320,7 +438,10 @@ class ArgWaveInfo(BaseModel):
         default=32,
         ge=1,
         le=64,
-        description="Maximum number of matched signals (catalog output may be truncated).",
+        description=(
+            "Maximum combined event/context signals; analysis fails instead of truncating "
+            "a requested signal set."
+        ),
     )
     max_points: int = Field(
         default=200,
@@ -347,6 +468,7 @@ class ArgWaveInfo(BaseModel):
         if not self.test_case_name and any(
             (
                 self.pattern,
+                not self.signal_groups.is_empty(),
                 self.logged_cycle >= 0,
                 bool(self.clock_signal),
                 self.start_step >= 0,
@@ -368,6 +490,12 @@ class ArgWaveInfo(BaseModel):
                 "logged_cycle alignment and an explicit start_step/end_step window are "
                 "separate evidence modes; use one mode per WaveInfo call"
             )
+        if not self.signal_groups.is_empty() and not self.pattern:
+            raise ValueError("signal_groups requires a non-empty event pattern")
+        if self.signal_groups.clock_mode == "combinational" and self.clock_signal:
+            raise ValueError(
+                "clock_signal is not valid when signal_groups.clock_mode is combinational"
+            )
         return self
 
     def analysis_arguments(self) -> dict[str, Any]:
@@ -380,6 +508,11 @@ class ArgWaveInfo(BaseModel):
         return {
             "test_case_name": self.test_case_name or None,
             "pattern": patterns or None,
+            "signal_groups": (
+                None
+                if self.signal_groups.is_empty()
+                else self.signal_groups.model_dump(mode="json")
+            ),
             "logged_cycle": self.logged_cycle if self.logged_cycle >= 0 else None,
             "cycle_tolerance": self.cycle_tolerance,
             "clock_signal": self.clock_signal or None,
@@ -450,6 +583,10 @@ class WaveInfo(UCTool):
         "wavekit syntax and must be supplied as structured pattern entries. "
         "A pattern-only call is exploratory: final Bug evidence must use either a "
         "complete start_step/end_step window or logged_cycle with an exact clock_signal. "
+        "Final Bug evidence also requires signal_groups with the DUT clock mode, relevant "
+        "inputs, relevant outputs, actual protocol controls, and function-specific key "
+        "signals. These context signals are shown in the timeline and online viewer without "
+        "becoming event triggers. A target result signal alone is not complete evidence. "
         "logged_cycle is only a test-log hint: provide clock_signal so the tool can "
         "map clock occurrence indices to wavekit simulation timestamps. Always "
         "confirm a candidate with the interface specification, test-driver/API Step "
@@ -1199,6 +1336,8 @@ class WaveInfo(UCTool):
                             ("analysis_window", copy.deepcopy(result.get("analysis_window"))),
                             ("event_summary", copy.deepcopy(result.get("event_summary"))),
                             ("cycle_alignment", copy.deepcopy(result.get("cycle_alignment"))),
+                            ("signal_groups", copy.deepcopy(result.get("signal_groups"))),
+                            ("signals", copy.deepcopy(result.get("signals"))),
                             ("event_steps", event_steps),
                             (
                                 "waveform_viewer",
@@ -1299,6 +1438,23 @@ class WaveInfo(UCTool):
         return entries
 
     @staticmethod
+    def _mcp_signal_groups(
+        signal_groups: WaveSignalGroups | dict[str, Any] | None,
+    ) -> OrderedDict:
+        """Return signal roles in the non-nullable shape accepted by the MCP tool."""
+
+        if not signal_groups:
+            model = WaveSignalGroups()
+        elif isinstance(signal_groups, WaveSignalGroups):
+            model = signal_groups
+        else:
+            model = WaveSignalGroups(**signal_groups)
+        return OrderedDict(
+            [("clock_mode", model.clock_mode)]
+            + [(field, list(getattr(model, field))) for field in WAVEFORM_SIGNAL_GROUP_FIELDS]
+        )
+
+    @staticmethod
     def _event_steps(result: dict[str, Any]) -> list[int]:
         timeline = result.get("timeline") or {}
         return [
@@ -1320,6 +1476,15 @@ class WaveInfo(UCTool):
         selection = result.get("waveform_selection")
         if not isinstance(selection, dict):
             return
+        signal_groups = result.get("signal_groups")
+        viewer = result.get("waveform_viewer")
+        if not isinstance(signal_groups, dict) or not isinstance(viewer, dict):
+            result["bug_document_signal_groups_required"] = (
+                "Call final WaveInfo again with signal_groups containing the DUT clock mode, "
+                "relevant inputs, relevant outputs, protocol controls, and function-specific "
+                "key signals. Copy only the new tool-generated fields and viewer link."
+            )
+            return
 
         fields = OrderedDict(
             [
@@ -1339,6 +1504,7 @@ class WaveInfo(UCTool):
         ):
             fields[key] = selection.get(key)
         fields["pattern"] = self._document_pattern_entries(invocation.get("pattern"))
+        fields["signal_groups"] = copy.deepcopy(signal_groups)
 
         if invocation.get("logged_cycle") is not None:
             candidate = (result.get("cycle_alignment") or {}).get("selected_candidate") or {}
@@ -1369,7 +1535,6 @@ class WaveInfo(UCTool):
         result["bug_document_completion_required"] = list(
             WAVEFORM_LLM_ANALYSIS_FIELDS
         )
-        viewer = result.get("waveform_viewer")
         if isinstance(viewer, dict) and isinstance(viewer.get("url"), str):
             result["bug_document_viewer_link"] = build_waveform_viewer_markdown_link(
                 viewer["payload"]
@@ -1383,7 +1548,11 @@ class WaveInfo(UCTool):
             "but do not change the <WAVEFORM-VIEWER> marker, URL, or viewer token. Do not "
             "construct the viewer token manually. Before completing alignment_evidence and "
             "observed_behavior, inspect the specification and test-driver/API Step ordering, "
-            "then prove the request acceptance condition, response-valid sampling point, "
+            "confirm that signal_groups includes the relevant DUT inputs and outputs, the DUT "
+            "clock for a clocked design, every acceptance/validity control used by the actual "
+            "protocol, and at least one function-specific selector, state, flag, or internal "
+            "propagation signal. The online viewer must show the same signed signal set. "
+            "Then prove the request acceptance condition, response-valid sampling point, "
             "backpressure/latency, and transaction identity. Ready/valid is only one possible "
             "protocol; use the DUT's actual equivalent conditions. A single Step is not proof "
             "that an output is valid: inspect whether the API already advances or waits, and "
@@ -1403,6 +1572,18 @@ class WaveInfo(UCTool):
 
         if result.get("evidence_usable") is not True:
             return
+        signal_groups = result.get("signal_groups")
+        if not isinstance(signal_groups, dict):
+            result["waveform_viewer_error"] = (
+                "Final Bug evidence requires complete signal_groups before an online viewer "
+                "link can be generated."
+            )
+            result["waveform_viewer_suggestion"] = (
+                "Inspect the DUT ports, test driver/API, specification, and relevant RTL; "
+                "then call WaveInfo again with exact paths for the DUT clock mode, relevant "
+                "inputs, outputs, protocol controls, and function-specific key signals."
+            )
+            return
         selection = result.get("waveform_selection") or {}
         window = result.get("analysis_window") or {}
         alignment = result.get("cycle_alignment") or {}
@@ -1416,6 +1597,10 @@ class WaveInfo(UCTool):
         resolved_clock = (alignment.get("clock") or {}).get("signal")
         if isinstance(resolved_clock, str) and resolved_clock:
             signals.append(resolved_clock)
+        for field_name in WAVEFORM_SIGNAL_GROUP_FIELDS:
+            for signal in signal_groups.get(field_name) or []:
+                if signal not in signals:
+                    signals.append(signal)
         for signal in (result.get("signals") or {}):
             if signal not in signals:
                 signals.append(signal)
@@ -1650,6 +1835,7 @@ class WaveInfo(UCTool):
         reader: Any,
         selection: _WaveSelection,
         patterns: list[WaveSignalPattern] | None,
+        signal_groups: WaveSignalGroups | None,
         logged_cycle: int | None,
         cycle_tolerance: int,
         clock_signal: str | None,
@@ -1901,16 +2087,85 @@ class WaveInfo(UCTool):
             for signal in matches:
                 matched_by_name.setdefault(signal.full_name, signal)
 
-        if len(matched_by_name) > max_signals:
+        resolved_signal_groups: OrderedDict[str, Any] | None = None
+        if signal_groups is not None:
+            resolved_signal_groups = OrderedDict(
+                [("clock_mode", signal_groups.clock_mode)]
+                + [(field, []) for field in WAVEFORM_SIGNAL_GROUP_FIELDS]
+            )
+            all_signal_names = [signal.full_name for signal in all_signals]
+            for field_name in WAVEFORM_SIGNAL_GROUP_FIELDS:
+                for requested_name in getattr(signal_groups, field_name):
+                    try:
+                        matches = sorted(
+                            reader.get_matched_signals(requested_name).values(),
+                            key=lambda signal: signal.full_name,
+                        )
+                    except Exception as error:
+                        return self._error(
+                            "invalid_signal_group_path",
+                            f"wavekit rejected signal_groups.{field_name} path "
+                            f"'{requested_name}': {error}",
+                            details={"signal_group": field_name, "signal": requested_name},
+                        )
+                    if len(matches) != 1 or matches[0].full_name != requested_name:
+                        return self._error(
+                            "signal_group_path_not_exact",
+                            f"signal_groups.{field_name} must use an exact full waveform path.",
+                            details={
+                                "signal_group": field_name,
+                                "requested_signal": requested_name,
+                                "matched_signals": [signal.full_name for signal in matches],
+                                "close_signal_matches": get_close_matches(
+                                    requested_name,
+                                    all_signal_names,
+                                    n=10,
+                                    cutoff=0.3,
+                                ),
+                            },
+                            suggestions=[
+                                "Call WaveInfo with pattern and signal_groups omitted to "
+                                "inspect the signal catalog, then copy exact full paths."
+                            ],
+                        )
+                    signal = matches[0]
+                    if field_name == "clocks" and int(signal.width) != 1:
+                        return self._error(
+                            "invalid_signal_group_clock_width",
+                            "Every signal_groups.clocks entry must be one bit wide.",
+                            details={"signal": signal.full_name, "width": int(signal.width)},
+                        )
+                    resolved_signal_groups[field_name].append(signal.full_name)
+                    matched_by_name.setdefault(signal.full_name, signal)
+
+            if resolved_clock is not None:
+                if resolved_clock.full_name not in resolved_signal_groups["clocks"]:
+                    return self._error(
+                        "alignment_clock_missing_from_signal_groups",
+                        "The resolved clock_signal must also be listed in signal_groups.clocks.",
+                        details={
+                            "resolved_clock_signal": resolved_clock.full_name,
+                            "signal_group_clocks": resolved_signal_groups["clocks"],
+                        },
+                    )
+
+        loaded_signal_names = list(matched_by_name)
+        if resolved_clock is not None and resolved_clock.full_name not in matched_by_name:
+            loaded_signal_names.insert(0, resolved_clock.full_name)
+        if len(loaded_signal_names) > max_signals:
             return self._error(
                 "signal_limit_exceeded",
-                "Signal patterns matched more signals than max_signals; analysis was not truncated silently.",
+                "The combined event and context signals exceed max_signals; analysis was "
+                "not truncated silently.",
                 details={
-                    "matched_signal_count": len(matched_by_name),
+                    "matched_signal_count": len(loaded_signal_names),
                     "max_signals": max_signals,
-                    "first_matches": list(matched_by_name)[:max_signals],
+                    "first_matches": loaded_signal_names[:max_signals],
                 },
-                suggestions=["Narrow wildcard or regex patterns, or raise max_signals up to 64."],
+                suggestions=[
+                    "Narrow wildcard or regex patterns, keep only relevant role signals, "
+                    "or raise max_signals up to 64."
+                ],
             )
 
         traces: OrderedDict[str, _SignalTrace] = OrderedDict()
@@ -2048,6 +2303,7 @@ class WaveInfo(UCTool):
                     ),
                 ),
                 ("patterns", pattern_report),
+                ("signal_groups", resolved_signal_groups),
                 ("signals", signal_report),
                 (
                     "event_summary",
@@ -2109,7 +2365,7 @@ class WaveInfo(UCTool):
                 "call did not request a reproducible final-evidence window. Call WaveInfo "
                 "again with both start_step and end_step from recommended_evidence_call."
             )
-            result["recommended_evidence_call"] = OrderedDict(
+            recommended = OrderedDict(
                 [
                     ("test_case_name", selection.test_case_name),
                     ("pattern", self._mcp_pattern_entries(patterns)),
@@ -2121,6 +2377,9 @@ class WaveInfo(UCTool):
                     ("max_points", max_points),
                 ]
             )
+            if signal_groups is not None:
+                recommended["signal_groups"] = self._mcp_signal_groups(signal_groups)
+            result["recommended_evidence_call"] = recommended
             result["next_action"] = (
                 "Invoke WaveInfo with recommended_evidence_call exactly, then use the new "
                 "receipt and its bug_document_fields. The current receipt is exploratory "
@@ -2296,6 +2555,7 @@ class WaveInfo(UCTool):
         self,
         test_case_name: str | None = None,
         pattern: list[WaveSignalPattern] | None = None,
+        signal_groups: WaveSignalGroups | dict[str, Any] | None = None,
         logged_cycle: int | None = None,
         cycle_tolerance: int = 5,
         clock_signal: str | None = None,
@@ -2315,6 +2575,7 @@ class WaveInfo(UCTool):
             args = WaveInfoAnalysisArgs(
                 test_case_name=test_case_name,
                 pattern=pattern,
+                signal_groups=signal_groups,
                 logged_cycle=logged_cycle,
                 cycle_tolerance=cycle_tolerance,
                 clock_signal=clock_signal,
@@ -2375,6 +2636,7 @@ class WaveInfo(UCTool):
                     reader,
                     selection,
                     args.pattern,
+                    args.signal_groups,
                     args.logged_cycle,
                     args.cycle_tolerance,
                     args.clock_signal,
@@ -2409,6 +2671,7 @@ class WaveInfo(UCTool):
         self,
         test_case_name: str = "",
         pattern: list[WaveInfoToolPattern] = [],
+        signal_groups: WaveSignalGroups = WaveSignalGroups(),
         logged_cycle: int = -1,
         cycle_tolerance: int = 5,
         clock_signal: str = "",
@@ -2428,6 +2691,7 @@ class WaveInfo(UCTool):
             tool_args = ArgWaveInfo(
                 test_case_name=test_case_name,
                 pattern=pattern,
+                signal_groups=signal_groups,
                 logged_cycle=logged_cycle,
                 cycle_tolerance=cycle_tolerance,
                 clock_signal=clock_signal,

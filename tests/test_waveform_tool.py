@@ -66,6 +66,15 @@ b0011 &
 0!
 """
 
+FINAL_SIGNAL_GROUPS = {
+    "clock_mode": "clocked",
+    "clocks": ["TOP.dut.clk"],
+    "inputs": ["TOP.dut.data[3:0]", "TOP.dut.valid"],
+    "outputs": ["TOP.dut.result[3:0]"],
+    "protocol": ["TOP.dut.valid", "TOP.dut.ready"],
+    "key_signals": ["TOP.dut.data[3:0]"],
+}
+
 
 def _session(test_dir: Path, name: str) -> Path:
     session = test_dir / "data" / name
@@ -194,6 +203,16 @@ def test_mcp_schema_uses_non_nullable_sentinel_arguments():
     assert schema["properties"]["test_case_name"]["default"] == ""
     assert schema["properties"]["pattern"]["type"] == "array"
     assert schema["properties"]["pattern"]["default"] == []
+    assert "$ref" in schema["properties"]["signal_groups"]
+    signal_group_schema = schema["$defs"]["WaveSignalGroups"]
+    assert set(signal_group_schema["properties"]) == {
+        "clock_mode",
+        "clocks",
+        "inputs",
+        "outputs",
+        "protocol",
+        "key_signals",
+    }
     assert schema["properties"]["logged_cycle"]["default"] == -1
     assert schema["properties"]["clock_signal"]["default"] == ""
     assert schema["properties"]["start_step"]["default"] == -1
@@ -303,6 +322,7 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
         logged_cycle=0,
         cycle_tolerance=2,
         clock_signal="TOP.dut.clk",
+        signal_groups=FINAL_SIGNAL_GROUPS,
         pattern=[
             {"signal": "TOP.dut.valid", "event": "rising"},
             {"signal": "TOP.dut.data[3:0]", "event": "equals", "value": "0x3"},
@@ -333,6 +353,8 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     assert result["cycle_alignment"]["wave_step_unit"] == "wavekit_simulation_timestamp"
     assert result["cycle_alignment"]["confirmed"] is False
     assert result["timeline"][15]["values"]["TOP.dut.data[3:0]"] == "4'h3"
+    assert result["timeline"][15]["values"]["TOP.dut.result[3:0]"] == "4'h0"
+    assert result["signal_groups"] == FINAL_SIGNAL_GROUPS
     viewer = result["waveform_viewer"]
     assert viewer["payload"] == {
         "v": 2,
@@ -341,7 +363,13 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
         "start": "5",
         "end": "35",
         "cursor": "15",
-        "signals": ["TOP.dut.clk", "TOP.dut.valid", "TOP.dut.data[3:0]"],
+        "signals": [
+            "TOP.dut.clk",
+            "TOP.dut.data[3:0]",
+            "TOP.dut.valid",
+            "TOP.dut.result[3:0]",
+            "TOP.dut.ready",
+        ],
     }
     token = viewer["url"].split("wave=", 1)[1]
     assert decode_waveform_viewer_token(token) == viewer["payload"]
@@ -351,7 +379,70 @@ def test_vcd_reports_freshness_events_and_clock_based_cycle_alignment(tmp_path):
     receipt = tool.get_analysis_receipt(
         result["waveform_analysis_receipt"]["receipt_id"]
     )
+    assert (
+        result["bug_document_fields"]["waveform_analysis"]["signal_groups"]
+        == FINAL_SIGNAL_GROUPS
+    )
+    assert receipt["arguments"]["signal_groups"] == FINAL_SIGNAL_GROUPS
+    assert receipt["result"]["signal_groups"] == FINAL_SIGNAL_GROUPS
     assert receipt["result"]["waveform_viewer"] == viewer
+
+
+def test_final_evidence_without_signal_groups_has_no_bug_document_link(tmp_path):
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_missing_groups")
+
+    result = _call(
+        _tool(tmp_path, test_dir),
+        test_case_name="test_missing_groups",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        start_step=10,
+        end_step=25,
+    )
+
+    assert result["evidence_usable"] is True
+    assert "waveform_viewer" not in result
+    assert "bug_document_fields" not in result
+    assert "bug_document_viewer_link" not in result
+    assert "signal_groups" in result["waveform_viewer_error"]
+    assert "signal_groups" in result["bug_document_signal_groups_required"]
+
+
+def test_signal_groups_require_complete_roles_and_exact_paths(tmp_path):
+    incomplete = _call(
+        WaveInfo(),
+        test_case_name="test_incomplete_groups",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups={
+            "clock_mode": "clocked",
+            "clocks": ["TOP.dut.clk"],
+            "inputs": ["TOP.dut.valid"],
+            "outputs": ["TOP.dut.result[3:0]"],
+            "protocol": [],
+            "key_signals": [],
+        },
+        start_step=10,
+        end_step=25,
+    )
+    assert incomplete["status"] == "invalid_arguments"
+    assert "key_signals" in incomplete["error"]
+
+    test_dir = tmp_path / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_123")
+    _write_vcd(session, "test_wildcard_group")
+    wildcard_groups = dict(FINAL_SIGNAL_GROUPS)
+    wildcard_groups["inputs"] = ["TOP.dut.*"]
+    wildcard = _call(
+        _tool(tmp_path, test_dir),
+        test_case_name="test_wildcard_group",
+        pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups=wildcard_groups,
+        start_step=10,
+        end_step=25,
+    )
+    assert wildcard["status"] == "signal_group_path_not_exact"
+    assert wildcard["details"]["signal_group"] == "inputs"
 
 
 @pytest.mark.parametrize(
@@ -445,6 +536,7 @@ def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_
         _tool(tmp_path, test_dir),
         test_case_name="test_explicit_viewer",
         pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups=FINAL_SIGNAL_GROUPS,
         start_step=10,
         end_step=25,
     )
@@ -456,7 +548,13 @@ def test_explicit_window_viewer_uses_effective_window_and_real_event_cursor(tmp_
         "start": "10",
         "end": "25",
         "cursor": "15",
-        "signals": ["TOP.dut.valid"],
+        "signals": [
+            "TOP.dut.clk",
+            "TOP.dut.data[3:0]",
+            "TOP.dut.valid",
+            "TOP.dut.result[3:0]",
+            "TOP.dut.ready",
+        ],
     }
     assert result["bug_document_viewer_link"].startswith(
         "<WAVEFORM-VIEWER> [test_explicit_viewer](/surfer/?wave="
@@ -475,6 +573,7 @@ def test_waveinfo_requires_llm_to_confirm_protocol_valid_sampling(tmp_path):
             {"signal": "TOP.dut.valid", "event": "rising"},
             {"signal": "TOP.dut.ready", "event": "equals", "value": "0x1"},
         ],
+        signal_groups=FINAL_SIGNAL_GROUPS,
         start_step=10,
         end_step=25,
     )
@@ -499,6 +598,7 @@ def test_workspace_external_waveform_cannot_create_bug_viewer_link(tmp_path):
         WaveInfo(workspace=str(workspace), test_dir=str(test_dir), dut_name="Demo"),
         test_case_name="test_external",
         pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups=FINAL_SIGNAL_GROUPS,
         start_step=10,
         end_step=25,
     )
@@ -807,6 +907,7 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
         first_tool,
         test_case_name="test_receipt_resume",
         pattern=[{"signal": "TOP.dut.valid", "event": "rising"}],
+        signal_groups=FINAL_SIGNAL_GROUPS,
         start_step=10,
         end_step=25,
     )
@@ -833,7 +934,13 @@ def test_receipt_is_restored_after_tool_recreation(tmp_path):
         "start": "10",
         "end": "25",
         "cursor": "15",
-        "signals": ["TOP.dut.valid"],
+        "signals": [
+            "TOP.dut.clk",
+            "TOP.dut.data[3:0]",
+            "TOP.dut.valid",
+            "TOP.dut.result[3:0]",
+            "TOP.dut.ready",
+        ],
     }
 
 

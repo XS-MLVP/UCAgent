@@ -82,6 +82,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `<BG-NAME-XX>` | 动态 Bug 名称和置信度 | `XX` 是 0 到 100 的整数；真正解释 Fail 的动态 Bug 必须为 1 到 100 |
 | `<TC-test_file.py::test_name>` | 复现 Bug 的 pytest 用例 | 文件名和函数名必须匹配真实 Fail；类用例写成 `<TC-test_file.py::ClassName::test_name>` |
 | `waveform_analysis` | 波形证据块的唯一 YAML 顶层键 | 不是尖括号标签；必须放在 fenced YAML 代码块中并直接跟随对应 TC |
+| `signal_groups` | 最终证据的必要信号角色映射 | 不是尖括号标签；由最终 WaveInfo 调用签名，必须覆盖时钟模式、相关输入、相关输出、协议控制和功能关键路径 |
 | `<WAVEFORM-VIEWER>` | 在线波形深链接 | 必须是 YAML 围栏后的第一条非空内容；显示文字可本地化，URL 与签名 receipt 必须完全一致 |
 | `<BUG-OVERVIEW>` 到 `<BUG-RETEST>` | 八个分析字段边界 | 使用 6.1.1 节列出的完整标记序列；唯一、有序、内容非空，展示标题不参与解析 |
 | `<BUG-TODO>` | Skill 骨架尚未完成 | `recordbug.py` 生成；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
@@ -114,6 +115,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `observed_at` | WaveInfo | 工具观测时间，带时区的 ISO-8601 时间 |
 | `analysis_mode` | WaveInfo | 只能为 `clock_aligned` 或 `explicit_window` |
 | `pattern` | WaveInfo 调用参数 | 非空结构化事件列表，必须与 receipt 中的 pattern 完全一致 |
+| `signal_groups` | WaveInfo 调用参数与解析结果 | 使用精确完整路径声明 `clock_mode`、`clocks`、`inputs`、`outputs`、`protocol`、`key_signals`；必须与 receipt 和在线 viewer 一致 |
 | `context_steps` | WaveInfo 调用参数 | 事件前后上下文 step 数，必须与 receipt 一致 |
 | `max_points` | WaveInfo 调用参数 | 最大返回点数，必须与 receipt 一致 |
 | `wave_step` | WaveInfo 结果 | 真正触发 pattern 的波形 step，不是直接复制测试日志 cycle |
@@ -123,6 +125,19 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `source_correlation` | LLM 阅读源码后填写 | 解释波形现象如何对应到具体源码逻辑和根因 |
 
 最后三个字段不能照抄模板，也不能由工具虚构。它们必须是非空字符串，并形成“测试驱动与协议接受 -> 日志事务 -> 波形事件 -> RTL 逻辑”的闭环。Checker 只能验证结构、receipt 和波形重放，不能仅凭信号名称或某个时间点的数据值自动判断协议是否成立；事务语义必须由 LLM 结合规格、测试 API/回调和 RTL 审查。
+
+`signal_groups` 的固定子字段如下。它们是 LLM 阅读规格、DUT 顶层端口、测试 API/driver 和相关 RTL 后作出的结构化声明；Checker 验证路径真实、角色结构完整、已进入 timeline/receipt/viewer，但不会根据 `ready`、`valid` 等名字自动判断角色是否正确。
+
+| 子字段 | 要求 |
+|---|---|
+| `clock_mode` | 时序 DUT 使用 `clocked`；无时钟组合 DUT 使用 `combinational`，不得虚构时钟 |
+| `clocks` | `clocked` 时至少一个实际 DUT 时钟且必须含对齐使用的精确时钟；`combinational` 时为空 |
+| `inputs` | 当前失败功能相关的输入数据、操作码/选择、enable/request/valid 等输入，至少一个；不是只列触发 pattern |
+| `outputs` | 当前功能相关的输出数据、状态、错误标志和输出有效位，至少一个；必须包含被断言或用于判错的输出 |
+| `protocol` | 请求接受与响应有效/完成控制，例如 ready/valid、req/ack、enable、start/busy、done 或等价信号；只有接口确实没有此类控制时才可为空 |
+| `key_signals` | 至少一个能解释功能选择、状态推进或错误传播的关键外部/内部信号；简单组合 DUT 可复用操作码、选择信号或关键中间结果 |
+
+同一信号可以同时属于多个角色，例如输入 `valid` 也属于 `protocol`；WaveInfo 会按 `clocks -> inputs -> outputs -> protocol -> key_signals` 保持组内顺序并全局去重。`pattern` 只描述用于定位真实失败事件的条件，不能为了让 viewer 显示某个信号就把它设成 `change`；`signal_groups` 中的上下文信号会被加载进 timeline 和 viewer，但不会额外制造触发事件。最终调用若缺少完整角色，只会返回补充建议，不会生成可提交的 `bug_document_fields` 和 `bug_document_viewer_link`。
 
 ### 3.3 时钟对齐模式字段
 
@@ -212,7 +227,7 @@ assert actual == expected, (
 
 1. 无参数调用只用于 inventory：列出当前波形文件、测试名、创建/修改时间、大小和 session 摘要，不生成最终 receipt。
 2. 使用 inventory 返回的 `recommended_call.test_case_name` 做 metadata 调用，确认最新波形、step 范围和 `signal_catalog`。
-3. 根据 4.2 节确认的真实协议，只使用 `signal_catalog` 中存在的信号构建结构化 pattern；除目标数据外，还应包含实际的请求有效/接受条件、响应有效条件、状态、事务标识或等价锚点。
+3. 根据 4.2 节确认的真实协议，只使用 `signal_catalog` 中存在的信号构建结构化 pattern；pattern 只放能定位失败事务/事件的条件。同时构建完整 `signal_groups`，覆盖时钟模式、相关输入、相关输出、协议控制和至少一个功能关键路径。
 4. 有日志 cycle 时调用时钟对齐模式；没有可靠 cycle 时先探索，再使用推荐的显式时间窗重调。
 5. 只有 `evidence_usable: true` 且时间线未截断的最终调用才能写入动态 Bug 文档。
 6. 复制完整 `bug_document_fields`，关闭围栏后复制同一结果的 `bug_document_viewer_link`，再基于规格、测试驱动代码、真实 timeline 和源码补写三个 LLM 分析字段。`evidence_usable: true` 只说明波形事件可重放，不表示工具已经判定 DUT Bug。
@@ -241,6 +256,14 @@ WaveInfo(
         {"signal": "TOP.dut.op[2:0]", "event": "equals", "value": "0x3"},
         {"signal": "TOP.dut.result[31:0]", "event": "change", "value": ""},
     ],
+    signal_groups={
+        "clock_mode": "clocked",
+        "clocks": ["TOP.dut.clk"],
+        "inputs": ["TOP.dut.a[31:0]", "TOP.dut.b[31:0]", "TOP.dut.op[2:0]", "TOP.dut.valid"],
+        "outputs": ["TOP.dut.result[31:0]", "TOP.dut.overflow", "TOP.dut.out_valid"],
+        "protocol": ["TOP.dut.valid", "TOP.dut.ready", "TOP.dut.out_valid"],
+        "key_signals": ["TOP.dut.state[2:0]", "TOP.dut.add_result[32:0]"],
+    },
     logged_cycle=120,
     cycle_tolerance=5,
     clock_signal="TOP.dut.clk",
@@ -260,6 +283,14 @@ WaveInfo(
         {"signal": "TOP.dut.sel[1:0]", "event": "equals", "value": "0x3"},
         {"signal": "TOP.dut.out[31:0]", "event": "change", "value": ""},
     ],
+    signal_groups={
+        "clock_mode": "combinational",
+        "clocks": [],
+        "inputs": ["TOP.dut.in0[31:0]", "TOP.dut.in1[31:0]", "TOP.dut.sel[1:0]"],
+        "outputs": ["TOP.dut.out[31:0]"],
+        "protocol": [],
+        "key_signals": ["TOP.dut.sel[1:0]"],
+    },
     logged_cycle=-1,
     clock_signal="",
     start_step=20,
@@ -436,6 +467,24 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
         value: "0x1"
       - signal: TOP.dut.overflow
         event: change
+    signal_groups:
+      clock_mode: clocked
+      clocks:
+        - TOP.dut.clk
+      inputs:
+        - TOP.dut.a
+        - TOP.dut.b
+        - TOP.dut.cin
+        - TOP.dut.op[2:0]
+        - TOP.dut.valid
+      outputs:
+        - TOP.dut.sum[31:0]
+        - TOP.dut.overflow
+      protocol:
+        - TOP.dut.valid
+        - TOP.dut.ready
+      key_signals:
+        - TOP.dut.carry[32:0]
     logged_cycle: 120
     cycle_tolerance: 5
     clock_signal: TOP.dut.clk
@@ -451,7 +500,7 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
     observed_behavior: 在txn=17的有效接受/采样点wave step 2440，sum已截断而overflow仍为0，规格expected overflow为1；未使用valid=0或ready=0周期的数据判错
     source_correlation: 波形中carry链已产生最高位进位，但overflow只读取a+b的中间carry，与Adder.sv第25-28行遗漏cin一致
   ```
-  <WAVEFORM-VIEWER> [查看加法溢出波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2FkZF93aXRoX2Npbl9vdmVyZmxvd19ib3VuZGFyeSIsInN0YXJ0IjoiMjMwMCIsImVuZCI6IjI1MDAiLCJjdXJzb3IiOiIyNDQwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQudmFsaWQiLCJUT1AuZHV0LnJlYWR5IiwiVE9QLmR1dC5vcFsyOjBdIiwiVE9QLmR1dC5hIiwiVE9QLmR1dC5iIiwiVE9QLmR1dC5jaW4iLCJUT1AuZHV0Lm92ZXJmbG93Il19)
+  <WAVEFORM-VIEWER> [查看加法溢出波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2FkZF93aXRoX2Npbl9vdmVyZmxvd19ib3VuZGFyeSIsInN0YXJ0IjoiMjMwMCIsImVuZCI6IjI1MDAiLCJjdXJzb3IiOiIyNDQwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQuYSIsIlRPUC5kdXQuYiIsIlRPUC5kdXQuY2luIiwiVE9QLmR1dC5vcFsyOjBdIiwiVE9QLmR1dC52YWxpZCIsIlRPUC5kdXQuc3VtWzMxOjBdIiwiVE9QLmR1dC5vdmVyZmxvdyIsIlRPUC5kdXQucmVhZHkiLCJUT1AuZHV0LmNhcnJ5WzMyOjBdIl19)
 
 <BUG-TRIGGER>
 **触发条件与影响范围**
@@ -703,6 +752,22 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
         event: change
       - signal: TOP.dut.bit_cnt[3:0]
         event: change
+    signal_groups:
+      clock_mode: clocked
+      clocks:
+        - TOP.dut.clk
+      inputs:
+        - TOP.dut.start
+        - TOP.dut.data[7:0]
+      outputs:
+        - TOP.dut.tx
+        - TOP.dut.tx_busy
+      protocol:
+        - TOP.dut.start
+        - TOP.dut.tx_busy
+      key_signals:
+        - TOP.dut.state[1:0]
+        - TOP.dut.bit_cnt[3:0]
     start_step: 80
     end_step: 120
     context_steps: 1
@@ -713,7 +778,7 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
     observed_behavior: 在该驱动边沿之后，state/bit_cnt响应了本应被拒绝的start并把当前帧计数重置；expected为保持SEND进度，结论来自明确的busy接受规则而不是任意时点的输出值
     source_correlation: 该状态跳转与rtl/UartTx.v第50-63行在状态机之前无条件接受start并清零bit_cnt一致
   ```
-  <WAVEFORM-VIEWER> [查看状态机重入波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2ZzbV9yZWVudHJhbnQiLCJzdGFydCI6IjgwIiwiZW5kIjoiMTIwIiwiY3Vyc29yIjoiMTAwIiwic2lnbmFscyI6WyJUT1AuZHV0LnR4X2J1c3kiLCJUT1AuZHV0LnN0YXJ0IiwiVE9QLmR1dC5zdGF0ZVsxOjBdIiwiVE9QLmR1dC5iaXRfY250WzM6MF0iXX0)
+  <WAVEFORM-VIEWER> [查看状态机重入波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2ZzbV9yZWVudHJhbnQiLCJzdGFydCI6IjgwIiwiZW5kIjoiMTIwIiwiY3Vyc29yIjoiMTAwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQuc3RhcnQiLCJUT1AuZHV0LmRhdGFbNzowXSIsIlRPUC5kdXQudHgiLCJUT1AuZHV0LnR4X2J1c3kiLCJUT1AuZHV0LnN0YXRlWzE6MF0iLCJUT1AuZHV0LmJpdF9jbnRbMzowXSJdfQ)
 
 <BUG-TRIGGER>
 **触发条件与影响范围**
@@ -876,7 +941,9 @@ Check/Complete 返回失败时，优先读取 `failure_summary` 中的 `failed_c
 - [ ] 每个非零 BG 至少有一个真实失败 TC。
 - [ ] 每个 TC 后的第一个非空内容都是独立 ` ```yaml` 波形块。
 - [ ] `waveform_analysis:` 是唯一顶层键，receipt 字段与真实 WaveInfo 调用完全一致。
+- [ ] 每个最终 receipt 的 `signal_groups` 都包含正确的 `clock_mode`、时钟（若有）、当前功能相关输入、相关输出、实际协议控制和至少一个功能关键路径；路径来自 `signal_catalog`，没有按名字臆测角色。
 - [ ] 每个 YAML 关闭围栏后的第一条非空内容都是同一最终 WaveInfo 返回的 `<WAVEFORM-VIEWER>` Markdown 链接；URL/token 未被修改，链接不在代码块内。
+- [ ] 在线 viewer 的签名信号集合覆盖上述时钟、输入、输出、协议和关键路径，不是只显示被断言的目标 data。
 - [ ] `status` 为 `confirmed`，pattern 非空，timeline 未截断，当前波形可以重放。
 - [ ] 增量运行未因缺少历史 TC 波形而删除或改写有效 receipt；最终记录阶段已经运行完整测试集合，并让所有动态 Bug TC 通过严格 current replay。
 - [ ] 已阅读规格、测试 API/driver、callback 和 `Step` 顺序，明确真实的驱动边沿、请求接受条件、响应有效条件和 latency 起点。

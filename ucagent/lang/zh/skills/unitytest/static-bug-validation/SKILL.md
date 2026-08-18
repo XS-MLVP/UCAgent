@@ -89,6 +89,8 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 调用波形前阅读测试使用的API/driver、callback和`Step`顺序，确认输入驱动边沿、请求接受条件和输出有效窗口；ready/valid只是常见形式，也可能是req/ack、enable、start/busy、固定延迟或其他自定义协议
 - 一次`Step(1)`只推进仿真，不能证明请求已经接受或结果已经有效。检查API内部是否已经Step/等待，并按规格要求的采样边沿、固定N周期、`out_valid/done/ack`或`busy`条件读取结果；过早断言属于测试时序问题，不得用于证实静态Bug
 - 对合理且稳定的Fail用例真实调用`WaveInfo`，使用结构化pattern确认失败事务的输入、实际握手/接受条件、状态、响应有效条件和错误输出
+- 最终WaveInfo调用必须提供完整`signal_groups`：时序DUT的实际时钟（组合DUT明确声明`combinational`）、与静态候选相关的输入数据/控制、输出数据/状态/有效位、真实协议接受/响应控制，以及至少一个能连接静态源码根因和接口错误的关键内部/状态信号；这些精确路径必须全部进入timeline、签名receipt和在线viewer，禁止只查看目标data
+- `pattern`只负责定位事件，不能为了显示上下文把所有必要信号都设为`change`；`signal_groups.protocol`仅在接口确实没有ready/valid/enable/start/busy/done/ack等控制时可为空。信号语义仍由LLM结合规格、API/driver和RTL审查，不由Checker按名字猜测
 - `WaveInfo`匹配到事件不等于确认Bug。LLM必须审查backpressure/stall、pipeline或响应latency和事务归属；`valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未到响应latency或协议声明data无效时的单点data mismatch只能作为调查线索。若静态候选本身涉及busy期间拒绝请求等语义，应依据规格明确判断该输入是否应被接受
 
 结论分为两类:
@@ -97,7 +99,7 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 在`{OUT}/{DUT}_bug_analysis.md`中补充完整动态Bug记录
 - 动态Bug标签形如`BG-XXX-90`
 - 动态Bug标签严禁使用`BG-STATIC-*`命名；`<BG-STATIC-*>`标签只保留在`{OUT}/{DUT}_static_bug_analysis.md`
-- 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据；YAML围栏后的第一条非空内容必须是同一次最终WaveInfo返回的`bug_document_viewer_link`，并保留`<WAVEFORM-VIEWER>`标记及`/surfer/?wave=` URL
+- 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据；证据的`signal_groups`和在线viewer必须完整展示时钟（若有）、相关输入、相关输出、协议控制和功能关键路径。YAML围栏后的第一条非空内容必须是同一次最终WaveInfo返回的`bug_document_viewer_link`，并保留`<WAVEFORM-VIEWER>`标记及`/surfer/?wave=` URL
 - 中断或重启后可以复用通过验证的WaveInfo receipt；单独运行当前静态候选用例时，不得据此删除已有TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段仍需完整测试运行和严格波形重放
 - `recordbug.py`只生成带`<BUG-TODO>`的动态Bug骨架，不做根因判断，也不生成真实波形字段。运行后必须由LLM读取失败日志、WaveInfo timeline和RTL，直接填完该BG内的全部标记字段
 - 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整

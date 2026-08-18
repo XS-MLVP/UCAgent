@@ -97,6 +97,10 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
     assert "一次`Step(1)`只表示仿真推进一步" in system_prompt
     assert "不能由Checker按固定信号名自动推断" in system_prompt
+    assert "最终WaveInfo取证不能只查看发生不一致的目标data" in system_prompt
+    assert "`pattern`只负责定位事件" in system_prompt
+    assert "同一组真实完整路径必须进入timeline、签名receipt和在线viewer" in system_prompt
+    assert "`protocol`仅在规格和接口确认没有" in system_prompt
     assert "已提供的{OUT}/tests/{DUT}_api.py" in system_prompt
     assert "只有最早traceback和对应源码共同证明基础设施本身有缺陷" in system_prompt
     assert "是已提供的只读基础设施契约" in template_task
@@ -106,6 +110,8 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "禁止API调用后机械地Step一次就断言data" in batch_task
     assert "协议无效窗口或任意单点data mismatch" in static_validation_task
     assert "observed_behavior是否只在协议允许的响应采样窗口" in review_task
+    assert "signal_groups和在线viewer是否同时包含时钟" in review_task
+    assert "最终WaveInfo调用必须填写完整signal_groups" in batch_task
     for marker in (
         "<STATIC-BUG-SUMMARY>",
         "<STATIC-BUG-DETAILS>",
@@ -229,11 +235,28 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "API 内部是否已经调用 `Step`、等待握手或采样结果" in guide
     assert "一次单点 data mismatch 只能作为继续调查的线索" in guide
     assert "不能由 Checker 根据特定信号名自动完成" in guide
+    assert "`signal_groups` 的固定子字段如下" in guide
+    assert "clocks -> inputs -> outputs -> protocol -> key_signals" in guide
+    assert "最终调用若缺少完整角色" in guide
+    assert "在线 viewer 的签名信号集合覆盖上述时钟" in guide
     assert "TOP.dut.ready" in guide
     clock_call = guide.split("时钟对齐最终调用示例：", 1)[1].split(
         "显式时间窗最终调用示例：", 1
     )[0]
     assert clock_call.count("context_steps=1") == 1
+
+    implementation_skill = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/SKILL.md"
+    ).read_text(encoding="utf-8")
+    static_skill = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/skills/unitytest/static-bug-validation/SKILL.md"
+    ).read_text(encoding="utf-8")
+    for skill in (implementation_skill, static_skill):
+        assert "完整`signal_groups`" in skill
+        assert "输入" in skill and "输出" in skill and "协议" in skill
+        assert "viewer" in skill
 
 
 def test_bug_document_error_help_uses_current_machine_contract():
@@ -311,6 +334,7 @@ def _assert_test_tags_cascade_to_waveform_yaml(example: str) -> None:
             "observed_at",
             "analysis_mode",
             "pattern",
+            "signal_groups",
             "context_steps",
             "max_points",
             "wave_step",
@@ -352,6 +376,17 @@ def _assert_test_tags_cascade_to_waveform_yaml(example: str) -> None:
         assert viewer_payload["cursor"] == str(analysis["wave_step"])
         pattern_signals = [item["signal"] for item in analysis["pattern"]]
         assert all(signal in viewer_payload["signals"] for signal in pattern_signals)
+        signal_groups = analysis["signal_groups"]
+        assert signal_groups["clock_mode"] in {"clocked", "combinational"}
+        assert signal_groups["inputs"]
+        assert signal_groups["outputs"]
+        assert signal_groups["key_signals"]
+        grouped_signals = [
+            signal
+            for field in ("clocks", "inputs", "outputs", "protocol", "key_signals")
+            for signal in signal_groups[field]
+        ]
+        assert all(signal in viewer_payload["signals"] for signal in grouped_signals)
 
 
 def test_bug_analysis_guide_examples_cascade_fenced_waveform_blocks_from_tests():

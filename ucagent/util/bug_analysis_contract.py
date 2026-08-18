@@ -19,6 +19,13 @@ WAVEFORM_LLM_ANALYSIS_FIELDS = (
     "observed_behavior",
     "source_correlation",
 )
+WAVEFORM_SIGNAL_GROUP_FIELDS = (
+    "clocks",
+    "inputs",
+    "outputs",
+    "protocol",
+    "key_signals",
+)
 BUG_TODO_MARKER = "<BUG-TODO>"
 BUG_SOURCE_UNAVAILABLE_MARKER = "<BUG-SOURCE-UNAVAILABLE>"
 BUG_SOURCE_EVIDENCE_MARKERS = (

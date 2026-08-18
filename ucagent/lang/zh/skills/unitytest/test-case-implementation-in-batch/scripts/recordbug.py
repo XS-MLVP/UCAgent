@@ -191,6 +191,13 @@ def make_tc_scaffold(tc, bd):
         "      waveform_analysis:\n"
         f"        status: \"{TODO_MARKER}\"\n"
         f"        receipt_id: \"{TODO_MARKER}\"\n"
+        "        signal_groups:\n"
+        f"          clock_mode: \"{TODO_MARKER}\"\n"
+        f"          clocks: [\"{TODO_MARKER}\"]\n"
+        f"          inputs: [\"{TODO_MARKER}\"]\n"
+        f"          outputs: [\"{TODO_MARKER}\"]\n"
+        "          protocol: []\n"
+        f"          key_signals: [\"{TODO_MARKER}\"]\n"
         "      ```\n"
         f"      <WAVEFORM-VIEWER> [{TODO_MARKER}](/surfer/?wave={TODO_MARKER})\n"
     )

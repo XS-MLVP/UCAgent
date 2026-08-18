@@ -95,6 +95,8 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后立即写入```yaml代码块；该块必须且只能包含顶层`waveform_analysis`映射，并在其下保存工具返回的`receipt_id`和`status: confirmed`。YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的`bug_document_viewer_link`，以`<WAVEFORM-VIEWER>`标记并使用`/surfer/?wave=`相对路由。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据、链接和当前波形重放，不能伪造波形字段或token
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再把`bug_document_viewer_link`整行放在YAML围栏后，最后根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`。链接的`[...]`展示文字可本地化，但不得修改`<WAVEFORM-VIEWER>`、URL或token，也不得手工构造token
+- 最终WaveInfo调用必须填写完整`signal_groups`：时序DUT列出实际时钟，组合DUT声明`combinational`且不虚构时钟；同时列出当前功能相关输入数据/选择/使能、相关输出数据/状态/有效位、接口真实的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。所有路径必须来自`signal_catalog`，并由同一receipt签名后进入timeline和viewer；禁止只查看目标result就判Bug
+- `pattern`只用于定位真实失败事件，`signal_groups`用于加载必要上下文；不要为了让viewer出现信号而把所有上下文都设成`change`。`protocol`只有在规格与接口确认不存在ready/valid/enable/start/busy/done/ack等控制时才可为空，Checker不会按名字替代LLM完成该语义审查
 - 有波形时用结构化pattern匹配输入、握手、状态和输出；无波形时先用metadata-only调用获取诊断，修复测试名称或波形生成流程并重跑，`status: unavailable`不能完成阶段
 - `WaveInfo`匹配到事件只说明该波形片段可重放，不会自动判定Bug。LLM必须结合规格和测试驱动方式审查真实接受条件、backpressure/stall、pipeline或响应latency、事务ID/顺序以及输出有效窗口；pattern和timeline应包含ready/valid或DUT实际使用的等价协议锚点
 - `valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未达到响应latency或协议声明data无效时看到的单点data mismatch只能作为调查线索，不能直接生成BG。若规格明确要求busy期间忽略请求或保持某值，则应引用该约束判断，而不是机械套用握手规则
@@ -121,7 +123,7 @@ python3 script -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overfl
 脚本返回后，必须继续完成以下工作，不能结束当前任务：
 
 1. 读取失败断言的expected/actual、事务上下文和对应CK原文，并阅读测试使用的API/driver、callback与`Step`顺序，确认真实驱动边沿、接受条件和输出采样窗口。
-2. 调用`WaveInfo`取得最终confirmed证据，用真实`bug_document_fields`完整替换每个TC后的波形YAML占位块，并用同一结果的`bug_document_viewer_link`整行替换紧随围栏的`<WAVEFORM-VIEWER>`链接占位。
+2. 调用`WaveInfo`取得最终confirmed证据；调用中提供覆盖时钟（若有）、相关输入、相关输出、协议控制和功能关键路径的完整`signal_groups`。用真实`bug_document_fields`完整替换每个TC后的波形YAML占位块，并用同一结果的`bug_document_viewer_link`整行替换紧随围栏的`<WAVEFORM-VIEWER>`链接占位；打开viewer确认同一签名信号集合均已显示。
 3. 打开DUT RTL/HDL，定位能解释波形错误的首个错误决策和传播路径；不要只复述测试失败或`source_correlation`。
 4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker只识别`<BUG-TODO>`，不解析“待补充”等自然语言。
 5. 有源码时，源码证据必须包含真实`path:L1-L2`和完整HDL fenced代码块；`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`必须各出现一次并位于代码块的语言原生注释中，标签后方写具体解释。无源码时在`<BUG-SOURCE-EVIDENCE>`字段中加入独立行`<BUG-SOURCE-UNAVAILABLE>`，并用接口协议、失败日志和波形完成黑盒因果链，禁止伪造源码。两种分支互斥，不能同时使用无源码标记与HDL代码块或三个源码因果标签。

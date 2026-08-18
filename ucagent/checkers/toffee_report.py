@@ -20,6 +20,7 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_FENCE_CLOSE as _WAVEFORM_FENCE_CLOSE,
     WAVEFORM_FENCE_OPEN as _WAVEFORM_FENCE_OPEN,
     WAVEFORM_LLM_ANALYSIS_FIELDS as _WAVEFORM_LLM_ANALYSIS_FIELDS,
+    WAVEFORM_SIGNAL_GROUP_FIELDS as _WAVEFORM_SIGNAL_GROUP_FIELDS,
 )
 from ucagent.checkers.base import Checker
 import copy
@@ -862,6 +863,7 @@ def _recommended_explicit_waveinfo_call(
     return {
         "test_case_name": receipt_args.get("test_case_name") or "",
         "pattern": patterns,
+        "signal_groups": copy.deepcopy(receipt_args.get("signal_groups") or {}),
         "logged_cycle": -1,
         "clock_signal": "",
         "start_step": window.get("effective_start_step", -1),
@@ -1276,6 +1278,35 @@ def check_waveform_bug_analysis(
                 "receipt": receipt_viewer,
             }
 
+        result_signal_groups = receipt_result.get("signal_groups")
+        if isinstance(receipt_viewer, dict) and isinstance(
+            receipt_viewer.get("payload"), dict
+        ):
+            viewer_signals = receipt_viewer["payload"].get("signals") or []
+            expected_signals = []
+            resolved_clock = (
+                (receipt_result.get("cycle_alignment") or {}).get("clock") or {}
+            ).get("signal")
+            if isinstance(resolved_clock, str) and resolved_clock:
+                expected_signals.append(resolved_clock)
+            if isinstance(result_signal_groups, dict):
+                for field_name in _WAVEFORM_SIGNAL_GROUP_FIELDS:
+                    for signal in result_signal_groups.get(field_name) or []:
+                        if signal not in expected_signals:
+                            expected_signals.append(signal)
+            for signal in (receipt_result.get("signals") or {}):
+                if signal not in expected_signals:
+                    expected_signals.append(signal)
+            if viewer_signals != expected_signals:
+                field_differences["waveform_viewer_signals"] = {
+                    "documented": viewer_signals,
+                    "expected": expected_signals,
+                }
+                errors.append(
+                    "the online viewer signal list does not contain the complete signed "
+                    "clock/input/output/protocol/key-signal context"
+                )
+
         def compare_receipt_value(key: str, expected: object, message: str):
             if data.get(key) == expected:
                 return
@@ -1291,6 +1322,45 @@ def check_waveform_bug_analysis(
             errors.append("the referenced WaveInfo call did not succeed")
         if receipt_result.get("evidence_usable") is not True:
             errors.append("the referenced WaveInfo result was not usable as final evidence")
+        receipt_signal_groups = receipt_args.get("signal_groups")
+        documented_signal_groups = data.get("signal_groups")
+        result_signal_groups = receipt_result.get("signal_groups")
+        if not isinstance(receipt_signal_groups, dict) or not receipt_signal_groups:
+            errors.append(
+                "the referenced WaveInfo receipt has no complete signal_groups contract; "
+                "rerun final WaveInfo with the DUT clock mode, relevant inputs, outputs, "
+                "protocol controls, and function-specific key signals"
+            )
+        else:
+            try:
+                normalized_signal_groups = waveform_tool.normalize_analysis_arguments(
+                    test_case_name=receipt_args.get("test_case_name"),
+                    pattern=receipt_args.get("pattern"),
+                    signal_groups=receipt_signal_groups,
+                )["signal_groups"]
+            except Exception as error:
+                normalized_signal_groups = None
+                errors.append(f"signal_groups is invalid: {error}")
+            if normalized_signal_groups != receipt_signal_groups:
+                field_differences["signal_groups"] = {
+                    "documented": normalized_signal_groups,
+                    "receipt": receipt_signal_groups,
+                }
+                errors.append("signal_groups does not match the referenced WaveInfo call")
+            if documented_signal_groups != receipt_signal_groups:
+                field_differences["signal_groups"] = {
+                    "documented": documented_signal_groups,
+                    "receipt": receipt_signal_groups,
+                }
+                errors.append("documented signal_groups do not match the referenced WaveInfo call")
+            if result_signal_groups != receipt_signal_groups:
+                field_differences["signal_groups_result"] = {
+                    "receipt_arguments": receipt_signal_groups,
+                    "receipt_result": result_signal_groups,
+                }
+                errors.append(
+                    "the signed WaveInfo result does not contain the declared signal_groups"
+                )
         pattern = data.get("pattern")
         if not isinstance(pattern, list) or not pattern:
             errors.append("'pattern' must be a non-empty structured WaveInfo pattern list")
