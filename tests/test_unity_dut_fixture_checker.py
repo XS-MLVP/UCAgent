@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Tests for DUT fixture functional coverage validation."""
 
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -177,6 +178,134 @@ def test_api_checker_accepts_nonempty_functional_coverage():
     })
 
     assert message is None
+
+
+def _api_checker(api_ck_prefix="FG-API/"):
+    return UnityChipCheckerDutApiTest(
+        "api_Demo_",
+        "dut_api.py",
+        "test_Demo_api.py",
+        "functions_and_checks.md",
+        "bug_analysis.md",
+        api_ck_prefix=api_ck_prefix,
+    )
+
+
+def _api_association_report(checkpoints, include_mapping=True):
+    test_case = "test_Demo_api.py:1-3::test_api_Demo_operate"
+    report = {
+        "tests": {
+            "total": 1,
+            "fails": 0,
+            "test_cases": {test_case: "PASSED"},
+        },
+    }
+    if include_mapping:
+        report["test_case_with_check_point_list"] = {test_case: checkpoints}
+    return report
+
+
+def test_api_checker_rejects_only_non_api_checkpoint_associations():
+    message = _api_checker()._missing_api_checkpoint_association_message(
+        _api_association_report(["FG-ARITHMETIC/FC-ADD/CK-NORMAL"])
+    )
+
+    assert "[API Checkpoint Association Missing]" in message
+    assert "FG-ARITHMETIC/FC-ADD/CK-NORMAL" in message
+    assert "optional additions" in message
+    assert "cannot replace the required API-group relation" in message
+    assert "Do not mark unrelated API checkpoints" in message
+
+
+def test_api_checker_accepts_api_and_optional_other_group_associations():
+    message = _api_checker()._missing_api_checkpoint_association_message(
+        _api_association_report([
+            "FG-API/FC-OPERATE/CK-BASIC",
+            "FG-ARITHMETIC/FC-ADD/CK-NORMAL",
+        ])
+    )
+
+    assert message is None
+
+
+def test_api_checker_honors_configured_api_checkpoint_prefix():
+    report = _api_association_report(["FG-PUBLIC-API/FC-OPERATE/CK-BASIC"])
+
+    assert (
+        _api_checker("FG-PUBLIC-API")
+        ._missing_api_checkpoint_association_message(report)
+        is None
+    )
+    assert (
+        "[API Checkpoint Association Missing]"
+        in _api_checker()._missing_api_checkpoint_association_message(report)
+    )
+
+
+def test_api_checker_rejects_report_without_per_test_checkpoint_mapping():
+    message = _api_checker()._missing_api_checkpoint_association_message(
+        _api_association_report([], include_mapping=False)
+    )
+
+    assert "[API Checkpoint Mapping Unavailable]" in message
+    assert "Rerun the API tests, then call Check or Complete" in message
+    assert "do not infer completion from global checkpoint totals" in message
+
+
+def test_toffee_report_preserves_all_checkpoint_associations_per_test(tmp_path):
+    test_case = "test_Demo_api.py:1-3::test_api_Demo_operate"
+    (tmp_path / "test_Demo_api.py").write_text(
+        "def test_api_Demo_operate(env):\n    assert True\n",
+        encoding="utf-8",
+    )
+    report_file = tmp_path / "toffee_report.json"
+    report_file.write_text(
+        json.dumps({
+            "test_abstract_info": {test_case: "PASSED"},
+            "coverages": {
+                "functional": {
+                    "point_num_total": 2,
+                    "point_num_hints": 2,
+                    "bin_num_total": 2,
+                    "bin_num_hints": 2,
+                    "groups": [
+                        {
+                            "name": "FG-API",
+                            "points": [{
+                                "name": "FC-OPERATE",
+                                "functions": {"CK-BASIC": [test_case]},
+                                "bins": [{"name": "CK-BASIC", "hints": 1}],
+                            }],
+                        },
+                        {
+                            "name": "FG-ARITHMETIC",
+                            "points": [{
+                                "name": "FC-ADD",
+                                "functions": {"CK-NORMAL": [test_case]},
+                                "bins": [{"name": "CK-NORMAL", "hints": 1}],
+                            }],
+                        },
+                    ],
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    report = fc.load_toffee_report(
+        str(report_file),
+        str(tmp_path),
+        run_test_success=True,
+        return_all_checks=True,
+    )
+
+    assert report["test_case_with_check_point_list"] == {
+        test_case: [
+            "FG-API/FC-OPERATE/CK-BASIC",
+            "FG-ARITHMETIC/FC-ADD/CK-NORMAL",
+        ],
+    }
+    assert "test_case_with_check_point_list" not in fc.clean_report_with_keys(report)
 
 
 def test_mark_function_diagnostic_treats_comment_as_missing_call(tmp_path):

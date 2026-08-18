@@ -489,6 +489,7 @@ def load_toffee_report(
     ret_data["failed_test_case_with_check_point_list"] = failed_funcs_bins
     if return_all_checks:
         ret_data["all_check_point_list"] = bins_all
+        ret_data["test_case_with_check_point_list"] = bins_funcs
     if len(bins_fail) > 0:
         ret_data["failed_check_point_list"] = bins_fail
     ret_data["unmarked_check_points"] = len(bins_unmarked)
@@ -1777,7 +1778,9 @@ def get_str_array_diff(str_list1, str_list2):
 
 
 def clean_report_with_keys(
-    report: dict, keys: list = None, default_keys=["all_check_point_list"]
+    report: dict,
+    keys: list = None,
+    default_keys=["all_check_point_list", "test_case_with_check_point_list"],
 ) -> dict:
     data = copy.deepcopy(report)
     target_keys = []

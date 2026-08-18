@@ -13,6 +13,38 @@ from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 
+def test_api_test_prompt_and_guide_require_api_checkpoint_association():
+    repo_root = Path(__file__).parents[1]
+    config = load_yaml_with_env_vars(
+        str(repo_root / "ucagent/lang/zh/config/default.yaml")
+    )
+    stage = next(
+        item for item in config["stage"]
+        if item["name"] == "basic_api_functional_test"
+    )
+    task = "\n".join(str(item) for item in stage["task"])
+    checker = next(
+        item for item in stage["checker"]
+        if item["clss"] == "UnityChipCheckerDutApiTest"
+    )
+    guide = (
+        repo_root / "ucagent/lang/zh/doc/Guide_Doc/dut_api_instruction.md"
+    ).read_text(encoding="utf-8")
+
+    assert "每个API测试函数都必须在函数开头添加对应API分组CK" in task
+    assert "不能只mark其他功能分组CK" in task
+    assert "额外功能CK不能替代" in task
+    assert "不能为通过Checker而批量标记无关API CK" in task
+    assert checker["args"]["api_ck_prefix"] == "FG-API/"
+
+    assert "API 检查点关联（必需）" in guide
+    assert "不能由其他功能分组的 CK 替代" in guide
+    assert "这些非 API 分组关联是可选项" in guide
+    assert "不要为了通过 Checker 而把所有 API CK 批量标记" in guide
+    assert 'fc_cover["FG-API"].mark_function' in guide
+    assert 'fc_cover["FG-ARITHMETIC"].mark_function' in guide
+
+
 def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     config_path = (
         Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml"

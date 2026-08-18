@@ -1580,15 +1580,58 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
 
-    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=15, **kw):
+    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check,
+                 doc_bug_analysis, min_tests=1, timeout=15,
+                 api_ck_prefix="FG-API/", **kw):
         super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout, **kw)
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests
+        self.api_ck_prefix = api_ck_prefix.rstrip("/") + "/"
 
     @staticmethod
     def _missing_functional_coverage_message(report):
         return fc.get_missing_functional_coverage_message(report)
+
+    def _missing_api_checkpoint_association_message(self, report):
+        """Require every executed API test to include an API-group checkpoint."""
+
+        test_cases = report.get("tests", {}).get("test_cases", {})
+        associations = report.get("test_case_with_check_point_list")
+        if not isinstance(associations, dict):
+            return (
+                "[API Checkpoint Mapping Unavailable] The Toffee report does not contain "
+                "per-test checkpoint associations. Rerun the API tests, then call Check or "
+                "Complete to generate a current report; do not infer completion from global "
+                "checkpoint totals."
+            )
+
+        missing = []
+        for test_case in test_cases:
+            checkpoints = associations.get(test_case, [])
+            if not isinstance(checkpoints, list):
+                checkpoints = []
+            if any(
+                isinstance(checkpoint, str)
+                and checkpoint.startswith(self.api_ck_prefix)
+                for checkpoint in checkpoints
+            ):
+                continue
+            missing.append(
+                f"{test_case} -> {fc.list_str_abbr(checkpoints) if checkpoints else '[]'}"
+            )
+
+        if not missing:
+            return None
+        return (
+            f"[API Checkpoint Association Missing] {len(missing)} API test function(s) "
+            f"have no checkpoint association under '{self.api_ck_prefix}': "
+            f"{fc.list_str_abbr(missing)}. Every API test must call mark_function for the "
+            "corresponding API-group FG/FC/CK defined in the functions-and-checks document. "
+            "Checkpoint associations from other functional groups are optional additions: "
+            "keep every valid extra relation, but it cannot replace the required API-group "
+            "relation. Do not mark unrelated API checkpoints merely to satisfy this check."
+        )
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Perform the check for DUT API tests."""
@@ -1666,12 +1709,18 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
                 f"{mark_function_desc}"
             )
 
+        api_association_message = self._missing_api_checkpoint_association_message(
+            report
+        )
+        if api_association_message:
+            return False, get_emsg(api_association_message)
+
         ret, msg, _ = check_report(
             self.workspace,
             report,
             self.doc_func_check,
             self.doc_bug_analysis,
-            "FG-API/",
+            self.api_ck_prefix,
             waveform_tool=self.get_waveform_tool_for_checker(),
             waveform_test_dir=os.path.dirname(self.target_file_api),
         )
