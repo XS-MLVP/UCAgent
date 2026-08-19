@@ -90,6 +90,23 @@ class _FakeStage:
         }
 
 
+class _CompletableStage(_FakeStage):
+    def do_check(self, **_kwargs):
+        return True, {"status": "passed"}
+
+    def meta_get_journal(self):
+        return "completed"
+
+    def get_approved(self):
+        return True
+
+    def is_hmcheck_needed(self):
+        return False
+
+    def on_complete(self):
+        self.is_complete = True
+
+
 class _FakeRootStage:
     def __init__(self, stages):
         self._stages = stages
@@ -111,6 +128,23 @@ class _FakeAgent:
 
     def get_stat_info(self):
         return {"version": "test"}
+
+
+class _SegmentAgent(_FakeAgent):
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        self.stage_segment_index = 0
+        self.stage_segment_start = 0
+        self.stage_segment_end = 13
+        self.handoff_calls = []
+        self.break_state = False
+
+    def complete_stage_segment(self, completed_stage_index, next_stage_index):
+        self.handoff_calls.append((completed_stage_index, next_stage_index))
+        return True, "workspace handoff ready"
+
+    def set_break(self, value):
+        self.break_state = value
 
 
 def _cfg():
@@ -135,6 +169,7 @@ def _saved_info():
         "time_end": 200.0,
         "is_agent_exit": True,
         "is_wait_human_check": True,
+        "stage_manager_data": {"TEST_TEMPLATE_IMP_REPORT": {"tests": 38}},
         "stages_info": {
             str(index): {
                 "fail_count": index + 1,
@@ -174,6 +209,7 @@ def test_force_stage_rewind_truncates_loaded_stage_progress(monkeypatch, tmp_pat
     assert manager.stage_index == 1
     assert manager.all_completed is False
     assert manager.time_end is None
+    assert manager.data == {}
 
     assert stages[0].is_completed() is True
     assert stages[0].fail_count == 1
@@ -218,6 +254,7 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     manager.stage_index = 0
     manager.time_begin = 10.0
     manager.time_end = None
+    manager.set_data("TEST_TEMPLATE_IMP_REPORT", {"tests": {"total": 38}})
 
     manager.save_stage_info()
 
@@ -225,6 +262,26 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     assert saved["mission_name"] == "Formal Coverage Mission"
     assert saved["is_agent_exit"] is True
     assert saved["all_completed"] is False
+    assert saved["stage_manager_data"] == {
+        "TEST_TEMPLATE_IMP_REPORT": {"tests": {"total": 38}}
+    }
+
+
+def test_stage_manager_restores_persisted_checker_data(tmp_path):
+    cfg = _cfg()
+    report = {"tests": {"test_cases": {"test_demo.py::test_one": "FAILED"}}}
+
+    manager = StageManager(
+        str(tmp_path),
+        cfg,
+        _FakeAgent(cfg),
+        tool_read_text=None,
+        ucagent_info={"stage_manager_data": {"TEST_TEMPLATE_IMP_REPORT": report}},
+        force_stage_index=0,
+        tool_inspect_file=[],
+    )
+
+    assert manager.get_data("TEST_TEMPLATE_IMP_REPORT") == report
 
 
 def test_stage_time_event_id_includes_task_id(monkeypatch):
@@ -249,3 +306,51 @@ def test_stage_time_event_id_includes_task_id(monkeypatch):
     assert event["event_id"] == event_id
     assert event["task_id"] == "task-123"
     assert list(manager.stage_time_events) == [event_id]
+
+
+def test_segment_boundary_hands_off_after_skip_without_initializing_next_stage():
+    cfg = _cfg()
+    agent = _SegmentAgent(cfg)
+    stages = [_CompletableStage(index) for index in range(28)]
+    stages[14].set_skip(True)
+
+    manager = StageManager.__new__(StageManager)
+    manager.agent = agent
+    manager.stages = stages
+    manager.stage_index = 13
+    manager.all_completed = False
+    manager.last_check_info = {}
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.gen_pass_suggestion = lambda _info: "approved"
+    manager._stage_complete = lambda stage: stage.on_complete()
+
+    def advance_to_next_stage():
+        manager.stage_index += 1
+        while manager.stage_index < len(stages) and stages[manager.stage_index].is_skipped():
+            manager.stage_index += 1
+
+    manager.next_stage = advance_to_next_stage
+
+    result = manager.complete(timeout=1)
+
+    assert result["complete"] is True
+    assert stages[13].is_completed() is True
+    assert manager.stage_index == 15
+    assert agent.handoff_calls == [(13, 15)]
+    assert stages[15].init_count == 0
+
+
+def test_segment_validation_accepts_resumed_stage_after_skipped_start():
+    cfg = _cfg()
+    agent = _SegmentAgent(cfg)
+    agent.stage_segment_index = 1
+    agent.stage_segment_start = 14
+    agent.stage_segment_end = 27
+
+    manager = StageManager.__new__(StageManager)
+    manager.agent = agent
+    manager.stages = [_FakeStage(index) for index in range(28)]
+    manager.stage_index = 15
+
+    manager._validate_stage_segment()

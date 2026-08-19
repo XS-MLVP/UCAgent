@@ -634,7 +634,10 @@ function renderDynamicLaunchSettings(config) {
     parts.push(`
       <div class="grid">
         ${normalEntries.map(([key, value]) => {
-          if (Array.isArray(value)) {
+          const isStructuredArray = Array.isArray(value) && value.some(
+            (item) => item !== null && typeof item === 'object'
+          );
+          if (Array.isArray(value) && !isStructuredArray) {
             return `
               <div class="launch-setting-field">
                 <label>${esc(launchSettingLabel(key))}</label>

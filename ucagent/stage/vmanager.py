@@ -393,7 +393,12 @@ class StageManager(object):
         Initialize the StageManager with an empty list of stages.
         """
         self.cfg = cfg
-        self.data = {}
+        saved_manager_data = ucagent_info.get("stage_manager_data", {})
+        self.data = (
+            copy.deepcopy(saved_manager_data)
+            if isinstance(saved_manager_data, dict)
+            else {}
+        )
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
@@ -443,6 +448,8 @@ class StageManager(object):
         self.ucagent_info["time_end"] = None
         self.ucagent_info["is_agent_exit"] = False
         self.ucagent_info["is_wait_human_check"] = False
+        self.ucagent_info["stage_manager_data"] = {}
+        self.data = {}
         return True
 
     def init_stage(self):
@@ -485,6 +492,7 @@ class StageManager(object):
         self._go_skip_stage()
         for s in self.stages:
             s.set_stage_manager(self)
+        self._validate_stage_segment()
         self.time_begin = self.ucagent_info.get("time_begin", time.time())
         self.time_end = self.ucagent_info.get("time_end", None)
         if self.stage_index < len(self.stages):
@@ -519,6 +527,33 @@ class StageManager(object):
 
     def is_break(self):
         return self.agent.is_break()
+
+    def _validate_stage_segment(self):
+        start = getattr(self.agent, "stage_segment_start", None)
+        end = getattr(self.agent, "stage_segment_end", None)
+        index = getattr(self.agent, "stage_segment_index", None)
+        if start is None and end is None and index is None:
+            return
+        if start is None or end is None or index is None:
+            raise ValueError("Stage segment index, start, and end must be provided together.")
+        if start < 0 or end < start or end >= len(self.stages):
+            raise ValueError(
+                f"Invalid stage segment {index}: [{start}, {end}] for {len(self.stages)} stages."
+            )
+        if self.stage_index < start or self.stage_index > end:
+            raise ValueError(
+                f"Saved stage index {self.stage_index} is outside stage segment {index} "
+                f"range [{start}, {end}]."
+            )
+
+    def is_intermediate_segment_end(self, stage) -> bool:
+        end = getattr(self.agent, "stage_segment_end", None)
+        if end is None or end >= len(self.stages) - 1:
+            return False
+        try:
+            return self.stages.index(stage) == end
+        except ValueError:
+            return False
 
     def tool_stage_approve(self, pass_or_not: bool = True) -> str:
         vstage = self.get_current_stage()
@@ -1039,6 +1074,7 @@ class StageManager(object):
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
             "stage_time_events": self.stage_time_events,
+            "stage_manager_data": copy.deepcopy(self.data),
         })
         info["stages_info"] = {}
         for idx, stage in enumerate(self.stages):
@@ -1140,14 +1176,30 @@ class StageManager(object):
             "check_pass": ck_pass,
         })
         if ck_pass:
-            message = f"Stage {self.stage_index} completed successfully. "
-            self._stage_complete(self.stages[self.stage_index])
+            completed_stage_index = self.stage_index
+            completed_stage = self.stages[completed_stage_index]
+            is_segment_end = self.is_intermediate_segment_end(completed_stage)
+            message = f"Stage {completed_stage_index} completed successfully. "
+            self._stage_complete(completed_stage)
             self.next_stage()
             if self.all_completed:
                 message = ("All stages completed successfully. "
                            "Now you should review your work to check if everything is correct and all the users needs are matched. "
                            "When you are confident that everything is fine, you can use the `Exit` tool to exit the mission. "
                            )
+            elif is_segment_end:
+                ok, handoff_message = self.agent.complete_stage_segment(
+                    completed_stage_index,
+                    self.stage_index,
+                )
+                if not ok:
+                    self.agent.set_break(True)
+                    return {
+                        "complete": False,
+                        "error": f"Stage segment handoff failed: {handoff_message}",
+                        "last_check_result": self.last_check_info,
+                    }
+                message += handoff_message + " This worker is exiting."
             else:
                 message += f"Current stage index is now {self.stage_index}. Use `CurrentTips` tool to get your new task. "
                 self.stages[self.stage_index].set_reached(True)

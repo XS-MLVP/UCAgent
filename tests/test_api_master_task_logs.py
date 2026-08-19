@@ -21,6 +21,16 @@ from ucagent.server.api_master import (
 from ucagent.util.config import Config
 
 
+def test_launch_page_keeps_object_arrays_as_json():
+    template_path = os.path.join(current_dir, "..", "ucagent", "server", "templates", "launch.html")
+    with open(template_path, "r", encoding="utf-8") as handle:
+        html = handle.read()
+
+    assert "const isStructuredArray = Array.isArray(value)" in html
+    assert "Array.isArray(value) && !isStructuredArray" in html
+    assert 'data-launch-type="json"' in html
+
+
 def _stage_event_payload(task_id, event_id="start:executable:1:0:stage-1", timestamp=100.0, **extra):
     payload = {
         "event_id": event_id,

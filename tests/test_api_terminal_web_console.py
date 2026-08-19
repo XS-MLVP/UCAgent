@@ -45,7 +45,21 @@ def test_web_console_process_capture_records_traceback_from_pty():
         os.unlink(capture.name)
 
 
-def test_web_console_prints_traceback_even_when_exit_code_is_zero(monkeypatch):
+def test_web_console_process_preserves_zero_exit_after_repeated_poll():
+    server = PdbWebTermServer(
+        shlex.join([sys.executable, "-c", "print('normal exit')"]),
+        host="127.0.0.1",
+        port=0,
+        title="test",
+    )
+
+    server.start_blocking()
+
+    assert _get_web_console_exit_code(server) == 0
+    assert _get_web_console_exit_code(server) == 0
+
+
+def test_web_console_does_not_promote_transcript_traceback_after_zero_exit(monkeypatch):
     capture = tempfile.NamedTemporaryFile(delete=False)
     try:
         lines = [f"noise {i}\n".encode() for i in range(120)]
@@ -61,14 +75,35 @@ def test_web_console_prints_traceback_even_when_exit_code_is_zero(monkeypatch):
         stderr = io.StringIO()
         monkeypatch.setattr(api_terminal.sys, "stderr", stderr)
 
-        api_terminal._print_web_console_abnormal_exit_output(0, capture.name)
+        replayed = api_terminal._print_web_console_abnormal_exit_output(0, capture.name)
 
-        replayed = stderr.getvalue()
-        assert "Command exited abnormally with code 0" in replayed
-        assert "Traceback (most recent call last)" in replayed
-        assert "RuntimeError: boom" in replayed
-        assert "noise 0" not in replayed
-        assert "noise 119" in replayed
+        assert replayed is False
+        assert stderr.getvalue() == ""
+    finally:
+        try:
+            os.unlink(capture.name)
+        except OSError:
+            pass
+
+
+def test_web_console_replays_traceback_when_exit_code_is_unknown(monkeypatch):
+    capture = tempfile.NamedTemporaryFile(delete=False)
+    try:
+        capture.write(
+            b"Traceback (most recent call last):\n"
+            b"RuntimeError: startup failed\n"
+        )
+        capture.close()
+        stderr = io.StringIO()
+        monkeypatch.setattr(api_terminal.sys, "stderr", stderr)
+
+        replayed = api_terminal._print_web_console_abnormal_exit_output(
+            None, capture.name
+        )
+
+        assert replayed is True
+        assert "Command exited abnormally with code unknown" in stderr.getvalue()
+        assert "RuntimeError: startup failed" in stderr.getvalue()
     finally:
         try:
             os.unlink(capture.name)

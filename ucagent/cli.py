@@ -727,6 +727,24 @@ def get_args() -> argparse.Namespace:
         help="Force the stage index to start from a specific stage. If this rewinds saved progress, saved data from that stage onward is reset."
     )
     parser.add_argument(
+        "--stage-segment-index",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--stage-segment-start",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--stage-segment-end",
+        type=int,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--no-write", "-nw", 
         type=str, 
         nargs="+", 
@@ -1247,6 +1265,9 @@ def run() -> None:
         ex_tools=ex_tools,
         no_embed_tools=args.no_embed_tools,
         force_stage_index=args.force_stage_index,
+        stage_segment_index=args.stage_segment_index,
+        stage_segment_start=args.stage_segment_start,
+        stage_segment_end=args.stage_segment_end,
         force_todo=args.force_todo,
         no_write_targets=args.no_write,
         interaction_mode=args.interaction_mode,
@@ -1280,11 +1301,26 @@ def run() -> None:
     except AssertionError as e:
         info(f"Fail: {e}")
         sys.exit(1)
+    except KeyboardInterrupt:
+        if not _is_completed_agent_shutdown(agent):
+            raise
+        info("UCAgent completed mission shutdown.")
     finally:
         try:
             agent.exit()
+        except KeyboardInterrupt:
+            if not _is_completed_agent_shutdown(agent):
+                raise
         except Exception as e:
             info(f"Warning: failed during agent exit cleanup: {e}")
+
+
+def _is_completed_agent_shutdown(agent: Any) -> bool:
+    """Return whether an interrupt occurred after a successful mission exit."""
+    try:
+        return bool(agent.is_exit() and agent.stage_manager.all_completed)
+    except (AttributeError, TypeError):
+        return False
 
 
 def main() -> None:

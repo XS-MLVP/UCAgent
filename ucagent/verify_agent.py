@@ -67,6 +67,9 @@ class VerifyAgent:
         debug: bool = False,
         no_embed_tools: bool = False,
         force_stage_index: int = 0,
+        stage_segment_index: Optional[int] = None,
+        stage_segment_start: Optional[int] = None,
+        stage_segment_end: Optional[int] = None,
         force_todo: bool = False,
         no_write_targets: Optional[List[str]] = None,
         interaction_mode: str = "standard",
@@ -213,6 +216,9 @@ class VerifyAgent:
             ],
             reference_files=reference_files,
         )
+        self.stage_segment_index = stage_segment_index
+        self.stage_segment_start = stage_segment_start
+        self.stage_segment_end = stage_segment_end
         self._default_system_prompt = (
             sys_tips if sys_tips else self.get_default_system_prompt()
         )
@@ -347,6 +353,7 @@ class VerifyAgent:
         self.invoke_round = 0
         self._tool__call_error = []
         self._is_exit = False
+        self._segment_exit_requested = False
         self._sync_workspace_back_on_exit_done = False
         self._tip_index = 0
         self._need_break = False
@@ -619,7 +626,7 @@ class VerifyAgent:
         self._continue_msg = msg
 
     def get_stat_info(self):
-        return {
+        data = {
             "version": self.__version__,
             "seed": self.seed,
             "dut_name": self.dut_name,
@@ -629,14 +636,21 @@ class VerifyAgent:
             "mission_name": self.cfg.mission.name,
             "meta": copy.deepcopy(self.meta),
         }
+        if self.stage_segment_index is not None:
+            data["stage_segment"] = {
+                "index": self.stage_segment_index,
+                "start": self.stage_segment_start,
+                "end": self.stage_segment_end,
+            }
+        return data
 
     def is_exit(self):
-        if self._is_exit:
+        if self._is_exit or self._segment_exit_requested:
             info("Verify Agent is exited.")
-        return self._is_exit
+        return self._is_exit or self._segment_exit_requested
 
     def exit(self):
-        if self.is_exit():
+        if self._is_exit:
             return
         try:
             self._is_exit = True
@@ -648,6 +662,52 @@ class VerifyAgent:
             self._sync_workspace_back_on_exit()
         finally:
             fc.chmode_rw(self.cwd_read_only_files)
+
+    def complete_stage_segment(self, completed_stage_index: int, next_stage_index: int) -> tuple[bool, str]:
+        """Persist a segment handoff, then stop this worker without completing the mission."""
+        self.flush_stage_events_to_master()
+        pdb = getattr(self, "pdb", None)
+        master_clients = getattr(pdb, "_master_clients", {}) or {}
+        running_clients = [
+            client for client in master_clients.values()
+            if getattr(client, "is_running", False)
+        ]
+        if not running_clients:
+            return False, "No running master client is available for segment handoff."
+
+        for client in running_clients:
+            ok, msg = client.sync_workspace_back(reason="segment_complete")
+            if not ok:
+                return False, msg
+
+        self._sync_workspace_back_on_exit_done = True
+        self._segment_exit_requested = True
+        self.set_break(True)
+        # In human/web-console mode run_loop executes inside PDB's `loop`
+        # command. Let that command return before PDB consumes a normal quit.
+        if getattr(pdb, "_in_tui", False):
+            add_cmds = getattr(pdb, "add_cmds", None)
+            if callable(add_cmds):
+                add_cmds(["quit"])
+        else:
+            cmdqueue = getattr(pdb, "cmdqueue", None)
+            if isinstance(cmdqueue, list) and not any(
+                str(cmd).strip().lower() in {"q", "quit", "exit"}
+                for cmd in cmdqueue
+            ):
+                cmdqueue.append("quit")
+        notify_exit = getattr(pdb, "_notify_master_clients_exit", None)
+        if callable(notify_exit):
+            notify_exit(
+                reason=(
+                    f"segment_complete:{self.stage_segment_index}:"
+                    f"{completed_stage_index}:{next_stage_index}"
+                )
+            )
+        return True, (
+            f"Stage segment {self.stage_segment_index} completed at stage "
+            f"{completed_stage_index}; workspace persisted for stage {next_stage_index}."
+        )
 
     def _cfg_bool(self, key: str, default: bool = False) -> bool:
         value = self.cfg.get_value(key, default)

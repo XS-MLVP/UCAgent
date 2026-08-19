@@ -132,7 +132,6 @@ _LAUNCH_MODE_LABELS = {
 }
 _CONTAINER_LAUNCH_MODES = {"docker", "docker_swarm", "k8s"}
 _MASTER_SOURCE_CONTAINER_PATH = "/UCAgent"
-_K8S_JOB_STATUS_JSONPATH = "{.status.active} {.status.succeeded} {.status.failed}"
 _SWARM_SERVICE_PREFIX = "ucagent-"
 _SWARM_SERVICE_RETENTION_SECONDS = 3600
 _SWARM_SERVICE_RUNNING_STATES = {
@@ -487,6 +486,55 @@ def _plain_config_value(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_plain_config_value(v) for v in obj]
     return obj
+
+
+def _normalize_stage_segments(value: Any) -> List[Dict[str, Any]]:
+    raw_segments = _plain_config_value(value or [])
+    if not raw_segments:
+        return []
+    if not isinstance(raw_segments, list):
+        raise ValueError("'stage_segments' must be a list")
+    segments: List[Dict[str, Any]] = []
+    previous_end = -1
+    for index, raw in enumerate(raw_segments):
+        if not isinstance(raw, dict):
+            raise ValueError(f"stage_segments[{index}] must be an object")
+        try:
+            start = int(raw.get("stage_start"))
+            end = int(raw.get("stage_end"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"stage_segments[{index}] requires integer stage_start and stage_end"
+            ) from exc
+        if index == 0 and start != 0:
+            raise ValueError(
+                f"stage_segments[0] must start at 0, got {start}"
+            )
+        if end < start:
+            raise ValueError(f"stage_segments[{index}] has stage_end before stage_start")
+        if start <= previous_end:
+            raise ValueError(
+                f"stage_segments[{index}] must start after stage {previous_end}, got {start}"
+            )
+        resources = raw.get("resources") or {}
+        if not isinstance(resources, dict):
+            raise ValueError(f"stage_segments[{index}].resources must be an object")
+        segments.append({
+            "index": index,
+            "name": _safe_name(str(raw.get("name") or f"segment-{index}"), f"segment-{index}"),
+            "stage_start": start,
+            "stage_end": end,
+            "resources": _copy_jsonable(resources),
+            "status": "pending",
+            "client_id": "",
+            "cluster": {},
+            "handoff": {},
+            "started_at": None,
+            "finished_at": None,
+            "exit_code": None,
+        })
+        previous_end = end
+    return segments
 
 
 def _yaml_mapping_node_value(mapping_node: Any, key: str) -> Any:
@@ -1056,11 +1104,12 @@ class PdbMasterApiServer:
         return resolved
 
     def _resolve_stage_metrics_port(self) -> int:
-        raw = (
-            os.environ.get("UCAGENT_STAGE_METRICS_PORT")
-            or os.environ.get("UCAGENT_METRICS_PORT")
-            or self.cfg.get_value("master_api.stage_metrics.port", 9108)
-        )
+        raw = os.environ.get("UCAGENT_STAGE_METRICS_PORT") or os.environ.get("UCAGENT_METRICS_PORT")
+        if not raw:
+            try:
+                raw = self.cfg.get_value("master_api.stage_metrics.port", 9108)
+            except AttributeError:
+                raw = 9108
         try:
             port = int(raw)
         except (TypeError, ValueError):
@@ -1454,7 +1503,13 @@ class PdbMasterApiServer:
         finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
-    def _sync_workspace_archive_back(self, agent_id: str, archive_path: str, archive_size: int = 0) -> Dict[str, Any]:
+    def _sync_workspace_archive_back(
+        self,
+        agent_id: str,
+        archive_path: str,
+        archive_size: int = 0,
+        archive_sha256: str = "",
+    ) -> Dict[str, Any]:
         if not self._sync_workspace_back_enabled():
             raise ValueError("Workspace sync-back is disabled because launch.default_args.use_zip_workspace is false")
         target = self._resolve_workspace_sync_target(agent_id)
@@ -1468,6 +1523,7 @@ class PdbMasterApiServer:
             "workspace_id": ws.get("workspace_id", ""),
             "target_dir": target_dir,
             "archive_size": int(archive_size or 0),
+            "archive_sha256": str(archive_sha256 or ""),
             "synced_at": _now(),
         }
         with self._workspaces_lock:
@@ -1484,6 +1540,77 @@ class PdbMasterApiServer:
             f"to {target_dir}"
         )
         return sync_info
+
+    def _record_segment_handoff(
+        self,
+        sync_info: Dict[str, Any],
+        *,
+        agent_id: str,
+        segment_index: Any,
+        segment_start: Any,
+        segment_end: Any,
+    ) -> Dict[str, Any]:
+        try:
+            index = int(segment_index)
+            reported_start = int(segment_start)
+            reported_end = int(segment_end)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Segment handoff requires integer index, start, and end") from exc
+
+        task_id = str(sync_info.get("task_id") or "")
+        with self._tasks_lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise ValueError(f"Segment handoff task '{task_id}' was not found")
+            segments = task.get("segments") or []
+            current_index = task.get("current_segment_index")
+            if not segments or current_index != index or index >= len(segments) - 1:
+                raise ValueError(f"Task '{task_id}' is not waiting for intermediate segment {index}")
+            segment = segments[index]
+            if str(segment.get("client_id") or "") != str(agent_id or ""):
+                raise ValueError("Segment handoff agent does not match the active segment")
+            if (segment.get("stage_start"), segment.get("stage_end")) != (reported_start, reported_end):
+                raise ValueError("Segment handoff range does not match the active segment")
+
+            info_path = os.path.join(str(sync_info.get("target_dir") or ""), ".ucagent", "ucagent_info.json")
+            try:
+                saved_info = self._read_json_dict_file(info_path)
+            except Exception as exc:
+                raise ValueError(f"Unable to read synchronized stage state: {exc}") from exc
+            try:
+                next_stage_index = int(saved_info.get("stage_index"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Synchronized workspace has no valid stage_index") from exc
+            stages_info = saved_info.get("stages_info") or {}
+            completed_info = stages_info.get(str(reported_end), stages_info.get(reported_end, {}))
+            if not isinstance(completed_info, dict) or not completed_info.get("is_completed"):
+                raise ValueError(f"Synchronized workspace does not mark stage {reported_end} completed")
+            next_segment = segments[index + 1]
+            if not next_segment["stage_start"] <= next_stage_index <= next_segment["stage_end"]:
+                raise ValueError(
+                    f"Synchronized stage_index {next_stage_index} is outside the next segment "
+                    f"[{next_segment['stage_start']}, {next_segment['stage_end']}]"
+                )
+            if saved_info.get("all_completed"):
+                raise ValueError("Intermediate segment handoff unexpectedly marks the mission complete")
+
+            handoff = {
+                **dict(sync_info),
+                "segment_index": index,
+                "completed_stage_index": reported_end,
+                "next_stage_index": next_stage_index,
+                "ready_at": _now(),
+            }
+            segment["handoff"] = handoff
+            segment["status"] = "handoff_ready"
+            task["logical_status"] = "handoff_ready"
+        self._mark_dirty()
+        self._save_db()
+        _master_log(
+            f"Segment handoff ready for task '{task_id}' segment {index}: "
+            f"stage {reported_end} -> {next_stage_index}"
+        )
+        return handoff
 
     def _snapshot_agents(self) -> List[Dict[str, Any]]:
         with self._agents_lock:
@@ -3096,6 +3223,10 @@ class PdbMasterApiServer:
             "cmd_api": data.get("cmd_api", {}),
             "terminal_api": data.get("terminal_api", {}),
             "web_console": data.get("web_console", {}),
+            "segments": data.get("segments", []),
+            "current_segment_index": data.get("current_segment_index"),
+            "logical_status": data.get("logical_status", "pending"),
+            "launch_prepared": data.get("launch_prepared", {}),
         }
         pathlib.Path(stdout_log).touch()
         pathlib.Path(stderr_log).touch()
@@ -3205,6 +3336,9 @@ class PdbMasterApiServer:
             add_value("--mcp-server-port", req.get("mcp_server_port"))
         if req.get("force_stage_index") is not None:
             add_value("--force-stage-index", req.get("force_stage_index"))
+        add_value("--stage-segment-index", req.get("stage_segment_index"))
+        add_value("--stage-segment-start", req.get("stage_segment_start"))
+        add_value("--stage-segment-end", req.get("stage_segment_end"))
         if req.get("no_write"):
             argv.append("--no-write")
             argv.extend([str(v) for v in req.get("no_write", [])])
@@ -3830,9 +3964,13 @@ class PdbMasterApiServer:
     ) -> Dict[str, Any]:
         cfg = self._launch_cluster_config()
         use_zip_workspace = prepared.get("use_zip_workspace") is True
+        segment = self._current_task_segment(task)
+        name = f"ucagent-{task['task_id']}"
+        if segment is not None:
+            name += f"-s{segment['index']}"
         context = {
             "cfg": cfg,
-            "name": f"ucagent-{task['task_id']}",
+            "name": name,
             "env": self._cluster_env(env, task.get("env") or {}),
             "mounts": self._cluster_mounts(prepared),
             "network": str(cfg.get("docker_network") or "").strip() if mode in {"docker", "docker_swarm"} else "",
@@ -3849,6 +3987,16 @@ class PdbMasterApiServer:
             context["network"],
         )
         return context
+
+    def _current_task_segment(self, task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        segments = task.get("segments") or []
+        index = task.get("current_segment_index")
+        if not segments or index is None:
+            return None
+        try:
+            return segments[int(index)]
+        except (IndexError, TypeError, ValueError):
+            return None
 
     def _set_cluster_record(
         self,
@@ -3870,6 +4018,9 @@ class PdbMasterApiServer:
             cluster["id"] = cluster_id
         cluster.update(extra)
         task["cluster"] = cluster
+        segment = self._current_task_segment(task)
+        if segment is not None:
+            segment["cluster"] = dict(cluster)
         return cluster
 
     def _cluster_ports(
@@ -4569,7 +4720,10 @@ class PdbMasterApiServer:
         env_list = [
             {"name": str(key), "value": str(value)}
             for key, value in sorted(context["env"].items())
-            if _valid_env_name(str(key)) and str(key) not in {"POD_NAME", "POD_NAMESPACE", "NODE_NAME", "UCAGENT_TASK_ID"}
+            if _valid_env_name(str(key)) and str(key) not in {
+                "POD_NAME", "POD_NAMESPACE", "NODE_NAME", "UCAGENT_TASK_ID",
+                "UCAGENT_SEGMENT_INDEX", "UCAGENT_SEGMENT_START", "UCAGENT_SEGMENT_END",
+            }
         ]
         env_list.extend([
             {
@@ -4601,6 +4755,13 @@ class PdbMasterApiServer:
                 "value": str(task["task_id"]),
             },
         ])
+        segment = self._current_task_segment(task)
+        if segment is not None:
+            env_list.extend([
+                {"name": "UCAGENT_SEGMENT_INDEX", "value": str(segment["index"])},
+                {"name": "UCAGENT_SEGMENT_START", "value": str(segment["stage_start"])},
+                {"name": "UCAGENT_SEGMENT_END", "value": str(segment["stage_end"])},
+            ])
         container = {
             "name": "ucagent",
             "image": cfg["image"],
@@ -4612,8 +4773,9 @@ class PdbMasterApiServer:
         }
         if ports:
             container["ports"] = ports
-        if cfg.get("k8s_resources"):
-            container["resources"] = cfg["k8s_resources"]
+        segment_resources = (segment or {}).get("resources") or {}
+        if segment_resources or cfg.get("k8s_resources"):
+            container["resources"] = segment_resources or cfg["k8s_resources"]
         pod_spec: Dict[str, Any] = {
             "restartPolicy": "Never",
             "containers": [container],
@@ -4626,24 +4788,25 @@ class PdbMasterApiServer:
             pod_spec["nodeSelector"] = cfg["k8s_node_selector"]
         if cfg.get("k8s_tolerations"):
             pod_spec["tolerations"] = cfg["k8s_tolerations"]
+        labels = {
+            "app": "ucagent",
+            "ucagent-task-id": task["task_id"],
+        }
+        if segment is not None:
+            labels["ucagent-segment-index"] = str(segment["index"])
+            labels["ucagent-segment-name"] = str(segment["name"])
         return {
             "apiVersion": "batch/v1",
             "kind": "Job",
             "metadata": {
                 "name": name,
-                "labels": {
-                    "app": "ucagent",
-                    "ucagent-task-id": task["task_id"],
-                },
+                "labels": dict(labels),
             },
             "spec": {
                 "backoffLimit": 0,
                 "template": {
                     "metadata": {
-                        "labels": {
-                            "app": "ucagent",
-                            "ucagent-task-id": task["task_id"],
-                        },
+                        "labels": dict(labels),
                     },
                     "spec": pod_spec,
                 },
@@ -4711,7 +4874,9 @@ class PdbMasterApiServer:
     ) -> Dict[str, Any]:
         cfg = self._launch_cluster_config()
         manifest = self._k8s_manifest(task, env, prepared, cmd_api, terminal_api, web_console)
-        manifest_path = os.path.join(self._logs_dir, f"{task['task_id']}.k8s-job.json")
+        segment = self._current_task_segment(task)
+        suffix = f".s{segment['index']}" if segment is not None else ""
+        manifest_path = os.path.join(self._logs_dir, f"{task['task_id']}{suffix}.k8s-job.json")
         with open(manifest_path, "w", encoding="utf-8") as fh:
             json.dump(manifest, fh, ensure_ascii=False, indent=2)
         namespace = cfg["k8s_namespace"]
@@ -4913,17 +5078,20 @@ class PdbMasterApiServer:
                 [
                     "kubectl", "get", "job", name,
                     "-n", namespace,
-                    "-o", f"jsonpath={_K8S_JOB_STATUS_JSONPATH}",
+                    "-o", "json",
                 ],
                 timeout=4.0,
             )
             if code != 0:
                 return False, None, (stderr or stdout).strip()
-            parts = stdout.strip().split()
+            try:
+                status = (json.loads(stdout) or {}).get("status") or {}
+            except (TypeError, json.JSONDecodeError) as exc:
+                return False, None, f"Invalid Kubernetes job status JSON: {exc}"
             return self._cluster_job_status(
-                self._int_or_zero(parts[0] if len(parts) > 0 else 0),
-                self._int_or_zero(parts[1] if len(parts) > 1 else 0),
-                self._int_or_zero(parts[2] if len(parts) > 2 else 0),
+                self._int_or_zero(status.get("active")),
+                self._int_or_zero(status.get("succeeded")),
+                self._int_or_zero(status.get("failed")),
             )
         return False, None, ""
 
@@ -5075,6 +5243,189 @@ class PdbMasterApiServer:
         if agent and self._merge_task_agent_runtime_info(task, agent):
             self._mark_dirty()
 
+    def _start_next_k8s_segment(self, task: Dict[str, Any]) -> None:
+        segments = task.get("segments") or []
+        current_index = int(task.get("current_segment_index") or 0)
+        next_index = current_index + 1
+        if next_index >= len(segments):
+            raise ValueError("No next stage segment is available")
+
+        self._close_task_runtime(task["task_id"])
+        segment = segments[next_index]
+        task["current_segment_index"] = next_index
+        task["client_id"] = segment["client_id"]
+        task["registered_agent_id"] = ""
+        task["registered_to_master"] = False
+        task["cluster"] = {}
+        task["process_status"] = "starting"
+        task["logical_status"] = "starting"
+        task["exit_code"] = None
+        task["finished_at"] = None
+        task["cmd_api"]["status"] = "starting"
+        if task.get("terminal_api", {}).get("enabled"):
+            task["terminal_api"]["status"] = "starting"
+
+        req = dict(task.get("cli_args_structured") or {})
+        req.update({
+            "task_id": task["task_id"],
+            "client_id": segment["client_id"],
+            "stage_segment_index": segment["index"],
+            "stage_segment_start": segment["stage_start"],
+            "stage_segment_end": segment["stage_end"],
+        })
+        # A forced stage is a one-shot recovery/rewind instruction.  Reusing it
+        # for later segments would rewind the freshly persisted stage index and
+        # can place it outside the next segment's range.
+        req.pop("force_stage_index", None)
+        prepared = dict(task.get("launch_prepared") or {})
+        if not prepared:
+            raise ValueError("Segmented task is missing its prepared workspace metadata")
+        resolved_command, env = self._build_ucagent_command(req, prepared, task["cmd_api"])
+        task["resolved_command"] = resolved_command
+
+        with self._workspaces_lock:
+            ws = self._workspaces.get(task.get("workspace_id"))
+            if ws is not None:
+                ws["last_launch_client_id"] = segment["client_id"]
+
+        self._start_task_k8s(
+            task,
+            env,
+            prepared,
+            task["cmd_api"],
+            task["terminal_api"],
+            task["web_console"],
+        )
+        segment["status"] = "running"
+        segment["started_at"] = _now()
+        task["process_status"] = "running"
+        task["logical_status"] = "running"
+        self._mark_dirty()
+
+    def _refresh_segmented_k8s_task(
+        self,
+        task: Dict[str, Any],
+        matched_agent: Optional[Dict[str, Any]],
+        now: float,
+    ) -> None:
+        segment = self._current_task_segment(task)
+        if segment is None:
+            task["process_status"] = "failed"
+            task["logical_status"] = "failed"
+            task["finished_at"] = task.get("finished_at") or now
+            self._mark_dirty()
+            return
+
+        alive, exit_code, detail = self._cluster_alive_status(task)
+        if alive:
+            if task.get("launch_mode") == "k8s":
+                self._start_k8s_port_forwards(task)
+            if task.get("process_status") != "running":
+                task["process_status"] = "running"
+                task["logical_status"] = "running"
+                segment["status"] = "running"
+                self._mark_dirty()
+            return
+        if exit_code is None:
+            started_at = float(segment.get("started_at") or task.get("started_at") or 0)
+            if started_at and now - started_at < 15:
+                return
+            return
+
+        self._close_task_runtime(task["task_id"])
+        segment["exit_code"] = exit_code
+        segment["finished_at"] = segment.get("finished_at") or now
+        segments = task.get("segments") or []
+        current_index = int(task.get("current_segment_index") or 0)
+        is_intermediate = current_index < len(segments) - 1
+        handoff_ready = bool((segment.get("handoff") or {}).get("ready_at"))
+        mission_complete = bool(matched_agent and matched_agent.get("is_mission_complete"))
+        sync_info = task.get("workspace_sync_back") or {}
+        final_sync_matches = str(sync_info.get("agent_id") or "") == str(segment.get("client_id") or "")
+        final_completion_validated = (
+            not is_intermediate and mission_complete and final_sync_matches
+        )
+        if exit_code != 0 and not (
+            (is_intermediate and handoff_ready) or final_completion_validated
+        ):
+            segment["status"] = "failed"
+            task["process_status"] = "failed"
+            task["logical_status"] = "failed"
+            task["exit_code"] = exit_code
+            task["finished_at"] = task.get("finished_at") or now
+            self._append_task_log(
+                task["stderr_log_path"],
+                f"Stage segment {segment['index']} failed with exit code {exit_code}: {detail}",
+            )
+            self._mark_dirty()
+            return
+        if exit_code != 0 and is_intermediate:
+            segment["post_handoff_exit_code"] = exit_code
+            self._append_task_log(
+                task["stderr_log_path"],
+                f"Stage segment {segment['index']} exited with code {exit_code} after a "
+                "validated workspace handoff; continuing with the next segment.",
+            )
+        elif exit_code != 0:
+            segment["post_completion_exit_code"] = exit_code
+            self._append_task_log(
+                task["stderr_log_path"],
+                f"Final stage segment {segment['index']} exited with code {exit_code} after "
+                "mission completion and final workspace sync; accepting the validated result.",
+            )
+
+        if is_intermediate:
+            if not handoff_ready:
+                segment["status"] = "failed"
+                task["process_status"] = "failed"
+                task["logical_status"] = "failed"
+                task["exit_code"] = 1
+                task["finished_at"] = task.get("finished_at") or now
+                self._append_task_log(
+                    task["stderr_log_path"],
+                    f"Stage segment {segment['index']} exited without a validated workspace handoff.",
+                )
+                self._mark_dirty()
+                return
+            segment["status"] = "completed"
+            task["process_status"] = "transitioning"
+            task["logical_status"] = "transitioning"
+            try:
+                self._start_next_k8s_segment(task)
+            except Exception as exc:
+                task["process_status"] = "failed"
+                task["logical_status"] = "failed"
+                task["exit_code"] = 1
+                task["finished_at"] = task.get("finished_at") or now
+                self._append_task_log(
+                    task["stderr_log_path"],
+                    f"Failed to launch stage segment {current_index + 1}: {exc}",
+                )
+            self._mark_dirty()
+            return
+
+        if not mission_complete or not final_sync_matches:
+            segment["status"] = "failed"
+            task["process_status"] = "failed"
+            task["logical_status"] = "failed"
+            task["exit_code"] = 1
+            task["finished_at"] = task.get("finished_at") or now
+            self._append_task_log(
+                task["stderr_log_path"],
+                "Final segment exited without mission completion and a matching final workspace sync.",
+            )
+            self._mark_dirty()
+            return
+
+        segment["status"] = "completed"
+        task["process_status"] = "stopped"
+        task["logical_status"] = "completed"
+        task["exit_code"] = 0
+        task["finished_at"] = task.get("finished_at") or now
+        task["cmd_api"]["status"] = "stopped"
+        task["terminal_api"]["status"] = "stopped"
+        self._mark_dirty()
+
     def _refresh_task_states(self) -> None:
         now = _now()
         agents = self._snapshot_agents()
@@ -5099,6 +5450,10 @@ class PdbMasterApiServer:
                 if task.get("registered_agent_id") != matched_agent_id:
                     task["registered_agent_id"] = matched_agent_id
                     self._mark_dirty()
+
+                if task.get("segments") and launch_mode == "k8s":
+                    self._refresh_segmented_k8s_task(task, matched_agent, now)
+                    continue
 
                 if (
                     task.get("process_status") == "starting"
@@ -5218,6 +5573,15 @@ class PdbMasterApiServer:
         self._ensure_launch_mode_supported(launch_mode)
         if not str(req.get("client_id") or "").strip():
             req["client_id"] = uuid.uuid4().hex
+        base_client_id = str(req["client_id"])
+        segments = _normalize_stage_segments(req.get("stage_segments"))
+        if segments and launch_mode != "k8s":
+            raise ValueError("'stage_segments' is currently supported only with launch_mode 'k8s'")
+        for segment in segments:
+            segment["client_id"] = f"{base_client_id}-s{segment['index']}"
+        if segments:
+            req["base_client_id"] = base_client_id
+            req["client_id"] = segments[0]["client_id"]
         workspace_id = req.get("workspace_id", "")
         if not workspace_id:
             raise ValueError("'workspace_id' is required for launch")
@@ -5390,6 +5754,10 @@ class PdbMasterApiServer:
             "cmd_api": cmd_api,
             "terminal_api": terminal_api,
             "web_console": web_console,
+            "segments": segments,
+            "current_segment_index": 0 if segments else None,
+            "logical_status": "starting" if segments else "pending",
+            "launch_prepared": prepared,
         })
 
         with self._workspaces_lock:
@@ -5401,6 +5769,11 @@ class PdbMasterApiServer:
         task["picker_exit_code"] = compile_info.get("picker_exit_code")
         task["picker_status"] = picker_status
         req["task_id"] = task["task_id"]
+        if segments:
+            first_segment = segments[0]
+            req["stage_segment_index"] = first_segment["index"]
+            req["stage_segment_start"] = first_segment["stage_start"]
+            req["stage_segment_end"] = first_segment["stage_end"]
         self._mark_dirty()
 
         if task["picker_status"] != "success":
@@ -5454,6 +5827,11 @@ class PdbMasterApiServer:
             self._mark_dirty()
             raise
         task["started_at"] = _now()
+        segment = self._current_task_segment(task)
+        if segment is not None:
+            segment["status"] = "running"
+            segment["started_at"] = task["started_at"]
+            task["logical_status"] = "running"
         code = proc.poll() if proc is not None else None
         if proc is not None and code is not None:
             self._close_task_runtime(task["task_id"])
@@ -6709,17 +7087,34 @@ class PdbMasterApiServer:
                     raise HTTPException(status_code=400, detail="'agent_id' is required")
 
                 size = 0
+                digest = hashlib.sha256()
                 with open(archive_path, "wb") as fh:
                     while True:
                         chunk = await upload_file.read(1024 * 1024)
                         if not chunk:
                             break
                         size += len(chunk)
+                        digest.update(chunk)
                         fh.write(chunk)
                 if size <= 0:
                     raise HTTPException(status_code=400, detail="Uploaded workspace archive is empty")
-                sync_info = self._sync_workspace_archive_back(agent_id, archive_path, archive_size=size)
-                return {"status": "ok", "sync": sync_info}
+                sync_info = self._sync_workspace_archive_back(
+                    agent_id,
+                    archive_path,
+                    archive_size=size,
+                    archive_sha256=digest.hexdigest(),
+                )
+                handoff = None
+                reason = str(form.get("reason") or "").strip()
+                if reason == "segment_complete":
+                    handoff = self._record_segment_handoff(
+                        sync_info,
+                        agent_id=agent_id,
+                        segment_index=form.get("segment_index"),
+                        segment_start=form.get("segment_start"),
+                        segment_end=form.get("segment_end"),
+                    )
+                return {"status": "ok", "sync": sync_info, "handoff": handoff}
             except HTTPException:
                 raise
             except KeyError as exc:
@@ -8984,10 +9379,20 @@ class PdbMasterClient:
                 ignore_patterns=self._sync_workspace_ignore_patterns(),
             )
             url = f"{self.master_url}/api/workspace-sync/back"
+            form_data = {"agent_id": self.agent_id, "reason": reason}
+            if reason == "segment_complete":
+                for env_name, field_name in (
+                    ("UCAGENT_SEGMENT_INDEX", "segment_index"),
+                    ("UCAGENT_SEGMENT_START", "segment_start"),
+                    ("UCAGENT_SEGMENT_END", "segment_end"),
+                ):
+                    value = str(os.environ.get(env_name, "") or "").strip()
+                    if value:
+                        form_data[field_name] = value
             with open(archive_path, "rb") as fh:
                 resp = requests.post(
                     url,
-                    data={"agent_id": self.agent_id, "reason": reason},
+                    data=form_data,
                     files={"archive": (filename, fh, "application/gzip")},
                     timeout=(15, 600),
                     headers=self._headers(),

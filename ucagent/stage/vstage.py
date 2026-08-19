@@ -173,6 +173,8 @@ class VerifyStage(object):
             return
         if not self.vmanager:
             return
+        if self.vmanager.is_intermediate_segment_end(self):
+            return
         agent = getattr(self.vmanager, "agent", None)
         pdb = getattr(agent, "pdb", None)
         master_clients = getattr(pdb, "_master_clients", {}) or {}

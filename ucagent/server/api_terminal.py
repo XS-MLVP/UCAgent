@@ -207,9 +207,13 @@ def _print_web_console_abnormal_exit_output(
     if not output:
         return False
 
+    # A completed verification run may legitimately include checker tracebacks
+    # or AssertionError text in its transcript.  Once the child has returned a
+    # definite status, that status is authoritative; output markers are only a
+    # fallback for the otherwise unknown-exit case.
     abnormal = (
         (exit_code is not None and exit_code != 0)
-        or _web_console_output_looks_abnormal(output)
+        or (exit_code is None and _web_console_output_looks_abnormal(output))
     )
     if not abnormal:
         return False
@@ -391,6 +395,8 @@ class _ManagedProcess:
 
     def poll(self) -> Optional[int]:
         """Non-blocking wait; returns exit code or None if still running."""
+        if self._exit_code is not None:
+            return self._exit_code
         if self._pid is None:
             return self._exit_code
         try:
@@ -408,6 +414,7 @@ class _ManagedProcess:
             self._exit_code = -os.WTERMSIG(status)
         else:
             self._exit_code = -1
+        self._pid = None
         return self._exit_code
 
     def terminate(self) -> None:
