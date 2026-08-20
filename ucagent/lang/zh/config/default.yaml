@@ -349,6 +349,7 @@ stage:
               max_example_lines: 20
               ignore_blank_lines: true
               must_has_no_miss_match: true
+              data_key: "COVER_GROUP_DOC_CK_LIST"
 
   - name: functional_specification_refine
     desc: "功能规格/测试点细化与边界条件补充[{COMPLETED_POINTS}/{TOTAL_POINTS}|{COUNT_CK}]"

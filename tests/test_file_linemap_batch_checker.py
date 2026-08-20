@@ -18,6 +18,24 @@ class _Stage:
     def title(self):
         return self.name
 
+    def reset_continue_fail_count_with_batch_pass(self):
+        return None
+
+
+class _StageManager:
+    def __init__(self, data=None):
+        self.data = dict(data or {})
+        self.current_stage = _Stage()
+
+    def get_data(self, key, default=None):
+        return self.data.get(key, default)
+
+    def set_data(self, key, value):
+        self.data[key] = value
+
+    def get_current_stage(self):
+        return self.current_stage
+
 
 def _write_spec(path):
     path.write_text(
@@ -274,15 +292,22 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     _write_spec(tmp_path / "out" / "spec.md")
     (tmp_path / "src" / "dut.md").write_text("line\n" * 101, encoding="utf-8")
 
-    checker = UnityChipBatchCheckerFileLineMap(
-        name="functional_line_mapping",
-        file_list=["src/*.md"],
-        func_check_file="out/spec.md",
-        progress_file="out/progress.md",
-        map_location="out/line_map",
-        batch_size=1,
-        max_block_lines=100,
-    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    manager = _StageManager({"CK_LIST": ["stale"]})
+    checker = (
+        UnityChipBatchCheckerFileLineMap(
+            name="functional_line_mapping",
+            file_list=["src/*.md"],
+            func_check_file="out/spec.md",
+            progress_file="out/progress.md",
+            map_location="out/line_map",
+            batch_size=1,
+            max_block_lines=100,
+            data_key="CK_LIST",
+        )
+        .set_workspace(str(tmp_path))
+        .set_stage(_Stage())
+        .set_stage_manager(manager)
+    )
     checker.on_init()
 
     assert [_line_block_base(task) for task in checker.batch_task.source_task_list] == [
@@ -323,12 +348,14 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     assert [_line_block_base(task) for task in checker.batch_task.tbd_task_list] == [
         "src/dut.md:101-101"
     ]
+    assert manager.data["CK_LIST"] == ["stale"]
 
     with (tmp_path / "out" / "progress.md").open("a", encoding="utf-8") as progress:
         progress.write("| <file>src/dut.md:101-101</file> | 1 | 完成 |\n")
     passed, result = checker.do_check(is_complete=False)
     assert passed is True
     assert result["progress"] == "2/2"
+    assert manager.data["CK_LIST"] == ["FG-API/FC-API/CK-API"]
 
     passed, result = checker.do_check(is_complete=True)
     assert passed is True
@@ -341,6 +368,53 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     assert passed is False
     assert "target document changed outside this stage" in str(result)
     assert "do not modify the target document to preserve old progress" in str(result)
+
+
+def test_batch_checker_saves_latest_ck_list_after_successful_check_and_complete(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text("line\n", encoding="utf-8")
+    (tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt").write_text(
+        "FG-API/FC-API/CK-API: 1-1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "out" / "progress.md").write_text(
+        "| <file>src/dut.md:1-1</file> | 1 | 完成 |\n",
+        encoding="utf-8",
+    )
+    manager = _StageManager({"CK_LIST": ["stale"]})
+    checker = (
+        UnityChipBatchCheckerFileLineMap(
+            name="functional_line_mapping",
+            file_list=["src/*.md"],
+            func_check_file="out/spec.md",
+            progress_file="out/progress.md",
+            map_location="out/line_map",
+            data_key="CK_LIST",
+        )
+        .set_workspace(str(tmp_path))
+        .set_stage(_Stage())
+        .set_stage_manager(manager)
+    )
+    checker.on_init()
+
+    passed, _result = checker.do_check(is_complete=False)
+    assert passed is True
+    assert manager.data["CK_LIST"] == ["FG-API/FC-API/CK-API"]
+
+    (tmp_path / "out" / "spec.md").write_text(
+        "# Spec\n\n<FG-API>\n\n<FC-API>\n\n<CK-API>\n\n<CK-EXTRA>\n",
+        encoding="utf-8",
+    )
+    passed, result = checker.do_check(is_complete=True)
+
+    assert passed is True
+    assert result == "Complete success."
+    assert manager.data["CK_LIST"] == [
+        "FG-API/FC-API/CK-API",
+        "FG-API/FC-API/CK-EXTRA",
+    ]
 
 
 def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypatch):
@@ -433,13 +507,20 @@ def test_batch_checker_treats_all_blank_files_as_complete(tmp_path):
     _write_spec(tmp_path / "out" / "spec.md")
     (tmp_path / "src" / "blank.md").write_text("\n   \n\t\n", encoding="utf-8")
 
-    checker = UnityChipBatchCheckerFileLineMap(
-        name="functional_line_mapping",
-        file_list=["src/*.md"],
-        func_check_file="out/spec.md",
-        progress_file="out/progress.md",
-        map_location="out/line_map",
-    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    manager = _StageManager({"CK_LIST": ["stale"]})
+    checker = (
+        UnityChipBatchCheckerFileLineMap(
+            name="functional_line_mapping",
+            file_list=["src/*.md"],
+            func_check_file="out/spec.md",
+            progress_file="out/progress.md",
+            map_location="out/line_map",
+            data_key="CK_LIST",
+        )
+        .set_workspace(str(tmp_path))
+        .set_stage(_Stage())
+        .set_stage_manager(manager)
+    )
     checker.on_init()
 
     template_data = checker.get_template_data()
@@ -451,10 +532,12 @@ def test_batch_checker_treats_all_blank_files_as_complete(tmp_path):
     assert passed is True
     assert result["progress"] == "0/0"
     assert result["current_line_block_contents"] == []
+    assert manager.data["CK_LIST"] == ["FG-API/FC-API/CK-API"]
 
     passed, result = checker.do_check(is_complete=True)
     assert passed is True
     assert result == "Complete success."
+    assert manager.data["CK_LIST"] == ["FG-API/FC-API/CK-API"]
 
 
 def test_default_config_defines_line_map_targets_only_in_checker_file_list():
@@ -517,6 +600,7 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     ]
     assert "ignore_file_patterns" not in checker_args
     assert all("Guide_Doc" not in pattern for pattern in checker_args["file_list"])
+    assert checker_args["data_key"] == "COVER_GROUP_DOC_CK_LIST"
 
 
 def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():

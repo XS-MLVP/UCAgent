@@ -407,13 +407,14 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                  map_location="line_map", map_suffix="_line_func_map.txt",
                  batch_size=1, max_block_lines=100, max_example_lines=20,
                  ignore_blank_lines=True, must_has_no_miss_match=True,
-                 need_human_check=False, **kw):
+                 need_human_check=False, data_key=None, **kw):
         self.name = name
         self.file_list = file_list if isinstance(file_list, list) else [file_list]
         self.func_check_file = func_check_file
         self.progress_file = progress_file
         self.map_location = map_location
         self.map_suffix = map_suffix
+        self.data_key = data_key
         self.batch_size = int(batch_size)
         self.max_block_lines = int(max_block_lines)
         self.max_example_lines = int(max_example_lines)
@@ -662,6 +663,17 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         result[key] = [self._line_block_content(task) for task in tasks]
         return result
 
+    def _save_final_ck_list(self, ck_list):
+        """Persist the final CK paths for downstream stages."""
+        if not self.data_key:
+            return
+        final_ck_list = list(ck_list)
+        self.smanager_set_value(self.data_key, final_ck_list)
+        info(
+            f"Cache final CK marks(size={len(final_ck_list)}) "
+            f"to data key '{self.data_key}'."
+        )
+
     def on_init(self):
         super().on_init()
         success, ck_list = get_func_check_marks(self.workspace, self.func_check_file)
@@ -758,6 +770,14 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 diagnostics["progress_marker_mismatches"].extend(errors)
                 return False, {"error": errors, **diagnostics}
             if self._source_files:
+                if self.data_key:
+                    success, ck_list_or_msg = get_func_check_marks(
+                        self.workspace, self.func_check_file
+                    )
+                    if not success:
+                        return False, ck_list_or_msg
+                    self._ck_count = len(ck_list_or_msg)
+                    self._save_final_ck_list(ck_list_or_msg)
                 if is_complete:
                     return True, "Complete success."
                 return True, {
@@ -874,6 +894,8 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             f"in {self.progress_file} and {self.map_location}",
             " Use the current line blocks shown in the task description.",
         )
+        if passed:
+            self._save_final_ck_list(ck_list)
         if isinstance(result, dict):
             result["current_batch"] = [_line_block_base(task) for task in current_batch]
             result["progress"] = f"{len(markers)}/{len(source_tasks)}"
