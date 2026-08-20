@@ -339,7 +339,8 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     (tmp_path / "src" / "dut.md").write_text("changed\n" * 101, encoding="utf-8")
     passed, result = checker.do_check(is_complete=False)
     assert passed is False
-    assert "source file content changed" in str(result)
+    assert "target document changed outside this stage" in str(result)
+    assert "do not modify the target document to preserve old progress" in str(result)
 
 
 def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypatch):
@@ -474,14 +475,39 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     checker_args = child["checker"][0]["args"]
     assert child["desc"] == "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
     task_text = "\n".join(child["task"])
+    assert "按批次审查运行时提供的目标文档行块" in task_text
+    assert "目标文档集合由当前阶段配置动态确定" in task_text
+    assert "所有有功能意义的非空白内容" in task_text
+    assert "不要自行猜测、补充或创建未返回的目标文件" in task_text
+    assert "参考文档是本阶段的输入，不得修改、重排、格式化、插入空行" in task_text
+    assert "正常情况下参考文档的路径和物理行范围保持不变" in task_text
+    assert "不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号" in task_text
+    assert "视为阶段外部变更/输入变更" in task_text
+    assert "不得自行修改参考文档来消除错误" in task_text
     assert "不是对应源文件的完整内容" in task_text
     assert "再使用ReadTextFile查看file字段指向的原文件" in task_text
     assert "例如[99-120, 456-888]" in task_text
     assert "uncovered_content" in task_text
+    assert "动态工作文档，不是静态只读输入" in task_text
+    assert "按可独立激励、观测和判定的维度拆分为多个 CK" in task_text
+    assert "不能通过删除标签掩盖功能遗漏" in task_text
+    assert "不能留下旧 CK、MISSMT 或不存在的标签" in task_text
+    assert "覆盖率定义、测试用例、静态/动态 Bug 证据" in task_text
+    assert "同一文档行如果确实同时描述多个独立且可验证的行为" in task_text
+    assert "file_list" not in task_text
+    assert "MAX_LINE_BLOCK_LINES" not in task_text
+    assert "max_example_lines" not in task_text
+    assert "100 行" not in task_text
+    assert "1-100" not in task_text
     assert child["reference_files"] == [
         "Guide_Doc/dut_functions_and_checks.md",
         "Guide_Doc/dut_line_func_map.md",
         "{OUT}/{DUT}_functions_and_checks.md",
+    ]
+    assert child["output_files"] == [
+        "{OUT}/{DUT}_functions_and_checks.md",
+        "{OUT}/{DUT}_line_map_progress.md",
+        "{OUT}/line_map/*_line_func_map.txt",
     ]
     assert checker_args["file_list"] == [
         "{DUT}/*.md",
@@ -491,3 +517,20 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     ]
     assert "ignore_file_patterns" not in checker_args
     assert all("Guide_Doc" not in pattern for pattern in checker_args["file_list"])
+
+
+def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    guide_path = os.path.join(
+        project_root, "ucagent/lang/zh/doc/Guide_Doc/dut_line_func_map.md"
+    )
+    with open(guide_path, encoding="utf-8") as guide_file:
+        guide_text = guide_file.read()
+
+    assert "当前阶段配置的行范围上限" in guide_text
+    assert "以任务描述及 `Check`/`Complete` 返回的当前批次为准" in guide_text
+    assert "每个映射区间最多覆盖 100 行" not in guide_text
+    assert "`max_example_lines`" not in guide_text
+    assert "`file_list`" not in guide_text
+    assert "正常执行时，目标文档是只读输入" in guide_text
+    assert "阶段外部更新、重新生成或其他进程修改" in guide_text

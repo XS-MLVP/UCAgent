@@ -686,7 +686,10 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             previous_task = previous_by_base.get(marker)
             if previous_task is not None and _line_block_digest(previous_task) != _line_block_digest(current_task):
                 self._task_errors.append(
-                    f"Progress marker '{marker}' is stale because the source file content changed."
+                    f"Progress marker '{marker}' is stale because the target document "
+                    "changed outside this stage after the progress was recorded. "
+                    "Re-read the target document and review its current line blocks; "
+                    "do not modify the target document to preserve old progress."
                 )
                 continue
             completed_tasks.append(current_task)
