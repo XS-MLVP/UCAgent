@@ -569,9 +569,11 @@ class ArgApplyWaveInfoEvidence(BaseModel):
         ),
     )
     receipt_id: str = Field(
-        ...,
-        min_length=1,
-        description="Receipt ID returned by the final evidence-producing WaveInfo call.",
+        default="",
+        description=(
+            "Receipt ID returned by the final evidence-producing WaveInfo call. Leave "
+            "blank to select the newest signed final receipt matching test_case_tag."
+        ),
     )
     replace_existing: bool = Field(
         default=False,
@@ -584,11 +586,12 @@ class ArgApplyWaveInfoEvidence(BaseModel):
 
     @model_validator(mode="after")
     def normalize_values(self):
-        for field_name in ("target_file", "bug_tag", "test_case_tag", "receipt_id"):
+        for field_name in ("target_file", "bug_tag", "test_case_tag"):
             value = getattr(self, field_name).strip()
             if not value:
                 raise ValueError(f"{field_name} must not be blank")
             setattr(self, field_name, value)
+        self.receipt_id = self.receipt_id.strip()
         return self
 
 
@@ -2859,8 +2862,11 @@ class ApplyWaveInfoEvidence(UCTool):
         "alignment_evidence, observed_behavior, and source_correlation are preserved when "
         "reapplying the same receipt. Replacing a different receipt requires "
         "replace_existing=true and resets those three conclusions to BUG-TODO so they must "
-        "be reviewed against the new waveform. The target must be an existing workspace-"
-        "relative Markdown file inside the configured write directories."
+        "be reviewed against the new waveform. receipt_id may be blank to select the newest "
+        "signed final receipt matching the exact TC. A missing or malformed viewer placeholder "
+        "is repaired as part of the atomic update. The tool also creates the YAML and viewer "
+        "machine block when the exact BG/TC exists without a scaffold. The target must be an "
+        "existing workspace-relative Markdown file inside the configured write directories."
     )
     args_schema: Optional[ArgsSchema] = ArgApplyWaveInfoEvidence
     return_direct: bool = False
@@ -2989,32 +2995,88 @@ class ApplyWaveInfoEvidence(UCTool):
             return False
         return receipt_parts == document_parts[-len(receipt_parts) :]
 
+    def _latest_matching_evidence(
+        self,
+        document_test: str,
+    ) -> tuple[str | None, OrderedDict]:
+        """Return the newest signed final receipt matching the document TC."""
+
+        try:
+            persisted = self.waveinfo._load_persisted_receipts()
+            self.waveinfo.analysis_receipts = self.waveinfo._merge_receipts(
+                self.waveinfo.analysis_receipts,
+                persisted,
+            )
+        except Exception as error:
+            warning(f"Could not refresh persisted WaveInfo receipts: {error}")
+
+        matched_receipts = []
+        receipts = sorted(
+            self.waveinfo.analysis_receipts,
+            key=lambda item: str(item.get("recorded_at") or ""),
+        )
+        for receipt in reversed(receipts):
+            receipt_id = receipt.get("receipt_id")
+            receipt_test = str((receipt.get("arguments") or {}).get("test_case_name") or "")
+            if not isinstance(receipt_id, str) or not receipt_id or not receipt_test:
+                continue
+            try:
+                matches = self._test_case_matches(receipt_test, document_test)
+            except ValueError:
+                continue
+            if not matches:
+                continue
+            result = receipt.get("result") or {}
+            matched_receipts.append(
+                OrderedDict(
+                    [
+                        ("receipt_id", receipt_id),
+                        ("test_case_name", receipt_test),
+                        ("status", result.get("status")),
+                        ("evidence_usable", result.get("evidence_usable")),
+                    ]
+                )
+            )
+            evidence = self.waveinfo.get_bug_document_evidence(receipt_id)
+            if evidence.get("success") is True:
+                return receipt_id, evidence
+
+        return None, self.waveinfo._error(
+            "matching_final_receipt_not_found",
+            f"No signed final WaveInfo receipt can be applied to '<TC-{document_test}>'.",
+            details={"matching_receipts": matched_receipts[:10]},
+            suggestions=[
+                "Run the exact failing test so it emits a current waveform.",
+                "Call final WaveInfo with an explicit window or clock alignment and "
+                "complete signal_groups, then retry ApplyWaveInfoEvidence with "
+                "receipt_id blank.",
+            ],
+        )
+
     @staticmethod
     def _read_existing_analysis(
         lines: list[str],
         open_index: int,
         close_index: int,
-        target_file: str,
     ) -> dict[str, Any]:
         payload_text = textwrap.dedent(
             "".join(lines[open_index + 1 : close_index])
         )
         try:
             payload = yaml.safe_load(payload_text)
-        except yaml.YAMLError as error:
-            raise ValueError(
-                f"existing waveform YAML in '{target_file}' is invalid: {error}"
-            ) from error
+        except yaml.YAMLError:
+            payload = None
         if not isinstance(payload, dict) or set(payload) != {WAVEFORM_BLOCK_KEY}:
-            raise ValueError(
-                f"existing YAML in '{target_file}' must contain only the top-level "
-                f"'{WAVEFORM_BLOCK_KEY}' key"
-            )
-        analysis = payload.get(WAVEFORM_BLOCK_KEY)
+            analysis = None
+        else:
+            analysis = payload.get(WAVEFORM_BLOCK_KEY)
         if not isinstance(analysis, dict):
-            raise ValueError(
-                f"existing '{WAVEFORM_BLOCK_KEY}' value in '{target_file}' must be a mapping"
+            receipt_matches = re.findall(
+                r"^[ \t]*receipt_id:[ \t]*['\"]?([0-9a-f]{32})['\"]?[ \t]*$",
+                payload_text,
+                flags=re.MULTILINE,
             )
+            return {"receipt_id": receipt_matches[0]} if len(receipt_matches) == 1 else {}
         return analysis
 
     @staticmethod
@@ -3023,7 +3085,7 @@ class ApplyWaveInfoEvidence(UCTool):
         bug_tag: str,
         test_case_tag: str,
         target_file: str,
-    ) -> tuple[int, int, int]:
+    ) -> tuple[int, int | None, int | None, int | None]:
         current_bug = None
         fence_open = False
         dynamic_container_count = 0
@@ -3095,10 +3157,16 @@ class ApplyWaveInfoEvidence(UCTool):
             open_index >= len(lines)
             or lines[open_index].strip().lower() != WAVEFORM_FENCE_OPEN
         ):
-            raise ValueError(
-                f"the first non-empty content after <{test_case_tag}> at line "
-                f"{test_index + 1} must be an existing {WAVEFORM_FENCE_OPEN} scaffold"
-            )
+            viewer_index = None
+            if open_index < len(lines):
+                candidate = lines[open_index].strip()
+                if (
+                    "<WAVEFORM-VIEWER>" in candidate
+                    or "/surfer/?wave=" in candidate
+                    or candidate in {"placeholder", BUG_TODO_MARKER}
+                ):
+                    viewer_index = open_index
+            return test_index, None, None, viewer_index
 
         close_index = open_index + 1
         while close_index < len(lines):
@@ -3119,15 +3187,16 @@ class ApplyWaveInfoEvidence(UCTool):
         viewer_index = close_index + 1
         while viewer_index < len(lines) and not lines[viewer_index].strip():
             viewer_index += 1
-        if viewer_index >= len(lines) or not (
-            "<WAVEFORM-VIEWER>" in lines[viewer_index]
-            and "/surfer/?wave=" in lines[viewer_index]
+        if viewer_index >= len(lines):
+            return test_index, open_index, close_index, None
+        candidate = lines[viewer_index].strip()
+        if (
+            "<WAVEFORM-VIEWER>" in candidate
+            or "/surfer/?wave=" in candidate
+            or candidate in {"placeholder", BUG_TODO_MARKER}
         ):
-            raise ValueError(
-                f"the first non-empty content after the YAML block at line "
-                f"{open_index + 1} must be the existing <WAVEFORM-VIEWER> scaffold"
-            )
-        return open_index, close_index, viewer_index
+            return test_index, open_index, close_index, viewer_index
+        return test_index, open_index, close_index, None
 
     @staticmethod
     def _render_evidence_block(
@@ -3190,7 +3259,7 @@ class ApplyWaveInfoEvidence(UCTool):
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
-        receipt_id: str,
+        receipt_id: str = "",
         replace_existing: bool = False,
     ) -> OrderedDict:
         """Validate and atomically apply one receipt-backed document block."""
@@ -3206,11 +3275,18 @@ class ApplyWaveInfoEvidence(UCTool):
         except ValueError as error:
             return self.waveinfo._error("invalid_document_target", str(error))
 
-        evidence = self.waveinfo.get_bug_document_evidence(receipt_id)
+        document_test = test_case_tag[len("TC-") :]
+        receipt_selection = "explicit"
+        if receipt_id:
+            evidence = self.waveinfo.get_bug_document_evidence(receipt_id)
+        else:
+            receipt_selection = "latest_matching_final"
+            receipt_id, evidence = self._latest_matching_evidence(document_test)
+            if receipt_id is None:
+                return evidence
         if evidence.get("success") is not True:
             return evidence
         receipt_test = str(evidence.get("test_case_name") or "")
-        document_test = test_case_tag[len("TC-") :]
         try:
             test_matches = self._test_case_matches(receipt_test, document_test)
         except ValueError as error:
@@ -3241,17 +3317,20 @@ class ApplyWaveInfoEvidence(UCTool):
                     original = handle.read()
                 newline = "\r\n" if "\r\n" in original else "\n"
                 lines = original.splitlines(keepends=True)
-                open_index, close_index, viewer_index = self._find_target_region(
+                test_index, open_index, close_index, viewer_index = self._find_target_region(
                     lines,
                     bug_tag,
                     test_case_tag,
                     target_file,
                 )
-                existing = self._read_existing_analysis(
-                    lines,
-                    open_index,
-                    close_index,
-                    target_file,
+                existing = (
+                    self._read_existing_analysis(
+                        lines,
+                        open_index,
+                        close_index,
+                    )
+                    if open_index is not None and close_index is not None
+                    else {}
                 )
                 old_receipt = existing.get("receipt_id")
                 old_receipt_is_real = (
@@ -3289,16 +3368,30 @@ class ApplyWaveInfoEvidence(UCTool):
                         generated[field_name] = BUG_TODO_MARKER
                         reset_fields.append(field_name)
 
-                indent_match = re.match(r"^[ \t]*", lines[open_index])
+                indent_source = (
+                    lines[open_index] if open_index is not None else lines[test_index]
+                )
+                indent_match = re.match(r"^[ \t]*", indent_source)
                 indent = indent_match.group(0) if indent_match else ""
+                if open_index is None:
+                    indent += "  "
                 replacement = self._render_evidence_block(
                     generated,
                     evidence["bug_document_viewer_link"],
                     indent,
                     newline,
                 )
+                insertion_index = (
+                    open_index if open_index is not None else test_index + 1
+                )
+                if viewer_index is not None:
+                    suffix_index = viewer_index + 1
+                elif close_index is not None:
+                    suffix_index = close_index + 1
+                else:
+                    suffix_index = test_index + 1
                 updated_lines = (
-                    lines[:open_index] + replacement + lines[viewer_index + 1 :]
+                    lines[:insertion_index] + replacement + lines[suffix_index:]
                 )
                 updated = "".join(updated_lines)
                 relative_target = target.relative_to(Path(self.workspace)).as_posix()
@@ -3311,6 +3404,7 @@ class ApplyWaveInfoEvidence(UCTool):
                             ("bug_tag", bug_tag),
                             ("test_case_tag", test_case_tag),
                             ("receipt_id", receipt_id),
+                            ("receipt_selection", receipt_selection),
                             ("preserved_llm_fields", preserved_fields),
                             ("completion_required", reset_fields),
                         ]
@@ -3321,8 +3415,10 @@ class ApplyWaveInfoEvidence(UCTool):
                 "document_update_failed",
                 f"Could not apply WaveInfo evidence to '{target_file}': {error}",
                 suggestions=[
-                    "Create the exact BG/TC YAML and viewer scaffolds with a text-editing tool using Guide_Doc/dut_bug_analysis.md section 6.1.1, or use the optional recordbug.py helper, then retry.",
-                    "Resolve duplicate tags, malformed fences, permission restrictions, or concurrent edits, then retry.",
+                    "Keep one exact BG/TC pair inside the DYNAMIC-BUGS container; the "
+                    "tool creates or repairs its YAML and viewer machine block.",
+                    "Resolve duplicate tags, unclosed Markdown fences, permission "
+                    "restrictions, or concurrent edits, then retry.",
                 ],
             )
 
@@ -3334,6 +3430,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("bug_tag", bug_tag),
                 ("test_case_tag", test_case_tag),
                 ("receipt_id", receipt_id),
+                ("receipt_selection", receipt_selection),
                 ("replaced_receipt_id", old_receipt if replacing_different else None),
                 ("preserved_llm_fields", preserved_fields),
                 ("completion_required", reset_fields),
@@ -3351,7 +3448,7 @@ class ApplyWaveInfoEvidence(UCTool):
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
-        receipt_id: str,
+        receipt_id: str = "",
         replace_existing: bool = False,
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:

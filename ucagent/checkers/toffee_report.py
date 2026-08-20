@@ -378,19 +378,38 @@ def _parse_waveform_analysis_blocks(
                     stripped
                 )
             except WaveformViewerProtocolError as error:
+                pair = (pending_viewer["bug"], pending_viewer["test_case"])
+                documented_receipt = blocks[pair]["data"].get("receipt_id")
+                recovery_arguments = {
+                    "target_file": bug_file,
+                    "bug_tag": pending_viewer["bug"],
+                    "test_case_tag": pending_viewer["test_case"],
+                    "receipt_id": (
+                        documented_receipt
+                        if isinstance(documented_receipt, str)
+                        and documented_receipt.strip()
+                        and _BUG_TODO_MARKER not in documented_receipt
+                        else ""
+                    ),
+                }
                 return False, {}, {
                     "error": (
                         f"[Waveform Viewer Link Invalid] The first non-empty content after "
                         f"the YAML block at line {pending_viewer['block_line']} for "
                         f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' must be "
-                        "the exact bug_document_viewer_link returned by WaveInfo. "
-                        f"Line {line_number} is invalid: {error}."
+                        "a tool-generated viewer link. Do not edit or copy the token; call "
+                        "ApplyWaveInfoEvidence with the recovery_call below to atomically "
+                        f"repair the YAML and link. Line {line_number} is invalid: {error}."
                     ),
                     "details": {
                         "bug": pending_viewer["bug"],
                         "test_case": pending_viewer["test_case"],
                         "block_line": pending_viewer["block_line"],
                         "viewer_line": line_number,
+                        "recovery_call": {
+                            "tool": "ApplyWaveInfoEvidence",
+                            "arguments": recovery_arguments,
+                        },
                     },
                 }
             pair = (pending_viewer["bug"], pending_viewer["test_case"])
@@ -499,18 +518,35 @@ def _parse_waveform_analysis_blocks(
             )
         }
     if pending_viewer is not None:
+        pair = (pending_viewer["bug"], pending_viewer["test_case"])
+        documented_receipt = blocks[pair]["data"].get("receipt_id")
         return False, {}, {
             "error": (
                 f"[Waveform Viewer Link Missing] YAML block at line "
                 f"{pending_viewer['block_line']} for "
                 f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' has no online "
-                "viewer link. Copy bug_document_viewer_link from the same final WaveInfo "
-                "result as the first non-empty line after the closing fence."
+                "viewer link. Call ApplyWaveInfoEvidence with the recovery_call below; "
+                "the tool inserts the signed link without LLM-authored token handling."
             ),
             "details": {
                 "bug": pending_viewer["bug"],
                 "test_case": pending_viewer["test_case"],
                 "block_line": pending_viewer["block_line"],
+                "recovery_call": {
+                    "tool": "ApplyWaveInfoEvidence",
+                    "arguments": {
+                        "target_file": bug_file,
+                        "bug_tag": pending_viewer["bug"],
+                        "test_case_tag": pending_viewer["test_case"],
+                        "receipt_id": (
+                            documented_receipt
+                            if isinstance(documented_receipt, str)
+                            and documented_receipt.strip()
+                            and _BUG_TODO_MARKER not in documented_receipt
+                            else ""
+                        ),
+                    },
+                },
             },
         }
     return True, blocks, ""
@@ -1065,21 +1101,37 @@ def check_waveform_bug_analysis(
     ok, blocks, error = _parse_waveform_analysis_blocks(workspace, bug_file)
     if not ok:
         return False, error
-    missing = [
-        f"{item['bug']}/{item['test_label']}"
+    missing_items = [
+        item
         for item in required
         if (item["bug"], item["test_label"]) not in blocks
     ]
-    if missing:
+    if missing_items:
+        missing = [
+            f"{item['bug']}/{item['test_label']}" for item in missing_items
+        ]
+        recovery_calls = [
+            {
+                "tool": "ApplyWaveInfoEvidence",
+                "arguments": {
+                    "target_file": bug_file,
+                    "bug_tag": item["bug"],
+                    "test_case_tag": item["test_label"],
+                    "receipt_id": "",
+                },
+            }
+            for item in missing_items
+        ]
         return _waveform_error(
             f"[Waveform Analysis Missing] {len(missing)} dynamic Bug/test association(s) "
             f"lack a fenced '{_WAVEFORM_BLOCK_KEY}' mapping: {fc.list_str_abbr(missing)}. "
-            "Call WaveInfo for each failing test, then put a ```yaml block as the first "
-            "non-empty content after the corresponding <TC-*>. The block must contain only "
-            "the top-level 'waveform_analysis:' key and its structured evidence. Static-only findings "
-            "belong in the separate static Bug document and cannot be represented here with "
-            "a <BG-STATIC-*> tag.",
+            "Call final WaveInfo for each failing test, then invoke the corresponding "
+            "ApplyWaveInfoEvidence recovery call below. The tool creates the YAML and "
+            "viewer block at the exact TC; do not author or copy machine fields. "
+            "Static-only findings belong in the separate static Bug document and cannot "
+            "be represented here with a <BG-STATIC-*> tag.",
             missing=missing,
+            recovery_calls=recovery_calls,
         )
 
     status_issues = []

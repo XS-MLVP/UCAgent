@@ -395,6 +395,44 @@ def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
     assert "online viewer link payload does not match" in str(message)
 
 
+def test_invalid_viewer_link_returns_structured_apply_recovery_call(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        start_step=10,
+        end_step=25,
+    )
+    block = _explicit_block(result, pattern, wave_step=15)
+    block["_viewer_link"] = (
+        "<WAVEFORM-VIEWER> [viewer](/surfer/?wave=placeholder)"
+    )
+    _write_bug_doc(tmp_path, block)
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path),
+        "bugs.md",
+    )
+    recovery = error["details"]["recovery_call"]
+
+    assert passed is False
+    assert "ApplyWaveInfoEvidence" in error["error"]
+    assert recovery == {
+        "tool": "ApplyWaveInfoEvidence",
+        "arguments": {
+            "target_file": "bugs.md",
+            "bug_tag": "BG-DYNAMIC-80",
+            "test_case_tag": f"TC-{DOCUMENT_TEST}",
+            "receipt_id": result["waveform_analysis_receipt"]["receipt_id"],
+        },
+    }
+
+
 def test_signal_groups_and_viewer_must_cover_required_context(tmp_path):
     _write_functions(tmp_path)
     test_dir = tmp_path / "tests"
@@ -597,6 +635,17 @@ def test_missing_or_invented_receipt_cannot_pass(tmp_path):
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
     assert "[Waveform Analysis Missing]" in str(message)
+    assert message["details"]["recovery_calls"] == [
+        {
+            "tool": "ApplyWaveInfoEvidence",
+            "arguments": {
+                "target_file": "bugs.md",
+                "bug_tag": "BG-DYNAMIC-80",
+                "test_case_tag": f"TC-{DOCUMENT_TEST}",
+                "receipt_id": "",
+            },
+        }
+    ]
 
     _write_bug_doc(
         tmp_path,
@@ -1113,6 +1162,9 @@ def test_prefix_check_requires_waveform_for_actual_failed_checkpoint(tmp_path):
 
     assert passed is False
     assert "[Waveform Analysis Missing]" in str(message)
+    assert message["details"]["recovery_calls"][0]["tool"] == (
+        "ApplyWaveInfoEvidence"
+    )
 
 
 def test_metadata_only_call_cannot_be_claimed_as_confirmed_analysis(tmp_path):
