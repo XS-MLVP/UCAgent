@@ -252,12 +252,20 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        self.tool_waveinfo = WaveInfo(
+            workspace=self.workspace,
+            test_dir=self.cfg.tools.RunTestCases.test_dir,
+            dut_name=self.dut_name,
+        )
+        self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
+            waveinfo=self.tool_waveinfo,
+            workspace=self.workspace,
+            write_dirs=self.cfg.write_dirs,
+            un_write_dirs=self.cfg.un_write_dirs,
+        )
         self.tool_list_waveform = [
-            WaveInfo(
-                workspace=self.workspace,
-                test_dir=self.cfg.tools.RunTestCases.test_dir,
-                dut_name=self.dut_name,
-            )
+            self.tool_waveinfo,
+            self.tool_apply_waveinfo_evidence,
         ]
         self.tool_list_file = [
             # Directory and file listing tools
