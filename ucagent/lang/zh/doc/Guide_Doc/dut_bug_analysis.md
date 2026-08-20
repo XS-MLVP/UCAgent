@@ -85,7 +85,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `signal_groups` | 最终证据的必要信号角色映射 | 不是尖括号标签；由最终 WaveInfo 调用签名，必须覆盖时钟模式、相关输入、相关输出、协议控制和功能关键路径 |
 | `<WAVEFORM-VIEWER>` | 在线波形深链接 | 必须是 YAML 围栏后的第一条非空内容；显示文字可本地化，URL 与签名 receipt 必须完全一致 |
 | `<BUG-OVERVIEW>` 到 `<BUG-RETEST>` | 八个分析字段边界 | 使用 6.1.1 节列出的完整标记序列；唯一、有序、内容非空，展示标题不参与解析 |
-| `<BUG-TODO>` | Skill 骨架尚未完成 | `recordbug.py` 生成；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
+| `<BUG-TODO>` | Bug 骨架尚未完成 | 可由 `recordbug.py` 或文本编辑工具建立；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
 | `<BUG-SOURCE-UNAVAILABLE>` | 无可访问源码 | 仅在 `<BUG-SOURCE-EVIDENCE>` 字段内使用一次，并以真实黑盒证据替代源码块 |
 | `<BUG-SOURCE-FIRST-ERROR>` | 源码中的首个错误决策 | 有源码时在 HDL 代码块的语言原生注释中恰好出现一次 |
 | `<BUG-SOURCE-PROPAGATION>` | 错误传播位置 | 有源码时在 HDL 代码块的语言原生注释中恰好出现一次 |
@@ -95,9 +95,11 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 
 ### 3.2 `waveform_analysis` 公共字段
 
-成功的最终取证返回会包含 `bug_document_fields`。它已经包含唯一顶层键 `waveform_analysis`，应完整复制到对应 TC 后，不要再次包一层。
+成功的最终取证返回会包含 `bug_document_fields`。它已经包含唯一顶层键 `waveform_analysis`，用于检查工具将写入的机器字段；不要让 LLM 手工复制这些字段。
 
-同一次最终取证还会返回 `bug_document_viewer_link`。关闭 YAML 围栏后，必须把这条带 `<WAVEFORM-VIEWER>` 标签的 Markdown 链接放在第一条非空内容。`[...]` 内是纯展示文字，可以按语言和上下文修改；Checker 只验证稳定标签、`/surfer/?wave=` 相对路由、Base64URL 载荷及其与签名 receipt 的一致性。不要把链接放进 YAML 或代码块，不要手工拼接、解码后重编码或修改 token。
+同一次最终取证还会返回 `bug_document_viewer_link`。取得最终 receipt 后，必须调用 `ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`，由工具把 `bug_document_fields` 和 viewer 链接原子写到现有 BG/TC 骨架的精确位置。LLM 不得手工复制、拼接、解码后重编码或修改这些机器字段和 token。Checker 仍要求关闭 YAML 围栏后的第一条非空内容是带 `<WAVEFORM-VIEWER>` 标签的 Markdown 链接，并核对 `/surfer/?wave=` 载荷与签名 receipt 完全一致。
+
+`ApplyWaveInfoEvidence` 只接受 workspace 内允许写入目录中的既有 Markdown 文件，并要求目标 BG/TC 唯一且骨架中的 YAML/viewer 位置合法。重复应用同一 receipt 是幂等操作，并保留已经填写的三个 LLM 结论字段。若目标已引用另一个真实 receipt，工具默认拒绝覆盖；只有确认新波形取代旧证据后才传 `replace_existing=true`，此时三个 LLM 结论会重置为 `<BUG-TODO>`，必须按新 timeline 和 RTL 重新审查。该工具不创建 BG/TC、不修改八个 Bug 分析章节，也不会把探索或缺少完整 `signal_groups` 的 receipt 写成最终证据。
 
 `waveform_analysis:` 必须是唯一顶层键；下面所有字段都属于这一次 BG/TC 关联的独立证据。
 
@@ -124,7 +126,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `observed_behavior` | LLM 阅读 timeline 后填写 | 只在协议规定的有效事务/响应窗口内写清实际信号行为、actual 和 expected 的差异；无效周期的单点数据不能作为结论 |
 | `source_correlation` | LLM 阅读源码后填写 | 解释波形现象如何对应到具体源码逻辑和根因 |
 
-最后三个字段不能照抄模板，也不能由工具虚构。它们必须是非空字符串，并形成“测试驱动与协议接受 -> 日志事务 -> 波形事件 -> RTL 逻辑”的闭环。Checker 只能验证结构、receipt 和波形重放，不能仅凭信号名称或某个时间点的数据值自动判断协议是否成立；事务语义必须由 LLM 结合规格、测试 API/回调和 RTL 审查。
+最后三个字段不能照抄模板，也不能由工具虚构。`ApplyWaveInfoEvidence` 只为尚未完成的字段写入 `<BUG-TODO>`，LLM 必须结合规格、测试 API/回调、日志、真实 timeline 和 RTL 将它们替换为非空结论，形成“测试驱动与协议接受 -> 日志事务 -> 波形事件 -> RTL 逻辑”的闭环。Checker 只能验证结构、receipt 和波形重放，不能仅凭信号名称或某个时间点的数据值自动判断协议是否成立。
 
 `signal_groups` 的固定子字段如下。它们是 LLM 阅读规格、DUT 顶层端口、测试 API/driver 和相关 RTL 后作出的结构化声明；Checker 验证路径真实、角色结构完整、已进入 timeline/receipt/viewer，但不会根据 `ready`、`valid` 等名字自动判断角色是否正确。
 
@@ -230,7 +232,7 @@ assert actual == expected, (
 3. 根据 4.2 节确认的真实协议，只使用 `signal_catalog` 中存在的信号构建结构化 pattern；pattern 只放能定位失败事务/事件的条件。同时构建完整 `signal_groups`，覆盖时钟模式、相关输入、相关输出、协议控制和至少一个功能关键路径。
 4. 有日志 cycle 时调用时钟对齐模式；没有可靠 cycle 时先探索，再使用推荐的显式时间窗重调。
 5. 只有 `evidence_usable: true` 且时间线未截断的最终调用才能写入动态 Bug 文档。
-6. 复制完整 `bug_document_fields`，关闭围栏后复制同一结果的 `bug_document_viewer_link`，再基于规格、测试驱动代码、真实 timeline 和源码补写三个 LLM 分析字段。`evidence_usable: true` 只说明波形事件可重放，不表示工具已经判定 DUT Bug。
+6. 使用最终调用返回的 `receipt_id` 调用 `ApplyWaveInfoEvidence`，同时传入 workspace 相对目标文件、精确动态 BG 和精确 TC；工具只写 receipt 支持的 `waveform_analysis` 机器字段和 viewer 链接。随后基于规格、测试驱动代码、真实 timeline 和源码替换三个 LLM 分析字段中的 `<BUG-TODO>`。`evidence_usable: true` 只说明波形事件可重放，不表示工具已经判定 DUT Bug。
 
 Metadata 调用示例：
 
@@ -387,12 +389,46 @@ Bug 概述应在源码块之前，用二到四句话回答：什么条件触发�
 
 不要在文档末尾再建立一个与 BG 标签分离的“根因分析汇总”。根因、修复和复验必须留在所属 BG 条目内。
 
-### 6.1.1 Skill 模式的两阶段写入
+### 6.1.1 建立骨架并分阶段写入
 
-Skill 模式下，动态 Bug 记录必须分成两步，脚本成功不代表分析完成：
+动态 Bug 记录按以下步骤完成。`recordbug.py` 只是可选的骨架生成方式，脚本不可用时也不阻塞整个流程：
 
-1. 使用 `RunSkillScript` 调用 `recordbug.py -BG ... -TC ... -BD ...`。脚本只创建 FG/FC/CK/BG/TC 结构、每个 TC 的波形占位块以及本节列出的分析章节骨架。
-2. 脚本返回后，LLM 继续读取失败断言、最终 confirmed WaveInfo timeline 和 RTL/HDL 源码，再用文本编辑工具在所属 BG 内替换所有 `<BUG-TODO>`。普通分析字段中的标签及其后方提示文字要替换成真实分析；YAML 中包含 `<BUG-TODO>` 的占位值要用完整真实 `bug_document_fields` 替换。旧 `-ROOT/-FILE/-FIX` 参数已经删除，不能把复杂分析压进命令行，也不能停在生成骨架这一步。
+1. `recordbug.py` 可用时，可以用 `RunSkillScript` 调用 `recordbug.py -BG ... -TC ... -BD ...`；它只创建 FG/FC/CK/BG/TC、每个 TC 的波形占位块和本节列出的分析章节。脚本不可用时，使用文本编辑工具参照本节完整示例，在 `{OUT}/{DUT}_bug_analysis.md` 中建立相同结构。两种方式都必须保留唯一的 `<DYNAMIC-BUGS>` 容器、精确 BG/TC、紧随 TC 的 YAML/viewer 占位以及八个分析标记。
+2. 取得最终 confirmed WaveInfo receipt 后，调用 `ApplyWaveInfoEvidence`，传入 `{OUT}/{DUT}_bug_analysis.md`、精确 BG、精确 TC 和真实 `receipt_id`。工具会替换该 TC 的波形 YAML 与 viewer 占位，不生成语义结论。
+3. 继续读取失败断言、timeline 和 RTL/HDL 源码，用文本编辑工具替换三个 YAML 结论字段及八个分析章节中的全部 `<BUG-TODO>`。旧 `-ROOT/-FILE/-FIX` 参数已经删除，不能把复杂分析压进命令行，也不能停在生成骨架或应用 receipt 这一步。
+
+脚本不可用时，文本编辑工具至少要建立以下机器可读骨架；其中 FG/FC/CK/BG/TC 替换为当前真实标签。`ApplyWaveInfoEvidence` 只替换紧随目标 TC 的 YAML 和 viewer 两部分，不会生成或修改后面的八个分析字段。
+
+````markdown
+<FG-GROUP>
+<FC-FUNCTION>
+<CK-CHECKPOINT>
+<BG-BUG-NAME-90>
+- <TC-tests/test_dut.py::test_failure>
+  ```yaml
+  waveform_analysis:
+    status: "<BUG-TODO>"
+    receipt_id: "<BUG-TODO>"
+  ```
+  <WAVEFORM-VIEWER> [<BUG-TODO>](/surfer/?wave=<BUG-TODO>)
+
+<BUG-OVERVIEW>
+<BUG-TODO>
+<BUG-SYMPTOMS>
+<BUG-TODO>
+<BUG-TRIGGER>
+<BUG-TODO>
+<BUG-ROOT-CAUSE>
+<BUG-TODO>
+<BUG-SOURCE-EVIDENCE>
+<BUG-TODO>
+<BUG-CAUSAL-CHAIN>
+<BUG-TODO>
+<BUG-FIX>
+<BUG-TODO>
+<BUG-RETEST>
+<BUG-TODO>
+````
 
 八个分析字段使用以下稳定标记作为唯一机器可读结构，必须各占一行、各出现一次并保持顺序：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。标记后的中文粗体标题仅用于展示，可以改名或本地化；Checker 不读取标题文字。LLM 只能替换各标记之间的占位内容，不能删除、复制、改名或调换标记。
 
@@ -584,6 +620,8 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 
 ## 7. 静态 Bug 文档规范
 
+静态报告的创建、追加和LINK回填都可以仅使用`ReadTextFile`、`EditTextFile`和`ReplaceStringInFile`完成。Skill脚本可用于批量生成或同步，但不是前置条件；没有脚本时仍按本节示例直接维护三个机器分区，并由Checker验证结构、路径和关联。
+
 ### 7.1 每个静态候选也要集中记录
 
 静态候选条目按以下顺序集中记录：
@@ -680,6 +718,8 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 一个 CK 下发现多个独立候选时，为每个候选创建不同的 `BG-STATIC-NNN-NAME`，每个候选各有一个 LINK 和自己的 FILE 证据。
 
 ### 7.3 static_bug_validation 阶段如何更新 LINK
+
+直接编辑时必须同步更新两个位置：`<STATIC-BUG-SUMMARY>`分区中目标静态BG所在行的“动态Bug关联”列，以及`<STATIC-BUG-DETAILS>`分区中同一`<BG-STATIC-*>`下唯一的`<LINK-BUG-[...]>`标签。汇总表写`LINK-BUG-[...]`，详细分区写`<LINK-BUG-[...]>`；两处方括号内的BG序列必须完全一致。写入真实动态BG前，先确认该BG已在动态文档中完成失败TC、波形证据和八个分析字段；误报则两处都写`BG-NA`。修改后重新读取两处并调用Checker，脚本可用时也不得省略这些一致性检查。
 
 | 验证结果 | 静态 LINK 写法 | 动态文档操作 |
 |---|---|---|
@@ -917,10 +957,10 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 | `Unresolved Failed Cases` | Fail 用例没有非零动态 Bug 记录 | 先排除测试问题；确认 DUT Bug 后补 CK/BG/TC/波形/根因 |
 | `Unanalyzed Failed Checkpoints` | 报告中的失败 CK 没有非零 BG | 在正确 CK 下记录动态 Bug，或修复错误检查使 CK Pass |
 | `Test Case Format Error` | TC 不是 pytest 文件和函数格式 | 使用 `test_file.py::test_name` 或包含类名的完整格式 |
-| `Waveform Analysis Missing` | 某个 BG/TC 后没有规范 YAML 块 | 调用 WaveInfo，并把 `bug_document_fields` 直接放到 TC 后 |
+| `Waveform Analysis Missing` | 某个 BG/TC 后没有规范 YAML 块 | 用 `recordbug.py` 或文本编辑工具建骨架，最终 WaveInfo 后调用 `ApplyWaveInfoEvidence` |
 | `WaveInfo Receipt Not Found` | receipt 不存在、作用域变化或被伪造 | 使用相同 workspace/test_dir 恢复，失败时重新调用 WaveInfo |
 | `Explicit Window Required` | 使用了探索 receipt 而非最终证据 | 必须逐字使用 `recommended_evidence_call` 重调 |
-| `Waveform Evidence Invalid` | 文档字段与 receipt 不一致或结论字段为空 | 复制新的 `bug_document_fields`，再真实补写三个分析字段 |
+| `Waveform Evidence Invalid` | 文档字段与 receipt 不一致或结论字段为空 | 用最终 receipt 重新调用 `ApplyWaveInfoEvidence`，再真实补写三个分析字段 |
 | `Waveform No Longer Reproduces` | Check 新生成波形无法重放旧 pattern | 重新运行失败用例、重新取证并更新该 TC 的块；测试仍 Fail 时不得删除 TC/BG 规避错误 |
 | `Static Bug Label In Dynamic Document` | 动态文档出现 BG-STATIC | 移回静态文档，动态确认使用独立 BG-NAME-XX |
 | `LINK-BUG still has BG-TBD` | 静态候选尚未得到最终验证结论 | 动态确认后链接 BG-NAME-XX，误报则链接 BG-NA |
@@ -940,6 +980,7 @@ Check/Complete 返回失败时，优先读取 `failure_summary` 中的 `failed_c
 - [ ] 每个失败 CK 至少关联一个非零置信度 BG。
 - [ ] 每个非零 BG 至少有一个真实失败 TC。
 - [ ] 每个 TC 后的第一个非空内容都是独立 ` ```yaml` 波形块。
+- [ ] 每个最终 receipt 已通过 `ApplyWaveInfoEvidence` 写入精确 BG/TC，没有让 LLM 手工复制 receipt 字段或 viewer token。
 - [ ] `waveform_analysis:` 是唯一顶层键，receipt 字段与真实 WaveInfo 调用完全一致。
 - [ ] 每个最终 receipt 的 `signal_groups` 都包含正确的 `clock_mode`、时钟（若有）、当前功能相关输入、相关输出、实际协议控制和至少一个功能关键路径；路径来自 `signal_catalog`，没有按名字臆测角色。
 - [ ] 每个 YAML 关闭围栏后的第一条非空内容都是同一最终 WaveInfo 返回的 `<WAVEFORM-VIEWER>` Markdown 链接；URL/token 未被修改，链接不在代码块内。

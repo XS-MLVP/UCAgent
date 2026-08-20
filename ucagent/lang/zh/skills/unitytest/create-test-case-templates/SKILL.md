@@ -1,13 +1,13 @@
 ---
 name: create-test-case-templates
-description: 创建测试用例模板阶段专属技能，用于通过标准脚本生成正确的pytest参数签名、覆盖率标记和未实现占位断言，并依据STDERR区分模板错误与fixture、Mock、参考模型、依赖或配置错误
+description: 创建测试用例模板阶段专属技能，用于生成正确的pytest参数签名、覆盖率标记和未实现占位断言，并依据STDERR区分模板错误与fixture、Mock、参考模型、依赖或配置错误
 ---
 
 # 测试用例模板创建
 
 ## 模板参数契约
 
-使用`RunSkillScript`执行`createtemplate.py`。脚本会自动生成正确的pytest函数签名；生成结果是本阶段的参数契约，不要自行推断或在生成后批量增加、删除、交换fixture参数。
+模板可以直接使用内置文本编辑工具创建。先按`Guide_Doc/dut_test_template.md`读取当前工作区的已解析配置并确定唯一pytest函数签名；若`RunSkillScript`可用，也可以执行`createtemplate.py`批量生成相同模板。脚本是可选助手，不是参数契约的唯一来源。
 
 普通DUT模板可能采用`def test_xxx(env):`或`def test_xxx(env, ref_model):`。若脚本生成了`ref_model`，它必须保持为第二个参数。普通DUT测试始终从`env`访问真实DUT；`mock_dut`只用于`test_api_{DUT}_mock_*`形式的Mock组件独立单元测试。本阶段不创建、不修改Mock测试，也不能把普通测试的`env`替换为`mock_dut`。
 
@@ -39,8 +39,8 @@ def test_basic_addition(env):
 ## 执行步骤
 
 1. 阅读`reference_files`和当前批次CK，确认每个模板的测试意图。
-2. 使用`RunSkillScript`执行`createtemplate.py`一次性生成模板；不允许自行编写另一套生成逻辑。
-3. 检查生成结果：保留脚本生成的参数及顺序，确认覆盖率路径准确、TODO具体、最后一条语句为占位断言。
+2. 使用`EditTextFile`/`ReplaceStringInFile`直接创建模板；若`RunSkillScript`可用，可改用`createtemplate.py`一次性生成，但不得同时生成两套重复模板。
+3. 检查生成结果：保留当前配置要求的参数及顺序，确认覆盖率路径准确、TODO具体、最后一条语句为占位断言。
 4. 使用`Complete`推进阶段；失败时先按下述流程定位真实原因。
 
 ## 模板边界
@@ -62,13 +62,13 @@ def test_basic_addition(env):
 4. setup错误：先检查新模板的导入、参数和FG/FC/CK字面量，再读取`env`、`ref_model`、fake DUT和覆盖组初始化的最早异常；这些文件可用于定位，但不得在本阶段改写。
 5. call错误：确认失败是否确实来自末尾`Not implemented`；其他异常必须修复。
 6. teardown错误：检查fixture finalizer、资源释放和清理逻辑。
-7. 参数门禁失败时，重新运行`createtemplate.py`并保留其生成的fixture参数；不要手工改签名或规避Checker。
+7. 参数门禁失败时，按Checker给出的期望参数和Guide中的已解析配置修正fixture参数；可选脚本可用时也可以重新生成，但不要规避Checker。
 8. 修复后重新检查，直到所有非忽略模板只以预期占位断言失败。
 
 ## 完成条件
 
 - 每个目标CK至少被一个准确模板关联。
-- 所有普通模板保留`createtemplate.py`生成的`env[, ref_model]`参数契约。
+- 所有普通模板符合当前工作区的`env[, ref_model]`参数契约。
 - 普通DUT测试与Mock组件独立测试没有混用fixture类别。
 - 提供的API模板、fake DUT路径、fixture和覆盖率定义保持不变，`env.dut.fc_cover`由原有fixture正常提供。
 - 不存在导入、fixture、setup、teardown或配置错误。

@@ -10,8 +10,7 @@ description: 功能规格分析与测试点定义阶段及其子阶段专属技�
 - `function_point_definition`
 - `check_point_design`
 
-本阶段对 `{OUT}/{DUT}_functions_and_checks.md` 的新增内容，统一通过 `scripts/update.py` 完成。
-不要手工直接插入 FG/FC/CK 条目；先分析，再按当前子阶段批量写入对应层级。
+本阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`。默认可使用`ReadTextFile`、`EditTextFile`和`ReplaceStringInFile`按当前子阶段写入FG/FC/CK；`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
 
 ## 分析原则
 
@@ -109,15 +108,15 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 阅读 `reference_files` 中列出的文档，明确当前子阶段需要补充的是 FG、FC 还是 CK。
 
 ### 步骤2
-先完成当前批次分析，再一次性整理成脚本入参：
+先完成当前批次分析，再整理当前层级要写入的内容：
 - FG 子阶段：只整理多个 `FG` 与各自描述
 - FC 子阶段：只在已存在的同一个 `FG` 下整理多个 `FC` 与各自描述
 - CK 子阶段：只在已存在的同一个 `FG/FC` 下整理多个 `CK` 与各自详细描述
 
 ### 步骤3
-使用 `RunSkillScript` 执行 `update.py`，一次调用完成同层级批量插入。
+有`RunSkillScript`时可以执行`update.py`批量插入；没有时直接使用文本编辑工具在唯一父节点下插入同样内容。修改后必须重新读取目标段，确认父子层级、标签唯一性和正式描述均正确。
 
-## 脚本调用规范
+## 可选脚本调用规范
 
 均适用于阶段：`functional_specification_analysis`
 
@@ -170,12 +169,14 @@ python3 script -MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{"ck":"CK-ADD-
 - `FG`、`FC`、`CK` 的插入顺序必须遵守层级：先有 FG，再有 FC，最后有 CK
 - 当前调用只处理当前层级，不要在一次调用中混插 FG/FC/CK，也不要跨层级补写
 - `desc` 必须是最终要写入文档的正式描述，不要传占位文本
-- 发现标签已存在时，应修改参数或补充遗漏内容，不要手工改坏层级结构
+- 发现标签已存在时，只修正或补充目标条目，不要重复创建标签或改坏层级结构
 - 尽量在对应的子阶段使用对应的MODE,不要在插入`FG`的阶段额外插入了`FC`甚至`CK`
 
-## RunSkillScript 使用说明
+## 可选RunSkillScript使用说明
 
 - `script` 替换为 `update.py` 的路径
 - `-ITEMS` 参数值必须整体使用单引号包裹
 - 若一次批量调用中前几项成功、后续失败，应根据报错修正后重新执行失败那一批，不需要重复已经成功的工作
 - 完成当前子阶段写入后，继续执行阶段检查或推进下一子阶段
+
+没有`RunSkillScript`时，按`Guide_Doc/dut_functions_and_checks.md`中的完整Markdown结构直接编辑即可，不得停在分析阶段或等待脚本环境。

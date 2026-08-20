@@ -33,7 +33,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 
 ### 步骤2: Bug记录
 
-分析完一个源文件后，使用`RunSkillScript`工具一次性记录该文件中所有的潜在Bug,命令行如下(其中`script`替换为`recordbug.py`脚本的路径,其他参数值替换为每个Bug记录内容):
+分析完一个源文件后，使用内置文本编辑工具按下方文档结构一次性记录该文件的所有潜在Bug，并同步维护汇总、详情和进度三个分区。若`RunSkillScript`可用，也可以用`recordbug.py`完成相同的批量写入；脚本不是创建或更新报告的前置条件。可选命令如下（其中`script`替换为脚本路径，其他参数值替换为每个Bug记录内容）:
 ```bash
 python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'
 python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'
@@ -44,7 +44,7 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 - 1.**只改不删**: 检查发现错误需要进行修改时,只修改格式错误的部分,不能将格式错误的条目删除,只能修改(因为已经分析出了有潜在Bug,所以不能删除这个条目,只能这个条目的格式有错误需要修改)
 - 2.**结构完整**: {OUT}/{DUT}_static_bug_analysis.md中共有3个栏目,唯一机器边界依次是`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`、`<STATIC-BUG-PROGRESS>`。每个标记必须独占一行、恰好出现一次且顺序固定；中文标题只是展示文本，可以本地化。每次修改只在对应标记范围内追加或修改，不要删除、复制、改名或调换标记.
 - 3.**一致性**: `潜在Bug汇总`和`详细分析`下的内容要相互一致,如果`潜在Bug汇总`中已经有了某个BG条目,则`详细分析`中必须有对应的BG条目,反之亦然.
-- 4.**脚本使用**: 仅能使用`RunSkillScript`工具来记录潜在Bug,不允许直接修改`{OUT}/{DUT}_static_bug_analysis.md`文件来添加或修改BG条目,且该文件的创建也必须通过脚本完成.
+- 4.**等价写入**: 可直接使用`EditTextFile`或`ReplaceStringInFile`创建、添加或修正BG条目；也可使用可选脚本。无论采用哪种方式，都必须同步维护三个固定分区，重新读取目标段确认一致后再调用Checker.
 
 ## 关键规则
 - 来源:所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到{OUT}/{DUT}_functions_and_checks.md再使用
@@ -53,7 +53,7 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 - 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:L1-L2> 子标签，并附上对应RTL源码片段
 - FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）
 - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）
-- <BG-STATIC-000-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
+- <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
 - `批次分析进度`中必须使用<file>和</file>标签标记文件路径
 
 ## `{DUT}_static_bug_analysis.md` 文档结构(供修改参考)
@@ -94,14 +94,16 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 
 ```
 
-本阶段检查发现问题,需要修改时,依照上述模板的格式进行修改,并且务必遵守核心原则和关键规则,保证文档结构完整,内容一致,格式规范.
+本阶段检查发现问题需要修改时，依照上述模板使用文本编辑工具直接修正即可；可选脚本不是前置条件。务必遵守核心原则和关键规则，保证文档结构完整、内容一致、格式规范.
 
 ## 特殊情况说明
 
 - 若未找到任何RTL源文件（黑盒验证场景），直接在{OUT}/{DUT}_static_bug_analysis.md中说明：无源文件可供静态分析，验证以黑盒方式进行，无需执行上述分析步骤
-- 若在所有文件中都未发现任何Bug，使用<BG-STATIC-000-NULL>条目进行记录
+- 若在所有文件中都未发现任何Bug，使用<FG-NULL><FC-NULL><CK-NULL><BG-STATIC-NULL>链进行记录
 
-## `RunSkillScript`使用说明
+## 可选`RunSkillScript`使用说明
 
 1. `RunSkillScript`工具允许一次性输入多条命令,若有多个记录内容,则列出多条命令,命令中只允许使用定义的参数,禁止额外参数,且参数值必须符合格式要求,每个参数必须使用单括号''括起来.
 2. 使用`RunSkillScript`工具时,若输入了10条命令行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令.
+
+没有`RunSkillScript`时，直接按`Guide_Doc/dut_bug_analysis.md`第7.2节和本技能的文档结构编辑报告；不得等待脚本、跳过批次或只写展示标题。

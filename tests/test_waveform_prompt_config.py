@@ -101,14 +101,13 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "recommended_evidence_call" in system_prompt
     assert "不能把`analysis_window.effective_start_step/effective_end_step`" in system_prompt
     assert "最终显式窗口调用必须同时传非负start_step和end_step" in system_prompt
-    assert "将返回的`bug_document_fields`作为```yaml代码块的完整映射" in system_prompt
-    assert "它已包含唯一顶层键waveform_analysis，不要再包一层" in system_prompt
-    assert "`bug_document_viewer_link`" in system_prompt
-    assert "`<WAVEFORM-VIEWER>`标签" in system_prompt
-    assert "方括号中的显示文字可以本地化" in system_prompt
+    assert "ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)" in system_prompt
+    assert "LLM不得复制、拼接或手工修改receipt" in system_prompt
+    assert "若脚本不可用，则用文本编辑工具" in system_prompt
+    assert "第6.1.1节的最小骨架示例" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
-    assert "recordbug.py`只生成带`<BUG-TODO>`" in system_prompt
+    assert "若可使用`recordbug.py`，脚本只生成带`<BUG-TODO>`" in system_prompt
     assert "Checker不解析“待补充”等自然语言占位词" in system_prompt
     assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
     assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
@@ -121,8 +120,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不是要求已确认Bug用例也Pass" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
-    assert "recordbug.py只接收BG/TC/BD并生成含`<BUG-TODO>`" in batch_task
-    assert "脚本成功当成分析完成" in batch_task
+    assert "recordbug.py可用" in batch_task
+    assert "脚本不可用" in batch_task
+    assert "机器证据写入成功当成分析完成" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
     assert "不得因recordbug.py成功、字段非空或Checker尚未报错" in review_task
@@ -151,8 +151,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     ):
         assert marker in static_task
         assert marker in static_validation_task
-    assert "Skill脚本和Checker不解析中文标题" in static_task
-    assert "linkbug.py和Checker不解析中文标题" in static_validation_task
+    assert "Checker不解析中文标题" in static_task
+    assert "Checker不解析中文标题" in static_validation_task
+    assert "LINK回填不依赖linkbug.py" in static_validation_task
 
 
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
@@ -254,6 +255,10 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "```yaml" in guide
     assert "`waveform_analysis:` 必须是唯一顶层键" in guide
     assert "`bug_document_viewer_link`" in guide
+    assert "脚本不可用时，使用文本编辑工具" in guide
+    assert "调用 `ApplyWaveInfoEvidence`" in guide
+    assert 'status: "<BUG-TODO>"' in guide
+    assert "<WAVEFORM-VIEWER> [<BUG-TODO>](/surfer/?wave=<BUG-TODO>)" in guide
     assert "`<WAVEFORM-VIEWER>`" in guide
     assert "CMD API" not in guide
     assert "v2 逻辑定位" not in guide
@@ -295,6 +300,10 @@ def test_bug_document_error_help_uses_current_machine_contract():
     from ucagent.util.functions import description_bug_doc
 
     help_text = "\n".join(description_bug_doc())
+
+    assert "Follow the active stage task" in help_text
+    assert "only an optional helper" in help_text
+    assert "active stage Skill for the complete workflow" not in help_text
     for marker in (
         "<DYNAMIC-BUGS>",
         "<BUG-OVERVIEW>",
@@ -314,9 +323,9 @@ def test_bug_document_error_help_uses_current_machine_contract():
         assert marker in help_text
     assert "```yaml" in help_text
     assert "waveform_analysis" in help_text
-    assert "complete WaveInfo bug_document_fields" in help_text
+    assert "use ApplyWaveInfoEvidence to write the generated mapping" in help_text
     assert "alignment_evidence, observed_behavior, source_correlation" in help_text
-    assert "Do not invent or copy example receipt values" in help_text
+    assert "Do not copy, invent, or edit receipt-backed fields" in help_text
     assert "One Step only advances simulation" in help_text
     assert "request-accept and response-valid conditions" in help_text
     assert "only an investigation clue" in help_text
@@ -554,17 +563,19 @@ def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
     assert "## 缺陷根因分析" not in template
 
 
-def test_bug_analysis_guide_requires_skill_scaffold_completion():
+def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill():
     guide_path = (
         Path(__file__).parents[1]
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
 
-    assert "Skill 模式的两阶段写入" in guide
-    assert "脚本成功不代表分析完成" in guide
+    assert "建立骨架并分阶段写入" in guide
+    assert "脚本不可用时也不阻塞整个流程" in guide
+    assert "使用文本编辑工具参照本节完整示例" in guide
+    assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "旧 `-ROOT/-FILE/-FIX` 参数已经删除" in guide
-    assert "替换所有 `<BUG-TODO>`" in guide
+    assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
     assert "Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`" in guide
 
 

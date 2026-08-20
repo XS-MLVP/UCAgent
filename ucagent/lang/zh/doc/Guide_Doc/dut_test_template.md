@@ -20,7 +20,7 @@
 | `false` | `def test_xxx(env):` |
 | `true` | `def test_xxx(env, ref_model):` |
 
-`ref_model`启用时必须紧跟`env`，作为第二个参数。UCAgent初始化时将`agent.cfg`中已解析的非敏感运行选项写入`.ucagent/runtime_config.json`；模板生成脚本读取其中的`runtime_options.need_ref_model`并生成唯一正确签名，不直接读取进程环境变量。
+`ref_model`启用时必须紧跟`env`，作为第二个参数。UCAgent初始化时将`agent.cfg`中已解析的非敏感运行选项写入`.ucagent/runtime_config.json`。无论是否启用Skill，先用`ReadTextFile`读取该文件：`runtime_options.need_ref_model: false`时直接用文本编辑工具创建`def test_xxx(env):`，为`true`时创建`def test_xxx(env, ref_model):`。模板生成脚本可用时会执行同一规则，但不是创建模板的前置条件；不要直接读取进程环境变量。
 
 启用Mock组件不会改变普通DUT测试参数。是否启用以`runtime_options.mock_components_enabled`的正向布尔值为准，不能在脚本中重新读取或反转`IGNORE_MOCK_COMPONENT`。`mock_dut`仅用于`test_api_{DUT}_mock_*`形式的Mock组件独立测试，不属于本阶段生成的普通DUT模板。
 

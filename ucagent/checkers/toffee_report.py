@@ -817,8 +817,10 @@ def check_dynamic_bug_analysis_content(
                 f"[Dynamic Bug Analysis Incomplete] {len(issues)} content issue(s) in "
                 f"'{bug_file}':\n"
                 + "\n".join(summaries)
-                + "\nRun recordbug.py only to create the BG/TC scaffold. Then read the "
-                "failing assertion, confirmed WaveInfo timeline, and RTL/HDL source; replace "
+                + "\nCreate the BG/TC scaffold with a text-editing tool using "
+                "Guide_Doc/dut_bug_analysis.md section 6.1.1, or use the optional "
+                "recordbug.py helper when available. Then read the failing assertion, "
+                "confirmed WaveInfo timeline, and RTL/HDL source; replace "
                 "every scaffold field with evidence-backed analysis inside that BG before "
                 "calling Check/Complete."
             ),
