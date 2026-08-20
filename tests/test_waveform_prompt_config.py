@@ -102,12 +102,19 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不能把`analysis_window.effective_start_step/effective_end_step`" in system_prompt
     assert "最终显式窗口调用必须同时传非负start_step和end_step" in system_prompt
     assert "ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)" in system_prompt
+    assert "同一BG有多个Fail TC时，每个TC分别调用一次" in system_prompt
+    assert "目标TC不存在且该BG位置唯一时，工具自动创建TC" in system_prompt
+    assert "不得手工复制BG或兄弟TC" in system_prompt
+    assert "已有兄弟TC证据会保留且不需要replace_existing" in system_prompt
+    assert "同一Fail TC揭示多个独立Bug时" in system_prompt
+    assert "使用不同bug_tag和相同test_case_tag分别调用" in system_prompt
+    assert "其他BG和兄弟TC证据都会保留" in system_prompt
     assert "LLM不得复制、拼接或手工修改receipt" in system_prompt
     assert "若脚本不可用，则用文本编辑工具" in system_prompt
     assert "第6.1.1节的最小骨架示例" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
-    assert "若可使用`recordbug.py`，脚本只生成带`<BUG-TODO>`" in system_prompt
+    assert "脚本只为新Bug生成第一份带`<BUG-TODO>`" in system_prompt
     assert "Checker不解析“待补充”等自然语言占位词" in system_prompt
     assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
     assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
@@ -257,6 +264,15 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "`bug_document_viewer_link`" in guide
     assert "脚本不可用时，使用文本编辑工具" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
+    assert "同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次" in guide
+    assert "目标 TC 不存在且 BG 位置唯一时" in guide
+    assert "LLM 不得手工复制 BG、创建兄弟 TC" in guide
+    assert "同一 Fail TC 揭示多个独立 Bug 时" in guide
+    assert "每次调用只更新目标 BG/TC，不会覆盖其他 Bug" in guide
+    assert "签名窗口和 `signal_groups` 同时支持各缺陷时" in guide
+    assert "test_add_with_cin_overflow_partitioned_operands" in guide
+    assert guide.count("<TC-tests/test_adder.py::test_add_with_cin_overflow_") == 2
+    assert "八个分析字段" in guide
     assert 'status: "<BUG-TODO>"' in guide
     assert "<WAVEFORM-VIEWER> [<BUG-TODO>](/surfer/?wave=<BUG-TODO>)" in guide
     assert "`<WAVEFORM-VIEWER>`" in guide
@@ -326,6 +342,9 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "use ApplyWaveInfoEvidence to write the generated mapping" in help_text
     assert "alignment_evidence, observed_behavior, source_correlation" in help_text
     assert "Do not copy, invent, or edit receipt-backed fields" in help_text
+    assert "owns exactly one BG/TC pair per call" in help_text
+    assert "If one failed TC exposes independent Bugs, keep distinct BGs" in help_text
+    assert "Cross-BG application does not require replace_existing" in help_text
     assert "One Step only advances simulation" in help_text
     assert "request-accept and response-valid conditions" in help_text
     assert "only an investigation clue" in help_text
@@ -572,8 +591,9 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
 
     assert "建立骨架并分阶段写入" in guide
     assert "脚本不可用时也不阻塞整个流程" in guide
-    assert "使用文本编辑工具参照本节完整示例" in guide
+    assert "使用文本编辑工具参照本节最小骨架" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
+    assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
     assert "旧 `-ROOT/-FILE/-FIX` 参数已经删除" in guide
     assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
     assert "Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`" in guide

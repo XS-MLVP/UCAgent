@@ -243,6 +243,32 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
     assert schema["properties"]["receipt_id"]["default"] == ""
     assert "receipt_id" not in schema.get("required", [])
     assert schema["properties"]["replace_existing"]["default"] is False
+    assert "multiple failing test cases" in schema["properties"]["bug_tag"][
+        "description"
+    ]
+    assert "never copy the BG" in schema["properties"]["bug_tag"]["description"]
+    assert "tool creates it" in schema["properties"]["test_case_tag"][
+        "description"
+    ]
+    assert "preserves sibling TCs" in schema["properties"]["test_case_tag"][
+        "description"
+    ]
+    assert "another TC under the same BG" in schema["properties"][
+        "replace_existing"
+    ]["description"]
+    assert "multiple independent Bugs" in schema["properties"]["bug_tag"][
+        "description"
+    ]
+    assert "multiple distinct Bugs" in schema["properties"]["test_case_tag"][
+        "description"
+    ]
+    assert "same TC/receipt to a different BG" in schema["properties"][
+        "replace_existing"
+    ]["description"]
+    assert "call this tool once for each TC" in tool.description
+    assert "once for each distinct bug_tag" in tool.description
+    assert "Evidence in all non-target BGs is preserved" in tool.description
+    assert "Do not manually copy the BG" in tool.description
     assert mcp_tool.name == "ApplyWaveInfoEvidence"
     assert mcp_tool.parameters == schema
 
@@ -1031,8 +1057,22 @@ def _write_dynamic_bug_scaffold(
     *,
     bug_tag: str = "BG-DYNAMIC-80",
     test_case_tag: str = "TC-tests/test_apply.py::test_apply",
+    additional_test_case_tags: tuple[str, ...] = (),
     newline: str = "\n",
 ) -> None:
+    test_case_lines = []
+    for current_test_case_tag in (test_case_tag, *additional_test_case_tags):
+        test_case_lines.extend(
+            [
+                f"  - <{current_test_case_tag}> evidence target",
+                "    ```yaml",
+                "    waveform_analysis:",
+                f'      status: "{BUG_TODO_MARKER}"',
+                f'      receipt_id: "{BUG_TODO_MARKER}"',
+                "    ```",
+                f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/surfer/?wave={BUG_TODO_MARKER})",
+            ]
+        )
     content = newline.join(
         [
             "<DYNAMIC-BUGS>",
@@ -1040,13 +1080,7 @@ def _write_dynamic_bug_scaffold(
             "<FC-A>",
             "<CK-A>",
             f"<{bug_tag}>",
-            f"  - <{test_case_tag}> evidence target",
-            "    ```yaml",
-            "    waveform_analysis:",
-            f'      status: "{BUG_TODO_MARKER}"',
-            f'      receipt_id: "{BUG_TODO_MARKER}"',
-            "    ```",
-            f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/surfer/?wave={BUG_TODO_MARKER})",
+            *test_case_lines,
             "<BUG-OVERVIEW>",
             "Bug analysis body remains LLM-authored.",
             "",
@@ -1120,6 +1154,317 @@ def test_apply_waveinfo_evidence_accepts_text_created_scaffold_without_skill(tmp
 
     assert repeated["status"] == "already_applied"
     assert target.read_bytes() == before
+
+
+def test_apply_waveinfo_evidence_supports_multiple_tests_under_one_bug(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    first_test = "TC-tests/test_apply.py::test_apply"
+    second_test = "TC-tests/test_apply_secondary.py::test_apply_secondary"
+    _write_vcd(session, "test_apply")
+    _write_vcd(session, "test_apply_secondary")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(
+        target,
+        test_case_tag=first_test,
+        newline="\r\n",
+    )
+    waveinfo = _tool(tmp_path, test_dir)
+    first_result = _final_apply_receipt(waveinfo, "test_apply")
+    second_result = _final_apply_receipt(waveinfo, "test_apply_secondary")
+    first_id = first_result["waveform_analysis_receipt"]["receipt_id"]
+    second_id = second_result["waveform_analysis_receipt"]["receipt_id"]
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+
+    first_apply = yaml.safe_load(
+        tool.invoke(
+            {
+                "target_file": "out/Demo_bug_analysis.md",
+                "bug_tag": "BG-DYNAMIC-80",
+                "test_case_tag": first_test,
+                "receipt_id": first_id,
+            }
+        )
+    )
+    after_first = target.read_text(encoding="utf-8")
+    first_start = after_first.index(f"<{first_test}>")
+    first_end = after_first.index(first_result["bug_document_viewer_link"]) + len(
+        first_result["bug_document_viewer_link"]
+    )
+    first_region = after_first[first_start:first_end]
+    assert f"<{second_test}>" not in after_first
+
+    second_apply = yaml.safe_load(
+        tool.invoke(
+            {
+                "target_file": "out/Demo_bug_analysis.md",
+                "bug_tag": "BG-DYNAMIC-80",
+                "test_case_tag": second_test,
+                "receipt_id": "",
+            }
+        )
+    )
+    after_second = target.read_text(encoding="utf-8")
+    after_second_bytes = target.read_bytes()
+
+    assert first_apply["status"] == "evidence_applied"
+    assert first_apply["created_test_case"] is False
+    assert second_apply["status"] == "evidence_applied"
+    assert second_apply["created_test_case"] is True
+    assert second_apply["receipt_selection"] == "latest_matching_final"
+    assert second_apply["replaced_receipt_id"] is None
+    assert tool.call_count == 2
+    assert after_second_bytes.count(b"\n") == after_second_bytes.count(b"\r\n")
+    assert after_second.count("<BG-DYNAMIC-80>") == 1
+    assert after_second.count("waveform_analysis:") == 2
+    assert after_second.count("<WAVEFORM-VIEWER>") == 2
+    assert after_second.count("<BUG-OVERVIEW>") == 1
+    assert f"receipt_id: {first_id}" in after_second
+    assert f"receipt_id: {second_id}" in after_second
+    assert first_result["bug_document_viewer_link"] in after_second
+    assert second_result["bug_document_viewer_link"] in after_second
+    preserved_start = after_second.index(f"<{first_test}>")
+    preserved_end = after_second.index(first_result["bug_document_viewer_link"]) + len(
+        first_result["bug_document_viewer_link"]
+    )
+    assert after_second[preserved_start:preserved_end] == first_region
+    assert after_second.index(f"<{second_test}>") < after_second.index(
+        "<BUG-OVERVIEW>"
+    )
+
+    before_repeat = target.read_bytes()
+    repeated = yaml.safe_load(
+        tool.invoke(
+            {
+                "target_file": "out/Demo_bug_analysis.md",
+                "bug_tag": "BG-DYNAMIC-80",
+                "test_case_tag": first_test,
+                "receipt_id": first_id,
+            }
+        )
+    )
+
+    assert repeated["status"] == "already_applied"
+    assert repeated["created_test_case"] is False
+    assert tool.call_count == 3
+    assert target.read_bytes() == before_repeat
+
+
+def test_apply_waveinfo_evidence_isolates_multiple_bugs_for_one_test(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    common_test = "TC-tests/test_apply.py::test_apply"
+    other_test = "TC-tests/test_other.py::test_other"
+    first_bug = "BG-FIRST-DEFECT-80"
+    second_bug = "BG-SECOND-DEFECT-90"
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    _write_dynamic_bug_scaffold(
+        target,
+        bug_tag=first_bug,
+        test_case_tag=common_test,
+    )
+    with target.open("a", encoding="utf-8", newline="") as handle:
+        handle.write(
+            "\n".join(
+                [
+                    "<CK-B>",
+                    f"<{second_bug}>",
+                    f"  - <{other_test}> evidence target",
+                    "    ```yaml",
+                    "    waveform_analysis:",
+                    f'      status: "{BUG_TODO_MARKER}"',
+                    f'      receipt_id: "{BUG_TODO_MARKER}"',
+                    "    ```",
+                    f"    <WAVEFORM-VIEWER> [{BUG_TODO_MARKER}](/surfer/?wave={BUG_TODO_MARKER})",
+                    "<BUG-OVERVIEW>",
+                    "Second Bug analysis remains LLM-authored.",
+                    "",
+                ]
+            )
+        )
+
+    waveinfo = _tool(tmp_path, test_dir)
+    wave_result = _final_apply_receipt(waveinfo, "test_apply")
+    receipt_id = wave_result["waveform_analysis_receipt"]["receipt_id"]
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+
+    first_apply = yaml.safe_load(
+        tool.invoke(
+            {
+                "target_file": "out/Demo_bug_analysis.md",
+                "bug_tag": first_bug,
+                "test_case_tag": common_test,
+                "receipt_id": receipt_id,
+            }
+        )
+    )
+    after_first = target.read_text(encoding="utf-8")
+    first_bug_start = after_first.index(f"<{first_bug}>")
+    first_bug_end = after_first.index("<CK-B>")
+    preserved_first_bug = after_first[first_bug_start:first_bug_end]
+
+    second_apply = yaml.safe_load(
+        tool.invoke(
+            {
+                "target_file": "out/Demo_bug_analysis.md",
+                "bug_tag": second_bug,
+                "test_case_tag": common_test,
+                "receipt_id": receipt_id,
+            }
+        )
+    )
+    after_second = target.read_text(encoding="utf-8")
+    second_bug_start = after_second.index(f"<{second_bug}>")
+    second_bug_region = after_second[second_bug_start:]
+
+    assert first_apply["status"] == "evidence_applied"
+    assert first_apply["created_test_case"] is False
+    assert second_apply["status"] == "evidence_applied"
+    assert second_apply["created_test_case"] is True
+    assert second_apply["replaced_receipt_id"] is None
+    assert tool.call_count == 2
+    assert after_second[first_bug_start:first_bug_end] == preserved_first_bug
+    assert after_second.count(f"<{common_test}>") == 2
+    assert after_second.count(f"receipt_id: {receipt_id}") == 2
+    assert after_second.count(wave_result["bug_document_viewer_link"]) == 2
+    assert after_second.count(f"<{first_bug}>") == 1
+    assert after_second.count(f"<{second_bug}>") == 1
+    assert f"<{other_test}>" in second_bug_region
+    assert second_bug_region.index(f"<{common_test}>") < second_bug_region.index(
+        "<BUG-OVERVIEW>"
+    )
+
+
+def test_apply_waveinfo_evidence_rejects_missing_tc_when_bug_is_ambiguous(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply_secondary")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(
+        "\n".join(
+            [
+                "<DYNAMIC-BUGS>",
+                "<FG-A>",
+                "<FC-A>",
+                "<CK-A>",
+                "<BG-DYNAMIC-80>",
+                "<BUG-OVERVIEW>",
+                "first branch",
+                "<CK-B>",
+                "<BG-DYNAMIC-80>",
+                "<BUG-OVERVIEW>",
+                "second branch",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    waveinfo = _tool(tmp_path, test_dir)
+    result = _final_apply_receipt(waveinfo, "test_apply_secondary")
+    receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+    before = target.read_bytes()
+
+    rejected = yaml.safe_load(
+        tool._run(
+            target_file="out/Demo_bug_analysis.md",
+            bug_tag="BG-DYNAMIC-80",
+            test_case_tag="TC-tests/test_apply_secondary.py::test_apply_secondary",
+            receipt_id=receipt_id,
+        )
+    )
+
+    assert rejected["success"] is False
+    assert rejected["status"] == "document_update_failed"
+    assert "occurs 2 times" in rejected["error"]
+    assert "cannot choose where to create the sibling TC" in rejected["error"]
+    assert target.read_bytes() == before
+
+
+def test_apply_waveinfo_evidence_updates_unique_pair_when_bug_spans_two_cks(tmp_path):
+    test_dir = tmp_path / "out" / "tests"
+    session = _session(test_dir, "toffee_tmp_20260814150000_000")
+    _write_vcd(session, "test_apply")
+    target = tmp_path / "out" / "Demo_bug_analysis.md"
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(
+        "\n".join(
+            [
+                "<DYNAMIC-BUGS>",
+                "<FG-A>",
+                "<FC-A>",
+                "<CK-A>",
+                "<BG-DYNAMIC-80>",
+                "- <TC-tests/test_apply.py::test_apply>",
+                "  ```yaml",
+                "  waveform_analysis:",
+                f'    status: "{BUG_TODO_MARKER}"',
+                f'    receipt_id: "{BUG_TODO_MARKER}"',
+                "  ```",
+                "  <WAVEFORM-VIEWER> placeholder",
+                "<BUG-OVERVIEW>",
+                "first CK branch",
+                "<CK-B>",
+                "<BG-DYNAMIC-80>",
+                "- <TC-tests/test_other.py::test_other>",
+                "  ```yaml",
+                "  waveform_analysis:",
+                f'    status: "{BUG_TODO_MARKER}"',
+                f'    receipt_id: "{BUG_TODO_MARKER}"',
+                "  ```",
+                "  <WAVEFORM-VIEWER> placeholder",
+                "<BUG-OVERVIEW>",
+                "second CK branch",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    waveinfo = _tool(tmp_path, test_dir)
+    result = _final_apply_receipt(waveinfo)
+    receipt_id = result["waveform_analysis_receipt"]["receipt_id"]
+    tool = ApplyWaveInfoEvidence(
+        waveinfo=waveinfo,
+        workspace=str(tmp_path),
+        write_dirs=["out"],
+        un_write_dirs=[],
+    )
+
+    applied = yaml.safe_load(
+        tool._run(
+            target_file="out/Demo_bug_analysis.md",
+            bug_tag="BG-DYNAMIC-80",
+            test_case_tag="TC-tests/test_apply.py::test_apply",
+            receipt_id=receipt_id,
+        )
+    )
+    document = target.read_text(encoding="utf-8")
+
+    assert applied["status"] == "evidence_applied"
+    assert applied["created_test_case"] is False
+    assert document.count("<BG-DYNAMIC-80>") == 2
+    assert f"receipt_id: {receipt_id}" in document
+    assert "<TC-tests/test_other.py::test_other>" in document
+    assert document.count(BUG_TODO_MARKER) == 5
 
 
 @pytest.mark.parametrize(

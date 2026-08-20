@@ -97,9 +97,9 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 
 成功的最终取证返回会包含 `bug_document_fields`。它已经包含唯一顶层键 `waveform_analysis`，用于检查工具将写入的机器字段；不要让 LLM 手工复制这些字段。
 
-同一次最终取证还会返回 `bug_document_viewer_link`。取得最终 receipt 后，必须调用 `ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`，由工具把 `bug_document_fields` 和 viewer 链接原子写到现有 BG/TC 骨架的精确位置。LLM 不得手工复制、拼接、解码后重编码或修改这些机器字段和 token。Checker 仍要求关闭 YAML 围栏后的第一条非空内容是带 `<WAVEFORM-VIEWER>` 标签的 Markdown 链接，并核对 `/surfer/?wave=` 载荷与签名 receipt 完全一致。
+同一次最终取证还会返回 `bug_document_viewer_link`。取得最终 receipt 后，必须调用 `ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`，由工具把 `bug_document_fields` 和 viewer 链接原子写到现有 BG 下的精确位置。目标 TC 已存在时工具更新该 TC；目标 TC 不存在且 BG 位置唯一时，工具直接创建兄弟 TC 及其证据块。一次调用只处理一个精确 BG/TC：同一 Bug 的多个 Fail TC 分别调用同一 BG，不同 TC；同一 Fail TC 揭示多个独立 Bug 时分别调用不同 BG、同一 TC。LLM 不得手工复制 BG、创建兄弟 TC，也不得复制、拼接、解码后重编码或修改机器字段和 token。Checker 仍要求关闭 YAML 围栏后的第一条非空内容是带 `<WAVEFORM-VIEWER>` 标签的 Markdown 链接，并核对 `/surfer/?wave=` 载荷与签名 receipt 完全一致。
 
-`ApplyWaveInfoEvidence` 只接受 workspace 内允许写入目录中的既有 Markdown 文件，并要求目标 BG/TC 唯一且骨架中的 YAML/viewer 位置合法。重复应用同一 receipt 是幂等操作，并保留已经填写的三个 LLM 结论字段。若目标已引用另一个真实 receipt，工具默认拒绝覆盖；只有确认新波形取代旧证据后才传 `replace_existing=true`，此时三个 LLM 结论会重置为 `<BUG-TODO>`，必须按新 timeline 和 RTL 重新审查。该工具不创建 BG/TC、不修改八个 Bug 分析章节，也不会把探索或缺少完整 `signal_groups` 的 receipt 写成最终证据。
+`ApplyWaveInfoEvidence` 只接受 workspace 内允许写入目录中的既有 Markdown 文件。目标 TC 已存在时，BG/TC 组合必须唯一且原有 YAML/viewer 位置必须合法；目标 TC 不存在时，BG 必须只出现一次，否则工具会拒绝猜测应插入哪个 CK 分支。重复应用同一 receipt 是幂等操作，并保留已经填写的三个 LLM 结论字段。若目标已引用另一个真实 receipt，工具默认拒绝覆盖；只有确认新波形取代旧证据后才传 `replace_existing=true`，此时三个 LLM 结论会重置为 `<BUG-TODO>`，必须按新 timeline 和 RTL 重新审查。新增兄弟 TC、或把同一 TC/receipt 应用到另一个独立 BG，都不属于覆盖，不需要 `replace_existing=true`；但只有该 receipt 的签名窗口和 `signal_groups` 足以证明每个目标 Bug 时才能跨 BG 复用。该工具可以创建缺失的兄弟 TC，但不创建 BG、不复制或修改八个共享 Bug 分析章节，也不会改动非目标 BG，或把探索及缺少完整 `signal_groups` 的 receipt 写成最终证据。
 
 `waveform_analysis:` 必须是唯一顶层键；下面所有字段都属于这一次 BG/TC 关联的独立证据。
 
@@ -393,11 +393,11 @@ Bug 概述应在源码块之前，用二到四句话回答：什么条件触发�
 
 动态 Bug 记录按以下步骤完成。`recordbug.py` 只是可选的骨架生成方式，脚本不可用时也不阻塞整个流程：
 
-1. `recordbug.py` 可用时，可以用 `RunSkillScript` 调用 `recordbug.py -BG ... -TC ... -BD ...`；它只创建 FG/FC/CK/BG/TC、每个 TC 的波形占位块和本节列出的分析章节。脚本不可用时，使用文本编辑工具参照本节完整示例，在 `{OUT}/{DUT}_bug_analysis.md` 中建立相同结构。两种方式都必须保留唯一的 `<DYNAMIC-BUGS>` 容器、精确 BG/TC、紧随 TC 的 YAML/viewer 占位以及八个分析标记。
-2. 取得最终 confirmed WaveInfo receipt 后，调用 `ApplyWaveInfoEvidence`，传入 `{OUT}/{DUT}_bug_analysis.md`、精确 BG、精确 TC 和真实 `receipt_id`。工具会替换该 TC 的波形 YAML 与 viewer 占位，不生成语义结论。
+1. `recordbug.py` 可用时，可以用 `RunSkillScript` 调用一次 `recordbug.py -BG ... -TC ... -BD ...`；它只为新 Bug 创建第一份 FG/FC/CK/BG/TC、波形占位块和本节列出的共享分析章节。脚本不可用时，使用文本编辑工具参照本节最小骨架，在 `{OUT}/{DUT}_bug_analysis.md` 中只建立一次相同 BG 结构。两种方式都必须保留唯一的 `<DYNAMIC-BUGS>` 容器、第一份精确 BG/TC、紧随 TC 的 YAML/viewer 占位以及八个分析标记。不要为同一 BG 的后续 Fail TC 复制该结构。
+2. 取得最终 confirmed WaveInfo receipt 后，调用 `ApplyWaveInfoEvidence`，传入 `{OUT}/{DUT}_bug_analysis.md`、精确 BG、精确 TC 和真实 `receipt_id`。工具会替换现有 TC 的波形 YAML 与 viewer 占位；目标 TC 尚不存在且 BG 位置唯一时，工具会直接创建兄弟 TC 及其证据块，不生成共享语义结论。同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次：保持 `bug_tag` 相同并更换 `test_case_tag`，不要再次运行骨架脚本或手工创建 TC。同一 Fail TC 揭示多个独立 Bug 时，也要对每个 BG/TC 分别调用一次：为不同根因使用不同 `bug_tag`，保持 `test_case_tag` 相同，不得把它们合并进一个 BG。已有兄弟 TC 和其他 BG 的证据都会保留，不需要 `replace_existing=true`；该参数只用于替换同一 BG/TC 已有的不同 receipt。
 3. 继续读取失败断言、timeline 和 RTL/HDL 源码，用文本编辑工具替换三个 YAML 结论字段及八个分析章节中的全部 `<BUG-TODO>`。旧 `-ROOT/-FILE/-FIX` 参数已经删除，不能把复杂分析压进命令行，也不能停在生成骨架或应用 receipt 这一步。
 
-脚本不可用时，文本编辑工具至少要建立以下机器可读骨架；其中 FG/FC/CK/BG/TC 替换为当前真实标签。`ApplyWaveInfoEvidence` 只替换紧随目标 TC 的 YAML 和 viewer 两部分，不会生成或修改后面的八个分析字段。
+脚本不可用时，文本编辑工具至少要为新 Bug 建立以下机器可读骨架；其中 FG/FC/CK/BG/TC 替换为当前真实标签。只手工创建第一份 TC；后续兄弟 TC 交给 `ApplyWaveInfoEvidence` 自动插入。该工具只创建或替换目标 TC 的 YAML 和 viewer，不会生成或修改后面的八个分析字段。
 
 ````markdown
 <FG-GROUP>
@@ -436,9 +436,9 @@ Bug 概述应在源码块之前，用二到四句话回答：什么条件触发�
 
 Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标记、空字段以及缺少源码证据的条目。因此，在清除全部 `<BUG-TODO>` 和提示内容并复核证据闭环之前，不要调用 `Check`、`Complete` 或建立静态 Bug 的最终 LINK。旧的仅标题结构不再兼容。
 
-### Bug条目示例：一个 Bug 的所有信息集中在同一处
+### Bug条目示例：同一 Bug 的多个 Fail 用例集中在一个 BG
 
-以下值是格式示例。实际文档必须使用真实测试名、WaveInfo 返回值、源码路径、行号和分析结论。
+以下示例表示同一个设计 Bug 被两个 Fail TC 复现，不表示把两个独立 Bug 合并到一个 BG。实际文档必须使用真实测试名、WaveInfo 返回值、源码路径、行号和分析结论。
 
 ````markdown
 # {DUT} 动态 Bug 分析
@@ -538,6 +538,71 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
   ```
   <WAVEFORM-VIEWER> [查看加法溢出波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2FkZF93aXRoX2Npbl9vdmVyZmxvd19ib3VuZGFyeSIsInN0YXJ0IjoiMjMwMCIsImVuZCI6IjI1MDAiLCJjdXJzb3IiOiIyNDQwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQuYSIsIlRPUC5kdXQuYiIsIlRPUC5kdXQuY2luIiwiVE9QLmR1dC5vcFsyOjBdIiwiVE9QLmR1dC52YWxpZCIsIlRPUC5kdXQuc3VtWzMxOjBdIiwiVE9QLmR1dC5vdmVyZmxvdyIsIlRPUC5kdXQucmVhZHkiLCJUT1AuZHV0LmNhcnJ5WzMyOjBdIl19)
 
+- <TC-tests/test_adder.py::test_add_with_cin_overflow_partitioned_operands>
+  ```yaml
+  waveform_analysis:
+    status: confirmed
+    receipt_id: "<该TC的真实WaveInfo receipt_id>"
+    result_fingerprint: "<该TC的真实result_fingerprint>"
+    waveform_file: unity_test/tests/data/toffee_tmp_.../master/test_add_with_cin_overflow_partitioned_operands.fst
+    freshness_identity: unity_test/tests/data/toffee_tmp_.../master/test_add_with_cin_overflow_partitioned_operands.fst:12500:1786702065722832592
+    size_bytes: 12500
+    session_started_at: '2026-08-14T15:00:00.123+08:00'
+    modified_at: '2026-08-14T15:00:03.456+08:00'
+    modified_time_ns: 1786702065722832592
+    observed_at: '2026-08-14T15:00:04.000+08:00'
+    analysis_mode: clock_aligned
+    pattern:
+      - signal: TOP.dut.valid
+        event: equals
+        value: "0x1"
+      - signal: TOP.dut.ready
+        event: equals
+        value: "0x1"
+      - signal: TOP.dut.a
+        event: equals
+        value: "0x80000000"
+      - signal: TOP.dut.b
+        event: equals
+        value: "0x7fffffff"
+      - signal: TOP.dut.cin
+        event: equals
+        value: "0x1"
+    signal_groups:
+      clock_mode: clocked
+      clocks:
+        - TOP.dut.clk
+      inputs:
+        - TOP.dut.a
+        - TOP.dut.b
+        - TOP.dut.cin
+        - TOP.dut.op[2:0]
+        - TOP.dut.valid
+      outputs:
+        - TOP.dut.sum[31:0]
+        - TOP.dut.overflow
+      protocol:
+        - TOP.dut.valid
+        - TOP.dut.ready
+      key_signals:
+        - TOP.dut.carry[32:0]
+    logged_cycle: 146
+    cycle_tolerance: 5
+    clock_signal: TOP.dut.clk
+    clock_edge: rising
+    cycle_origin: 0
+    context_steps: 1
+    max_points: 200
+    clock_occurrence_index: 147
+    cycle_delta: 1
+    wave_step: 2960
+    timeline_truncated: false
+    alignment_evidence: 测试driver在第147个上升沿接受txn=23；该边沿的握手、操作码和输入与第二个失败日志唯一对应
+    observed_behavior: 在txn=23的有效采样点，完整加法产生最高位进位，但overflow仍为0，与expected=1不符
+    source_correlation: 第二组输入同样使a+b等于MAX，cin产生的最高位进位未进入partial_sum，和Adder.sv第25-28行一致
+  ```
+  <WAVEFORM-VIEWER> [查看第二个复现用例波形](/surfer/?wave=eyJ2IjoyLCJ0ZXN0X2RpciI6InVuaXR5X3Rlc3QvdGVzdHMiLCJ0ZXN0X2Nhc2UiOiJ0ZXN0X2FkZF93aXRoX2Npbl9vdmVyZmxvd19wYXJ0aXRpb25lZF9vcGVyYW5kcyIsInN0YXJ0IjoiMjgyMCIsImVuZCI6IjMwNTAiLCJjdXJzb3IiOiIyOTYwIiwic2lnbmFscyI6WyJUT1AuZHV0LmNsayIsIlRPUC5kdXQuYSIsIlRPUC5kdXQuYiIsIlRPUC5kdXQuY2luIiwiVE9QLmR1dC5vcFsyOjBdIiwiVE9QLmR1dC52YWxpZCIsIlRPUC5kdXQuc3VtWzMxOjBdIiwiVE9QLmR1dC5vdmVyZmxvdyIsIlRPUC5kdXQucmVhZHkiLCJUT1AuZHV0LmNhcnJ5WzMyOjBdIl19)
+
 <BUG-TRIGGER>
 **触发条件与影响范围**
 
@@ -599,7 +664,8 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 
 ### 标签与字段书写要点
 
-- 一个 BG 下可以有多个 TC，但每个 TC 都要有独立的 fenced YAML 波形块及紧随其后的 `<WAVEFORM-VIEWER>` 链接。
+- 一个 BG 下可以有多个 Fail TC，但每个 TC 都要有独立的 fenced YAML 波形块及紧随其后的 `<WAVEFORM-VIEWER>` 链接。对每个 TC 分别调用一次 `ApplyWaveInfoEvidence`，复用相同 `bug_tag` 并传入该 TC 自己的 `test_case_tag` 和 `receipt_id`；BG 位置唯一时工具自动创建尚不存在的兄弟 TC，不要手工复制 BG 或 TC。
+- 同一 Fail TC 若真实揭示多个独立设计缺陷，必须为每个根因使用不同 BG，并以相同 `test_case_tag` 分别调用 `ApplyWaveInfoEvidence`。每次调用只更新目标 BG/TC，不会覆盖其他 Bug；只有签名窗口和 `signal_groups` 同时支持各缺陷时才可复用同一 receipt。
 - 同一个 BG/TC 组合不能重复出现，否则 Checker 会判定波形块重复。
 - 同一物理根因影响多个 CK 时，可以在各 CK 下使用相同 BG 名称和相同置信度；每个 BG 出现位置都必须有与该 CK 对应的失败 TC。Recorder 会按 BG 名称聚合 CK。
 - 如果同一个测试同时失败多个 CK，不要复制同一 BG/TC 波形块到多个位置。优先拆分为每个 CK 都能明确归因的定向用例；若表现是不同缺陷，则使用不同 BG 名称。

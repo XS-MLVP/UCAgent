@@ -1047,6 +1047,60 @@ def test_waveform_block_accepts_markdown_fenced_yaml(tmp_path):
     }
 
 
+def test_waveform_blocks_associate_multiple_tests_with_one_bug(tmp_path):
+    first_test = "test_first.py::test_first"
+    second_test = "test_second.py::test_second"
+    document = (
+        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+        f"<TC-{first_test}>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-1\n```\n"
+        f"{VIEWER_LINK}\n"
+        f"<TC-{second_test}>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-2\n```\n"
+        f"{VIEWER_LINK}\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, error
+    assert (
+        blocks[("BG-DYNAMIC-80", f"TC-{first_test}")]["data"]["receipt_id"]
+        == "receipt-1"
+    )
+    assert (
+        blocks[("BG-DYNAMIC-80", f"TC-{second_test}")]["data"]["receipt_id"]
+        == "receipt-2"
+    )
+
+
+def test_waveform_blocks_associate_one_test_with_multiple_bugs(tmp_path):
+    test_case = "tests/test_shared.py::test_shared_failure"
+    first_bug = "BG-FIRST-DEFECT-80"
+    second_bug = "BG-SECOND-DEFECT-90"
+    document = (
+        f"<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<{first_bug}>\n"
+        f"<TC-{test_case}>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-1\n```\n"
+        f"{VIEWER_LINK}\n"
+        f"<{second_bug}>\n"
+        f"<TC-{test_case}>\n"
+        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-2\n```\n"
+        f"{VIEWER_LINK}\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, error
+    assert blocks[(first_bug, f"TC-{test_case}")]["data"]["receipt_id"] == "receipt-1"
+    assert blocks[(second_bug, f"TC-{test_case}")]["data"]["receipt_id"] == "receipt-2"
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_error"),
     [

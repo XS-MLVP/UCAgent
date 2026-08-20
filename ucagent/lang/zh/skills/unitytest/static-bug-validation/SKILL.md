@@ -100,6 +100,8 @@ description: 静态分析Bug验证与动态关联阶段专属技能,用于指导
 - 动态Bug标签形如`BG-XXX-90`
 - 动态Bug标签严禁使用`BG-STATIC-*`命名；`<BG-STATIC-*>`标签只保留在`{OUT}/{DUT}_static_bug_analysis.md`
 - 每个动态`<BG-*>/<TC-*>`必须有真实WaveInfo收据支持的`status: confirmed`波形证据；证据的`signal_groups`和在线viewer必须完整展示时钟（若有）、相关输入、相关输出、协议控制和功能关键路径。YAML与其后的`<WAVEFORM-VIEWER>`链接必须由`ApplyWaveInfoEvidence`从同一个最终receipt直接写入
+- 同一动态Bug有多个Fail TC时，将它们保留在同一个BG条目中，并对每个TC分别调用一次`ApplyWaveInfoEvidence`：复用相同`bug_tag`，更换`test_case_tag`和`receipt_id`。BG位置唯一时工具会自动创建尚不存在的兄弟TC；不要重复生成或手工复制BG/TC。兄弟TC不会互相覆盖，也不需要`replace_existing=true`
+- 同一Fail TC证实多个独立动态Bug时，为每个根因保留不同BG，并用相同`test_case_tag`分别调用`ApplyWaveInfoEvidence`；目标BG/TC之外的Bug记录不会被修改。只有签名窗口和`signal_groups`都能支持各Bug时才能跨BG复用同一receipt，跨BG应用不需要`replace_existing=true`
 - 中断或重启后可以复用通过验证的WaveInfo receipt；单独运行当前静态候选用例时，不得据此删除已有TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段仍需完整测试运行和严格波形重放
 - `recordbug.py`只生成带`<BUG-TODO>`的动态Bug骨架，不做根因判断，也不生成真实波形字段。最终WaveInfo调用后必须使用`ApplyWaveInfoEvidence`写入机器证据，再由LLM读取失败日志、timeline和RTL，填完该BG内的三个语义结论及全部分析标记字段
 - 若一个静态Bug对应多个动态Bug,则应先把这些动态Bug都记录完整
