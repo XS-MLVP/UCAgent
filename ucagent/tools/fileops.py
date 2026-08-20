@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """File operations tools for UCAgent."""
 
-from typing import Literal, Optional, List, Tuple
+from typing import Optional, List, Tuple
 from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
-from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from
+from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
 from ucagent.util.functions import get_diff, match_pattern_list
 from .uctool import UCTool
 
@@ -1115,27 +1115,15 @@ class ReadTextFile(UCTool, BaseReadWrite):
 class ArgEditTextFile(StrictToolArgs):
     path: str = Field(
         ...,
-        description="Text file path to edit or create, relative to the workspace."
+        description="Text file path to create or edit, relative to the workspace."
     )
-    data: Optional[str] = Field(
-        default=None,
-        description="String data to edit or to write. If None, clear the content."
+    content: str = Field(
+        ...,
+        description="Complete UTF-8 file content. Use an empty string to create or clear an empty file."
     )
-    mode: Literal["write", "append", "replace"] = Field(
-        default="replace",
-        description="Edit mode: 'write' (write to a new file), 'append' (append data to the end), or 'replace' (replace lines by index)."
-    )
-    start: int = Field(
-        default=1,
-        description="Start line index (1-based) for 'replace' mode. If index < 1, insert at head; if index > file lines, append at end."
-    )
-    count: int = Field(
-        default=-1,
-        description="Number of lines to replace for 'replace' mode. 0: insert, -1: to end of file, positive: replace n lines."
-    )
-    preserve_indent: bool = Field(
+    append: bool = Field(
         default=False,
-        description="For 'replace' mode: if True, preserve indentation of original lines when replacing."
+        description="If false, create or overwrite the complete file. If true, append content to the file, creating it when absent."
     )
     expected_sha256: Optional[str] = Field(
         default=None,
@@ -1144,50 +1132,31 @@ class ArgEditTextFile(StrictToolArgs):
 
 
 class EditTextFile(UCTool, BaseReadWrite):
-    """Edit or create a text file in the workspace with multiple modes."""
+    """Create, overwrite, or append to one text file in the workspace."""
     name: str = "EditTextFile"
     description: str = (
-        "Edit or create a text file in the workspace. Supports multiple modes:\n"
-        "- 'replace': Replace/insert lines at specific line indices (default)\n"
-        "- 'write': Write data to a new file (cannot be used to edit existing files)\n"
-        "- 'append': Add data to the end of the file\n"
-        "For 'replace' mode, supports preserving indentation.\n"
-        "When success, returns the difference summary, otherwise returns error message.\n"
+        "Create or overwrite one UTF-8 text file using the required path and content "
+        "arguments. Set append=true only when adding content to the end. The same call "
+        "works whether the target file already exists or not. Use ReplaceStringInFile "
+        "for a small exact replacement in an existing file. Repeating a successful "
+        "create/overwrite call with the same content is treated as success; append calls "
+        "always append again."
     )
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("path",)
 
-    def _run(self, path: str, data: Optional[str] = None, mode: str = "replace",
-             start: int = 1, count: int = -1, preserve_indent: bool = False,
+    def _run(self, path: str, content: str, append: bool = False,
              expected_sha256: Optional[str] = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
-        """Edit or create a text file in the workspace with specified mode."""
-        valid_modes = ["write", "append", "replace"]
-        if mode not in valid_modes:
-            emsg = f"Invalid mode '{mode}'. Valid modes are: {valid_modes}"
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
+        """Create or update a text file with complete content or an append operation."""
         success, msg, real_path = self.check_file(
-            path, for_write=True, allow_missing=(mode == "write")
+            path, for_write=True, allow_missing=True
         )
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
         file_exists = os.path.exists(real_path)
-        if mode == "write" and file_exists:
-            emsg = (
-                f"File '{path}' already exists, cannot use 'write' mode on existing files. "
-                "Use 'replace' mode or ApplyTextPatch to update it."
-            )
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        if not file_exists and mode != "write":
-            emsg = (
-                f"File '{path}' does not exist, cannot use '{mode}' mode on a non-existing "
-                "file. Use 'write' mode to create it."
-            )
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
         if file_exists and not is_text_file(real_path):
             emsg = f"File {path} is not a text file."
             self.do_callback(False, path, emsg)
@@ -1210,82 +1179,32 @@ class EditTextFile(UCTool, BaseReadWrite):
                 self.do_callback(False, path, emsg)
                 return str_error(emsg)
 
-            if mode == "write":
-                new_content = data or ""
-                operation_desc = f"Wrote {len(new_content)} characters to new file '{path}'"
-            elif mode == "append":
-                appended_content = "" if data is None else _convert_newlines(data, newline)
-                new_content = "" if data is None else original_content + appended_content
-                operation_desc = (
-                    f"Cleared file '{path}'" if data is None
-                    else f"Appended {len(data)} characters to '{path}'"
-                )
+            normalized_content = (
+                _convert_newlines(content, newline) if file_exists else content
+            )
+            if append:
+                new_content = original_content + normalized_content
+                operation_desc = f"Appended {len(content)} characters to '{path}'"
             else:
-                if count < -1:
-                    emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
-                    self.do_callback(False, path, emsg)
-                    return str_error(emsg)
-                line_start = max(0, start - 1)
-                lines = original_content.splitlines(keepends=True)
-                lines_count = len(lines)
-                line_start = min(line_start, lines_count)
-                lines_pred = lines[:line_start]
-                if count == -1:
-                    lines_after = []
-                elif count == 0:
-                    lines_after = lines[line_start:]
-                else:
-                    end_pos = min(line_start + count, lines_count)
-                    lines_after = lines[end_pos:]
-                insert_text = ""
-                if data is not None:
-                    logical_data = data.replace("\r\n", "\n").replace("\r", "\n")
-                    if preserve_indent and line_start < lines_count:
-                        ref_lines = [
-                            line.rstrip("\r\n")
-                            for line in lines[
-                                line_start:min(
-                                    line_start + max(1, count if count > 0 else 1),
-                                    lines_count,
-                                )
-                            ]
-                        ]
-                        if ref_lines:
-                            logical_data = "\n".join(
-                                copy_indent_from(ref_lines, logical_data.split("\n"))
-                            )
-                    insert_text = _convert_newlines(logical_data, newline)
-                    if (
-                        insert_text
-                        and not insert_text.endswith(("\n", "\r"))
-                        and (lines_after or original_content.endswith(("\n", "\r")))
-                    ):
-                        insert_text += newline
-                    if (
-                        lines_pred
-                        and insert_text
-                        and not lines_pred[-1].endswith(("\n", "\r"))
-                        and not insert_text.startswith(("\n", "\r"))
-                    ):
-                        lines_pred[-1] += newline
-                new_content = "".join(lines_pred) + insert_text + "".join(lines_after)
-                if count == 0:
-                    operation_desc = f"Inserted new content at line {line_start + 1}"
-                elif count == -1:
-                    operation_desc = f"Replaced content from line {line_start + 1} to end of file"
-                elif data is None:
-                    operation_desc = f"Removed {min(count, lines_count - line_start)} lines starting from line {line_start + 1}"
-                else:
-                    actual_replaced = min(count, max(0, lines_count - line_start))
-                    operation_desc = f"Replaced {actual_replaced} lines starting from line {line_start + 1}"
-                if data is not None:
-                    data_lines = len(data.split('\n'))
-                    operation_desc += f" with {data_lines} new line(s)"
+                new_content = normalized_content
+                operation_desc = (
+                    f"Overwrote '{path}' with {len(content)} characters"
+                    if file_exists
+                    else f"Created '{path}' with {len(content)} characters"
+                )
 
-            if new_content == original_content:
-                emsg = f"No changes detected for {path}; the file was not written."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
+            if file_exists and new_content == original_content:
+                result = {
+                    "append": append,
+                    "changed": False,
+                    "before_sha256": original_sha256,
+                    "after_sha256": original_sha256,
+                }
+                self.do_callback(True, path, result)
+                return str_info(
+                    f"File '{path}' already has the requested content; no write was needed. "
+                    f"SHA256: {original_sha256}."
+                )
             if (
                 expected_sha256 is not None
                 and file_exists
@@ -1304,9 +1223,8 @@ class EditTextFile(UCTool, BaseReadWrite):
                 True,
                 path,
                 {
-                    "mode": mode,
-                    "start": start,
-                    "count": count,
+                    "append": append,
+                    "changed": True,
                     "before_sha256": original_sha256,
                     "after_sha256": new_sha256,
                 },
@@ -1354,6 +1272,7 @@ class CopyFile(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgCopyFile
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("source_path", "dest_path")
 
     def _run(self, source_path: str, dest_path: str, overwrite: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -1437,6 +1356,7 @@ class MoveFile(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgMoveFile
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("source_path", "dest_path")
 
     def _run(self, source_path: str, dest_path: str, overwrite: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -1528,6 +1448,7 @@ class DeleteFile(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgDeleteFile
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("path",)
 
     def _run(self, path: str, is_dir: bool = False, recursive: bool = False,
              expected_sha256: Optional[str] = None,
@@ -1622,6 +1543,7 @@ class CreateDirectory(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgCreateDirectory
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("path",)
 
     def _run(self, path: str, parents: bool = True, exist_ok: bool = True,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -1685,7 +1607,8 @@ class ArgReplaceStringInFile(StrictToolArgs):
         description="Text file path to modify, relative to the workspace.")
     old_string: str = Field(
         ...,
-        description="The exact literal text to replace. Must include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string does not match exactly, the tool will fail.")
+        min_length=1,
+        description="Non-empty exact literal text to replace in an existing file, including enough context to make the match unique.")
     new_string: str = Field(
         ...,
         description="The exact literal text to replace old_string with. Ensure the resulting code is correct and idiomatic.")
@@ -1703,27 +1626,22 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
     """Replace exact string content in a text file with precise string matching."""
     name: str = "ReplaceStringInFile"
     description: str = (
-        "Replace exact string content in a text file. This tool performs precise string matching and replacement. "
-        "The old_string must match exactly (including whitespace, indentation, newlines, and surrounding code), if empty will replace the whole file content. "
-        "Include at least 3-5 lines of context BEFORE and AFTER the target text to ensure unique identification. "
-        "Each use of this tool replaces exactly ONE occurrence of old_string. "
-        "If this target file not exists, the tool will create it and write the new_string into it. "
-        "If the string matches multiple locations or does not match exactly, the tool will fail. "
-        "Example usage:\n"
-        "old_string: 'def old_function():\\n    # TODO: implement\\n    pass\\n    return 0'\n"
-        "new_string: 'def new_function():\\n    \"\"\"New implementation\"\"\"\\n    result = calculate()\\n    return result'\n"
-        "Critical: old_string must uniquely identify the single instance to change and match precisely."
+        "Replace one unique occurrence of non-empty old_string in an existing UTF-8 "
+        "text file. Both old_string and new_string must match the intended whitespace "
+        "and newlines exactly. Include enough surrounding context to make old_string "
+        "unique. Use EditTextFile to create, overwrite, or append to a file. Repeating "
+        "an already-applied replacement is reported as an actionable mismatch; calling "
+        "with identical old_string and new_string is treated as success."
     )
     args_schema: Optional[ArgsSchema] = ArgReplaceStringInFile
     return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("path",)
 
     def _run(self, path: str, old_string: str, new_string: str,
              expected_sha256: Optional[str] = None, dry_run: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace exact string content in a text file."""
-        success, msg, real_path = self.check_file(
-            path, for_write=True, allow_missing=(old_string == "")
-        )
+        success, msg, real_path = self.check_file(path, for_write=True)
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
@@ -1753,24 +1671,34 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
 
             old_content = _convert_newlines(old_string, newline)
             replacement_content = _convert_newlines(new_string, newline)
-            new_content = replacement_content
-            if old_string:
-                if old_content not in original_content:
-                    error_msg = f"The specified old_string was not found in the file. The string must match exactly including all whitespace, indentation, and newlines."
-                    self.do_callback(False, path, error_msg)
-                    return str_error(error_msg)
-                # Count occurrences to ensure uniqueness
-                occurrence_count = original_content.count(old_content)
-                if occurrence_count > 1:
-                    error_msg = f"The specified old_string appears {occurrence_count} times in the file. The string must be unique. Include more context to make it unique."
-                    self.do_callback(False, path, error_msg)
-                    return str_error(error_msg)
-                # Perform the replacement
-                new_content = original_content.replace(old_content, replacement_content, 1)
-            if file_exists and new_content == original_content:
-                error_msg = "new_string produces no change. The file was not written."
+            if old_content not in original_content:
+                error_msg = (
+                    "The specified old_string was not found. Read the current file and "
+                    "retry with exact, unique text; if the desired content is already "
+                    "present, no further write is needed."
+                )
                 self.do_callback(False, path, error_msg)
                 return str_error(error_msg)
+            occurrence_count = original_content.count(old_content)
+            if occurrence_count > 1:
+                error_msg = (
+                    f"The specified old_string appears {occurrence_count} times. "
+                    "Include more surrounding context so it matches exactly once."
+                )
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            new_content = original_content.replace(old_content, replacement_content, 1)
+            if new_content == original_content:
+                result = {
+                    "changed": False,
+                    "before_sha256": original_sha256,
+                    "after_sha256": original_sha256,
+                }
+                self.do_callback(True, path, result)
+                return str_info(
+                    f"File '{path}' already has the requested content; no write was needed. "
+                    f"SHA256: {original_sha256}."
+                )
 
             diff_result, _ = _bounded_diff(original_content, new_content, path)
             new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
@@ -1818,201 +1746,6 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
 
     def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         """Initialize the tool."""
-        super().__init__(**kwargs)
-        self.init_base_rw(workspace, write_dirs, un_write_dirs)
-
-
-class TextPatchEdit(StrictToolArgs):
-    old_text: str = Field(
-        ...,
-        description="Exact, non-empty text to replace, including enough surrounding context to identify the target."
-    )
-    new_text: str = Field(
-        ...,
-        description="Replacement text. Use an empty string to remove the matched text."
-    )
-    expected_occurrences: int = Field(
-        default=1,
-        ge=1,
-        description="Exact number of occurrences that must be present before this edit is applied."
-    )
-
-
-class ArgApplyTextPatch(StrictToolArgs):
-    path: str = Field(..., description="Text file path relative to the workspace.")
-    action: Literal["create", "update", "delete"] = Field(
-        default="update",
-        description="Create a new file, update an existing file, or delete an existing text file."
-    )
-    edits: List[TextPatchEdit] = Field(
-        default_factory=list,
-        description="Ordered exact-context edits. Required for action='update'."
-    )
-    content: Optional[str] = Field(
-        default=None,
-        description="Complete initial content. Required for action='create' and invalid for action='update'."
-    )
-    expected_sha256: Optional[str] = Field(
-        default=None,
-        description="Optional SHA-256 returned by ReadTextFile. The operation fails if the file changed."
-    )
-    dry_run: bool = Field(
-        default=False,
-        description="Validate the complete patch and return its result without modifying the file."
-    )
-
-
-class ApplyTextPatch(UCTool, BaseReadWrite):
-    """Apply validated exact-context edits to one text file as one operation."""
-
-    name: str = "ApplyTextPatch"
-    description: str = (
-        "Create, update, or delete one workspace text file. For updates, all exact-context "
-        "edits are validated in memory before anything is written; any missing, ambiguous, "
-        "or stale target rejects the complete operation. Use expected_sha256 from ReadTextFile "
-        "for conflict detection. Writes are atomic and preserve the existing newline style."
-    )
-    args_schema: Optional[ArgsSchema] = ArgApplyTextPatch
-    return_direct: bool = False
-
-    def _run(
-        self,
-        path: str,
-        action: str = "update",
-        edits: Optional[List[TextPatchEdit]] = None,
-        content: Optional[str] = None,
-        expected_sha256: Optional[str] = None,
-        dry_run: bool = False,
-        run_manager: Optional[CallbackManagerForToolRun] = None,
-    ) -> dict:
-        """Validate and apply an atomic text patch."""
-        edits = edits or []
-
-        def fail(code: str, message: str, **details):
-            self.do_callback(False, path, message)
-            return {
-                "ok": False,
-                "error": {"code": code, "message": message},
-                "path": path,
-                **details,
-            }
-
-        if action not in {"create", "update", "delete"}:
-            return fail("invalid_action", f"Unsupported patch action '{action}'.")
-        success, msg, real_path = self.check_file(
-            path, for_write=True, allow_missing=(action == "create")
-        )
-        if not success:
-            return fail("invalid_path", msg)
-        file_exists = os.path.exists(real_path)
-        if action == "create" and file_exists:
-            return fail("already_exists", f"File {path} already exists.")
-        if action != "create" and not file_exists:
-            return fail("not_found", f"File {path} does not exist.")
-        if action == "update" and not edits:
-            return fail("missing_edits", "At least one edit is required for action='update'.")
-        if action != "update" and edits:
-            return fail("unexpected_edits", f"Edits are not allowed for action='{action}'.")
-        if action == "create" and content is None:
-            return fail("missing_content", "Content is required for action='create'.")
-        if action != "create" and content is not None:
-            return fail("unexpected_content", f"Content is not allowed for action='{action}'.")
-
-        try:
-            if file_exists:
-                original_content, original_sha256, newline = _read_text_snapshot(real_path)
-                existing_mode = os.stat(real_path).st_mode & 0o7777
-            else:
-                original_content = ""
-                original_sha256 = _sha256_bytes(b"")
-                newline = "\n"
-                existing_mode = None
-        except UnicodeDecodeError as exc:
-            return fail("invalid_encoding", f"File {path} is not valid UTF-8 text: {exc}")
-        except OSError as exc:
-            return fail("read_failed", f"Failed to read {path}: {exc}")
-
-        if expected_sha256 is not None and expected_sha256 != original_sha256:
-            return fail(
-                "stale_file",
-                f"File {path} changed after it was read. Read it again and retry.",
-                expected_sha256=expected_sha256,
-                current_sha256=original_sha256,
-            )
-
-        new_content = original_content
-        if action == "create":
-            new_content = content or ""
-        elif action == "update":
-            for index, edit in enumerate(edits):
-                if isinstance(edit, dict):
-                    try:
-                        edit = TextPatchEdit.model_validate(edit)
-                    except Exception as exc:
-                        return fail("invalid_edit", f"Edit {index + 1} is invalid: {exc}")
-                old_text = _convert_newlines(edit.old_text, newline)
-                new_text = _convert_newlines(edit.new_text, newline)
-                if not old_text:
-                    return fail("empty_target", f"Edit {index + 1} has an empty old_text.")
-                occurrence_count = new_content.count(old_text)
-                if occurrence_count != edit.expected_occurrences:
-                    return fail(
-                        "target_count_mismatch",
-                        f"Edit {index + 1} expected {edit.expected_occurrences} occurrence(s) "
-                        f"but found {occurrence_count}. No changes were written.",
-                        edit_index=index + 1,
-                        expected_occurrences=edit.expected_occurrences,
-                        actual_occurrences=occurrence_count,
-                    )
-                new_content = new_content.replace(
-                    old_text, new_text, edit.expected_occurrences
-                )
-        elif action == "delete":
-            new_content = ""
-
-        if action != "delete" and file_exists and new_content == original_content:
-            return fail("no_change", "The patch produces no change. No file was written.")
-
-        diff, diff_truncated = _bounded_diff(original_content, new_content, path)
-        after_sha256 = None if action == "delete" else _sha256_bytes(
-            new_content.encode("utf-8")
-        )
-        result = {
-            "ok": True,
-            "path": path,
-            "action": action,
-            "dry_run": dry_run,
-            "before_sha256": original_sha256,
-            "after_sha256": after_sha256,
-            "changed_edits": len(edits),
-            "diff": diff,
-            "diff_truncated": diff_truncated,
-        }
-        if dry_run:
-            return result
-        if expected_sha256 is not None and file_exists:
-            try:
-                current_sha256 = _sha256_file(real_path)
-            except OSError as exc:
-                return fail("stale_file", f"File {path} became unavailable: {exc}")
-            if current_sha256 != original_sha256:
-                return fail(
-                    "stale_file",
-                    f"File {path} changed while the patch was being prepared. Read it again and retry."
-                )
-        try:
-            if action == "delete":
-                os.remove(real_path)
-            elif action == "create":
-                _atomic_create_text(real_path, new_content)
-            else:
-                _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
-        except OSError as exc:
-            return fail("write_failed", f"Failed to apply patch to {path}: {exc}")
-        self.do_callback(True, path, result)
-        return result
-
-    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
         super().__init__(**kwargs)
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 

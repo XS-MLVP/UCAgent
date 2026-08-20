@@ -83,7 +83,8 @@ mission:
       | Complete | 阶段检查 + 推进（优先使用）|
       | Check | 仅检查不推进 |
       | ReadTextFile | 读取文件 |
-      | EditTextFile | 编辑文件（写入、追加、替换） |
+      | EditTextFile | 通过`path`和`content`创建或覆盖完整文件；仅追加时传`append=true` |
+      | ReplaceStringInFile | 通过`path`、`old_string`和`new_string`局部修改已有文件 |
       | GenerateChecker | 生成 checker.sv + wrapper.sv |
       | GenerateFormalScript | 生成 TCL 脚本 |
       | RunSkillScript | 执行技能脚本（例如运行形式化验证、生成文档骨架） |

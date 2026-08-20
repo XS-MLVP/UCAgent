@@ -33,4 +33,4 @@
 
 ### 为什么找不到 WriteTextFile 工具？
 
-- 该工具已移除。请改用 `EditTextFile`（支持 overwrite/append/replace 三种模式）或其他文件工具（Copy/Move/Delete 等）。
+- 该工具已移除。创建或覆盖文本文件请调用 `EditTextFile(path, content)`；只有追加内容时才传 `append=true`。对已有文件做局部修改时使用 `ReplaceStringInFile(path, old_string, new_string)`。

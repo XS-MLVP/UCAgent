@@ -10,7 +10,7 @@ description: 功能规格分析与测试点定义阶段及其子阶段专属技�
 - `function_point_definition`
 - `check_point_design`
 
-本阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`。默认可使用`ReadTextFile`、`EditTextFile`和`ReplaceStringInFile`按当前子阶段写入FG/FC/CK；`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
+本阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`。首次创建完整文档使用`EditTextFile(path, content)`；后续按当前子阶段局部加入或修正FG/FC/CK时使用`ReplaceStringInFile(path, old_string, new_string)`。`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
 
 ## 分析原则
 

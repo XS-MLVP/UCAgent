@@ -39,7 +39,7 @@ def test_basic_addition(env):
 ## 执行步骤
 
 1. 阅读`reference_files`和当前批次CK，确认每个模板的测试意图。
-2. 使用`EditTextFile`/`ReplaceStringInFile`直接创建模板；若`RunSkillScript`可用，可改用`createtemplate.py`一次性生成，但不得同时生成两套重复模板。
+2. 使用`EditTextFile(path, content)`直接创建模板；`ReplaceStringInFile`只用于局部修改已经存在的模板。若`RunSkillScript`可用，可改用`createtemplate.py`一次性生成，但不得同时生成两套重复模板。
 3. 检查生成结果：保留当前配置要求的参数及顺序，确认覆盖率路径准确、TODO具体、最后一条语句为占位断言。
 4. 使用`Complete`推进阶段；失败时先按下述流程定位真实原因。
 

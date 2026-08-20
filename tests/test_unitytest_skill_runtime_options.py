@@ -369,7 +369,8 @@ def test_default_workflow_is_complete_when_skills_are_disabled(tmp_path, monkeyp
     assert "ReadTextFile读取.ucagent/runtime_config.json" in template_task
     assert "用文本编辑工具直接创建测试模板" in template_task
     assert "LINK回填不依赖linkbug.py" in validation_task
-    assert "ReplaceStringInFile或EditTextFile" in validation_task
+    assert "对已有静态报告使用ReplaceStringInFile" in validation_task
+    assert "ReplaceStringInFile或EditTextFile" not in validation_task
 
 
 def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):

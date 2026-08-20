@@ -4,7 +4,7 @@
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
-from pydantic import Field, BaseModel, ConfigDict, PrivateAttr
+from pydantic import Field, BaseModel, ConfigDict, PrivateAttr, ValidationError
 from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
@@ -14,8 +14,14 @@ import ucagent.util.functions as fc
 import threading
 import concurrent.futures
 import asyncio
+import os
+import weakref
 from ucagent.util.cqueque import CircularOverwriteQueue
 import time
+
+
+_keyed_async_locks = weakref.WeakValueDictionary()
+_keyed_async_locks_guard = threading.Lock()
 
 
 class EmptyArgs(BaseModel):
@@ -107,6 +113,10 @@ class UCTool(BaseTool):
         default=False,
         description="send block message to client"
     )
+    call_lock_arguments: tuple[str, ...] = Field(
+        default=(),
+        description="Tool input paths used to serialize conflicting asynchronous calls."
+    )
     _async_lock: asyncio.Lock = PrivateAttr(default=None)
 
     @property
@@ -174,11 +184,38 @@ class UCTool(BaseTool):
         return {"error": f"Tool ({self.__class__.__name__}) call timed out after {self.call_time_out} seconds.",
                 "logs":  data}
 
+    def _get_call_locks(self, input) -> list[asyncio.Lock]:
+        if not self.call_lock_arguments or not isinstance(input, dict):
+            return [self.async_lock]
+        workspace = os.path.realpath(str(getattr(self, "workspace", "")))
+        lock_keys = set()
+        for argument in self.call_lock_arguments:
+            value = input.get(argument)
+            if isinstance(value, str) and value.strip():
+                lock_keys.add(os.path.realpath(os.path.join(workspace, value)))
+        if not lock_keys:
+            return [self.async_lock]
+        loop_id = id(asyncio.get_running_loop())
+        locks = []
+        with _keyed_async_locks_guard:
+            for key in sorted(lock_keys):
+                registry_key = (loop_id, key)
+                lock = _keyed_async_locks.get(registry_key)
+                if lock is None:
+                    lock = asyncio.Lock()
+                    _keyed_async_locks[registry_key] = lock
+                locks.append(lock)
+        return locks
+
     def invoke(self, input, config = None, **kwargs):
         self.call_count += 1
         self.is_in_call = True
         try:
             return super().invoke(input, config, **kwargs)
+        except ValidationError as e:
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) invoke error: {str(e)}"
+            fc.warning(error_msg)
+            return error_msg
         finally:
             self.is_in_call = False
             self.last_call_time = time.time()
@@ -233,16 +270,27 @@ class UCTool(BaseTool):
     async def ainvoke(self, input, config = None, **kwargs):
         if self.is_disabled:
             return f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+        call_locks = self._get_call_locks(input)
+        acquired_locks = []
         try:
-            await asyncio.wait_for(self.async_lock.acquire(), timeout=self.lock_time_out)
+            deadline = asyncio.get_running_loop().time() + self.lock_time_out
+            for call_lock in call_locks:
+                remaining = deadline - asyncio.get_running_loop().time()
+                await asyncio.wait_for(call_lock.acquire(), timeout=max(0, remaining))
+                acquired_locks.append(call_lock)
         except asyncio.TimeoutError:
-            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.call_time_out} seconds). Please try again later."
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is busy, get lock timeout ({self.lock_time_out} seconds). Please try again later."
             fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
             return error_msg
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
             fc.warning(error_msg)
+            for call_lock in reversed(acquired_locks):
+                call_lock.release()
             return error_msg
+        alive_thread = None
         try:
             data, alive_thread = await self._ainvoke(input, config, **kwargs)
             return data
@@ -251,9 +299,12 @@ class UCTool(BaseTool):
             fc.warning(error_msg)
             return error_msg
         finally:
-            if alive_thread is not None:
-                alive_thread.join()
-            self.async_lock.release()
+            try:
+                if alive_thread is not None:
+                    alive_thread.join()
+            finally:
+                for call_lock in reversed(acquired_locks):
+                    call_lock.release()
 
     async def _ainvoke(self, input, config = None, **kwargs):
         self.call_count += 1
@@ -261,7 +312,9 @@ class UCTool(BaseTool):
         ctx = input.get("ctx", None)
         tool_input = input.copy()
         tool_input.pop("ctx", None)
-        if not isinstance(ctx, Context):
+        # Short file operations use path-scoped locks and do not need the shared
+        # streaming heartbeat state, which would serialize unrelated paths.
+        if not isinstance(ctx, Context) or self.call_lock_arguments:
             try:
                 self.is_in_call = True
                 return await super().ainvoke(tool_input, config, **kwargs), None

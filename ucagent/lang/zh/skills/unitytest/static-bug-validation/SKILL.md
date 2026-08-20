@@ -141,7 +141,7 @@ python3 script -BG 'BG-ADD-SPECIAL-VALUE-90' -TC 'TC-unity_test/tests/test_ALU75
 ### 步骤5: 回填静态Bug链接
 
 操作:
-- 当某个静态Bug已经确定最终对应的动态Bug标签后，使用`ReplaceStringInFile`或`EditTextFile`同步更新两个位置；若`RunSkillScript`可用，也可执行`linkbug.py`完成相同更新:
+- 当某个静态Bug已经确定最终对应的动态Bug标签后，对已有报告使用`ReplaceStringInFile(path, old_string, new_string)`同步更新两个位置；若`RunSkillScript`可用，也可执行`linkbug.py`完成相同更新:
   - `<STATIC-BUG-SUMMARY>`分区表格中的“动态Bug关联”列
   - `<STATIC-BUG-DETAILS>`分区中该`<BG-STATIC-*>`条目下的`<LINK-BUG-[...]>`标签
 - 三个静态分区标记必须各自独占一行、恰好出现一次，并保持`<STATIC-BUG-SUMMARY>` -> `<STATIC-BUG-DETAILS>` -> `<STATIC-BUG-PROGRESS>`顺序；标题文字可以本地化，Checker不会读取标题

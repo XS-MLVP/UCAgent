@@ -120,14 +120,21 @@
     - count: int — 行数（-1 到文件末尾）
 
 - EditTextFile（EditTextFile）
-  - 用途：编辑/创建文本文件，模式：replace/overwrite/append。
+  - 用途：创建或覆盖完整文本文件；也可显式选择追加。
   - 参数：
-    - path: str — 文件路径（相对 workspace，不存在则创建）
-    - data: str — 写入的文本（None 表示清空）
-    - mode: str — 编辑模式（replace/overwrite/append，默认 replace）
-    - start: int — replace 模式的起始行（1-based）
-    - count: int — replace 模式替换行数（-1 到末尾，0 插入）
-    - preserve_indent: bool — replace 时是否保留缩进
+    - path: str — 文件路径（相对 workspace，必填）
+    - content: str — 完整文件内容（必填；空字符串表示创建或清空空文件）
+    - append: bool — 是否追加；默认 false，即创建或覆盖完整文件
+    - expected_sha256: str — 可选的读取时 SHA-256，用于避免覆盖并发修改
+
+- ReplaceStringInFile（ReplaceStringInFile）
+  - 用途：在已有文本文件中精确替换唯一的一处非空文本。
+  - 参数：
+    - path: str — 已有文件路径（相对 workspace，必填）
+    - old_string: str — 唯一匹配的非空原文本（必填）
+    - new_string: str — 替换后的文本（必填；空字符串表示删除匹配内容）
+    - expected_sha256: str — 可选的读取时 SHA-256
+    - dry_run: bool — 仅校验并返回差异，不写入文件
 
 - CopyFile（CopyFile）
   - 用途：复制文件；可选覆盖。
@@ -154,13 +161,6 @@
     - path: str — 目录路径
     - parents: bool — 递归创建父目录
     - exist_ok: bool — 已存在是否忽略
-
-- ReplaceStringInFile（ReplaceStringInFile）
-  - 用途：精确字符串替换（强约束匹配；可新建文件）。
-  - 参数：
-    - path: str — 目标文件
-    - old_string: str — 需要被替换的完整原文（含上下文，精确匹配）
-    - new_string: str — 新内容
 
 - GetFileInfo（GetFileInfo）
   - 用途：获取文件信息（大小、修改时间、人类可读尺寸等）。

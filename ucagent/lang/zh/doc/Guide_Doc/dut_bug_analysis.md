@@ -620,7 +620,7 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 
 ## 7. 静态 Bug 文档规范
 
-静态报告的创建、追加和LINK回填都可以仅使用`ReadTextFile`、`EditTextFile`和`ReplaceStringInFile`完成。Skill脚本可用于批量生成或同步，但不是前置条件；没有脚本时仍按本节示例直接维护三个机器分区，并由Checker验证结构、路径和关联。
+静态报告可以仅使用内置文件工具完成：首次创建完整报告使用`EditTextFile(path, content)`，已有报告的条目追加和LINK回填使用`ReplaceStringInFile(path, old_string, new_string)`。Skill脚本可用于批量生成或同步，但不是前置条件；没有脚本时仍按本节示例直接维护三个机器分区，并由Checker验证结构、路径和关联。
 
 ### 7.1 每个静态候选也要集中记录
 

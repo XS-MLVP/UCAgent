@@ -44,7 +44,7 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 - 1.**只改不删**: 检查发现错误需要进行修改时,只修改格式错误的部分,不能将格式错误的条目删除,只能修改(因为已经分析出了有潜在Bug,所以不能删除这个条目,只能这个条目的格式有错误需要修改)
 - 2.**结构完整**: {OUT}/{DUT}_static_bug_analysis.md中共有3个栏目,唯一机器边界依次是`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`、`<STATIC-BUG-PROGRESS>`。每个标记必须独占一行、恰好出现一次且顺序固定；中文标题只是展示文本，可以本地化。每次修改只在对应标记范围内追加或修改，不要删除、复制、改名或调换标记.
 - 3.**一致性**: `潜在Bug汇总`和`详细分析`下的内容要相互一致,如果`潜在Bug汇总`中已经有了某个BG条目,则`详细分析`中必须有对应的BG条目,反之亦然.
-- 4.**等价写入**: 可直接使用`EditTextFile`或`ReplaceStringInFile`创建、添加或修正BG条目；也可使用可选脚本。无论采用哪种方式，都必须同步维护三个固定分区，重新读取目标段确认一致后再调用Checker.
+- 4.**等价写入**: 首次创建完整报告时使用`EditTextFile(path, content)`；对已有报告添加或修正BG条目时使用`ReplaceStringInFile(path, old_string, new_string)`。也可使用可选脚本。无论采用哪种方式，都必须同步维护三个固定分区，重新读取目标段确认一致后再调用Checker.
 
 ## 关键规则
 - 来源:所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到{OUT}/{DUT}_functions_and_checks.md再使用

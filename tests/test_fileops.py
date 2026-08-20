@@ -7,6 +7,8 @@ import tempfile
 import shutil
 import unittest
 import hashlib
+import asyncio
+import threading
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -495,7 +497,7 @@ class TestFileOpsTools(unittest.TestCase):
                 path="outside-link.txt"
             )
             edit_result = EditTextFile(workspace=self.workspace)._run(
-                path="outside-link.txt", data="changed", mode="replace"
+                path="outside-link.txt", content="changed"
             )
             self.assertIn("not within the workspace", read_result)
             self.assertIn("not within the workspace", edit_result)
@@ -539,10 +541,7 @@ class TestFileOpsTools(unittest.TestCase):
 
         result = EditTextFile(workspace=self.workspace)._run(
             path="crlf.txt",
-            data="gamma",
-            mode="replace",
-            start=2,
-            count=1,
+            content="alpha\ngamma\n",
             expected_sha256=before_sha256,
         )
 
@@ -558,10 +557,7 @@ class TestFileOpsTools(unittest.TestCase):
 
         EditTextFile(workspace=self.workspace)._run(
             path="no-final-newline.txt",
-            data="gamma",
-            mode="replace",
-            start=2,
-            count=1,
+            content="alpha\ngamma",
         )
 
         with open(target, "rb") as file_obj:
@@ -574,8 +570,7 @@ class TestFileOpsTools(unittest.TestCase):
 
         result = EditTextFile(workspace=self.workspace)._run(
             path="simple.txt",
-            data="replacement",
-            mode="replace",
+            content="replacement",
             expected_sha256=stale_sha256,
         )
 
@@ -606,105 +601,187 @@ class TestFileOpsTools(unittest.TestCase):
         with open(target, "r", encoding="utf-8") as file_obj:
             self.assertEqual(file_obj.read(), self.test_files["simple.txt"])
 
-    def test_apply_text_patch_applies_multiple_edits(self):
-        target = os.path.join(self.workspace, "simple.txt")
-        before_sha256 = hashlib.sha256(
-            self.test_files["simple.txt"].encode("utf-8")
-        ).hexdigest()
-        tool = ApplyTextPatch(workspace=self.workspace)
+    def test_edit_text_file_minimal_call_creates_and_overwrites(self):
+        target = os.path.join(self.workspace, "created.txt")
+        tool = EditTextFile(workspace=self.workspace)
+
+        create_result = tool.invoke({"path": "created.txt", "content": "created\n"})
+        overwrite_result = tool.invoke({"path": "created.txt", "content": "updated\n"})
+
+        self.assertIn("Created 'created.txt'", create_result)
+        self.assertIn("Overwrote 'created.txt'", overwrite_result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), "updated\n")
+
+    def test_edit_text_file_append_creates_missing_file(self):
+        target = os.path.join(self.workspace, "appended.txt")
+
+        result = EditTextFile(workspace=self.workspace)._run(
+            path="appended.txt", content="first\n", append=True
+        )
+
+        self.assertIn("Appended", result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), "first\n")
+
+    def test_edit_text_file_can_create_empty_file(self):
+        target = os.path.join(self.workspace, "new-empty.txt")
+
+        result = EditTextFile(workspace=self.workspace)._run(
+            path="new-empty.txt", content=""
+        )
+
+        self.assertIn("Created 'new-empty.txt'", result)
+        self.assertTrue(os.path.isfile(target))
+        self.assertEqual(os.path.getsize(target), 0)
+
+    def test_edit_text_file_identical_content_is_idempotent_success(self):
+        callback_results = []
+        tool = EditTextFile(workspace=self.workspace)
+        tool.append_callback(
+            lambda success, path, data: callback_results.append((success, path, data))
+        )
 
         result = tool._run(
+            path="simple.txt", content=self.test_files["simple.txt"]
+        )
+
+        self.assertIn("already has the requested content", result)
+        self.assertNotIn("[ERROR]", result)
+        self.assertTrue(callback_results[0][0])
+        self.assertFalse(callback_results[0][2]["changed"])
+
+    def test_replace_string_identical_text_is_idempotent_success(self):
+        result = ReplaceStringInFile(workspace=self.workspace)._run(
             path="simple.txt",
-            expected_sha256=before_sha256,
-            edits=[
-                {"old_text": "Line 1", "new_text": "First"},
-                {"old_text": "Line 3", "new_text": "Third"},
-            ],
+            old_string="Line 2",
+            new_string="Line 2",
         )
 
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["changed_edits"], 2)
-        with open(target, "r", encoding="utf-8") as file_obj:
-            self.assertEqual(file_obj.read(), "First\nLine 2\nThird\n")
-
-    def test_apply_text_patch_validation_is_all_or_nothing(self):
-        target = os.path.join(self.workspace, "simple.txt")
-        original = self.test_files["simple.txt"]
-
-        result = ApplyTextPatch(workspace=self.workspace)._run(
-            path="simple.txt",
-            edits=[
-                {"old_text": "Line 1", "new_text": "First"},
-                {"old_text": "Line", "new_text": "Row"},
-            ],
-        )
-
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["error"]["code"], "target_count_mismatch")
-        with open(target, "r", encoding="utf-8") as file_obj:
-            self.assertEqual(file_obj.read(), original)
-
-    def test_apply_text_patch_create_and_delete_dry_run(self):
-        tool = ApplyTextPatch(workspace=self.workspace)
-        create_result = tool._run(
-            path="created.txt",
-            action="create",
-            content="created\n",
-        )
-        self.assertTrue(create_result["ok"])
-        created_sha256 = create_result["after_sha256"]
-
-        delete_preview = tool._run(
-            path="created.txt",
-            action="delete",
-            expected_sha256=created_sha256,
-            dry_run=True,
-        )
-        self.assertTrue(delete_preview["ok"])
-        self.assertTrue(os.path.exists(os.path.join(self.workspace, "created.txt")))
-
-        delete_result = tool._run(
-            path="created.txt",
-            action="delete",
-            expected_sha256=created_sha256,
-        )
-        self.assertTrue(delete_result["ok"])
-        self.assertFalse(os.path.exists(os.path.join(self.workspace, "created.txt")))
+        self.assertIn("already has the requested content", result)
+        self.assertNotIn("[ERROR]", result)
 
     def test_file_tool_schemas_require_mutating_arguments(self):
+        edit_schema = ArgEditTextFile.model_json_schema()
         replace_schema = ArgReplaceStringInFile.model_json_schema()
-        patch_schema = ArgApplyTextPatch.model_json_schema()
 
+        self.assertEqual(set(edit_schema["required"]), {"path", "content"})
+        self.assertEqual(
+            set(edit_schema["properties"]),
+            {"path", "content", "append", "expected_sha256"},
+        )
         self.assertEqual(
             set(replace_schema["required"]),
             {"path", "old_string", "new_string"},
         )
-        self.assertIn("path", patch_schema["required"])
+        self.assertEqual(replace_schema["properties"]["old_string"]["minLength"], 1)
         with self.assertRaises(ValidationError):
             ArgReplaceStringInFile.model_validate(
                 {"path": "x", "old_string": "a", "new_string": "b", "typo": True}
             )
 
-    def test_apply_text_patch_converts_to_mcp_schema(self):
-        mcp_tool = to_fastmcp(ApplyTextPatch(workspace=self.workspace))
+    def test_edit_text_file_converts_to_unambiguous_mcp_schema(self):
+        mcp_tool = to_fastmcp(EditTextFile(workspace=self.workspace))
 
-        self.assertIn("path", mcp_tool.parameters["required"])
+        self.assertEqual(set(mcp_tool.parameters["required"]), {"path", "content"})
         self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
-        self.assertIn("edits", mcp_tool.parameters["properties"])
-
-    def test_apply_text_patch_local_invoke_validates_and_updates(self):
-        result = ApplyTextPatch(workspace=self.workspace).invoke(
-            {
-                "path": "simple.txt",
-                "edits": [{"old_text": "Line 2", "new_text": "Second"}],
-            }
+        self.assertEqual(
+            set(mcp_tool.parameters["properties"]),
+            {"path", "content", "append", "expected_sha256"},
         )
 
-        self.assertTrue(result["ok"])
-        with open(
-            os.path.join(self.workspace, "simple.txt"), "r", encoding="utf-8"
-        ) as file_obj:
-            self.assertEqual(file_obj.read(), "Line 1\nSecond\nLine 3\n")
+    def test_async_validation_error_does_not_leak_tool_lock(self):
+        async def run_calls():
+            tool = EditTextFile(workspace=self.workspace)
+            invalid_result = await asyncio.wait_for(
+                tool.ainvoke({"path": "bad.txt", "data": "wrong argument"}),
+                timeout=1,
+            )
+            valid_result = await asyncio.wait_for(
+                tool.ainvoke({"path": "good.txt", "content": "written\n"}),
+                timeout=1,
+            )
+            return invalid_result, valid_result
+
+        invalid_result, valid_result = asyncio.run(run_calls())
+
+        self.assertIn("validation error", invalid_result)
+        self.assertIn("Created 'good.txt'", valid_result)
+        self.assertNotIn("lock timeout", valid_result)
+
+    def test_sync_validation_error_does_not_abort_the_next_write(self):
+        tool = EditTextFile(workspace=self.workspace)
+
+        invalid_result = tool.invoke(
+            {"path": "bad-sync.txt", "data": "wrong argument"}
+        )
+        valid_result = tool.invoke(
+            {"path": "good-sync.txt", "content": "written\n"}
+        )
+
+        self.assertIn("validation error", invalid_result)
+        self.assertIn("Created 'good-sync.txt'", valid_result)
+        self.assertTrue(os.path.isfile(os.path.join(self.workspace, "good-sync.txt")))
+
+    def test_async_file_locks_are_shared_only_for_the_same_canonical_path(self):
+        async def get_locks():
+            edit_tool = EditTextFile(workspace=self.workspace)
+            replace_tool = ReplaceStringInFile(workspace=self.workspace)
+            same_from_edit = edit_tool._get_call_locks(
+                {"path": "nested/../simple.txt"}
+            )[0]
+            same_from_replace = replace_tool._get_call_locks(
+                {"path": "simple.txt"}
+            )[0]
+            different_file = edit_tool._get_call_locks(
+                {"path": "other.txt"}
+            )[0]
+            return same_from_edit, same_from_replace, different_file
+
+        same_from_edit, same_from_replace, different_file = asyncio.run(
+            get_locks()
+        )
+
+        self.assertIs(same_from_edit, same_from_replace)
+        self.assertIsNot(same_from_edit, different_file)
+
+    def test_async_edits_to_different_files_can_run_concurrently(self):
+        both_started = threading.Event()
+        release_calls = threading.Event()
+        state_lock = threading.Lock()
+        started_paths = []
+
+        def blocking_edit(tool, path, content, **kwargs):
+            with state_lock:
+                started_paths.append(path)
+                if len(started_paths) == 2:
+                    both_started.set()
+            release_calls.wait(timeout=1)
+            return path
+
+        async def run_calls():
+            tool = EditTextFile(workspace=self.workspace)
+            first = asyncio.create_task(
+                tool.ainvoke({"path": "first.txt", "content": "first"})
+            )
+            second = asyncio.create_task(
+                tool.ainvoke({"path": "second.txt", "content": "second"})
+            )
+            started_concurrently = await asyncio.to_thread(
+                both_started.wait, 0.5
+            )
+            release_calls.set()
+            results = await asyncio.gather(first, second)
+            return started_concurrently, results
+
+        try:
+            with patch.object(EditTextFile, "_run", blocking_edit):
+                started_concurrently, results = asyncio.run(run_calls())
+        finally:
+            release_calls.set()
+
+        self.assertTrue(started_concurrently)
+        self.assertEqual(set(results), {"first.txt", "second.txt"})
 
     def test_get_diff_reports_identical_content(self):
         self.assertIn(
@@ -768,7 +845,7 @@ class TestBaseReadWrite(unittest.TestCase):
         # Check empty path (should default to current directory)
         success, msg, real_path = base.check_dir("")
         self.assertTrue(success)
-        self.assertEqual(real_path, os.path.abspath(self.test_dir))
+        self.assertEqual(real_path, os.path.realpath(self.test_dir))
 
 
 def run_specific_tests():

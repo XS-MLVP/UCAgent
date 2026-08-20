@@ -44,7 +44,7 @@ DUT整体功能
 
 ## 写入方式
 
-Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`读取当前文档和本阶段参考文件，再使用`EditTextFile`或`ReplaceStringInFile`直接维护`{OUT}/{DUT}_functions_and_checks.md`。若环境提供批量更新脚本，可以用它减少重复编辑，但脚本生成的内容与直接编辑的内容必须遵守同一套层级和标签规则。
+Skill不是完成本文档的前置条件。默认路径是先用`ReadTextFile`读取当前文档和本阶段参考文件。首次创建完整文档使用`EditTextFile(path, content)`；已有文档的局部修改使用`ReplaceStringInFile(path, old_string, new_string)`。若环境提供批量更新脚本，可以用它减少重复编辑，但脚本生成的内容与直接编辑的内容必须遵守同一套层级和标签规则。
 
 直接编辑时按当前子阶段只修改一个层级：先建立FG，再在已存在FG下加入FC，最后在已存在FG/FC下加入CK。每次修改后重新读取目标段，确认标签独占一行、父子关系正确、同一父节点下没有重名，再调用`Check`或`Complete`；不要因为没有脚本而跳过当前批次。
 

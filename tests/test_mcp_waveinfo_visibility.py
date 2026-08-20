@@ -11,7 +11,7 @@ def _agent():
         tool_list_task=["Check"],
         tool_list_ext=["RunTestCases"],
         tool_list_waveform=["WaveInfo", "ApplyWaveInfoEvidence"],
-        tool_list_file=["PathList", "EditTextFile", "ApplyTextPatch"],
+        tool_list_file=["PathList", "EditTextFile"],
     )
 
 
@@ -38,5 +38,4 @@ def test_regular_mcp_mode_exposes_waveform_and_file_tools():
         "ApplyWaveInfoEvidence",
         "PathList",
         "EditTextFile",
-        "ApplyTextPatch",
     ]
