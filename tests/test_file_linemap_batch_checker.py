@@ -168,7 +168,6 @@ def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
         name="functional_line_mapping",
         file_list=["src/*.md"],
         func_check_file="out/spec.md",
-        progress_file="out/progress.md",
         map_location="out/line_map",
     ).set_workspace(str(tmp_path)).set_stage(_Stage())
     checker.on_init()
@@ -206,6 +205,37 @@ def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
     assert len(result["current_line_block_contents"][0]["content"]) == 10
 
 
+def test_read_text_file_and_batch_checker_use_same_physical_line_numbers(tmp_path):
+    from ucagent.tools.fileops import ReadTextFile
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out").mkdir()
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text(
+        "first line\n\nthird line\n",
+        encoding="utf-8",
+    )
+
+    read_result = ReadTextFile(workspace=str(tmp_path))._run(
+        path="src/dut.md",
+        start=2,
+        count=1,
+    )
+    checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        map_location="out/line_map",
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    checker.on_init()
+
+    line_block = checker._line_block_content(checker.batch_task.tbd_task_list[0])
+
+    assert "2: \n" in read_result
+    assert line_block["content"][2] == ""
+    assert line_block["content"][3] == "third line"
+
+
 def test_batch_checker_bounds_error_excerpt_but_keeps_all_uncovered_content(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "out" / "line_map").mkdir(parents=True)
@@ -222,7 +252,6 @@ def test_batch_checker_bounds_error_excerpt_but_keeps_all_uncovered_content(tmp_
         name="functional_line_mapping",
         file_list=["src/*.md"],
         func_check_file="out/spec.md",
-        progress_file="out/progress.md",
         map_location="out/line_map",
         max_example_lines=3,
     ).set_workspace(str(tmp_path)).set_stage(_Stage())
@@ -298,7 +327,6 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
             name="functional_line_mapping",
             file_list=["src/*.md"],
             func_check_file="out/spec.md",
-            progress_file="out/progress.md",
             map_location="out/line_map",
             batch_size=1,
             max_block_lines=100,
@@ -325,6 +353,9 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     ]
     initial_content = result["current_line_block_contents"][0]["content"]
     assert list(initial_content.items()) == [(line_number, "line") for line_number in range(1, 101)]
+    assert result["current_line_block_contents"][0]["map_file"] == (
+        "out/line_map/src_dut_md_line_func_map.txt"
+    )
 
     map_file = _mapping_file_for_source(
         "src/dut.md", "out/line_map", "_line_func_map.txt"
@@ -333,11 +364,6 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
         "FG-API/FC-API/CK-API: 1-100\nFG-API/FC-API/CK-API: 101-101\n",
         encoding="utf-8",
     )
-    (tmp_path / "out" / "progress.md").write_text(
-        "| <file>src/dut.md:1-100</file> | 100 | 完成 |\n",
-        encoding="utf-8",
-    )
-
     passed, result = checker.do_check(is_complete=False)
     assert passed is False
     assert result["progress"] == "1/2"
@@ -350,8 +376,6 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     ]
     assert manager.data["CK_LIST"] == ["stale"]
 
-    with (tmp_path / "out" / "progress.md").open("a", encoding="utf-8") as progress:
-        progress.write("| <file>src/dut.md:101-101</file> | 1 | 完成 |\n")
     passed, result = checker.do_check(is_complete=False)
     assert passed is True
     assert result["progress"] == "2/2"
@@ -379,17 +403,12 @@ def test_batch_checker_saves_latest_ck_list_after_successful_check_and_complete(
         "FG-API/FC-API/CK-API: 1-1\n",
         encoding="utf-8",
     )
-    (tmp_path / "out" / "progress.md").write_text(
-        "| <file>src/dut.md:1-1</file> | 1 | 完成 |\n",
-        encoding="utf-8",
-    )
     manager = _StageManager({"CK_LIST": ["stale"]})
     checker = (
         UnityChipBatchCheckerFileLineMap(
             name="functional_line_mapping",
             file_list=["src/*.md"],
             func_check_file="out/spec.md",
-            progress_file="out/progress.md",
             map_location="out/line_map",
             data_key="CK_LIST",
         )
@@ -427,7 +446,6 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
         name="functional_line_mapping",
         file_list=["src/*.md"],
         func_check_file="out/spec.md",
-        progress_file="out/progress.md",
         map_location="out/line_map",
     ).set_workspace(str(tmp_path)).set_stage(_Stage())
 
@@ -465,40 +483,138 @@ def test_batch_checker_does_not_scan_or_check_before_on_init(tmp_path, monkeypat
     ) == "功能规格逐行查漏补缺[0/1|1]"
 
 
-def test_batch_checker_rejects_future_progress_marker(tmp_path):
+def test_batch_checker_rejects_range_suffixed_mapping_file(tmp_path):
     (tmp_path / "src").mkdir()
     (tmp_path / "out" / "line_map").mkdir(parents=True)
     _write_spec(tmp_path / "out" / "spec.md")
     (tmp_path / "src" / "dut.md").write_text("line\n" * 101, encoding="utf-8")
 
+    unexpected_map = (
+        tmp_path / "out" / "line_map" / "src_dut_md_101_101_line_func_map.txt"
+    )
+    unexpected_map.write_text(
+        "FG-API/FC-API/CK-API: 101-101\n",
+        encoding="utf-8",
+    )
+
     checker = UnityChipBatchCheckerFileLineMap(
         name="functional_line_mapping",
         file_list=["src/*.md"],
         func_check_file="out/spec.md",
-        progress_file="out/progress.md",
         map_location="out/line_map",
         batch_size=1,
         max_block_lines=100,
     ).set_workspace(str(tmp_path)).set_stage(_Stage())
     checker.on_init()
 
-    map_file = _mapping_file_for_source(
-        "src/dut.md", "out/line_map", "_line_func_map.txt"
-    )
-    (tmp_path / map_file).write_text(
-        "FG-API/FC-API/CK-API: 1-100\nFG-API/FC-API/CK-API: 101-101\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "out" / "progress.md").write_text(
-        "| <file>src/dut.md:101-101</file> | 1 | 完成 |\n",
+    passed, result = checker.do_check(is_complete=False)
+    assert passed is False
+    assert result["unexpected_mapping_files"] == [
+        {
+            "file": "out/line_map/src_dut_md_101_101_line_func_map.txt",
+            "expected_map_file": "out/line_map/src_dut_md_line_func_map.txt",
+        }
+    ]
+    assert "line-range suffixes" in str(result)
+    assert "out/line_map/src_dut_md_line_func_map.txt" in str(result)
+    assert len(result["current_line_block_contents"][0]["content"]) == 100
+
+
+def test_batch_checker_uses_checkpoint_as_only_progress_state(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text("line\n", encoding="utf-8")
+    (tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt").write_text(
+        "FG-API/FC-API/CK-API: 1-1\n",
         encoding="utf-8",
     )
 
+    checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        map_location="out/line_map",
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    checker.on_init()
+
     passed, result = checker.do_check(is_complete=False)
+
+    assert passed is True
+    assert result["progress"] == "1/1"
+    assert sorted(path.name for path in (tmp_path / "out").glob("*.md")) == [
+        "spec.md"
+    ]
+    assert checker.batch_task.checkpoint_file is not None
+    assert os.path.exists(checker.batch_task.checkpoint_file)
+
+
+def test_batch_checker_resumes_next_batch_from_checkpoint(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text("line\n" * 101, encoding="utf-8")
+    map_path = tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt"
+    map_path.write_text(
+        "FG-API/FC-API/CK-API: 1-100\n",
+        encoding="utf-8",
+    )
+
+    first_checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        map_location="out/line_map",
+        batch_size=1,
+        max_block_lines=100,
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    first_checker.on_init()
+
+    passed, result = first_checker.do_check(is_complete=False)
     assert passed is False
-    assert "future line block" in str(result)
-    assert result["current_batch"] == ["src/dut.md:1-100"]
-    assert len(result["current_line_block_contents"][0]["content"]) == 100
+    assert result["progress"] == "1/2"
+    assert result["next_line_blocks"] == ["src/dut.md:101-101"]
+
+    resumed_checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        map_location="out/line_map",
+        batch_size=1,
+        max_block_lines=100,
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    resumed_checker.on_init()
+
+    assert resumed_checker.get_template_data()["LINE_MAP_PROGRESS"] == "1/2"
+    assert [
+        _line_block_base(task)
+        for task in resumed_checker.batch_task.tbd_task_list
+    ] == ["src/dut.md:101-101"]
+    map_path.write_text(
+        "FG-API/FC-API/CK-API: 1-100\n"
+        "FG-API/FC-API/CK-API: 101-101\n",
+        encoding="utf-8",
+    )
+
+    passed, result = resumed_checker.do_check(is_complete=False)
+    assert passed is True
+    assert result["progress"] == "2/2"
+
+    map_path.write_text(
+        "FG-API/FC-API/CK-API: 1-100\n",
+        encoding="utf-8",
+    )
+    passed, result = resumed_checker.do_check(is_complete=False)
+
+    assert passed is False
+    assert result["invalid_completed_mappings"][0]["line_block"] == (
+        "src/dut.md:101-101"
+    )
+    assert result["progress"] == "1/2"
+    assert result["current_line_block_contents"][0]["map_file"] == (
+        "out/line_map/src_dut_md_line_func_map.txt"
+    )
+    assert resumed_checker.get_template_data()["LINE_MAP_PROGRESS"] == "1/2"
 
 
 def test_batch_checker_treats_all_blank_files_as_complete(tmp_path):
@@ -513,7 +629,6 @@ def test_batch_checker_treats_all_blank_files_as_complete(tmp_path):
             name="functional_line_mapping",
             file_list=["src/*.md"],
             func_check_file="out/spec.md",
-            progress_file="out/progress.md",
             map_location="out/line_map",
             data_key="CK_LIST",
         )
@@ -565,7 +680,7 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     assert "参考文档是本阶段的输入，不得修改、重排、格式化、插入空行" in task_text
     assert "正常情况下参考文档的路径和物理行范围保持不变" in task_text
     assert "不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号" in task_text
-    assert "视为阶段外部变更/输入变更" in task_text
+    assert "视为输入已变化" in task_text
     assert "不得自行修改参考文档来消除错误" in task_text
     assert "不是对应源文件的完整内容" in task_text
     assert "再使用ReadTextFile查看file字段指向的原文件" in task_text
@@ -589,7 +704,6 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     ]
     assert child["output_files"] == [
         "{OUT}/{DUT}_functions_and_checks.md",
-        "{OUT}/{DUT}_line_map_progress.md",
         "{OUT}/line_map/*_line_func_map.txt",
     ]
     assert checker_args["file_list"] == [
@@ -601,6 +715,12 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     assert "ignore_file_patterns" not in checker_args
     assert all("Guide_Doc" not in pattern for pattern in checker_args["file_list"])
     assert checker_args["data_key"] == "COVER_GROUP_DOC_CK_LIST"
+    assert "progress_file" not in checker_args
+    assert "line_map_progress" not in task_text
+    assert "map_file" in task_text
+    assert "checkpoint" not in task_text
+    assert "TUI" not in task_text
+    assert "process" not in task_text
 
 
 def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():
@@ -618,3 +738,7 @@ def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():
     assert "`file_list`" not in guide_text
     assert "正常执行时，目标文档是只读输入" in guide_text
     assert "阶段外部更新、重新生成或其他进程修改" in guide_text
+    assert "`map_file`" in guide_text
+    assert "进度文档" not in guide_text
+    assert "checkpoint" not in guide_text
+    assert "TUI" not in guide_text

@@ -298,7 +298,7 @@ stage:
           - "目标：按批次审查运行时提供的目标文档行块，确保每一条非空白内容都得到处理：所有有功能意义的非空白内容必须被准确纳入 {OUT}/{DUT}_functions_and_checks.md 并映射到正式 FG/FC/CK，确实没有功能意义的内容才可以使用带具体原因的 IGNORE；不能遗漏任何 DUT 功能、接口、约束、状态、时序、异常或边界行为"
           - "目标文档说明：目标文档集合由当前阶段配置动态确定；实际文件名、物理行范围和原文内容以 Check/Complete 返回的当前批次为准，不要自行猜测、补充或创建未返回的目标文件。Guide_Doc 仅提供格式规范，不属于逐行覆盖目标"
           - "当前进度：{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS} 个行块；当前批次待审查的文档及物理行范围：{CURRENT_LINE_BLOCKS}"
-          - "Check/Complete返回格式：current_line_block_contents和next_line_block_contents是行块列表，每个行块包含line_block、file、start_line、end_line、content；content是按物理行号升序排列的有序映射，转为YAML后形如content: {1: '第一行原文', 2: '', 3: '第三行原文'}，空白行的值为空字符串"
+          - "Check/Complete返回格式：current_line_block_contents和next_line_block_contents是行块列表，每个行块包含line_block、file、start_line、end_line、map_file、content；map_file是唯一规范映射文件，同一源文档的所有行块必须累计写入该文件，不得按行块另建带起止行号后缀的映射文件；content是按物理行号升序排列的有序映射，转为YAML后形如content: {1: '第一行原文', 2: '', 3: '第三行原文'}，空白行的值为空字符串"
           - "未覆盖诊断按连续物理行区间汇总为uncovered_blocks字符串列表，例如[99-120, 456-888]；同一诊断的uncovered_content是按物理行号升序排列的有序映射，包含当前行块内全部未覆盖非空白行及其原文，可直接用于补齐映射"
           - "Check 返回的错误详情中的行号摘录可能只是有限示例；uncovered_lines[].uncovered_content保留当前诊断涉及的全部未覆盖原文，current_line_block_contents仍提供当前行块的完整上下文。Check/Complete返回中的content只包含当前批次或下一批次指定行块，不是对应源文件的完整内容"
           - "通常应直接使用Checker返回的uncovered_content完成修复；只有判断功能含义确实依赖跨行块的文件标题层级、表格表头、术语定义、前置说明或其他上下文时，再使用ReadTextFile查看file字段指向的原文件，不得把返回的局部片段误当成全文进行推断"
@@ -312,13 +312,12 @@ stage:
           - "第7步：任何新增、重命名、拆分、重写或删除都必须同步检查 {OUT}/line_map/ 下所有已生成映射文件及当前/历史行块中的标签；移除失效标签、补齐替代映射，保持每个非空白行最终有正式 FG/FC/CK 或带具体理由的 IGNORE，不能留下旧 CK、MISSMT 或不存在的标签"
           - "第8步：CK 标签是后续覆盖率定义、测试用例、静态/动态 Bug 证据使用的接口；如果工作区中已经存在这些下游引用，CK 的新增、重命名、拆分、重写或删除必须同步迁移所有受影响引用，不能只修改 functions_and_checks.md 或行映射后留下断链"
           - "第9步：判定依据以 Spec 和其他权威接口文档为准，不能仅凭一行代码臆造场景；实现仅用于定位信号和可观测行为，若实现与 Spec 冲突，必须保留 Spec 规定的期望，不能把 CK 改成迎合错误实现；若不同 Spec 相互冲突或信息不足，先读取相关完整上下文，明确记录冲突依据、已知可验证范围和待澄清项，不得用模糊 CK、IGNORE 或 MISSMT 把问题伪装成已完成"
-          - "第10步：修改功能文档后重新读取并校验其完整层级、标签唯一性、每个 CK 隶属正确 FG/FC、无孤立或空描述 CK；同步更新所有引用已变更 CK 的映射标签后重新调用 Check。正常情况下参考文档的路径和物理行范围保持不变，继续使用 Check 返回的原行块，不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号，也不得删除有效历史进度标记或伪造完成状态"
+          - "第10步：修改功能文档后重新读取并校验其完整层级、标签唯一性、每个 CK 隶属正确 FG/FC、无孤立或空描述 CK；同步更新所有引用已变更 CK 的映射标签后重新调用 Check。正常情况下参考文档的路径和物理行范围保持不变，继续使用 Check 返回的原行块，不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号，也不得伪造完成状态"
           - "第11步：与功能无关但非空白的行使用 IGNORE/FC-.../CK-... 映射，并在映射行末尾写明具体忽略原因；不得为了覆盖行号而把无关内容挂到任意正式 CK；本轮先完成 Check/Complete 返回的当前批次，除因 CK 变更而同步修复的受影响映射外，不要提前修改尚未返回的文档行块"
-          - "第12步：为当前文件建立 {OUT}/line_map/ 下对应的独立映射文件，映射格式遵循 Guide_Doc/dut_line_func_map.md"
+          - "第12步：严格使用当前行块返回的map_file建立或更新规范映射文件，映射格式遵循 Guide_Doc/dut_line_func_map.md；同一源文档跨批次继续更新同一个map_file，发现此前误建的带行号后缀映射文件时，将有效内容合并到map_file并删除误建文件"
           - "第13步：映射区间必须遵循 Guide_Doc/dut_line_func_map.md 和当前阶段配置的行范围校验；每个区间应与实际审查的物理行范围对应，跨多个批次的连续内容分别记录，若 Check 报告区间或行范围错误，按诊断拆分或修正，不得用超范围区间绕过校验"
           - "第14步：同一文档行如果确实同时描述多个独立且可验证的行为，可以映射到多个正式 CK；不要为了追求单一标签而丢失其中任何功能语义，也不要把无关 CK 叠加到同一行"
-          - "第15步：将当前完成的每个行块追加到 {OUT}/{DUT}_line_map_progress.md，使用唯一标记；标记中的文件路径和起止物理行号必须与 Check 返回的 line_block 完全一致，并填写实际覆盖行数及完成状态"
-          - "第16步：保留历史进度标记，不得删除或伪造已完成标记；每批完成后调用 Check 获取下一批，所有行块完成且 Check 通过后才能调用 Complete。如果 Check 报告参考文档内容摘要变化、旧行块过期或进度标记失配，视为阶段外部变更/输入变更：停止依赖旧进度继续推进，先重新读取受影响文档并按新的行块重新审查，不得自行修改参考文档来消除错误"
+          - "第15步：当前进度和待处理行块以动态任务描述及 Check/Complete 返回为准；每批映射通过后调用 Check 获取下一批，所有行块完成且 Check 通过后才能调用 Complete。如果 Check 报告参考文档内容摘要变化或已完成行块过期，视为输入已变化：停止依赖旧进度继续推进，先重新读取受影响文档并按新的行块重新审查，不得自行修改参考文档来消除错误"
           - "重要：不得使用 MISSMT 作为最终结果；如果功能缺失，必须补充正式 FG/FC/CK 并重新检查"
         skill_list:
           - "unitytest/functions-and-checks"
@@ -328,7 +327,6 @@ stage:
           - "{OUT}/{DUT}_functions_and_checks.md"
         output_files:
           - "{OUT}/{DUT}_functions_and_checks.md"
-          - "{OUT}/{DUT}_line_map_progress.md"
           - "{OUT}/line_map/*_line_func_map.txt"
         checker:
           - name: functional_line_mapping_batch_check
@@ -341,7 +339,6 @@ stage:
                 - "{OUT}/{DUT}_basic_info.md"
                 - "{OUT}/{DUT}_verification_needs_and_plan.md"
               func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
-              progress_file: "{OUT}/{DUT}_line_map_progress.md"
               map_location: "{OUT}/line_map"
               map_suffix: "_line_func_map.txt"
               batch_size: $(FUNCTION_LINE_MAP_BATCH_SIZE: 1)

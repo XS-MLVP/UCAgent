@@ -11,7 +11,6 @@ import ucagent.util.functions as fc
 from ucagent.util.log import info, warning
 
 
-_LINE_BLOCK_PROGRESS_RE = re.compile(r"<file>\s*(.*?)\s*</file>", re.DOTALL)
 _TASK_DIGEST_SEPARATOR = "@sha256="
 
 
@@ -397,13 +396,12 @@ class FileLineMapChecker(Checker):
 class UnityChipBatchCheckerFileLineMap(Checker):
     """Batch-check every non-blank line block in a configured file set.
 
-    Progress is persisted in the progress document as markers of the form
-    ``<file>path/to/file:1-100</file>``.  ``UnityChipBatchTask`` remains the
-    source of truth for the active batch and its resumable checkpoint, while
-    the document markers make progress auditable and portable.
+    ``UnityChipBatchTask`` owns the active batch and persists validated progress
+    in its checkpoint.  Source documents and canonical mapping files remain the
+    validation ground truth; no LLM-authored progress document is consumed.
     """
 
-    def __init__(self, name, file_list, func_check_file, progress_file,
+    def __init__(self, name, file_list, func_check_file,
                  map_location="line_map", map_suffix="_line_func_map.txt",
                  batch_size=1, max_block_lines=100, max_example_lines=20,
                  ignore_blank_lines=True, must_has_no_miss_match=True,
@@ -411,7 +409,6 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         self.name = name
         self.file_list = file_list if isinstance(file_list, list) else [file_list]
         self.func_check_file = func_check_file
-        self.progress_file = progress_file
         self.map_location = map_location
         self.map_suffix = map_suffix
         self.data_key = data_key
@@ -429,6 +426,8 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         self._cb_list = {}
         self.batch_task = UnityChipBatchTask(name, self)
         self._task_errors = []
+        self._completed_validation_errors = []
+        self._unexpected_mapping_files = []
         self._source_files = []
         self._ck_count = "-"
         self._is_init = False
@@ -494,33 +493,46 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             raise ValueError(f"Invalid line-block task '{task}'.")
         return source_file, start_line, end_line
 
-    def _progress_markers(self):
-        progress_path = os.path.abspath(self.workspace + os.path.sep + self.progress_file)
-        if not os.path.exists(progress_path):
-            return [], []
-        try:
-            with open(progress_path, "r", encoding="utf-8") as progress_handle:
-                content = progress_handle.read()
-        except Exception as exc:
-            return [], [f"Cannot read progress file '{self.progress_file}': {exc}"]
-        markers = []
-        errors = []
-        for match in _LINE_BLOCK_PROGRESS_RE.finditer(content):
-            marker = match.group(1).strip()
-            if marker in markers:
-                errors.append(f"Duplicate progress marker '{marker}'.")
-            markers.append(marker)
-        return markers, errors
-
     def _sync_batch_state(self, source_tasks, completed_tasks):
         notes = []
         self.batch_task.sync_source_task(source_tasks, notes, "Line-block source list changed.")
         self.batch_task.sync_gen_task(completed_tasks, notes, "Line-block progress updated.")
-        self.batch_task.update_tbd_from_source()
-        self.batch_task.update_cmp_from_tbd()
-        if not self.batch_task.tbd_task_list:
-            self.batch_task.update_current_tbd()
+        completed_set = set(completed_tasks)
+        remaining_tasks = [
+            task for task in source_tasks if task not in completed_set
+        ]
+        self.batch_task.tbd_task_list = remaining_tasks[:self.batch_size]
+        self.batch_task.cmp_task_list = []
         return notes
+
+    def _find_unexpected_mapping_files(self):
+        """Find range-suffixed mapping files that the checker will never consume."""
+        map_directory = os.path.abspath(
+            self.workspace + os.path.sep + self.map_location
+        )
+        if not os.path.isdir(map_directory):
+            return []
+        available_files = sorted(os.listdir(map_directory))
+        unexpected = {}
+        for source_file in self._source_files:
+            expected_map = _mapping_file_for_source(
+                source_file, self.map_location, self.map_suffix
+            )
+            expected_name = os.path.basename(expected_map)
+            if not expected_name.endswith(self.map_suffix):
+                continue
+            source_prefix = expected_name[:-len(self.map_suffix)] + "_"
+            range_suffixed_name = re.compile(
+                rf"^{re.escape(source_prefix)}\d+_\d+{re.escape(self.map_suffix)}$"
+            )
+            for candidate in available_files:
+                if candidate != expected_name and range_suffixed_name.fullmatch(candidate):
+                    unexpected_file = os.path.join(self.map_location, candidate)
+                    unexpected[unexpected_file] = expected_map
+        return [
+            {"file": unexpected_file, "expected_map_file": unexpected[unexpected_file]}
+            for unexpected_file in sorted(unexpected)
+        ]
 
     def _validate_line_block(self, task, ck_list):
         source_file, start_line, end_line = self._split_line_block(task)
@@ -553,7 +565,8 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             "unknown_ck": [],
             "oversized_ranges": [],
             "unexplained_ignore": [],
-            "progress_marker_mismatches": [],
+            "progress_state_mismatches": [],
+            "unexpected_mapping_files": [],
             "configuration_errors": [],
         }
 
@@ -618,6 +631,9 @@ class UnityChipBatchCheckerFileLineMap(Checker):
     def _line_block_content(self, task):
         """Return the physical lines for a task so Check can guide the LLM directly."""
         source_file, start_line, end_line = self._split_line_block(task)
+        map_file = _mapping_file_for_source(
+            source_file, self.map_location, self.map_suffix
+        )
         source_path = os.path.abspath(self.workspace + os.path.sep + source_file)
         try:
             with open(source_path, "r", encoding="utf-8") as source_handle:
@@ -628,6 +644,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "file": source_file,
                 "start_line": start_line,
                 "end_line": end_line,
+                "map_file": map_file,
                 "error": f"Cannot read source file '{source_file}': {exc}",
             }
         if end_line > len(source_lines):
@@ -636,6 +653,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "file": source_file,
                 "start_line": start_line,
                 "end_line": end_line,
+                "map_file": map_file,
                 "error": (
                     f"Line block ends at {end_line}, but source file '{source_file}' "
                     f"has only {len(source_lines)} physical lines."
@@ -653,6 +671,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             "file": source_file,
             "start_line": start_line,
             "end_line": end_line,
+            "map_file": map_file,
             "content": indexed_content,
         }
 
@@ -675,36 +694,79 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         )
 
     def on_init(self):
-        super().on_init()
         success, ck_list = get_func_check_marks(self.workspace, self.func_check_file)
         self._ck_count = len(ck_list) if success else "-"
-        self._refresh_batch_state()
+        self._refresh_batch_state(ck_list if success else None)
+        super().on_init()
         return self
 
-    def _refresh_batch_state(self):
+    def _refresh_batch_state(self, ck_list=None):
         self._task_errors = []
+        self._completed_validation_errors = []
         source_tasks = self._get_all_line_blocks()
-        markers, marker_errors = self._progress_markers()
-        self._task_errors.extend(marker_errors)
         current_by_base = {_line_block_base(task): task for task in source_tasks}
-        previous_by_base = {
-            _line_block_base(task): task for task in self.batch_task.gen_task_list
-        }
-        completed_tasks = []
-        for marker in markers:
-            current_task = current_by_base.get(marker)
-            if current_task is None:
-                continue
-            previous_task = previous_by_base.get(marker)
-            if previous_task is not None and _line_block_digest(previous_task) != _line_block_digest(current_task):
+        previous_tasks = list(self.batch_task.gen_task_list)
+        previous_by_base = {}
+        for task in previous_tasks:
+            task_base = _line_block_base(task)
+            if task_base in previous_by_base:
                 self._task_errors.append(
-                    f"Progress marker '{marker}' is stale because the target document "
+                    f"Recorded progress contains duplicate completed line block '{task_base}'."
+                )
+                continue
+            previous_by_base[task_base] = task
+        for task_base in sorted(set(previous_by_base) - set(current_by_base)):
+            self._task_errors.append(
+                f"Recorded completed line block '{task_base}' does not match a current target."
+            )
+
+        completed_tasks = []
+        found_incomplete = False
+        checkpoint_gap = False
+        for current_task in source_tasks:
+            task_base = _line_block_base(current_task)
+            previous_task = previous_by_base.get(task_base)
+            if previous_task is None:
+                found_incomplete = True
+                checkpoint_gap = True
+                continue
+            if found_incomplete:
+                if checkpoint_gap:
+                    self._task_errors.append(
+                        f"Recorded completed line block '{task_base}' appears after an incomplete earlier block."
+                    )
+                continue
+            if _line_block_digest(previous_task) != _line_block_digest(current_task):
+                self._task_errors.append(
+                    f"Completed line block '{task_base}' is stale because the target document "
                     "changed outside this stage after the progress was recorded. "
                     "Re-read the target document and review its current line blocks; "
                     "do not modify the target document to preserve old progress."
                 )
+                found_incomplete = True
                 continue
+            if ck_list is not None:
+                valid, message = self._validate_line_block(current_task, ck_list)
+                if not valid:
+                    self._completed_validation_errors.append({
+                        "line_block": task_base,
+                        "details": message,
+                    })
+                    found_incomplete = True
+                    continue
             completed_tasks.append(current_task)
+
+        self._unexpected_mapping_files = self._find_unexpected_mapping_files()
+        if self._unexpected_mapping_files:
+            replacements = ", ".join(
+                f"{item['file']} -> {item['expected_map_file']}"
+                for item in self._unexpected_mapping_files
+            )
+            self._task_errors.append(
+                "Found mapping files with line-range suffixes that are not read by "
+                f"this stage: {replacements}. Merge their valid mappings into the "
+                "listed canonical files and remove the unexpected files."
+            )
         self._sync_batch_state(source_tasks, completed_tasks)
 
     def get_template_data(self):
@@ -743,41 +805,61 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 ),
                 "configuration_errors": ["Checker on_init has not run."],
             }
-        self._refresh_batch_state()
+
+        success, ck_list_or_msg = get_func_check_marks(
+            self.workspace, self.func_check_file
+        )
+        if not success:
+            return False, self._attach_line_block_content(
+                ck_list_or_msg, self.batch_task.tbd_task_list
+            )
+        ck_list = ck_list_or_msg
+        self._ck_count = len(ck_list)
+        self._refresh_batch_state(ck_list)
         diagnostics = self._new_diagnostics()
         source_tasks = self.batch_task.source_task_list
+        current_by_base = {_line_block_base(task): task for task in source_tasks}
+
+        diagnostics["unexpected_mapping_files"].extend(
+            self._unexpected_mapping_files
+        )
         if self._task_errors:
-            diagnostics["configuration_errors"].extend(
-                error for error in self._task_errors
-                if "Progress marker" not in error
-            )
-            diagnostics["progress_marker_mismatches"].extend(
-                error for error in self._task_errors
-                if "Progress marker" in error
-            )
+            for error in self._task_errors:
+                if error.startswith(("Recorded ", "Completed line block ")):
+                    diagnostics["progress_state_mismatches"].append(error)
+                elif "line-range suffixes" not in error:
+                    diagnostics["configuration_errors"].append(error)
             return False, self._attach_line_block_content(
                 {"error": self._task_errors, **diagnostics},
                 self.batch_task.tbd_task_list,
             )
-        if not source_tasks:
-            markers, marker_errors = self._progress_markers()
-            if markers or marker_errors:
-                errors = list(marker_errors)
-                errors.extend(
-                    f"Progress marker '{marker}' does not match a current line block."
-                    for marker in markers
-                )
-                diagnostics["progress_marker_mismatches"].extend(errors)
-                return False, {"error": errors, **diagnostics}
-            if self._source_files:
-                if self.data_key:
-                    success, ck_list_or_msg = get_func_check_marks(
-                        self.workspace, self.func_check_file
+
+        if self._completed_validation_errors:
+            invalid_tasks = []
+            for item in self._completed_validation_errors:
+                task = current_by_base.get(item["line_block"])
+                if task is not None:
+                    invalid_tasks.append(task)
+                    self._add_validation_diagnostics(
+                        diagnostics, task, item["details"]
                     )
-                    if not success:
-                        return False, ck_list_or_msg
-                    self._ck_count = len(ck_list_or_msg)
-                    self._save_final_ck_list(ck_list_or_msg)
+            return False, self._attach_line_block_content({
+                "error": "A previously completed line-block mapping is no longer valid.",
+                "invalid_completed_mappings": self._completed_validation_errors,
+                "progress": (
+                    f"{len(self.batch_task.gen_task_list)}/{len(source_tasks)}"
+                ),
+                "completed_line_blocks": len(self.batch_task.gen_task_list),
+                "total_line_blocks": len(source_tasks),
+                "remaining_line_blocks": (
+                    len(source_tasks) - len(self.batch_task.gen_task_list)
+                ),
+                **diagnostics,
+            }, invalid_tasks or self.batch_task.tbd_task_list)
+
+        if not source_tasks:
+            if self._source_files:
+                self._save_final_ck_list(ck_list)
                 if is_complete:
                     return True, "Complete success."
                 return True, {
@@ -801,107 +883,62 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 **diagnostics,
             }
 
-        success, ck_list_or_msg = get_func_check_marks(self.workspace, self.func_check_file)
-        if not success:
-            return False, self._attach_line_block_content(
-                ck_list_or_msg, self.batch_task.tbd_task_list
-            )
-        ck_list = ck_list_or_msg
-        self._ck_count = len(ck_list)
-        markers, marker_errors = self._progress_markers()
-        current_by_base = {_line_block_base(task): task for task in source_tasks}
-        unknown_markers = [marker for marker in markers if marker not in current_by_base]
-        if marker_errors or unknown_markers:
-            errors = list(marker_errors)
-            errors.extend(f"Progress marker '{marker}' does not match a current line block." for marker in unknown_markers)
-            diagnostics["progress_marker_mismatches"].extend(errors)
-            return False, self._attach_line_block_content(
-                {"error": errors, **diagnostics}, self.batch_task.tbd_task_list
-            )
-
         current_batch = list(self.batch_task.tbd_task_list)
         current_batch_bases = [_line_block_base(task) for task in current_batch]
-        source_bases = [_line_block_base(task) for task in source_tasks]
-        current_indexes = [source_bases.index(task) for task in current_batch_bases if task in source_bases]
-        first_current_index = min(current_indexes) if current_indexes else len(source_bases)
-        allowed_marker_bases = set(source_bases[:first_current_index]) | set(current_batch_bases)
-        future_markers = [marker for marker in markers if marker not in allowed_marker_bases]
-        if future_markers:
-            errors = [
-                f"Progress marker '{marker}' belongs to a future line block; "
-                "complete the current batch first."
-                for marker in future_markers
-            ]
-            diagnostics["progress_marker_mismatches"].extend(errors)
-            return False, {
-                "error": errors,
-                "current_batch": current_batch_bases,
-                "progress": f"{len(markers)}/{len(source_tasks)}",
+        if not current_batch:
+            self._save_final_ck_list(ck_list)
+            if is_complete:
+                return True, "Complete success."
+            return True, {
+                "success": "All line blocks are done; call `Complete` to next stage.",
+                "progress": f"{len(source_tasks)}/{len(source_tasks)}",
+                "completed_line_blocks": len(source_tasks),
+                "total_line_blocks": len(source_tasks),
+                "remaining_line_blocks": 0,
+                "current_batch": [],
+                "current_line_block_contents": [],
                 **diagnostics,
-                "current_line_block_contents": [
-                    self._line_block_content(task) for task in current_batch
-                ],
             }
 
-        invalid_completed = []
-        for task in markers:
-            current_task = current_by_base.get(task)
-            if current_task is None:
-                continue
-            valid, message = self._validate_line_block(current_task, ck_list)
-            if not valid:
-                invalid_completed.append({"line_block": task, "details": message})
-                self._add_validation_diagnostics(diagnostics, current_task, message)
-        if invalid_completed:
-            diagnostics["progress_marker_mismatches"].extend(
-                item["line_block"] for item in invalid_completed
-            )
-            return False, self._attach_line_block_content({
-                "error": "Completed progress markers have invalid mappings.",
-                "details": invalid_completed,
-                **diagnostics,
-            }, current_batch)
-
-        missing_markers = [task for task in current_batch_bases if task not in markers]
         invalid_current = []
         for task in current_batch:
             valid, message = self._validate_line_block(task, ck_list)
             if not valid:
                 invalid_current.append({"line_block": task, "details": message})
                 self._add_validation_diagnostics(diagnostics, task, message)
-        if missing_markers or invalid_current:
+        if invalid_current:
             result = {"error": "The current line-block batch is not complete."}
-            if missing_markers:
-                result["missing_progress_markers"] = missing_markers
-                diagnostics["progress_marker_mismatches"].extend(
-                    f"Missing progress marker for '{task}'." for task in missing_markers
-                )
-            if invalid_current:
-                result["invalid_mappings"] = invalid_current
-            result["current_batch"] = [_line_block_base(task) for task in current_batch]
-            result["progress"] = f"{len(markers)}/{len(source_tasks)}"
+            result["invalid_mappings"] = invalid_current
+            result["current_batch"] = current_batch_bases
+            result["progress"] = (
+                f"{len(self.batch_task.gen_task_list)}/{len(source_tasks)}"
+            )
             result.update(diagnostics)
             self._attach_line_block_content(result, current_batch)
             return False, result
 
         notes = []
-        completed_tasks = [current_by_base[marker] for marker in markers]
+        completed_tasks = list(self.batch_task.gen_task_list)
+        for task in current_batch:
+            if task not in completed_tasks:
+                completed_tasks.append(task)
         self.batch_task.sync_gen_task(completed_tasks, notes, "Line-block progress updated.")
         passed, result = self.batch_task.do_complete(
             notes,
             is_complete,
             "in the configured file_list",
-            f"in {self.progress_file} and {self.map_location}",
-            " Use the current line blocks shown in the task description.",
+            f"in canonical mapping files under {self.map_location}",
+            " Use each line block's map_file field and call Check after finishing the current batch.",
         )
         if passed:
             self._save_final_ck_list(ck_list)
         if isinstance(result, dict):
-            result["current_batch"] = [_line_block_base(task) for task in current_batch]
-            result["progress"] = f"{len(markers)}/{len(source_tasks)}"
-            result["completed_line_blocks"] = len(markers)
+            completed_count = len(self.batch_task.gen_task_list)
+            result["current_batch"] = current_batch_bases
+            result["progress"] = f"{completed_count}/{len(source_tasks)}"
+            result["completed_line_blocks"] = completed_count
             result["total_line_blocks"] = len(source_tasks)
-            result["remaining_line_blocks"] = len(source_tasks) - len(markers)
+            result["remaining_line_blocks"] = len(source_tasks) - completed_count
             result.update(diagnostics)
             self._attach_line_block_content(result, current_batch)
             if self.batch_task.tbd_task_list:
