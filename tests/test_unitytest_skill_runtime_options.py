@@ -346,6 +346,15 @@ def test_default_workflow_is_complete_when_skills_are_disabled(tmp_path, monkeyp
 
     assert cfg.skill.use_skill is False
     assert "Skill与其中的脚本只是可选的批量辅助" in config["mission"]["prompt"]["system"]
+    assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]
+    assert (
+        "DeleteTextLines(path, line_blocks, expected_sha256)"
+        in config["mission"]["prompt"]["system"]
+    )
+    assert (
+        "重新读取缩短后的文件后用`ReplaceStringInFile`"
+        in config["mission"]["prompt"]["system"]
+    )
     assert all(
         stage.get("force_use_skill") is not True
         for stage in _iter_stages(config["stage"])

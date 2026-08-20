@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """File operations tools for UCAgent."""
 
-from typing import Optional, List, Tuple
+from typing import Annotated, Optional, List, Tuple, Union
 from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
 from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable
 from ucagent.util.functions import get_diff, match_pattern_list
@@ -11,7 +11,7 @@ from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 from langchain_core.tools.base import ArgsSchema
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import hashlib
 import os
@@ -1592,6 +1592,219 @@ class CreateDirectory(UCTool, BaseReadWrite):
             return str_error(error_msg)
         except (IOError, OSError) as e:
             error_msg = f"Failed to create directory {path}: {str(e)}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        """Initialize the tool."""
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+_LineNumber = Annotated[int, Field(strict=True, ge=1)]
+_LineBlock = Union[_LineNumber, Tuple[_LineNumber, _LineNumber]]
+
+
+class ArgDeleteTextLines(StrictToolArgs):
+    path: str = Field(
+        ...,
+        description="Existing UTF-8 text file path, relative to the workspace."
+    )
+    line_blocks: List[_LineBlock] = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description=(
+            "One-based physical lines to delete. Each item is either one positive line "
+            "number or a two-number inclusive [start, end] block. Example: "
+            "[1, 4, 5, [10, 20], [40, 55]]. Every item refers to the same original file "
+            "snapshot; lines are not renumbered between items. Overlapping and adjacent "
+            "blocks are merged. To delete only lines 10 through 20, pass [[10, 20]]; "
+            "[10, 20] means two single-line items in the outer list."
+        ),
+    )
+    expected_sha256: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional SHA-256 returned by ReadTextFile. Because line numbers depend on the "
+            "file snapshot, provide it when possible; deletion fails if the file changed."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_line_blocks(self):
+        for block in self.line_blocks:
+            if isinstance(block, tuple) and block[0] > block[1]:
+                raise ValueError(
+                    f"line block [{block[0]}, {block[1]}] must have start <= end"
+                )
+        return self
+
+
+class DeleteTextLines(UCTool, BaseReadWrite):
+    """Delete many complete physical lines from an existing UTF-8 text file."""
+
+    name: str = "DeleteTextLines"
+    description: str = (
+        "Delete multiple complete, one-based physical lines or inclusive line blocks from "
+        "one existing UTF-8 text file. Use this tool only for large text modifications "
+        "that remove many obsolete lines. For a small or local edit, use "
+        "ReplaceStringInFile directly. For a large edit, first read the current file, call "
+        "DeleteTextLines once with all obsolete line blocks, then read the shortened file "
+        "again and use ReplaceStringInFile for precise content edits or insertions. Each "
+        "line_blocks item is an integer or [start, end], for example "
+        "[1, 4, 5, [10, 20], [40, 55]]. All items use the original pre-deletion line numbers. "
+        "A range must be nested in the outer list: use [[10, 20]] for one range; "
+        "[10, 20] deletes two individual lines. "
+        "All ranges are validated before writing; overlapping or adjacent blocks are merged, "
+        "and any invalid or out-of-range block cancels the entire operation. This tool does "
+        "not delete files."
+    )
+    args_schema: Optional[ArgsSchema] = ArgDeleteTextLines
+    return_direct: bool = False
+    call_lock_arguments: Tuple[str, ...] = ("path",)
+
+    @staticmethod
+    def _normalize_line_blocks(
+        line_blocks: List[_LineBlock],
+        line_count: int,
+    ) -> List[Tuple[int, int]]:
+        if not line_blocks:
+            raise ValueError("line_blocks must contain at least one line or range")
+        ranges = []
+        for block in line_blocks:
+            if isinstance(block, bool):
+                raise ValueError("line blocks must contain integers, not booleans")
+            if isinstance(block, int):
+                start = end = block
+            elif (
+                isinstance(block, (list, tuple))
+                and len(block) == 2
+                and all(
+                    isinstance(value, int) and not isinstance(value, bool)
+                    for value in block
+                )
+            ):
+                start, end = block
+            else:
+                raise ValueError(
+                    "each line block must be a positive integer or an inclusive "
+                    "[start, end] pair"
+                )
+            if start < 1 or end < 1:
+                raise ValueError("line numbers must be positive and one-based")
+            if start > end:
+                raise ValueError(f"line block [{start}, {end}] must have start <= end")
+            if end > line_count:
+                raise ValueError(
+                    f"line block [{start}, {end}] is out of range for a file with "
+                    f"{line_count} physical lines"
+                )
+            ranges.append((start, end))
+
+        merged = []
+        for start, end in sorted(ranges):
+            if merged and start <= merged[-1][1] + 1:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def _run(
+        self,
+        path: str,
+        line_blocks: List[_LineBlock],
+        expected_sha256: Optional[str] = None,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """Delete validated line blocks and atomically replace the target text file."""
+
+        del run_manager
+        success, msg, real_path = self.check_file(path, for_write=True)
+        if not success:
+            self.do_callback(False, path, msg)
+            return str_error(msg)
+        if not is_text_file(real_path):
+            error_msg = f"File {path} is not a text file."
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+
+        try:
+            original_content, original_sha256, _newline = _read_text_snapshot(real_path)
+            existing_mode = os.stat(real_path).st_mode & 0o7777
+            if expected_sha256 is not None and expected_sha256 != original_sha256:
+                error_msg = (
+                    f"File {path} changed after it was read. Expected SHA256 "
+                    f"{expected_sha256}, current SHA256 {original_sha256}. Read it again "
+                    "and recalculate line_blocks."
+                )
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+
+            original_lines = original_content.splitlines(keepends=True)
+            try:
+                merged_ranges = self._normalize_line_blocks(
+                    line_blocks,
+                    len(original_lines),
+                )
+            except ValueError as error:
+                error_msg = (
+                    f"Invalid line_blocks for {path}: {error}. No lines were deleted."
+                )
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+
+            kept_lines = []
+            cursor = 0
+            for start, end in merged_ranges:
+                kept_lines.extend(original_lines[cursor:start - 1])
+                cursor = end
+            kept_lines.extend(original_lines[cursor:])
+            new_content = "".join(kept_lines)
+            deleted_line_count = sum(end - start + 1 for start, end in merged_ranges)
+            new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
+            diff_result, _ = _bounded_diff(original_content, new_content, path)
+
+            if _sha256_file(real_path) != original_sha256:
+                error_msg = (
+                    f"File {path} changed while line deletion was being prepared. Read it "
+                    "again and recalculate line_blocks."
+                )
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
+
+            normalized_blocks = [list(block) for block in merged_ranges]
+            self.do_callback(
+                True,
+                path,
+                {
+                    "changed": True,
+                    "deleted_line_count": deleted_line_count,
+                    "deleted_line_blocks": normalized_blocks,
+                    "remaining_line_count": len(original_lines) - deleted_line_count,
+                    "before_sha256": original_sha256,
+                    "after_sha256": new_sha256,
+                },
+            )
+            blocks_text = ", ".join(
+                str(start) if start == end else f"{start}-{end}"
+                for start, end in merged_ranges
+            )
+            line_label = "line" if deleted_line_count == 1 else "lines"
+            return str_info(
+                f"Deleted {deleted_line_count} physical {line_label} from '{path}' in "
+                f"normalized blocks [{blocks_text}]. "
+                f"{len(original_lines) - deleted_line_count} lines remain. "
+                f"SHA256: {original_sha256} -> {new_sha256}. Read the updated file, "
+                "then use ReplaceStringInFile for remaining precise content edits."
+            ) + diff_result
+        except UnicodeDecodeError as error:
+            error_msg = f"Failed to decode file {path} as UTF-8: {error}"
+            self.do_callback(False, path, error_msg)
+            return str_error(error_msg)
+        except (IOError, OSError) as error:
+            error_msg = f"Failed to delete text lines from {path}: {error}"
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
 

@@ -18,6 +18,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.tools.fileops import *
+from ucagent.tools import DeleteTextLines as ExportedDeleteTextLines
 from ucagent.tools.uctool import to_fastmcp
 
 
@@ -401,6 +402,113 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("changed after it was read", result)
         self.assertTrue(os.path.exists(target))
 
+    def test_delete_text_lines_merges_blocks_and_preserves_crlf_and_mode(self):
+        target = os.path.join(self.workspace, "large-edit.txt")
+        original = "".join(f"line {number}\r\n" for number in range(1, 51)).encode(
+            "utf-8"
+        )
+        with open(target, "wb") as file_obj:
+            file_obj.write(original)
+        os.chmod(target, 0o640)
+        callback_results = []
+        tool = DeleteTextLines(workspace=self.workspace)
+        tool.append_callback(
+            lambda success, path, data: callback_results.append((success, path, data))
+        )
+
+        result = tool.invoke(
+            {
+                "path": "large-edit.txt",
+                "line_blocks": [1, 4, 5, [10, 20], [4, 40]],
+                "expected_sha256": hashlib.sha256(original).hexdigest(),
+            }
+        )
+
+        expected = "".join(
+            f"line {number}\r\n" for number in [2, 3, *range(41, 51)]
+        ).encode("utf-8")
+        self.assertIn("Deleted 38 physical lines", result)
+        self.assertIn("normalized blocks [1, 4-40]", result)
+        self.assertIn("use ReplaceStringInFile", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), expected)
+        self.assertEqual(os.stat(target).st_mode & 0o777, 0o640)
+        self.assertTrue(callback_results[0][0])
+        self.assertEqual(
+            callback_results[0][2]["deleted_line_blocks"],
+            [[1, 1], [4, 40]],
+        )
+        self.assertEqual(callback_results[0][2]["remaining_line_count"], 12)
+
+    def test_delete_text_lines_rejects_any_invalid_block_without_writing(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        original = self.test_files["simple.txt"].encode("utf-8")
+        tool = DeleteTextLines(workspace=self.workspace)
+
+        out_of_range = tool._run(
+            path="simple.txt",
+            line_blocks=[1, [3, 4]],
+        )
+        reversed_block = tool.invoke(
+            {"path": "simple.txt", "line_blocks": [[3, 2]]}
+        )
+
+        self.assertIn("out of range", out_of_range)
+        self.assertIn("No lines were deleted", out_of_range)
+        self.assertIn("validation error", reversed_block)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), original)
+
+    def test_delete_text_lines_rejects_stale_hash_and_readonly_path(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        original = self.test_files["simple.txt"].encode("utf-8")
+
+        stale_result = DeleteTextLines(workspace=self.workspace)._run(
+            path="simple.txt",
+            line_blocks=[1],
+            expected_sha256=hashlib.sha256(b"stale").hexdigest(),
+        )
+        readonly_result = DeleteTextLines(
+            workspace=self.workspace,
+            write_dirs=["subdir"],
+        )._run(path="simple.txt", line_blocks=[1])
+
+        self.assertIn("changed after it was read", stale_result)
+        self.assertIn("not allowed to write", readonly_result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), original)
+
+    def test_delete_text_lines_preserves_missing_final_newline(self):
+        target = os.path.join(self.workspace, "delete-no-final-newline.txt")
+        with open(target, "wb") as file_obj:
+            file_obj.write(b"alpha\r\nbeta\r\ngamma")
+
+        result = DeleteTextLines(workspace=self.workspace)._run(
+            path="delete-no-final-newline.txt",
+            line_blocks=[[2, 2]],
+        )
+
+        self.assertIn("Deleted 1 physical line", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), b"alpha\r\ngamma")
+
+    def test_delete_text_lines_can_empty_text_file_but_rejects_binary_file(self):
+        text_target = os.path.join(self.workspace, "simple.txt")
+
+        empty_result = DeleteTextLines(workspace=self.workspace)._run(
+            path="simple.txt",
+            line_blocks=[[1, 3]],
+        )
+        binary_result = DeleteTextLines(workspace=self.workspace)._run(
+            path="binary.bin",
+            line_blocks=[1],
+        )
+
+        self.assertIn("0 lines remain", empty_result)
+        self.assertTrue(os.path.isfile(text_target))
+        self.assertEqual(os.path.getsize(text_target), 0)
+        self.assertIn("not a text file", binary_result)
+
     def test_create_directory(self):
         """Test directory creation functionality"""
         tool = CreateDirectory(workspace=self.workspace)
@@ -663,6 +771,7 @@ class TestFileOpsTools(unittest.TestCase):
 
     def test_file_tool_schemas_require_mutating_arguments(self):
         edit_schema = ArgEditTextFile.model_json_schema()
+        delete_lines_schema = ArgDeleteTextLines.model_json_schema()
         replace_schema = ArgReplaceStringInFile.model_json_schema()
 
         self.assertEqual(set(edit_schema["required"]), {"path", "content"})
@@ -674,7 +783,27 @@ class TestFileOpsTools(unittest.TestCase):
             set(replace_schema["required"]),
             {"path", "old_string", "new_string"},
         )
+        self.assertEqual(
+            set(delete_lines_schema["required"]),
+            {"path", "line_blocks"},
+        )
+        self.assertEqual(
+            set(delete_lines_schema["properties"]),
+            {"path", "line_blocks", "expected_sha256"},
+        )
+        self.assertEqual(
+            delete_lines_schema["properties"]["line_blocks"]["minItems"],
+            1,
+        )
         self.assertEqual(replace_schema["properties"]["old_string"]["minLength"], 1)
+        with self.assertRaises(ValidationError):
+            ArgDeleteTextLines.model_validate(
+                {"path": "x", "line_blocks": [True]}
+            )
+        with self.assertRaises(ValidationError):
+            ArgDeleteTextLines.model_validate(
+                {"path": "x", "line_blocks": [[4, 2]]}
+            )
         with self.assertRaises(ValidationError):
             ArgReplaceStringInFile.model_validate(
                 {"path": "x", "old_string": "a", "new_string": "b", "typo": True}
@@ -689,6 +818,29 @@ class TestFileOpsTools(unittest.TestCase):
             set(mcp_tool.parameters["properties"]),
             {"path", "content", "append", "expected_sha256"},
         )
+
+    def test_delete_text_lines_converts_to_unambiguous_mcp_schema(self):
+        tool = DeleteTextLines(workspace=self.workspace)
+        mcp_tool = to_fastmcp(tool)
+
+        self.assertEqual(
+            set(mcp_tool.parameters["required"]),
+            {"path", "line_blocks"},
+        )
+        self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
+        self.assertEqual(
+            set(mcp_tool.parameters["properties"]),
+            {"path", "line_blocks", "expected_sha256"},
+        )
+        self.assertIs(ExportedDeleteTextLines, DeleteTextLines)
+        self.assertIn(
+            "Use this tool only for large text modifications",
+            tool.description,
+        )
+        self.assertIn("then read the shortened file again", tool.description)
+        self.assertIn("use ReplaceStringInFile", tool.description)
+        self.assertIn("original pre-deletion line numbers", tool.description)
+        self.assertIn("use [[10, 20]] for one range", tool.description)
 
     def test_async_validation_error_does_not_leak_tool_lock(self):
         async def run_calls():
@@ -726,6 +878,7 @@ class TestFileOpsTools(unittest.TestCase):
     def test_async_file_locks_are_shared_only_for_the_same_canonical_path(self):
         async def get_locks():
             edit_tool = EditTextFile(workspace=self.workspace)
+            delete_lines_tool = DeleteTextLines(workspace=self.workspace)
             replace_tool = ReplaceStringInFile(workspace=self.workspace)
             same_from_edit = edit_tool._get_call_locks(
                 {"path": "nested/../simple.txt"}
@@ -733,16 +886,28 @@ class TestFileOpsTools(unittest.TestCase):
             same_from_replace = replace_tool._get_call_locks(
                 {"path": "simple.txt"}
             )[0]
+            same_from_delete_lines = delete_lines_tool._get_call_locks(
+                {"path": "./simple.txt"}
+            )[0]
             different_file = edit_tool._get_call_locks(
                 {"path": "other.txt"}
             )[0]
-            return same_from_edit, same_from_replace, different_file
+            return (
+                same_from_edit,
+                same_from_replace,
+                same_from_delete_lines,
+                different_file,
+            )
 
-        same_from_edit, same_from_replace, different_file = asyncio.run(
-            get_locks()
-        )
+        (
+            same_from_edit,
+            same_from_replace,
+            same_from_delete_lines,
+            different_file,
+        ) = asyncio.run(get_locks())
 
         self.assertIs(same_from_edit, same_from_replace)
+        self.assertIs(same_from_edit, same_from_delete_lines)
         self.assertIsNot(same_from_edit, different_file)
 
     def test_async_edits_to_different_files_can_run_concurrently(self):

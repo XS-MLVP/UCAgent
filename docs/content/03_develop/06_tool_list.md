@@ -127,6 +127,14 @@
     - append: bool — 是否追加；默认 false，即创建或覆盖完整文件
     - expected_sha256: str — 可选的读取时 SHA-256，用于避免覆盖并发修改
 
+- DeleteTextLines（DeleteTextLines）
+  - 用途：仅在大量文本修改时，从已有 UTF-8 文件中一次删除多个完整物理行或闭区间行块。少量局部修改直接使用 `ReplaceStringInFile`。推荐流程是先用 `ReadTextFile`确认行号和 SHA-256，调用本工具删除全部旧行块，重新读取缩短后的文件，再用 `ReplaceStringInFile`完成精确编辑或插入。
+  - 参数：
+    - path: str — 已有文本文件路径（相对 workspace，必填）
+    - line_blocks: list[int | [int, int]] — 1-based 单行或闭区间，例如 `[1, 4, 5, [10, 20], [40, 55]]`；区间必须嵌套在外层列表中，单独删除第 10 至 20 行应传 `[[10, 20]]`，而 `[10, 20]` 表示删除两个单行；所有项都引用删除前同一文件快照中的原始行号，不会逐项重新编号；重叠和相邻区间会合并
+    - expected_sha256: str — 可选但建议提供的读取时 SHA-256；文件已变化时整次拒绝
+  - 约束：全部行块会在写入前校验；任何反向或越界区间都会取消整个操作，不会部分删除，也不会删除文件本身。
+
 - ReplaceStringInFile（ReplaceStringInFile）
   - 用途：在已有文本文件中精确替换唯一的一处非空文本。
   - 参数：
