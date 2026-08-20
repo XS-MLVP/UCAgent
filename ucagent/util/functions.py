@@ -1585,15 +1585,15 @@ def stop_verify_mcps(server):
 
 def get_diff(old_lines, new_lines, file_name):
     import difflib
-    diff = difflib.unified_diff(
+    diff = "".join(difflib.unified_diff(
         old_lines,
         new_lines,
         fromfile=file_name + "(old)",
         tofile=file_name + "(new)",
-    )
+    ))
     if not diff:
         return "\n[DIFF]\nNo changes detected."
-    return "\n[DIFF]\n" + "".join(diff)
+    return "\n[DIFF]\n" + diff
 
 
 def max_str(str_data, max_size=10):

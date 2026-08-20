@@ -42,7 +42,7 @@ class ToolRecommendationEngine:
                 'MemoryPut', 'MemoryGet'
             ],
             ToolCategory.FILE_OPS: [
-                'ReadTextFile', 'EditTextFile', 'MoveFile',
+                'ReadTextFile', 'EditTextFile', 'ApplyTextPatch', 'MoveFile',
                 'DeleteFile', 'CreateDirectory', 'PathList'
             ],
             ToolCategory.VERIFICATION: [
@@ -59,7 +59,8 @@ class ToolRecommendationEngine:
                 'Reflect', 'HumanHelp'
             ],
             ToolCategory.EXECUTION: [
-                'RunTestCases', 'EditTextFile', 'ReplaceStringInFile'
+                'RunTestCases', 'EditTextFile', 'ApplyTextPatch',
+                'ReplaceStringInFile'
             ]
         }
     

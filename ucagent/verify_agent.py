@@ -287,6 +287,11 @@ class VerifyAgent:
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
             ),
+            ApplyTextPatch(
+                self.workspace,
+                write_dirs=self.cfg.write_dirs,
+                un_write_dirs=self.cfg.un_write_dirs,
+            ),
             ReplaceStringInFile(
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """File operations tools for UCAgent."""
 
-from typing import Optional, List, Tuple
+from typing import Literal, Optional, List, Tuple
 from ucagent.util.log import info, str_info, str_return, str_error, str_data, warning
-from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from, rm_workspace_prefix
+from ucagent.util.functions import is_text_file, get_file_size, bytes_to_human_readable, copy_indent_from
 from ucagent.util.functions import get_diff, match_pattern_list
 from .uctool import UCTool
 
@@ -11,30 +11,224 @@ from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 from langchain_core.tools.base import ArgsSchema
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+import hashlib
 import os
 import fnmatch
-import re
 import shutil
+import tempfile
+from collections import deque
+from pathlib import Path, PurePosixPath
+
+try:
+    import regex as regex_lib
+except ImportError:  # pragma: no cover - exercised through a patched module value
+    regex_lib = None
+
+
+DEFAULT_MAX_DIFF_CHARS = 20000
+
+
+def _normalize_relative_path(path: str, *, allow_workspace: bool = False) -> str:
+    """Return a normalized workspace-relative path without touching the filesystem."""
+    if not isinstance(path, str):
+        raise ValueError(f"Invalid path: {path}. Path must be a string.")
+    if not path.strip():
+        if allow_workspace:
+            return "."
+        raise ValueError("Path must not be empty.")
+    normalized_input = path.replace("\\", "/")
+    pure_path = PurePosixPath(normalized_input)
+    if pure_path.is_absolute():
+        raise ValueError(
+            f"Path '{path}' must be relative to the workspace; absolute paths are not allowed."
+        )
+    normalized = os.path.normpath(normalized_input).replace(os.sep, "/")
+    if normalized == ".":
+        if allow_workspace:
+            return normalized
+        raise ValueError("The workspace root cannot be used as a file path.")
+    if normalized == ".." or normalized.startswith("../"):
+        raise ValueError(f"Path '{path}' is not within the workspace.")
+    return normalized
+
+
+def _path_is_at_or_below(path: str, directory: str) -> bool:
+    path_parts = PurePosixPath(path).parts
+    directory_parts = PurePosixPath(directory).parts
+    return path_parts[:len(directory_parts)] == directory_parts
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _text_file_metadata(path: str) -> Tuple[str, bool]:
+    """Return the file's detected newline label and final-newline state."""
+    with open(path, "rb") as file_obj:
+        sample = file_obj.read(65536)
+        file_obj.seek(0, os.SEEK_END)
+        size = file_obj.tell()
+        file_obj.seek(max(0, size - 2))
+        tail = file_obj.read()
+    if b"\r\n" in sample:
+        newline = "CRLF"
+    elif b"\r" in sample:
+        newline = "CR"
+    else:
+        newline = "LF"
+    return newline, tail.endswith((b"\n", b"\r"))
+
+
+def _read_text_snapshot(path: str) -> Tuple[str, str, str]:
+    """Read exact UTF-8 text and return content, SHA-256, and dominant newline."""
+    with open(path, "rb") as file_obj:
+        raw = file_obj.read()
+    content = raw.decode("utf-8")
+    if "\r\n" in content:
+        newline = "\r\n"
+    elif "\r" in content:
+        newline = "\r"
+    else:
+        newline = "\n"
+    return content, _sha256_bytes(raw), newline
+
+
+def _convert_newlines(content: str, newline: str) -> str:
+    """Convert caller-provided text to the target file's newline convention."""
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized if newline == "\n" else normalized.replace("\n", newline)
+
+
+def _atomic_write_text(path: str, content: str, *, existing_mode: Optional[int] = None) -> None:
+    """Atomically replace a UTF-8 text file with exact newline preservation."""
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    fd, temporary_path = tempfile.mkstemp(prefix=".ucagent-edit-", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as file_obj:
+            file_obj.write(content)
+            file_obj.flush()
+            os.fsync(file_obj.fileno())
+        if existing_mode is not None:
+            os.chmod(temporary_path, existing_mode)
+        os.replace(temporary_path, path)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_create_text(path: str, content: str) -> None:
+    """Publish a complete new UTF-8 file without overwriting a racing creator."""
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    fd, temporary_path = tempfile.mkstemp(prefix=".ucagent-create-", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as file_obj:
+            file_obj.write(content)
+            file_obj.flush()
+            os.fsync(file_obj.fileno())
+        os.chmod(temporary_path, 0o644)
+        os.link(temporary_path, path)
+        os.unlink(temporary_path)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_copy_file(source_path: str, dest_path: str, *, overwrite: bool) -> None:
+    """Publish a complete copy, optionally refusing a racing destination."""
+    parent = os.path.dirname(dest_path)
+    os.makedirs(parent, exist_ok=True)
+    fd, temporary_path = tempfile.mkstemp(prefix=".ucagent-copy-", dir=parent)
+    os.close(fd)
+    try:
+        shutil.copy2(source_path, temporary_path)
+        if overwrite:
+            os.replace(temporary_path, dest_path)
+        else:
+            os.link(temporary_path, dest_path)
+            os.unlink(temporary_path)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _atomic_move_file(source_path: str, dest_path: str, *, overwrite: bool) -> None:
+    """Move a file atomically within the workspace filesystem."""
+    parent = os.path.dirname(dest_path)
+    os.makedirs(parent, exist_ok=True)
+    if overwrite:
+        os.replace(source_path, dest_path)
+        return
+    os.link(source_path, dest_path)
+    try:
+        os.remove(source_path)
+    except BaseException:
+        os.unlink(dest_path)
+        raise
+
+
+def _bounded_diff(old_content: str, new_content: str, path: str) -> Tuple[str, bool]:
+    diff = get_diff(
+        old_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        path,
+    )
+    if len(diff) <= DEFAULT_MAX_DIFF_CHARS:
+        return diff, False
+    omitted = len(diff) - DEFAULT_MAX_DIFF_CHARS
+    return (
+        diff[:DEFAULT_MAX_DIFF_CHARS]
+        + f"\n... [DIFF truncated; {omitted} characters omitted]",
+        True,
+    )
 
 
 def is_file_writeable(path: str, un_write_dirs: list=None, write_dirs: list=None) -> Tuple[bool, str]:
-    if path.startswith("/"):
-        path = path[1:]  # remove leading slash for relative check
+    try:
+        path = _normalize_relative_path(path)
+    except ValueError as exc:
+        return False, str(exc)
     if un_write_dirs is None and write_dirs is None:
         return True, "No write restrictions defined."
     if un_write_dirs is not None:
         assert isinstance(un_write_dirs, list), "un_write_dirs must be a list."
         for d in un_write_dirs:
-            if path.startswith(d):
+            try:
+                directory = _normalize_relative_path(d)
+            except ValueError:
+                continue
+            if _path_is_at_or_below(path, directory):
                 return False, f"Path '{path}' is not allowed to write."
-        if write_dirs is None or len(write_dirs) == 0:
+        if write_dirs is None:
             return True, f"Path '{path}' is allowed to write as it does not match any no-write directories: {un_write_dirs}."
     if write_dirs is not None:
         assert isinstance(write_dirs, list), "write_dirs must be a list."
         for d in write_dirs:
-            if path.startswith(d):
+            try:
+                directory = _normalize_relative_path(d)
+            except ValueError:
+                continue
+            if _path_is_at_or_below(path, directory):
                 return True, f"Path '{path}' is allowed to write."
         return False, f"Path '{path}' is not allowed to write, except in: {write_dirs}."
     return True, "Not implemented yet."
@@ -62,7 +256,7 @@ class BaseReadWrite:
     )
     create_file: bool = Field(
         default=False,
-        description="If True, creates the file if it does not exist. If False, raises an error if the file does not exist."
+        description="Deprecated compatibility flag. Path validation never creates files; write tools commit creation explicitly."
     )
     call_backs: List = Field(
         default=[],
@@ -92,9 +286,23 @@ class BaseReadWrite:
             return dirs
         if not isinstance(dirs, list):
             dirs = [dirs]
-        dirs = [rm_workspace_prefix(workspace,d) for d in dirs]
-        assert any([a != "." for a in dirs]), "'.' cannot be used as a writable or unwritable directory."
-        return  dirs
+        workspace_path = Path(workspace).resolve()
+        normalized_dirs = []
+        for directory in dirs:
+            assert isinstance(directory, str)
+            candidate = Path(directory)
+            if not candidate.is_absolute():
+                candidate = workspace_path / directory
+            resolved = candidate.resolve(strict=False)
+            try:
+                relative = resolved.relative_to(workspace_path).as_posix()
+            except ValueError as exc:
+                raise AssertionError(
+                    f"Configured directory {directory} is outside workspace {workspace}."
+                ) from exc
+            assert relative != ".", "'.' cannot be used as a writable or unwritable directory."
+            normalized_dirs.append(relative)
+        return normalized_dirs
 
     def init_base_rw(self, workspace: str, write_dirs=None, un_write_dirs=None, max_read_size: int = 131072):
         """Initialize the base write tool."""
@@ -123,57 +331,104 @@ class BaseReadWrite:
                 assert isinstance(d, str)
         info(f"{self.__class__.__name__} tool initialized with workspace: {self.workspace}")
 
-    def get_real_path(self, rpath):
-        return os.path.abspath(self.workspace+"/"+rpath)
+    def get_real_path(self, rpath, *, allow_workspace: bool = False):
+        normalized = _normalize_relative_path(rpath, allow_workspace=allow_workspace)
+        workspace = Path(self.workspace).resolve()
+        lexical_path = workspace / normalized
+        real_path = lexical_path.resolve(strict=False)
+        try:
+            real_path.relative_to(workspace)
+        except ValueError as exc:
+            raise ValueError(f"Path '{rpath}' is not within the workspace.") from exc
+        return str(lexical_path)
 
-    def check_file(self, path: str) -> Tuple[bool, str]:
-        """Check if the file is writable."""
-        if not isinstance(path, str):
-            return False, f"Invalid path: {path}. Path must be a string.", ""
+    def _has_symlink_component(self, real_path: str) -> bool:
+        workspace = Path(self.workspace).resolve()
+        candidate = Path(real_path)
+        try:
+            relative_parts = candidate.relative_to(workspace).parts
+        except ValueError:
+            return True
+        current = workspace
+        for part in relative_parts:
+            current = current / part
+            if current.is_symlink():
+                return True
+        return False
+
+    def check_file(
+        self,
+        path: str,
+        *,
+        for_write: bool = False,
+        allow_missing: bool = False,
+    ) -> Tuple[bool, str, str]:
+        """Resolve and validate a file path without modifying the filesystem."""
+        try:
+            normalized = _normalize_relative_path(path)
+            real_path = self.get_real_path(normalized)
+        except ValueError as exc:
+            return False, str(exc), ""
         if path.endswith('/'):
             return False, f"Path '{path}' should not end with a slash. Please provide a file path, not a directory.", ""
-        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
-            return False, msg, ""
-        real_path = self.get_real_path(path)
-        if real_path.startswith(self.workspace) is False:
-            return False, f"File '{path}' is not within the workspace.", ""
+        if for_write:
+            write_able, msg = is_file_writeable(
+                normalized, self.un_write_able_dirs, self.write_able_dirs
+            )
+            if not write_able:
+                return False, msg, ""
+            if self._has_symlink_component(real_path):
+                return False, f"Refusing to modify path '{path}' through a symbolic link.", ""
         if not os.path.exists(real_path):
-            if self.create_file:
-                info(f"File {real_path} does not exist, creating it.")
-                base_dir = os.path.dirname(real_path)
-                if not os.path.exists(base_dir):
-                    info(f"Base directory {base_dir} does not exist, creating it.")
-                    os.makedirs(base_dir, exist_ok=True)
-                with open(real_path, 'w', encoding='utf-8') as f:
-                    pass
-            else:
-                ex_msg = ""
-                if path.startswith("/"):
-                    ex_msg = " Note: Leading '/' indicates an absolute path. Please provide a relative path within the workspace."
-                return False, f"File {path} does not exist in workspace. Please create it first.{ex_msg}", ""
+            if allow_missing:
+                return True, "", real_path
+            return False, f"File {path} does not exist in workspace. Please create it first.", ""
+        if not os.path.isfile(real_path):
+            return False, f"Path {path} is not a file in workspace.", ""
         return True, "", real_path
 
-    def check_dir(self, path: str) -> Tuple[bool, str, str]:
+    def check_dir(
+        self,
+        path: str,
+        *,
+        for_write: bool = False,
+        allow_missing: bool = False,
+    ) -> Tuple[bool, str, str]:
         """Check if the directory exists and is accessible."""
-        # Handle empty path (current directory)
         if not path or path == ".":
             path = "."
-        
-        real_path = os.path.abspath(os.path.join(self.workspace, path))
-        if not real_path.startswith(self.workspace):
-            return False, str_error(f"Path '{path}' is not within the workspace."), ""
+        try:
+            normalized = _normalize_relative_path(path, allow_workspace=True)
+            real_path = self.get_real_path(normalized, allow_workspace=True)
+        except ValueError as exc:
+            return False, str(exc), ""
+        if for_write:
+            if normalized == ".":
+                return False, "The workspace root cannot be modified directly.", ""
+            write_able, msg = is_file_writeable(
+                normalized, self.un_write_able_dirs, self.write_able_dirs
+            )
+            if not write_able:
+                return False, msg, ""
+            if self._has_symlink_component(real_path):
+                return False, f"Refusing to modify path '{path}' through a symbolic link.", ""
         if not os.path.exists(real_path):
-            return False, str_error(f"Path {path} does not exist in workspace."), ""
+            if allow_missing:
+                return True, "", real_path
+            return False, f"Path {path} does not exist in workspace.", ""
         if os.path.isfile(real_path):
-            return False, str_error(f"Path {path} is a file, need directory."), ""
+            return False, f"Path {path} is a file, need directory.", ""
         if not os.path.isdir(real_path):
-            return False, str_error(f"Path {path} is not a directory in workspace."), ""
+            return False, f"Path {path} is not a directory in workspace.", ""
         return True, "", real_path
 
-class ArgSearchText(BaseModel):
+class StrictToolArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ArgSearchText(StrictToolArgs):
     pattern: str = Field(
-        default="",
+        ...,
         description="Text pattern to search for in the files. Supports plain text, wildcards (*?), and regex patterns. "
                    "Examples: 'class My*' (wildcard), 'def .*function.*:' (regex), or plain text 'hello world'."
     )
@@ -184,10 +439,12 @@ class ArgSearchText(BaseModel):
     )
     max_match_lines: int = Field(
         default=20,
+        ge=1,
         description="Maximum number of matching lines to return per file."
     )
     max_match_files: int = Field(
         default=10,
+        ge=1,
         description="Maximum number of matching files to return."
     )
     use_regex: bool = Field(
@@ -201,6 +458,24 @@ class ArgSearchText(BaseModel):
     include_line_numbers: bool = Field(
         default=True,
         description="If True, include line numbers in results. If False, show only the matching content."
+    )
+    context_before: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description="Number of original lines to return before each match."
+    )
+    context_after: int = Field(
+        default=0,
+        ge=0,
+        le=20,
+        description="Number of original lines to return after each match."
+    )
+    regex_timeout_ms: int = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description="Maximum milliseconds allowed for each regular-expression match."
     )
 
 class SearchText(UCTool, BaseReadWrite):
@@ -217,6 +492,8 @@ class SearchText(UCTool, BaseReadWrite):
 
     def _run(self, pattern: str, directory: str = "", max_match_lines: int = 20, max_match_files: int = 10,
              use_regex: bool = False, case_sensitive: bool = False, include_line_numbers: bool = True,
+             context_before: int = 0, context_after: int = 0,
+             regex_timeout_ms: int = 50,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Search for text in files within a workspace directory."""
         if not pattern:
@@ -230,61 +507,99 @@ class SearchText(UCTool, BaseReadWrite):
         # Compile regex pattern if needed
         regex_pattern = None
         if use_regex:
+            if regex_lib is None:
+                error_msg = (
+                    "Regular-expression search requires the 'regex' package. Install project "
+                    "dependencies or use plain-text search."
+                )
+                self.do_callback(False, directory, error_msg)
+                return str_error(error_msg)
             try:
-                flags = 0 if case_sensitive else re.IGNORECASE
-                regex_pattern = re.compile(pattern, flags)
-            except re.error as e:
+                flags = 0 if case_sensitive else regex_lib.IGNORECASE
+                regex_pattern = regex_lib.compile(pattern, flags)
+            except regex_lib.error as e:
                 error_msg = f"Invalid regex pattern '{pattern}': {str(e)}"
                 self.do_callback(False, directory, error_msg)
                 return str_error(error_msg)
         
         def search_in_file(txt, sfile, fname):
             nonlocal count_lines, result
-            _find = False
             if not is_text_file(sfile):
                 return False
-            
+            local_matches = 0
+            local_lines = {}
+            before_lines = deque(maxlen=context_before)
+            include_until = 0
+            truncated = False
+
+            def matches(line):
+                if use_regex and regex_pattern:
+                    return regex_pattern.search(
+                        line, timeout=regex_timeout_ms / 1000
+                    ) is not None
+                candidate = line if case_sensitive else line.lower()
+                target = txt if case_sensitive else txt.lower()
+                if '*' in txt or '?' in txt:
+                    matcher = fnmatch.fnmatchcase if case_sensitive else fnmatch.fnmatch
+                    return matcher(candidate, target)
+                return target in candidate
+
             try:
                 with open(sfile, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    for i, line in enumerate(lines):
-                        line_matches = False
-                        
-                        if use_regex and regex_pattern:
-                            line_matches = regex_pattern.search(line) is not None
-                        else:
-                            # Use wildcard or plain text matching
-                            if case_sensitive:
-                                if '*' in txt or '?' in txt:
-                                    line_matches = fnmatch.fnmatchcase(line, txt)
-                                else:
-                                    line_matches = txt in line
-                            else:
-                                if '*' in txt or '?' in txt:
-                                    line_matches = fnmatch.fnmatch(line.lower(), txt.lower())
-                                else:
-                                    line_matches = txt.lower() in line.lower()
-                        
+                    for line_number, line in enumerate(f, start=1):
+                        raw_line = line.rstrip("\r\n")
+                        try:
+                            line_matches = matches(raw_line)
+                        except TimeoutError:
+                            raise TimeoutError(
+                                f"Regular expression timed out after {regex_timeout_ms} ms "
+                                f"while searching {fname} at line {line_number}. Use a more "
+                                "specific pattern or plain-text search."
+                            )
+                        if line_matches and local_matches >= max_match_lines:
+                            truncated = True
+                            break
                         if line_matches:
-                            if include_line_numbers:
-                                result.append(f"{fname}: Line {i + 1}: {line.strip()}")
-                            else:
-                                result.append(f"{fname}: {line.strip()}")
-                            count_lines += 1
-                            _find = True
-                            if count_lines >= max_match_lines:
-                                result.append(f"... (truncated to {max_match_lines} lines)")
-                                break
+                            local_matches += 1
+                            for previous_number, previous_line in before_lines:
+                                local_lines.setdefault(previous_number, (previous_line, False))
+                            local_lines[line_number] = (raw_line, True)
+                            include_until = max(include_until, line_number + context_after)
+                        elif line_number <= include_until:
+                            local_lines.setdefault(line_number, (raw_line, False))
+                        before_lines.append((line_number, raw_line))
+            except TimeoutError:
+                raise
             except (UnicodeDecodeError, IOError) as e:
                 info(f"Could not read file {sfile}: {str(e)}")
                 return False
-            
-            return _find
-        real_path = os.path.join(self.workspace, directory)
-        if os.path.isfile(real_path):
-            search_in_file(pattern, os.path.join(self.workspace, directory), directory)
-            if len(result) > 0:
-                ret_head = str_info(f"\nFound {len(result)} matching lines in file {directory}.\n\n")
+
+            for line_number, (line, is_match) in local_lines.items():
+                if include_line_numbers:
+                    context_label = "" if is_match else " (context)"
+                    result.append(f"{fname}: Line {line_number}{context_label}: {line}")
+                else:
+                    result.append(f"{fname}: {line}")
+            count_lines += local_matches
+            if truncated:
+                result.append(
+                    f"... ({fname} truncated to {max_match_lines} matching lines)"
+                )
+            return local_matches > 0
+
+        try:
+            candidate_path = self.get_real_path(directory, allow_workspace=True)
+        except ValueError as exc:
+            self.do_callback(False, directory, str(exc))
+            return str_error(str(exc))
+        if os.path.isfile(candidate_path):
+            try:
+                search_in_file(pattern, candidate_path, _normalize_relative_path(directory))
+            except TimeoutError as exc:
+                self.do_callback(False, directory, str(exc))
+                return str_error(str(exc))
+            if count_lines > 0:
+                ret_head = str_info(f"\nFound {count_lines} matching lines in file {directory}.\n\n")
                 self.do_callback(True, directory, result)
                 return ret_head + str_return("\n".join(result))
         else:
@@ -293,12 +608,18 @@ class SearchText(UCTool, BaseReadWrite):
                 self.do_callback(False, directory, msg)
                 return str_error(msg)
             info(f"Searching for text '{pattern}' in {real_path}")
-            for root, _, files in os.walk(real_path):
-                if self.ignore_hidden:
-                    if any(part.startswith('.') for part in os.path.relpath(root, self.workspace).split(os.sep)):
-                        continue
-                if match_pattern_list(os.path.relpath(root, self.workspace), self.ignore_pattern_list):
-                    continue
+            for root, dirs, files in os.walk(real_path):
+                relative_root = os.path.relpath(root, self.workspace)
+                dirs[:] = [
+                    directory_name for directory_name in dirs
+                    if not (
+                        (self.ignore_hidden and directory_name.startswith('.'))
+                        or match_pattern_list(
+                            os.path.join(relative_root, directory_name),
+                            self.ignore_pattern_list,
+                        )
+                    )
+                ]
                 for file in files:
                     if self.ignore_hidden and file.startswith('.'):
                         continue
@@ -307,8 +628,12 @@ class SearchText(UCTool, BaseReadWrite):
                     file_path = os.path.join(root, file)
                     if not is_text_file(file_path):
                         continue
-                    if search_in_file(pattern, file_path, os.path.relpath(file_path, self.workspace)):
-                        count_files += 1
+                    try:
+                        if search_in_file(pattern, file_path, os.path.relpath(file_path, self.workspace)):
+                            count_files += 1
+                    except TimeoutError as exc:
+                        self.do_callback(False, directory, str(exc))
+                        return str_error(str(exc))
                     if count_files >= max_match_files:
                         result.append(f"... (truncated to {max_match_files} files)")
                         break
@@ -322,19 +647,21 @@ class SearchText(UCTool, BaseReadWrite):
         return str_error(f"No matches found for '{pattern}' in the specified directory({directory if directory else '.'}).")
 
     def __init__(self, workspace: str, ignore_hidden: bool = True,
-                 ignore_pattern_list: list[str] = [".git/*", "*/data/*", ".ucagent/*", "uc_test_report/*", "*.dat", "*.fst"],
+                 ignore_pattern_list: Optional[list[str]] = None,
                  **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace)
         self.ignore_hidden = ignore_hidden
-        self.ignore_pattern_list = ignore_pattern_list
+        self.ignore_pattern_list = ignore_pattern_list or [
+            ".git/*", "*/data/*", ".ucagent/*", "uc_test_report/*", "*.dat", "*.fst"
+        ]
         info(f"SearchText tool initialized with workspace: {self.workspace}")
 
 
-class ArgFindFiles(BaseModel):
+class ArgFindFiles(StrictToolArgs):
     pattern: str = Field(
-        default="",
+        ...,
         description="File name pattern to search for in the directory. "
     )
     directory: str = Field(
@@ -343,6 +670,7 @@ class ArgFindFiles(BaseModel):
     )
     max_match_files: int = Field(
         default= 10,
+        ge=1,
         description="Maximum number of matching files to return. "
     )
 
@@ -356,6 +684,8 @@ class FindFiles(UCTool, BaseReadWrite):
     )
     args_schema: Optional[ArgsSchema] = ArgFindFiles
     return_direct: bool = False
+    ignore_hidden: bool = True
+    ignore_pattern_list: list[str] = []
 
     def _run(self, pattern: str, directory: str = "", max_match_files: int = 10,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
@@ -370,8 +700,24 @@ class FindFiles(UCTool, BaseReadWrite):
         result = []
         count_files = 0
         info(f"Finding files with pattern '{pattern}' in {real_path}")
-        for root, _, files in os.walk(real_path):
+        for root, dirs, files in os.walk(real_path):
+            relative_root = os.path.relpath(root, self.workspace)
+            dirs[:] = [
+                name for name in dirs
+                if not (
+                    (self.ignore_hidden and name.startswith('.'))
+                    or match_pattern_list(
+                        os.path.join(relative_root, name), self.ignore_pattern_list
+                    )
+                )
+            ]
             for file in files:
+                if self.ignore_hidden and file.startswith('.'):
+                    continue
+                if match_pattern_list(
+                    os.path.join(relative_root, file), self.ignore_pattern_list
+                ):
+                    continue
                 if fnmatch.fnmatch(file, pattern):
                     file_path = os.path.join(root, file)
                     result.append(os.path.relpath(file_path, self.workspace))
@@ -388,14 +734,19 @@ class FindFiles(UCTool, BaseReadWrite):
         self.do_callback(False, directory, None)
         return str_error(f"No matches found for '{pattern}' in the specified directory({directory}).")
 
-    def __init__(self, workspace: str, **kwargs):
+    def __init__(self, workspace: str, ignore_hidden: bool = True,
+                 ignore_pattern_list: Optional[list[str]] = None, **kwargs):
         """Initialize the tool."""
         super().__init__(**kwargs)
         self.init_base_rw(workspace)
+        self.ignore_hidden = ignore_hidden
+        self.ignore_pattern_list = ignore_pattern_list or [
+            ".git/*", ".ucagent/*", "*.dat", "*.fst"
+        ]
         info(f"FindFiles tool initialized with workspace: {self.workspace}")
 
 
-class ArgPathList(BaseModel):
+class ArgPathList(StrictToolArgs):
     path: str = Field(
         default=".",
         description="Directory path to list files from, relative to the workspace.")
@@ -489,9 +840,9 @@ class PathList(UCTool, BaseReadWrite):
             self.ignore_dirs_files = ignore_dirs_files
 
 
-class ArgReadBinFile(BaseModel):
+class ArgReadBinFile(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="File path to read, relative to the workspace.")
     start: int = Field(
         default=0,
@@ -551,9 +902,9 @@ class ReadBinFile(UCTool, BaseReadWrite):
         self.description = self.description % self.max_read_size
 
 
-class ArgReadTextFile(BaseModel):
+class ArgReadTextFile(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="Text file path to read, relative to the workspace.")
     start: int = Field(
         default=1,
@@ -566,6 +917,14 @@ class ArgReadTextFile(BaseModel):
             "the file and records a successful read without returning content."
         )
     )
+    include_line_numbers: bool = Field(
+        default=True,
+        description="Prefix returned lines with their 1-based line numbers. Set false when reusing exact text in an edit."
+    )
+    structured_output: bool = Field(
+        default=False,
+        description="Return a dictionary containing raw text, range, SHA-256, and newline metadata instead of formatted text."
+    )
 
 
 class ReadTextFile(UCTool, BaseReadWrite):
@@ -574,8 +933,11 @@ class ReadTextFile(UCTool, BaseReadWrite):
     description: str = (
         "Read lines from a text file in the workspace. Supports start line and line count; "
         "count=0 validates the file and records a successful read without returning content. "
-        "Max read size is %d characters. Each line is prefixed with its index."
-        "Note: The file content in return data is after prefix '[TXT_DATA]\\n' and each line has prefix '<index>: '.\n"
+        "Max read size is %d characters. The result includes the file SHA-256 for "
+        "conflict-safe editing. Set include_line_numbers=false to receive reusable raw "
+        "text without synthetic prefixes, or structured_output=true for raw text and file "
+        "metadata in a dictionary. Note: The file content in the default return data is after "
+        "prefix '[TXT_DATA]\\n' and, by default, each line has prefix '<index>: '.\n"
         "For example, the raw data in file is:\n"
         "line 1\nline 2\nline 3\n"
         "while the returned file content is:\n"
@@ -587,6 +949,8 @@ class ReadTextFile(UCTool, BaseReadWrite):
     return_direct: bool = False
 
     def _run(self, path: str, start: int = 1, count: int = -1,
+             include_line_numbers: bool = True,
+             structured_output: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Read the content of a text file in the workspace."""
         success, msg, real_path = self.check_file(path)
@@ -606,48 +970,128 @@ class ReadTextFile(UCTool, BaseReadWrite):
             self.do_callback(False, path, emsg)
             return str_error(emsg)
         try:
-            with open(real_path, 'r', encoding='utf-8') as f:
+            file_sha256 = _sha256_file(real_path)
+            newline, has_final_newline = _text_file_metadata(real_path)
+            with open(real_path, 'r', encoding='utf-8', newline='') as f:
                 if count == 0:
-                    f.read(0)
                     self.do_callback(True, path, "")
+                    if structured_output:
+                        return {
+                            "ok": True,
+                            "path": path,
+                            "start_line": None,
+                            "end_line": None,
+                            "line_count": 0,
+                            "total_lines": None,
+                            "remaining_lines": None,
+                            "content": "",
+                            "sha256": file_sha256,
+                            "newline": newline,
+                            "has_final_newline": has_final_newline,
+                        }
                     return str_info(
-                        f"\nConfirmed text file '{path}'; read 0 lines and returned no content (count=0).\n\n"
+                        f"\nConfirmed text file '{path}'; read 0 lines and returned no content "
+                        f"(count=0). SHA256: {file_sha256}.\n\n"
                     ) + str_data("", "TXT_DATA")
-                lines = f.readlines()
-                lines_count = len(lines)
+                requested_start = max(1, start)
+                selected_lines = []
+                lines_count = 0
+                selected_size = 0
+                too_large = False
+                for line_number, line in enumerate(f, start=1):
+                    lines_count = line_number
+                    if line_number < requested_start:
+                        continue
+                    if count != -1 and len(selected_lines) >= count:
+                        continue
+                    selected_lines.append((line_number, line))
+                    selected_size += len(line) + len(str(line_number)) + 2
+                    if selected_size > self.max_read_size:
+                        too_large = True
+                        break
                 # Handle empty file
                 if lines_count == 0:
                     self.do_callback(True, path, "")
-                    return str_info(f"\nFile {path} is empty (0 lines).\n\n") + str_data("", "TXT_DATA")
-                # Validate start parameter
-                start = max(0, start - 1)  # Convert to 0-based index
-                if start >= lines_count:
-                    emsg = f"Start line {start + 1} is out of range (file has {lines_count} lines, valid range: 1-{lines_count})."
+                    if structured_output:
+                        return {
+                            "ok": True,
+                            "path": path,
+                            "start_line": None,
+                            "end_line": None,
+                            "line_count": 0,
+                            "total_lines": 0,
+                            "remaining_lines": 0,
+                            "content": "",
+                            "sha256": file_sha256,
+                            "newline": newline,
+                            "has_final_newline": has_final_newline,
+                        }
+                    return str_info(
+                        f"\nFile {path} is empty (0 lines). SHA256: {file_sha256}.\n\n"
+                    ) + str_data("", "TXT_DATA")
+                if requested_start > lines_count:
+                    emsg = f"Start line {requested_start} is out of range (file has {lines_count} lines, valid range: 1-{lines_count})."
                     self.do_callback(False, path, emsg)
                     return str_error(emsg)
-                r_count = count
-                if r_count == -1 or start + r_count > lines_count:
-                    r_count = lines_count - start
-                # Ensure we don't read negative count
-                r_count = max(0, r_count)
-                if r_count == 0:
+                if too_large:
+                    safe_count = max(1, len(selected_lines) - 1)
+                    emsg = (
+                        f"Read size exceeds the maximum read size of {self.max_read_size} characters. "
+                        f"Retry with start={requested_start}, count={safe_count} or smaller. "
+                        f"SHA256: {file_sha256}."
+                    )
+                    self.do_callback(False, path, emsg)
+                    return str_error(emsg)
+                if not selected_lines:
                     self.do_callback(True, path, "")
-                    return str_info(f"\nNo lines to read from position {start + 1} in file {path}.\n\n") + str_data("", "TXT_DATA")
+                    return str_info(
+                        f"\nNo lines to read from position {requested_start} in file {path}. "
+                        f"SHA256: {file_sha256}.\n\n"
+                    ) + str_data("", "TXT_DATA")
                 # Format line numbers with appropriate padding
-                max_line_num = start + r_count - 1
+                max_line_num = selected_lines[-1][0]
                 line_num_width = len(str(max_line_num))
                 fmt_index = f"%{line_num_width}d: %s"
-                content = ''.join([fmt_index % (i + start + 1, line) for i, line in enumerate(lines[start:start + r_count])])
-                # Check size limit
+                if include_line_numbers:
+                    content = ''.join(
+                        fmt_index % (line_number, line)
+                        for line_number, line in selected_lines
+                    )
+                else:
+                    content = ''.join(line for _, line in selected_lines)
                 if len(content) > self.max_read_size:
-                    emsg = f"Read size {len(content)} characters exceeds the maximum read size of {self.max_read_size} characters. " +\
-                                     f"You need to specify a smaller range. Current range is (start={start+1}, count={count if count >= 0 else 'ALL'})."
+                    emsg = (
+                        f"Read size {len(content)} characters exceeds the maximum read size of "
+                        f"{self.max_read_size} characters. Retry with a smaller count. "
+                        f"SHA256: {file_sha256}."
+                    )
                     self.do_callback(False, path, emsg)
                     return str_error(emsg)
 
-                remaining_lines = lines_count - start - r_count
-                ret_head = str_info(f"\nRead {r_count}/{lines_count} lines from '{path}' (lines {start + 1}-{start + r_count}), "
-                                   f"{remaining_lines} lines remain after the read position.\n\n")
+                first_line = selected_lines[0][0]
+                last_line = selected_lines[-1][0]
+                remaining_lines = lines_count - last_line
+                raw_content = ''.join(line for _, line in selected_lines)
+                if structured_output:
+                    self.do_callback(True, path, raw_content)
+                    return {
+                        "ok": True,
+                        "path": path,
+                        "start_line": first_line,
+                        "end_line": last_line,
+                        "line_count": len(selected_lines),
+                        "total_lines": lines_count,
+                        "remaining_lines": remaining_lines,
+                        "content": raw_content,
+                        "sha256": file_sha256,
+                        "newline": newline,
+                        "has_final_newline": has_final_newline,
+                    }
+                ret_head = str_info(
+                    f"\nRead {len(selected_lines)}/{lines_count} lines from '{path}' "
+                    f"(lines {first_line}-{last_line}), {remaining_lines} lines remain after "
+                    f"the read position. SHA256: {file_sha256}.\n\n"
+                )
                 self.do_callback(True, path, content)
                 return ret_head + str_data(content, "TXT_DATA")
 
@@ -668,16 +1112,16 @@ class ReadTextFile(UCTool, BaseReadWrite):
         info(f"ReadTextFile tool initialized with workspace: {self.workspace}")
 
 
-class ArgEditTextFile(BaseModel):
+class ArgEditTextFile(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="Text file path to edit or create, relative to the workspace."
     )
-    data: str = Field(
+    data: Optional[str] = Field(
         default=None,
         description="String data to edit or to write. If None, clear the content."
     )
-    mode: str = Field(
+    mode: Literal["write", "append", "replace"] = Field(
         default="replace",
         description="Edit mode: 'write' (write to a new file), 'append' (append data to the end), or 'replace' (replace lines by index)."
     )
@@ -692,6 +1136,10 @@ class ArgEditTextFile(BaseModel):
     preserve_indent: bool = Field(
         default=False,
         description="For 'replace' mode: if True, preserve indentation of original lines when replacing."
+    )
+    expected_sha256: Optional[str] = Field(
+        default=None,
+        description="Optional SHA-256 returned by ReadTextFile. The edit fails if the file changed since it was read."
     )
 
 
@@ -709,155 +1157,163 @@ class EditTextFile(UCTool, BaseReadWrite):
     args_schema: Optional[ArgsSchema] = ArgEditTextFile
     return_direct: bool = False
 
-    def _run(self, path: str, data: str = None, mode: str = "replace", start: int = 1, count: int = -1, preserve_indent: bool = False,
+    def _run(self, path: str, data: Optional[str] = None, mode: str = "replace",
+             start: int = 1, count: int = -1, preserve_indent: bool = False,
+             expected_sha256: Optional[str] = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Edit or create a text file in the workspace with specified mode."""
-        if not path:
-            return str_error("No path is provided, need a valid relative file path.")
-        start = start - 1 # Convert to 0-based index
-        self.create_file = True  # ensure file is created if not exists
-        # Validate mode parameter
         valid_modes = ["write", "append", "replace"]
         if mode not in valid_modes:
             emsg = f"Invalid mode '{mode}'. Valid modes are: {valid_modes}"
             self.do_callback(False, path, emsg)
             return str_error(emsg)
-        rpath = self.get_real_path(path)
-        if os.path.isdir(rpath):
-            emsg = f"Path '{path}' is a directory, cannot edit directory."
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
-        if os.path.isfile(rpath):
-            if mode in ["write"]:
-                emsg = f"File '{path}' already exists, cannot use 'write' mode on existing files. " + \
-                        "Please read the file's content to determine whether you need to edit it using the 'replace' mode."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-        else:
-            if mode in ["append", "replace"]:
-                emsg = f"File '{path}' does not exist, cannot use '{mode}' mode on non-existing file. Please use the 'write' mode to create it first."
-                self.do_callback(False, path, emsg)
-                return str_error(emsg)
-        success, msg, real_path = self.check_file(path)
-
+        success, msg, real_path = self.check_file(
+            path, for_write=True, allow_missing=(mode == "write")
+        )
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
-
-        # Check if it's a text file (only if file exists)
-        if os.path.exists(real_path) and not is_text_file(real_path):
+        file_exists = os.path.exists(real_path)
+        if mode == "write" and file_exists:
+            emsg = (
+                f"File '{path}' already exists, cannot use 'write' mode on existing files. "
+                "Use 'replace' mode or ApplyTextPatch to update it."
+            )
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        if not file_exists and mode != "write":
+            emsg = (
+                f"File '{path}' does not exist, cannot use '{mode}' mode on a non-existing "
+                "file. Use 'write' mode to create it."
+            )
+            self.do_callback(False, path, emsg)
+            return str_error(emsg)
+        if file_exists and not is_text_file(real_path):
             emsg = f"File {path} is not a text file."
             self.do_callback(False, path, emsg)
             return str_error(emsg)
 
         try:
+            if file_exists:
+                original_content, original_sha256, newline = _read_text_snapshot(real_path)
+                existing_mode = os.stat(real_path).st_mode & 0o7777
+            else:
+                original_content = ""
+                original_sha256 = _sha256_bytes(b"")
+                newline = "\n"
+                existing_mode = None
+            if expected_sha256 is not None and expected_sha256 != original_sha256:
+                emsg = (
+                    f"File {path} changed after it was read. Expected SHA256 "
+                    f"{expected_sha256}, current SHA256 {original_sha256}. Read it again and retry."
+                )
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+
             if mode == "write":
-                # WriteToFile functionality
-                is_existed_file = os.path.exists(real_path)
-                with open(real_path, 'w', encoding='utf-8') as f:
-                    if data is None:
-                        info(f"Clearing file {real_path}.")
-                        f.truncate(0)
-                    else:
-                        info(f"Writing data to file {real_path}.")
-                        f.write(data)
-                    f.flush()
-                msg = f"Write {len(data) if data else 0} characters to '{path}' complete."
-                self.do_callback(True, path, msg)
-                return str_info(msg)
-
+                new_content = data or ""
+                operation_desc = f"Wrote {len(new_content)} characters to new file '{path}'"
             elif mode == "append":
-                # AppendToFile functionality
-                with open(real_path, 'a', encoding='utf-8') as f:
-                    if data is None:
-                        info(f"Clearing file {real_path}.")
-                        f.truncate(0)
-                    else:
-                        info(f"Appending data to file {real_path}.")
-                        f.write(data)
-                    f.flush()
-                self.do_callback(True, path, data)
-                return str_info(f"Append {len(data) if data else 0} characters complete." if data else f"File({path}) cleared.")
-
-            elif mode == "replace":
-                # ReplaceLinesByIndex functionality
-                info(f"Replacing text file {real_path} from line {start+1} with count {count}")
-                # Validate count parameter
+                appended_content = "" if data is None else _convert_newlines(data, newline)
+                new_content = "" if data is None else original_content + appended_content
+                operation_desc = (
+                    f"Cleared file '{path}'" if data is None
+                    else f"Appended {len(data)} characters to '{path}'"
+                )
+            else:
                 if count < -1:
                     emsg = f"Invalid count {count}. Count must be -1 (to end of file), 0 (insert), or positive (replace n lines)."
                     self.do_callback(False, path, emsg)
                     return str_error(emsg)
-                # Read existing content or create empty if file doesn't exist
-                if os.path.exists(real_path):
-                    with open(real_path, 'r', encoding='utf-8') as f:
-                        lines = f.readlines()
-                else:
-                    lines = []
-                    info(f"File {real_path} doesn't exist, creating new file.")
+                line_start = max(0, start - 1)
+                lines = original_content.splitlines(keepends=True)
                 lines_count = len(lines)
-                # Handle negative start (insert at beginning if start < 0)
-                if start < 0:
-                    start = 0
-                # Prepare replacement data
-                lines_pred = lines[:min(start, lines_count)]
-                lines_after = []
+                line_start = min(line_start, lines_count)
+                lines_pred = lines[:line_start]
                 if count == -1:
-                    # Replace from start to end of file
                     lines_after = []
                 elif count == 0:
-                    # Insert mode - don't remove any lines
-                    lines_after = lines[min(start, lines_count):]
+                    lines_after = lines[line_start:]
                 else:
-                    # Replace 'count' lines starting from 'start'
-                    end_pos = min(start + count, lines_count)
+                    end_pos = min(line_start + count, lines_count)
                     lines_after = lines[end_pos:]
-                # Prepare new content
-                lines_insert = []
+                insert_text = ""
                 if data is not None:
-                    if preserve_indent and start < lines_count:
-                        # Use existing lines for indentation reference
-                        ref_lines = lines[start:min(start + max(1, count if count > 0 else 1), lines_count)]
+                    logical_data = data.replace("\r\n", "\n").replace("\r", "\n")
+                    if preserve_indent and line_start < lines_count:
+                        ref_lines = [
+                            line.rstrip("\r\n")
+                            for line in lines[
+                                line_start:min(
+                                    line_start + max(1, count if count > 0 else 1),
+                                    lines_count,
+                                )
+                            ]
+                        ]
                         if ref_lines:
-                            indented_content = copy_indent_from(ref_lines, data.split("\n"))
-                            lines_insert = ["\n".join(indented_content)]
-                            if not lines_insert[0].endswith('\n'):
-                                lines_insert[0] += '\n'
-                        else:
-                            lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
-                    else:
-                        lines_insert = [data + ('\n' if not data.endswith('\n') else '')]
-
-                # Construct new file content
-                lines_new = lines_pred + lines_insert + lines_after
-                # Write the new content
-                with open(real_path, 'w', encoding='utf-8') as f:
-                    f.writelines(lines_new)
-                    f.flush()
-
-                # Prepare result message
-                operation_desc = ""
+                            logical_data = "\n".join(
+                                copy_indent_from(ref_lines, logical_data.split("\n"))
+                            )
+                    insert_text = _convert_newlines(logical_data, newline)
+                    if (
+                        insert_text
+                        and not insert_text.endswith(("\n", "\r"))
+                        and (lines_after or original_content.endswith(("\n", "\r")))
+                    ):
+                        insert_text += newline
+                    if (
+                        lines_pred
+                        and insert_text
+                        and not lines_pred[-1].endswith(("\n", "\r"))
+                        and not insert_text.startswith(("\n", "\r"))
+                    ):
+                        lines_pred[-1] += newline
+                new_content = "".join(lines_pred) + insert_text + "".join(lines_after)
                 if count == 0:
-                    operation_desc = f"Inserted new content at line {start+1}"
+                    operation_desc = f"Inserted new content at line {line_start + 1}"
                 elif count == -1:
-                    operation_desc = f"Replaced content from line {start+1} to end of file"
+                    operation_desc = f"Replaced content from line {line_start + 1} to end of file"
                 elif data is None:
-                    operation_desc = f"Removed {min(count, lines_count - start)} lines starting from line {start+1}"
+                    operation_desc = f"Removed {min(count, lines_count - line_start)} lines starting from line {line_start + 1}"
                 else:
-                    actual_replaced = min(count, max(0, lines_count - start))
-                    operation_desc = f"Replaced {actual_replaced} lines starting from line {start+1}"
+                    actual_replaced = min(count, max(0, lines_count - line_start))
+                    operation_desc = f"Replaced {actual_replaced} lines starting from line {line_start + 1}"
                 if data is not None:
                     data_lines = len(data.split('\n'))
                     operation_desc += f" with {data_lines} new line(s)"
-                self.do_callback(True, path, {"start": start+1, "count": count, "data": data})
-                # Generate diff for better understanding
-                diff_result = ""
-                if data is not None:
-                    if count != -1:
-                        diff_result = get_diff(lines, lines_new, path) if lines != lines_new else ""
-                    elif mode == "replace":
-                        diff_result = " (Warning: difference summary is ignored. You are replacing to end of file, it is not the best practice" + \
-                                      " if you just want to edit part of the file content. And diff is not generated for this case.)"
-                return str_info(f"{operation_desc}.") + diff_result
+
+            if new_content == original_content:
+                emsg = f"No changes detected for {path}; the file was not written."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+            if (
+                expected_sha256 is not None
+                and file_exists
+                and _sha256_file(real_path) != original_sha256
+            ):
+                emsg = f"File {path} changed while the edit was being prepared. Read it again and retry."
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+            if file_exists:
+                _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
+            else:
+                _atomic_create_text(real_path, new_content)
+            new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
+            diff_result, _ = _bounded_diff(original_content, new_content, path)
+            self.do_callback(
+                True,
+                path,
+                {
+                    "mode": mode,
+                    "start": start,
+                    "count": count,
+                    "before_sha256": original_sha256,
+                    "after_sha256": new_sha256,
+                },
+            )
+            return str_info(
+                f"{operation_desc}. SHA256: {original_sha256} -> {new_sha256}."
+            ) + diff_result
 
         except UnicodeDecodeError as e:
             emsg = f"Failed to decode file {path} as UTF-8: {str(e)}"
@@ -874,13 +1330,13 @@ class EditTextFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgCopyFile(BaseModel):
+class ArgCopyFile(StrictToolArgs):
     source_path: str = Field(
-        default=None,
+        ...,
         description="Source file path to copy from, relative to the workspace."
     )
     dest_path: str = Field(
-        default=None,
+        ...,
         description="Destination file path to copy to, relative to the workspace. Created if not exists."
     )
     overwrite: bool = Field(
@@ -914,16 +1370,10 @@ class CopyFile(UCTool, BaseReadWrite):
             self.do_callback(False, source_path, error_msg)
             return str_error(error_msg)
         
-        # Check destination path
-        dest_real_path = os.path.abspath(os.path.join(self.workspace, dest_path))
-        if not dest_real_path.startswith(self.workspace):
-            error_msg = f"Destination path '{dest_path}' is not within the workspace."
-            self.do_callback(False, dest_path, error_msg)
-            return str_error(error_msg)
-        
-        # Check write permissions for destination
-        write_able, msg = is_file_writeable(dest_path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
+        success, msg, dest_real_path = self.check_file(
+            dest_path, for_write=True, allow_missing=True
+        )
+        if not success:
             self.do_callback(False, dest_path, msg)
             return str_error(f"Destination file error: {msg}")
         
@@ -940,8 +1390,9 @@ class CopyFile(UCTool, BaseReadWrite):
                 os.makedirs(dest_dir, exist_ok=True)
                 info(f"Created destination directory: {dest_dir}")
             
-            # Copy the file
-            shutil.copy2(real_source_path, dest_real_path)
+            _atomic_copy_file(
+                real_source_path, dest_real_path, overwrite=overwrite
+            )
             info(f"Copied file from {real_source_path} to {dest_real_path}")
             
             # Get file sizes for confirmation
@@ -962,13 +1413,13 @@ class CopyFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgMoveFile(BaseModel):
+class ArgMoveFile(StrictToolArgs):
     source_path: str = Field(
-        default=None,
+        ...,
         description="Source file path to move from, relative to the workspace."
     )
     dest_path: str = Field(
-        default=None,
+        ...,
         description="Destination file path to move to, relative to the workspace."
     )
     overwrite: bool = Field(
@@ -991,7 +1442,7 @@ class MoveFile(UCTool, BaseReadWrite):
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Move a file from source to destination."""
         # Check source file
-        success, msg, real_source_path = self.check_file(source_path)
+        success, msg, real_source_path = self.check_file(source_path, for_write=True)
         if not success:
             self.do_callback(False, source_path, msg)
             return str_error(f"Source file error: {msg}")
@@ -1002,23 +1453,16 @@ class MoveFile(UCTool, BaseReadWrite):
             self.do_callback(False, source_path, error_msg)
             return str_error(error_msg)
         
-        # Check destination path
-        dest_real_path = os.path.abspath(os.path.join(self.workspace, dest_path))
-        if not dest_real_path.startswith(self.workspace):
-            error_msg = f"Destination path '{dest_path}' is not within the workspace."
+        success, msg, dest_real_path = self.check_file(
+            dest_path, for_write=True, allow_missing=True
+        )
+        if not success:
+            self.do_callback(False, dest_path, msg)
+            return str_error(f"Destination file error: {msg}")
+        if os.path.normcase(real_source_path) == os.path.normcase(dest_real_path):
+            error_msg = "Source and destination resolve to the same file."
             self.do_callback(False, dest_path, error_msg)
             return str_error(error_msg)
-        
-        # Check write permissions for both source and destination
-        write_able_src, msg_src = is_file_writeable(source_path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able_src:
-            self.do_callback(False, source_path, msg_src)
-            return str_error(f"Source file error: {msg_src}")
-            
-        write_able_dest, msg_dest = is_file_writeable(dest_path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able_dest:
-            self.do_callback(False, dest_path, msg_dest)
-            return str_error(f"Destination file error: {msg_dest}")
         
         # Check if destination exists
         if os.path.exists(dest_real_path) and not overwrite:
@@ -1033,8 +1477,9 @@ class MoveFile(UCTool, BaseReadWrite):
                 os.makedirs(dest_dir, exist_ok=True)
                 info(f"Created destination directory: {dest_dir}")
             
-            # Move the file
-            shutil.move(real_source_path, dest_real_path)
+            _atomic_move_file(
+                real_source_path, dest_real_path, overwrite=overwrite
+            )
             info(f"Moved file from {real_source_path} to {dest_real_path}")
             
             # Get file size for confirmation
@@ -1054,9 +1499,9 @@ class MoveFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgDeleteFile(BaseModel):
+class ArgDeleteFile(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="File path to delete, relative to the workspace."
     )
     is_dir: bool = Field(
@@ -1066,6 +1511,10 @@ class ArgDeleteFile(BaseModel):
     recursive: bool = Field(
         default=False,
         description="If True and is_dir is True, recursively delete directory and all its contents. Use with caution!"
+    )
+    expected_sha256: Optional[str] = Field(
+        default=None,
+        description="Optional expected SHA-256 for file deletion. Ignored for directories."
     )
 
 
@@ -1081,18 +1530,28 @@ class DeleteFile(UCTool, BaseReadWrite):
     return_direct: bool = False
 
     def _run(self, path: str, is_dir: bool = False, recursive: bool = False,
+             expected_sha256: Optional[str] = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Delete a file or directory in the workspace."""
-        target_path = os.path.abspath(os.path.join(self.workspace, path))
-        if not os.path.exists(target_path):
-            emsg = f"Path {path} does not exist in workspace"
+        validator = self.check_dir if is_dir else self.check_file
+        success, emsg, target_path = validator(path, for_write=True)
+        if not success:
             self.do_callback(False, path, emsg)
             return str_error(emsg)
-        
-        ok, emsg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not ok:
-            self.do_callback(False, path, emsg)
-            return str_error(emsg)
+        if not is_dir and expected_sha256 is not None:
+            try:
+                current_sha256 = _sha256_file(target_path)
+            except OSError as exc:
+                emsg = f"Failed to verify {path} before deletion: {exc}"
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
+            if current_sha256 != expected_sha256:
+                emsg = (
+                    f"File {path} changed after it was read. Expected SHA256 "
+                    f"{expected_sha256}, current SHA256 {current_sha256}."
+                )
+                self.do_callback(False, path, emsg)
+                return str_error(emsg)
         
         try:
             if os.path.isdir(target_path):
@@ -1139,9 +1598,9 @@ class DeleteFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgCreateDirectory(BaseModel):
+class ArgCreateDirectory(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="Directory path to create, relative to the workspace."
     )
     parents: bool = Field(
@@ -1167,17 +1626,10 @@ class CreateDirectory(UCTool, BaseReadWrite):
     def _run(self, path: str, parents: bool = True, exist_ok: bool = True,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Create a directory in the workspace."""
-        target_path = os.path.abspath(os.path.join(self.workspace, path))
-        
-        # Check if path is within workspace
-        if not target_path.startswith(self.workspace):
-            error_msg = f"Directory path '{path}' is not within the workspace."
-            self.do_callback(False, path, error_msg)
-            return str_error(error_msg)
-        
-        # Check write permissions
-        write_able, msg = is_file_writeable(path, self.un_write_able_dirs, self.write_able_dirs)
-        if not write_able:
+        success, msg, target_path = self.check_dir(
+            path, for_write=True, allow_missing=True
+        )
+        if not success:
             self.do_callback(False, path, msg)
             return str_error(f"Directory creation error: {msg}")
         
@@ -1227,16 +1679,24 @@ class CreateDirectory(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgReplaceStringInFile(BaseModel):
+class ArgReplaceStringInFile(StrictToolArgs):
     path: str = Field(
-        default=None,
+        ...,
         description="Text file path to modify, relative to the workspace.")
     old_string: str = Field(
-        default=None,
+        ...,
         description="The exact literal text to replace. Must include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string does not match exactly, the tool will fail.")
     new_string: str = Field(
-        default=None,
+        ...,
         description="The exact literal text to replace old_string with. Ensure the resulting code is correct and idiomatic.")
+    expected_sha256: Optional[str] = Field(
+        default=None,
+        description="Optional SHA-256 returned by ReadTextFile. The replacement fails if the file changed since it was read."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Validate the replacement and return its diff without writing the file."
+    )
 
 
 class ReplaceStringInFile(UCTool, BaseReadWrite):
@@ -1258,68 +1718,93 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
     return_direct: bool = False
 
     def _run(self, path: str, old_string: str, new_string: str,
+             expected_sha256: Optional[str] = None, dry_run: bool = False,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace exact string content in a text file."""
-        self.create_file = True
-        # Validate inputs
-        if new_string is None:
-            error_msg = "new_string cannot be None. Use empty string if you want to delete the content."
-            self.do_callback(False, path, error_msg)
-            return str_error(error_msg)
-
-        success, msg, real_path = self.check_file(path)
+        success, msg, real_path = self.check_file(
+            path, for_write=True, allow_missing=(old_string == "")
+        )
         if not success:
             self.do_callback(False, path, msg)
             return str_error(msg)
 
-        if new_string == old_string:
-            error_msg = f"new_string is identical to old_string ({old_string}). No changes made."
-            self.do_callback(False, path, error_msg)
-            return str_error(error_msg)
-        
-        # Check if it's a text file
-        if not is_text_file(real_path):
+        file_exists = os.path.exists(real_path)
+        if file_exists and not is_text_file(real_path):
             error_msg = f"File {path} is not a text file."
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
         info(f"Replacing string in file {real_path}")
         try:
-            # Read file content
-            with open(real_path, 'r', encoding='utf-8') as f:
-                original_content = f.read()
-            new_content = new_string
+            if file_exists:
+                original_content, original_sha256, newline = _read_text_snapshot(real_path)
+                existing_mode = os.stat(real_path).st_mode & 0o7777
+            else:
+                original_content = ""
+                original_sha256 = _sha256_bytes(b"")
+                newline = "\n"
+                existing_mode = None
+            if expected_sha256 is not None and expected_sha256 != original_sha256:
+                error_msg = (
+                    f"File {path} changed after it was read. Expected SHA256 "
+                    f"{expected_sha256}, current SHA256 {original_sha256}. Read it again and retry."
+                )
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+
+            old_content = _convert_newlines(old_string, newline)
+            replacement_content = _convert_newlines(new_string, newline)
+            new_content = replacement_content
             if old_string:
-                # Check if old_string exists in the file
-                if old_string not in original_content:
+                if old_content not in original_content:
                     error_msg = f"The specified old_string was not found in the file. The string must match exactly including all whitespace, indentation, and newlines."
                     self.do_callback(False, path, error_msg)
                     return str_error(error_msg)
                 # Count occurrences to ensure uniqueness
-                occurrence_count = original_content.count(old_string)
-                if occurrence_count == 0:
-                    error_msg = f"The specified old_string was not found in the file."
-                    self.do_callback(False, path, error_msg)
-                    return str_error(error_msg)
-                elif occurrence_count > 1:
+                occurrence_count = original_content.count(old_content)
+                if occurrence_count > 1:
                     error_msg = f"The specified old_string appears {occurrence_count} times in the file. The string must be unique. Include more context to make it unique."
                     self.do_callback(False, path, error_msg)
                     return str_error(error_msg)
                 # Perform the replacement
-                new_content = original_content.replace(old_string, new_string, 1)
+                new_content = original_content.replace(old_content, replacement_content, 1)
+            if file_exists and new_content == original_content:
+                error_msg = "new_string produces no change. The file was not written."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
 
-            # Write the new content back to the file
-            with open(real_path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-                f.flush()
-
-            # Generate diff for better understanding
-            original_lines = original_content.splitlines(keepends=True)
-            new_lines = new_content.splitlines(keepends=True)
-            diff_result = get_diff(original_lines, new_lines, path)
-
-            success_msg = f"Successfully replaced 1 occurrence of the specified string in {path}."
-            self.do_callback(True, path, {"old_string": old_string, "new_string": new_string})
-
+            diff_result, _ = _bounded_diff(original_content, new_content, path)
+            new_sha256 = _sha256_bytes(new_content.encode("utf-8"))
+            if dry_run:
+                return str_info(
+                    f"Dry run successful for {path}. SHA256 would change from "
+                    f"{original_sha256} to {new_sha256}."
+                ) + diff_result
+            if (
+                expected_sha256 is not None
+                and file_exists
+                and _sha256_file(real_path) != original_sha256
+            ):
+                error_msg = f"File {path} changed while the replacement was being prepared. Read it again and retry."
+                self.do_callback(False, path, error_msg)
+                return str_error(error_msg)
+            if file_exists:
+                _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
+            else:
+                _atomic_create_text(real_path, new_content)
+            success_msg = (
+                f"Successfully replaced 1 occurrence of the specified string in {path}. "
+                f"SHA256: {original_sha256} -> {new_sha256}."
+            )
+            self.do_callback(
+                True,
+                path,
+                {
+                    "old_string": old_string,
+                    "new_string": new_string,
+                    "before_sha256": original_sha256,
+                    "after_sha256": new_sha256,
+                },
+            )
             return str_info(success_msg) + diff_result
 
         except UnicodeDecodeError as e:
@@ -1337,9 +1822,204 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
         self.init_base_rw(workspace, write_dirs, un_write_dirs)
 
 
-class ArgGetFileInfo(BaseModel):
-    path: str = Field(
+class TextPatchEdit(StrictToolArgs):
+    old_text: str = Field(
+        ...,
+        description="Exact, non-empty text to replace, including enough surrounding context to identify the target."
+    )
+    new_text: str = Field(
+        ...,
+        description="Replacement text. Use an empty string to remove the matched text."
+    )
+    expected_occurrences: int = Field(
+        default=1,
+        ge=1,
+        description="Exact number of occurrences that must be present before this edit is applied."
+    )
+
+
+class ArgApplyTextPatch(StrictToolArgs):
+    path: str = Field(..., description="Text file path relative to the workspace.")
+    action: Literal["create", "update", "delete"] = Field(
+        default="update",
+        description="Create a new file, update an existing file, or delete an existing text file."
+    )
+    edits: List[TextPatchEdit] = Field(
+        default_factory=list,
+        description="Ordered exact-context edits. Required for action='update'."
+    )
+    content: Optional[str] = Field(
         default=None,
+        description="Complete initial content. Required for action='create' and invalid for action='update'."
+    )
+    expected_sha256: Optional[str] = Field(
+        default=None,
+        description="Optional SHA-256 returned by ReadTextFile. The operation fails if the file changed."
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="Validate the complete patch and return its result without modifying the file."
+    )
+
+
+class ApplyTextPatch(UCTool, BaseReadWrite):
+    """Apply validated exact-context edits to one text file as one operation."""
+
+    name: str = "ApplyTextPatch"
+    description: str = (
+        "Create, update, or delete one workspace text file. For updates, all exact-context "
+        "edits are validated in memory before anything is written; any missing, ambiguous, "
+        "or stale target rejects the complete operation. Use expected_sha256 from ReadTextFile "
+        "for conflict detection. Writes are atomic and preserve the existing newline style."
+    )
+    args_schema: Optional[ArgsSchema] = ArgApplyTextPatch
+    return_direct: bool = False
+
+    def _run(
+        self,
+        path: str,
+        action: str = "update",
+        edits: Optional[List[TextPatchEdit]] = None,
+        content: Optional[str] = None,
+        expected_sha256: Optional[str] = None,
+        dry_run: bool = False,
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> dict:
+        """Validate and apply an atomic text patch."""
+        edits = edits or []
+
+        def fail(code: str, message: str, **details):
+            self.do_callback(False, path, message)
+            return {
+                "ok": False,
+                "error": {"code": code, "message": message},
+                "path": path,
+                **details,
+            }
+
+        if action not in {"create", "update", "delete"}:
+            return fail("invalid_action", f"Unsupported patch action '{action}'.")
+        success, msg, real_path = self.check_file(
+            path, for_write=True, allow_missing=(action == "create")
+        )
+        if not success:
+            return fail("invalid_path", msg)
+        file_exists = os.path.exists(real_path)
+        if action == "create" and file_exists:
+            return fail("already_exists", f"File {path} already exists.")
+        if action != "create" and not file_exists:
+            return fail("not_found", f"File {path} does not exist.")
+        if action == "update" and not edits:
+            return fail("missing_edits", "At least one edit is required for action='update'.")
+        if action != "update" and edits:
+            return fail("unexpected_edits", f"Edits are not allowed for action='{action}'.")
+        if action == "create" and content is None:
+            return fail("missing_content", "Content is required for action='create'.")
+        if action != "create" and content is not None:
+            return fail("unexpected_content", f"Content is not allowed for action='{action}'.")
+
+        try:
+            if file_exists:
+                original_content, original_sha256, newline = _read_text_snapshot(real_path)
+                existing_mode = os.stat(real_path).st_mode & 0o7777
+            else:
+                original_content = ""
+                original_sha256 = _sha256_bytes(b"")
+                newline = "\n"
+                existing_mode = None
+        except UnicodeDecodeError as exc:
+            return fail("invalid_encoding", f"File {path} is not valid UTF-8 text: {exc}")
+        except OSError as exc:
+            return fail("read_failed", f"Failed to read {path}: {exc}")
+
+        if expected_sha256 is not None and expected_sha256 != original_sha256:
+            return fail(
+                "stale_file",
+                f"File {path} changed after it was read. Read it again and retry.",
+                expected_sha256=expected_sha256,
+                current_sha256=original_sha256,
+            )
+
+        new_content = original_content
+        if action == "create":
+            new_content = content or ""
+        elif action == "update":
+            for index, edit in enumerate(edits):
+                if isinstance(edit, dict):
+                    try:
+                        edit = TextPatchEdit.model_validate(edit)
+                    except Exception as exc:
+                        return fail("invalid_edit", f"Edit {index + 1} is invalid: {exc}")
+                old_text = _convert_newlines(edit.old_text, newline)
+                new_text = _convert_newlines(edit.new_text, newline)
+                if not old_text:
+                    return fail("empty_target", f"Edit {index + 1} has an empty old_text.")
+                occurrence_count = new_content.count(old_text)
+                if occurrence_count != edit.expected_occurrences:
+                    return fail(
+                        "target_count_mismatch",
+                        f"Edit {index + 1} expected {edit.expected_occurrences} occurrence(s) "
+                        f"but found {occurrence_count}. No changes were written.",
+                        edit_index=index + 1,
+                        expected_occurrences=edit.expected_occurrences,
+                        actual_occurrences=occurrence_count,
+                    )
+                new_content = new_content.replace(
+                    old_text, new_text, edit.expected_occurrences
+                )
+        elif action == "delete":
+            new_content = ""
+
+        if action != "delete" and file_exists and new_content == original_content:
+            return fail("no_change", "The patch produces no change. No file was written.")
+
+        diff, diff_truncated = _bounded_diff(original_content, new_content, path)
+        after_sha256 = None if action == "delete" else _sha256_bytes(
+            new_content.encode("utf-8")
+        )
+        result = {
+            "ok": True,
+            "path": path,
+            "action": action,
+            "dry_run": dry_run,
+            "before_sha256": original_sha256,
+            "after_sha256": after_sha256,
+            "changed_edits": len(edits),
+            "diff": diff,
+            "diff_truncated": diff_truncated,
+        }
+        if dry_run:
+            return result
+        if expected_sha256 is not None and file_exists:
+            try:
+                current_sha256 = _sha256_file(real_path)
+            except OSError as exc:
+                return fail("stale_file", f"File {path} became unavailable: {exc}")
+            if current_sha256 != original_sha256:
+                return fail(
+                    "stale_file",
+                    f"File {path} changed while the patch was being prepared. Read it again and retry."
+                )
+        try:
+            if action == "delete":
+                os.remove(real_path)
+            elif action == "create":
+                _atomic_create_text(real_path, new_content)
+            else:
+                _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
+        except OSError as exc:
+            return fail("write_failed", f"Failed to apply patch to {path}: {exc}")
+        self.do_callback(True, path, result)
+        return result
+
+    def __init__(self, workspace: str, write_dirs=None, un_write_dirs=None, **kwargs):
+        super().__init__(**kwargs)
+        self.init_base_rw(workspace, write_dirs, un_write_dirs)
+
+
+class ArgGetFileInfo(StrictToolArgs):
+    path: str = Field(
+        ...,
         description="File or directory path to get information about, relative to the workspace."
     )
     include_stats: bool = Field(
@@ -1361,11 +2041,10 @@ class GetFileInfo(UCTool, BaseReadWrite):
     def _run(self, path: str, include_stats: bool = True,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Get information about a file or directory."""
-        target_path = os.path.abspath(os.path.join(self.workspace, path))
-        
-        # Check if path is within workspace
-        if not target_path.startswith(self.workspace):
-            error_msg = f"Path '{path}' is not within the workspace."
+        try:
+            target_path = self.get_real_path(path, allow_workspace=True)
+        except ValueError as exc:
+            error_msg = str(exc)
             self.do_callback(False, path, error_msg)
             return str_error(error_msg)
         
@@ -1397,6 +2076,7 @@ class GetFileInfo(UCTool, BaseReadWrite):
                         with open(target_path, 'r', encoding='utf-8') as f:
                             line_count = sum(1 for _ in f)
                         info_lines.append(f"Line count: {line_count}")
+                        info_lines.append(f"SHA256: {_sha256_file(target_path)}")
                     except (UnicodeDecodeError, IOError):
                         info_lines.append("Line count: Unable to determine (encoding error)")
                 

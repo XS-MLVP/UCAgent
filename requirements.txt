@@ -18,3 +18,4 @@ kubernetes>=33.1.0
 pytoffee@git+https://gitlink.org.cn/XS-MLVP/toffee@master
 toffee-test@git+https://gitlink.org.cn/XS-MLVP/toffee-test@master
 wavekit>=0.7.0,<0.8.0
+regex>=2024.11.6

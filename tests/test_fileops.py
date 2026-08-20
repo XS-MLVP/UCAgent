@@ -6,12 +6,17 @@ import sys
 import tempfile
 import shutil
 import unittest
+import hashlib
+from unittest.mock import patch
+
+from pydantic import ValidationError
 
 # Add project root to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
 from ucagent.tools.fileops import *
+from ucagent.tools.uctool import to_fastmcp
 
 
 class TestFileOpsTools(unittest.TestCase):
@@ -68,6 +73,13 @@ class TestFileOpsTools(unittest.TestCase):
         result, msg = is_file_writeable("notallowed/file", write_dirs=["allowed"])
         self.assertFalse(result)
 
+    def test_is_file_writeable_uses_directory_boundaries(self):
+        self.assertTrue(is_file_writeable("out/file.txt", write_dirs=["out"])[0])
+        self.assertFalse(is_file_writeable("out-other/file.txt", write_dirs=["out"])[0])
+        self.assertFalse(is_file_writeable("out/../../outside.txt", write_dirs=["out"])[0])
+        self.assertFalse(is_file_writeable("/tmp/out/file.txt", write_dirs=["out"])[0])
+        self.assertFalse(is_file_writeable("out/file.txt", write_dirs=[])[0])
+
     def test_search_text_basic(self):
         """Test basic text search functionality"""
         tool = SearchText(workspace=self.workspace)
@@ -102,6 +114,42 @@ class TestFileOpsTools(unittest.TestCase):
         # Case sensitive
         result = tool._run(pattern="line 1", case_sensitive=True)
         self.assertIn("No matches found", result)
+
+    def test_search_text_preserves_indent_and_returns_context(self):
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="return 42",
+            directory="indented.py",
+            context_before=1,
+            context_after=1,
+        )
+
+        self.assertIn("Line 2 (context):     def method", result)
+        self.assertIn("Line 3:         return 42", result)
+        self.assertIn("Line 4 (context):     # comment", result)
+
+    def test_search_text_bounds_regex_execution_time(self):
+        target = os.path.join(self.workspace, "regex-timeout.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("a" * 20000 + "!\n")
+
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="(a|aa)+$",
+            directory="regex-timeout.txt",
+            use_regex=True,
+            regex_timeout_ms=1,
+        )
+
+        self.assertIn("Regular expression timed out", result)
+
+    def test_search_text_reports_missing_regex_dependency(self):
+        with patch("ucagent.tools.fileops.regex_lib", None):
+            result = SearchText(workspace=self.workspace)._run(
+                pattern="Line.*",
+                directory="simple.txt",
+                use_regex=True,
+            )
+
+        self.assertIn("requires the 'regex' package", result)
 
     def test_find_files(self):
         """Test file finding functionality"""
@@ -146,6 +194,36 @@ class TestFileOpsTools(unittest.TestCase):
         result = tool._run(path="simple.txt", start=2, count=1)
         self.assertIn("Read 1/3 lines", result)
         self.assertIn("2: Line 2", result)
+        self.assertIn("SHA256:", result)
+
+    def test_read_text_file_can_return_reusable_raw_text(self):
+        result = ReadTextFile(workspace=self.workspace)._run(
+            path="indented.py",
+            start=2,
+            count=2,
+            include_line_numbers=False,
+        )
+
+        self.assertIn("    def method(self):\n        return 42\n", result)
+        self.assertNotIn("2:     def method", result)
+
+    def test_read_text_file_structured_output_has_raw_text_and_metadata(self):
+        result = ReadTextFile(workspace=self.workspace)._run(
+            path="indented.py",
+            start=2,
+            count=2,
+            structured_output=True,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["start_line"], 2)
+        self.assertEqual(result["end_line"], 3)
+        self.assertEqual(
+            result["content"], "    def method(self):\n        return 42\n"
+        )
+        self.assertEqual(result["newline"], "LF")
+        self.assertTrue(result["has_final_newline"])
+        self.assertEqual(len(result["sha256"]), 64)
 
     def test_read_text_file_zero_count_confirms_without_content(self):
         """A zero-line read should mark an already-known reference as read."""
@@ -217,6 +295,17 @@ class TestFileOpsTools(unittest.TestCase):
         result = tool._run(source_path="simple.txt", dest_path="existing.txt", overwrite=True)
         self.assertIn("File copied successfully", result)
 
+    def test_copy_file_rejects_destination_outside_allowlist_boundary(self):
+        tool = CopyFile(workspace=self.workspace, write_dirs=["subdir"])
+
+        result = tool._run(
+            source_path="simple.txt",
+            dest_path="subdir-other/copied.txt",
+        )
+
+        self.assertIn("not allowed to write", result)
+        self.assertFalse(os.path.exists(os.path.join(self.workspace, "subdir-other")))
+
     def test_move_file(self):
         """Test file moving functionality"""
         tool = MoveFile(workspace=self.workspace)
@@ -281,6 +370,34 @@ class TestFileOpsTools(unittest.TestCase):
         
         # Verify deletion
         self.assertFalse(os.path.exists(temp_dir))
+
+    def test_delete_rejects_traversal_without_touching_outside_file(self):
+        outside_dir = tempfile.mkdtemp(
+            prefix="test_fileops_outside_", dir=os.path.dirname(self.workspace)
+        )
+        outside_file = os.path.join(outside_dir, "keep.txt")
+        with open(outside_file, "w", encoding="utf-8") as file_obj:
+            file_obj.write("keep")
+        try:
+            relative_outside = os.path.relpath(outside_file, self.workspace)
+            result = DeleteFile(workspace=self.workspace)._run(path=relative_outside)
+            self.assertIn("not within the workspace", result)
+            self.assertTrue(os.path.exists(outside_file))
+        finally:
+            shutil.rmtree(outside_dir, ignore_errors=True)
+
+    def test_delete_rejects_stale_file_hash(self):
+        target = os.path.join(self.workspace, "delete-with-hash.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("current")
+
+        result = DeleteFile(workspace=self.workspace)._run(
+            path="delete-with-hash.txt",
+            expected_sha256=hashlib.sha256(b"stale").hexdigest(),
+        )
+
+        self.assertIn("changed after it was read", result)
+        self.assertTrue(os.path.exists(target))
 
     def test_create_directory(self):
         """Test directory creation functionality"""
@@ -364,6 +481,237 @@ class TestFileOpsTools(unittest.TestCase):
         result = tool._run(path="../outside.txt", start=0, count=-1)
         self.assertIn("not within the workspace", result)
 
+    def test_workspace_symlink_escape_is_rejected(self):
+        outside_dir = tempfile.mkdtemp(
+            prefix="test_fileops_symlink_", dir=os.path.dirname(self.workspace)
+        )
+        outside_file = os.path.join(outside_dir, "outside.txt")
+        with open(outside_file, "w", encoding="utf-8") as file_obj:
+            file_obj.write("outside")
+        link_path = os.path.join(self.workspace, "outside-link.txt")
+        os.symlink(outside_file, link_path)
+        try:
+            read_result = ReadTextFile(workspace=self.workspace)._run(
+                path="outside-link.txt"
+            )
+            edit_result = EditTextFile(workspace=self.workspace)._run(
+                path="outside-link.txt", data="changed", mode="replace"
+            )
+            self.assertIn("not within the workspace", read_result)
+            self.assertIn("not within the workspace", edit_result)
+            with open(outside_file, "r", encoding="utf-8") as file_obj:
+                self.assertEqual(file_obj.read(), "outside")
+        finally:
+            os.unlink(link_path)
+            shutil.rmtree(outside_dir, ignore_errors=True)
+
+    def test_write_rejects_internal_symlink_permission_alias(self):
+        readonly_dir = os.path.join(self.workspace, "readonly")
+        os.makedirs(readonly_dir)
+        target = os.path.join(readonly_dir, "target.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("original")
+        os.symlink(readonly_dir, os.path.join(self.workspace, "allowed"))
+
+        result = ReplaceStringInFile(
+            workspace=self.workspace,
+            write_dirs=["allowed"],
+            un_write_dirs=["readonly"],
+        )._run(
+            path="allowed/target.txt",
+            old_string="original",
+            new_string="changed",
+        )
+
+        self.assertTrue(
+            "symbolic link" in result or "not allowed to write" in result,
+            result,
+        )
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), "original")
+
+    def test_edit_text_file_is_atomic_and_preserves_crlf_and_mode(self):
+        target = os.path.join(self.workspace, "crlf.txt")
+        with open(target, "wb") as file_obj:
+            file_obj.write(b"alpha\r\nbeta\r\n")
+        os.chmod(target, 0o640)
+        before_sha256 = hashlib.sha256(b"alpha\r\nbeta\r\n").hexdigest()
+
+        result = EditTextFile(workspace=self.workspace)._run(
+            path="crlf.txt",
+            data="gamma",
+            mode="replace",
+            start=2,
+            count=1,
+            expected_sha256=before_sha256,
+        )
+
+        self.assertIn("SHA256:", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), b"alpha\r\ngamma\r\n")
+        self.assertEqual(os.stat(target).st_mode & 0o777, 0o640)
+
+    def test_edit_text_file_preserves_missing_final_newline(self):
+        target = os.path.join(self.workspace, "no-final-newline.txt")
+        with open(target, "wb") as file_obj:
+            file_obj.write(b"alpha\nbeta")
+
+        EditTextFile(workspace=self.workspace)._run(
+            path="no-final-newline.txt",
+            data="gamma",
+            mode="replace",
+            start=2,
+            count=1,
+        )
+
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), b"alpha\ngamma")
+
+    def test_edit_text_file_rejects_stale_sha_without_writing(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        before = self.test_files["simple.txt"].encode("utf-8")
+        stale_sha256 = hashlib.sha256(b"older content").hexdigest()
+
+        result = EditTextFile(workspace=self.workspace)._run(
+            path="simple.txt",
+            data="replacement",
+            mode="replace",
+            expected_sha256=stale_sha256,
+        )
+
+        self.assertIn("changed after it was read", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), before)
+
+    def test_replace_string_failure_does_not_create_file(self):
+        result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="missing.txt",
+            old_string="not present",
+            new_string="replacement",
+        )
+
+        self.assertIn("does not exist", result)
+        self.assertFalse(os.path.exists(os.path.join(self.workspace, "missing.txt")))
+
+    def test_replace_string_dry_run_preserves_file(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="simple.txt",
+            old_string="Line 2",
+            new_string="Changed",
+            dry_run=True,
+        )
+
+        self.assertIn("Dry run successful", result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), self.test_files["simple.txt"])
+
+    def test_apply_text_patch_applies_multiple_edits(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        before_sha256 = hashlib.sha256(
+            self.test_files["simple.txt"].encode("utf-8")
+        ).hexdigest()
+        tool = ApplyTextPatch(workspace=self.workspace)
+
+        result = tool._run(
+            path="simple.txt",
+            expected_sha256=before_sha256,
+            edits=[
+                {"old_text": "Line 1", "new_text": "First"},
+                {"old_text": "Line 3", "new_text": "Third"},
+            ],
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["changed_edits"], 2)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), "First\nLine 2\nThird\n")
+
+    def test_apply_text_patch_validation_is_all_or_nothing(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        original = self.test_files["simple.txt"]
+
+        result = ApplyTextPatch(workspace=self.workspace)._run(
+            path="simple.txt",
+            edits=[
+                {"old_text": "Line 1", "new_text": "First"},
+                {"old_text": "Line", "new_text": "Row"},
+            ],
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["code"], "target_count_mismatch")
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), original)
+
+    def test_apply_text_patch_create_and_delete_dry_run(self):
+        tool = ApplyTextPatch(workspace=self.workspace)
+        create_result = tool._run(
+            path="created.txt",
+            action="create",
+            content="created\n",
+        )
+        self.assertTrue(create_result["ok"])
+        created_sha256 = create_result["after_sha256"]
+
+        delete_preview = tool._run(
+            path="created.txt",
+            action="delete",
+            expected_sha256=created_sha256,
+            dry_run=True,
+        )
+        self.assertTrue(delete_preview["ok"])
+        self.assertTrue(os.path.exists(os.path.join(self.workspace, "created.txt")))
+
+        delete_result = tool._run(
+            path="created.txt",
+            action="delete",
+            expected_sha256=created_sha256,
+        )
+        self.assertTrue(delete_result["ok"])
+        self.assertFalse(os.path.exists(os.path.join(self.workspace, "created.txt")))
+
+    def test_file_tool_schemas_require_mutating_arguments(self):
+        replace_schema = ArgReplaceStringInFile.model_json_schema()
+        patch_schema = ArgApplyTextPatch.model_json_schema()
+
+        self.assertEqual(
+            set(replace_schema["required"]),
+            {"path", "old_string", "new_string"},
+        )
+        self.assertIn("path", patch_schema["required"])
+        with self.assertRaises(ValidationError):
+            ArgReplaceStringInFile.model_validate(
+                {"path": "x", "old_string": "a", "new_string": "b", "typo": True}
+            )
+
+    def test_apply_text_patch_converts_to_mcp_schema(self):
+        mcp_tool = to_fastmcp(ApplyTextPatch(workspace=self.workspace))
+
+        self.assertIn("path", mcp_tool.parameters["required"])
+        self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
+        self.assertIn("edits", mcp_tool.parameters["properties"])
+
+    def test_apply_text_patch_local_invoke_validates_and_updates(self):
+        result = ApplyTextPatch(workspace=self.workspace).invoke(
+            {
+                "path": "simple.txt",
+                "edits": [{"old_text": "Line 2", "new_text": "Second"}],
+            }
+        )
+
+        self.assertTrue(result["ok"])
+        with open(
+            os.path.join(self.workspace, "simple.txt"), "r", encoding="utf-8"
+        ) as file_obj:
+            self.assertEqual(file_obj.read(), "Line 1\nSecond\nLine 3\n")
+
+    def test_get_diff_reports_identical_content(self):
+        self.assertIn(
+            "No changes detected",
+            get_diff(["unchanged\n"], ["unchanged\n"], "same.txt"),
+        )
+
     def test_callback_functionality(self):
         """Test callback system"""
         tool = SearchText(workspace=self.workspace)
@@ -400,16 +748,17 @@ class TestBaseReadWrite(unittest.TestCase):
         self.assertEqual(base.workspace, os.path.abspath(self.test_dir))
         self.assertEqual(base.max_read_size, 131072)
 
-    def test_check_file_creation(self):
-        """Test file creation in check_file method"""
+    def test_check_file_validation_has_no_creation_side_effect(self):
+        """File validation must not create a missing path."""
         base = BaseReadWrite()
         base.init_base_rw(self.test_dir)
         base.create_file = True
-        
-        # Check non-existent file (should create it)
-        success, msg, real_path = base.check_file("new_file.txt")
+
+        success, msg, real_path = base.check_file(
+            "new_file.txt", allow_missing=True
+        )
         self.assertTrue(success)
-        self.assertTrue(os.path.exists(real_path))
+        self.assertFalse(os.path.exists(real_path))
 
     def test_check_dir_empty_path(self):
         """Test check_dir with empty path"""
