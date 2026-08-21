@@ -1,0 +1,6 @@
+include:
+  - general.yaml
+
+stage[11].experience-hook: true
+stage[12].stage[0].experience-hook: true
+stage[12].experience-hook: true

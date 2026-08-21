@@ -2,7 +2,7 @@
 
 from curses import echo
 from .tools.context import ArbitContextSummary
-from .util.config import get_config
+from .util.config import get_config, save_runtime_config
 from .util.log import echo_g, echo_r, info, message, warning, error, msg_msg
 from .util.functions import (
     fmt_time_deta,
@@ -54,6 +54,7 @@ class VerifyAgent:
         output: str,
         config_file: Optional[str] = None,
         cfg_override: Optional[Dict[str, Any]] = None,
+        experience_profile: Optional[str] = None,
         tmp_overwrite: bool = False,
         template_dir: Optional[str] = None,
         template_cfg: Optional[Dict[str, Any]] = None,
@@ -88,6 +89,7 @@ class VerifyAgent:
             output (str): The output directory for the agent's results.
             config_file (str, optional): Path to the configuration file. Defaults to None.
             cfg_override (dict, optional): Dictionary to override configuration settings. Defaults to None.
+            experience_profile (str, optional): DUT experience overlay loaded after the base configuration.
             tmp_overwrite (bool, optional): Whether to overwrite existing templates in the workspace. Defaults to False.
             template_dir (str, optional): Path to the template directory. Defaults to None.
             stream_output (bool, optional): Whether to stream output to the console. Defaults to False.
@@ -119,6 +121,7 @@ class VerifyAgent:
         self.workspace = os.path.abspath(workspace)
         self.__version__ = __version__
         self.config_file = "" if config_file is None else str(config_file)
+        self.experience_profile = "" if experience_profile is None else str(experience_profile)
         saved_meta = saved_info.get("meta") if isinstance(saved_info.get("meta"), dict) else {}
         self.meta = copy.deepcopy(saved_meta)
         if meta:
@@ -126,7 +129,12 @@ class VerifyAgent:
             updated_info = copy.deepcopy(saved_info)
             updated_info["meta"] = copy.deepcopy(self.meta)
             fc.save_ucagent_info(self.workspace, updated_info)
-        self.cfg = get_config(config_file, cfg_override, self.workspace)
+        self.cfg = get_config(
+            config_file,
+            cfg_override,
+            self.workspace,
+            experience_profile=experience_profile,
+        )
         temp_args = {
             "OUT": output,
             "DUT": dut_name,
@@ -140,6 +148,7 @@ class VerifyAgent:
         self.cfg.seed = seed if seed is not None else random.randint(1, 999999)
         self.cfg._temp_cfg = temp_args
         self.cfg.freeze()
+        self.runtime_config_path = save_runtime_config(self.workspace, self.cfg)
         self.output_dir = os.path.join(self.workspace, output)
         # copy doc/Guide_Doc to workspace
         guide_doc_path = os.path.join(self.workspace, self.cfg.guide_doc.path)
@@ -251,6 +260,13 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        self.tool_list_waveform = [
+            WaveInfo(
+                workspace=self.workspace,
+                test_dir=self.cfg.tools.RunTestCases.test_dir,
+                dut_name=self.dut_name,
+            )
+        ]
         self.tool_list_file = [
             # Directory and file listing tools
             self.tool_list_dir,
@@ -399,6 +415,7 @@ class VerifyAgent:
                 )
         self.test_tools = fc.get_tools_from_cfg(
             self.tool_list_base
+            + self.tool_list_waveform
             + self.tool_list_file
             + self.tool_list_task
             + self.tool_list_ext
@@ -559,11 +576,10 @@ class VerifyAgent:
         self._need_break = value
 
     def is_break(self):
-        return (
-            self._need_break or threading.current_thread().ident in self._break_threads
-        )
+        return self._need_break or threading.current_thread().ident in self._break_threads
 
     def set_break_thread(self, thread_id: int) -> None:
+        self.set_break(True)
         self._break_threads.add(thread_id)
 
     def clear_break_thread(self, thread_id: int) -> None:
@@ -648,6 +664,12 @@ class VerifyAgent:
             self._sync_workspace_back_on_exit()
         finally:
             fc.chmode_rw(self.cwd_read_only_files)
+
+    def exit_unset(self):
+        if not self.is_exit():
+            return False
+        self._is_exit = False
+        return True
 
     def _cfg_bool(self, key: str, default: bool = False) -> bool:
         value = self.cfg.get_value(key, default)
@@ -967,6 +989,7 @@ class VerifyAgent:
                 "UCAgent": self.__version__,
                 "LLM": self.backend.model_name(),
                 "Temperature": self.backend.temperature(),
+                "IsBreak": self.is_break(),
                 "Stream": self.stream_output,
                 "Seed": self.seed,
                 "SummaryMode": self.summary_mode(),

@@ -1,0 +1,565 @@
+# General reusable experience overlay.
+# Keep these rules DUT-neutral: checker phrases, workflow recovery hints, and
+# API/fixture/FG/FC/CK conventions only. Instance-specific evidence and oracle
+# answers must not be persisted in reusable overlays.
+
+# Generic workflow guidance is injected for every DUT that includes this
+# overlay. Derive DUT-specific behavior from the current workspace at runtime.
+stage[11].task: "+可参考经验：模板阶段只追求所有文档 CK 有模板且 mark_function 正确；模板必须保留 assert False, 'Not implemented'。Check 返回下一批 CK 时继续补齐，直到 unmarked_check_points=0 且 test_function_with_no_check_point_mark=0。"
+stage[12].stage[0].task: "+可参考经验：分批实现只做当前批次列出的测试和必要 helper；不要为了同一缺陷扩写大量额外测试或新增 FG/FC/CK。每次 Check 失败后若出现 candidate_failure_hints，把它当作候选排查清单，先核对是否与本轮 checker 报告一致；不一致时以 checker/CurrentTips 为准。若出现 `No bin matched for pattern`、`KeyError: 'FG-*'`、`Invalid key ...` 或 mark_function 归属不一致，先对照 functions_and_checks.md 与 coverage_def 校准 FG/FC/CK/bin，再判断 DUT 缺陷；不要在映射未对齐时就补 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理文档类错误。"
+stage[12].task: "+可参考经验：综合检查以 checker 报告为准；若出现 candidate_failure_hints，先核对提示是否命中本轮错误，再参考其纠偏；没有提示或提示不适用时回到原始 checker 报告分析。不要保留旧文件名、旧函数名或历史批次的 <TC-*>。若分批实现阶段同时出现 coverage/mark 错误、remaining tests 和 bug_analysis 错误，优先级依次为：1) coverage 与 mark_function 对齐；2) 完成当前批次剩余测试；3) 最后处理 Undocumented Failed Cases、Checkpoint Not Marked、Checkpoint Not Found。不要在测试仍未实现完或 FG/FC/CK 尚未对齐时，把失败直接固化为 bug_analysis 结论。"
+stage[13].task: "+可参考经验：静态验证阶段的 FAILED nodeid 只用于定位，不代表 DUT 缺陷已经成立。遇到未记录失败时，先读取点名测试、直接调用的 API/fixture/reference model 和权威规格；独立推导预期、核对状态变化与观察时机，并单独复跑该 nodeid。只有预期行为有依据、失败稳定复现且实现证据一致时，才将精确 nodeid 写入对应 `<BG-*>`；测试或环境错误必须先修复，无法判定时不要写非零置信度 bug。禁止把一批失败未经逐项验证就统一归因到已有根因。"
+
+experience:
+  max_candidate_failure_hints: 2
+  # Runtime stage index mapping for the normal experience overlay load chain
+  # (config.yaml + this general.yaml + DUT experience overlay). Rule `stages`
+  # fields use the flattened runtime index string, while stage/task overlays use
+  # the config tree path below, for example:
+  # - runtime "21" -> stage[11]
+  # - runtime "22" -> stage[12].stage[0]
+  # - runtime "23" -> stage[12]
+  #
+  # Raw default.yaml has extra optional stages; after project config overrides,
+  # ignored optional stages are not parsed by parse_vstage(), so the runtime
+  # indices below are the practical indices seen by candidate_failure_hints.
+  stage_index_config_tree:
+    - runtime_index: "0"
+      config_path: "stage[0]"
+      name: "requirement_analysis_and_planning"
+    - runtime_index: "1"
+      config_path: "stage[1]"
+      name: "dut_function_understanding"
+    - runtime_index: "2"
+      config_path: "stage[2].stage[0]"
+      name: "dut_function_grouping"
+    - runtime_index: "3"
+      config_path: "stage[2].stage[1]"
+      name: "function_point_definition"
+    - runtime_index: "4"
+      config_path: "stage[2].stage[2]"
+      name: "check_point_design"
+    - runtime_index: "5"
+      config_path: "stage[2]"
+      name: "functional_specification_analysis"
+    - runtime_index: "6"
+      config_path: "stage[3]"
+      name: "static_bug_analysis"
+    - runtime_index: "7"
+      config_path: "stage[4].stage[0]"
+      name: "dut_creation_implementation"
+    - runtime_index: "8"
+      config_path: "stage[4].stage[1]"
+      name: "pytest_fixture_dut_implementation"
+    - runtime_index: "9"
+      config_path: "stage[4]"
+      name: "dut_wrapper_implementation"
+    - runtime_index: "10"
+      config_path: "stage[5].stage[0]"
+      name: "coverage_group_creation"
+    - runtime_index: "11"
+      config_path: "stage[5].stage[1].stage[0]"
+      name: "implemente_function_checks_in_batch"
+    - runtime_index: "12"
+      config_path: "stage[5].stage[1]"
+      name: "coverage_point_implementation"
+    - runtime_index: "13"
+      config_path: "stage[5]"
+      name: "coverage_model_implementation"
+    - runtime_index: "14"
+      config_path: "stage[6].stage[0]"
+      name: "human_check_env_specification"
+    - runtime_index: "15"
+      config_path: "stage[6].stage[1]"
+      name: "bundle_wrapper_design"
+    - runtime_index: "16"
+      config_path: "stage[6].stage[5]"
+      name: "env_fixture_implementation"
+    - runtime_index: "17"
+      config_path: "stage[6].stage[6]"
+      name: "evaluate_env_fixture"
+    - runtime_index: "18"
+      config_path: "stage[6].stage[7]"
+      name: "human_check_env_implementation"
+    - runtime_index: "19"
+      config_path: "stage[7]"
+      name: "basic_api_implementation"
+    - runtime_index: "20"
+      config_path: "stage[10]"
+      name: "basic_api_functional_test"
+    - runtime_index: "21"
+      config_path: "stage[11]"
+      name: "create_test_case_templates"
+    - runtime_index: "22"
+      config_path: "stage[12].stage[0]"
+      name: "test_case_implementation_in_batch"
+    - runtime_index: "23"
+      config_path: "stage[12]"
+      name: "comprehensive_verification_and_bug_analysis"
+    - runtime_index: "24"
+      config_path: "stage[13]"
+      name: "static_bug_validation"
+    - runtime_index: "25"
+      config_path: "stage[14]"
+      name: "line_coverage_analysis_and_improvement"
+    - runtime_index: "26"
+      config_path: "stage[15]"
+      name: "generate_random_test_cases"
+    - runtime_index: "27"
+      config_path: "stage[16]"
+      name: "verification_review_and_summary"
+
+  candidate_failure_hints:
+    - id: read_reference_files_first
+
+      priority: 10
+
+      patterns:
+
+        - "You need use tool `ReadTextFile`"
+
+        - "Not readed, need ReadTextFile"
+
+      hint: "checker 报告命中 ReadTextFile/reference_files 读取证据缺失时，不要立刻重试 Check/Complete。先按 checker 列出的 reference_files 逐个用 ReadTextFile 显式读取必要文件；不要只依赖已有上下文或目录印象。读完后再重试 Check/Complete。"
+
+
+
+    - id: bug_analysis_parse_error_incomplete_tc
+
+      priority: 15
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      regex:
+
+        - '\[Parse Error\].*bug_analysis\.md.*Incomplete label.*<TC-\*>.*need sub node.*<TC-\*>'
+
+      hint: "checker 报告命中 Parse Error/Incomplete label '<TC-*>' 时，只修报告当前列出的具体 CK/BG。若该 BG 确有失败用例，在其下补当前 failed list 中真实 pytest nodeid 的 <TC-test_file.py::test_func>；若该 BG 只是占位或判断错误，删除该 BG。不要批量给所有 CK/BG 补 TC，不要补 PASSED/历史 nodeid；保持 <FG>/<FC>/<CK>/<BG>/<TC> 完整层级，修完后立即 Check。"
+
+
+
+    - id: bug_analysis_parse_error_orphan_tc
+
+      priority: 16
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "Found TC tag '<TC-' but its parent BG tag '<BG-' was not found"
+
+        - "must be preceded by a '<BG-' tag"
+
+      hint: "checker 报告命中 Parse Error/TC parent BG missing 时，这是层级错误，不是缺 TC。只修报告中的具体行：把该 <TC-*> 移到已有对应 <BG-*> 下；只有确认缺父 BG 时才补父 <BG-*>。不要批量重写文档，不要给无关 CK/BG 补 TC，不要改变测试代码。修完后立即 Check。"
+
+    - id: bug_analysis_parse_error_missing_parent_tag
+      priority: 18
+      stages: ["22", "23", "24", "27"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+      regex:
+        - "\\[Parse Error\\].*bug_analysis\\.md.*Found (?:FC|CK|BG) tag '<(?:FC|CK|BG)-'.*parent (?:FG|FC|CK) tag '<(?:FG|FC|CK)-'.*was not found"
+      hint: "checker 报告命中 bug_analysis.md 的 Parse Error/parent tag missing 时，这是文档标签层级错误，不是新增 bug 或测试失败。只修报告点名的层级：<FC-*> 必须在对应 <FG-*> 下，<CK-*> 必须在对应 <FC-*> 下，<BG-*> 必须在对应 <CK-*> 下；移动现有段落或补最小缺失父节点即可。不要批量重写 bug_analysis.md，不要新增无关 FG/FC/CK/BG/TC，不要修改 DUT/测试逻辑。修完后立即 Check。"
+
+    - id: bug_confidence_suffix_parse_error
+      priority: 19
+      stages: ["22", "23", "24", "27"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+      patterns:
+        - "[Confidence Parse Error]"
+        - "where XX is a confidence integer from 0 to 100"
+      hint: "checker 报告命中 Confidence Parse Error 时，只修报告点名的 <BG-*> 标签：标签末尾必须是以连字符分隔的 0 到 100 十进制整数，例如 <BG-NAME-80>；不要把语义单词或 confidence=XX 文本拼进置信度位置。同步修正该 BG 的直接引用后立即重新 Check，不要修改测试或 DUT 逻辑。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "三类独立 DUT 日志均出现 BG 末尾无法解析为整数的 checker 失败；将报告点名的 BG 改为数字置信度后，同一 checker 继续推进或通过。"
+
+    - id: doc_parse_error_duplicate_label
+      priority: 17
+      regex:
+
+        - '(Tag hierarchy parse error|\[Parse Error\]|failed to parse).*is defined multiple times'
+
+      hint: "checker 报告命中 defined multiple times 时，说明当前被解析的标签文档中存在同名兄弟标签。只处理报告点名的重复 <FG>/<FC>/<CK>/<BG>/<TC>/<BG-STATIC>/<LINK-BUG>：把内容合并到第一次出现的位置，或删除/改名重复条目；不要新建第二个同名段落，不要改 DUT/测试逻辑。若重复的是 <TC-*>，同一个 pytest nodeid 只能记录一次；一个用例覆盖多个 CK 时优先把它放在最直接触发 bug 的 CK 下。修完后立即 Check。"
+
+
+
+    - id: test_case_not_found_cleanup
+
+      priority: 20
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Test Case Not Found]"
+
+        - "not found in the failed test list"
+
+      hint: "checker 报告命中 Test Case Not Found 时，不要直接补新 bug 条目，也不要改测试让旧 TC 失败。先清理 bug_analysis.md 中不存在、旧文件名、旧函数名或历史批次残留的非 0 置信度 <TC-*>；只有能在当前 failed list/TEST_REPORT 中找到且仍为 FAILED 的 pytest nodeid 才能改名保留。占位请用 <BG-*-0> 且不要挂伪 TC；修完后搜索旧文件名前缀/旧函数名并立即 Check/Complete。"
+
+
+
+    - id: test_case_status_mismatch
+
+      priority: 22
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Test Case Status Mismatch]"
+
+        - "expected to be FAILED but actually PASSED"
+
+      hint: "checker 报告命中 Test Case Status Mismatch 时，bug_analysis.md 中非 0 置信度 BG 引用了已 PASSED 的 TC。先核对是否真实 DUT bug；若不是，优先删除该 TC 或把对应 BG 改为 -0 占位并保留说明。不要为了满足文档而把正确测试改成失败；不要把 PASSED 用例继续挂在非 0 置信度 BG 下。修完后立即 Check/Complete。"
+
+
+
+    - id: checkpoint_not_marked
+
+      priority: 24
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Checkpoint Not Marked]"
+
+        - "have not called mark_function for their associated checkpoints"
+
+      hint: "checker 报告命中 Checkpoint Not Marked 时，bug_analysis.md 中 TC 所在 CK 与测试代码 mark_function 不一致。若测试确实覆盖该 CK，在测试开头补/修 env.dut.fc_cover['FG'].mark_function('FC', test_func, ['CK'])；若不覆盖，优先把 TC 移到实际 mark 的 CK 下或删除该 TC。不要为了文档把不相关测试硬标到无关 CK。"
+
+
+
+    - id: bug_analysis_checkpoint_not_found
+
+      priority: 26
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Checkpoint Not Found]"
+
+        - "that do not exist in the test report"
+
+      hint: "checker 报告命中 Checkpoint Not Found 时，bug_analysis.md 引用了当前测试报告不存在的 FG/FC/CK。只修报告点名的条目：按 functions_and_checks.md、coverage_def 和本轮报告中的真实 FG/FC/CK 改名或删除旧残留。不要发明新 CK，不要为了匹配 bug_analysis 去大改 coverage_def。"
+
+    - id: test_case_missing_assertions
+      priority: 28
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerTestMustPass"
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "RandomTestCasesChecker"
+      patterns:
+        - "[Missing Assertions]"
+        - "Every test case MUST contain at least one assert statement"
+      hint: "checker 报告命中 Missing Assertions 时，只处理当前报告列出的 test_* 函数：真实测试必须补能验证 DUT/API/env 可观察行为的 assert，异常路径使用 pytest.raises；不要只补 mark_function、空断言或恒真断言，也不要把缺少断言误判成 DUT 缺陷。若函数只是 helper 而不应被 pytest 收集，应改成非 test_ 名称。完成后先复跑点名测试，再重新 Check。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "API、批量实现、综合检查和随机测试日志中均出现相同 Missing Assertions 报告；为 checker 点名的测试补真实断言并复跑后，测试或阶段继续通过。"
+
+
+
+    - id: documentation_inconsistency_ck
+
+      priority: 30
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+        - "[Documentation Inconsistency]"
+        - "not defined in the document"
+      hint: "checker 报告命中 Documentation Inconsistency 时，说明测试/mark_function 使用了 functions_and_checks.md 未定义的 FG/FC/CK。优先修拼写、大小写或改回已有 CK；只有确认文档确实遗漏时才新增 CK，且必须同步 functions_and_checks.md 与 coverage_def。不要为一次测试临时发明 CK。"
+
+
+    - id: test_coverage_gap_doc_ck_not_implemented
+
+      priority: 32
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Test Coverage Gap]"
+
+        - "not defined in the test coverage group"
+
+      hint: "checker 报告命中 Test Coverage Gap 时，说明 functions_and_checks.md 中已有 CK，但当前测试/mark_function 没覆盖。只处理报告列出的 CK：补实现或补正确 mark_function；若 CK 已过期才从文档和 coverage_def 同步删除。不要把无关测试硬标到缺失 CK。"
+
+
+
+    - id: coverage_mark_no_bin_matched
+      priority: 35
+      stages: ["17", "20", "21", "22", "23", "24", "27"]
+      patterns:
+        - "No bin matched for pattern"
+      regex:
+        - "KeyError: 'FG-[^']+'"
+        - "ValueError: Invalid key"
+      hint: "checker/pytest 报告 No bin matched for pattern、KeyError: 'FG-*' 或 ValueError: Invalid key 时，说明 mark_function/fc_cover 引用了 coverage_def 中不存在或归属不正确的 FG/FC/CK/bin。先查 functions_and_checks.md 和 *_function_coverage_def.py 中已有 FG/FC/CK，把 mark_function 改成真实存在且语义匹配的项；同一测试覆盖多个 CK 时，先按 CK 所属的 (FG, FC) 分组，每个 (FG, FC) 单独调用一次 mark_function，并且只传该 coverage point 已定义的 CK，不要把跨 FG/FC 的 CK 塞进同一次调用。只有文档确实新增覆盖点时才同步补 coverage_def。不要临时发明覆盖标识符；不承担覆盖的 helper/env 测试应移除 mark_function 或改为非 test_。修完后立即 Check。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "同一测试把一个覆盖组的 checkpoint 传给另一个覆盖组，触发 No bin matched；按真实 FG/FC 归属拆分 mark_function 调用后 checker 恢复。"
+
+    - id: essential_checkpoint_missing
+      priority: 34
+      stages: ["11", "21"]
+      checkers:
+        - "UnityChipCheckerCoverageGroupBatchImplementation"
+        - "UnityChipCheckerTestTemplate"
+      patterns:
+        - "Not all 'check_points' in this batch have been completed"
+        - "essential ones"
+      hint: "覆盖批次 checker 报告数量已满足但 essential checkpoint 仍未完成时，先按报告点名的 checkpoint 核对 functions_and_checks.md 与 coverage_def 的 FG/FC 归属，并实现该 checkpoint；不要通过删除、改名或迁移 checkpoint 来满足数量要求。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "覆盖批次中 checkpoint 数量已满足，但 checker 仍指出 essential checkpoint 缺失；校正文档归属和 coverage_def 后阶段通过。该规则依赖 checker 语义，不依赖 DUT 名称。"
+          - "测试模板阶段也会由 UnityChipCheckerTestTemplate 报告同一 essential checkpoint 缺失语义；补齐报告点名的 checkpoint 和 mark_function 归属后继续推进。"
+
+    - id: api_checker_signature_contract
+      priority: 34
+      stages: ["19"]
+      checkers:
+        - "UnityChipCheckerDutApi"
+      patterns:
+        - "invalid or missing arguments"
+        - "missing the 'Args:' section in its docstring"
+      hint: "checker 报告 API 参数或 docstring 结构错误时，说明接口契约尚未满足。先按报告检查公开 API 的首参数、末尾默认参数以及必需的 Args 文档段，并只修当前列出的 API；不要修改 DUT 逻辑，也不要为了通过 checker 新增无关测试。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "API checker 连续报告参数签名和 Args 文档缺失，修正接口结构后阶段通过。"
+
+    - id: api_test_file_not_discovered
+      priority: 36
+      stages: ["20"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+      patterns:
+        - "No test files matching"
+        - "Missed APIs"
+      hint: "checker 报告 API 测试文件未被发现时，先按当前 checker 的文件匹配规则检查测试文件命名、路径和 pytest 可发现性，并为报告列出的 API 创建或修正测试；不要修改 checker，也不要把未发现的测试当作已覆盖。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "API 测试阶段报告没有匹配的测试文件和未覆盖 API，创建符合发现规则的测试文件后阶段继续通过。"
+
+    - id: unassociated_checkpoint
+      priority: 42
+      stages: ["20", "22", "23", "24", "27"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+      patterns:
+        - "[Unassociated Checkpoints]"
+        - "have no associated test cases"
+      hint: "checker 报告 checkpoint 没有测试关联时，先只处理报告列出的 checkpoint：在语义匹配的测试中补正确的 mark_function，或删除文档中已经过期且确实不应存在的 checkpoint；不要给无关测试硬塞标记。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "多轮运行都出现 checkpoint 无关联测试的 checker 失败，补齐或校正语义匹配的 mark_function 后继续推进。"
+
+    - id: dynamic_bug_link_missing_record
+      priority: 52
+      stages: ["24"]
+      checkers:
+        - "UnityChipCheckerStaticBugValidation"
+      patterns:
+        - "Confirmed dynamic bug tag"
+        - "not found in"
+        - "Add the complete record"
+      hint: "checker 报告已确认的动态 bug 链没有对应完整记录时，不要批量把静态分析猜测克隆为高置信度 BG。只处理报告点名的单个 <BG-*>：先在当前 TEST_REPORT/failed list 中找到能复现该静态结论的真实 FAILED pytest nodeid，并核对它的 FG/FC/CK 语义；只有证据存在时，才在 bug_analysis.md 中保留或补齐唯一一条完整的 <FG>/<FC>/<CK>/<BG>/<TC> 记录，使用 checker 点名的精确 BG 名称。若没有 FAILED TC 支持该静态结论，或它只是未验证假设，则把对应静态链接改为 <LINK-BUG-[BG-NA]> 并注明未获动态证实；不要创建新的动态 BG、不要把 PASSED TC 挂为 bug。逐个链接修复后，搜索同名 BG，合并/删除重复记录，并 Check 验证每个 <LINK-BUG-*> 都指向唯一、存在的完整动态记录。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "静态 Bug 验证阶段报告确认的动态 bug 标签缺少完整动态记录，补齐 bug_analysis.md 后后续阶段通过。"
+          - "一次运行中批量生成大量非零置信度 BG，静态验证反复失败且最终只确认少量动态链接；按单个精确 BG 与 FAILED TC 的完整记录核对可避免该类循环。"
+
+    - id: static_bug_evidence_oracle_and_sampling_audit
+      priority: 56
+      stages: ["24"]
+      checkers:
+        - "UnityChipCheckerStaticBugValidation"
+        - "UnityChipCheckerTestCase"
+      patterns:
+        - "static_bug_validation"
+        - "StaticBugValidation"
+        - "<LINK-BUG-"
+      hint: "静态分析候选在链接为已证实动态 BG 前，除核对 FAILED nodeid 与 FG/FC/CK 外，还必须独立依据权威规格推导测试预期，核对输入设置、状态变化、reference model 和结果观察时机。若失败仅由 expected、reference model、API/fixture 或采样时机不匹配造成，应先修正测试或环境，并将静态项标为 <LINK-BUG-[BG-NA]>；只有实现证据与独立预期一致时才允许升级为非零置信度 DUT bug。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "静态验证中曾出现状态序列的 expected 与独立状态演算不一致，失败被错误链接为高置信度动态 bug；先逐步维护参考状态可避免该类误判。"
+          - "静态验证中曾出现 API 推进状态后才采样输出的情况，导致观察时机被误判为 DUT 缺陷；先核对 API/fixture 的采样语义可避免该类误判。"
+
+    - id: random_test_file_not_discovered
+      priority: 44
+      stages: ["26"]
+      checkers:
+        - "RandomTestCasesChecker"
+      patterns:
+        - "found 0 test cases"
+        - "expected at least 1 cases"
+      hint: "checker 报告发现的随机测试数量为零时，先检查随机测试文件和 test_* 函数是否符合发现规则，并确保测试实际位于当前 workspace；不要把普通确定性测试当作随机测试。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "随机测试阶段报告发现 0 个测试，创建符合发现规则的随机测试文件后 checker 继续执行。"
+
+    - id: template_tests_must_fail_not_implemented
+      priority: 38
+      stages: ["21"]
+      checkers:
+        - "UnityChipCheckerTestTemplate"
+      patterns:
+        - "Template functions should contain 'Not implemented' messages"
+        - "Test templates must include 'assert False, \"Not implemented\"'"
+        - "Not all test functions"
+        - "are properly failing"
+      regex:
+        - "Template functions should contain '+Not implemented'+ messages"
+        - "Test templates must include '+assert False, \"Not implemented\"'+"
+      hint: "checker 报告命中测试模板缺少 Not implemented 失败语义时，先把当前阶段当作模板创建阶段，而不是 DUT/API/mock 调试阶段。先区分报告点名的 pytest test_* 函数是真正待实现的模板，还是历史遗留的 fixture/API 自检：真正模板保留/补语义正确且已定义的 mark_function，主体只写 TODO/步骤注释，并以 assert False, \"Not implemented\" 结束；不应参与模板阶段的内部 fixture 自检，应改为非 test_ helper 名称或移出 pytest 发现范围，不要为保留其通过状态而伪造 mark_function，也不要创建 coverage_def 中不存在的 FG/FC/CK。checker 明确豁免的 API 测试可以保留，但进入后续测试阶段前仍须拥有语义正确、真实存在的 mark_function。不要实现真实断言、不要访问真实 DUT，也不要在本阶段修 mock/xsp/fixture/getEvent/TEST_get_u64_step_func。修完后立即 Check/Complete。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "模板阶段中，已通过的 fixture 自检同时违反模板失败语义和 checkpoint 标记要求；将其从 test_* 重命名为 fixture_* 后，后续批量实现阶段的未标记测试数变为 0。"
+          - "已通过的环境自检被 pytest/checker 当作功能测试后，改为明确的 fixture/check helper 并移出功能测试发现范围，未标记测试数归零。"
+
+    - id: unmarked_test_functions
+      priority: 40
+      stages: ["20", "21", "22", "23", "24", "27"]
+      checkers:
+        - "UnityChipCheckerDutApiTest"
+        - "UnityChipCheckerTestTemplate"
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Unmarked Test Functions]"
+
+        - "not associated with any checkpoint"
+
+        - "without correct check point marks"
+
+      regex:
+
+        - "test_function_with_no_check_point_mark: [1-9][0-9]*"
+
+      hint: "checker 报告命中 Unmarked Test Functions 时，逐个处理报告点名的 test_* 函数：若是有效测试，在函数开头用 env.dut.fc_cover['FG'].mark_function('FC', test_func, ['CK']) 关联当前文档中存在且语义匹配的 CK；其中 test_func 必须传当前函数的可调用对象，普通函数传 test_xxx，类方法传 self.test_xxx，不要传字符串或 self.test_xxx.__name__。若只是 helper/env/调试函数，改成非 test_ 名称。不要给无关测试硬塞 CK。"
+
+
+
+    - id: undocumented_failed_cases
+
+      priority: 50
+
+      stages: ["22", "23", "24", "27"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+        - "UnityChipCheckerTestCase"
+
+      patterns:
+
+        - "[Undocumented Failed Cases]"
+
+        - "not documented in the bug analysis file"
+
+      hint: "checker 报告命中 Undocumented Failed Cases 时，FAILED nodeid 只用于定位，禁止直接批量归因 DUT。逐个读取点名测试及其直接调用的 API、fixture、reference model 和权威规格；不得把测试中已有的 expected 表达式当作正确性证据，必须独立推导预期，核对输入设置、状态变化、结果观察时机和全部断言，并单独复跑该 nodeid。将失败分类为 TEST_ERROR、API_ENV_ERROR、DUT_BUG 或 UNRESOLVED：前两类先修复，UNRESOLVED 不写非零置信度 bug；只有预期有权威依据、失败稳定复现且实现证据一致时，才在对应 CK/BG 下补精确 <TC-*>。"
+
+
+
+    - id: batch_remaining_tests
+
+      priority: 60
+
+      stages: ["22"]
+
+      checkers:
+
+        - "UnityChipCheckerBatchTestsImplementation"
+
+      patterns:
+
+        - "test cases remaining to be implemented"
+
+        - "please proceed to implement the following"
+
+      hint: "checker 报告命中 remaining tests 时，先把它视为分批进度/待办提示，而不是 DUT/root-cause 错误。核对 CurrentTips 和 checker 当前列出的测试；若本轮仍需推进，只实现当前报告列出的测试和必要 helper，完成后再 Check/Complete。若提示与阶段任务矛盾，以原始 checker 报告和 CurrentTips 为准；不要为了消除该提示额外新增测试文件或新 FG/FC/CK。"
+
+    - id: pytest_target_path_not_found
+      priority: 38
+      stages: ["20", "22", "23"]
+      patterns:
+        - "file or directory not found"
+        - "UsageError: file or directory not found"
+      hint: "pytest 报告 file or directory not found 时，先把它视为测试目标发现/路径问题：在当前 workspace 中检查真实文件名、相对目录和 pytest 可发现性，再运行 checker 报告或当前任务列出的实际目标；不要据此修改 DUT、把空收集结果当作通过，也不要继续反复尝试猜测路径。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "多次尝试不存在的 pytest 目标后，改用 workspace 中真实可发现的测试文件，测试继续执行并最终通过。"
+

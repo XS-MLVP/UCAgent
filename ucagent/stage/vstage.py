@@ -4,7 +4,7 @@
 from ucagent.util.functions import import_class_from_str, find_files_by_pattern
 import ucagent.util.functions as fc
 import ucagent.util.diff_ops as diff_ops
-from ucagent.util.log import info, warning
+from ucagent.util.log import info, warning, message
 from ucagent.util.config import Config
 import ucagent.checkers as checkers
 from collections import OrderedDict
@@ -43,6 +43,7 @@ class VerifyStage(object):
                  reference_files,
                  skill_list,
                  output_files,
+                 experience_hook=False,
                  force_use_skill=False,
                  prefix = "",
                  skip=False,
@@ -50,7 +51,10 @@ class VerifyStage(object):
                  need_fail_llm_suggestion=None,
                  need_pass_llm_suggestion=None,
                  need_human_check=False,
-                 substages=None):
+                 substages=None,
+                 pre_cmds=None,
+                 post_cmds=None
+                 ):
         """
         Initialize the VerifyStage.
         """
@@ -88,6 +92,7 @@ class VerifyStage(object):
             k:False for k in find_files_by_pattern(workspace, reference_files)
         }
         self.skill_list = self._init_skill_list(skill_list)
+        self.experience_hook = self._init_experience_hook(experience_hook)
         self.force_use_skill = force_use_skill
         self.output_files = output_files
         self.tool_read_text = tool_read_text
@@ -111,6 +116,8 @@ class VerifyStage(object):
         self.last_do_check_info_fail = None
         self.last_do_check_info_pass = None
         self._on_complete_callbacks = []
+        self.pre_cmds = pre_cmds
+        self.post_cmds = post_cmds
         # history version control
         self.hist_src_dir = cfg._temp_cfg["OUT"]
         self.hist_sav_dir = fc.get_abs_path_cwd_ucagent(workspace, "history")
@@ -429,7 +436,18 @@ class VerifyStage(object):
             payload["diff"] = ""
         return payload
 
+    def _process_cmds(self, cmd_list, prefix=""):
+        if not cmd_list:
+            return
+        info(f"[{self.__class__.__name__}.{self.name}] Processing {len(cmd_list)} {prefix} commands...")
+        for cmd in cmd_list:
+            fc.process_bash_cmd(self.workspace,
+                                cmd,
+                                message, self.vmanager.is_break if self.vmanager else None)
+
     def on_init(self):
+        self._mark_experience_log_start()
+        self._process_cmds(self.pre_cmds, "Pre-Bash")
         for c in self.checker:
             c.on_init()
 
@@ -473,7 +491,28 @@ class VerifyStage(object):
         else:
             warning(f"Stage {self.name} is already inited, cannot recall on_init.")
 
+    def _mark_experience_log_start(self):
+        if not getattr(self, "experience_hook", False):
+            return
+        if not self.vmanager:
+            return
+        if not self.vmanager._experience_processing_enabled():
+            return
+        try:
+            log_path = self.vmanager._get_msg_log_path()
+            if not log_path or not os.path.isfile(log_path):
+                return
+            self.meta_data["experience_log_scope"] = {
+                "log_path": log_path,
+                "start_offset": os.path.getsize(log_path),
+                "stage_index": getattr(self.vmanager, "stage_index", None),
+                "stage_name": self.name,
+            }
+        except Exception as exc:
+            warning(f"[{self.__class__.__name__}.{self.name}] failed to mark experience log start: {exc}")
+
     def on_complete(self):
+        self._process_cmds(self.post_cmds, "Post-Bash")
         if self.time_end is not None:
             return
         self.time_end = time.time()
@@ -564,6 +603,11 @@ class VerifyStage(object):
         skill_root = fc.get_workspace_skill_root(self.workspace)
         abs_file_path = os.path.abspath(self.workspace + os.path.sep + file_path)
         return abs_file_path.startswith(skill_root)
+
+    def _mark_reference_file_read(self, file_path):
+        if file_path in self.reference_files and not self.reference_files[file_path]:
+            self.reference_files[file_path] = True
+            info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
     
     def on_file_read(self, success, file_path, content):
         if not self.is_curent_active():
@@ -572,9 +616,7 @@ class VerifyStage(object):
             return
         if not success:
             return
-        if file_path in self.reference_files:
-            self.reference_files[file_path] = True
-            info(f"[{self.__class__.__name__}.{self.name}] Reference file {file_path} has been read by the LLM.")
+        self._mark_reference_file_read(file_path)
 
         if self.is_skill_path(file_path):
             abs_path = os.path.abspath(self.workspace + os.path.sep + file_path)
@@ -725,23 +767,40 @@ class VerifyStage(object):
             return False, OrderedDict({"error": f"Output file patterns not found in workspace. you need to generate those files.",
                                        "failed_patterns": success_out_msg})
         self.check_pass = True
+        stage_args = kwargs.pop("stage_args", {})
+        if stage_args is None:
+            stage_args = {}
+        if not isinstance(stage_args, dict):
+            return False, {"error": "stage_args must be a JSON object."}
+        checker_kwargs = {**stage_args, **kwargs}
+        for checker_info in self.check_info:
+            if checker_info is not None:
+                checker_info["checked_in_last_run"] = False
         for i, c in enumerate(self.checker):
             self.is_batch_success = False
-            ck_pass, ck_msg = c.check(*a, **kwargs)
+            ck_pass, ck_msg = c.check(*a, **checker_kwargs)
             if self.check_info[i] is None:
-                self.check_info[i] = {
+                checker_config_name = self._checker[i].name if i < len(self._checker) else ""
+                self.check_info[i] = OrderedDict({
                     "name": c.__class__.__name__,
+                    "checker_name": checker_config_name,
+                    "checker_class": c.__class__.__name__,
+                    "checked_in_last_run": True,
+                    "last_check_pass": ck_pass,
+                    "last_msg": ck_msg,
                     "count_pass": 0,
                     "count_fail": 0,
                     "count_check": 0,
-                    "last_msg": "",
-                }
+                })
+            else:
+                self.check_info[i]["checked_in_last_run"] = True
+                self.check_info[i]["last_check_pass"] = ck_pass
+                self.check_info[i]["last_msg"] = ck_msg
             count_pass, count_fail = (1, 0) if ck_pass else (0, 1)
             if self.is_batch_success:
                 count_fail = 0
             self.check_info[i]["count_pass"] += count_pass
             self.check_info[i]["count_fail"] += count_fail
-            self.check_info[i]["last_msg"] = ck_msg
             self.check_info[i]["count_check"] += 1
             if not ck_pass:
                 self.check_pass = False
@@ -880,6 +939,18 @@ class VerifyStage(object):
 
         return {k: [False, False, False] for k in validated_skill_list}
 
+    def _init_experience_hook(self, experience_hook):
+        if isinstance(experience_hook, bool):
+            return experience_hook
+        if experience_hook is None:
+            return False
+        raw = str(experience_hook).strip().lower()
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        raise ValueError(f"Stage '{self.name}' experience-hook must be a boolean.")
+
 
 def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
     if cfg is None:
@@ -894,6 +965,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         skill_list = stage.get_value('skill_list', [])
+        experience_hook = stage.get_value('experience-hook', False)
         force_use_skill = stage.get_value('force_use_skill', False)
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
@@ -925,6 +997,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             checker=checker,
             reference_files=reference_files,
             skill_list=skill_list,
+            experience_hook=experience_hook,
             force_use_skill=force_use_skill,
             output_files=output_files,
             tool_read_text=tool_read_text,
@@ -934,6 +1007,8 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
             need_fail_llm_suggestion=need_fail_llm_suggestion,
             need_pass_llm_suggestion=need_pass_llm_suggestion,
             need_human_check=need_human_check,
+            pre_cmds=stage.get_value('pre_cmds', None),
+            post_cmds=stage.get_value('post_cmds', None)
         ))
     return ret
 

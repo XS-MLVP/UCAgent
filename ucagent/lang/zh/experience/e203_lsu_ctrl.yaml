@@ -1,0 +1,27 @@
+include:
+  - general.yaml
+
+stage[11].experience-hook: true
+stage[12].stage[0].experience-hook: true
+stage[12].experience-hook: true
+
+experience:
+  candidate_failure_hints+:
+    - id: e203_lsu_ctrl_downstream_icb_dependency
+      priority: 72
+      stages: ["22", "23", "24"]
+      match_scope: ["focused", "full"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "UnityChipCheckerStaticBugValidation"
+      patterns:
+        - "FG-ICB-SEPARATION/FC-ICB-CMD-READY"
+        - "FG-ICB-SEPARATION/FC-ICB-EXCP-READY"
+      regex:
+        - "(?:AGU|NICE|ICB).*(?:timeout|response|ready)|(?:timeout|response|ready).*(?:AGU|NICE|ICB)"
+      hint: "e203_lsu_ctrl 的 ICB ready/response 路径超时时，先确认测试环境是否提供了完成该事务所需的下游 memory responder。缺少外部响应时，只能验证组合路由、请求保持和局部状态；未完成事务导致的超时、未覆盖或零置信度占位项应标为环境限制/BG-NA，不能升级为 DUT bug。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "e203_lsu_ctrl 日志确认，部分 ICB 事务路径依赖下游响应；静态候选经动态核验未形成已确认 DUT 缺陷。"

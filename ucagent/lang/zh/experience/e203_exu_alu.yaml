@@ -1,0 +1,26 @@
+include:
+  - general.yaml
+
+stage[11].experience-hook: true
+stage[12].stage[0].experience-hook: true
+stage[12].experience-hook: true
+
+experience:
+  candidate_failure_hints+:
+    - id: e203_exu_alu_agu_response_handshake_model
+      priority: 76
+      stages: ["22", "23", "24"]
+      match_scope: ["focused", "full"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "UnityChipCheckerStaticBugValidation"
+      patterns:
+        - "FG-ALU-AGU/FC-AGU-AMOADD"
+        - "AMOADD WRITE命令未发出"
+        - "AMOADD READ命令未完成"
+      hint: "e203_exu_alu 的 AMOADD 用例超时时，先把外部总线环境建成按 ready/valid 驱动的事务级 responder，并逐笔记录命令接受与响应接受。不要把持续有效的信号当作多笔事务，也不要让响应永久保持；超时前先核对测试环境是否真正完成了所需握手，再判断是否为 RTL bug。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "e203_exu_alu 日志中的 AMOADD 超时由 responder 时序驱动问题引起，尚未形成 RTL 缺陷证据。"

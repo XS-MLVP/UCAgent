@@ -1,0 +1,27 @@
+include:
+  - general.yaml
+
+stage[11].experience-hook: true
+stage[12].stage[0].experience-hook: true
+stage[12].experience-hook: true
+
+experience:
+  candidate_failure_hints+:
+    - id: sd_crc_16_bit_serial_lfsr_oracle
+      priority: 74
+      stages: ["22", "23", "24"]
+      match_scope: ["focused", "full"]
+      checkers:
+        - "UnityChipCheckerBatchTestsImplementation"
+        - "UnityChipCheckerTestCase"
+        - "UnityChipCheckerStaticBugValidation"
+      patterns:
+        - "FG-CRC-ALGORITHM/FC-LFSR-SHIFT"
+        - "FG-CRC-ALGORITHM/FC-FEEDBACK-LOGIC"
+        - "FG-BASIC-CRC/FC-MULTI-BIT-CRC"
+        - "FG-TIMING/FC-ASYNC-RESET"
+      hint: "sd_crc_16 的 LFSR、反馈、多 bit 或复位用例失败时，先按 RTL 的单 bit、单时钟沿语义建立 reference。不要直接套用字节级 CRC 库或未说明 bit-order 的已知向量；先明确输入位序、复位极性、使能保持和读值时机，再逐步比对状态。只有模型与采样时序一致后仍稳定不符，才建立 DUT bug。"
+      source:
+        kind: log_reviewed
+        evidence:
+          - "sd_crc_16 日志覆盖了算法、单 bit、多 bit、已知向量和复位时序；模板失败本身不能作为 CRC 缺陷证据。"

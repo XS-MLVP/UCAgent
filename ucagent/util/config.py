@@ -3,9 +3,17 @@
 import os
 import re
 import yaml
+from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from yaml.constructor import SafeConstructor
-from .functions import render_template, dump_as_json, replace_bash_var, get_abs_path_cwd_ucagent
+from .functions import (
+    render_template,
+    dump_as_json,
+    replace_bash_var,
+    get_abs_path_cwd_ucagent,
+    load_json_file,
+    save_json_file,
+)
 from .log import info
 import base64
 
@@ -15,6 +23,11 @@ _NEGATED_BOOL_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _DELETE_OVERRIDE = object()
+RUNTIME_CONFIG_FILENAME = "runtime_config.json"
+REQUIRED_RUNTIME_BOOL_OPTIONS = (
+    "need_ref_model",
+    "mock_components_enabled",
+)
 
 
 class UCAgentConfigLoader(yaml.SafeLoader):
@@ -219,7 +232,13 @@ class Config:
         for key, value in data.items():
             if skip_include and key == "include":
                 continue
-            if self._should_apply_merge_override(key, value):
+
+            raw_key = key
+            is_append = isinstance(key, str) and key.endswith('+')
+
+            if is_append:
+                self.set_value(raw_key, value)
+            elif self._should_apply_merge_override(key, value):
                 self.set_value(key, value)
             elif isinstance(value, dict):
                 if self.has_attr(key) and isinstance(getattr(self, key), Config):
@@ -234,6 +253,8 @@ class Config:
         if not isinstance(key, str):
             return False
         if "[" in key or "]" in key:
+            return True
+        if key.endswith("+"):
             return True
         if value == "@delete":
             return self._override_target_exists(key)
@@ -327,12 +348,25 @@ class Config:
     def _set_attr_value(self, current, target_key, value):
         if not isinstance(current, Config):
             raise TypeError(f"Cannot set attribute '{target_key}' on non-Config value.")
+        append_list = False
+        if isinstance(target_key, str) and target_key.endswith('+'):
+            append_list = True
+            target_key = target_key[:-1]
         if value is _DELETE_OVERRIDE:
             if not current.has_attr(target_key):
                 raise AttributeError(f"Configuration does not have attribute '{target_key}'")
             delattr(current, target_key)
             return
         old_value = getattr(current, target_key, None)
+        if append_list:
+            if current.has_attr(target_key) and not isinstance(old_value, list):
+                raise TypeError(f"Cannot append to non-list configuration value '{target_key}'.")
+            if isinstance(value, list):
+                base = list(old_value) if isinstance(old_value, list) else []
+                base.extend([self._to_config_value(item) for item in value])
+                setattr(current, target_key, base)
+                return
+            raise TypeError(f"Append override '{target_key}+' requires a list value.")
         if isinstance(old_value, list) and isinstance(value, str):
             if value.startswith('+'):
                 value = old_value + [value[1:]]
@@ -497,6 +531,89 @@ class Config:
         return self
 
 
+def build_runtime_config(cfg: Config) -> Dict[str, Any]:
+    """Build the non-secret runtime snapshot shared with workspace consumers."""
+    if not isinstance(cfg, Config):
+        raise TypeError("Runtime config can only be built from a Config instance.")
+
+    runtime_options = cfg.get_value("runtime_options", None)
+    if runtime_options is None:
+        raise ValueError("Configuration is missing required 'runtime_options'.")
+    if isinstance(runtime_options, Config):
+        runtime_options = runtime_options.as_dict()
+    elif isinstance(runtime_options, dict):
+        runtime_options = dict(runtime_options)
+    else:
+        raise TypeError("Configuration value 'runtime_options' must be a mapping.")
+
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Configuration value 'runtime_options.{key}' must be a boolean."
+            )
+
+    template_values = cfg.__dict__.get("_temp_cfg")
+    if not isinstance(template_values, dict):
+        raise ValueError("Configuration is missing resolved DUT/OUT template values.")
+    dut = template_values.get("DUT")
+    output = template_values.get("OUT")
+    if not isinstance(dut, str) or not dut.strip():
+        raise ValueError("Resolved configuration value 'DUT' must be a non-empty string.")
+    if not isinstance(output, str) or not output.strip():
+        raise ValueError("Resolved configuration value 'OUT' must be a non-empty string.")
+
+    return {
+        "schema_version": 1,
+        "DUT": dut,
+        "OUT": output,
+        "runtime_options": runtime_options,
+    }
+
+
+def validate_runtime_config(data: Any) -> Dict[str, Any]:
+    """Validate a runtime snapshot before it is consumed."""
+    if not isinstance(data, dict):
+        raise ValueError("Resolved runtime config must be a JSON object.")
+    if data.get("schema_version") != 1:
+        raise ValueError("Resolved runtime config has an unsupported schema_version.")
+    for key in ("DUT", "OUT"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            raise ValueError(
+                f"Resolved runtime config value '{key}' must be a non-empty string."
+            )
+
+    runtime_options = data.get("runtime_options")
+    if not isinstance(runtime_options, dict):
+        raise ValueError("Resolved runtime config has no runtime_options mapping.")
+    for key in REQUIRED_RUNTIME_BOOL_OPTIONS:
+        if type(runtime_options.get(key)) is not bool:
+            raise ValueError(
+                f"Resolved config value runtime_options.{key} must be a boolean."
+            )
+    return data
+
+
+def save_runtime_config(workspace: str, cfg: Config) -> Path:
+    """Persist resolved runtime options for skills, checkers, and other consumers."""
+    runtime_path = Path(
+        get_abs_path_cwd_ucagent(workspace, RUNTIME_CONFIG_FILENAME)
+    )
+    runtime_data = validate_runtime_config(build_runtime_config(cfg))
+    save_json_file(str(runtime_path), runtime_data)
+    return runtime_path
+
+
+def load_runtime_config(workspace: str) -> Dict[str, Any]:
+    """Load the shared resolved runtime snapshot from a workspace."""
+    runtime_path = Path(workspace) / ".ucagent" / RUNTIME_CONFIG_FILENAME
+    if not runtime_path.is_file():
+        raise FileNotFoundError(
+            f"Resolved runtime config not found: {runtime_path}. "
+            "Start UCAgent for this workspace before using runtime consumers."
+        )
+    return validate_runtime_config(load_json_file(str(runtime_path)))
+
+
 def find_file_in_paths(filename, search_paths):
     """
     Search for a file in a list of directories.
@@ -504,7 +621,7 @@ def find_file_in_paths(filename, search_paths):
     :param search_paths: List of directories to search in.
     :return: Full path to the file if found, otherwise None.
     """
-    if filename.startswith('/'):
+    if os.path.isabs(filename):
         # If the filename is an absolute path, return it directly
         if os.path.isfile(filename):
             return filename
@@ -541,7 +658,22 @@ def _normalize_include_value(include_value, config_file):
     return include_value
 
 
-def _resolve_include_file(include_file, parent_config_file):
+def _config_search_paths(lang, user_home=None, parent_dir=None):
+    paths = []
+    if parent_dir is not None:
+        paths.append(parent_dir)
+    paths.append(os.getcwd())
+    if user_home is not None:
+        paths.append(os.path.join(user_home, '.ucagent/'))
+    if lang:
+        paths.extend([
+            os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/"),
+            os.path.join(os.path.dirname(__file__), f"../lang/{lang}/experience/"),
+        ])
+    return paths
+
+
+def _resolve_include_file(include_file, parent_config_file, lang=None, user_home=None):
     include_file = os.path.expanduser(include_file)
     if os.path.isabs(include_file):
         if os.path.isfile(include_file):
@@ -549,16 +681,17 @@ def _resolve_include_file(include_file, parent_config_file):
         raise FileNotFoundError(f"Included config file '{include_file}' not found.")
 
     parent_dir = os.path.dirname(os.path.abspath(parent_config_file))
-    found_file = find_file_in_paths(include_file, [parent_dir, os.getcwd()])
+    search_paths = _config_search_paths(lang, user_home, parent_dir)
+    found_file = find_file_in_paths(include_file, search_paths)
     if found_file is not None:
         return os.path.abspath(found_file)
     raise FileNotFoundError(
-        f"Included config file '{include_file}' not found relative to "
-        f"'{parent_dir}' or current working directory '{os.getcwd()}'."
+        f"Included config file '{include_file}' not found in config search paths: "
+        f"{search_paths}."
     )
 
 
-def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
+def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None, lang=None, user_home=None):
     config_file = os.path.abspath(config_file)
     if config_file in loaded_configs:
         info(f"Config file '{config_file}' already loaded, ignore.")
@@ -576,8 +709,8 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
             raise TypeError(f"Config file '{config_file}' must contain a YAML mapping.")
 
         for include_file in _normalize_include_value(data.get("include"), config_file):
-            include_config_file = _resolve_include_file(include_file, config_file)
-            _merge_config_file(cfg, include_config_file, loaded_configs, loading_stack)
+            include_config_file = _resolve_include_file(include_file, config_file, lang=lang, user_home=user_home)
+            _merge_config_file(cfg, include_config_file, loaded_configs, loading_stack, lang=lang, user_home=user_home)
 
         cfg.merge_from_dict(data, skip_include=True)
         loaded_configs.append(config_file)
@@ -587,7 +720,52 @@ def _merge_config_file(cfg, config_file, loaded_configs, loading_stack=None):
         loading_stack.pop()
 
 
-def get_config(config_file=None, cfg_override=None, workspace=None):
+def resolve_experience_profile(dut_name, lang=None):
+    """Resolve the packaged experience profile for a DUT.
+
+    Profile names are DUT names without the ``.yaml`` suffix and match
+    case-insensitively.  ``general.yaml`` is a shared include, not a DUT
+    profile, so it is deliberately excluded from the lookup.
+    """
+    dut_key = str(dut_name or "").strip().casefold()
+    if not dut_key:
+        raise ValueError("A DUT name is required to select an experience profile.")
+
+    language_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../lang"))
+    languages = [str(lang)] if lang else [
+        entry
+        for entry in os.listdir(language_root)
+        if os.path.isdir(os.path.join(language_root, entry))
+    ]
+    available = []
+    matches = []
+    for language in languages:
+        experience_dir = os.path.join(language_root, language, "experience")
+        if not os.path.isdir(experience_dir):
+            continue
+        for filename in sorted(os.listdir(experience_dir)):
+            stem, extension = os.path.splitext(filename)
+            if extension.lower() not in {".yaml", ".yml"} or stem.casefold() == "general":
+                continue
+            available.append(stem)
+            if stem.casefold() == dut_key:
+                matches.append(os.path.abspath(os.path.join(experience_dir, filename)))
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Experience profile for DUT '{dut_name}' is ambiguous: {matches}. "
+            "Specify a configured language before selecting a profile."
+        )
+    profiles = ", ".join(sorted(set(available), key=str.casefold)) or "(none)"
+    raise FileNotFoundError(
+        f"Experience profile for DUT '{dut_name}' was not found. "
+        f"Available profiles: {profiles}."
+    )
+
+
+def get_config(config_file=None, cfg_override=None, workspace=None, experience_profile=None):
     """
     Get the configuration for the agent.
     :param config_file: Path to the configuration file.
@@ -619,13 +797,13 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     lang_config_file = os.path.abspath(os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/default.yaml"))
     info(f"Load config from '{lang_config_file}'")
     assert os.path.isfile(lang_config_file), f"Language configuration file '{lang_config_file}' not found."
-    _merge_config_file(cfg, lang_config_file, loaded_configs)
+    _merge_config_file(cfg, lang_config_file, loaded_configs, lang=lang, user_home=user_home)
 
     # 4. load workspace config
     if workspace is not None:
         cwd_setting_file = get_abs_path_cwd_ucagent(workspace, "setting.yaml")
         if os.path.isfile(cwd_setting_file):
-            _merge_config_file(cfg, cwd_setting_file, loaded_configs)
+            _merge_config_file(cfg, cwd_setting_file, loaded_configs, lang=lang, user_home=user_home)
         else:
             info(f"Workspace config file '{cwd_setting_file}' not found, ignore.")
 
@@ -633,19 +811,25 @@ def get_config(config_file=None, cfg_override=None, workspace=None):
     target_file = config_file
     if config_file is None:
         target_file = 'config.yaml'  # Default configuration file
-    user_config_file_path = find_file_in_paths(target_file, [os.getcwd(),
-                                                             os.path.join(user_home, '.ucagent/'),
-                                                             os.path.join(os.path.dirname(__file__), f"../lang/{lang}/config/")
-                                                      ])
+    user_config_file_path = find_file_in_paths(target_file, _config_search_paths(lang, user_home))
     if config_file is not None:
         assert user_config_file_path is not None, f"Config file '{config_file}' not found in current directory or default config path."
     if user_config_file_path is None:
         info(f"Default user config file '{config_file}' not found, ignore.")
     else:
         user_config_file_path = os.path.abspath(user_config_file_path)
-        _merge_config_file(cfg, user_config_file_path, loaded_configs)
+        _merge_config_file(cfg, user_config_file_path, loaded_configs, lang=lang, user_home=user_home)
 
-    # set override values
+    # 6. load the optional DUT experience overlay after the base configuration.
+    # This preserves ordinary config precedence while allowing the overlay to
+    # inject stage guidance and candidate failure hints.
+    if experience_profile:
+        profile_file = os.path.abspath(os.path.expanduser(str(experience_profile)))
+        if not os.path.isfile(profile_file):
+            raise FileNotFoundError(f"Experience profile '{experience_profile}' not found.")
+        _merge_config_file(cfg, profile_file, loaded_configs, lang=lang, user_home=user_home)
+
+    # 7. set override values
     cfg.set_values(cfg_override)
     object.__setattr__(cfg, "_loaded_config_files", list(loaded_configs))
     return cfg.freeze()

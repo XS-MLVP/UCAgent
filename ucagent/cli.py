@@ -18,12 +18,14 @@ import posixpath
 import shutil
 import stat
 import tarfile
-from typing import Dict, List, Any, Optional, Union
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Any, Optional, Tuple, Union
 import tempfile
 import traceback
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+import yaml
 
 # Add the current directory to path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -388,6 +390,21 @@ def _append_override(overrides: Optional[OverrideValues], key: str, value: Any) 
     return result
 
 
+def _apply_experience_cli_overrides(args: argparse.Namespace) -> None:
+    all_requested = getattr(args, "experience", False)
+    audit_requested = all_requested or getattr(args, "experience_audit", False)
+    distill_requested = all_requested or getattr(args, "experience_distill", False)
+    if not (audit_requested or distill_requested):
+        return
+
+    if getattr(args, 'experience_out_dir', None):
+        args.override = _append_override(args.override, "experience.out_dir", args.experience_out_dir)
+    args.override = _append_override(args.override, "experience.prior_rule_audit_enable", audit_requested)
+    args.override = _append_override(args.override, "experience.llm_distill_enable", distill_requested)
+    if getattr(args, 'experience_llm_max_events', None) is not None:
+        args.override = _append_override(args.override, "experience.llm_max_events", args.experience_llm_max_events)
+
+
 def get_override_dict(override_str: Optional[str]) -> OverrideValues:
     """Parse override string into dictionary.
 
@@ -451,6 +468,87 @@ def get_meta_dict(meta_args) -> Dict[str, str]:
     for key, value in meta_args or []:
         meta[str(key)] = str(value)
     return meta
+
+
+@dataclass(frozen=True)
+class RequiredArgument:
+    """One argument that can satisfy a CLI dependency requirement."""
+
+    dest: str
+    option: str
+    is_satisfied: Callable[[Any], bool] = bool
+
+
+@dataclass(frozen=True)
+class ArgumentRequirement:
+    """A requirement satisfied when any of its argument alternatives is enabled."""
+
+    alternatives: Tuple[RequiredArgument, ...]
+
+
+@dataclass(frozen=True)
+class ArgumentDependency:
+    """Declarative dependency between one CLI argument and other arguments."""
+
+    source_dest: str
+    source_option: str
+    applies: Callable[[Any], bool]
+    requires: Tuple[ArgumentRequirement, ...]
+    reason: str
+
+
+ARGUMENT_DEPENDENCIES = (
+    ArgumentDependency(
+        source_dest="backend",
+        source_option="--backend",
+        applies=lambda value: value is not None and value != "langchain",
+        requires=(
+            ArgumentRequirement(
+                alternatives=(
+                    RequiredArgument("mcp_server_no_file_tools", "--mcp-server-no-file-tools"),
+                    RequiredArgument("mcp_server", "--mcp-server"),
+                ),
+            ),
+        ),
+        reason=(
+            "non-langchain backends communicate with UCAgent through MCP; enable "
+            "'--mcp-server-no-file-tools' (recommended) to avoid exposing MCP file "
+            "tools, or use '--mcp-server' when those file tools are needed"
+        ),
+    ),
+)
+
+
+def validate_argument_dependencies(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    dependencies: Tuple[ArgumentDependency, ...] = ARGUMENT_DEPENDENCIES,
+) -> None:
+    """Validate declarative cross-argument dependencies."""
+    for dependency in dependencies:
+        source_value = getattr(args, dependency.source_dest, None)
+        if not dependency.applies(source_value):
+            continue
+
+        missing = [
+            requirement
+            for requirement in dependency.requires
+            if not any(
+                alternative.is_satisfied(getattr(args, alternative.dest, None))
+                for alternative in requirement.alternatives
+            )
+        ]
+        if not missing:
+            continue
+
+        required_options = " and ".join(
+            " or ".join(f"'{alternative.option}'" for alternative in requirement.alternatives)
+            for requirement in missing
+        )
+        parser.error(
+            f"{dependency.source_option}={source_value!r} requires {required_options}: "
+            f"{dependency.reason}."
+        )
 
 
 def get_args() -> argparse.Namespace:
@@ -923,7 +1021,45 @@ def get_args() -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
 
+    parser.add_argument(
+        "--experience",
+        action="store_true",
+        default=False,
+        help="Load the current DUT experience profile and enable its stage-scoped prior-rule audit and LLM distill.",
+    )
+    parser.add_argument(
+        "--experience-profile",
+        action="store_true",
+        default=False,
+        help="Load the current DUT experience profile without generating audit or distill artifacts.",
+    )
+    parser.add_argument(
+        "--experience-audit",
+        action="store_true",
+        default=False,
+        help="Load the current DUT experience profile and generate stage-scoped prior-rule audit artifacts.",
+    )
+    parser.add_argument(
+        "--experience-distill",
+        action="store_true",
+        default=False,
+        help="Load the current DUT experience profile and generate stage-scoped LLM candidate hints.",
+    )
+    parser.add_argument(
+        "--experience-out-dir",
+        type=str,
+        default=None,
+        help="Directory for experience audit/distill artifacts. Relative paths are workspace-relative.",
+    )
+    parser.add_argument(
+        "--experience-llm-max-events",
+        type=int,
+        default=None,
+        help="Maximum extracted failure events sent to the LLM distiller.",
+    )
+
     args = parser.parse_args()
+    validate_argument_dependencies(parser, args)
     merged_override = []
     for override in args.override or []:
         if isinstance(override, list):
@@ -1157,7 +1293,6 @@ def run() -> None:
     template_cfg_overrides = {}
     if args.template_cfg_override:
         for cfg_file in args.template_cfg_override:
-            import yaml
             assert os.path.isfile(cfg_file), f"Template config override file not found: {cfg_file}"
             with open(cfg_file, 'r') as f:
                 cfg_data = yaml.safe_load(f)
@@ -1229,6 +1364,13 @@ def run() -> None:
         for tool_str in args.ex_tools:
             ex_tools.extend(get_list_from_str(tool_str))
 
+    _apply_experience_cli_overrides(args)
+    experience_profile = None
+    if any((args.experience, args.experience_profile, args.experience_audit, args.experience_distill)):
+        from ucagent.util.config import resolve_experience_profile
+
+        experience_profile = resolve_experience_profile(args.dut)
+
     # Create and configure the agent
     agent = VerifyAgent(
         workspace=args.workspace,
@@ -1236,6 +1378,7 @@ def run() -> None:
         output=args.output,
         config_file=args.config,
         cfg_override=args.override,
+        experience_profile=experience_profile,
         tmp_overwrite=args.template_overwrite,
         template_dir=args.template_dir,
         template_cfg=template_cfg_overrides,

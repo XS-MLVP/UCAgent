@@ -10,11 +10,75 @@ from unittest import mock
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.abspath(os.path.join(current_dir, "..")))
 
-from ucagent.cli import get_args, get_override_dict
-from ucagent.util.config import Config, load_yaml_with_env_vars, _merge_config_file
+from ucagent.cli import _apply_experience_cli_overrides, get_args, get_override_dict
+import ucagent.util.config as config_module
+from ucagent.util.config import (
+    Config,
+    get_config,
+    load_yaml_with_env_vars,
+    resolve_experience_profile,
+    _merge_config_file,
+)
 
 
 class TestConfigLoader(unittest.TestCase):
+    def test_default_document_path_uses_template_overwrite(self):
+        config_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+        config_data = load_yaml_with_env_vars(config_path)
+
+        self.assertEqual(config_data["template_overwrite"]["DOC_PATH"], "{DUT}_Doc")
+        functional_stage = next(
+            stage
+            for stage in config_data["stage"]
+            if stage["name"] == "functional_specification_analysis"
+        )
+        self.assertIn("{DOC_PATH}/*.md", functional_stage["reference_files"])
+        line_map_stage = next(
+            stage
+            for stage in functional_stage["stage"]
+            if stage["name"] == "functional_line_mapping_gap_analysis"
+        )
+        self.assertIn(
+            "{DOC_PATH}/*.md",
+            line_map_stage["checker"][0]["args"]["file_list"],
+        )
+
+        config = Config(config_data)
+        config.update_template({"DUT": "Adder"})
+        config.update_template(config.template_overwrite.as_dict())
+        resolved = config.as_dict()
+        resolved_functional_stage = next(
+            stage
+            for stage in resolved["stage"]
+            if stage["name"] == "functional_specification_analysis"
+        )
+        self.assertIn("Adder_Doc/*.md", resolved_functional_stage["reference_files"])
+
+        labeled_spec_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "labeled_spec.yaml"
+        )
+        labeled_spec = load_yaml_with_env_vars(labeled_spec_path)
+        self.assertIn("{DOC_PATH}/", "\n".join(labeled_spec["stage[2].task"]))
+        self.assertIn(
+            "{DOC_PATH}/*.md",
+            labeled_spec["stage[2].checker"][1]["args"]["source_files"],
+        )
+
+    def test_default_prompt_requires_stage_local_reference_file_reads(self):
+        config_path = os.path.join(
+            current_dir, "..", "ucagent", "lang", "zh", "config", "default.yaml"
+        )
+
+        config = load_yaml_with_env_vars(config_path)
+        system_prompt = config["mission"]["prompt"]["system"]
+
+        self.assertIn("各stage相互独立", system_prompt)
+        self.assertIn("逐一用`ReadTextFile`读取其`reference_files`", system_prompt)
+        self.assertIn("`count=1`轻量复核", system_prompt)
+        self.assertIn("`count=0`仅登记已读而不返回正文", system_prompt)
+
     def test_load_yaml_with_negated_bool_scalars(self):
         yaml_content = """
 plain_true: true
@@ -400,6 +464,214 @@ plain_text: not enabled
                 "{ASSETS}/mcp_new.json": "{CWD}/new.json",
             },
         )
+
+    def test_merge_from_dict_appends_nested_list_with_plus_key(self):
+        cfg = Config({
+            "experience": {
+                "candidate_failure_hints": [
+                    {"id": "base"},
+                ],
+            },
+        })
+
+        cfg.merge_from_dict({
+            "experience": {
+                "candidate_failure_hints+": [
+                    {"id": "child"},
+                ],
+            },
+        })
+
+        self.assertEqual(
+            [item.id for item in cfg.experience.candidate_failure_hints],
+            ["base", "child"],
+        )
+
+    def test_merge_from_dict_appends_dotted_list_with_plus_key(self):
+        cfg = Config({
+            "experience": {
+                "candidate_failure_hints": [
+                    {"id": "base"},
+                ],
+            },
+        })
+
+        cfg.merge_from_dict({
+            "experience.candidate_failure_hints+": [
+                {"id": "dotted"},
+            ],
+        })
+
+        self.assertEqual(
+            [item.id for item in cfg.experience.candidate_failure_hints],
+            ["base", "dotted"],
+        )
+        self.assertFalse(cfg.has_attr("experience.candidate_failure_hints"))
+
+    def test_merge_from_dict_accepts_hyphenated_experience_hook_key(self):
+        cfg = Config({
+            "stage": [
+                {"name": "example"},
+            ],
+        })
+
+        cfg.merge_from_dict({
+            "stage[0].experience-hook": True,
+        })
+
+        self.assertIs(cfg.stage[0].get_value("experience-hook"), True)
+        self.assertFalse(cfg.stage[0].has_attr("experience_hook"))
+
+    def test_yaml_include_searches_language_experience_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_util_dir = os.path.join(temp_dir, "ucagent", "util")
+            experience_dir = os.path.join(temp_dir, "ucagent", "lang", "zh", "experience")
+            os.makedirs(fake_util_dir, exist_ok=True)
+            os.makedirs(experience_dir, exist_ok=True)
+
+            shared_experience_file = os.path.join(experience_dir, "shared_exp.yaml")
+            with open(shared_experience_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "experience:\n"
+                    "  candidate_failure_hints:\n"
+                    "    - id: shared\n"
+                    "      patterns: [shared pattern]\n"
+                    "      hint: shared hint\n"
+                )
+
+            target_file = os.path.join(temp_dir, "main.yaml")
+            with open(target_file, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "include:\n"
+                    "  - shared_exp.yaml\n"
+                    "experience:\n"
+                    "  candidate_failure_hints+:\n"
+                    "    - id: local\n"
+                    "      patterns: [local pattern]\n"
+                    "      hint: local hint\n"
+                )
+
+            cfg = Config()
+            loaded_configs = []
+            fake_config_py = os.path.join(fake_util_dir, "config.py")
+            with mock.patch.object(config_module, "__file__", fake_config_py):
+                _merge_config_file(cfg, target_file, loaded_configs, lang="zh", user_home=temp_dir)
+
+        self.assertEqual(
+            [item.id for item in cfg.experience.candidate_failure_hints],
+            ["shared", "local"],
+        )
+        self.assertEqual(
+            [os.path.basename(path) for path in loaded_configs],
+            ["shared_exp.yaml", "main.yaml"],
+        )
+
+    def test_experience_enables_profile_audit_and_distill_overrides(self):
+        args = mock.Mock()
+        args.override = []
+        args.experience = True
+        args.experience_audit = False
+        args.experience_distill = False
+        args.experience_out_dir = None
+        args.experience_llm_max_events = None
+
+        _apply_experience_cli_overrides(args)
+
+        self.assertEqual(
+            args.override,
+            [
+                {"experience.prior_rule_audit_enable": True},
+                {"experience.llm_distill_enable": True},
+            ],
+        )
+
+    def test_experience_audit_and_distill_are_independent(self):
+        args = mock.Mock()
+        args.override = []
+        args.experience = False
+        args.experience_audit = True
+        args.experience_distill = False
+        args.experience_out_dir = None
+        args.experience_llm_max_events = 7
+
+        _apply_experience_cli_overrides(args)
+
+        self.assertEqual(
+            args.override,
+            [
+                {"experience.prior_rule_audit_enable": True},
+                {"experience.llm_distill_enable": False},
+                {"experience.llm_max_events": 7},
+            ],
+        )
+
+    def test_experience_distill_explicitly_disables_audit(self):
+        args = mock.Mock()
+        args.override = []
+        args.experience = False
+        args.experience_audit = False
+        args.experience_distill = True
+        args.experience_out_dir = None
+        args.experience_llm_max_events = None
+
+        _apply_experience_cli_overrides(args)
+
+        self.assertEqual(
+            args.override,
+            [
+                {"experience.prior_rule_audit_enable": False},
+                {"experience.llm_distill_enable": True},
+            ],
+        )
+
+    def test_experience_profile_alone_does_not_enable_artifact_processing(self):
+        args = mock.Mock()
+        args.override = []
+        args.experience = False
+        args.experience_audit = False
+        args.experience_distill = False
+        args.experience_profile = True
+        args.experience_out_dir = "ignored"
+        args.experience_llm_max_events = 7
+
+        _apply_experience_cli_overrides(args)
+
+        self.assertEqual(args.override, [])
+
+    def test_removed_experience_flags_are_rejected(self):
+        for flag in (
+            "--extract-experience",
+            "--experience-llm-distill",
+            "--no-experience-log-hints",
+        ):
+            with mock.patch("sys.argv", ["ucagent.py", ".", "Adder", flag]):
+                with self.assertRaises(SystemExit):
+                    get_args()
+
+    def test_resolve_experience_profile_matches_dut_case_insensitively(self):
+        profile = resolve_experience_profile("Adder", lang="zh")
+
+        self.assertEqual(os.path.basename(profile), "adder.yaml")
+
+    def test_resolve_experience_profile_lists_available_profiles_when_missing(self):
+        with self.assertRaisesRegex(FileNotFoundError, "Available profiles:.*adder"):
+            resolve_experience_profile("unknown_dut", lang="zh")
+
+    def test_experience_profile_loads_after_base_config_and_before_cli_override(self):
+        repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+        profile = os.path.join(repo_root, "ucagent", "lang", "zh", "experience", "adder.yaml")
+        with tempfile.TemporaryDirectory() as workspace:
+            cfg = get_config(
+                config_file=os.path.join(repo_root, "config.yaml"),
+                workspace=workspace,
+                experience_profile=profile,
+                cfg_override=[{"stage[11].task": "CLI wins"}],
+            )
+
+        self.assertTrue(cfg.stage[11].get_value("experience-hook"))
+        self.assertEqual(cfg.stage[11].task, "CLI wins")
+        loaded_names = [os.path.basename(path) for path in cfg._loaded_config_files]
+        self.assertLess(loaded_names.index("config.yaml"), loaded_names.index("adder.yaml"))
 
 
 if __name__ == '__main__':

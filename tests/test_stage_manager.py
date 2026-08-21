@@ -4,6 +4,8 @@
 
 import os
 import sys
+import asyncio
+import pytest
 from types import SimpleNamespace
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +21,9 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
             del sys.modules[module_name]
 
 import ucagent.stage.vmanager as vmanager
-from ucagent.stage.vmanager import StageManager
+from ucagent.stage.vstage import VerifyStage
+from ucagent.stage.vmanager import ArgsDoCheck, StageManager, ToolDoCheck, ToolDoComplete
+from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
 
 
@@ -111,6 +115,63 @@ class _FakeAgent:
 
     def get_stat_info(self):
         return {"version": "test"}
+
+
+class _HintConfig:
+    def __init__(self, values):
+        self.values = values
+
+    def get_value(self, key, default=None):
+        return self.values.get(key, default)
+
+
+def _hint_manager(stage_index, rules):
+    manager = StageManager.__new__(StageManager)
+    cfg = _HintConfig({
+        "experience.candidate_failure_hints": rules,
+        "experience.max_candidate_failure_hints": 2,
+    })
+    manager.agent = _FakeAgent(cfg)
+    manager.stages = [_FakeStage(index) for index in range(28)]
+    manager.stage_index = stage_index
+    return manager
+class _FakeCurrentStageManager:
+    def __init__(self, current_stage):
+        self._current_stage = current_stage
+
+    def get_current_stage(self):
+        return self._current_stage
+
+
+class _RecordingCheckStage:
+    name = "recording-stage"
+
+    def __init__(self):
+        self.calls = []
+        self._is_reached = False
+        self.init_count = 0
+
+    def do_check(self, **kwargs):
+        self.calls.append(kwargs)
+        return True, {"seen": kwargs}
+
+    def meta_get_journal(self):
+        return "journal"
+
+    def get_approved(self):
+        return True
+
+    def is_hmcheck_needed(self):
+        return False
+
+    def on_complete(self):
+        pass
+
+    def set_reached(self, value):
+        self._is_reached = value
+
+    def on_init(self):
+        self.init_count += 1
 
 
 def _cfg():
@@ -225,3 +286,505 @@ def test_save_stage_info_persists_mission_name_and_exit_state(tmp_path):
     assert saved["mission_name"] == "Formal Coverage Mission"
     assert saved["is_agent_exit"] is True
     assert saved["all_completed"] is False
+
+
+def test_failure_hint_matches_unmarked_api_test_at_stage_20():
+    rule = {
+        "id": "unmarked_test_functions",
+        "priority": 40,
+        "stages": ["20", "21", "22", "23", "24", "27"],
+        "checkers": ["UnityChipCheckerDutApiTest"],
+        "patterns": ["[Unmarked Test Functions]"],
+        "hint": "mark bound methods with self.test_xxx",
+    }
+    manager = _hint_manager(20, [rule])
+
+    hints = manager._select_candidate_failure_hints({
+        "check_info": [{
+            "name": "UnityChipCheckerDutApiTest",
+            "last_msg": {
+                "error": "[Unmarked Test Functions] test_api_reset has no mark_function",
+            },
+        }],
+    })
+
+    assert hints == ["mark bound methods with self.test_xxx"]
+
+
+def test_failure_hint_matches_undocumented_case_at_static_validation_stage():
+    rule = {
+        "id": "undocumented_failed_cases",
+        "priority": 50,
+        "stages": ["22", "23", "24", "27"],
+        "checkers": ["UnityChipCheckerTestCase"],
+        "patterns": ["[Undocumented Failed Cases]"],
+        "hint": "preserve the checker nodeid exactly",
+    }
+    manager = _hint_manager(24, [rule])
+
+    hints = manager._select_candidate_failure_hints({
+        "check_info": [{
+            "name": "UnityChipCheckerTestCase",
+            "last_msg": {
+                "error": "[Undocumented Failed Cases] unity_test/tests/test_static.py:17-60::test_static",
+            },
+        }],
+    })
+
+    assert hints == ["preserve the checker nodeid exactly"]
+
+
+def test_experience_out_dir_is_workspace_relative(monkeypatch, tmp_path):
+    manager = StageManager.__new__(StageManager)
+    manager.workspace = str(tmp_path)
+    manager.stage_index = 22
+    manager.agent = _FakeAgent(_HintConfig({
+        "experience.out_dir": "artifacts/experience",
+        "experience.out_dir_stage_suffix": True,
+    }))
+
+    output = manager._stage_experience_out_dir(SimpleNamespace(name="implementation"))
+
+    assert output == os.path.join(str(tmp_path), "artifacts", "experience", "stage_22_implementation")
+
+
+def test_experience_processing_requires_audit_or_distill():
+    manager = StageManager.__new__(StageManager)
+    manager.agent = _FakeAgent(_HintConfig({
+        "experience.prior_rule_audit_enable": False,
+        "experience.llm_distill_enable": False,
+    }))
+
+    assert manager._experience_processing_enabled() is False
+
+    manager.agent.cfg.values["experience.llm_distill_enable"] = True
+
+    assert manager._experience_processing_enabled() is True
+def _make_verify_stage(name, reference_files, parent=None):
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.name = name
+    stage.reference_files = dict(reference_files)
+    stage.parent = parent
+    stage.force_unactive = False
+    stage.skill_list = {}
+    stage.workspace = ""
+    stage.vmanager = None
+    stage.is_skill_path = lambda _file_path: False
+    return stage
+
+
+def test_on_file_read_marks_only_the_current_stage_reference():
+    root = _make_verify_stage("root", {"shared.md": False, "root_only.md": False})
+    parent = _make_verify_stage("parent", {"shared.md": False}, parent=root)
+    child = _make_verify_stage("child", {"shared.md": False, "child_only.md": False}, parent=parent)
+    manager = _FakeCurrentStageManager(child)
+    root.vmanager = manager
+    parent.vmanager = manager
+    child.vmanager = manager
+
+    child.on_file_read(True, "shared.md", "")
+
+    assert root.reference_files["shared.md"] is False
+    assert parent.reference_files["shared.md"] is False
+    assert child.reference_files["shared.md"] is True
+    assert root.reference_files["root_only.md"] is False
+    assert child.reference_files["child_only.md"] is False
+
+
+def test_tool_do_check_passes_stage_args_to_function():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoCheck().set_function(check_func)
+
+    result = tool.invoke({
+        "timeout": 12,
+        "stage_args": {
+            "refined": {"CK-1": "done"},
+            "note": "extra",
+            "detail": True,
+        },
+    })
+
+    assert result == "ok"
+    assert calls == [(
+        12,
+        {
+            "stage_args": {
+                "refined": {"CK-1": "done"},
+                "note": "extra",
+                "detail": True,
+            },
+        },
+    )]
+
+
+def test_fastmcp_check_preserves_stage_args():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoCheck().set_function(check_func)
+    mcp_tool = to_fastmcp(tool)
+
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 13,
+        "stage_args": {
+            "refined": {"CK-2": "done"},
+            "detail": False,
+        },
+    }))
+
+    assert result == "ok"
+    assert calls == [(
+        13,
+        {
+            "stage_args": {
+                "refined": {"CK-2": "done"},
+                "detail": False,
+            },
+        },
+    )]
+
+
+def test_check_and_complete_schemas_expose_one_stage_args_object():
+    expected_properties = {"timeout", "stage_args"}
+    schemas = [
+        ArgsDoCheck.model_json_schema(),
+        to_fastmcp(ToolDoCheck()).parameters,
+        to_fastmcp(ToolDoComplete()).parameters,
+    ]
+
+    for schema in schemas:
+        assert set(schema["properties"]) == expected_properties
+        assert schema["additionalProperties"] is False
+        stage_arg_types = {
+            item.get("type")
+            for item in schema["properties"]["stage_args"]["anyOf"]
+        }
+        assert stage_arg_types == {"object", "string"}
+        assert "is_complete" not in str(schema)
+
+
+def test_check_arguments_accept_only_stage_args_json_object():
+    structured = ArgsDoCheck.model_validate({
+        "stage_args": {
+            "refined": {"FG-A/FC-A/CK-A": "reviewed"},
+            "generated": {"FG-A/FC-A/CK-A": "generated"},
+            "bug_list": [{"bug_name": "overflow"}],
+        },
+    })
+
+    assert structured.stage_args == {
+        "refined": {"FG-A/FC-A/CK-A": "reviewed"},
+        "generated": {"FG-A/FC-A/CK-A": "generated"},
+        "bug_list": [{"bug_name": "overflow"}],
+    }
+    with pytest.raises(ValueError):
+        ArgsDoCheck.model_validate({"refined": {"CK": "reviewed"}})
+
+
+def test_check_accepts_json_string_stage_args_fallback():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    result = ToolDoCheck().set_function(check_func).invoke({
+        "timeout": 15,
+        "stage_args": '{"refined":{"FG-A/FC-A/CK-A":"reviewed"}}',
+    })
+
+    assert result == "ok"
+    assert calls == [(
+        15,
+        {"stage_args": {"refined": {"FG-A/FC-A/CK-A": "reviewed"}}},
+    )]
+
+
+def test_fastmcp_check_accepts_json_string_stage_args_fallback():
+    calls = []
+
+    def check_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    mcp_tool = to_fastmcp(ToolDoCheck().set_function(check_func))
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 16,
+        "stage_args": '{"generated":{"FG-A/FC-A/CK-A":"generated"}}',
+    }))
+
+    assert result == "ok"
+    assert calls == [(
+        16,
+        {"stage_args": {"generated": {"FG-A/FC-A/CK-A": "generated"}}},
+    )]
+
+
+def test_check_rejects_invalid_or_non_object_stage_args_string():
+    tool = ToolDoCheck().set_function(lambda timeout, **kwargs: "not called")
+
+    invalid_json = tool.invoke({"stage_args": "not-json"})
+    json_array = tool.invoke({"stage_args": '[{"refined":{}}]'})
+
+    assert "must contain a valid JSON object" in invalid_json
+    assert "must be a JSON object or a string containing one" in json_array
+
+
+def test_fastmcp_complete_preserves_stage_args():
+    calls = []
+
+    def complete_func(timeout, **kwargs):
+        calls.append((timeout, kwargs))
+        return "ok"
+
+    tool = ToolDoComplete().set_function(complete_func)
+    mcp_tool = to_fastmcp(tool)
+    result = asyncio.run(mcp_tool.run({
+        "timeout": 14,
+        "stage_args": {
+            "generated": {"CK-3": "done"},
+            "bug_list": [{"bug_name": "overflow"}],
+            "detail": True,
+        },
+    }))
+
+    assert result == "ok"
+    assert calls == [(
+        14,
+        {
+            "stage_args": {
+                "generated": {"CK-3": "done"},
+                "bug_list": [{"bug_name": "overflow"}],
+                "detail": True,
+            },
+        },
+    )]
+
+
+def test_stage_manager_check_and_complete_forward_stage_args():
+    stage = _RecordingCheckStage()
+    next_stage = _RecordingCheckStage()
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [stage, next_stage]
+    manager.last_check_info = None
+    manager.llm_fail_suggestion = None
+    manager.llm_pass_suggestion = None
+    manager.all_completed = False
+    manager.gen_fail_suggestion = lambda data: data
+    manager.gen_pass_suggestion = lambda ck_info: ""
+    manager._stage_complete = lambda _stage: None
+
+    def next_stage_func():
+        manager.stage_index += 1
+        manager.all_completed = manager.stage_index >= len(manager.stages)
+        return None if manager.all_completed else manager.stages[manager.stage_index]
+
+    manager.next_stage = next_stage_func
+
+    check_ret = manager.check(9, stage_args={
+        "refined": {"CK": "check"},
+        "detail": True,
+    })
+    complete_ret = manager.complete(10, stage_args={
+        "refined": {"CK": "complete"},
+    })
+
+    assert check_ret["check_pass"] is True
+    assert complete_ret["complete"] is True
+    assert stage.calls == [
+        {
+            "stage_args": {"refined": {"CK": "check"}, "detail": True},
+            "timeout": 9,
+        },
+        {
+            "stage_args": {"refined": {"CK": "complete"}},
+            "timeout": 10,
+            "is_complete": True,
+        },
+    ]
+
+
+def test_verify_stage_expands_stage_args_at_checker_boundary(tmp_path):
+    calls = []
+
+    class _Checker:
+        def check(self, **kwargs):
+            calls.append(kwargs)
+            return True, "ok"
+
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
+    stage.skill_list = {}
+    stage.reference_files = {}
+    stage.output_files = []
+    stage.workspace = str(tmp_path)
+    stage._is_reached = False
+    stage.check_pass = False
+    stage.checker = [_Checker()]
+    stage._checker = [SimpleNamespace(name="fake_checker")]
+    stage.check_info = [None]
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+    stage.is_batch_success = False
+
+    passed, _info = stage._do_check(
+        timeout=9,
+        stage_args={
+            "refined": {"FG-A/FC-A/CK-A": "done"},
+            "detail": True,
+        },
+    )
+
+    assert passed is True
+    assert calls == [{
+        "timeout": 9,
+        "refined": {"FG-A/FC-A/CK-A": "done"},
+        "detail": True,
+    }]
+
+
+def test_check_failure_summary_precedes_verbose_diagnostics():
+    class FailingStage:
+        name = "comprehensive_verification_and_bug_analysis"
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "UnityChipCheckerTestCase",
+                "checker_name": "test_check",
+                "checker_class": "UnityChipCheckerTestCase",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "count_fail": 866,
+                "last_msg": {
+                    "STDOUT": "verbose pytest output" * 5000,
+                    "error": (
+                        "[Test Association Missing] Toffee recorded 8 executed tests without "
+                        "checkpoint associations: test_ALU754_env_fixture.py::test_env_input."
+                    ),
+                },
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 25
+    manager.stages = [None] * 25 + [FailingStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda data: data
+
+    result = manager.check(30)
+    rendered = fc.make_llm_tool_ret(result)
+
+    assert next(iter(result)) == "failure_summary"
+    assert result["failure_summary"]["stage_index"] == 25
+    assert result["failure_summary"]["failed_checker_name"] == "test_check"
+    assert result["failure_summary"]["failed_checker_class"] == "UnityChipCheckerTestCase"
+    assert result["failure_summary"]["error_code"] == "TEST_ASSOCIATION_MISSING"
+    assert "test_ALU754_env_fixture.py::test_env_input" in result["failure_summary"]["error"]
+    assert rendered.index("failure_summary:") < rendered.index("verbose pytest output")
+
+
+def test_failure_summary_uses_current_run_not_historical_count_fail():
+    check_info = [
+        {
+            "name": "HistoricalChecker",
+            "checker_name": "historical_check",
+            "checked_in_last_run": False,
+            "last_check_pass": False,
+            "count_fail": 100,
+            "last_msg": {"error": "[Old Failure] stale diagnostic"},
+        },
+        {
+            "name": "CurrentChecker",
+            "checker_name": "current_check",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "count_fail": 1,
+            "last_msg": {"error": "[Current Failure] concrete current diagnostic"},
+        },
+        None,
+    ]
+
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="stage"), check_info, "fix current failure", stage_index=7
+    )
+
+    assert summary["failed_checker_index"] == 1
+    assert summary["failed_checker_name"] == "current_check"
+    assert summary["error_code"] == "CURRENT_FAILURE"
+    assert summary["remaining_checkers_not_run"] == 1
+
+
+def test_compact_check_result_keeps_legacy_diagnostics():
+    legacy_result = {
+        "check_pass": False,
+        "check_info": [{"last_msg": {"error": "legacy concrete error"}}],
+    }
+
+    assert StageManager._compact_check_result(legacy_result) is legacy_result
+
+
+def test_verify_stage_marks_only_current_checker_as_run():
+    class StubChecker:
+        def __init__(self, passed, message):
+            self.passed = passed
+            self.message = message
+
+        def check(self, *_args, **_kwargs):
+            return self.passed, self.message
+
+    stage = VerifyStage.__new__(VerifyStage)
+    stage.cfg = SimpleNamespace(skill=SimpleNamespace(use_skill=False))
+    stage.skill_list = {}
+    stage._is_reached = False
+    stage.reference_files = {}
+    stage.output_files = []
+    stage.workspace = ""
+    stage.checker = [StubChecker(False, {"error": "current"}), StubChecker(True, "unused")]
+    stage._checker = [SimpleNamespace(name="current"), SimpleNamespace(name="later")]
+    stage.check_info = [
+        {
+            "name": "OldChecker",
+            "checker_name": "old",
+            "checker_class": "OldChecker",
+            "checked_in_last_run": True,
+            "last_check_pass": False,
+            "last_msg": {"error": "old"},
+            "count_pass": 0,
+            "count_fail": 5,
+            "count_check": 5,
+        },
+        {
+            "name": "LaterChecker",
+            "checker_name": "later",
+            "checker_class": "LaterChecker",
+            "checked_in_last_run": True,
+            "last_check_pass": True,
+            "last_msg": "previous",
+            "count_pass": 1,
+            "count_fail": 0,
+            "count_check": 1,
+        },
+    ]
+    stage.is_batch_success = False
+    stage.fail_count = 0
+    stage.continue_fail_count = 0
+    stage.succ_count = 0
+
+    passed, check_info = stage._do_check()
+
+    assert passed is False
+    assert check_info[0]["checked_in_last_run"] is True
+    assert check_info[0]["last_check_pass"] is False
+    assert check_info[0]["last_msg"] == {"error": "current"}
+    assert check_info[1]["checked_in_last_run"] is False
+    assert check_info[1]["count_check"] == 1

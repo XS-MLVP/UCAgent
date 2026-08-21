@@ -2,18 +2,20 @@
 """Verification manager for UCAgent stage execution."""
 
 import copy
+import json
 import os
+import re
 import time
 import traceback
 import random
 from collections import OrderedDict
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, Union
 
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 from langchain_core.tools.base import ArgsSchema
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 import ucagent.util.functions as fc
 from ucagent.checkers import UnityChipCheckerTestFree
@@ -23,6 +25,9 @@ from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.log import info, warning
 from ucagent.stage.llm_suggestion.base_suggestion import get_llm_check_instance
 from ucagent.tools.skill import _list_skills, list_skills_in_format
+
+
+_INTERNAL_STAGE_ARG_NAMES = frozenset({"timeout", "is_complete"})
 
 
 class ManagerTool(UCTool):
@@ -254,14 +259,54 @@ class ArgCheck(BaseModel):
     )
 
 
+def _prepare_stage_args(stage_args):
+    """Validate and copy stage-defined arguments before checker dispatch."""
+    if stage_args is None:
+        return {}
+    if isinstance(stage_args, str):
+        try:
+            stage_args = json.loads(stage_args)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "stage_args string must contain a valid JSON object"
+            ) from exc
+    if not isinstance(stage_args, dict):
+        raise TypeError(
+            "stage_args must be a JSON object or a string containing one"
+        )
+    if _INTERNAL_STAGE_ARG_NAMES.intersection(stage_args):
+        raise ValueError("stage_args contains fields reserved for internal dispatch")
+    return dict(stage_args)
+
+
 class ArgsDoCheck(BaseModel):
+    """Stable arguments for Check/Complete across all verification stages."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "description": (
+                "Arguments for Check/Complete. Put all current-stage custom input in "
+                "the stage_args JSON object using the structure documented by the "
+                "current stage task or checker diagnostic."
+            )
+        },
+    )
+
     timeout: int = Field(
         default=0,
-        description="Timeout for Check/Complete tools. Zero means use default cfg.call_time_out."
+        description=(
+            "Timeout for Check/Complete tools. Zero means use default cfg.call_time_out."
+        )
     )
-    ex_args: str = Field(
-        default="",
-        description="Args passed to the stage checkers. According to the stage help info to pass the corrent value."
+    stage_args: Union[Dict[str, Any], str] = Field(
+        default_factory=dict,
+        description=(
+            "Current-stage custom arguments as a JSON object. Its keys and value shapes "
+            "are defined by the current stage task and checker diagnostics. Prefer the "
+            "object itself; if the caller cannot serialize a nested object correctly, pass "
+            "a string containing the complete valid JSON object as a fallback."
+        ),
     )
 
 
@@ -293,26 +338,30 @@ class ToolDoCheck(ManagerTool):
     name: str = "Check"
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements.\n"
-        "The tool provides detailed feedback."
+        "The tool provides detailed feedback.\n"
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
     )
     args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, ex_args="", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """
         Execute stage validation with enhanced error handling and reporting.
         
         Args:
-            target: Test target specification (pytest format)
-            ex_args: String args passed to checkers
+            timeout: Check timeout in seconds.
+            stage_args: Current-stage custom arguments passed to checkers.
             run_manager: Callback manager for tool execution
             
         Returns:
             str: Comprehensive validation report in JSON format
         """
         try:
+            stage_args = _prepare_stage_args(stage_args)
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout, ex_args)
+            return self.function(timeout, stage_args=stage_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Validation failed: {str(e)}"
@@ -329,14 +378,18 @@ class ToolDoComplete(ManagerTool):
     description: str = (
         "Perform comprehensive validation of your current stage's implementation against requirements and mark the stage as complete if all checks pass.\n"
         "The tool provides detailed feedback (Different from tool 'Check': if all checks pass, the stage is marked as complete and the manager advances to the next stage).\n\n"
+        "When the current stage requires custom input, pass it in the stage_args JSON "
+        "object using the structure documented by that stage."
     )
     args_schema: Optional[ArgsSchema] = ArgsDoCheck
 
-    def _run(self, timeout=0, ex_args="", run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
+    def _run(self, timeout=0, stage_args=None,
+             run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         try:
+            stage_args = _prepare_stage_args(stage_args)
             if timeout <= 0:
                 timeout = self.get_call_time_out()
-            return self.function(timeout, ex_args)
+            return self.function(timeout, stage_args=stage_args)
         except Exception as e:
             traceback.print_exc()
             error_msg = f"Completion failed: {str(e)}"
@@ -392,7 +445,6 @@ class StageManager(object):
         Initialize the StageManager with an empty list of stages.
         """
         self.cfg = cfg
-        self.data = {}
         self.workspace = workspace
         self.force_todo = force_todo
         self.todo_panel = todo_panel
@@ -400,6 +452,7 @@ class StageManager(object):
         self.agent = agent
         self.tool_read_text = tool_read_text
         self.ucagent_info = ucagent_info
+        self.data = self.ucagent_info.get("stage_data", {})
         self.force_stage_index = force_stage_index
         self.force_stage_index_explicit = force_stage_index_explicit
         self._saved_info_truncated_by_force = False
@@ -472,9 +525,9 @@ class StageManager(object):
             stage: VerifyStage = self.stages[idx]
             stage.set_fail_count(stage_info.get("fail_count", 0))
             stage.set_time_prev_cost(stage_info.get("time_cost", 0.0))
-            stage.set_reached(stage_info.get("reached", stage.is_reached()))
             stage.set_skip(stage_info.get("is_skipped", stage.is_skipped()))
-            stage.is_complete = stage_info.get("is_completed", stage.is_completed())
+            if idx < self.stage_index:
+                stage.is_complete = stage_info.get("is_completed", stage.is_completed())
             stage.set_reference_file_status(stage_info.get("task", {}).get("reference_files", {}))
             if "meta_data" in stage_info:
                 stage.meta_data = copy.deepcopy(stage_info["meta_data"])
@@ -484,7 +537,6 @@ class StageManager(object):
         if self.stage_index < len(self.stages):
             self.stages[self.stage_index].on_init()
         self.last_check_info = {}
-        self.all_completed = bool(self.ucagent_info.get("all_completed", False))
         if self.stage_skip_list:
             for si in self.stage_skip_list:
                 self.skip_stage(si)
@@ -761,7 +813,7 @@ class StageManager(object):
             ret["current_stage_index"] = self.stage_index
             ret["current_stage_name"] = cstage.name
             ret["current_task"] = cstage.task_info()
-        ret["last_check_result"] = self.last_check_info
+        ret["last_check_result"] = self._compact_check_result(self.last_check_info)
         return ret
 
     def get_current_stage(self):
@@ -850,25 +902,128 @@ class StageManager(object):
             return True
         return False
 
-    def check(self, timeout, ex_args=""):
+    def check(self, timeout, stage_args=None):
         if not self.stage_index < len(self.stages):
             return OrderedDict({
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "ex_args": ex_args})
-        ret_data = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+            timeout=timeout,
+            stage_args=_prepare_stage_args(stage_args),
+        )
+        ret_data = OrderedDict()
         if not ck_pass:
-            ret_data["action"] = "Please fix the issues reported in 'check_info.last_msg.error' according to the suggestions, and then use the `Check` tool again to re-validate your work."
+            action = (
+                "Apply the remediation stated in 'failure_summary.error', then call `Check` "
+                "again. This is a validation failure to resolve, not an internal Checker failure."
+            )
+            ret_data["failure_summary"] = self._build_failure_summary(
+                self.stages[self.stage_index], ck_info, action, self.stage_index
+            )
+        ret_data["check_pass"] = ck_pass
+        if not ck_pass:
+            ret_data["action"] = action
+            self._attach_candidate_failure_hints(ret_data)
+        ret_data["check_info"] = ck_info
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
+
+    @staticmethod
+    def _error_text(error_data):
+        if isinstance(error_data, str):
+            return error_data
+        if isinstance(error_data, dict):
+            return " ".join(
+                StageManager._error_text(value)
+                for value in error_data.values()
+                if value not in (None, "", [], {})
+            )
+        if isinstance(error_data, (list, tuple)):
+            return " ".join(
+                StageManager._error_text(value)
+                for value in error_data
+                if value not in (None, "", [], {})
+            )
+        return str(error_data)
+
+    @staticmethod
+    def _extract_checker_error(last_msg):
+        if isinstance(last_msg, dict):
+            if last_msg.get("error") not in (None, "", [], {}):
+                return last_msg["error"]
+            for key in ("errors", "message", "reason"):
+                if last_msg.get(key) not in (None, "", [], {}):
+                    return last_msg[key]
+        if last_msg not in (None, "", [], {}):
+            return last_msg
+        return "The checker failed without a concrete error message. Call `Check` again and inspect the returned failure_summary."
+
+    @classmethod
+    def _build_failure_summary(cls, stage, check_info, next_action, stage_index=None):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        failed_index = None
+        failed_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                failed_index = index
+                failed_entry = entry
+                break
+        if failed_entry is None:
+            for index, entry in enumerate(checker_entries):
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("last_check_pass") is False or entry.get("count_fail", 0) > 0:
+                    failed_index = index
+                    failed_entry = entry
+                    break
+
+        if failed_entry is None:
+            failed_entry = {"last_msg": check_info}
+        error_data = cls._extract_checker_error(failed_entry.get("last_msg"))
+        error_text = cls._error_text(error_data)
+        error_label = re.search(r"\[([^\]]+)\]", error_text)
+        error_code = "CHECKER_FAILED"
+        if error_label:
+            error_code = re.sub(r"[^A-Z0-9]+", "_", error_label.group(1).upper()).strip("_")
+
+        checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
+        checker_name = failed_entry.get("checker_name") or checker_class
+        remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
+        return OrderedDict({
+            "status": "checker_failed",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "failed_checker_index": failed_index,
+            "failed_checker_name": checker_name,
+            "failed_checker_class": checker_class,
+            "error_code": error_code,
+            "error": error_data,
+            "next_action": next_action,
+            "remaining_checkers_not_run": remaining_checkers,
+            "diagnostic_note": (
+                "Cumulative count_fail is historical. Use last_check_pass and this failure_summary "
+                "to diagnose the current Check/Complete call. Detailed diagnostics follow in check_info."
+            ),
+        })
+
+    @staticmethod
+    def _compact_check_result(check_result):
+        if not isinstance(check_result, dict):
+            return check_result
+        if not check_result.get("failure_summary"):
+            return check_result
+        compact_result = OrderedDict()
+        for key in ("failure_summary", "check_pass", "complete", "action", "message"):
+            if key in check_result:
+                compact_result[key] = copy.deepcopy(check_result[key])
+        return compact_result or check_result
 
     def save_stage_info(self):
         all_completed = self._refresh_all_completed()
@@ -882,6 +1037,7 @@ class StageManager(object):
             "time_begin": self.time_begin,
             "time_end": self.time_end,
             "is_agent_exit": self.agent.is_exit(),
+            "stage_data": self.data,
         })
         info["stages_info"] = {}
         for idx, stage in enumerate(self.stages):
@@ -937,8 +1093,131 @@ class StageManager(object):
             self.llm_fail_suggestion.on_stage_complete(stage)
         if self.llm_pass_suggestion:
             self.llm_pass_suggestion.on_stage_complete(stage)
+        self._process_experience_on_stage_complete(stage)
 
-    def complete(self, timeout, ex_args=""):
+    def _process_experience_on_stage_complete(self, stage):
+        if not self._experience_processing_enabled():
+            return
+        prior_rule_audit = self._cfg_bool("experience.prior_rule_audit_enable", False)
+        llm_distill = self._cfg_bool("experience.llm_distill_enable", False)
+        if not getattr(stage, "experience_hook", False):
+            return
+        try:
+            self.save_stage_info()
+        except Exception as exc:
+            warning(f"Failed to save stage information before experience processing: {exc}")
+        try:
+            from ucagent.experience import accumulate_experience
+
+            out_dir = self._stage_experience_out_dir(stage)
+            llm_max_events = self._get_cfg_value("experience.llm_max_events", 20)
+            backend = getattr(getattr(self, "agent", None), "backend", None)
+            llm_model = getattr(backend, "model", None) if llm_distill else None
+            log_path = self._get_msg_log_path()
+            log_start_offset = self._stage_experience_log_start_offset(stage, log_path)
+            log_end_offset = self._stage_experience_log_end_offset(log_path)
+            prior_rules = self._get_cfg_value("experience.candidate_failure_hints", [])
+            try:
+                stage_task_info = stage.task_info()
+            except Exception as exc:
+                warning(f"Failed to collect stage task info for experience distill: {exc}")
+                stage_task_info = None
+
+            summary = accumulate_experience(
+                self.workspace,
+                getattr(self.agent, "dut_name", None),
+                log_path=log_path,
+                out_dir=out_dir,
+                prior_rule_audit=prior_rule_audit,
+                llm_distill=llm_distill,
+                llm_model=llm_model,
+                llm_max_events=llm_max_events,
+                prior_rules=prior_rules,
+                target_stage_index=self.stage_index,
+                target_stage_name=getattr(stage, "name", ""),
+                stage_task_info=stage_task_info,
+                log_start_offset=log_start_offset,
+                log_end_offset=log_end_offset,
+            )
+            stage.meta_data["experience"] = {
+                "stage": self.stage_index,
+                "stage_name": getattr(stage, "name", ""),
+                "stage_dir_suffix": self._stage_experience_dir_suffix(stage),
+                "log_start_offset": log_start_offset,
+                "log_end_offset": log_end_offset,
+                "out_dir": summary.get("out_dir"),
+                "stage_count": summary.get("stage_count"),
+                "prior_rule_hit_count": summary.get("prior_rule_hit_count"),
+                "prior_rule_total_hit_count": summary.get("prior_rule_total_hit_count"),
+                "uncovered_failure_event_count": summary.get("uncovered_failure_event_count"),
+                "llm_distill_event_count": summary.get("llm_distill_event_count"),
+                "llm_failure_hint_count": summary.get("llm_failure_hint_count"),
+                "written": summary.get("written", {}),
+            }
+            self.save_stage_info()
+        except Exception as exc:
+            warning(f"Failed to process experience after stage '{stage.name}' complete: {exc}")
+
+    def _experience_processing_enabled(self):
+        return (
+            self._cfg_bool("experience.prior_rule_audit_enable", False)
+            or self._cfg_bool("experience.llm_distill_enable", False)
+        )
+
+    def _stage_experience_out_dir(self, stage):
+        base_out_dir = self._get_cfg_value("experience.out_dir", "") or None
+        if not self._cfg_bool("experience.out_dir_stage_suffix", True):
+            return base_out_dir
+
+        suffix = self._stage_experience_dir_suffix(stage)
+        if not base_out_dir:
+            return fc.get_abs_path_cwd_ucagent(self.workspace, os.path.join("experience", suffix))
+        base_out_dir = os.path.expanduser(str(base_out_dir))
+        if not os.path.isabs(base_out_dir):
+            base_out_dir = os.path.join(self.workspace, base_out_dir)
+        return os.path.normpath(os.path.join(base_out_dir, suffix))
+
+    def _stage_experience_dir_suffix(self, stage):
+        stage_name = getattr(stage, "name", "") or "stage"
+        safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(stage_name)).strip("._-")
+        if not safe_name:
+            safe_name = "stage"
+        return f"stage_{self.stage_index}_{safe_name}"
+
+    def _stage_experience_log_start_offset(self, stage, log_path):
+        scope = getattr(stage, "meta_data", {}).get("experience_log_scope", {})
+        if not isinstance(scope, dict):
+            return None
+        if log_path and scope.get("log_path") and os.path.abspath(str(scope.get("log_path"))) != os.path.abspath(str(log_path)):
+            return None
+        try:
+            return int(scope.get("start_offset"))
+        except (TypeError, ValueError):
+            return None
+
+    def _stage_experience_log_end_offset(self, log_path):
+        if not log_path or not os.path.isfile(log_path):
+            return None
+        try:
+            return os.path.getsize(log_path)
+        except OSError:
+            return None
+
+    def _get_msg_log_path(self):
+        try:
+            import logging
+            from ucagent.util.log import get_msg_logger
+
+            logger = get_msg_logger()
+            if logger:
+                for handler in logger.handlers:
+                    if isinstance(handler, logging.FileHandler):
+                        return handler.baseFilename
+        except Exception as exc:
+            warning(f"Failed to resolve message log path for experience extraction: {exc}")
+        return None
+
+    def complete(self, timeout, stage_args=None):
         if self.stage_index >= len(self.stages):
             return {
                 "complete": False,
@@ -946,7 +1225,11 @@ class StageManager(object):
                             "Or you can use the `Exit` tool to exit the mission."),
                 "last_check_result": self.last_check_info,
             }
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(**{"timeout": timeout, "is_complete": True, "ex_args": ex_args})
+        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+            timeout=timeout,
+            stage_args=_prepare_stage_args(stage_args),
+            is_complete=True,
+        )
         stage = self.stages[self.stage_index]
         if ck_pass:
             if stage.meta_get_journal() is None:
@@ -978,10 +1261,19 @@ class StageManager(object):
                 assert hm_passed is True, "hm_passed should be True here"
                 info("Human check approved for stage " + stage.name)
 
-        self.last_check_info = OrderedDict({
-            "check_info": ck_info,
-            "check_pass": ck_pass,
-        })
+        self.last_check_info = OrderedDict()
+        if not ck_pass:
+            action = (
+                "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
+                "again. This is a validation failure to resolve, not an internal Checker failure."
+            )
+            self.last_check_info["failure_summary"] = self._build_failure_summary(
+                stage, ck_info, action, self.stage_index
+            )
+        self.last_check_info["check_pass"] = ck_pass
+        if not ck_pass:
+            self.last_check_info["action"] = action
+        self.last_check_info["check_info"] = ck_info
         if ck_pass:
             message = f"Stage {self.stage_index} completed successfully. "
             self._stage_complete(self.stages[self.stage_index])
@@ -1003,9 +1295,199 @@ class StageManager(object):
             "last_check_result": self.last_check_info,
         })
         if not ck_pass:
-            ret["action"] = "Please fix the issues reported in 'last_check_result.check_info.last_msg.error' according to the suggestions, and then use the `Complete` tool again to complete this stage."
+            self._attach_candidate_failure_hints(self.last_check_info)
             return self.gen_fail_suggestion(self.last_check_info)
         return ret
+
+    def _attach_candidate_failure_hints(self, ret_data):
+        hints = self._select_candidate_failure_hints(ret_data)
+        if hints:
+            ret_data["candidate_failure_hints"] = hints
+        return ret_data
+
+    def _select_candidate_failure_hints(self, ret_data):
+        rules = self._get_cfg_value("experience.candidate_failure_hints", [])
+        if not rules:
+            return []
+        if not isinstance(rules, list):
+            warning("experience.candidate_failure_hints must be a list, ignored.")
+            return []
+
+        stage = self.get_current_stage()
+        stage_title = stage.title() if stage else ""
+        stage_name = stage.name if stage else ""
+        sources = self._failure_hint_sources(ret_data)
+        selected = []
+        for raw_rule in rules:
+            rule = raw_rule.as_dict() if hasattr(raw_rule, "as_dict") else raw_rule
+            if not isinstance(rule, dict) or not self._failure_hint_rule_enabled(rule):
+                continue
+            if not self._failure_hint_stage_match(rule, stage_name, stage_title):
+                continue
+            rule_priority = rule.get("priority", 100)
+            for source in sources:
+                if not self._failure_hint_scope_match(rule, source.get("scope", "focused")):
+                    continue
+                matched_checkers = self._failure_hint_checker_match(rule, source["checker"])
+                if matched_checkers is None:
+                    continue
+                matched = self._failure_hint_pattern_match(rule, source["text"])
+                if not matched:
+                    continue
+                selected.append((rule_priority, rule.get("hint", "")))
+                break
+
+        selected.sort(key=lambda item: item[0])
+        max_hints = self._get_cfg_value("experience.max_candidate_failure_hints", 2)
+        return [hint for _, hint in selected[:max_hints] if hint]
+
+    def _get_cfg_value(self, key, default=None):
+        try:
+            return self.agent.cfg.get_value(key, default)
+        except AttributeError:
+            return default
+
+    def _cfg_bool(self, key, default=False):
+        value = self._get_cfg_value(key, default)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        raw = str(value).strip().lower()
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
+    def _failure_hint_sources(self, ret_data):
+        check_info = ret_data.get("check_info", ret_data) if isinstance(ret_data, dict) else ret_data
+        if isinstance(check_info, list):
+            sources = []
+            for idx, item in enumerate(check_info):
+                if isinstance(item, dict):
+                    checker = item.get("name")
+                    msg = item.get("last_msg", item)
+                    text, path = self._failure_hint_report_text(msg, f"check_info[{idx}].last_msg")
+                    sources.append(OrderedDict({
+                        "checker": checker,
+                        "path": path,
+                        "scope": "focused",
+                        "text": text,
+                    }))
+                    full_text = make_llm_tool_ret(msg, check_pass=False)
+                    if full_text != text:
+                        sources.append(OrderedDict({
+                            "checker": checker,
+                            "path": f"check_info[{idx}].last_msg",
+                            "scope": "full",
+                            "text": full_text,
+                        }))
+                else:
+                    sources.append(OrderedDict({
+                        "checker": None,
+                        "path": f"check_info[{idx}]",
+                        "scope": "focused",
+                        "text": make_llm_tool_ret(item, check_pass=False),
+                    }))
+            return sources
+
+        text, path = self._failure_hint_report_text(check_info, "check_info")
+        sources = [OrderedDict({
+            "checker": None,
+            "path": path,
+            "scope": "focused",
+            "text": text,
+        })]
+        full_text = make_llm_tool_ret(check_info, check_pass=False)
+        if full_text != text:
+            sources.append(OrderedDict({
+                "checker": None,
+                "path": "check_info",
+                "scope": "full",
+                "text": full_text,
+            }))
+        return sources
+
+    def _failure_hint_report_text(self, msg, path):
+        if isinstance(msg, dict):
+            for key in ("error", "suggestion", "details", "note", "files_need_read"):
+                if key in msg:
+                    focus = OrderedDict()
+                    focus[key] = msg[key]
+                    return make_llm_tool_ret(focus, check_pass=False), f"{path}.{key}"
+        return make_llm_tool_ret(msg, check_pass=False), path
+
+    def _failure_hint_scope_match(self, rule, source_scope):
+        scopes = rule.get("match_scope", rule.get("match_scopes", None))
+        if scopes is None:
+            return source_scope != "full"
+        if isinstance(scopes, str):
+            scopes = [scopes]
+        if not isinstance(scopes, list):
+            return source_scope != "full"
+
+        normalized = {str(scope).strip().lower() for scope in scopes}
+        if "all" in normalized or "*" in normalized:
+            return True
+        if source_scope == "full":
+            return bool(normalized & {"full", "last_msg", "full_last_msg"})
+        return bool(normalized & {"focused", "focus", "error", "primary"})
+
+    def _failure_hint_rule_enabled(self, rule):
+        value = rule.get("enabled", True)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return True
+        raw = str(value).strip().lower()
+        if raw in {"0", "false", "no", "n", "off"}:
+            return False
+        if raw in {"1", "true", "yes", "y", "on"}:
+            return True
+        return True
+
+    def _failure_hint_stage_match(self, rule, stage_name, stage_title):
+        stages = rule.get("stages", [])
+        if not stages:
+            return True
+        stage_text = f"{stage_name} {stage_title}"
+        for stage in stages:
+            if isinstance(stage, int) and self.stage_index == stage:
+                return True
+            if isinstance(stage, str):
+                stage_key = stage.strip()
+                if stage_key.isdigit() and self.stage_index == int(stage_key):
+                    return True
+                if stage_key in stage_text:
+                    return True
+        return False
+
+    def _failure_hint_checker_match(self, rule, checker_name):
+        checkers = rule.get("checkers", [])
+        if not checkers:
+            return [checker_name] if checker_name else []
+        if not checker_name:
+            return None
+        matched = [str(checker) for checker in checkers if str(checker) == str(checker_name)]
+        if not matched:
+            return None
+        return matched
+
+    def _failure_hint_pattern_match(self, rule, message):
+        patterns = rule.get("patterns", [])
+        regexes = rule.get("regex", [])
+        matched = []
+        for pattern in patterns:
+            if str(pattern) in message:
+                matched.append(str(pattern))
+        for pattern in regexes:
+            try:
+                if re.search(str(pattern), message, re.S):
+                    matched.append(str(pattern))
+            except re.error as exc:
+                warning(f"Invalid failure hint regex '{pattern}': {exc}")
+        return matched
 
     def exit(self):
         """
@@ -1071,8 +1553,8 @@ class StageManager(object):
         info("ToolGoToStage:\n" + ret)
         return self.attach_todo_summary(ret)
 
-    def tool_check(self, timeout, ex_args=""):
-        ret = make_llm_tool_ret(self.check(timeout, ex_args))
+    def tool_check(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.check(timeout, stage_args=stage_args))
         info("ToolCheck:\n" + ret)
         return self.attach_todo_summary(ret)
 
@@ -1081,8 +1563,8 @@ class StageManager(object):
         info("ToolExit:\n" + ret)
         return ret
 
-    def tool_complete(self, timeout, ex_args=""):
-        ret = make_llm_tool_ret(self.complete(timeout, ex_args))
+    def tool_complete(self, timeout, stage_args=None):
+        ret = make_llm_tool_ret(self.complete(timeout, stage_args=stage_args))
         info("ToolComplete:\n" + ret)
         return self.attach_todo_summary(ret)
 
