@@ -136,8 +136,8 @@ skill-name/scripts/
 `BG`:Bug标签
 `BD`:Bug描述
 
-当完成全部分析后，使用 `RunSkillScript` 工具执行`recordbug.py`脚本,命令行如下：
-`python3 recordbug.py -FILE 'FILE' -BG 'BG' -BD 'BD'`
+当完成全部分析后，使用 `RunSkillScript` 工具执行`record_result.py`脚本,命令行如下：
+`python3 record_result.py -FILE 'FILE' -BG 'BG' -BD 'BD'`
 ```
 
 ## hook 机制
@@ -297,8 +297,8 @@ stages:
 ```json
 {
   "commands": [
-    ["unitytest/static-bug-analysis","recordbug.py","-FILE 'a.py:10-20' -BG 'BG-STATIC-001-NULL'"],
-    ["unitytest/static-bug-analysis","recordbug.py","-FILE 'b.py:5-9' -BG 'BG-STATIC-002-STATE'"]
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-OVERFLOW-95' -TC 'TC-tests/test_a.py::test_overflow' -BD '溢出结果错误'"],
+    ["unitytest/dynamic-bug-recording","record_dynamic_bug.py","-BG 'BG-STATE-90' -TC 'TC-tests/test_b.py::test_state' -BD '状态转换错误'"]
   ]
 }
 ```
@@ -384,9 +384,9 @@ metadata:
 以如下参数记录信息:
 `value1`:参数1的含义
 `value2`:参数2的含义
-使用 `RunSkillScript` 执行`recordbug.py`脚本：
+使用 `RunSkillScript` 执行`record_result.py`脚本：
 
-`["unitytest/static-bug-analysis","recordbug.py","-FILE 'a.py:10-20' -BG 'BG-STATIC-001-NULL'"]`
+`["example/analysis","record_result.py","-FILE 'a.py:10-20' -BG 'BG-001'"]`
 
 ## 注意事项
 

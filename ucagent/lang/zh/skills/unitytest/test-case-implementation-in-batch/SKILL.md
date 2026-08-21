@@ -91,7 +91,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
-- `recordbug.py`只负责生成`FG/FC/CK/BG/TC`结构、波形占位块和分析章节骨架，不负责根因判断；脚本成功只表示骨架已创建，绝不表示Bug分析完成
+- `record_dynamic_bug.py`只负责生成`FG/FC/CK/BG/TC`结构、波形占位块和分析章节骨架，不负责根因判断；脚本成功只表示骨架已创建，绝不表示Bug分析完成
 - 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`把工具生成的波形字段写到动态Bug文档的精确`<BG-*>/<TC-*>`位置；目标TC尚不存在且BG位置唯一时工具会自动创建兄弟TC。不要让LLM复制BG、手工创建兄弟TC、复制receipt字段或viewer token。工具写入的代码块必须且只能包含顶层`waveform_analysis`映射，YAML关闭围栏后的第一条非空内容是同一receipt的`<WAVEFORM-VIEWER>`链接。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据、链接和当前波形重放，不能伪造波形字段或token
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`。成功后使用真实`receipt_id`调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`；该工具自动写入`bug_document_fields`和viewer链接。随后根据真实timeline和RTL替换`alignment_evidence`、`observed_behavior`、`source_correlation`中的`<BUG-TODO>`，不得手工修改工具字段或token
@@ -113,9 +113,9 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 
 #### 5.1 生成骨架
 
-针对确认的DUT Bug，默认可使用文本编辑工具按Guide第6.1.1节只建立一次带`<BUG-TODO>`的未完成BG骨架和第一份TC。若`RunSkillScript`可用，也可以执行一次只接收`BG/TC/BD`的`recordbug.py`生成相同骨架；同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建：
-```bash
-python3 script -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'
+针对确认的DUT Bug，默认可使用文本编辑工具按Guide第6.1.1节只建立一次带`<BUG-TODO>`的未完成BG骨架和第一份TC。若共享技能`unitytest/dynamic-bug-recording`可用，也可以通过`RunSkillScript`执行一次只接收`BG/TC/BD`的`record_dynamic_bug.py`生成相同骨架；同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建：
+```text
+["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'"]
 ```
 
 不要向脚本传`ROOT/FILE/FIX`；这些参数已删除。不要把脚本输出当成完成结果，也不要在仍有`<BUG-TODO>`时调用`Check`或`Complete`。
@@ -145,7 +145,7 @@ WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用�
 - 允许一次性列举多条命令,但每条命令必须独立完整,且必须符合格式要求,例如记录Fail但合理的测试用例时,若有10个Fail但合理的测试用例待记录
 - 其他参数值替换为每个测试用例记录内容,只允许使用定义的参数,禁止额外参数,且参数值必须符合上述格式要求,每个参数必须使用单括号括起来
 - 使用`RunSkillScript`工具时,若有10条命令要执行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有命令执行完毕
-- `recordbug.py`可用时只用于新Bug的第一份BG/TC结构；脚本不可用时，使用文本编辑工具按Guide第6.1.1节最小骨架示例只建立一次相同BG结构。后续兄弟TC由`ApplyWaveInfoEvidence`创建并写入真实波形机器字段，再用文本编辑工具在该BG内部填写三个语义结论和分析章节。不得手工创建另一套BG层级，也不得跳过填空步骤。
+- 共享技能`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可用时，只用于新Bug的第一份BG/TC结构；共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具按Guide第6.1.1节最小骨架示例只建立一次相同BG结构。后续兄弟TC由`ApplyWaveInfoEvidence`创建并写入真实波形机器字段，再用文本编辑工具在该BG内部填写三个语义结论和分析章节。不得手工创建另一套BG层级，也不得跳过填空步骤。
 
 
 ### 约束条件示例

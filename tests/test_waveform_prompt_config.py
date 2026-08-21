@@ -127,12 +127,12 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不是要求已确认Bug用例也Pass" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
-    assert "recordbug.py可用" in batch_task
+    assert "record_dynamic_bug.py可用" in batch_task
     assert "脚本不可用" in batch_task
     assert "机器证据写入成功当成分析完成" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
-    assert "不得因recordbug.py成功、字段非空或Checker尚未报错" in review_task
+    assert "不得因record_dynamic_bug.py成功、字段非空或Checker尚未报错" in review_task
     assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
     assert "一次`Step(1)`只表示仿真推进一步" in system_prompt
     assert "不能由Checker按固定信号名自动推断" in system_prompt

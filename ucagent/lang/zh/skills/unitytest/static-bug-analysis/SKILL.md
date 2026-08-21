@@ -33,10 +33,10 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 
 ### 步骤2: Bug记录
 
-分析完一个源文件后，使用内置文本编辑工具按下方文档结构一次性记录该文件的所有潜在Bug，并同步维护汇总、详情和进度三个分区。若`RunSkillScript`可用，也可以用`recordbug.py`完成相同的批量写入；脚本不是创建或更新报告的前置条件。可选命令如下（其中`script`替换为脚本路径，其他参数值替换为每个Bug记录内容）:
-```bash
-python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'
-python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'
+分析完一个源文件后，使用内置文本编辑工具按下方文档结构一次性记录该文件的所有潜在Bug，并同步维护汇总、详情和进度三个分区。若`RunSkillScript`可用，也可以用`record_static_bug.py`完成相同的批量写入；脚本不是创建或更新报告的前置条件。可选命令如下（其他参数值替换为每个Bug记录内容）:
+```text
+["unitytest/static-bug-analysis", "record_static_bug.py", "-FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'"]
+["unitytest/static-bug-analysis", "record_static_bug.py", "-FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG 'BG' -FILE 'FILE' -BD 'BD' -CL 'CL'"]
 ...
 ```
 

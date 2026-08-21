@@ -19,6 +19,8 @@ from ucagent.util.config import (
     save_runtime_config,
 )
 from ucagent.stage.vstage import VerifyStage
+from ucagent.tools.skill import _scan_skills
+from ucagent.util.functions import copytree_incremental
 
 
 CREATE_SCRIPT = (
@@ -379,6 +381,12 @@ def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
     validation_task = "\n".join(
         str(item) for item in stages["static_bug_validation"]["task"]
     )
+    comprehensive = stages["comprehensive_verification_and_bug_analysis"]
+    batch_stage = next(
+        stage
+        for stage in comprehensive["stage"]
+        if stage["name"] == "test_case_implementation_in_batch"
+    )
 
     assert "写入不依赖Skill脚本" in function_task
     assert "直接使用文本编辑工具" in static_task
@@ -387,6 +395,12 @@ def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
     assert "LINK回填不依赖linkbug.py" in validation_task
     assert "对已有静态报告使用ReplaceStringInFile" in validation_task
     assert "ReplaceStringInFile或EditTextFile" not in validation_task
+    assert batch_stage["skill_list"] == [
+        "unitytest/test-case-implementation-in-batch"
+    ]
+    assert stages["static_bug_validation"]["skill_list"] == [
+        "unitytest/static-bug-validation"
+    ]
 
 
 def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
@@ -419,6 +433,7 @@ def test_all_default_workflow_skills_keep_scripts_optional():
 
     assert set(skill_docs) == {
         "create-test-case-templates",
+        "dynamic-bug-recording",
         "functions-and-checks",
         "mock-components",
         "static-bug-analysis",
@@ -427,6 +442,7 @@ def test_all_default_workflow_skills_keep_scripts_optional():
     }
     for name in (
         "create-test-case-templates",
+        "dynamic-bug-recording",
         "functions-and-checks",
         "static-bug-analysis",
         "static-bug-validation",
@@ -436,6 +452,7 @@ def test_all_default_workflow_skills_keep_scripts_optional():
 
     for name in (
         "create-test-case-templates",
+        "dynamic-bug-recording",
         "functions-and-checks",
         "static-bug-analysis",
         "static-bug-validation",
@@ -444,6 +461,31 @@ def test_all_default_workflow_skills_keep_scripts_optional():
         assert "可选" in skill_docs[name]
 
     assert "RunSkillScript" not in skill_docs["mock-components"]
+
+    assert "record_dynamic_bug.py" in skill_docs["dynamic-bug-recording"]
+    assert "record_static_bug.py" in skill_docs["static-bug-analysis"]
+    assert "unitytest/dynamic-bug-recording" in skill_docs[
+        "test-case-implementation-in-batch"
+    ]
+    assert "unitytest/dynamic-bug-recording" in skill_docs[
+        "static-bug-validation"
+    ]
+
+
+def test_shared_dynamic_bug_skill_is_copied_and_discoverable(tmp_path):
+    source_root = REPO_ROOT / "ucagent/lang/zh/skills"
+    workspace_skill_root = tmp_path / ".ucagent/skills"
+
+    copytree_incremental(str(source_root), str(workspace_skill_root))
+    skills = {skill["name"]: skill for skill in _scan_skills(str(tmp_path))}
+
+    assert "unitytest/dynamic-bug-recording" in skills
+    assert skills["unitytest/dynamic-bug-recording"]["script"] == {
+        "record_dynamic_bug.py": (
+            ".ucagent/skills/unitytest/dynamic-bug-recording/"
+            "scripts/record_dynamic_bug.py"
+        )
+    }
 
 
 def test_batch_test_implementation_requires_ck_driven_tests(monkeypatch):

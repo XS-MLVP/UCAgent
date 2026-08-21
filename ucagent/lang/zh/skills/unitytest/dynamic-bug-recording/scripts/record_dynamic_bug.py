@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import posixpath
 import re
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
@@ -16,7 +17,7 @@ bug_analysis_template = '''
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Insert one bug entry into {DUT}_bug_analysis.md. "
+            "Insert one dynamic bug entry into {DUT}_bug_analysis.md. "
             "FG/FC/CK are inferred from TC target test function."
         )
     )
@@ -26,7 +27,7 @@ def parse_args():
         required=True,
         help=(
             "Test case tag, e.g. "
-            "TC-unity_test/tests/test_ALU754_api.py::test_div"
+            "TC-tests/test_ALU754_api.py::test_div"
         ),
     )
     parser.add_argument("-BD", required=True, help="Bug description")
@@ -71,9 +72,28 @@ def parse_tc_target(tc_tag):
     return file_path, class_name, func_name
 
 
-def _normalize_report_tc_key(key):
-    # Convert report key like path:48-61::test_xxx to path::test_xxx.
-    return re.sub(r":\d+-\d+(?=::)", "", key)
+def _workspace_relative_posix_path(path):
+    normalized = posixpath.normpath(os.fspath(path).replace("\\", "/"))
+    if not posixpath.isabs(normalized):
+        return normalized
+
+    cwd = posixpath.normpath(os.getcwd().replace("\\", "/"))
+    return posixpath.relpath(normalized, cwd)
+
+
+def _normalize_tc_key(key, out_dir):
+    # Report keys are workspace-relative while TC tags are test-dir-relative.
+    normalized = re.sub(r":\d+(?:-\d+)?(?=::)", "", key)
+    parts = normalized.split("::")
+    file_path = _workspace_relative_posix_path(parts[0])
+    out_path = _workspace_relative_posix_path(out_dir)
+    if out_path not in ("", ".") and file_path.startswith(out_path + "/"):
+        file_path = file_path[len(out_path) + 1 :]
+    return "::".join([file_path, *parts[1:]])
+
+
+def _normalize_report_tc_key(key, out_dir=""):
+    return _normalize_tc_key(key, out_dir)
 
 
 def _parse_fg_fc_ck_items(raw_items, source_key):
@@ -96,6 +116,7 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
         tc_target = f"{file_path}::{class_name}::{func_name}"
     else:
         tc_target = f"{file_path}::{func_name}"
+    normalized_tc_target = _normalize_tc_key(tc_target, out_dir)
 
     report_path = os.path.join(os.getcwd(), out_dir, ".TEST_TEMPLATE_IMP_REPORT.json")
     if not os.path.exists(report_path):
@@ -112,7 +133,7 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
 
     found = []
     for key, raw_items in mapping.items():
-        if _normalize_report_tc_key(key) != tc_target:
+        if _normalize_report_tc_key(key, out_dir) != normalized_tc_target:
             continue
         if not isinstance(raw_items, list):
             raise ValueError(

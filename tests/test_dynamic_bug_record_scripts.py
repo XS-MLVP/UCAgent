@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -13,9 +14,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECORD_SCRIPTS = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/test-case-implementation-in-batch/scripts/recordbug.py",
-    REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/static-bug-validation/scripts/recordbug.py",
+    / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/scripts/record_dynamic_bug.py",
 )
 LINK_SCRIPT = (
     REPO_ROOT
@@ -23,8 +22,18 @@ LINK_SCRIPT = (
 )
 STATIC_RECORD_SCRIPT = (
     REPO_ROOT
-    / "ucagent/lang/zh/skills/unitytest/static-bug-analysis/scripts/recordbug.py"
+    / "ucagent/lang/zh/skills/unitytest/static-bug-analysis/scripts/record_static_bug.py"
 )
+
+
+def test_bug_record_scripts_have_distinct_owners_and_names():
+    assert RECORD_SCRIPTS[0].is_file()
+    assert STATIC_RECORD_SCRIPT.is_file()
+    assert not list(
+        (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
+            "*/scripts/recordbug.py"
+        )
+    )
 
 
 def _load_script(path: Path):
@@ -47,6 +56,68 @@ def test_dynamic_bug_record_script_rejects_static_tag(script_path):
         module.validate_dynamic_bg_tag("BG-DIV-INF-BY-NUM-0")
 
     module.validate_dynamic_bg_tag("BG-DIV-INF-BY-NUM-95")
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+@pytest.mark.parametrize(
+    ("tc_tag", "report_key"),
+    (
+        (
+            "TC-tests/test_adder.py::test_overflow",
+            "unity_test/tests/test_adder.py:12-18::test_overflow",
+        ),
+        (
+            "TC-unity_test/tests/test_adder.py::test_overflow",
+            "unity_test/tests/test_adder.py:12::test_overflow",
+        ),
+    ),
+)
+def test_dynamic_bug_record_script_resolves_test_dir_relative_report_key(
+    script_path, tc_tag, report_key, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    out_dir = tmp_path / "unity_test"
+    out_dir.mkdir()
+    report = {
+        "failed_test_case_with_check_point_list": {
+            report_key: ["FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"]
+        }
+    }
+    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert module.resolve_fg_fc_ck_list_by_tc(tc_tag, "unity_test") == [
+        ("FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW")
+    ]
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_record_script_resolves_absolute_class_test_report_key(
+    script_path, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    out_dir = tmp_path / "unity_test"
+    out_dir.mkdir()
+    report_key = (
+        f"{out_dir.as_posix()}/tests/test_adder.py:20-30"
+        "::TestAdder::test_overflow"
+    )
+    report = {
+        "failed_test_case_with_check_point_list": {
+            report_key: ["FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"]
+        }
+    }
+    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert module.resolve_fg_fc_ck_list_by_tc(
+        "TC-tests/test_adder.py::TestAdder::test_overflow",
+        out_dir.as_posix(),
+    ) == [("FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW")]
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)

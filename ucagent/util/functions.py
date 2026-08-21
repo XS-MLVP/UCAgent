@@ -1813,7 +1813,7 @@ def description_bug_doc():
         f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Display headings are optional/localizable and are not parsed.",
         f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
         f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
-        "  - Create the BG/TC scaffold with recordbug.py when available, or with text-editing tools using the Guide format when it is not. Then call ApplyWaveInfoEvidence for each final receipt before filling the same BG's waveform conclusions and RTL/HDL analysis.",
+        "  - Create the BG/TC scaffold with record_dynamic_bug.py when available, or with text-editing tools using the Guide format when it is not. Then call ApplyWaveInfoEvidence for each final receipt before filling the same BG's waveform conclusions and RTL/HDL analysis.",
         "  - Keep all symptoms, trigger conditions, root cause, source evidence, causal chain, fix guidance, risk, and revalidation content inside the owning BG; do not create a detached global root-cause section.",
         "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]

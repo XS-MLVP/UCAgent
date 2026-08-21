@@ -75,7 +75,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 
 | 标记 | 含义 | Checker 要求 |
 |---|---|---|
-| `<DYNAMIC-BUGS>` | 动态 Bug 条目容器 | `recordbug.py` 依靠此标记定位写入区；后续中文标题不参与解析 |
+| `<DYNAMIC-BUGS>` | 动态 Bug 条目容器 | `record_dynamic_bug.py` 依靠此标记定位写入区；后续中文标题不参与解析 |
 | `<FG-NAME>` | 功能组 | 必须存在于 functions-and-checks 文档，区分大小写 |
 | `<FC-NAME>` | 功能点 | 必须位于当前 FG 下，并与 functions-and-checks 文档一致 |
 | `<CK-NAME>` | 检查点 | 必须位于当前 FC 下；Fail 报告中的 CK 必须能在动态 Bug 文档中找到非零 BG |
@@ -85,7 +85,7 @@ Checker 不是按 Markdown 缩进解析标签，而是按标签出现的先后�
 | `signal_groups` | 最终证据的必要信号角色映射 | 不是尖括号标签；由最终 WaveInfo 调用签名，必须覆盖时钟模式、相关输入、相关输出、协议控制和功能关键路径 |
 | `<WAVEFORM-VIEWER>` | 在线波形深链接 | 必须是 YAML 围栏后的第一条非空内容；显示文字可本地化，URL 与签名 receipt 必须完全一致 |
 | `<BUG-OVERVIEW>` 到 `<BUG-RETEST>` | 八个分析字段边界 | 使用 6.1.1 节列出的完整标记序列；唯一、有序、内容非空，展示标题不参与解析 |
-| `<BUG-TODO>` | Bug 骨架尚未完成 | 可由 `recordbug.py` 或文本编辑工具建立；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
+| `<BUG-TODO>` | Bug 骨架尚未完成 | 可由 `record_dynamic_bug.py` 或文本编辑工具建立；LLM 填写真实内容后必须全部删除，Checker 不解析自然语言占位词 |
 | `<BUG-SOURCE-UNAVAILABLE>` | 无可访问源码 | 仅在 `<BUG-SOURCE-EVIDENCE>` 字段内使用一次，并以真实黑盒证据替代源码块 |
 | `<BUG-SOURCE-FIRST-ERROR>` | 源码中的首个错误决策 | 有源码时在 HDL 代码块的语言原生注释中恰好出现一次 |
 | `<BUG-SOURCE-PROPAGATION>` | 错误传播位置 | 有源码时在 HDL 代码块的语言原生注释中恰好出现一次 |
@@ -391,9 +391,9 @@ Bug 概述应在源码块之前，用二到四句话回答：什么条件触发�
 
 ### 6.1.1 建立骨架并分阶段写入
 
-动态 Bug 记录按以下步骤完成。`recordbug.py` 只是可选的骨架生成方式，脚本不可用时也不阻塞整个流程：
+动态 Bug 记录按以下步骤完成。`record_dynamic_bug.py` 只是可选的骨架生成方式，脚本不可用时也不阻塞整个流程：
 
-1. `recordbug.py` 可用时，可以用 `RunSkillScript` 调用一次 `recordbug.py -BG ... -TC ... -BD ...`；它只为新 Bug 创建第一份 FG/FC/CK/BG/TC、波形占位块和本节列出的共享分析章节。脚本不可用时，使用文本编辑工具参照本节最小骨架，在 `{OUT}/{DUT}_bug_analysis.md` 中只建立一次相同 BG 结构。两种方式都必须保留唯一的 `<DYNAMIC-BUGS>` 容器、第一份精确 BG/TC、紧随 TC 的 YAML/viewer 占位以及八个分析标记。不要为同一 BG 的后续 Fail TC 复制该结构。
+1. 共享技能`unitytest/dynamic-bug-recording`中的`record_dynamic_bug.py`可用时，可以用`RunSkillScript`调用一次`["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG ... -TC ... -BD ..."]`；它只为新 Bug 创建第一份 FG/FC/CK/BG/TC、波形占位块和本节列出的共享分析章节。共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具参照本节最小骨架，在 `{OUT}/{DUT}_bug_analysis.md` 中只建立一次相同 BG 结构。两种方式都必须保留唯一的 `<DYNAMIC-BUGS>` 容器、第一份精确 BG/TC、紧随 TC 的 YAML/viewer 占位以及八个分析标记。不要为同一 BG 的后续 Fail TC 复制该结构。
 2. 取得最终 confirmed WaveInfo receipt 后，调用 `ApplyWaveInfoEvidence`，传入 `{OUT}/{DUT}_bug_analysis.md`、精确 BG、精确 TC 和真实 `receipt_id`。工具会替换现有 TC 的波形 YAML 与 viewer 占位；目标 TC 尚不存在且 BG 位置唯一时，工具会直接创建兄弟 TC 及其证据块，不生成共享语义结论。同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次：保持 `bug_tag` 相同并更换 `test_case_tag`，不要再次运行骨架脚本或手工创建 TC。同一 Fail TC 揭示多个独立 Bug 时，也要对每个 BG/TC 分别调用一次：为不同根因使用不同 `bug_tag`，保持 `test_case_tag` 相同，不得把它们合并进一个 BG。已有兄弟 TC 和其他 BG 的证据都会保留，不需要 `replace_existing=true`；该参数只用于替换同一 BG/TC 已有的不同 receipt。
 3. 继续读取失败断言、timeline 和 RTL/HDL 源码，用文本编辑工具替换三个 YAML 结论字段及八个分析章节中的全部 `<BUG-TODO>`。旧 `-ROOT/-FILE/-FIX` 参数已经删除，不能把复杂分析压进命令行，也不能停在生成骨架或应用 receipt 这一步。
 
@@ -1023,7 +1023,7 @@ Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`、缺失/重复/乱序标�
 | `Unresolved Failed Cases` | Fail 用例没有非零动态 Bug 记录 | 先排除测试问题；确认 DUT Bug 后补 CK/BG/TC/波形/根因 |
 | `Unanalyzed Failed Checkpoints` | 报告中的失败 CK 没有非零 BG | 在正确 CK 下记录动态 Bug，或修复错误检查使 CK Pass |
 | `Test Case Format Error` | TC 不是 pytest 文件和函数格式 | 使用 `test_file.py::test_name` 或包含类名的完整格式 |
-| `Waveform Analysis Missing` | 某个 BG/TC 后没有规范 YAML 块 | 用 `recordbug.py` 或文本编辑工具建骨架，最终 WaveInfo 后调用 `ApplyWaveInfoEvidence` |
+| `Waveform Analysis Missing` | 某个 BG/TC 后没有规范 YAML 块 | 用 `record_dynamic_bug.py` 或文本编辑工具建骨架，最终 WaveInfo 后调用 `ApplyWaveInfoEvidence` |
 | `WaveInfo Receipt Not Found` | receipt 不存在、作用域变化或被伪造 | 使用相同 workspace/test_dir 恢复，失败时重新调用 WaveInfo |
 | `Explicit Window Required` | 使用了探索 receipt 而非最终证据 | 必须逐字使用 `recommended_evidence_call` 重调 |
 | `Waveform Evidence Invalid` | 文档字段与 receipt 不一致或结论字段为空 | 用最终 receipt 重新调用 `ApplyWaveInfoEvidence`，再真实补写三个分析字段 |
