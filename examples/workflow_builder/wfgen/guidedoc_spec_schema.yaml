@@ -1,0 +1,28 @@
+# Copy this structure for each GuideDoc. For user docs, set document_type:
+# user_doc, output under docs/, and use headings appropriate to the audience.
+title: "Stage Operation Guide"
+document_type: guide_doc
+operation_contract: true
+output: "Guide_Doc/<stage_or_scope>_guide.md"
+sections:
+  - id: purpose
+    heading: "目的"
+    content: "详细说明该工作流阶段要解决的问题、业务目标和适用边界。"
+  - id: inputs
+    heading: "输入"
+    content: "说明 input/<TARGET>/ 下的必需文件，并介绍随工作流交付的 input/example 示例。"
+  - id: outputs
+    heading: "输出"
+    content: "逐项说明 output/ 下生成的结果、格式和使用方式。"
+  - id: usage
+    heading: "使用方法"
+    content: "选择 TARGET，检查 input/<TARGET>/ 和 input/example，先运行 make check_example，再运行 make run TARGET=example；结果位于 output/。"
+  - id: execution
+    heading: "执行步骤"
+    content: "按照真实工作流顺序说明执行步骤、调用工具和阶段衔接。"
+  - id: checks
+    heading: "检查"
+    content: "说明确定性检查、Checker 检查内容和明确的通过条件。"
+  - id: failure_recovery
+    heading: "失败恢复"
+    content: "说明日志位置、失败诊断、修复动作和重新运行命令。"

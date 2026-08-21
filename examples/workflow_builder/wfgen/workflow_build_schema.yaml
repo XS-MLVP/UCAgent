@@ -1,0 +1,180 @@
+# Structural reference for workflow_build.yaml.
+# Replace example values and expand every list according to the requirement manifest.
+workflow:
+  name: target_workflow
+  description: "Target workflow description"
+  version: "0.1.0"
+
+root:
+  path: "./target_workflow"
+  overwrite: false
+
+runtime_contract:
+  target_variable: TARGET
+  input_root: input
+  output_root: output
+  example_target: example
+  required_input:
+    - path: resource.json
+      type: file
+      example_content: |
+        {"resources": []}
+    - path: suggestion.md
+      type: file
+      example_content: |
+        # Example suggestion
+    - path: assets
+      type: directory
+  modes:
+    default:
+      config: config.yaml
+      make_target: run
+      description: "Full workflow"
+    inc:
+      config: config/inc.yaml
+      make_target: run_inc
+      description: "Incremental workflow"
+
+directories:
+  public:
+    - tools
+    - checkers
+    - Guide_Doc
+    - docs
+    - input
+    - output
+    - tmp
+    - .install
+  internal:
+    - .workflow
+    - .workflow/local
+    - .workflow/tool_specs
+    - .workflow/tool_tests
+    - .workflow/tool_tests/logs
+    - .workflow/checker_specs
+    - .workflow/checker_tests
+    - .workflow/checkers
+    - .workflow/logs
+
+files:
+  public:
+    - path: "README.md"
+      template: "readme_basic"
+    - path: "setup.py"
+      template: "workflow_environment_setup"
+    - path: "requirements.txt"
+      template: "requirements_txt"
+    - path: "config/environment.schema.yaml"
+      template: "environment_schema"
+    - path: "ucagent_setup.sh"
+      template: "ucagent_setup"
+    - path: "input/README.md"
+      template: "input_readme"
+    - path: "docs/README.md"
+      template: "docs_readme"
+    - path: "docs/01快速启动.md"
+      template: "docs_quickstart"
+    - path: "docs/02输入输出.md"
+      template: "docs_input_output"
+    - path: "docs/03步骤及检查.md"
+      template: "docs_stages_checks"
+    - path: "docs/04开发者文档-tools.md"
+      template: "docs_developer_tools"
+    - path: "docs/05开发者文档-checkers.md"
+      template: "docs_developer_checkers"
+    - path: "Makefile"
+      template: "makefile_basic"
+    - path: "config.yaml"
+      template: "config_basic"
+    - path: "config/inc.yaml"
+      template: "config_basic"
+    - path: "Guide_Doc/environment_setup.md"
+      template: "guidedoc_environment_setup"
+  internal:
+    - path: ".workflow/workflow_spec.yaml"
+      template: "workflow_spec_basic"
+    - path: ".workflow/acceptance_rules.yaml"
+      template: "acceptance_rules_basic"
+
+makefile:
+  targets:
+    - help
+    - configure
+    - configure-check
+    - check
+    - smoke
+
+config: {}
+workflow_spec:
+  checkers:
+    - name: ArtifactContractChecker
+      description: "Explain the exact artifact, semantic constraints, pass evidence, and failure evidence checked by this business Checker."
+      entry:
+        file: checkers/artifact_contract_checker.py
+        class_name: ArtifactContractChecker
+        method: do_check
+      source: |
+        from pathlib import Path
+        from ucagent.checkers.base import Checker
+
+
+        class ArtifactContractChecker(Checker):
+            """Validate one planned workflow artifact."""
+
+            def __init__(self, path: str, **kwargs):
+                super().__init__()
+                self.path = path
+
+            def do_check(self, **kwargs):
+                """Return PASS only when the declared artifact is a non-empty file."""
+                target = Path(self.path)
+                if not target.is_file() or target.stat().st_size == 0:
+                    return False, {"error": "artifact missing or empty", "path": self.path}
+                return True, {"path": self.path, "size": target.stat().st_size}
+      fixtures:
+        - path: .workflow/checker_tests/cases/ArtifactContractChecker/valid.txt
+          content: |
+            valid fixture
+      tests:
+        - name: valid_artifact
+          args:
+            path: .workflow/checker_tests/cases/ArtifactContractChecker/valid.txt
+          expected_pass: true
+        - name: missing_artifact
+          args:
+            path: .workflow/checker_tests/cases/ArtifactContractChecker/missing.txt
+          expected_pass: false
+  stages:
+    - name: analyze_input
+      description: "Describe this stage's purpose, derived responsibilities, outputs, and recovery boundary."
+      reference_files:
+        - .workflow/workflow_spec.yaml
+      output_files:
+        - "{OUT}/{DUT}/analysis.json"
+      checker:
+        - name: ArtifactContractChecker
+          args:
+            path: "{OUT}/{DUT}/analysis.json"
+acceptance:
+  required_public_files:
+    - setup.py
+    - config/environment.schema.yaml
+    - Guide_Doc/environment_setup.md
+    - requirements.txt
+    - docs/README.md
+    - docs/01快速启动.md
+    - docs/02输入输出.md
+    - docs/03步骤及检查.md
+    - docs/04开发者文档-tools.md
+    - docs/05开发者文档-checkers.md
+    - ucagent_setup.sh
+    - input/example/README.md
+    - input/example/resource.json
+    - input/example/suggestion.md
+  required_public_dirs:
+    - input
+    - input/example
+    - input/example/assets
+    - output
+    - docs
+    - tmp

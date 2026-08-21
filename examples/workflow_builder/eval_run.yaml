@@ -1,0 +1,32 @@
+ex_tools:
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor"
+  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+template_overwrite:
+  TEST_WORKFLOW_ROOT: "workflow"
+  REPORT: "eval/run_report.json"
+un_write_dirs: ["eval/", "res/", "config.yaml", "inc.yaml", "Makefile", "wfgen/"]
+write_dirs: ["tmp"]
+mission:
+  name: "Generated Workflow Runtime Evaluation"
+  prompt:
+    system: |
+      这是唯一允许启动生成工作流子进程的评估。一次请求只运行 default 或 inc，不得合并。
+      必须读取 eval/run_request.json，严格执行超时，最终无论成功失败都停止 tmux 子会话。
+      JSON 只通过 StructuredJsonStore 修改，所有运行日志、监控记录和案例只能位于外层 tmp/。
+      报告中的标题、描述、分析、结论、影响、建议和证据说明等表述性文字必须使用中文；规则 ID、字段名、路径、命令、类名、函数名、库名和真实源码保持原文。
+stage:
+  - name: evaluate_requested_runtime
+    desc: "按请求运行一个 default 或 inc 子工作流并监控停滞和失败"
+    task:
+      - |
+        完整读取 Guide_Doc/evaluation_execution.md、run_request、当前报告和资源，先调用 StaticEvaluationAudit 做启动预检；禁止全文读取 evaluation_contract.md 或 eval_run.md。根据 mode 只运行 default 或 inc。监控记录只保留阶段、fail_count、终端、活动时间、关键产物变化和终端输出尾部，不把完整日志反复放入上下文；相同失败必须归因，超过停滞或总时限立即终止。无论完成、失败、卡住、超时还是异常，都在收尾调用 stop 并证明没有残留进程。比较屏幕成功、UCAgent 状态、Checker 结果和真实产物，识别假成功与语义偏离。完成 RUN-PREFLIGHT、RUN-START、RUN-PROGRESS、RUN-RETRY、RUN-STALL、RUN-TIMEOUT、RUN-CLEANUP、RUN-OUTPUTS、RUN-RESULT、RUN-SEMANTICS、RUN-CHALLENGE，每项生成同名 check，使用 contract_version=2 追加报告；关键失败不得标记 passed。
+    reference_files: ["Guide_Doc/evaluation_execution.md", "eval/run_request.json", "eval/run_report.json", "res/common.json", "res/run.json"]
+    output_files: ["eval/run_report.json"]
+    checker:
+      - name: run_report_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        args: {report_path: "eval/run_report.json", expected_report_type: "run"}
+      - name: run_guide_complete
+        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        args: {guide_path: "Guide_Doc/eval_run.md", required_markers: ["RUN-PREFLIGHT", "RUN-CHALLENGE"], min_effective_lines: 300}

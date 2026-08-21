@@ -1,0 +1,20 @@
+name: auto_required_keys_checker
+description: "Validate auto-generated required-key fixtures."
+
+entry:
+  file: checkers/auto_required_keys_checker.py
+  class_name: AutoRequiredKeysChecker
+  method: do_check
+
+rules:
+  type: json_required_keys
+  required_keys:
+    - name
+    - status
+
+auto_tests: true
+
+register:
+  stage: smoke_read_generated_docs
+  args:
+    path: .workflow/checker_tests/cases/auto_required_keys_checker/valid.json

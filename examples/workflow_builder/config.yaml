@@ -1,0 +1,1015 @@
+# config4.yaml - workflow_builder self-build workflow
+
+ex_tools:
+- examples.workflow_builder.workflow_builder.uc_tools.WorkflowBuilder
+- examples.workflow_builder.workflow_builder.uc_tools.WorkflowCommandRunner
+- examples.workflow_builder.workflow_builder.uc_tools.WorkflowArtifactInspector
+- examples.workflow_builder.workflow_builder.uc_tools.WorkflowEnvironmentPreflight
+- examples.workflow_builder.workflow_builder.uc_tools.WorkflowPlanAppender
+- examples.workflow_builder.workflow_tool_generator.uc_tools.WorkflowToolGenerator
+- examples.workflow_builder.workflow_config_generator.uc_tools.WorkflowConfigGenerator
+- examples.workflow_builder.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator
+- examples.workflow_builder.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor
+tools:
+  RunTestCases:
+    test_dir: .workflow/tool_tests/cases
+template_overwrite:
+  OUT: output
+  WFGEN_DIR: wfgen
+  TEST_WORKFLOW: workflow
+  TEST_WORKFLOW_ROOT: "workflow"
+  BUILD_CONFIG: wfgen/workflow_build.yaml
+  DESC_FILE: input/guide.md
+  TEST_INPUT_DIR: input/test_input
+un_write_dirs:
+- Guide_Doc/
+- config.yaml
+- Makefile
+write_dirs:
+- wfgen
+- "{OUT}"
+- "{TEST_WORKFLOW}"
+mission:
+  name: Workflow Builder 完整工作流构建与发布流程
+  prompt:
+    system: |
+      你是一位 UCAgent 工作流工程师。你的任务是根据需求文档交付完整、经过全量确定性测试且可迁移的工作流构建候选；完整运行验收由外层独立 eval_run.yaml 负责。
+      所有面向用户或开发者的表述性文字必须使用中文，包括文档标题与正文、阶段说明、分析、结论、影响、建议和证据说明；规则 ID、配置字段、文件路径、命令、类名、函数名、库名以及真实源码保持原文，不得为中文化而改写机器契约。
+
+      主线分为五个里程碑：
+        1. 提取完整需求清单并建立初步工程模板。
+        2. 初次构建直接生成并验证全部预规划业务 Checker，再用代表性工具完成真实 smoke 测试，冻结可运行基线。
+        3. 在 smoke 基线上补齐全部业务阶段、工具、Guide_Doc、模板和配置；Checker、引用文件与输出契约不得二次设计。
+        4. 执行全量静态、direct、MCP 和最终需求覆盖测试；完整 default/inc 运行交由外层独立 eval_run.yaml 评估工作流。
+        5. 清理运行产物，生成并验证不包含历史、缓存、运行日志和测试输出的迁移包，同时保留必需空目录与测试夹具。
+
+      工作原则：
+        0. 当前 Agent 是工作流构建与验证责任主体；不能把工具验证留给未来运行生成工作流的下一层 Agent，也不能只相信 checker 的布尔结果，必须读取测试结果和服务日志。
+        1. 所有路径都相对于当前 UCAgent workspace。
+        2. 不要修改工作区中不属于本次构建目标的现有文件或目录。
+        3. 所有生成产物必须在 {OUT} 或 {WFGEN_DIR} 下面。
+        4. 调用 WorkflowBuilder 时必须传 base_dir="{OUT}"。
+        5. 如果 {TEST_WORKFLOW_ROOT}/ 已存在且 root.overwrite=false，先报告该问题，不要手动删除。
+        6. smoke_ready 只代表基础架构可运行；只有 feature_complete 和 release_ready 均通过需求覆盖检查，才允许迁移。
+        7. 每个阶段完成前必须使用 SetCurrentStageJournal 记录阶段结果，再使用 Complete。
+        8. 按文件所有权和副作用安排并发：互不依赖的只读操作，以及分别只写入不同工具源码、不同测试夹具、不同文档 spec 或不同 Markdown 的生成操作，允许在同一 assistant 回复中并行调用工具。发起前必须确认每个调用的输入和输出路径互不重叠，并在回复中列出本批次的文件集合。禁止并发修改或同时由多个调用修改 config.yaml、config/inc.yaml、eval.yaml、workflow_spec.yaml、requirements_manifest.yaml、workflow_implementation_plan.md、同一个注册表、同一份 spec、同一测试日志或同一目录的聚合索引。会更新注册表的 WorkflowToolGenerator/WorkflowGuideDocGenerator 必须每个批次只调用一次，并传入该批次全部 spec_paths；全量检查、WorkflowPlanAppender、SetCurrentStageJournal、Check 和 Complete 是必须等待前序并行任务全部结束后的串行收敛点。若后端报告 missing tool responses，立即停止并改为较小批次或单调用恢复，不得重放可能已部分写入的整批操作。
+        9. 主工作流不得运行生成工作流的完整 default/inc 子流程；需要运行时评估时使用外层独立 eval_run.yaml，其子流程必须通过 ChildWorkflowSupervisor 启动和观察。
+        10. 每个阶段的 reference_files 都是必须读取的输入证据；必须逐项用 ReadTextFile 精确读取配置中声明的路径，不能用搜索、替代路径、复制文件或产物字段代替。
+        11. 生成或修改子工作流 config.yaml、config/inc.yaml 或可选 eval.yaml 时，每个阶段 task 至少包含 100 个有效中英文或数字字符；标点、空白、Markdown、YAML 和路径符号不计入。禁止生成重复的 config/default.yaml 或 config/empty.yaml。reference_files、output_files 和 Checker 注册必须来自 workflow_spec，不得在 config spec 中另行设计。
+        12. workflow_spec 与运行配置中的 reference_files、output_files 只能声明具体文件，禁止目录和目录形状路径；reference_files 还必须能够证明是固定交付文件、用户明确必需的输入文件或前序阶段已经生成的文件，不确定是否存在的路径不得填写。
+        13. 需要运行子工作流内的 make、pytest 或批处理验证时，必须调用 WorkflowCommandRunner。只允许执行其白名单目标；Python/Shell 临时脚本必须创建在 {TEST_WORKFLOW_ROOT}/tmp/ 下，验证后删除。禁止在 wfgen、子工作流根目录、.workflow 或迁移包中创建临时脚本，也禁止用 RunTestCases 冒充子工作流 Make 验证。
+        14. `.ucagent/` 是外层运行时私有状态，运行 Agent 禁止使用 PathList、ReadTextFile、EditTextFile、DeleteFile 或其他工具读取、修改、删除其中任何内容。历史权限、恢复和清理由父 Makefile 管理；`Complete` 报历史权限错误时不得自行修理 `.ucagent/history`，应保留业务产物并等待外层监督者重启。
+        15. 需要判断 YAML 根类型、阶段容器、发布树洁净度或迁移 manifest 与真实包目录是否一致时，优先调用只读 WorkflowArtifactInspector；已有 inspector 或 WorkflowCommandRunner 白名单目标能够取证时，禁止另写一次性 Python/Shell 审查脚本。
+        16. `.workflow/acceptance_rules.yaml` 是公开交付文件和目录的唯一权威清单。迁移、洁净度和临时部署审查必须读取该文件，不得在临时脚本、install.py 或阶段记录中另写一套必需文件清单；full/partial 的工具与 Checker 排除边界属于迁移模式安全策略，不得用 acceptance 放宽。
+template: ''
+stage:
+- name: extract_requirements_and_plan
+  desc: 提取完整需求清单、输入示例契约和工作流实现计划
+  task:
+  - 第1步（必须首先执行）：只调用 ReadTextFile 读取 {DESC_FILE}；它是唯一需求入口。在成功读取前禁止读取其他参考文档、搜索、测试或 Check。
+  - 第2步：读取 Guide_Doc/stages/00_extract_requirements_and_plan.md，严格按其中的最小通过版本、完整示例、输入路径规则和常见问题处理流程执行；随后用 PathList(path='{TEST_INPUT_DIR}', depth=-1) 枚举示例输入并用 GetFileInfo 建立完整路径、类型和大小清单。只全文读取运行契约要求的文本文件、示例入口和直接引用文件；知识库、大型文本、素材说明和代码按相关性每批最多 2 个文件读取并立即记录摘要，禁止为建立清单而全文读取全部输入。
+  - 第3步：创建 {WFGEN_DIR}/requirements_manifest.yaml、{WFGEN_DIR}/input_example_manifest.yaml 和 {WFGEN_DIR}/workflow_implementation_plan.md。requirements_manifest 的每个 required_stages 条目必须同时写精确 name、非空 label 和具体 config；标准、评估、增量阶段分别绑定 config.yaml、config/eval.yaml、config/inc.yaml，config 必须逐字匹配 required_configs 中已声明的具体文件，禁止省略后依赖 config.yaml 默认值。计划必须把用户需求扩展成可实施的工程设计而不是复述原文：每个 required_stage 使用精确英文名三级标题并至少写 200 个有效字符；每个 required_tool、固定基础设施 run_command_tool 与 required_checker 使用精确名称三级标题并至少 300 个有效正文字符。组件正文内部禁止再使用二级至六级标题，解析器从当前组件标题读取到下一个二级至六级标题为止，否则会在子标题处截断；内部结构统一使用加粗行内标记。Checker 正文必须逐字出现“使用阶段、检查对象、检查内容或验证内容、通过条件、失败条件、实现文件或入口类或 do_check、关键分支或判定流程或检查流程、异常或错误处理或失败传播、测试或 fixture 或回归、扩展点或调整方式或可配置”。“关键判定分支”不等于连续的“关键分支”，不得用它替代必需标记。Python 标准库不得列入 required_python_dependencies；禁止生成 quickstart.md、config/default.yaml 或 config/empty.yaml。
+  - 第4步：严格仿照阶段指导中的 workflow_implementation_plan.md 最小可通过示例，对每个 manifest 阶段、工具和 Checker 逐项完成标题边界、有效字符数和精确标记自审；全部架构正文最终定稿后，才调用 WorkflowPlanAppender 为 extract_requirements_and_plan 追加包含五个必需三级标题的 Stage 00 记录。Appender 生成的 SHA256 覆盖此前全部字节，追加后禁止修改记录之前的任何正文，也禁止手填或替换摘要。在三份产物齐全且追加成功前禁止 Check，也不得创建 workflow_build.yaml 或 Checker 源码。
+  - 第5步：运行本阶段 Check，读取并处理全部结构化结果；通过后用 SetCurrentStageJournal 记录需求数量、输入语义、示例来源、规划路径和 Checker 证据，再 Complete。
+  reference_files:
+  - Guide_Doc/stages/00_extract_requirements_and_plan.md
+  - '{DESC_FILE}'
+  output_files:
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{WFGEN_DIR}/input_example_manifest.yaml'
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: extract_requirements_and_plan
+  - name: requirements_manifest_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      mode: manifest
+  - name: workflow_implementation_plan_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowImplementationPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+  - name: input_example_manifest_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowInputExampleManifestChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/input_example_manifest.yaml'
+- name: design_workflow_build_config
+  desc: 根据已冻结的需求计划生成并交叉验证 WorkflowBuilder 配置
+  task:
+  - 第1步：依次读取 Guide_Doc/stages/01_design_workflow_build_config.md 和全部 reference_files；前三份规划产物是冻结基线，schema 与模板指南定义构建格式，禁止静默扩充、重命名或删除 manifest 组件。
+  - 第2步：严格按阶段指导中的最小通过版本和完整示例创建 {BUILD_CONFIG}。root.path 必须精确写成 {TEST_WORKFLOW_ROOT}，禁止添加 ./，禁止使用 workflow.name 作为目录名。必须一次性规划全部业务阶段、中心 Checker、reference/output 契约、Checker 源码、方法 docstring、正反 fixture、测试、交付文件、runtime_contract 和 acceptance；禁止使用未知模板或空文件占位。
+  - 第3步：用 YAML parser 和 schema 预检 {BUILD_CONFIG}，核对 required_stages、required_checkers、GuideDoc、用户文档、主配置与增量配置、环境配置、迁移设施及示例输入全部覆盖；eval.yaml 仅在工作流确有独立评估需求时加入，发现需求遗漏时不得单方面修改冻结规划。
+  - 第4步：预检成功后调用 WorkflowPlanAppender 为 design_workflow_build_config 追加包含五个必需三级标题的 Stage 01 记录，再运行本阶段 Check 并读取完整返回信息。
+  - 第5步：Checker 全部通过后，用 SetCurrentStageJournal 记录阶段数、Checker 数、文件数、schema 与覆盖结果、规划追加结果，再 Complete。
+  reference_files:
+  - Guide_Doc/stages/01_design_workflow_build_config.md
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{WFGEN_DIR}/input_example_manifest.yaml'
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/workflow_build_schema.yaml'
+  - Guide_Doc/workflow_build_yaml_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{BUILD_CONFIG}'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: design_workflow_build_config
+  - name: workflow_build_config_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowBuildConfigChecker
+    args:
+      build_config_path: '{BUILD_CONFIG}'
+      expected_root: '{TEST_WORKFLOW_ROOT}'
+      run_planned_checker_tests: true
+  - name: initial_build_requirement_coverage
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      build_config_path: '{BUILD_CONFIG}'
+      mode: build
+- name: build_initial_template
+  desc: 调用 WorkflowBuilder 建立工程骨架，然后从 test_input 复制真实示例覆盖占位文件
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：使用 ReadTextFile 读取 {BUILD_CONFIG} 和 {WFGEN_DIR}/input_example_manifest.yaml，再用 PathList 与 GetFileInfo 建立 {TEST_INPUT_DIR} 的完整清单。只读取 runtime_contract.required_input 中的文本文件和直接引用；二进制、大型文件及无关知识材料只核验路径、类型、大小和复制摘要，禁止为复制验证而全文读取全部输入。
+  - 第2步：调用 WorkflowBuilder(build_config_path='{BUILD_CONFIG}', base_dir='{OUT}',
+    input_example_manifest_path='{WFGEN_DIR}/input_example_manifest.yaml')。Builder 先创建结构骨架，
+    再根据 copy_tree 规则执行二进制原样复制；禁止用 ReadTextFile 加 EditTextFile 重建源文件，
+    否则会改变末尾换行或其他字节。
+  - 第2.1步（关键）：检查 WorkflowBuilder 返回的 copied_example_files 数量，并逐项核对
+    {TEST_INPUT_DIR}/ 中全部源文件在 {TEST_WORKFLOW_ROOT}/input/example/ 保持相对路径和字节内容完全一致。
+    resource_paths 只决定文件落点，不允许改写正文。源目录对应位置不得残留空 JSON、占位文字、
+    示例提示或 rtl/README.md。
+  - 第2.2步（关键）：覆盖完成后，读取 {TEST_WORKFLOW_ROOT}/input/example/ 下的每个
+    runtime_contract.required_input 文件。如果其中任何文件内部引用了其他文件路径（例如 JSON 中的
+    path/image 字段、Markdown 中的相对链接），必须逐一核对被引用的路径在 input/example/ 下
+    真实存在且不逃逸目录。如果不对应，回到 input_example_manifest 的 resource_paths 修正复制落点并
+    重新调用 Builder，禁止修改复制后的用户源文件。
+  - 第3步：检查 WorkflowBuilder 工具返回信息，确认 root 为 {TEST_WORKFLOW_ROOT}。
+  - 第4步：确认 {TEST_WORKFLOW_ROOT}/Makefile、docs/01快速启动.md、requirements.txt、config.yaml、Guide_Doc/overview.md、
+    Guide_Doc/operation.md、input/example/README.md 和 .workflow/build_report.md 已生成；
+    逐项确认 runtime_contract.required_input 中声明的每个文件和目录在 input/example/ 下
+    真实存在；逐项确认 workflow_spec.checkers 已生成对应 `.workflow/checker_specs/*.yaml`、
+    `checkers/*.py` 和显式正反 fixture；然后运行 make check_example、make check_checker_specs、
+    make check_checkers 和 make test_checkers 验证。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='build_initial_template', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第5步：使用 SetCurrentStageJournal 记录 WorkflowBuilder 返回信息、test_input 复制结果、
+    required_input 文件路径核对结果和 make check_example 的输出。
+  - 第6步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/02_build_initial_template.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{BUILD_CONFIG}'
+  - '{WFGEN_DIR}/input_example_manifest.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  - '{TEST_WORKFLOW_ROOT}/docs/01快速启动.md'
+  - '{TEST_WORKFLOW_ROOT}/requirements.txt'
+  - '{TEST_WORKFLOW_ROOT}/input/example/README.md'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - '{TEST_WORKFLOW_ROOT}/Guide_Doc/overview.md'
+  - '{TEST_WORKFLOW_ROOT}/README.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/workflow_spec.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/build_report.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_spec_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_static_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_direct_runner.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/checker_spec_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/checker_static_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/checker_direct_runner.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py'
+  - '{TEST_WORKFLOW_ROOT}/tools/mcp_adapters.py'
+  - '{TEST_WORKFLOW_ROOT}/install.py'
+  - '{TEST_WORKFLOW_ROOT}/.install/README.md'
+  - '{TEST_WORKFLOW_ROOT}/.install/manifest.json'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: build_initial_template
+  - name: workflow_builder_output_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowBuildOutputChecker
+    args:
+      build_config_path: '{BUILD_CONFIG}'
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      input_example_manifest_path: '{WFGEN_DIR}/input_example_manifest.yaml'
+      run_make_check: false
+  - name: initial_template_requirement_coverage
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      build_config_path: '{BUILD_CONFIG}'
+      mode: build
+- name: verify_tool_generation_loop
+  desc: 验证工具生成基础设施，不默认生成无关通用工具
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：调用 WorkflowToolGenerator(mode='base', tools=['run_command_tool'], existing_policy='create_only') 固定生成受限批处理工具并注册。它属于工作流基础设施，不计入 requirements_manifest.required_tools：只能在工作流根目录或其子目录作为 cwd，以 shell=False 执行命令白名单；Python/Shell batch 必须引用工作流根级 tmp/ 内的单个 .py/.sh 文件，禁止 python -c、shell 拼接、绝对路径、..、额外解释器参数、任意 make 目标和危险参数。read_text_file_tool、write_text_file_tool 仍只在业务需求明确声明时生成。
+  - 第2步：使用 ReadTextFile 读取 {TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_spec_checker.py、tool_static_checker.py、tool_direct_runner.py、.workflow/tool_tests/run_mcp_tests.py
+    和 tools/mcp_adapters.py。
+  - 第2.1步：确认 tools/mcp_adapters.py 的动态 adapter 只实现 _run，不得定义 def run(self,
+    tool_input...)，也不得在动态类字典中注册 run 函数覆盖项；必须让 BaseTool.run 负责把 _run 返回内容包装成
+    ToolMessage。否则生成工作流直接 make run 时会报工具返回裸字符串类型错误。
+    adapter 的 args_schema 字段类型必须使用 Any，避免 MCP/FastMCP 将 JSON 字符串预解析成 list/dict 后被
+    Pydantic 提前拒绝。
+  - 第3步：确认 Makefile 包含 check_tool_specs、check_tools、test_tools、test_mcp，且 make check
+    会包含这些目标。
+  - 第4步：确认 config.yaml 中 tools 是 mapping，包含 tools.RunTestCases.test_dir；GeneratedTools
+    可以为空，后续 smoke 和全量业务工具阶段会按 requirements_manifest.required_tools 注册真实工具。
+  - 第5步：使用 Check 验证 run_command_tool 的 spec、实现、注册、正常 pwd 用例和拒绝 inline Python 的失败用例；缺少该基础设施工具必须失败，但不得因为缺少 read_text_file_tool/write_text_file_tool 失败。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='verify_tool_generation_loop', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第6步：使用 SetCurrentStageJournal 记录工具基础设施检查结果。
+  - 第7步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/03_verify_tool_generation_loop.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_spec_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_static_checker.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/checkers/tool_direct_runner.py'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py'
+  - '{TEST_WORKFLOW_ROOT}/tools/mcp_adapters.py'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - Guide_Doc/tool_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/tool_generation_state.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/tool_specs/run_command_tool.yaml'
+  - '{TEST_WORKFLOW_ROOT}/tools/run_command_tool.py'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: verify_tool_generation_loop
+  - name: workflow_tool_generation_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowToolGenerationChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_make_targets: true
+- name: design_smoke_business_tool_spec
+  desc: 为 smoke 基线设计代表性业务工具规格
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：读取 {WFGEN_DIR}/requirements_manifest.yaml、Guide_Doc/tool_generation_guide.md、{TEST_WORKFLOW_ROOT}/.workflow/workflow_spec.yaml
+    和 {TEST_WORKFLOW_ROOT}/config.yaml。
+  - 第2步：从 requirements_manifest.required_tools 中选择一个非基础业务工具作为 smoke 工具；不得假定工具名称、输入类型或输出字段。
+  - 第3步：创建 {WFGEN_DIR}/smoke_tool_selection.yaml，根级字段必须为 name、spec_path、fixture_paths。name
+    是所选工具名；spec_path 必须是 .workflow/tool_specs/<name>.yaml；fixture_paths 是当前已创建测试夹具的相对路径列表。
+    每个路径可以是普通文件，也可以是包含至少一个实际文件的非空目录；目录型输入（例如 RTL 源码树）应直接声明目录，
+    Checker 会递归确认其中存在文件，不要为了通过检查而把目录替换成任意单个文件。
+  - 第4步：按选择文件中的实际路径创建至少一个稳定测试夹具和 tool_spec，不要先写工具代码。夹具必须位于 .workflow/tool_tests/cases/
+    下；禁止创建根目录 examples/。
+  - 第5步：tool_spec 的 entry.file 必须是 tools/<name>.py，class_name 根据工具名生成合法 Python 类名，method
+    必须是 run；inputs、outputs 和 data_required_keys 必须来自该工具的真实职责。
+  - 第6步：tool_spec 必须包含 basic_test，expected.ok=true，并引用 fixture_paths 中的夹具；不得硬编码 PPT、RTL
+    或其他特定领域字段。
+  - 第7步：使用 Check 运行动态 spec checker，确认所选工具属于 manifest、选择文件路径安全、夹具存在且 make
+    check_tool_specs 通过。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='design_smoke_business_tool_spec', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第8步：记录选择文件、实际工具名、spec 和夹具路径，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/04_design_smoke_business_tool_spec.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/workflow_spec.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - Guide_Doc/tool_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/smoke_tool_selection.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: design_smoke_business_tool_spec
+  - name: workflow_business_tool_spec_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      required_fixture_count: 1
+      spec_only: true
+      required_test_names:
+      - basic_test
+      run_make_targets: true
+- name: implement_smoke_business_tool
+  desc: 调用工具生成器实现、注册并验证代表性 smoke 工具
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：读取 {WFGEN_DIR}/smoke_tool_selection.yaml，再按其中 spec_path 和 fixture_paths 读取实际 spec 与测试夹具。
+  - 第2步：调用 WorkflowToolGenerator(workflow_root='{TEST_WORKFLOW_ROOT}', mode='from_spec',
+    spec_paths=[选择文件中的 spec_path], existing_policy='create_only', update_config=true)。必须先由生成器创建并注册工具，禁止绕过生成器从零创建源码；若工具文件已经存在，生成器必须保留源码并报告 skipped，禁止改用 force_replace 规避冲突。
+  - 第2.1步：from_spec 只负责生成符合 spec 的安全框架。读取生成源码后，如果 data_required_keys 仍由
+    _default_value 或其他空默认值填充，必须在当前阶段使用 EditTextFile/ReplaceStringInFile 完善该已生成文件的真实业务逻辑；
+    补全不得修改 spec 的 expected.ok、删除失败用例或降低输出契约来迁就空壳。
+  - 第3步：从 spec.entry.file 读取生成的工具，确认它是普通 Python 类，不绑定 MCP、LangChain 或 UCAgent。
+  - 第4步：确认 run(path) 安全解析相对路径，禁止绝对路径和 ..，并返回统一结构 ok/data/errors/warnings/meta。
+  - 第5步：确认工具正确实现了 spec 中声明的业务逻辑。
+  - 第6步：确认 {TEST_WORKFLOW_ROOT}/config.yaml 已把选择文件中的工具注册到 tools.GeneratedTools，且保留
+    tools.RunTestCases.test_dir。
+  - 第7步：使用 Check 验证业务工具完整生成，确认 make check_tool_specs、make check_tools、make test_tools、make
+    check 全部通过。
+  - 第8步：使用 ReadTextFile 查看 .workflow/logs/tool_direct_run.log，确认 basic_test 为 PASS。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='implement_smoke_business_tool', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第9步：使用 SetCurrentStageJournal 记录工具生成器返回信息、业务工具实现、注册和测试结果。
+  - 第10步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/05_implement_smoke_business_tool.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/smoke_tool_selection.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - Guide_Doc/tool_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: implement_smoke_business_tool
+  - name: workflow_generated_tool_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      required_fixture_count: 1
+      spec_only: false
+      required_test_names:
+      - basic_test
+      run_make_targets: true
+- name: strengthen_smoke_business_tool_tests
+  desc: 增强代表性 smoke 工具测试并重新验证
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：读取 {WFGEN_DIR}/smoke_tool_selection.yaml，并按其中路径读取实际 spec、工具和 direct runner 日志。
+  - 第2步：根据所选工具的真实职责创建第二个边界测试夹具，不得假定输入是 Verilog、图片或文本。
+  - 第3步：把第二个夹具路径追加到选择文件的 fixture_paths，并更新实际 tool_spec，新增 edge_case_test，expected.ok=true。
+  - 第4步：更新 spec 后必须再次调用 WorkflowToolGenerator(existing_policy='create_only')，确认源码返回
+    skipped，并让生成状态只追加冻结 edge_case_test；生成器若报告既有测试 missing/changed，必须恢复原测试。
+    随后重新读取原工具，根据新增 edge_case_test
+    直接增强真实业务逻辑。
+    只有生成状态证明源码仍是未修改骨架时，才允许显式使用 refresh_scaffold；业务源码一旦人工实现，禁止
+    force_replace。basic_test 与 edge_case_test 的成功结果都必须包含符合 spec 的有意义业务数据，禁止降低
+    expected.ok、删除既有失败用例、放宽断言或用默认空值冒充增强完成。
+  - 第5步：使用 Check 运行通用 generated tool checker，确认 basic_test 和 edge_case_test 两个测试都存在，并确认
+    make check_tool_specs、make check_tools、make test_tools、make check 全部通过。
+  - 第6步：读取 .workflow/logs/tool_direct_run.log，确认 basic_test 和 edge_case_test 均为 PASS。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='strengthen_smoke_business_tool_tests', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第7步：使用 SetCurrentStageJournal 记录增强测试、源码保护策略和验证结果。
+  - 第8步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/06_strengthen_smoke_business_tool_tests.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/smoke_tool_selection.yaml'
+  - Guide_Doc/tool_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/smoke_tool_selection.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: strengthen_smoke_business_tool_tests
+  - name: workflow_generated_tool_strengthened_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      required_fixture_count: 2
+      spec_only: false
+      required_test_names:
+      - basic_test
+      - edge_case_test
+      run_make_targets: true
+- name: initialize_smoke_workflow
+  desc: 初始化 smoke workflow 并尝试启动 UCAgent
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：使用 ReadTextFile 读取 {TEST_WORKFLOW_ROOT}/Makefile、{TEST_WORKFLOW_ROOT}/config.yaml、{TEST_WORKFLOW_ROOT}/README.md、{TEST_WORKFLOW_ROOT}/docs/01快速启动.md、{TEST_WORKFLOW_ROOT}/Guide_Doc/overview.md。
+  - 第2步：确认 {TEST_WORKFLOW_ROOT}/setup.py、config/environment.schema.yaml 和 ucagent_setup.sh 已由 Builder 创建。setup.py
+    必须支持交互配置以及 --set、--config、--check、--dry-run、--non-interactive，并把非敏感本机值保存到
+    .workflow/local/environment.yaml；Makefile 与 ucagent_setup.sh 必须各包含唯一的 setup.py 受控环境区块。
+    schema 内置 UCAgent、Python、代理、tmux 基础项，并允许按目标工作流增加 Verilator、Yosys 等业务系统工具。
+  - 第2.1步：调用 WorkflowEnvironmentPreflight(workflow_root='{TEST_WORKFLOW_ROOT}', include_tmux=true)，核对当前 Python、UCAGENT_HOME、UCAGENT_VENV、进程代理和 tmux 全局代理。发现 socks:// ALL_PROXY、缺失环境文件或解释器路径失效时，先修正 setup.py/ucagent_setup.sh 的通用配置逻辑并重新预检；禁止只在当前 shell 临时 unset 后宣称环境可迁移。
+  - 第3步：修改 {TEST_WORKFLOW_ROOT}/Makefile，保留 configure/configure-check/check/check_config/check_inc_config/check_layout/check_docs/clean，
+    并新增真正可用的 run、session、tmux 目标；禁止删除或手工改写 setup.py 管理的受控区块。
+  - 第3.1步：Makefile 必须提供 check_target、prepare_input 和 prepare_runtime。prepare_input 只校验
+    runtime_contract.required_input；prepare_runtime 在 output/.runtime_targets/<TARGET>/ 创建 UCAgent 所需的隐藏
+    __init__.py；该隐藏路径只能供运行时包初始化使用，禁止作为 UCAgent 的 workspace 或 DUT 参数。Makefile 必须定义
+    WORKFLOW_WORKSPACE ?= $(CURDIR)，并让 run/run_inc/run_tui/smoke 使用 $(UCAGENT) $(WORKFLOW_WORKSPACE) $(TARGET)
+    启动 UCAgent。不得写成 $(UCAGENT) ./ $(TARGET)，不得建立根目录 TARGET 软链接，不得要求用户输入包含
+    data/__init__.py 或 Python/DUT 包。run、run_inc 和 run_tui 必须依赖 prepare_runtime。
+  - 第4步：修改 {TEST_WORKFLOW_ROOT}/config.yaml，保留 workflow/paths/model/loop_settings/checkers/guide_docs
+    等骨架元数据，并补充 UCAgent 可运行的 mission、template、stage、write_dirs、un_write_dirs、tools.RunTestCases。
+    tools 顶层必须是 mapping，但 tools.GeneratedTools 必须是由 name/spec/file/enabled 记录组成的 list，禁止改成以工具名为键的
+    mapping；该列表由 WorkflowToolGenerator(update_config=true) 维护。
+    un_write_dirs 必须设为空列表 []。生成的工作流不得设置任何写保护目录（子工作流被强制停止时权限无法恢复，
+    会导致后续 make check/smoke/package 全部失败）；写保护由最终用户自行配置。注意 tools 必须是
+    mapping，不能是 list；工具注册放在 tools.GeneratedTools。
+  - 第5步：确认 Makefile 的 run 目标会先 source ./ucagent_setup.sh，再执行 ucagent_env 和 proxy_on，然后通过
+    $(UCAGENT) $(WORKFLOW_WORKSPACE) $(TARGET) 启动 UCAgent，且 --output 指向 output。run/run_inc/run_tui/smoke
+    必须从 tools.mcp_adapters.ADAPTER_CLASS_NAMES
+    动态生成 --ex-tools 参数，确保 config.tools.GeneratedTools 在真实运行 Agent 中可见；不得只在 make test_mcp 中注册工具。
+  - 第6步：仅在 {TEST_WORKFLOW_ROOT} 目录内运行 make check 和 make check_example，确认 bundled example
+    输入与基础检查通过。禁止在当前外层 workspace 根目录直接执行 make run TARGET=example，以免递归启动 workflow_build
+    自身。阻塞式运行验证统一放到后续 ChildWorkflowSupervisor 步骤。该阶段只验证基础架构，不能标记 feature_complete。
+  - 第7步：调用 ChildWorkflowSupervisor(action='start', workflow_root='{TEST_WORKFLOW_ROOT}',
+    target='example', make_target='run_tui', auto_loop=true) 启动生成工作流，记录 run_id、observe_command
+    和 terminal_log。注意 target 是运行时输入目录名，必须是 example；禁止把 make 目标 check_example 当作 target。
+  - 第8步：启动后使用 ChildWorkflowSupervisor(action='status' 或 'capture') 进行简要观察；总观察时间控制在
+    60 秒左右，只验证工作流能启动、进入阶段并持续运行，不要求完整跑完。
+  - 第9步：约 60 秒后调用 ChildWorkflowSupervisor(action='stop', workflow_root='{TEST_WORKFLOW_ROOT}',
+    run_id='<前一步返回的 run_id>') 主动停止子工作流，确认权限恢复。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='initialize_smoke_workflow', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第10步：如果 UCAgent 已启动，手动读取 README.md 和 Guide_Doc/overview.md，设置阶段日志并 Complete；退出时先
+    Ctrl+C 再 q。
+  - 第11步：使用 SetCurrentStageJournal 记录初始化结果、运行命令、ChildWorkflowSupervisor 观察结果和是否成功启动。
+  - 第12步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/07_initialize_smoke_workflow.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - '{TEST_WORKFLOW_ROOT}/README.md'
+  - '{TEST_WORKFLOW_ROOT}/docs/01快速启动.md'
+  - '{TEST_WORKFLOW_ROOT}/Guide_Doc/overview.md'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/setup.py'
+  - '{TEST_WORKFLOW_ROOT}/config/environment.schema.yaml'
+  - '{TEST_WORKFLOW_ROOT}/ucagent_setup.sh'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: initialize_smoke_workflow
+  - name: workflow_minimal_init_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMinimalInitChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_make_check: true
+  - name: workflow_environment_setup_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowEnvironmentSetupChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_test: true
+- name: verify_generated_tools_through_mcp
+  desc: 由当前构建 Agent 启动子 UCAgent，并通过真实 MCP 调用验证基础生成工具
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 第1步：使用 ReadTextFile 读取 Guide_Doc/tool_generation_guide.md 中的 MCP
+    集成测试操作协议，以及 {TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py 和 {TEST_WORKFLOW_ROOT}/tools/mcp_adapters.py。
+  - 第1.1步：复查 tools/mcp_adapters.py 的返回协议。只允许 _run 返回 JSON 字符串，禁止覆盖 BaseTool.run；
+    直接 UCAgent 运行依赖 BaseTool.run 自动生成 ToolMessage，MCP 测试依赖该 ToolMessage 的 text 内容解析 JSON。
+  - 第2步：确认测试职责属于当前构建 Agent：必须验证工具后再交付给未来运行生成工作流的 Agent，不能把验证责任留给下一层。
+  - 第2.1步【硬性约束】：本阶段严禁在 {TEST_WORKFLOW_ROOT} 下启动任何 TUI 会话（禁止 make run_tui、make run、make tmux
+    或任何 --tui 参数）。子 UCAgent 必须由 Check 工具或 make test_mcp 以 headless 模式启动。在子工作流中开
+    TUI 会导致 Ctrl+C 冲突和文件权限残留，直接造成 checker 失败。
+  - 第3步：使用 Check 工具触发本阶段的 checker（checker 内部会自动执行 make test_mcp，启动子 UCAgent MCP Server
+    并完成 list_tools 和 call_tool 验证）。如果 Check 不可用，才允许手动运行 make test_mcp，但仍禁止 TUI。
+  - 第4步：使用 ReadTextFile 读取 {TEST_WORKFLOW_ROOT}/output/mcp_test_result.log，确认 list_tools 以及 config.yaml 中当前所有启用的
+    GeneratedTools 均有对应的 MCP call PASS；不得写死工具数量或适配器类名。
+  - 第3.1步：读取 checker 返回的 direct/MCP 结果和真实日志后，创建 {WFGEN_DIR}/mcp_baseline_evidence.yaml，记录已测工具名、direct 结果、MCP 结果、日志路径、失败摘要和生成时间；该文件是后续 smoke 基线阶段的确定引用，不能只写 passed 布尔值。
+  - 第5步：使用 ReadTextFile 读取 {TEST_WORKFLOW_ROOT}/.workflow/logs/tool_mcp_run.log，确认请求确实进入子
+    UCAgent，并确认子 UCAgent 通过 q 正常退出且恢复文件权限。
+  - 第6步：MCP 测试完成后再次运行 make check，确认没有残留只读权限、端口占用或运行中子 UCAgent。
+  - 第7步：如果测试失败，必须根据两个日志修复 adapter、注册、启动参数或工具实现，然后重新运行 Check（或 make test_mcp）和 make check，直到通过。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='verify_generated_tools_through_mcp', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 第8步：使用 SetCurrentStageJournal 记录 MCP 工具发现、全部当前启用工具调用、退出清理和测试后 make check 的结果。
+  - 第9步：使用 Complete 工具完成阶段。
+  reference_files:
+  - Guide_Doc/stages/08_verify_generated_tools_through_mcp.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - Guide_Doc/tool_generation_guide.md
+  - '{TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py'
+  - '{TEST_WORKFLOW_ROOT}/tools/mcp_adapters.py'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  # The checker creates and then validates the MCP logs. Declaring either log as
+  # a stage output would block the checker before it can run make test_mcp.
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/mcp_baseline_evidence.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: verify_generated_tools_through_mcp
+  - name: workflow_mcp_tool_integration_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_test: true
+- name: freeze_smoke_baseline
+  desc: 冻结已通过 smoke 的初步模板基线
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 {WFGEN_DIR}/requirements_manifest.yaml 和 smoke/MCP/checker 日志，确认代表性工具、checker
+    和子 UCAgent 均真实通过。
+  - 将 manifest.milestones.smoke_ready 更新为 true；feature_complete 和 release_ready 必须保持
+    false。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='freeze_smoke_baseline', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 记录 smoke 基线中可复用的启动方式、公共工具协议、checker 协议和已知限制，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/09_freeze_smoke_baseline.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{WFGEN_DIR}/mcp_baseline_evidence.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: freeze_smoke_baseline
+  - name: smoke_manifest_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      mode: manifest
+- name: design_complete_runtime_configs
+  desc: 根据需求清单设计主流程、增量流程和可选评估配置
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 requirements_manifest、原始需求和 .workflow/workflow_spec.yaml。
+  - 对每个业务输入区分“用户提供的原始输入”和“工作流生成的派生信息”。阶段 task 必须明确如何从原始输入提取、归纳、规划或设计派生结果；禁止假设用户已经提供最终结构、逐项方案、分析结果或设计配置。
+  - 生成 config.yaml、config/inc.yaml 以及按需生成的 eval.yaml 时，每个阶段的 task 合计至少包含 100 个有效正文字符，并具体说明输入、操作顺序、调用工具、生成产物、Checker 检查内容和失败处理。禁止为了兼容旧结构再生成 config/default.yaml 或 config/empty.yaml。
+  - 如果输入包含可用资源清单，配置必须把它描述为候选资源而非强制使用清单；资源选择、处理方式和新增图形需求由业务阶段决定，除非原始需求明确规定。
+  - '创建 .workflow/config_specs/main.yaml 和 inc.yaml；main 声明 mode: default 并直接生成根级 config.yaml，inc 声明 mode: inc 并生成 config/inc.yaml。只有需求确实需要独立评估流程时才增加 .workflow/config_specs/eval.yaml 和根级 eval.yaml，并在 manifest、Makefile 与文档中同步登记。最终配置的阶段必须位于 YAML 根级 stage，禁止写成 workflow.stages。'
+  - 配置中的 UCAgent 变量必须使用单层花括号语法；目标名只能使用 {DUT}，输出根目录只能使用 {OUT}，禁止使用未定义的
+    {TARGET} 或双层花括号。阶段 task、reference_files、output_files 和 checker 参数中的路径必须统一写成
+    input/{DUT}/... 与 {OUT}/{DUT}/...；需要的附加路径变量通过 template_overwrite 声明。
+  - 子工作流配置中的所有路径都以生成后的 {TEST_WORKFLOW_ROOT} 自身为根。内部静态文件必须写成
+    .workflow/workflow_spec.yaml、Guide_Doc/... 或 config/...，严禁把 Builder 访问候选目录时使用的
+    {TEST_WORKFLOW_ROOT}/ 前缀复制进 config spec；尤其禁止 .//workflow/、./workflow/ 和 workflow/。
+    例如外层读取 {TEST_WORKFLOW_ROOT}/.workflow/workflow_spec.yaml，写入子工作流 reference_files 时必须转换为
+    .workflow/workflow_spec.yaml。
+  - 禁止把当前 WFB/MWF 的运行时值写入 CWF 配置 spec；不得出现 output/workflow_build、input/workflow_build
+    或 output/workflow_build。write_dirs 必须且只能是 ['{OUT}/{DUT}']，不得写成 [output]。
+  - main/inc 以及可选 eval spec 必须包含明确且足够详细的 task，但不得重新发明 Checker、reference_files 或 output_files。
+    这些字段由 `.workflow/workflow_spec.yaml` 的同名阶段权威注入；若 spec 显式提供，内容必须完全一致，否则生成器拒绝。
+    inc 覆盖增量验证流程，eval 仅用于需求明确的独立评估。
+  - reference_files 和 output_files 都只能列出具体文件，禁止目录或没有文件名后缀的目录形状路径。reference_files 还必须来自固定交付文件、runtime_contract 明确要求的用户输入文件或前序阶段的具体 output_files；无法确认必然存在的文件不要写入。目录在 task 中使用 PathList，目录型成果用 manifest、summary 或 report 文件作为输出证据，二进制产物由业务工具或 checker 验证。
+  - 在写入 config spec 前，必须为 main、inc 和可选 eval 的每个 reference_files 建立逐项来源记录：标明它属于固定交付文件、runtime_contract 中 type=file 的用户输入，还是权威 workflow_spec 中严格前序阶段的 output_files，并记录具体声明位置和生产阶段。按 main、inc、eval 顺序单独处理；每批只读取当前 spec 与 workflow_spec 中相关阶段，完成后立即记录来源摘要，后续批次不得重新全文读取已完成 spec。不能写出来源、只有目录输入声明、由当前或后续阶段生成、或仅“预计会存在”的引用必须删除或改成真实证据文件。
+  - 业务阶段必须直接调用已注册工具完成产物和审查。禁止创建 output/*.py 或其他临时脚本绕过业务工具，禁止用
+    RunTestCases 代替业务阶段执行；需要复合审查时应扩展正式 inspector/checker 工具接口。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='design_complete_runtime_configs', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 记录主配置、增量配置以及可选评估配置的阶段数量和差异，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/10_design_complete_runtime_configs.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/workflow_spec.yaml'
+  - Guide_Doc/config_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/config_specs/main.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/config_specs/inc.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: design_complete_runtime_configs
+- name: generate_complete_runtime_configs
+  desc: 生成并检查主流程、增量流程和可选评估配置
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 分别调用 WorkflowConfigGenerator，并明确传入 workflow_spec_path='.workflow/workflow_spec.yaml'，由 main spec 直接生成 config.yaml，由 inc spec 生成 config/inc.yaml；仅在 manifest 明确登记时才生成 eval.yaml。禁止先生成 config/default.yaml 再复制，也禁止生成 config/empty.yaml。
+  - 确认主配置和增量配置均使用根级 stage，并分别覆盖 manifest 中对应 config 路径的阶段；main/inc 每个 task 的有效正文长度必须至少 100，Checker、
+    reference_files、output_files 必须与 workflow_spec 的同名阶段完全一致；工具注册和 template_overwrite 仍由 config spec 提供。
+  - 搜索全部生成配置，确认不存在 {TARGET}；使用 example 作为示例目标实际启动时，所有输入路径必须展开到 input/example/，所有输出与
+    checker 路径必须展开到 output/example/。
+  - 搜索全部生成配置的 task、reference_files、output_files 和 checker 参数，确认不存在 .//workflow/、./workflow/
+    或 workflow/ 父目录前缀；内部文件必须相对子工作流根目录引用。发现泄漏时回到 .workflow/config_specs 修正后重新调用生成器，
+    不得只手工修改最终 config.yaml。
+  - 分别调用 WorkflowArtifactInspector(action='yaml_summary', path='config.yaml') 和 path='config/inc.yaml'，以解析结果确认根类型为 mapping、stage 容器为 list、阶段数量和名称符合 workflow_spec；禁止为判断 YAML list/dict 另写临时脚本或基于文本缩进猜测。
+  - 调用 Check 前按 config.yaml、config/inc.yaml、可选 eval.yaml 的顺序逐个审查；每批使用 WorkflowArtifactInspector 的 YAML 摘要和当前配置中必要的阶段片段，逐阶段审查 reference_files。静态引用必须是已存在文件或 manifest 中明确规划的固定交付文件；运行时输入必须与 runtime_contract 中 type=file 的精确相对路径一致；派生引用必须能在 .workflow/workflow_spec.yaml 中定位到严格前序阶段的同名 output_files。将“引用、类别、声明位置或生产阶段、审查结论”写入本阶段规划记录；后续配置只读取此前审查记录摘要，发现目录、未知占位符、当前/后续阶段产物、拼错路径或无法证明的引用时，必须先修正权威 workflow_spec/config spec 并重新生成。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='generate_complete_runtime_configs', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 运行配置语法检查并记录结果，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/11_generate_complete_runtime_configs.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/config_specs/main.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.workflow/config_specs/inc.yaml'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - Guide_Doc/config_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config/inc.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: generate_complete_runtime_configs
+  - name: runtime_config_reference_audit
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRuntimeConfigAuditChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+- name: design_all_business_tool_specs
+  desc: 为需求清单中的全部业务工具设计 specs 和测试
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 requirements_manifest.required_tools 和每个业务阶段的输入输出，建立按依赖排序的单工具队列。每批默认只处理一个工具，只读取当前工具直接相关的阶段输入输出和需求片段；完成 spec、fixture 与简短摘要后再处理下一工具，禁止一次读取全部工具的细节、fixture 或未来源码。
+  - 为当前批 required_tool 创建 .workflow/tool_specs/<name>.yaml；每个 spec 必须包含正向、边界和失败测试，禁止只保留
+    <smoke_tool>。expected.ok=true 的测试输入夹具必须放在 .workflow/tool_tests/cases/，禁止创建根目录 examples/，禁止依赖会在发布清理中删除的
+    output/、reports/ 或 .workflow/logs/。
+  - 路径必须按调用边界区分：写入子工作流 spec/config 的路径保持 .workflow/... 或 output/...，但当前外层 Builder Agent
+    调用 ReadTextFile、PathList、GetFileInfo、RunTestCases 等工具时，必须使用 {TEST_WORKFLOW_ROOT}/.workflow/... 或
+    {TEST_WORKFLOW_ROOT}/output/...；禁止把子工作流相对路径直接交给外层工具。
+  - 业务工具测试由 .workflow/tool_specs/*.yaml 驱动，必须在 {TEST_WORKFLOW_ROOT} 内运行 make check_tool_specs 和 make test_tools；只在全部 spec 写完后各运行一次，并只读取汇总、失败工具名和必要失败片段，禁止逐份预读全部 fixture。不得虚构 test_tool_checks.py，也不得用外层 RunTestCases/pytest 代替 tool_direct_runner。
+  - 会创建或修改文件的测试，其输出路径必须放在 output/tool_tests/ 下；不得把输出写回只读的 docs/、tools/ 或
+    .workflow/tool_tests/cases/ 输入夹具目录，以保证 direct 和 MCP 两种运行方式一致。
+  - 每个业务工具的正向测试必须覆盖需求中声明的核心能力，而不是只验证返回结构。例如声明支持图片、表格、页码、格式转换或协议解析时，spec
+    必须提供包含这些特性的夹具，并在 data_required_keys 或后续 inspector 中验证真实产物。
+  - 工具至少覆盖需求解析中要求的 为 requirements_manifest.required_tools 中列出的全部业务工具设计 specs能力。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='design_all_business_tool_specs', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 运行 make check_tool_specs，修复全部协议错误后 Complete。
+  reference_files:
+  - Guide_Doc/stages/12_design_all_business_tool_specs.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - Guide_Doc/tool_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: design_all_business_tool_specs
+- name: generate_all_business_tools
+  desc: 批量生成、注册全部业务工具
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 用 PathList 仅枚举 .workflow/tool_specs 的文件名，并按依赖关系将工具拆为每批一个工具的顺序队列；不得在同一轮读取全部
+    spec、源码、fixture、测试 runner、Makefile、output 或旧日志。每批只读取该工具的 spec、生成源码和最多一个正例及一个反例
+    fixture；其余 fixture 由后续 make test_tools 执行，不得逐份全文读取。
+  - 对当前批次调用一次 WorkflowToolGenerator(existing_policy='create_only') 根据尚无实现的业务 spec 生成工具，不得覆盖 smoke
+    阶段已经实现的源码；生成器出现 skipped 时必须读取当前工具的现有实现并继续使用，不得改用 force_replace。只有带生成状态且
+    摘要未变化的纯骨架才允许 refresh_scaffold。每个批次完成真实业务实现、专属 fixture 调整和简短完成摘要后，再开始下一工具；
+    后续批次禁止重新读取已完成工具的源码或 fixture。
+  - 确认当前批次工具具有实现、spec 和 config 注册；读取生成代码检查路径安全、统一返回结构以及需求声明的领域库调用和核心行为。
+    如果 from_spec 仅生成通用骨架，必须在当前批次补齐实际业务逻辑，并同步增强该工具测试后再继续。tool_direct_runner.py、
+    tool_static_checker.py、Makefile、output 目录和任何旧测试日志只能在下一阶段的全量测试中按需读取。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='generate_all_business_tools', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 运行 make check_tools 和 make test_tools，修复后 Complete。
+  reference_files:
+  - Guide_Doc/stages/13_generate_all_business_tools.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: generate_all_business_tools
+- name: run_full_tool_test_suite
+  desc: 执行全部工具静态、direct 和真实 MCP 测试
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 运行 make check_tool_specs、make check_tools、make test_tools 和 make test_mcp。
+  - 【硬性约束】本阶段严禁在 {TEST_WORKFLOW_ROOT} 下启动任何 TUI 会话（禁止 make run_tui、make run、make tmux
+    或任何 --tui 参数）。子 UCAgent 必须由 make test_mcp 以 headless 模式启动。TUI 会造成 Ctrl+C 冲突和文件权限残留。
+  - 禁止重写、替换或手写 {TEST_WORKFLOW_ROOT}/.workflow/tool_tests/run_mcp_tests.py；该文件必须保持由 WFB
+    mcp_tool_test_runner 模板生成的 streamable HTTP 客户端实现，必须使用 mcp.client.streamable_http.streamablehttp_client
+    和 mcp.ClientSession。若 make test_mcp 失败，只能修工具 spec、工具实现、adapter 注册或环境端口问题；不得改成
+    urllib、JSON-RPC POST /mcp、SSE 或自建 mcp_sse_server.py。
+  - 读取 direct 和 MCP 日志的汇总、每个工具的 PASS/FAIL 行及必要失败片段，逐个确认 requirements_manifest.required_tools 被发现并真实调用成功；不能只看命令退出码，也不得为了复核通过项全文读取 fixture、工具源码、runner 或旧日志。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='run_full_tool_test_suite', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 确认没有残留子 UCAgent、端口占用和只读权限，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/14_run_full_tool_test_suite.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  # WorkflowMCPToolIntegrationChecker generates the MCP evidence itself.
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: run_full_tool_test_suite
+  - name: full_mcp_tool_integration_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      required_tools_file: '{WFGEN_DIR}/requirements_manifest.yaml'
+      run_test: true
+- name: design_all_document_specs
+  desc: 为全部业务阶段设计 GuideDoc 与用户文档 specs
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 先读取 requirements_manifest.required_guidedocs、required_user_docs、required_tools、required_checkers、config.yaml 和 {WFGEN_DIR}/guidedoc_spec_schema.yaml，建立每批最多 3 份文档的队列；当前批只读取对应阶段名称、注册摘要和输出契约，完成 spec 与覆盖摘要后再进入下一批，禁止重复全文读取已完成文档的设计信息。
+  - 为当前批 required_guidedoc 和 required_user_doc 创建单一 YAML 文档 spec；使用 document_type、title、output、sections 和可选 operation_contract。guide_doc 输出到 Guide_Doc/ 并注册，user_doc 输出到 docs/ 且不得注册。
+  - required_guidedoc 中的 stage/stages/scope 是文档覆盖契约。每个非豁免业务阶段必须被至少一份 GuideDoc 覆盖；
+    对复杂步骤要生成独立的阶段文档，例如 Guide_Doc/<stage_name>.md，而不是把所有步骤塞进 operation.md。
+  - 每份 GuideDoc 必须包含 Purpose、Inputs、Outputs、Usage、Execution、Checks、Failure Recovery。只有 operation_contract=true 的操作文档强制包含 TARGET、input/<TARGET>/、input/example、output/、make check_example 和 make run，技术文档不得机械重复快速启动内容。
+  - 固定生成 docs/README.md、docs/01快速启动.md、docs/02输入输出.md、docs/03步骤及检查.md、docs/04开发者文档-tools.md、docs/05开发者文档-checkers.md，并按需求增加其他用户文档。快速启动和输入输出文档必须说明 make configure、make configure-check、setup.py 非交互参数、本机配置位置及敏感值不落盘规则。每份 docs 文档至少 200 个有效正文字符。
+  - 本阶段只设计开发者文档的覆盖结构和源码映射。docs/04开发者文档-tools.md 必须覆盖 manifest 业务工具与 config.tools.GeneratedTools 中全部启用工具（包括 run_command_tool），docs/05开发者文档-checkers.md 必须覆盖 manifest.required_checkers 与 .workflow/workflow_spec.yaml.checkers 实际注册项的并集。按每批最多 3 个组件建立准确名称的独立标题和至少 100 个有效正文字符的设计摘要；本阶段只读注册摘要和 spec，不读取全部实现源码、fixture 或 runner，真实代码分析留给下一阶段。
+  - 每个组件设计摘要必须基于实际注册信息，原样写出实现相对路径、class_name 和 method，并规划下一阶段需要说明的关键逻辑、输入输出、主要分支、异常处理、扩展点、测试和修改影响。本阶段不要求逐字源码代码块，也不要求把最终每组件 300 字正文全部提前写入 spec；这些硬约束在下一阶段读取最终源码、完善 spec 并生成 Markdown 后统一验收。
+  - 调用 Check 前按设计结构自审。guidedoc_spec_check 只验证文档覆盖、组件独立章节、至少 100 个有效正文字符以及准确的实现路径/class_name/method 映射；不得在本阶段重复执行最终文档的逐字源码、十类标签和每组件 300 字验收。
+  - Inputs 必须准确区分原始输入、可选资源和工作流派生信息。不得要求用户填写应由阶段生成的结构、分析结果、设计参数或中间产物；Execution 必须说明工作流如何从原始输入产生这些结果。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='design_all_document_specs', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 确认每个业务阶段引用对应 GuideDoc，不得只生成 overview.md/operation.md，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/15_design_all_document_specs.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{WFGEN_DIR}/guidedoc_spec_schema.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  - Guide_Doc/guidedoc_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: design_all_document_specs
+  - name: guidedoc_spec_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGuideDocSpecChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+- name: generate_all_documentation_and_dependencies
+  desc: 批量生成、注册和验证全部文档与依赖清单
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 先建立组件完成清单，并按每批不超过 3-4 个工具或 Checker 的小批次处理。每批只读取本批组件的真实注册信息、实现源码和测试 fixture，立即把该批的完整章节写入对应的 `user_dev_tools.yaml` 或 `user_dev_checkers.yaml`；下一批开始前只读取 spec 中的标题和完成状态，不得重新读取已完成批次的源码。
+  - 每个组件章节必须包含准确 manifest 名称、实现相对路径、class_name、method、关键代码分析、调用路径、字段、分支、异常、扩展点和测试分析；正文以至少 500 个有效中文字符为目标并满足 300 个有效正文字符硬下限。代码围栏必须逐字复制真实实现中连续 2-6 行非注释有效源码，去除空白后不少于 40 字符；围栏内部不得跳过任何方法、装饰器、注释或语句。不允许伪代码、省略号、凭 spec 猜测、改写源码或跨不相邻行拼接。
+  - 只有在两个开发者文档 spec 的全部组件章节都写完并从 spec 自身核对完成清单后，才允许调用一次 `WorkflowGuideDocGenerator(workflow_root='{TEST_WORKFLOW_ROOT}', spec_paths=[全部受影响 spec], update_config=true)` 生成全部 Guide_Doc 和 docs 文档；禁止按组件或按单份文档调用生成器。生成器会写入 `GENERATED-FROM` 和 `SPEC-SHA256`，只把 Guide_Doc 注册进 config。
+  - 根据 required_python_dependencies 生成 requirements.txt；required_system_dependencies 以注释写明用途、版本要求和安装命令，UCAgent 等非 PyPI 前提也用注释说明。同步生成环境配置 GuideDoc，逐项解释 schema 扩展、setup.py 参数、受控区块、跨系统重新配置和故障恢复。
+  - 首次生成完成后只运行一次 `make check_docs` 并读取完整结构化结果；不得在正常生成过程中按 spec 或按组件运行 Check。随后通过 WorkflowPlanAppender 追加本阶段记录，再调用 Check、记录 journal 和 Complete。若 Check 返回 `source_evidence_errors`、`stale_generated_documents` 或其他文档错误，只修正对应 spec，重新调用一次生成器，再重新运行一次 `make check_docs`；不得直接修改生成后的 Markdown，也不得重读和重写无关组件。
+  reference_files:
+  - Guide_Doc/stages/16_generate_all_documentation_and_dependencies.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - Guide_Doc/guidedoc_generation_guide.md
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/requirements.txt'
+  - '{TEST_WORKFLOW_ROOT}/docs/04开发者文档-tools.md'
+  - '{TEST_WORKFLOW_ROOT}/docs/05开发者文档-checkers.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: generate_all_documentation_and_dependencies
+  - name: generated_guidedoc_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedGuideDocChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      required_headings:
+      - '## Purpose'
+      - '## Inputs'
+      - '## Outputs'
+      - '## Usage'
+      - '## Execution'
+      - '## Checks'
+      - '## Failure Recovery'
+  - name: generated_user_docs_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowUserDocsChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+  - name: generated_dependency_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowDependencyChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+- name: generate_all_reusable_templates
+  desc: 生成需求要求的全部可复用模板
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 requirements_manifest.required_templates 和原始需求。
+  - 为 requirements_manifest.required_templates 中列出的全部用户可复用模板路径生成文件；该列表为空时记录“需求未要求用户模板”并直接完成。禁止把 readme_basic、config_basic、guidedoc_operation 等 WorkflowBuilder 内部渲染标识符当成用户模板。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='generate_all_reusable_templates', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 模板使用需求规定的 DUT 占位符，内容必须可读且非空。模板只示范用户真正需要提供的原始输入，不得加入应由工作流生成的页数、逐项计划、分析结论、字体、配色、布局、资源绑定或其他派生字段；运行语法与结构检查后 Complete。
+  reference_files:
+  - Guide_Doc/stages/17_generate_all_reusable_templates.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: generate_all_reusable_templates
+- name: complete_readme_and_makefile
+  desc: 完善最终 README、Makefile 和运行脚本
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 根据 runtime_contract、需求和最终组件更新 README，必须说明如何通过 TARGET 选择具体目标、input/<TARGET>/ 必需文件、input/example/
+    示例、output/ 输出、变量替换、主流程与增量流程、可选评估模式、测试、报告、故障恢复和迁移。
+  - README 和 docs/01快速启动.md 必须明确每个输入是原始材料、可选资源还是配置，并说明哪些结构、分析和设计由工作流自动产生。不得通过示例或模板暗示用户需要预先完成工作流本身的职责。
+  - 生成并完善 docs/01快速启动.md；内容必须以 input/example/ 为唯一快速开始示例，按顺序给出 make check、make check_example、make
+    run TARGET=example，并明确输出位于 output/。禁止写入无法直接执行的占位命令。
+  - 完善 Makefile，TARGET 默认值必须为空，必须保留 configure、configure-check 和 setup.py 受控环境区块，并包含 check_target、prepare_input、prepare_runtime 和 check_input；
+    run/run_inc/run_tui 必须依赖 prepare_runtime；check_example 必须逐项校验 runtime_contract.required_input
+    并验证 JSON 等结构化输入。用户输入不得被要求包含 data/__init__.py；UCAgent 运行包只能位于
+    output/.runtime_targets/。Makefile 必须定义 WORKFLOW_WORKSPACE ?= $(CURDIR)，所有 UCAgent 启动命令必须使用
+    $(UCAGENT) $(WORKFLOW_WORKSPACE) $(TARGET)，禁止使用 $(UCAGENT) ./ $(TARGET)。smoke 必须使用独立
+    SMOKE_TARGET；requirements_manifest.required_make_targets 全部可用。
+  - 确认 run/run_inc/run_tui/smoke 均通过 tools.mcp_adapters 动态传入 --ex-tools；运行结束时若
+    .ucagent/ucagent_info.json 的 all_completed=true，Makefile 必须返回 0，即使 UCAgent 的 Exit 路径返回了中断状态。
+  - 确认 tools/mcp_adapters.py 保持 WFB 模板契约。不能覆盖 BaseTool.run，不能注册 run 函数覆盖项；_run
+    返回 json.dumps(result, ensure_ascii=False, sort_keys=True)，让 BaseTool 在直接 UCAgent 运行时包装成
+    ToolMessage。
+  - make check、test_tools 和 test_checkers 只能依赖源码、spec 以及 .workflow/*_tests/cases/
+    下的持久测试夹具；禁止依赖会在发布清理中删除的 tmp、output、reports 或运行日志。所有临时脚本、run_checks 辅助文件和一次性中间结果只能放在根级 tmp/，禁止散落在工作流根目录、wfgen、tools 或 .workflow/。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='complete_readme_and_makefile', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 严格按照 docs/01快速启动.md 运行 bundled example，再运行 make help、make check 和安装检查，修复后 Complete。
+  reference_files:
+  - Guide_Doc/stages/18_complete_readme_and_makefile.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/README.md'
+  - '{TEST_WORKFLOW_ROOT}/docs/01快速启动.md'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/README.md'
+  - '{TEST_WORKFLOW_ROOT}/docs/01快速启动.md'
+  - '{TEST_WORKFLOW_ROOT}/Makefile'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: complete_readme_and_makefile
+- name: mark_feature_complete
+  desc: 完成组件覆盖审查并标记 feature_complete
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 逐项比较 requirements_manifest 与阶段、工具、checker、Guide_Doc、模板、配置和 Makefile。
+  - 只有全部组件已生成且确定性检查通过，才将 manifest.milestones.feature_complete 更新为 true。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='mark_feature_complete', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - release_ready 必须保持 false；记录剩余全量测试项后 Complete。
+  reference_files:
+  - Guide_Doc/stages/19_mark_feature_complete.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: mark_feature_complete
+- name: verify_final_requirement_coverage
+  desc: 执行最终需求覆盖检查并标记 release_ready
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 requirements_manifest、确定性 checker 汇总和各测试命令的 PASS/FAIL 摘要，确认 smoke_ready、feature_complete 已为 true；不得全文读取全部 fixture、工具源码或完整历史日志。只有失败项才读取对应失败片段，并按组件小批次修复。
+  - 运行最终需求覆盖检查；缺失阶段以 config/path.yaml:stage_name 报告，必须在对应配置的根级 stage 中修复。修复任何缺失 checker
+    spec、工具、文档、模板、配置、Makefile 目标或交付物。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='verify_final_requirement_coverage', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 全部确定性覆盖检查通过后将 manifest.milestones.release_ready 更新为 true；该标记表示构建候选可迁移，不代替外层独立运行评估
+    的完整运行验收。再次执行 Check 并 Complete。
+  reference_files:
+  - Guide_Doc/stages/20_verify_final_requirement_coverage.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/config.yaml'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: verify_final_requirement_coverage
+  - name: final_requirement_coverage
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    args:
+      manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      mode: final
+- name: clean_release_candidate
+  desc: 清理运行历史、缓存、日志和无效重复文件
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 在不删除最终源文件、spec、测试和交付模板的前提下，清理 .ucagent、__pycache__、.pytest_cache、.workflow/logs、output/
+    下的运行产物以及错误重复的文档目录；使用 make clean 清空根级 tmp/ 的全部普通与隐藏内容，但必须保留空的 tmp/、output/、requirements.txt、完整 docs/ 和可运行的 input/example/。临时脚本和一次性检查文件不得进入迁移包。
+  - 确认最终工程不包含绝对路径、临时迁移部署目录、本次测试产生的运行日志和根目录 examples/；不得删除 .workflow/*_tests/cases 下作为测试输入的夹具日志。
+  - 清理后调用 WorkflowArtifactInspector(action='release_tree')，按 acceptance_rules.yaml 核对必需公开文件、目录和运行产物；若报告缺失或残留，修正源工程后重新检查，禁止复制一份硬编码清单到临时脚本。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='clean_release_candidate', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 重新运行静态 make check 和最终需求覆盖检查，确认清理没有破坏 input/output 运行契约与发布候选，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/21_clean_release_candidate.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/.install/README.md'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: clean_release_candidate
+- name: prepare_and_verify_migration_packages
+  desc: 准备并验证洁净的全量与部分迁移包
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 确认 requirements_manifest.milestones.release_ready=true 后，运行 python install.py
+    --prepare both 和 python install.py --check。
+  - 确认 full 包包含最终工具、checker、spec、测试、Guide_Doc、模板和配置；partial 包排除工具/checker及其 spec/test。
+  - 确认两种包都不包含 .ucagent、.git、缓存、运行日志、output/ 和 reports/ 下的运行文件、旧 GuideDocs、.install/packages
+    嵌套内容；同时确认 requirements.txt、完整 docs/、可运行 input/example/、acceptance_rules 要求的空 output/ 等目录和测试夹具日志被保留。
+  - 调用 WorkflowArtifactInspector(action='migration_manifest') 比对 manifest 声明与 full/partial 真实文件树；再以 acceptance_rules.yaml 核对两种模式的必需公开文件和目录。禁止复制 checker 的文件清单编写一次性比较脚本。
+  - 在生成包后立即完成 full/partial 边界预检：partial 不得包含 PARTIAL_EXCLUDES 中的 tools、checkers、tool_specs、tool_tests、checker_specs、checker_tests；full/partial 都必须包含 acceptance_rules 声明的必需文件和目录。若预检失败，先修正本阶段的打包逻辑并重新 package/check_package，禁止把问题拖到下一阶段。
+  - 诊断材料和部署试验只能暂存于工作区根级 tmp/；诊断完成后必须删除本阶段创建的全部临时脚本、日志和部署目录，并在首次调用 Check 前用 PathList(tmp) 确认 tmp/ 为空。失败重试必须复用或覆盖已有诊断材料，不得不断累积未清理的临时文件；禁止让任何临时文件进入 workflow、.install 或迁移包。
+  - 分别部署 full 和 partial 到临时目录并进行文件级验证；本阶段不要启动 UCAgent。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='prepare_and_verify_migration_packages', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 记录包文件数量和洁净度结果，然后 Complete。
+  reference_files:
+  - Guide_Doc/stages/22_prepare_and_verify_migration_packages.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{WFGEN_DIR}/requirements_manifest.yaml'
+  - '{TEST_WORKFLOW_ROOT}/install.py'
+  - '{TEST_WORKFLOW_ROOT}/.install/README.md'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.install/manifest.json'
+  - '{TEST_WORKFLOW_ROOT}/.install/packages/full/install.py'
+  - '{TEST_WORKFLOW_ROOT}/.install/packages/partial/install.py'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: prepare_and_verify_migration_packages
+  - name: generated_migration_package_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_deploy_test: false
+- name: verify_migrated_release
+  desc: 验证迁移后的发布包仍满足交付边界
+  task:
+  - 第0步：读取本阶段静态指导文档和配置列出的全部 reference_files；该指导文档由维护者维护，运行中禁止修改。
+  - 读取 .install/manifest.json，确认 full/partial 包边界和洁净度。
+  - 调用 WorkflowArtifactInspector(action='migration_manifest') 获取声明与真实包树一致性的结构化证据；YAML 或 manifest 类型判断必须使用解析结果，禁止用子串、缩进或临时脚本猜测。
+  - 在临时 full 和 partial 部署目录执行 make check_example，并核对 docs/01快速启动.md 与 requirements.txt；full 还必须执行 make
+    check、静态安装检查、需求文件检查和 input/output 运行契约检查；partial 不启动 UCAgent。
+  - 本阶段是只读验收阶段：不得修改 install.py、.install/README.md、acceptance_rules.yaml、迁移包或前序阶段产物；发现边界或契约问题时记录结构化失败证据，返回 Stage 22 修复后重跑。
+  - 在首次调用 Check 之前，必须先完成本阶段业务工作并通过独立命令取得真实验证证据，再调用 WorkflowPlanAppender(plan_path='{WFGEN_DIR}/workflow_implementation_plan.md', stage_name='verify_migrated_release', stage_record='<包含五个必需三级标题且正文充分的本阶段记录>') 追加规划；追加成功后禁止再修改前序记录或当前记录，随后才允许调用 Check。禁止用 EditTextFile 的 write/replace 模式覆盖规划。
+  - 确认源工程和迁移包均无运行中子 UCAgent，记录最终交付路径并 Complete。
+  reference_files:
+  - Guide_Doc/stages/23_verify_migrated_release.md
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  - '{TEST_WORKFLOW_ROOT}/.install/manifest.json'
+  output_files:
+  - '{WFGEN_DIR}/workflow_implementation_plan.md'
+  checker:
+  - name: living_plan_update_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    args:
+      plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
+      current_stage: verify_migrated_release
+  - name: final_migration_package_check
+    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
+    args:
+      workflow_root: '{TEST_WORKFLOW_ROOT}'
+      run_deploy_test: true
