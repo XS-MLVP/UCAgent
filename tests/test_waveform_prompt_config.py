@@ -4,8 +4,11 @@ from pathlib import Path
 import re
 import sys
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
 from ucagent.util.config import load_yaml_with_env_vars
 
 
@@ -106,7 +109,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert "不可用时按Guide的同一标签格式用文本工具建立骨架" in system_prompt
+    assert "不可用时按Guide第5.1节完整标准案例和第5.2节骨架" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
     assert "只为新Bug生成首个BG/TC" in system_prompt
@@ -126,7 +129,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
     assert "record_dynamic_bug.py仅为可选骨架辅助" in batch_task
-    assert "不可用时按Guide用文本工具建立相同标签" in batch_task
+    assert "不可用时按Guide第5.1节完整标准案例和第5.2节骨架" in batch_task
     assert "完成共享alignment_evidence、逐Bug证据和八个分析字段" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
@@ -277,7 +280,7 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "v2 逻辑定位" not in guide
     assert "普通增量 stage 使用`require_current_replay=false`" in guide
     assert "只有对应验证项配置`require_current_replay=true`" in guide
-    assert "显示标题可以本地化" in guide
+    assert "不得自行翻译标题、改用粗体" in guide
     assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
     assert "先确认事务有效，再判断数据是否错误" in guide
     assert "调用一次 `Step(1)` 只表示仿真时间推进了一步" in guide
@@ -345,7 +348,9 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "only an investigation clue" in help_text
     assert "complete HDL fenced block containing each marker" in help_text
     assert "This branch cannot contain an HDL fence" in help_text
-    assert "Display headings are optional/localizable and are not parsed" in help_text
+    assert "Do not rename, translate, omit, duplicate, or reorder them" in help_text
+    assert "###### Bug 概述" in help_text
+    assert "###### 源码证据" in help_text
     assert "Root cause analysis inside this BG entry" not in help_text
     assert "receipt_id: <real WaveInfo receipt_id>" not in help_text
     assert "Adder.v line 10" not in help_text
@@ -442,7 +447,8 @@ def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
 
     assert template.startswith("# {{DUT}} 动态 Bug 分析")
     assert "<DYNAMIC-BUGS>" in template
-    assert "## 未测试通过检测点分析" in template
+    assert "## 动态 Bug 记录" in template
+    assert "## 波形证据" in template
     assert "## 缺陷根因分析" not in template
 
 
@@ -453,14 +459,47 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     )
     guide = guide_path.read_text(encoding="utf-8")
 
+    assert "### 5.1 完整标准案例" in guide
+    assert "# Adder 动态 Bug 分析" in guide
+    assert "### 功能组：<FG-ARITHMETIC>" in guide
+    assert "###### 动态 Bug（95%）：<BG-SUM-CARRY-DROPPED-95>" in guide
+    assert "rtl/Adder.sv:24-26" in guide
+    assert "### <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>" in guide
+    assert "标准案例体现以下不可变边界" in guide
     assert "建立骨架并分阶段写入" in guide
     assert "脚本不可用时也不阻塞整个流程" in guide
-    assert "使用文本编辑工具参照本节最小骨架" in guide
+    assert "参照第 5.1 节的完整标准案例和本节骨架" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
     assert "只接收`BG/TC/BD`" in guide
     assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
     assert "任何非零 BG 残留占位都不能完成" in guide
+
+
+def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):
+    guide = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    section_start = guide.index("### 5.1 完整标准案例")
+    fence_start = guide.index("`````markdown\n", section_start) + len(
+        "`````markdown\n"
+    )
+    fence_end = guide.index("\n`````", fence_start)
+    example = guide[fence_start:fence_end]
+    (tmp_path / "Adder_bug_analysis.md").write_text(example, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "Adder_bug_analysis.md"
+    )
+    assert passed is True, message
+
+    yaml_text = example.split("```yaml\n", 1)[1].split("\n```", 1)[0]
+    payload = yaml.safe_load(yaml_text)
+    assert set(payload) == {"waveform_analysis"}
+    assert payload["waveform_analysis"]["bug_tags"] == [
+        "BG-SUM-CARRY-DROPPED-95"
+    ]
 
 
 def test_dynamic_test_classification_precedes_global_waveform_sweep():

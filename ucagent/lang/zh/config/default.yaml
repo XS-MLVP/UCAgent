@@ -79,8 +79,8 @@ mission:
       - `WaveInfo`找到可重放事件不等于自动确认DUT Bug。LLM必须先阅读功能规格、测试用例实际调用的API/driver、callback和Step顺序，确认输入驱动边沿、ready/valid或DUT实际使用的等价请求接受条件、响应有效/采样条件、backpressure/stall、pipeline或响应latency以及事务归属，再判断expected/actual。valid/enable无效、ready/accept未成立、复位/空闲/过渡状态、尚未到响应latency或协议声明data无效时的单点data mismatch只能作为调查线索，不能直接标记Bug；若规格明确要求在未接受请求或busy期间保持/忽略行为，则按该约束审查。这项语义审查必须结合规格、测试和RTL完成，不能按固定信号名推断
       - 一次`Step(1)`只表示仿真推进一步，绝不自动表示请求已接受或输出已有效。LLM必须检查API/driver内部是否已经Step、等待握手或采样，并从规格确定组合settle、指定边沿、固定N周期、out_valid/response_valid/done/ack成立或busy清零等真实结果有效条件；API调用后机械地只Step一次就读data产生的Fail应先按测试时序问题修复，不能记录为DUT Bug
       - 最终WaveInfo取证不能只查看发生不一致的目标data。调用前必须阅读DUT顶层端口、测试API/driver、规格和相关RTL，并通过`signal_groups`声明：时序DUT的实际时钟（组合DUT明确使用combinational且不虚构时钟）、当前功能相关的全部输入数据/选择/使能、相关输出数据/状态/有效位、接口实际存在的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。同一组真实完整路径必须进入timeline、签名receipt和在线viewer；`pattern`只负责定位事件，不能为了显示上下文而把所有信号都设成change触发条件。所有声明路径必须真实且已签名，LLM仍须从规格审查信号角色是否完整，不能按名字推断接口语义
-      - 动态Bug文档中，一个Bug的问题描述、全部失败TC引用、触发条件、源码位置、根因因果链、修复建议、风险和复验计划必须集中在对应<BG-*>条目内；BG内不复制receipt、viewer或共享波形数据，全部唯一波形只放在<WAVEFORM-EVIDENCE>中央分区，并通过<WAVEFORM-REF>跳转。不得在文档末尾另建与标签分离的全局根因分析章节。详情内部使用粗体或五、六级标题，不要使用一到三级标题，保证BG条目边界清晰
-      - `record_dynamic_bug.py`是可选辅助：可用时只为新Bug生成首个BG/TC、`<WAVEFORM-REF>`和八字段骨架；不可用时按Guide的同一标签格式用文本工具建立骨架并继续，不能降低完成标准。同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC共享的`alignment_evidence`、每个`bug_evidence.<BG>`的`required_signals/observed_behavior/source_correlation`及BG的八个固定分析字段，清除全部`<BUG-TODO>`。有源码时使用`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`三个因果标签；无源码时使用互斥的`<BUG-SOURCE-UNAVAILABLE>`
+      - 动态Bug文档中，一个Bug的问题描述、全部失败TC引用、触发条件、源码位置、根因因果链、修复建议、风险和复验计划必须集中在对应<BG-*>条目内；BG内不复制receipt、viewer或共享波形数据，全部唯一波形只放在<WAVEFORM-EVIDENCE>中央分区，并通过<WAVEFORM-REF>跳转。不得在文档末尾另建与标签分离的全局根因分析章节。逐字遵循Guide第5.1节完整标准案例：使用固定中文文档/分区标题、FG/FC/CK/BG/TC标题层级，以及“Bug 概述、现象与严重度、触发条件与影响、根因分析、源码证据、动态因果链、修复建议、风险与复验”八个六级标题；不得翻译、改用粗体、调整级别或另创布局
+      - `record_dynamic_bug.py`是可选辅助：可用时只为新Bug生成首个BG/TC、`<WAVEFORM-REF>`和八字段骨架；不可用时按Guide第5.1节完整标准案例和第5.2节骨架，用文本工具建立相同中文标题、Markdown层级和标签顺序，不能降低完成标准。同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`。随后完成TC共享的`alignment_evidence`、每个`bug_evidence.<BG>`的`required_signals/observed_behavior/source_correlation`及BG的八个固定分析字段，清除全部`<BUG-TODO>`。有源码时使用`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`三个因果标签；无源码时使用互斥的`<BUG-SOURCE-UNAVAILABLE>`
       - `ApplyWaveInfoEvidence`每次只维护一个精确BG/TC关联。一个BG有多个Fail TC时分别调用；目标TC不存在且BG位置唯一时由工具创建。一个Fail TC揭示多个独立Bug时保留不同BG，使用相同test_case_tag和不同bug_tag分别调用，所有关联共享一份中央记录。工具保留其他BG、兄弟TC和中央记录；新增关联不需要replace_existing，只有替换不同receipt时才显式设为true。不得手工复制BG/TC、receipt字段或viewer token
       - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
@@ -1134,7 +1134,7 @@ stage:
           - "  - 波形判错前必须阅读测试使用的API/driver、callback和Step顺序，明确输入驱动边沿、ready/valid或等价接受条件、输出有效条件、backpressure和latency，并核对测试是否过早读取或重复Step；只有协议允许的同一事务响应窗口中的expected/actual差异才能支持Bug。任意时间点或无效周期的data不一致只能继续调查，不能直接生成BG"
           - "  - 最终WaveInfo调用必须填写完整signal_groups：时序DUT的时钟、当前功能相关的输入数据/选择/使能、输出数据/状态/有效位、真实协议接受/响应控制，以及至少一个功能选择/状态/错误传播关键路径；组合DUT明确声明combinational且不虚构时钟。在线viewer必须显示同一签名信号集合，禁止只查看目标result后判Bug"
           - "  - 只有正确测试稳定复现DUT缺陷时才保留Fail。每个BG/TC紧跟<WAVEFORM-REF>，每个TC在中央<WAVEFORM-EVIDENCE>中恰有一份真实receipt记录；同一TC多Bug时bug_tags、bug_evidence和顶层信号并集必须完整。YAML和viewer只放在中央记录中"
-          - "  - record_dynamic_bug.py仅为可选骨架辅助；不可用时按Guide用文本工具建立相同标签。必须继续调用WaveInfo/ApplyWaveInfoEvidence，并完成共享alignment_evidence、逐Bug证据和八个分析字段，删除全部<BUG-TODO>"
+          - "  - record_dynamic_bug.py仅为可选骨架辅助；不可用时按Guide第5.1节完整标准案例和第5.2节骨架，用文本工具建立相同中文标题、Markdown层级和标签顺序。必须继续调用WaveInfo/ApplyWaveInfoEvidence，并完成共享alignment_evidence、逐Bug证据和八个分析字段，删除全部<BUG-TODO>"
           - "  - WaveInfo收据陈旧、缺失或无法重放时，必须重跑对应失败用例并重新调用WaveInfo更新证据；只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁。只有正确测试已经Pass或证据证明该记录并非DUT Bug时，才可按Guide重新分类或删除动态记录"
           - "  - WaveInfo inventory只允许用于发现测试名；拿到recommended_call后，下一次调用必须使用其中的非空test_case_name。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
           - "  - 只传pattern且没有logged_cycle+clock_signal或完整start_step+end_step时只是探索调用；按recommended_evidence_call重调后，将新receipt交给ApplyWaveInfoEvidence写入该TC中央记录。不得手工复制机器字段、viewer token或effective窗口"
@@ -1280,7 +1280,7 @@ stage:
       - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
       - "  情况A - 测试Fail（Bug已证实）："
       - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
-      - "       - record_dynamic_bug.py是可选辅助；不可用时按Guide用文本工具建立相同BG/TC/引用骨架。随后完成中央共享与逐Bug波形字段、八个分析字段和源码因果标签，清除全部<BUG-TODO>后才能执行linkbug.py"
+      - "       - record_dynamic_bug.py是可选辅助；不可用时按Guide第5.1节完整标准案例和第5.2节骨架，用文本工具建立相同中文标题、Markdown层级和BG/TC/引用结构。随后完成中央共享与逐Bug波形字段、八个分析字段和源码因果标签，清除全部<BUG-TODO>后才能执行linkbug.py"
       - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
       - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
       - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
@@ -1454,7 +1454,7 @@ stage:
       - "  1.2.1 核对每个receipt的signal_groups和在线viewer是否同时包含时钟（若有）、相关输入、相关输出、协议控制及功能关键路径；只显示目标data、缺少valid/ready等实际有效性锚点或缺少解释根因的关键状态时，必须重新调用最终WaveInfo补齐证据"
       - "  1.3 重新读取<BUG-SOURCE-EVIDENCE>引用的真实RTL/HDL行及其上下文，独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策、<BUG-SOURCE-PROPAGATION>是否解释错误如何到达输出、<BUG-SOURCE-OBSERVABLE>是否与波形可见后果一致；禁止只复述失败现象、测试名称或source_correlation"
       - "  1.4 逐项核对<BUG-OVERVIEW>至<BUG-RETEST>八个字段：根因必须同时解释expected/actual和波形，修复必须直接消除首错而不是只掩盖输出，风险与复验必须覆盖受影响路径；发现泛化、猜测、行号不实或证据矛盾时直接重写对应字段"
-      - "  1.5 有源码分支必须使用真实path:L1-L2和完整HDL fenced代码块，三个<BUG-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<BUG-SOURCE-UNAVAILABLE>并完成黑盒因果分析，两种分支不得混用。不得依赖中文展示标题或自然语言占位词判断完成状态"
+      - "  1.5 有源码分支必须使用真实path:L1-L2和完整HDL fenced代码块，三个<BUG-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<BUG-SOURCE-UNAVAILABLE>并完成黑盒因果分析，两种分支不得混用。八个字段必须使用Guide第5.1节规定的固定中文六级标题，同时依据机器标签、源码证据和真实内容判断完成状态"
       - "  1.6 完成一个BG后重新读取其完整范围，确认所有TC波形、根因、源码证据、因果链、修复和复验互相一致，再继续下一个BG；不得因record_dynamic_bug.py成功或字段形式完整而跳过语义审查"
       - "第2步：回顾{OUT}/{DUT}_static_bug_analysis.md，确认所有静态分析Bug的验证结论已完整记录，已证实的Bug在{OUT}/{DUT}_bug_analysis.md中均有对应完整记录"
       - "第3步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"

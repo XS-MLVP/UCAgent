@@ -13,8 +13,10 @@ description: 为失败测试已确认的动态DUT Bug创建规范BG/TC骨架和�
 ["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法结果被错误截断。'"]
 ```
 
-脚本从`{OUT}/.TEST_TEMPLATE_IMP_REPORT.json`解析FG/FC/CK，在`<DYNAMIC-BUGS>...</DYNAMIC-BUGS>`内创建BG、TC、`<WAVEFORM-REF>`和八个`<BUG-*>`分析字段。它不创建波形YAML，不调用WaveInfo，也不表示分析完成。
+脚本从`{OUT}/.TEST_TEMPLATE_IMP_REPORT.json`解析FG/FC/CK，并按`Guide_Doc/dut_bug_analysis.md`第 5.1 节完整标准案例创建中文标题、固定Markdown层级、BG、TC、`<WAVEFORM-REF>`和八个`<BUG-*>`分析字段。它不创建波形YAML，不调用WaveInfo，也不表示分析完成。
+
+脚本生成的是带`<BUG-TODO>`的未完成骨架。后续只替换标签值和分析正文；不得翻译或改写中文标题、改用粗体、调整标题级别、交换字段或增加平行章节。八个固定字段必须依次为“Bug 概述、现象与严重度、触发条件与影响、根因分析、源码证据、动态因果链、修复建议、风险与复验”。
 
 随后必须调用最终WaveInfo，并用`ApplyWaveInfoEvidence`在`<WAVEFORM-EVIDENCE>...</WAVEFORM-EVIDENCE>`中创建该TC唯一的`<WAVEFORM-TC-...>`记录。同一TC关联多个Bug时，对每个BG调用一次Apply工具；中央波形仍只有一份，并在`bug_tags`和`bug_evidence`中列出全部关联。
 
-同一BG的后续失败TC直接调用`ApplyWaveInfoEvidence`，不要复制BG。技能未启用或脚本不可用时，按`Guide_Doc/dut_bug_analysis.md`使用文本编辑工具建立相同标签骨架；任务要求和完成标准不变。
+同一BG的后续失败TC直接调用`ApplyWaveInfoEvidence`，不要复制BG。技能未启用或脚本不可用时，使用文本编辑工具逐字复现Guide第 5.1 节的中文标题与结构；任务要求和完成标准不变。

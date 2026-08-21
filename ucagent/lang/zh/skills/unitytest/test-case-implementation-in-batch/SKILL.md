@@ -113,7 +113,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 
 #### 5.1 生成骨架
 
-针对确认的DUT Bug，默认可使用文本编辑工具按Guide第5.1节只建立一次带`<BUG-TODO>`的未完成BG骨架和第一份TC。若共享技能`unitytest/dynamic-bug-recording`可用，也可以通过`RunSkillScript`执行一次只接收`BG/TC/BD`的`record_dynamic_bug.py`生成相同骨架；同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建：
+针对确认的DUT Bug，默认可使用文本编辑工具逐字参照Guide第 5.1 节完整标准案例和第 5.2 节骨架，只建立一次带`<BUG-TODO>`的未完成BG结构和第一份TC。若共享技能`unitytest/dynamic-bug-recording`可用，也可以通过`RunSkillScript`执行一次只接收`BG/TC/BD`的`record_dynamic_bug.py`生成相同中文骨架；同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建：
 ```text
 ["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'"]
 ```
@@ -133,7 +133,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 
 WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用例并重新调用 WaveInfo，然后通过`ApplyWaveInfoEvidence(..., replace_existing=true)`替换该 TC 的中央记录。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来绕过验收；只有正确测试已经 Pass，或复查证明它不是 DUT Bug 时，才可同步重新分类或删除记录。
 
-动态条目容器使用独立行`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。LLM只填写标记之间的内容，不能删除、复制、改名或调换标记。相邻中文粗体标题只是展示文字，可以本地化，不能替代机器标签。
+动态条目容器使用独立行`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。每个标记后的第一条非空行必须逐字使用Guide第 5.1 节的六级中文标题。LLM只填写标题后的证据正文，不能删除、复制、改名、翻译、调换标记或标题，也不能改用粗体或其他标题级别。
 
 文本编辑或可选脚本生成结构，LLM负责分析和填空；两步缺一不可。所有根因、修复和复验内容必须留在所属BG条目内，不建立全局根因汇总。
 
@@ -145,7 +145,7 @@ WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用�
 - 允许一次性列举多条命令,但每条命令必须独立完整,且必须符合格式要求,例如记录Fail但合理的测试用例时,若有10个Fail但合理的测试用例待记录
 - 其他参数值替换为每个测试用例记录内容,只允许使用定义的参数,禁止额外参数,且参数值必须符合上述格式要求,每个参数必须使用单括号括起来
 - 使用`RunSkillScript`工具时,若有10条命令要执行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有命令执行完毕
-- 共享技能`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可用时，只用于新Bug的第一份BG/TC结构；共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具按Guide第5.1节最小骨架示例只建立一次相同BG结构。后续兄弟TC、引用和中央记录由`ApplyWaveInfoEvidence`维护，再完成共享`alignment_evidence`、逐Bug语义字段和BG分析章节。不得手工创建另一套BG层级，也不得跳过填空步骤。
+- 共享技能`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可用时，只用于新Bug的第一份BG/TC结构；共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具按Guide第 5.1 节完整标准案例和第 5.2 节骨架只建立一次相同中文BG结构。后续兄弟TC、引用和中央记录由`ApplyWaveInfoEvidence`维护，再完成共享`alignment_evidence`、逐Bug语义字段和BG分析章节。不得手工创建另一套BG层级，也不得跳过填空步骤。
 
 
 ### 约束条件示例

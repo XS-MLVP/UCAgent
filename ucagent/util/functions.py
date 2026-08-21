@@ -7,6 +7,7 @@ import stat
 from collections.abc import Sequence
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_ANALYSIS_SECTION_TITLES,
     BUG_SOURCE_EVIDENCE_MARKERS,
     BUG_SOURCE_UNAVAILABLE_MARKER,
     BUG_TODO_MARKER,
@@ -1799,6 +1800,9 @@ def description_bug_doc():
         marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
     )
     source_markers = ", ".join(BUG_SOURCE_EVIDENCE_MARKERS)
+    section_titles = " -> ".join(
+        title for _key, title in BUG_ANALYSIS_SECTION_TITLES
+    )
     shared_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
     bug_fields = ", ".join(WAVEFORM_BUG_ANALYSIS_FIELDS)
     return [
@@ -1819,7 +1823,8 @@ def description_bug_doc():
         "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
         "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
         f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
-        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Display headings are optional/localizable and are not parsed.",
+        f"  - After those markers, use these exact display titles in the same order: {section_titles}. Do not rename, translate, omit, duplicate, or reorder them.",
+        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Follow the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1; do not invent alternate sections or layouts.",
         f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
         f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
         "  - Create the BG/TC scaffold with record_dynamic_bug.py when available, or with text-editing tools using the Guide format when it is not. Then call ApplyWaveInfoEvidence for each BG/TC association before filling the central waveform conclusions and the BG's RTL/HDL analysis.",

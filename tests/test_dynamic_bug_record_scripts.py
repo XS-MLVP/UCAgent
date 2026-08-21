@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import re
 import sys
 
 import pytest
@@ -28,6 +29,9 @@ STATIC_RECORD_SCRIPT = (
 
 def test_bug_record_scripts_have_distinct_owners_and_names():
     assert RECORD_SCRIPTS[0].is_file()
+    assert not re.search(
+        r"[\u4e00-\u9fff]", RECORD_SCRIPTS[0].read_text(encoding="utf-8")
+    )
     assert STATIC_RECORD_SCRIPT.is_file()
     assert not list(
         (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
@@ -123,13 +127,13 @@ def test_dynamic_bug_record_script_resolves_absolute_class_test_report_key(
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
 def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script_path):
     module = _load_script(script_path)
-    lines = module.bug_analysis_template.format(
-        DUT="Adder",
-        DYNAMIC_BUGS_MARKER=module.DYNAMIC_BUGS_MARKER,
-        DYNAMIC_BUGS_END_MARKER=module.DYNAMIC_BUGS_END_MARKER,
-        WAVEFORM_EVIDENCE_MARKER=module.WAVEFORM_EVIDENCE_MARKER,
-        WAVEFORM_EVIDENCE_END_MARKER=module.WAVEFORM_EVIDENCE_END_MARKER,
-    ).lstrip().splitlines(keepends=True)
+    initial_document = module.make_bug_analysis_document("Adder")
+    rendered_template = (
+        REPO_ROOT
+        / "ucagent/lang/zh/template/unity_test/{{DUT}}_bug_analysis.md"
+    ).read_text(encoding="utf-8").replace("{{DUT}}", "Adder")
+    assert initial_document == rendered_template
+    lines = initial_document.splitlines(keepends=True)
 
     module.insert_content(
         lines,
@@ -160,6 +164,22 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert document.count(module.TODO_MARKER) == 7
     assert "waveform_analysis:" not in document
     assert document.count("<WAVEFORM-REF>") == 1
+    for heading in (
+        "### 功能组：<FG-ARITHMETIC>",
+        "#### 功能：<FC-ADD>",
+        "##### 检测点：<CK-OVERFLOW>",
+        "###### 动态 Bug（98%）：<BG-CIN-OVERFLOW-98>",
+        "- 失败用例：<TC-tests/test_adder.py::test_overflow>",
+        "###### Bug 概述",
+        "###### 现象与严重度",
+        "###### 触发条件与影响",
+        "###### 根因分析",
+        "###### 源码证据",
+        "###### 动态因果链",
+        "###### 修复建议",
+        "###### 风险与复验",
+    ):
+        assert heading in document
     assert document.index("<BG-CIN-OVERFLOW-98>") < document.index("</DYNAMIC-BUGS>")
     assert document.index("</DYNAMIC-BUGS>") < document.index("<WAVEFORM-EVIDENCE>")
     assert "replace with WaveInfo" not in document
@@ -181,6 +201,28 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     ) < document.index(module.OVERVIEW_MARKER)
     assert document.count("<WAVEFORM-REF>") == 2
     assert document.count("<WAVEFORM-VIEWER>") == 0
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_record_script_preserves_canonical_nested_order(script_path):
+    module = _load_script(script_path)
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    entries = (
+        ("FG-A", "FC-A", "CK-A", "BG-A-90", "TC-tests/test_a.py::test_a"),
+        ("FG-B", "FC-B", "CK-B", "BG-B-90", "TC-tests/test_b.py::test_b"),
+        ("FG-A", "FC-C", "CK-C", "BG-C-90", "TC-tests/test_c.py::test_c"),
+        ("FG-A", "FC-A", "CK-D", "BG-D-90", "TC-tests/test_d.py::test_d"),
+        ("FG-A", "FC-A", "CK-A", "BG-E-90", "TC-tests/test_e.py::test_e"),
+    )
+    for fg, fc, ck, bg, tc in entries:
+        module.insert_content(lines, fg, fc, ck, bg, tc, bg)
+
+    document = "".join(lines)
+    assert document.index("<FG-A>") < document.index("<FG-B>")
+    assert document.index("<FC-A>") < document.index("<FC-C>") < document.index("<FG-B>")
+    assert document.index("<CK-A>") < document.index("<CK-D>") < document.index("<FC-C>")
+    assert document.index("<BG-A-90>") < document.index("<BG-E-90>") < document.index("<CK-D>")
+    assert document.count("###### Bug 概述") == len(entries)
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)

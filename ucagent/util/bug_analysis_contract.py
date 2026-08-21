@@ -53,6 +53,16 @@ BUG_ANALYSIS_SECTION_MARKERS = (
     ("fix", "<BUG-FIX>"),
     ("retest", "<BUG-RETEST>"),
 )
+BUG_ANALYSIS_SECTION_TITLES = (
+    ("overview", "###### Bug \u6982\u8ff0"),
+    ("symptoms", "###### \u73b0\u8c61\u4e0e\u4e25\u91cd\u5ea6"),
+    ("trigger", "###### \u89e6\u53d1\u6761\u4ef6\u4e0e\u5f71\u54cd"),
+    ("root_cause", "###### \u6839\u56e0\u5206\u6790"),
+    ("source_evidence", "###### \u6e90\u7801\u8bc1\u636e"),
+    ("causal_chain", "###### \u52a8\u6001\u56e0\u679c\u94fe"),
+    ("fix", "###### \u4fee\u590d\u5efa\u8bae"),
+    ("retest", "###### \u98ce\u9669\u4e0e\u590d\u9a8c"),
+)
 
 
 def normalize_test_case_tag(value: str) -> str:

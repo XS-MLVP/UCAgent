@@ -4,6 +4,8 @@ import json
 import os
 import posixpath
 import re
+from pathlib import Path
+from string import Template
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
 DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
@@ -11,17 +13,20 @@ WAVEFORM_EVIDENCE_MARKER = "<WAVEFORM-EVIDENCE>"
 WAVEFORM_EVIDENCE_END_MARKER = "</WAVEFORM-EVIDENCE>"
 TODO_MARKER = "<BUG-TODO>"
 OVERVIEW_MARKER = "<BUG-OVERVIEW>"
-bug_analysis_template = '''
-# {DUT} Dynamic Bug Analysis
+ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 
-## Failed Checkpoint Analysis
-{DYNAMIC_BUGS_MARKER}
-{DYNAMIC_BUGS_END_MARKER}
 
-## Waveform Evidence
-{WAVEFORM_EVIDENCE_MARKER}
-{WAVEFORM_EVIDENCE_END_MARKER}
-'''
+def load_asset_template(name):
+    return Template((ASSET_DIR / name).read_text(encoding="utf-8"))
+
+
+bug_analysis_template = load_asset_template("bug_analysis_document.md")
+dynamic_bug_entry_template = load_asset_template("dynamic_bug_entry.md")
+
+
+def make_bug_analysis_document(dut):
+    return bug_analysis_template.substitute(DUT=dut)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -210,48 +215,39 @@ def escape_markdown_asterisk(text):
     return re.sub(r"(?<!\\)\*", r"\\*", text)
 
 
-def make_tc_scaffold(tc, bd):
+def render_bug_entry(fg, fc, ck, bg, tc, bd, confidence):
     anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
     return ensure_trailing_newline_block(
-        f"    - <{tc}> {bd}\n"
-        f"      <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{anchor})\n"
+        dynamic_bug_entry_template.substitute(
+            FG=fg,
+            FC=fc,
+            CK=ck,
+            BG=bg,
+            TC=tc,
+            BD=bd,
+            CONFIDENCE=confidence,
+            ANCHOR=anchor,
+        )
     )
 
 
-def make_bug_analysis_scaffold(bd):
-    return ensure_trailing_newline_block(
-        f"    {OVERVIEW_MARKER}\n"
-        f"    {bd}\n\n"
-        "    <BUG-SYMPTOMS>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-TRIGGER>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-ROOT-CAUSE>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-SOURCE-EVIDENCE>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-CAUSAL-CHAIN>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-FIX>\n"
-        f"    {TODO_MARKER}\n\n"
-        "    <BUG-RETEST>\n"
-        f"    {TODO_MARKER}\n"
-    )
-
-
-def make_bg_tc_block(bg, bd, tc, confidence):
-    return ensure_trailing_newline_block(
-        f"  - <{bg}> confidence: {confidence}%\n"
-        f"{make_tc_scaffold(tc, bd)}"
-        f"{make_bug_analysis_scaffold(bd)}"
-    )
-
-
-def make_ck_bg_block(ck, bg, bd, tc, confidence):
-    return ensure_trailing_newline_block(
-        f"- <{ck}> {bd}\n"
-        f"{make_bg_tc_block(bg, bd, tc, confidence)}"
-    )
+def subtree_from_tag(block, tag, end_marker=None):
+    lines = block.splitlines(keepends=True)
+    start = find_tag_line(lines, 0, len(lines), tag)
+    if start < 0:
+        raise ValueError(f"Error: scaffold asset does not contain <{tag}>.")
+    end = len(lines)
+    if end_marker is not None:
+        marker_line = next(
+            (i for i in range(start + 1, len(lines)) if lines[i].strip() == end_marker),
+            -1,
+        )
+        if marker_line < 0:
+            raise ValueError(
+                f"Error: scaffold asset does not contain closing marker {end_marker}."
+            )
+        end = marker_line
+    return ensure_trailing_newline_block("".join(lines[start:end]))
 
 
 def insert_content(lines, fg, fc, ck, bg, tc, bd):
@@ -260,15 +256,14 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
     sec_start, sec_end = locate_section(lines)
 
     fg_line = find_tag_line(lines, sec_start + 1, sec_end, fg)
-    ck_bg_block = make_ck_bg_block(ck, bg, bd, tc, confidence)
-    bg_tc_block = make_bg_tc_block(bg, bd, tc, confidence)
+    entry_block = render_bug_entry(fg, fc, ck, bg, tc, bd, confidence)
+    fc_block = subtree_from_tag(entry_block, fc)
+    ck_bg_block = subtree_from_tag(entry_block, ck)
+    bg_tc_block = subtree_from_tag(entry_block, bg)
+    tc_block = subtree_from_tag(entry_block, tc, OVERVIEW_MARKER)
 
     if fg_line < 0:
-        new_block = (
-            f"\n<{fg}>\n\n"
-            f"#### <{fc}>\n"
-            f"{ck_bg_block}"
-        )
+        new_block = f"\n{entry_block}"
         lines.insert(sec_end, new_block)
         return "Inserted new FG/FC/CK/BG/TC block."
 
@@ -276,14 +271,12 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
         lines,
         fg_line + 1,
         sec_end,
-        [lambda t: t.startswith("<FG-")],
+        [lambda t: "<FG-" in t],
     )
 
     fc_line = find_tag_line(lines, fg_line + 1, fg_end, fc)
     if fc_line < 0:
-        new_fc_block = ensure_trailing_newline_block(
-            f"\n#### <{fc}>\n{ck_bg_block}"
-        )
+        new_fc_block = ensure_trailing_newline_block(f"\n{fc_block}")
         lines.insert(fg_end, new_fc_block)
         return "Inserted new FC/CK/BG/TC block under existing FG."
 
@@ -291,7 +284,7 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
         lines,
         fc_line + 1,
         fg_end,
-        [lambda t: t.startswith("#### ") and "<FC-" in t],
+        [lambda t: "<FC-" in t],
     )
 
     ck_line = find_tag_line(lines, fc_line + 1, fc_end, ck)
@@ -300,7 +293,7 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
             lines,
             ck_line + 1,
             fc_end,
-            [lambda t: t.startswith("- <CK-"), lambda t: t.startswith("#### ")],
+            [lambda t: "<CK-" in t, lambda t: "<FC-" in t],
         )
 
         # Only treat BG as duplicate when it already exists under the same CK block.
@@ -310,7 +303,11 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
                 lines,
                 bg_line + 1,
                 ck_end,
-                [lambda t: t.startswith("  - <BG-"), lambda t: t.startswith("- <CK-"), lambda t: t.startswith("#### ")],
+                [
+                    lambda t: "<BG-" in t,
+                    lambda t: "<CK-" in t,
+                    lambda t: "<FC-" in t,
+                ],
             )
             tc_line = find_tag_line(lines, bg_line + 1, bg_end, tc)
             if tc_line >= 0:
@@ -324,7 +321,7 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
                 ),
                 bg_end,
             )
-            lines.insert(details_line, make_tc_scaffold(tc, bd))
+            lines.insert(details_line, tc_block)
             return "CK/BG exist; appended missing TC scaffold."
 
         # Same CK exists but different BG: append another bug item after this CK block.
@@ -333,6 +330,7 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
 
     lines.insert(fc_end, ck_bg_block)
     return "Inserted new CK/BG/TC under existing FG/FC."
+
 
 def main():
     args = parse_args()
@@ -356,13 +354,7 @@ def main():
         target = os.path.join(os.getcwd(), target)
     if not os.path.exists(target):
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        initial_content = bug_analysis_template.format(
-            DUT=dut,
-            DYNAMIC_BUGS_MARKER=DYNAMIC_BUGS_MARKER,
-            DYNAMIC_BUGS_END_MARKER=DYNAMIC_BUGS_END_MARKER,
-            WAVEFORM_EVIDENCE_MARKER=WAVEFORM_EVIDENCE_MARKER,
-            WAVEFORM_EVIDENCE_END_MARKER=WAVEFORM_EVIDENCE_END_MARKER,
-        ).lstrip()
+        initial_content = make_bug_analysis_document(dut)
         with open(target, "w", encoding="utf-8") as f:
             f.write(initial_content)
 

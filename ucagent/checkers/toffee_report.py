@@ -11,6 +11,7 @@ from ucagent.util.waveform_viewer import (
 )
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS as _BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_ANALYSIS_SECTION_TITLES as _BUG_ANALYSIS_SECTION_TITLES,
     BUG_SOURCE_EVIDENCE_MARKERS as _BUG_SOURCE_EVIDENCE_MARKERS,
     BUG_SOURCE_UNAVAILABLE_MARKER as _BUG_SOURCE_UNAVAILABLE_MARKER,
     BUG_TODO_MARKER as _BUG_TODO_MARKER,
@@ -792,7 +793,26 @@ def check_dynamic_bug_analysis_content(
 
         if sections:
             markers_by_key = dict(_BUG_ANALYSIS_SECTION_MARKERS)
+            titles_by_key = dict(_BUG_ANALYSIS_SECTION_TITLES)
             for key, section_content in sections.items():
+                content_lines = [
+                    line.strip()
+                    for line in section_content.splitlines()
+                    if line.strip()
+                ]
+                expected_title = titles_by_key[key]
+                if not content_lines or content_lines[0] != expected_title:
+                    issues.append(
+                        {
+                            "bug": block["bug"],
+                            "path": block["path"],
+                            "line": block["line"],
+                            "problem": (
+                                f"field {key!r} after {markers_by_key[key]!r} "
+                                f"must start with canonical title {expected_title!r}"
+                            ),
+                        }
+                    )
                 if not _normalized_bug_analysis_field_text(section_content):
                     issues.append(
                         {
@@ -896,7 +916,8 @@ def check_dynamic_bug_analysis_content(
                 f"'{bug_file}':\n"
                 + "\n".join(summaries)
                 + "\nCreate the BG/TC scaffold with a text-editing tool using "
-                "Guide_Doc/dut_bug_analysis.md section 5.1, or use the optional "
+                "the complete canonical example in Guide_Doc/dut_bug_analysis.md "
+                "section 5.1, or use the optional "
                 "record_dynamic_bug.py helper when available. Then read the failing assertion, "
                 "confirmed WaveInfo timeline, and RTL/HDL source; replace "
                 "every scaffold field with evidence-backed analysis inside that BG before "

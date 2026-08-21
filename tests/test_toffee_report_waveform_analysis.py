@@ -105,42 +105,42 @@ SOURCE_EVIDENCE_BLOCK = """
 """.strip()
 COMPLETE_BUG_ANALYSIS = f"""
 <BUG-OVERVIEW>
-**Bug 概述**
+###### Bug 概述
 
 The result path truncates the expected value for the reproduced request.
 
 <BUG-SYMPTOMS>
-**现象与等级**
+###### 现象与严重度
 
 High severity; expected result 3 but observed result 2 in a stable reproducer.
 
 <BUG-TRIGGER>
-**触发条件与影响范围**
+###### 触发条件与影响
 
 The request is valid with data 3 and affects the result output at CK-A.
 
 <BUG-ROOT-CAUSE>
-**根因分析**
+###### 根因分析
 
 The RTL slices the intermediate value before it reaches the result output.
 
 <BUG-SOURCE-EVIDENCE>
-**源码证据与逐行分析**
+###### 源码证据
 
 {SOURCE_EVIDENCE_BLOCK}
 
 <BUG-CAUSAL-CHAIN>
-**动态因果链**
+###### 动态因果链
 
 Input data 3 reaches the request, truncation occurs in RTL, result becomes 2, and CK-A fails.
 
 <BUG-FIX>
-**修复建议**
+###### 修复建议
 
 Preserve the complete intermediate width until the result assignment.
 
 <BUG-RETEST>
-**风险与复验计划**
+###### 风险与复验
 
 Retest boundary values, regress result-path cases, and confirm the corrected waveform event.
 """.strip()
@@ -1457,6 +1457,8 @@ def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
     assert "[Dynamic Bug Analysis Incomplete]" in message["error"]
     assert "unfinished marker '<BUG-TODO>'" in message["error"]
     assert "BG-DYNAMIC-80" in message["error"]
+    assert "complete canonical example" in message["error"]
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["error"]
 
 
 @pytest.mark.parametrize(
@@ -1562,19 +1564,10 @@ def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
     assert "marker '<BUG-RETEST>' occurs 0 time(s)" in message["error"]
 
 
-def test_dynamic_bug_content_ignores_localized_display_headings(tmp_path):
-    localized = COMPLETE_BUG_ANALYSIS
-    for original, replacement in (
-        ("**Bug 概述**", "**Overview**"),
-        ("**现象与等级**", "**Symptoms and severity**"),
-        ("**触发条件与影响范围**", "**Trigger and impact**"),
-        ("**根因分析**", "**Root cause**"),
-        ("**源码证据与逐行分析**", "**Source evidence**"),
-        ("**动态因果链**", "**Causal chain**"),
-        ("**修复建议**", "**Fix**"),
-        ("**风险与复验计划**", "**Risk and retest**"),
-    ):
-        localized = localized.replace(original, replacement)
+def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
+    localized = COMPLETE_BUG_ANALYSIS.replace(
+        "###### 源码证据", "###### Source Evidence"
+    )
     (tmp_path / "bugs.md").write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
         f"<TC-{DOCUMENT_TEST}>\n{localized}\n",
@@ -1585,7 +1578,8 @@ def test_dynamic_bug_content_ignores_localized_display_headings(tmp_path):
         str(tmp_path), "bugs.md"
     )
 
-    assert passed is True, message
+    assert passed is False
+    assert "must start with canonical title '###### 源码证据'" in message["error"]
 
 
 def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
@@ -1653,8 +1647,8 @@ def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path
             COMPLETE_BUG_ANALYSIS.replace(
                 "<BUG-TRIGGER>\n", "<BUG-ROOT-CAUSE>\n"
             ).replace(
-                "<BUG-ROOT-CAUSE>\n**根因分析**",
-                "<BUG-TRIGGER>\n**根因分析**",
+                "<BUG-ROOT-CAUSE>\n###### 根因分析",
+                "<BUG-TRIGGER>\n###### 根因分析",
             ),
             "analysis markers are out of canonical order",
         ),
