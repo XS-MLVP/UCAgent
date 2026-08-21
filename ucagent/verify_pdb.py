@@ -1269,6 +1269,7 @@ class VerifyPDB(Pdb):
         try_count = self.max_loop_retry
         while True:
             start_time = time.time()
+            start_round = getattr(self.agent, "invoke_round", None)
             try:
                 self.agent.run_loop(arg.strip())
                 return None
@@ -1283,9 +1284,20 @@ class VerifyPDB(Pdb):
                     if self.agent.is_break():
                         break
                 try_count -= 1
-                if time.time() - start_time > self.loop_alive_time:
-                    try_count = self.max_loop_retry  # reset try count if loop has been alive for a while
-                    echo_g("Loop has been alive for a while, resetting retry count.")
+                current_round = getattr(self.agent, "invoke_round", None)
+                made_progress = (
+                    isinstance(start_round, int)
+                    and isinstance(current_round, int)
+                    and current_round > start_round
+                )
+                if (
+                    made_progress
+                    and time.time() - start_time > self.loop_alive_time
+                ):
+                    try_count = self.max_loop_retry
+                    echo_g(
+                        "Loop completed new work before failing, resetting retry count."
+                    )
             # check max retry
             if try_count <= 0:
                 echo_r("Max loop retry reached. Exiting loop.")

@@ -943,6 +943,12 @@ class VerifyAgent:
                 self.do_work_stream(instructions, config)
             else:
                 self.do_work_values(instructions, config)
+        except Exception as work_error:
+            try:
+                self.backend.recover_pending_tool_calls(work_error)
+            except Exception as recovery_error:
+                warning(f"Failed to recover tool call state: {recovery_error}")
+            raise
         finally:
             self._is_work_busy = False
             if self._exit_on_completion_pending:
