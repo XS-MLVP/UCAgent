@@ -246,6 +246,16 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
 - Keep one canonical format instead of accepting several ambiguous variants.
+- Every normative `Guide_Doc` file must include a complete canonical reference
+  example for its primary artifact contract. The example must show the entire
+  finished artifact from its title through its closing section, including exact
+  section order, heading levels, tag nesting, fences, required fields, and
+  representative completed content. Additional complete examples or focused
+  branch examples may cover alternate required branches. Small fragments may
+  explain individual rules, but they do not replace the complete example. Keep
+  the example synchronized with prompts, generated templates, optional skill
+  assets and scripts, checkers, and focused regression tests so the LLM is not
+  left to invent alternate titles or layouts.
 - Keep examples syntactically valid, visually readable in Markdown, and exactly
   consistent with checker expectations.
 
