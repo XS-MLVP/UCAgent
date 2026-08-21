@@ -664,15 +664,15 @@ def get_args() -> argparse.Namespace:
     # SKILL arguments
     parser.add_argument(
         "--use-skill",
-        action="store_true",
-        default=False,
-        help="Enable skill support"
+        action=argparse.BooleanOptionalAction,
+        default=argparse.SUPPRESS,
+        help="Enable or disable skill support (enabled by default)"
     )
     parser.add_argument(
         "--extra-skill-path",
         type=str,
         default=None,
-        help="Path to an additional skills directory. Requires '--use-skill'."
+        help="Path to an additional skills directory. Requires skill support to be enabled."
     )
      # Miscellaneous arguments
     parser.add_argument(
@@ -1007,6 +1007,9 @@ def get_args() -> argparse.Namespace:
     )
 
     args = parser.parse_args()
+    args._use_skill_explicit = hasattr(args, "use_skill")
+    if not args._use_skill_explicit:
+        args.use_skill = True
     validate_argument_dependencies(parser, args)
     merged_override = []
     for override in args.override or []:
@@ -1224,15 +1227,18 @@ def run() -> None:
     if args.backend:
         args.override = _append_override(args.override, "backend.key_name", args.backend)
 
-    if args.extra_skill_path and not args.use_skill:
-        raise ValueError("--extra-skill-path requires --use-skill is True")
+    if args.extra_skill_path and args.use_skill is False:
+        raise ValueError("--extra-skill-path cannot be used with --no-use-skill")
 
     if args.extra_skill_path and not os.path.exists(args.extra_skill_path):
         raise ValueError(f"--extra-skill-path does not exist: {args.extra_skill_path}")
 
-    if args.use_skill:
+    if args._use_skill_explicit:
         args.override = _append_override(args.override, "skill.use_skill", args.use_skill)
-        args.override = _append_override(args.override, "skill.extra_skill_path", args.extra_skill_path or "")
+    if args.extra_skill_path:
+        if not args._use_skill_explicit:
+            args.override = _append_override(args.override, "skill.use_skill", True)
+        args.override = _append_override(args.override, "skill.extra_skill_path", args.extra_skill_path)
 
     # Make sure mcp server is started before tui
     if args.tui:

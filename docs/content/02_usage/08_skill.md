@@ -175,18 +175,36 @@ __all__ = ["setup_vstage"]
 
 ## 技能启用方式
 
-### 命令行开启技能
+### 默认启用与命令行开关
 
-可通过命令行参数开启技能功能：
+技能功能默认开启，无需额外添加参数。以下命令会使用内置默认值启用技能：
+
+```bash
+ucagent <workspace> <dut_name>
+```
+
+也可以显式启用或关闭：
 
 ```bash
 --use-skill
+--no-use-skill
 ```
 
 含义：
 
-- 启用技能机制
-- 把 UCAgent 默认技能拷贝到当前工作区的 `.ucagent/skills/` 目录下
+- `--use-skill` 显式启用技能机制，并覆盖配置文件中的关闭值
+- `--no-use-skill` 显式关闭技能机制，并覆盖配置文件中的开启值
+- 启用后，把 UCAgent 默认技能拷贝到当前工作区的 `.ucagent/skills/` 目录下
+- 未指定命令行开关时，使用分层配置中的 `skill.use_skill`；内置配置为 `true`
+
+也可以在配置文件中设置默认行为：
+
+```yaml
+skill:
+  use_skill: false
+```
+
+命令行中显式传入的 `--use-skill` 或 `--no-use-skill` 优先于配置文件；未显式传入时，用户配置、工作区配置或任务配置中的 `skill.use_skill` 仍按正常配置优先级生效。
 
 可以额外指定一个技能目录：
 
@@ -196,7 +214,7 @@ __all__ = ["setup_vstage"]
 
 含义：
 - 额外拷贝指定路径下的技能`skill-a`到工作区 `.ucagent/skills/ext` 目录下，目录结构为`.ucagent/skills/ext/sub_dir/skill-a`，会忽略最外层的技能目录`extra_skill_dir`
-- 仅当设置--use-skill 参数时才能添加该参数，否则报错
+- `--extra-skill-path` 会启用技能，不能与 `--no-use-skill` 同时使用
 
 ## 技能在工作区中的位置
 
@@ -222,13 +240,13 @@ stages:
 - UCAgent 在完成阶段前，不仅要使用该技能，还要通过技能使用记录校验
 - `force_use_skill` 参数为 True 时意味着强制使用，默认为False
 
-如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但启动时没有开启 `--use-skill`，则会报错。
+如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但通过 `--no-use-skill` 或配置关闭了技能，则会报错。
 
 ## 技能使用流程
 
 推荐按以下顺序理解和使用技能：
 
-1. 启动 UCAgent 时开启 `--use-skill`
+1. 启动 UCAgent（技能默认开启；若配置中已关闭，可用 `--use-skill` 显式开启）
 2. 通过 `ListSkill` 查看当前可用技能
 3. 使用 `ReadTextFile` 读取目标技能的 `SKILL.md`
 4. 按 `SKILL.md` 中的方法完成任务
@@ -321,7 +339,7 @@ stages:
 ## 常见注意事项
 
 - `SKILL.md` 开头必须直接是 YAML frontmatter，否则技能可能无法被识别
-- 仅把技能目录放在仓库里不够，运行时还需要开启 `--use-skill`
+- 仅把技能目录放在仓库里不够，运行时还需要保持技能开启；不要使用 `--no-use-skill` 或在配置中设置 `skill.use_skill: false`
 - 对于强制技能，只“知道有这个技能”不够，通常还必须实际读取并使用 `SKILL.md`
 - `read` 的判定依赖读取工作区中 `skills/.../SKILL.md` 这份文件
 - 如果技能文档要求必须通过 `RunSkillScript` 修改某类文件，就不应绕过该工具直接编辑

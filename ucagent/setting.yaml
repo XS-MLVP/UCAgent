@@ -136,7 +136,7 @@ launch:
     exit_on_completion: true          # --exit-on-completion flag
     web_console: "0.0.0.0:-1"         # --web-console flag
     loop: true                        # -l flag
-    use_skill: false
+    use_skill: true
     extra_skill_path: ""
     use_zip_workspace: true           # if true, launch task with a master-hosted workspace .tar.gz URL
     picker_args: []                   # additional picker export arguments used by Compile DUT
@@ -241,7 +241,7 @@ langfuse:
   base_url: $(LANGFUSE_URL, http://localhost:3000)
 
 skill:
-  use_skill: false # Enable SKILL
+  use_skill: true # Enable SKILL by default; override with --no-use-skill to disable
   extra_skill_path: "" # path for additional skills, only works when use_skill is True
   max_skill_list_count: 15  # max number of skills to list
   enable_skill_list: [] # skills can be used, if empty, all skills are enabled

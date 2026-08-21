@@ -16,12 +16,82 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
         if module_name == "ucagent" or module_name.startswith("ucagent."):
             del sys.modules[module_name]
 
-from ucagent.cli import get_args
+from ucagent.cli import get_args, run
 
 
 def _parse_args(*arguments):
     with mock.patch("sys.argv", ["ucagent", *arguments]):
         return get_args()
+
+
+def test_skill_support_uses_config_default_and_accepts_explicit_overrides():
+    default_args = _parse_args("workspace", "dut")
+    enabled_args = _parse_args("workspace", "dut", "--use-skill")
+    disabled_args = _parse_args("workspace", "dut", "--no-use-skill")
+
+    assert default_args.use_skill is True
+    assert default_args._use_skill_explicit is False
+    assert enabled_args.use_skill is True
+    assert enabled_args._use_skill_explicit is True
+    assert disabled_args.use_skill is False
+    assert disabled_args._use_skill_explicit is True
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_overrides"),
+    [
+        ([], []),
+        (["--use-skill"], [{"skill.use_skill": True}]),
+        (["--no-use-skill"], [{"skill.use_skill": False}]),
+    ],
+)
+def test_skill_cli_only_overrides_config_when_explicit(
+    tmp_path, arguments, expected_overrides
+):
+    with mock.patch("sys.argv", ["ucagent", str(tmp_path), "dut", *arguments]), \
+            mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        run()
+
+    assert verify_agent.call_args.kwargs["cfg_override"] == expected_overrides
+
+
+def test_extra_skill_path_enables_skill_support(tmp_path):
+    skill_path = tmp_path / "extra-skills"
+    skill_path.mkdir()
+
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--extra-skill-path",
+            str(skill_path),
+        ],
+    ), mock.patch("ucagent.verify_agent.VerifyAgent") as verify_agent:
+        run()
+
+    assert verify_agent.call_args.kwargs["cfg_override"] == [
+        {"skill.use_skill": True},
+        {"skill.extra_skill_path": str(skill_path)},
+    ]
+
+
+def test_extra_skill_path_rejects_explicitly_disabled_skills(tmp_path):
+    with mock.patch(
+        "sys.argv",
+        [
+            "ucagent",
+            str(tmp_path),
+            "dut",
+            "--no-use-skill",
+            "--extra-skill-path",
+            str(tmp_path / "extra-skills"),
+        ],
+    ), pytest.raises(
+        ValueError, match="--extra-skill-path cannot be used with --no-use-skill"
+    ):
+        run()
 
 
 def test_langchain_backend_does_not_require_mcp_server():

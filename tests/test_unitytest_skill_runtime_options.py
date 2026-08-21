@@ -342,7 +342,7 @@ def test_unitytest_skills_document_fixture_boundaries():
     assert "CMD API" not in static_skill
 
 
-def test_default_workflow_is_complete_when_skills_are_disabled(tmp_path, monkeypatch):
+def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("NEED_REF_MODEL", "false")
     monkeypatch.setenv("IGNORE_MOCK_COMPONENT", "true")
@@ -350,7 +350,8 @@ def test_default_workflow_is_complete_when_skills_are_disabled(tmp_path, monkeyp
     config = load_yaml_with_env_vars(str(CONFIG_PATH))
     stages = _stage_map(config)
 
-    assert cfg.skill.use_skill is False
+    assert cfg.skill.use_skill is True
+    assert cfg.launch.default_args.use_skill is True
     assert "Skill与其中的脚本只是可选的批量辅助" in config["mission"]["prompt"]["system"]
     assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]
     assert (

@@ -115,8 +115,8 @@ ucagent ./output Adder --web-terminal '0.0.0.0:8818 mysecret'
 | --override              |      | A.B.C=VALUE[,X.Y=VAL2,...] | 无         | 以"点号路径=值"覆盖配置；字符串需引号，其它按 Python 字面量解析 |
 | --gen-instruct-file     | -gif | file                       | 无         | 在 workspace 下生成外部 Agent 的引导文件（存在则覆盖）          |
 | --guid-doc-path         |      | path（可多次）             | 无         | 使用自定义 Guide_Doc 目录（默认使用内置拷贝）                   |
-| --use-skill             |      | bool                       | 否         | 启用技能 SKILL；不添加参数为关闭 |
-| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL，仅当设置--use-skill参数时才能添加该参数 |
+| --use-skill / --no-use-skill | | flag                       | 开启       | 显式启用/关闭技能 SKILL；未指定时使用配置值，内置配置默认开启 |
+| --extra-skill-path      |      | path                       | 无         | 除默认 SKILL 外，额外使用指定路径下的 SKILL；不能与 `--no-use-skill` 同时使用 |
 | --backend               |      | str                        | 无         | 指定后端（覆盖配置文件设置）                                    |
 | --emulate-config        |      | flag                       | 否         | 仅模拟配置过程，不实际运行各阶段                                |
 
@@ -317,7 +317,7 @@ python3 ucagent.py ./output Adder \
   - --override '...': 覆盖配置键值（点号路径=值，多项用逗号分隔；字符串需内层引号，整体用单引号包裹以保留引号），示例里设置了会话摘要上限、启用裁剪、文档语言为"中文"、模型名为 gpt-4o-mini
   - -gif/--gen-instruct-file GEMINI.md：在 `<workspace>/GEMINI.md` 下生成外部协作引导文件
   - --guid-doc-path ./output/Guide_Doc：自定义 Guide_Doc 目录为`./output/Guide_Doc`
-  - --use-skill：启用技能 SKILL 功能
+  - --use-skill / --no-use-skill：显式启用/关闭技能 SKILL 功能（默认启用）
   - --extra-skill-path：指定加载额外路径下的 SKILL
   - --backend：指定后端
   - --emulate-config：仅模拟配置过程
