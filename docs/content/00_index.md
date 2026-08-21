@@ -1,13 +1,32 @@
-# 欢迎来到 UCAgent 文档
+欢迎来到 UCAgent 文档
 
 本文档提供了安装、使用和开发 UCAgent 的全面指南。
 
 ## 概述
 
-**UCAgent** 是一个基于大语言模型的通用智能体。目前默认的工作流专注于芯片设计的单元测试(Unit Test)自动化验证。该工作流通过 AI ，自动分析硬件设计/验证文档、生成测试用例、执行验证任务并生成测试报告，从而提高验证效率。
+随着芯片设计的愈发复杂，其验证难度和耗时也成倍增长，而近年来大语言模型的能力突飞猛进。于是我们推出了 UCAgent——一个基于大语言模型的自动化硬件验证 AI 代理，专注于芯片设计的单元测试 (Unit Test) 验证工作。该工作流通过 AI，自动分析硬件设计/验证文档、生成测试用例、执行验证任务并生成测试报告，从而提高验证效率。
 
-- 快速开始使用自动化硬件验证，请直接阅读**[快速入门](./01_start/02_quickstart.md):** 即刻开始使用 UCAgent。
-- 自定义其他的工作流,请直接阅读**[定制开发入门](./03_develop/01_quick_start.md):** 快速创建自定义工作流。
+### 背景
+
+- 芯片验证时间已经占据了芯片开发时间的 50-60%，并且设计工程师也将 49% 的时间投入了硬件验证工作，但是首次流片成功率仅有 14%。
+- 随着 LLM 与编程类 Agent 兴起，将 "硬件验证" 抽象为 "软件测试问题" 可实现高比例自动化。
+
+### UCAgent 是什么
+
+- 面向芯片设计单元测试 (Unit Test) 的 AI Agent，基于 LLM 驱动，围绕 "阶段化工作流 + 工具编排" 自动/半自动完成需求理解、测试生成、执行与报告产出。
+- 以用户为主导，LLM 为助理的协作式交互 Agent。
+- 以 Picker & Toffee 为基础，DUT 以 Python 包形式被测试；可与 OpenHands/Copilot/Claude Code/Gemini-CLI 等通过 MCP 协议深度协作。
+
+### 能力与目标
+
+- 自动/半自动：生成/完善测试代码与文档、运行用例、汇总报告
+- 完整：功能覆盖率、代码行覆盖率与文档一致性可集成
+- 兼容主流大模型接口；提供 MCP server 接口便于外部 Code Agent 接入
+- 目标：有效减少用户在验证过程中的重复工作
+
+快速开始使用自动化硬件验证，请直接阅读**[开始使用](./01_start/00_installation.md)**：即刻开始使用 UCAgent。
+
+自定义其他的工作流，请直接阅读**[定制开发入门](./03_develop/01_quick_start.md)**：快速创建自定义工作流。
 
 ## 文档导航
 
@@ -15,33 +34,40 @@
 
 ### 开始使用
 
-- **[工具介绍](./01_start/00_introduce.md):** UCAgent 出现的背景和详细介绍
-- **[工具安装](./01_start/01_installation.md):** 安装 UCAgent
-- **[快速入门](./01_start/02_quickstart.md):** 即刻开始使用 UCAgent
+1. **[前置依赖安装](./01_start/00_installation.md)**：UCAgent 环境部署、模型配置基础准备
+2. **[底层运行架构](./01_start/01_architecture.md)**：UCAgent 底层验证引擎与文件调度原理
+3. **[UCAgent 三大交互模式总览](./01_start/02_modes_overview.md)**：三种交互形态场景对比，帮助选型
+4. **[模式一：MCP 集成协同模式](./01_start/03_mcp_mode.md)**：面向自动化流水线、工具链集成
+5. **[模式二：纯 TUI 本地直连模式](./01_start/04_tui_mode.md)**：面向终端交互式调试
+6. **[模式三：Master Web 可视化交互模式](./01_start/05_master_mode.md)**：面向人机协同可视化操作
+7. **[结果分析 & 通用流程总结](./01_start/06_summary.md)**：统一结果解读、通用操作规范
+
+
+> 使用导读：所有交互模式共用同一套基础环境配置，前置依赖仅需部署一次；三种模式底层验证逻辑一致，仅交互入口、操作方式存在差异，文档将复用通用配置内容，仅区分差异化启动参数。
 
 ### 功能介绍
 
-- **[MCP 集成](./02_usage/00_mcp.md):** 使用 Code Agent 与 UCAgent 共同工作
-- **[直接使用](./02_usage/01_direct.md):** 使用 API 直接使用 UCAgent
-- **[人机协同](./02_usage/02_assit.md):** 在 UCAgent 验证过程中进行人机协同
-- **[参数说明](./02_usage/03_option.md):** 命令行的各个参数说明
-- **[TUI 界面](./02_usage/04_tui.md):** TUI 界面的组成与操作
-- **[FAQ](./02_usage/05_faq.md):** 常见问题
+- **[MCP 集成](./02_usage/00_mcp.md)**：使用 Code Agent 与 UCAgent 共同工作
+- **[直接使用](./02_usage/01_direct.md)**：使用 API 直接使用 UCAgent
+- **[人机协同](./02_usage/02_assit.md)**：在 UCAgent 验证过程中进行人机协同
+- **[参数说明](./02_usage/03_option.md)**：命令行的各个参数说明
+- **[TUI 界面](./02_usage/04_tui.md)**：TUI 界面的组成与操作
+- **[FAQ](./02_usage/05_faq.md)**：常见问题
 
 ### 定制开发
 
-- **[概览](./03_develop/00_index.md):** 定制开发指南总览
-- **[定制开发入门](./03_develop/01_quick_start.md):** 快速创建自定义工作流
-- **[架构与工作原理](./03_develop/02_architecture.md):** UCAgent 核心架构深入解析
-- **[工作流配置](./03_develop/03_workflow.md):** 完整的工作流定义和配置说明
-- **[模板文件与生成产物](./03_develop/04_template.md):** 模板系统和输出文件结构
-- **[定制工具](./03_develop/05_customize.md):** 开发和集成自定义工具
-- **[工具列表](./03_develop/06_tool_list.md):** 内置工具完整参考
-- **[检查器](./03_develop/07_checkers.md):** 自定义检查器开发指南
-- **[Mini 示例](./03_develop/08_mini_example.md):** 完整可运行的示例工作流
+- **[概览](./03_develop/00_index.md)**：定制开发指南总览
+- **[定制开发入门](./03_develop/01_quick_start.md)**：快速创建自定义工作流
+- **[架构与工作原理](./03_develop/02_architecture.md)**：UCAgent 核心架构深入解析
+- **[工作流配置](./03_develop/03_workflow.md)**：完整的工作流定义和配置说明
+- **[模板文件与生成产物](./03_develop/04_template.md)**：模板系统和输出文件结构
+- **[定制工具](./03_develop/05_customize.md)**：开发和集成自定义工具
+- **[工具列表](./03_develop/06_tool_list.md)**：内置工具完整参考
+- **[检查器](./03_develop/07_checkers.md)**：自定义检查器开发指南
+- **[Mini 示例](./03_develop/08_mini_example.md)**：完整可运行的示例工作流
 
 ### 实践案例
 
-- **[规范生成](./04_case/00_genspec.md):** 从分散设计资料生成功能规范文档
-- **[多实例并发执行](./04_case/01_multirun.md):** 同时对多个 DUT 进行并发验证
-- **[批处理执行 ](./04_case/02_batchrun.md):** 自动完成一系列验证任务
+- **[规范生成](./04_case/00_genspec.md)**：从分散设计资料生成功能规范文档
+- **[多实例并发执行](./04_case/01_multirun.md)**：同时对多个 DUT 进行并发验证
+- **[批处理执行](./04_case/02_batchrun.md)**：自动完成一系列验证任务
