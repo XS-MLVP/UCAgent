@@ -2,7 +2,7 @@
 
 > **本文档是 RTL 缺陷分析与报告阶段的领域知识参考。**
 >
-> - **数据写入方式**: 通过 `init_bug_report.py` 从 `.formal_records.yaml` 的 `analysis.fa_entries` 中提取 `RTL_BUG` 属性并生成骨架，再用 `update_bug.py` 逐条填写详情，数据存储在 `.formal_records.yaml` 的 `bugs` 字段中。
+> - **数据写入方式**: Checker 会从 `.formal_records.yaml` 的 `analysis.fa_entries` 中自动提取 `RTL_BUG` 属性并生成骨架，再用 `update_bug.py` 逐条填写详情，数据存储在 `.formal_records.yaml` 的 `bugs` 字段中。
 > - **文档自动生成**: Checker 通过后自动从 JSON 生成 `04_{DUT}_bug_report.md`，**无需手动编写 Markdown**。
 
 ---

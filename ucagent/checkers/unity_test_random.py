@@ -1,32 +1,25 @@
 #coding=utf-8
 
+import copy
+import os
+from collections import OrderedDict
+from typing import Tuple
 
 import ucagent.util.functions as fc
+from ucagent.checkers.base import UnityChipBatchTask, format_stage_args_examples
 from ucagent.checkers.unity_test import BaseUnityChipCheckerTestCase
 from typing import Tuple
 import inspect
 from ucagent.checkers.toffee_report import check_report
+from ucagent.util.log import warning
 
 
 class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
-    """
-    Check random test cases in Unity test files.
+    """Batch checker for random test-case generation records.
 
-    This checker verifies the presence and correctness of random test cases
-    in Unity test files. It performs the following checks:
-    1. Ensures test files match the pattern 'test_{DUT}_random*.py'.
-    2. Ensures test functions match the pattern 'test_random_<name>'.
-    3. Checks that the first argument of test functions is 'env'.
-    4. Verifies the use of 'ucagent.repeat_count' for setting repeat counts.
-    5. Verifies the use of '.mark_function' for marking function coverage and check points.
-    6. Runs the random test cases and checks the test report.
-
-    Attributes:
-        target_test_file (str): Pattern to match target test files.
-        mini_file_count (int): Minimum number of test files required.
-        min_test_count (int): Minimum number of test cases required.
-        test_case_name_pattern (str): Pattern to match test case function names.
-        must_func_code_snippet (dict): Required code snippets in test functions.
+    The checker does not inspect random test-file structure. A CK is considered
+    done when it appears in the current batch's ``generated`` argument. Matching
+    random test files are still executed when they exist.
     """
 
     def __init__(self, target_test_file, mini_file_count=1, min_test_count=1,
@@ -34,16 +27,23 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                  must_func_code_snippet={"ucagent.repeat_count": "you must use this function to set the repeat count for random test cases.",
                                          ".mark_function": "you must use this function to mark the function coverage and check points."
                                          },
+                 batch_size=10,
                  **kw):
         kw["min_tests"] = min_test_count
-        super().__init__(**kw)
+        super().__init__(batch_size=batch_size, **kw)
         self.target_test_file = target_test_file
         self.mini_file_count = mini_file_count
         self.min_test_count = min_test_count
         self.test_case_name_pattern = test_case_name_pattern
         self.must_func_code_snippet = must_func_code_snippet
+        self.total_random_test_count = 0
+        self.batch_size = batch_size
+        self.random_result = OrderedDict()
+        self.cached_ck_file_blocks = OrderedDict()
+        self._random_result_key = "_RANDOM_TEST_CASES_RESULT"
+        self.batch_task = UnityChipBatchTask("CK", self)
 
-    def do_check(self, timeout=0, **kw) -> Tuple[bool, object]:
+    def test_check(self, timeout=0, **kw) -> Tuple[bool, object]:
         """Check random test cases"""
         test_files = fc.find_files_by_pattern(self.workspace, self.target_test_file)
         if len(test_files) < self.mini_file_count:
@@ -61,12 +61,17 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                     return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function's first arg must be 'env', but got ({', '.join(args)})."}
                 func_source = inspect.getsource(tfunc)
                 for mc, v in self.must_func_code_snippet.items():
-                    if mc not in func_source:
+                    if mc == ".mark_function":
+                        snippet_found = fc.has_executable_mark_function_call(func_source)
+                    else:
+                        snippet_found = mc in func_source
+                    if not snippet_found:
                         return False, {"error": f"The '{tfile + ':' + tfunc.__name__}' Env test function must contain "
                                                 f"'{mc}', {v}"}
         if total_test_count < self.min_test_count:
             return False, f"Random test cases check fail: found {total_test_count} test cases, " \
                           f"expected at least {self.min_test_count} cases."
+        self.total_random_test_count = total_test_count
         # Run test cases
         pytest_args = " ".join([str(f).split("/")[-1] for f in test_files])
         report, str_out, str_err = super().do_check(pytest_args=pytest_args, timeout=timeout, **kw)
@@ -87,7 +92,8 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
                                    report, self.doc_func_check, self.doc_bug_analysis,
                                    only_marked_ckp_in_tc=True,
                                    check_fail_ck_in_bug=False,
-                                   func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout
+                                   waveform_tool=self.get_waveform_tool_for_checker(),
+                                   waveform_test_dir=self.test_dir,
                                    )
         if not ret:
             return ret, get_emsg(msg)
@@ -95,3 +101,240 @@ class RandomTestCasesChecker(BaseUnityChipCheckerTestCase):
         if not ret:
             return ret, get_emsg(msg["error"])
         return True, f"Random test cases({total_test_count}) check Pass"
+
+    def _load_doc_cks(self, min_count=1):
+        doc_path = self.get_path(self.doc_func_check)
+        if not os.path.exists(doc_path):
+            raise FileNotFoundError(
+                f"Function and check documentation file {self.doc_func_check} does not exist in workspace."
+            )
+        return fc.get_unity_chip_doc_marks(
+            doc_path,
+            leaf_node="CK",
+            mini_leaf_count=min_count,
+            return_line_block=True,
+        )
+
+    def _sync_source_from_doc(self, current_doc_ck_list, note_msg=None):
+        if note_msg is None:
+            note_msg = []
+        self.batch_task.sync_source_task(
+            current_doc_ck_list,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
+        self.batch_task.update_tbd_and_cmp()
+        self.batch_task.gen_task_list = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        self.batch_task.update_current_tbd()
+
+    def on_init(self):
+        saved_random_result = {}
+        if self.stage_manager is not None:
+            saved_random_result = self.smanager_get_value(self._random_result_key, {})
+        if isinstance(saved_random_result, dict):
+            self.random_result = OrderedDict(saved_random_result)
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=0)
+            self._sync_source_from_doc(current_doc_ck_list)
+        except Exception as e:
+            warning(f"Failed to initialize random test-case context: {e}")
+        return super().on_init()
+
+    def _build_current_ck_infos(self, ck_list):
+        ck_infos = []
+        for ck in ck_list:
+            ck_infos.append(OrderedDict({
+                "CK": ck,
+                "doc_block": self.cached_ck_file_blocks.get(ck, []),
+                "generated_record": self.random_result.get(ck),
+            }))
+        return ck_infos
+
+    def get_template_data(self):
+        data = self.batch_task.get_template_data("TOTAL_CKS", "COMPLETED_CKS", "LIST_CURRENT_CKS")
+        data["LIST_CURRENT_CKS"] = self._build_current_ck_infos(data["LIST_CURRENT_CKS"])
+        data["TOTAL_RANDOM_TEST_COUNT"] = self.total_random_test_count if self.total_random_test_count > 0 else "-"
+        return data
+
+    def _run_random_tests(self, timeout=0, **kw):
+        return self.test_check(timeout=timeout, **kw)
+
+    @staticmethod
+    def _parse_generated_arg(generated):
+        if generated is None:
+            return OrderedDict()
+        if not isinstance(generated, dict):
+            raise TypeError(
+                "stage_args.generated must be a JSON object, "
+                "whose keys are CK labels and whose values describe the generated random test or the reason "
+                "it was skipped. "
+                f"Received type(generated)={type(generated)}; value={generated}"
+            )
+
+        generated_map = OrderedDict()
+        for key, value in generated.items():
+            if key is None:
+                continue
+            ck = str(key).strip()
+            if ck:
+                generated_map[ck] = value
+        return generated_map
+
+    def do_check(self, timeout=0, is_complete=False, generated=None, **kw) -> Tuple[bool, object]:
+        """Check random test-case generation records."""
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=1)
+        except Exception as e:
+            return False, {
+                "error": f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. "
+                         "Review the file format and ensure it contains valid <FG-*>, <FC-*>, and <CK-*> labels."
+            }
+
+        note_msg = []
+        self._sync_source_from_doc(current_doc_ck_list, note_msg)
+
+        completed_tasks = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        for ck in self.random_result.keys():
+            if ck in current_doc_ck_list and ck not in completed_tasks:
+                completed_tasks.append(ck)
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Random test-case CK records changed.",
+        )
+        self.batch_task.update_current_tbd()
+
+        current_batch = list(self.batch_task.tbd_task_list)
+        tool_name = "Complete" if is_complete else "Check"
+
+        def generated_call_guidance(candidate_cks=None):
+            """Build an executable generated argument example for error messages."""
+            has_current_batch = bool(current_batch)
+            candidates = list(candidate_cks or current_batch or current_doc_ck_list)
+            if candidates:
+                example_ck = candidates[0]
+                example_note = (
+                    "Added deterministic random boundary cases and output assertions."
+                )
+                object_example, string_example = format_stage_args_examples(
+                    tool_name,
+                    {"generated": {example_ck: example_note}},
+                )
+                guidance = (
+                    f"Call the {tool_name} tool with the stage_args JSON object. "
+                    "For this stage, stage_args.generated maps each full CK path to a processing note. "
+                    "The note may describe the generated random test, random strategy and assertions, "
+                    "or explain why random testing does not add value for that CK. "
+                    f"Object example: {object_example} "
+                    f"JSON-string fallback: {string_example} "
+                )
+                if has_current_batch or candidate_cks:
+                    guidance += (
+                        f"Allowed current-batch CK labels: {', '.join(candidates)}. "
+                        "Do not submit CK labels outside the current batch. "
+                    )
+                else:
+                    guidance += "There are currently no pending CK labels in the batch. "
+                return guidance + (
+                    "Pass stage_args directly as shown; do not use a top-level generated field, "
+                    "or nest stage_args under args or parameters."
+                )
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"generated": {"FG-.../FC-.../CK-...": "generated or skipped note"}},
+            )
+            return (
+                f"Call the {tool_name} tool with {object_example}. "
+                f"If nested object serialization fails, use {string_example}."
+            )
+
+        try:
+            generated_map = self._parse_generated_arg(generated)
+        except (TypeError, ValueError) as e:
+            return False, {"error": f"{e} {generated_call_guidance()}"}
+
+        error_mesg = []
+        unknown_tasks = [key for key in generated_map if key not in current_doc_ck_list]
+        if unknown_tasks:
+            error_mesg.extend([
+                "The following random-test CK labels are not in the current function/check document. "
+                "Please ensure that you are analyzing the correct labels:",
+                *unknown_tasks,
+            ])
+
+        current_batch_set = set(current_batch)
+        out_of_batch_tasks = [
+            key for key in generated_map
+            if key in current_doc_ck_list and key not in current_batch_set
+        ]
+        if out_of_batch_tasks and current_batch_set:
+            error_mesg.extend([
+                "The following random-test CK labels are valid, but they are not in the current batch. "
+                "Please analyze the current batch first:",
+                *out_of_batch_tasks,
+            ])
+
+        if unknown_tasks or (out_of_batch_tasks and current_batch_set):
+            error_mesg.append(generated_call_guidance())
+            if self.batch_task.tbd_task_list:
+                error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
+                error_mesg.append({"current_batch": self._build_current_ck_infos(self.batch_task.tbd_task_list)})
+            return False, {"error": error_mesg}
+
+        valid_tasks = [
+            key for key in generated_map
+            if key in current_batch_set
+        ]
+        remaining_current_batch = [
+            ck for ck in self.batch_task.tbd_task_list
+            if ck not in completed_tasks
+        ]
+        if len(valid_tasks) < 1 and remaining_current_batch:
+            return False, {
+                "error": [
+                    "No valid CK labels were recorded in the current random-test batch. "
+                    f"Please analyze at least one of these CK labels: {', '.join(remaining_current_batch)}.",
+                    {"current_batch": self._build_current_ck_infos(remaining_current_batch)},
+                    generated_call_guidance(remaining_current_batch),
+                ]
+            }
+
+        for ck in valid_tasks:
+            self.random_result[ck] = generated_map[ck]
+            if ck not in completed_tasks:
+                completed_tasks.append(ck)
+
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Random test-case CK records changed.",
+        )
+
+        if self.stage_manager is not None:
+            self.smanager_set_value(self._random_result_key, copy.deepcopy(self.random_result))
+            if self.data_key:
+                self.smanager_set_value(self.data_key, OrderedDict({
+                    "source_ck_list": current_doc_ck_list,
+                    "generated_result": copy.deepcopy(self.random_result),
+                }))
+
+        random_test_pass, random_test_msg = self._run_random_tests(timeout=timeout, **kw)
+        if not random_test_pass:
+            return random_test_pass, random_test_msg
+
+        ck_pass, ck_error = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            f"in file: {self.doc_func_check}",
+            "in stage_args.generated for random test cases",
+            " Please record stage_args={generated: {CK: note}} for the current batch.",
+        )
+        if isinstance(ck_error, dict) and self.batch_task.tbd_task_list:
+            ck_error["current_batch"] = self._build_current_ck_infos(self.batch_task.tbd_task_list)
+        return ck_pass, ck_error

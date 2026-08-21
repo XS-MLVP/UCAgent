@@ -56,6 +56,7 @@ def create_dut(request):
 
 @pytest.fixture(scope="function") # 用scope="function"确保每个测试用例都创建了一个全新的DUT
 def dut(request):
+    # 以下覆盖组创建、fc_cover绑定、采样和teardown上报同时服务于真实DUT与模板阶段fake DUT，属于fixture结构契约，不得删除或绕过。
     dut = create_dut(request)                         # 创建DUT
     func_coverage_group = get_coverage_groups(dut)
     # 请在这里根据DUT是否为时序电路判断是否需要调用 dut.InitClock
@@ -166,4 +167,5 @@ def env(dut):
 #    ...
 
 
-# 本文件为模板，请根据需要修改，删除不需要的代码和注释
+# 仅在DUT/API/fixture实现阶段按任务完善本模板。进入测试模板创建和测试实现阶段后，本文件是稳定公共基础设施，
+# 不得为了绕过fake DUT、mark_function或覆盖率错误而改写fixture、删除覆盖组/fc_cover绑定或取消coverage上报。

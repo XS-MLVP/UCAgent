@@ -1,0 +1,17 @@
+dut: {{DUT}}
+planning: {}
+basic_info: {}
+spec:
+  parameters: {}
+  whitebox_signals: []
+  function_groups: []
+run_results: null
+analysis:
+  tt_entries: []
+  fa_entries: []
+bugs: []
+extra_config:
+  tcl:
+    timeout: 100000
+    extra_commands: []
+summary: {}

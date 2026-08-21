@@ -360,6 +360,8 @@ def test_experience_processing_requires_audit_or_distill():
     manager.agent.cfg.values["experience.llm_distill_enable"] = True
 
     assert manager._experience_processing_enabled() is True
+
+
 def _make_verify_stage(name, reference_files, parent=None):
     stage = VerifyStage.__new__(VerifyStage)
     stage.name = name

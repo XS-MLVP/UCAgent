@@ -59,6 +59,37 @@ def test_process_bash_cmd_interrupts_silent_process():
     assert backend._fail_count == 0
 
 
+def test_process_bash_cmd_interrupts_partial_line_output():
+    agent = _FakeAgent()
+    backend = UCAgentCmdLineBackend(agent, config=object(), cli_cmd_ctx="")
+    backend.CWD = current_dir
+
+    cmd = (
+        f"{shlex.quote(sys.executable)} -c "
+        "'import sys,time; sys.stdout.write(\"partial\"); "
+        "sys.stdout.flush(); time.sleep(30)'"
+    )
+
+    def trigger_break() -> None:
+        time.sleep(0.2)
+        agent.set_break(True)
+
+    breaker = threading.Thread(target=trigger_break)
+    breaker.start()
+
+    start = time.time()
+    return_code, output_lines = backend.process_bash_cmd(cmd)
+    elapsed = time.time() - start
+
+    breaker.join(timeout=1)
+
+    assert elapsed < 5
+    assert return_code is not None
+    assert return_code != 0
+    assert output_lines == ["partial"]
+    assert backend._fail_count == 0
+
+
 def test_render_config_files_uses_context_and_creates_parent_dir(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()

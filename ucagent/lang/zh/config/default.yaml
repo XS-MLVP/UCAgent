@@ -1,7 +1,12 @@
 
 template_overwrite:
   DOC_GEN_LANG: "中文"
+  DOC_PATH: "{DUT}_Doc"
   RTL_PATH: "{DUT}_RTL"
+
+runtime_options:
+  need_ref_model: $(NEED_REF_MODEL: false)
+  mock_components_enabled: not $(IGNORE_MOCK_COMPONENT: true)
 
 hooks:
   # Define any hook prompts here if needed
@@ -55,13 +60,27 @@ mission:
           - 使用`CurrentTips`获取当前阶段/子阶段的具体任务指导
           - 确认完成后用`Complete`工具正式推进到下一阶段
           - 如果仅仅想判断是否完成阶段任务，又不想进入下一个阶段请调用`Check`工具进行检查
+          - Complete和Check工具只有统一的stage_args参数；当前阶段需要的自定义数据及其JSON结构以该阶段任务或checker诊断为准。优先传入JSON对象；嵌套对象无法正确序列化时，传入包含完整JSON对象的字符串，由工具统一解析
 
       **工作原则：**
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作，例如编写测试用例
+      - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
       - 测试用例失败时，优先怀疑是芯片设计问题，不是测试问题
+      - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
+      - 对每个已实现测试的Fail必须先排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有确认属于DUT设计Bug时才保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
+      - 测试用例阶段默认把已提供的{OUT}/tests/{DUT}_api.py、{OUT}/tests/{DUT}_function_coverage_def.py及其中的create_dut、dut/env fixture、fake DUT路径、覆盖组创建和fc_cover绑定视为验证基础设施契约；除当前stage明确要求更新API/fixture外，不得为了绕过fixture、fake DUT、mark_function或覆盖率错误而重写、替换、复制或局部伪造这些实现，也不得删除覆盖标记或取消set_func_coverage上报。只有最早traceback和对应源码共同证明基础设施本身有缺陷时，才允许在其所属stage做最小修复，并先重跑对应的fixture/API Checker
+      - `create_test_case_templates`模板构建阶段是明确例外：该阶段所有尚未实现的测试模板都必须以`assert False, "Not implemented"`结尾，防止空模板意外Pass；进入批量实现阶段后必须删除该占位断言并换成真实激励和预期检查。模板Fail仅表示“尚未实现”，不作为DUT Bug，不写入Bug文档
+      - Mock、fixture、参考模型以及只验证测试框架/API调用链自身且不以DUT功能输出为判定对象的测试属于验证基础设施自检，必须全部Pass，不能作为DUT Bug记录；任何使用正确功能预期检查真实DUT输出的测试（包括API功能测试、综合验证、静态Bug动态验证和随机验证）若确认复现DUT Bug，则必须保持Fail并完整取证。这两个要求适用于不同测试目标，不矛盾
       - 深入分析发现的问题
       - 触发bug对应的测试用例必须 Fail，不能误报为 Pass
+      - 动态Bug确认必须基于真实失败用例和真实波形：准备将非零置信度<BG-*>记录到`{OUT}/{DUT}_bug_analysis.md`前，必须调用`WaveInfo`分析该测试用例的最新波形，并在对应<TC-*>后的第一个非空行直接放置```yaml代码块（只允许空白行和Markdown缩进，不能插入正文、其他标签或另一个<TC-*>）；代码块必须且只能包含顶层键waveform_analysis，其下记录工具返回的真实receipt_id和波形证据。YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的`bug_document_viewer_link`，并保留`<WAVEFORM-VIEWER>`标签及`/surfer/?wave=`地址；方括号中的显示文字可以本地化，但不得编辑URL或token。不能使用旧<WAVEFORM-ANALYSIS>标签、裸YAML或JSON围栏，也不能伪造receipt、文件名、时间、链接token或其他波形字段
+      - `WaveInfo`找到可重放事件不等于自动确认DUT Bug。LLM必须先阅读功能规格、测试用例实际调用的API/driver、callback和Step顺序，确认输入驱动边沿、ready/valid或DUT实际使用的等价请求接受条件、响应有效/采样条件、backpressure/stall、pipeline或响应latency以及事务归属，再判断expected/actual。valid/enable无效、ready/accept未成立、复位/空闲/过渡状态、尚未到响应latency或协议声明data无效时的单点data mismatch只能作为调查线索，不能直接标记Bug；若规格明确要求在未接受请求或busy期间保持/忽略行为，则按该约束审查。这是LLM结合规格、测试和RTL完成的语义审查，不能由Checker按固定信号名自动推断
+      - 一次`Step(1)`只表示仿真推进一步，绝不自动表示请求已接受或输出已有效。LLM必须检查API/driver内部是否已经Step、等待握手或采样，并从规格确定组合settle、指定边沿、固定N周期、out_valid/response_valid/done/ack成立或busy清零等真实结果有效条件；API调用后机械地只Step一次就读data产生的Fail应先按测试时序问题修复，不能记录为DUT Bug
+      - 最终WaveInfo取证不能只查看发生不一致的目标data。调用前必须阅读DUT顶层端口、测试API/driver、规格和相关RTL，并通过`signal_groups`声明：时序DUT的实际时钟（组合DUT明确使用combinational且不虚构时钟）、当前功能相关的全部输入数据/选择/使能、相关输出数据/状态/有效位、接口实际存在的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。同一组真实完整路径必须进入timeline、签名receipt和在线viewer；`pattern`只负责定位事件，不能为了显示上下文而把所有信号都设成change触发条件。Checker只校验这些声明路径真实且已签名，不按名字推断接口语义，LLM仍须审查角色是否完整
+      - 动态Bug文档中，一个Bug的问题描述、全部失败TC及各自波形、触发条件、源码位置、根因因果链、修复建议、风险和复验计划必须集中在对应<BG-*>条目内；不得在文档末尾另建与标签分离的全局根因分析章节。详情内部使用粗体或五、六级标题，不要使用一到三级标题，避免Recorder在根因之前截断Bug引用范围
+      - Skill模式下，`recordbug.py`只生成带`<BUG-TODO>`的BG/TC与分析字段骨架，不执行根因判断。脚本返回后LLM必须继续读取失败日志、WaveInfo timeline和RTL/HDL，并用文本编辑工具替换全部`<BUG-TODO>`及其提示内容；Checker不解析“待补充”等自然语言占位词。旧`-ROOT/-FILE/-FIX`参数已删除，仅标题格式也已删除且不兼容。动态条目容器使用`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构依次是`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`，LLM不得删除、复制、改名或调换；中文粗体标题只是展示文字，Checker不读取标题。有源码时完整HDL fenced代码块必须各含一次`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`；无源码时在源码证据字段加入独立行`<BUG-SOURCE-UNAVAILABLE>`并完成黑盒分析。两种源码分支互斥，不得同时出现无源码标记与HDL代码块或三个源码因果标签。任一非零BG缺少、重复、乱序标记，字段为空或仍有`<BUG-TODO>`，都不能通过Check/Complete
+      - 静态源码分析只产生候选Bug，且仅记录在`{OUT}/{DUT}_static_bug_analysis.md`。只有该候选被失败用例复现并经`WaveInfo`确认后，才能以独立的非`BG-STATIC-*`标签写入动态Bug文档；无法取得波形时不得将其确认为动态Bug
       - {DUT}的verilog源代码位于`{DUT}/{DUT}.v`目录下，其依赖或者上层语言的源码位于目录`{RTL_PATH}/`，文件后缀可能是.v、.sv、.vh、.scala等
       - 发现bug要基于源码（有上层语言源码如scala，则基于上层语言源码进行分析，没有则基于verilog源码进行分析）进行详细分析：什么问题、为什么出现、如何修复
       - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议
@@ -72,6 +91,12 @@ mission:
       - `Complete`: 进行阶段检测，如果完成当前步骤，进入下一步，如果不允许完成，需要根据error中的反馈和建议调整工作
       - `ReadTextFile`: 读取文件内容（让工具知晓你阅读了哪些文件）
       - 其他文件操作和搜索工具按需使用
+
+      **Check/Complete失败处理：**
+      - Check或Complete返回失败时，必须先读取返回顶部的`failure_summary`，并按其中的`failed_checker_name`、`error_code`、`error`和`next_action`处理具体阻塞项
+      - 向用户或阶段日志说明失败原因时，必须引用`error_code`和至少一个具体文件、测试、标签或缺失项；禁止仅表述为“内部Checker机制不通过”“Checker计数异常”或“需要人工确认”
+      - `count_fail`是该Checker的历史失败调用累计值，不是当前失败测试数；`failed_funct_point: 0`、`failed_check_point: 0`或pytest结果符合预期，也不代表其他门禁已经通过。只有顶层`check_pass: true`或`complete: true`才表示本次检查通过
+      - Checker失败默认表示仍有可修复的验证项。只有返回明确的内部异常和traceback且没有业务错误时，才能判定为工具内部故障；若返回被截断，以顶部`failure_summary`为准，不得反复调用Complete而忽略具体错误
 
       **指导文档：**
       - 位于Guide_Doc/目录下
@@ -86,8 +111,18 @@ mission:
       - 需要根据Complete（或者Check）的结果调整你的工作，目标是保证所有Complete都通过
       - 完成一个Stage后，再进入下一个Stage，直到所有Stage都完成，才算整个验证任务完成
       - 除非Complete工具（或者Check工具）要求等待人工确认，否则不需要人工介入，不需要询问任何问题
-      - 非必要情况下，不要尝试获取{DUT}的内部信号状态，除非Complete工具（或者Check工具）要求你这么做
-      - 你要通过{DUT}的输入输出端口去验证其功能，而不是通过内部信号状态去验证，更不要尝试验证其内部子模块的功能
+      - 对可复现失败用例进行动态Bug确认时，`WaveInfo`是必须调用的诊断工具。先运行失败用例生成新波形，再以测试名和相关pin/event pattern调用`WaveInfo`；波形内部信号仅可通过该工具按需获取，不能用shell猜测或手工编造波形结果
+      - `WaveInfo`无参数inventory返回recommended_call后，下一次必须逐字使用其中的非空test_case_name；inventory不产生receipt且不能作为Bug证据。如果实际工具调用仍为空测试名，不得重复inventory，应改正调用参数；MCP调用中未使用的参数使用工具schema给出的空字符串、空数组或-1哨兵，不要传null。工具会把这些哨兵规范化为receipt/返回中的null，这是正常的内部表示，不能把返回的null再次作为MCP参数
+      - 当前DUT的`WaveInfo`调用范例：先调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[], logged_cycle=-1, clock_signal="", start_step=-1, end_step=-1)`读取该用例的step范围和signal_catalog；将`test_{DUT}_xxx`替换为inventory的recommended_call.test_case_name或失败用例的精确函数名
+      - metadata确认信号存在后，再调用`WaveInfo(test_case_name="test_{DUT}_xxx", pattern=[{{"signal":"TOP.{DUT}_top.{DUT}.result","event":"change","value":""}}], signal_groups={{"clock_mode":"combinational","clocks":[],"inputs":["TOP.{DUT}_top.{DUT}.a","TOP.{DUT}_top.{DUT}.b","TOP.{DUT}_top.{DUT}.op"],"outputs":["TOP.{DUT}_top.{DUT}.result"],"protocol":[],"key_signals":["TOP.{DUT}_top.{DUT}.op"]}}, logged_cycle=-1, clock_signal="", start_step=0, end_step=20, context_steps=1, max_points=200)`；示例层级只在signal_catalog中确实存在时使用，否则替换成catalog返回的精确完整路径，不要反复猜测层级或参数。若日志有cycle，则改用`clock_mode: clocked`，把真实时钟列入clocks并使用logged_cycle、精确clock_signal和cycle_tolerance进行对齐，不要同时臆测wave step
+      - 只传test_case_name和pattern、但既未提供logged_cycle+clock_signal也未同时提供start_step+end_step时，是全波形探索调用；即使找到事件也会返回`status: evidence_window_required`和`evidence_usable: false`，不能写成confirmed。必须逐字使用返回的`recommended_evidence_call`重新调用WaveInfo，并用新receipt取证；不能把`analysis_window.effective_start_step/effective_end_step`手工写入文档来冒充原调用参数
+      - 最终显式窗口调用必须同时传非负start_step和end_step，不能只传其中一个，也不能和logged_cycle混在同一次调用。最终调用成功后，将返回的`bug_document_fields`作为```yaml代码块的完整映射直接放到对应<TC-*>后；它已包含唯一顶层键waveform_analysis，不要再包一层。关闭围栏后把同一结果的`bug_document_viewer_link`整行复制为第一条非空内容；链接`[...]`内文字可改，`<WAVEFORM-VIEWER>`、URL和token不可改，更不能手工构造token。再根据timeline和RTL在该映射下真实补写alignment_evidence、observed_behavior、source_correlation；不要照搬整个WaveInfo返回结构或自行改变receipt字段
+      - 最终调用必须提供完整`signal_groups`；若结果只有`bug_document_signal_groups_required`或`waveform_viewer_error`而没有`bug_document_fields`/`bug_document_viewer_link`，应补齐信号角色后重新调用，不能手工补YAML或viewer token。`protocol`仅在规格和接口确认没有ready/valid/enable/start/busy/done/ack等接受或有效控制时才可为空；`key_signals`至少包含一个与当前功能选择、状态或错误传播直接相关的真实信号
+      - 中断或重启后，使用相同workspace和测试目录时可以直接复用文档中通过验证的receipt_id，不需要重新调用WaveInfo或重写所有waveform_analysis YAML块。只有receipt不存在、验证失败、参数/波形重放失败或波形证据已失效时，才重新运行对应用例并更新该用例的波形块；不要手工编辑工具证据
+      - 任务中途只运行部分用例时，不要因此删除已有TC/BG、修改有效receipt字段或重造viewer链接；继续使用工具返回且通过签名验证的证据。最终record_and_report_bugs阶段必须先运行完整DUT测试集合，再接受全部动态Bug TC的严格波形重放
+      - 如果DUT目标说明中写有“不需要波形验证”或类似表述，其含义仅是无需开展独立的波形覆盖率或内部接口验证，不得豁免动态Bug的`WaveInfo`取证；`WaveInfo`用于确认外部功能失败的根因，属于动态Bug确认流程
+      - 禁止无目的地大范围获取或遍历{DUT}内部信号；但最终动态Bug证据必须按当前功能选择最小且充分的`key_signals`，用于解释从接口输入到错误输出的关键选择、状态或传播过程
+      - DUT功能正确性仍以规格定义的输入输出接口行为为判定依据，内部关键波形用于解释根因，不能替代外部输出断言，也不要把任务扩展为验证无关内部子模块
       - 在计划通过Complete工具推进到下一个阶段前，需要通过工具SetCurrentStageJournal进行阶段日志记录，方便后续追踪和分析
       - 如果不是从第一阶段开始工作，你需要：
       -   通过CurrentTips工具获取当前阶段的具体任务指导
@@ -104,7 +139,7 @@ mission:
           - "(4) 通过Complete工具确认完成当前阶段的任务"
         - "你需要完成所有阶段的任务，才算完成整个验证任务"
         - "不清楚目标时，需要通过工具RoleInfo获取角色信息和基本指导"
-        - "如果启用了ref_model fixture，则必须通过ref_model的接口来进行比对验证"
+        - "测试函数包含ref_model fixture时，必须通过ref_model的接口进行比对验证"
       random:
         - "如果工具Complete出现超时错误，请调大timeout参数重试"
         - "判断是否完成阶段任务时，优先使用Complete工具，其次是Check工具（例如Batch任务）"
@@ -193,6 +228,7 @@ stage:
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
+      - "{DOC_PATH}/*.md"
       - "{DUT}/__init__.py"
       - "{OUT}/{DUT}_basic_info.md"
       - "{OUT}/{DUT}_verification_needs_and_plan.md"
@@ -200,7 +236,7 @@ stage:
       - "{OUT}/{DUT}_functions_and_checks.md"
     stage:
       - name: dut_function_grouping
-        desc: "DUT功能分组与层次划分{COUNT_FG}"
+        desc: "DUT功能分组与层次划分[{COUNT_FG}]"
         task:
           - "基于{DUT}功能，将相关功能归类成组"
           - "为每组定义<FG-组名>标签，组名要有意义"
@@ -216,7 +252,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FG"
       - name: function_point_definition
-        desc: "具体功能点识别与定义{COUNT_FC}"
+        desc: "具体功能点识别与定义[{COUNT_FC}]"
         task:
           - "在每个功能分组内，定义具体的功能点"
           - "用<FC-功能名>标签标记每个功能"
@@ -235,7 +271,7 @@ stage:
               doc_file: "{OUT}/{DUT}_functions_and_checks.md"
               leaf_node: "FC"
       - name: check_point_design
-        desc: "检测点设计与定义{COUNT_CK}"
+        desc: "检测点设计与定义[{COUNT_CK}]"
         task:
           - "为每个功能点设计具体的检测点"
           - "用<CK-检测名>标签标记，如<CK-BASIC>基本功能，<CK-BOUNDARY>边界条件"
@@ -256,6 +292,99 @@ stage:
               leaf_node: "CK"
               data_key: "COVER_GROUP_DOC_CK_LIST"
         need_human_check: $(HUMAN_CHECK_CK: false) # 验证复杂DUT时建议开启该人工检查
+      - name: functional_line_mapping_gap_analysis
+        desc: "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
+        task:
+          - "目标：按批次审查运行时提供的目标文档行块，确保每一条非空白内容都得到处理：所有有功能意义的非空白内容必须被准确纳入 {OUT}/{DUT}_functions_and_checks.md 并映射到正式 FG/FC/CK，确实没有功能意义的内容才可以使用带具体原因的 IGNORE；不能遗漏任何 DUT 功能、接口、约束、状态、时序、异常或边界行为"
+          - "目标文档说明：目标文档集合由当前阶段配置动态确定；实际文件名、物理行范围和原文内容以 Check/Complete 返回的当前批次为准，不要自行猜测、补充或创建未返回的目标文件。Guide_Doc 仅提供格式规范，不属于逐行覆盖目标"
+          - "当前进度：{COMPLETED_LINE_BLOCKS}/{TOTAL_LINE_BLOCKS} 个行块；当前批次待审查的文档及物理行范围：{CURRENT_LINE_BLOCKS}"
+          - "Check/Complete返回格式：current_line_block_contents和next_line_block_contents是行块列表，每个行块包含line_block、file、start_line、end_line、map_file、content；map_file是唯一规范映射文件，同一源文档的所有行块必须累计写入该文件，不得按行块另建带起止行号后缀的映射文件；content是按物理行号升序排列的有序映射，转为YAML后形如content: {1: '第一行原文', 2: '', 3: '第三行原文'}，空白行的值为空字符串"
+          - "未覆盖诊断按连续物理行区间汇总为uncovered_blocks字符串列表，例如[99-120, 456-888]；同一诊断的uncovered_content是按物理行号升序排列的有序映射，包含当前行块内全部未覆盖非空白行及其原文，可直接用于补齐映射"
+          - "Check 返回的错误详情中的行号摘录可能只是有限示例；uncovered_lines[].uncovered_content保留当前诊断涉及的全部未覆盖原文，current_line_block_contents仍提供当前行块的完整上下文。Check/Complete返回中的content只包含当前批次或下一批次指定行块，不是对应源文件的完整内容"
+          - "通常应直接使用Checker返回的uncovered_content完成修复；只有判断功能含义确实依赖跨行块的文件标题层级、表格表头、术语定义、前置说明或其他上下文时，再使用ReadTextFile查看file字段指向的原文件，不得把返回的局部片段误当成全文进行推断"
+          - "第1步：只读读取当前批次列出的文档行块，并结合所在文档的标题层级、表格表头、术语定义和前置说明逐行审查；参考文档是本阶段的输入，不得修改、重排、格式化、插入空行或为了适配映射而改写其内容；每一条非空白内容都要判断是需要正式 CK 覆盖的功能语义，还是确实无功能意义且可以说明原因的 IGNORE"
+          - "第2步：有关功能的行必须映射到 {OUT}/{DUT}_functions_and_checks.md 中已有的精确 FG/FC/CK 路径；如果没有对应路径，先依据 Spec 在功能文档中补充完整 FG/FC/CK，再使用新标签建立映射，不得选择语义相近但不准确的 CK，也不得在映射文件中凭空创建标签"
+          - "重要：{OUT}/{DUT}_functions_and_checks.md 是本阶段的动态工作文档，不是静态只读输入。处理每个行块时，都必须结合当前 Spec、接口/时序说明和实现上下文重新审查相关 FG/FC/CK；不能仅看到已有标签就机械完成映射，也不能把单个局部行块当成完整语义"
+          - "第3步：对当前行涉及的已有 CK 逐项做语义复核：确认它确实对应该功能，且边界、异常、状态、时序、触发条件和预期可观测结果足够明确，能够据此编写可判定的测试；必要时读取相关源文件全文和 Spec 上下文"
+          - "第4步：如果 CK 描述不够清楚，依据 Spec 直接补充或改写 CK 说明，至少明确触发场景/前置条件、输入组合与边界值、相关接口/寄存器/具体信号、状态/时序约束、预期输出/可观测判定和异常处理；不得用泛化措辞替代具体判定标准"
+          - "第5步：如果 CK 粒度过粗或混合多个彼此独立的行为，按可独立激励、观测和判定的维度拆分为多个 CK（必要时同步调整 FC/FG），为每个新 CK 给出清晰、互不重叠的范围，并将原 CK 的所有相关映射行分别迁移到正确的新 CK"
+          - "第6步：如果 CK 与 Spec、接口或实现不一致，属于误标、重复或已废弃行为，必须重写为正确 CK，或在确认没有有效覆盖责任后删除；删除前先为仍需覆盖的行为建立替代 CK，不能通过删除标签掩盖功能遗漏"
+          - "第7步：任何新增、重命名、拆分、重写或删除都必须同步检查 {OUT}/line_map/ 下所有已生成映射文件及当前/历史行块中的标签；移除失效标签、补齐替代映射，保持每个非空白行最终有正式 FG/FC/CK 或带具体理由的 IGNORE，不能留下旧 CK、MISSMT 或不存在的标签"
+          - "第8步：CK 标签是后续覆盖率定义、测试用例、静态/动态 Bug 证据使用的接口；如果工作区中已经存在这些下游引用，CK 的新增、重命名、拆分、重写或删除必须同步迁移所有受影响引用，不能只修改 functions_and_checks.md 或行映射后留下断链"
+          - "第9步：判定依据以 Spec 和其他权威接口文档为准，不能仅凭一行代码臆造场景；实现仅用于定位信号和可观测行为，若实现与 Spec 冲突，必须保留 Spec 规定的期望，不能把 CK 改成迎合错误实现；若不同 Spec 相互冲突或信息不足，先读取相关完整上下文，明确记录冲突依据、已知可验证范围和待澄清项，不得用模糊 CK、IGNORE 或 MISSMT 把问题伪装成已完成"
+          - "第10步：修改功能文档后重新读取并校验其完整层级、标签唯一性、每个 CK 隶属正确 FG/FC、无孤立或空描述 CK；同步更新所有引用已变更 CK 的映射标签后重新调用 Check。正常情况下参考文档的路径和物理行范围保持不变，继续使用 Check 返回的原行块，不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号，也不得伪造完成状态"
+          - "第11步：与功能无关但非空白的行使用 IGNORE/FC-.../CK-... 映射，并在映射行末尾写明具体忽略原因；不得为了覆盖行号而把无关内容挂到任意正式 CK；本轮先完成 Check/Complete 返回的当前批次，除因 CK 变更而同步修复的受影响映射外，不要提前修改尚未返回的文档行块"
+          - "第12步：严格使用当前行块返回的map_file建立或更新规范映射文件，映射格式遵循 Guide_Doc/dut_line_func_map.md；同一源文档跨批次继续更新同一个map_file，发现此前误建的带行号后缀映射文件时，将有效内容合并到map_file并删除误建文件"
+          - "第13步：映射区间必须遵循 Guide_Doc/dut_line_func_map.md 和当前阶段配置的行范围校验；每个区间应与实际审查的物理行范围对应，跨多个批次的连续内容分别记录，若 Check 报告区间或行范围错误，按诊断拆分或修正，不得用超范围区间绕过校验"
+          - "第14步：同一文档行如果确实同时描述多个独立且可验证的行为，可以映射到多个正式 CK；不要为了追求单一标签而丢失其中任何功能语义，也不要把无关 CK 叠加到同一行"
+          - "第15步：当前进度和待处理行块以动态任务描述及 Check/Complete 返回为准；每批映射通过后调用 Check 获取下一批，所有行块完成且 Check 通过后才能调用 Complete。如果 Check 报告参考文档内容摘要变化或已完成行块过期，视为输入已变化：停止依赖旧进度继续推进，先重新读取受影响文档并按新的行块重新审查，不得自行修改参考文档来消除错误"
+          - "重要：不得使用 MISSMT 作为最终结果；如果功能缺失，必须补充正式 FG/FC/CK 并重新检查"
+        skill_list:
+          - "unitytest/functions-and-checks"
+        reference_files:
+          - "Guide_Doc/dut_functions_and_checks.md"
+          - "Guide_Doc/dut_line_func_map.md"
+          - "{OUT}/{DUT}_functions_and_checks.md"
+        output_files:
+          - "{OUT}/{DUT}_functions_and_checks.md"
+          - "{OUT}/line_map/*_line_func_map.txt"
+        checker:
+          - name: functional_line_mapping_batch_check
+            clss: "UnityChipBatchCheckerFileLineMap"
+            args:
+              name: "functional_line_mapping"
+              file_list:
+                - "{DUT}/*.md"
+                - "{DOC_PATH}/*.md"
+                - "{OUT}/{DUT}_basic_info.md"
+                - "{OUT}/{DUT}_verification_needs_and_plan.md"
+              func_check_file: "{OUT}/{DUT}_functions_and_checks.md"
+              map_location: "{OUT}/line_map"
+              map_suffix: "_line_func_map.txt"
+              batch_size: $(FUNCTION_LINE_MAP_BATCH_SIZE: 1)
+              max_block_lines: 100
+              max_example_lines: 20
+              ignore_blank_lines: true
+              must_has_no_miss_match: true
+              data_key: "COVER_GROUP_DOC_CK_LIST"
+
+  - name: functional_specification_refine
+    desc: "功能规格/测试点细化与边界条件补充[{COMPLETED_POINTS}/{TOTAL_POINTS}|{COUNT_CK}]"
+    task:
+      - "目标：对功能规格进行细化，补充边界条件和异常情况"
+      - "第1步：阅读{OUT}/{DUT}_functions_and_checks.md，理解已有功能点和检测点"
+      - "第2步：分批次针对每个功能点，分析粒度是否太粗，是否覆盖了所有边界条件和异常情况"
+      - "第3步：细化太粗的功能点/检查点，补充遗漏的边界条件和异常情况，更新文档{OUT}/{DUT}_functions_and_checks.md"
+      - "第4步：确保每个功能点都有对应的检测点，并且检测点具有可测试性"
+      - "第5步：每完成当前批次中的一部分或全部原始CK细化后，调用Check(stage_args={\"refined\":{...}})记录这些原始CK已完成复核与细化"
+      - "第6步：所有批次都通过Check后，调用Complete完成阶段；如果最后一批尚未Check，也可以直接调用Complete(stage_args={\"refined\":{...}})"
+      - "注意："
+      - "  - 细化过程中，不仅仅需要增加文字描述，还需要增加新的功能点（FC）或者检测点（CK）来覆盖新增的边界条件和异常等情况"
+      - "  - 所有功能点、检查点等不要笼统，不要过于粗略，需要尽量细化"
+      - "  - 在完善过程中，不要丢失已有的功能点、检测点、状态、边界条件等"
+      - "  - Check/Complete只有一个阶段自定义参数stage_args；优先传入真实JSON对象，不要传递顶层refined/generated/bug_list。当前阶段约定stage_args中的refined为CK映射：stage_args={\"refined\":{CK_KEY_1:Value1, CK_KEY_2:Value2, ...}}；如果调用端无法正确传递嵌套对象，stage_args可以改为内容为完整JSON对象的字符串"
+      - "  - stage_args.refined中的CK_KEY必须来自当前批次待分析功能点（见下方{LIST_CURRENT_POINTS}），不能传入其他批次的CK，也不能传入细化后新增/拆分出的新CK"
+      - "  - stage_args.refined的Value为该原始CK的细化说明；只要某个原始CK出现在stage_args.refined中，就表示该原始CK已经完成复核与细化"
+      - "  - 如果某个原始CK被拆分为多个更细的新CK，请在文档中新增这些新CK，并在stage_args.refined中使用原始CK作为key说明拆分情况"
+      - "  - 示例工具参数：Check(stage_args={\"refined\":{\"FG-A/FC-A-1/CK-A-1\":\"已补充边界条件，并拆分为CK-A-1-BOUND和CK-A-1-ERR\", \"FG-B/FC-B-2/CK-B-2\":\"粒度已足够，无需拆分，但补充了异常输入说明\"}})"
+      - "  - 字符串fallback示例：Check(stage_args=\"{\\\"refined\\\":{\\\"FG-A/FC-A-1/CK-A-1\\\":\\\"已补充边界条件\\\"}}\")；字符串内容必须是完整合法JSON对象"
+      - "  - 最后一批示例工具参数：Complete(stage_args={\"refined\":{\"FG-C/FC-C-3/CK-C-3\":\"已补充组合场景和预期结果\"}})；如果Check已经提示全部CK完成，则直接调用Complete()即可"
+      - "  - 对于需要进行组合测试的功能点，确保在文档中明确标注组合条件和预期结果，每种组合情况都要有对应的检测点"
+      - "  - 你需要按Spec文档中定义的功能点和检测点进行细化，确保覆盖所有边界条件和异常情况"
+      - "当前批次待分析功能点（stage_args.refined的key只能从这里选择）": "{LIST_CURRENT_POINTS}"
+      - "当前分析进度": "{COMPLETED_POINTS}/{TOTAL_POINTS}"
+    output_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+    reference_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "{OUT}/{DUT}_basic_info.md"
+    checker:
+      - name: functions_and_checks_refine_check
+        clss: "UnityChipCheckerLabelStructureRefine"
+        args:
+          doc_file: "{OUT}/{DUT}_functions_and_checks.md"
+          leaf_node: "CK"
+          data_key: "COVER_GROUP_DOC_CK_LIST"
 
   - name: static_bug_analysis
     desc: "RTL源码静态Bug分析[{ANALYSIS_PROGRESS}]"
@@ -273,7 +402,8 @@ stage:
       - "    - 控制逻辑：优先级、互斥条件、未处理的输入组合"
       - "  第4步：将发现的潜在Bug按以下严格标签层级记录到{OUT}/{DUT}_static_bug_analysis.md"
       - "  第5步：若发现高/中置信度Bug，在{OUT}/{DUT}_functions_and_checks.md中补充针对性<CK-*>检测点"
-      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md末尾维护 '## 批次分析进度' 表格，记录本批次每个文件的分析结果"
+      - "  第6步：在{OUT}/{DUT}_static_bug_analysis.md的<STATIC-BUG-PROGRESS>分区维护批次进度表格，记录本批次每个文件的分析结果"
+      - "  静态报告的唯一机器分区依次是独立行<STATIC-BUG-SUMMARY>、<STATIC-BUG-DETAILS>、<STATIC-BUG-PROGRESS>；三者必须各出现一次且顺序固定。相邻标题只是展示文字，可以本地化；Skill脚本和Checker不解析中文标题。旧的仅标题格式不兼容"
       - ""
       - "=== 关于 <FG-*>/<FC-*>/<CK-*> 标签的来源（重要）==="
       - "  {OUT}/{DUT}_static_bug_analysis.md 中使用的所有 <FG-*>/<FC-*>/<CK-*> 标签"
@@ -330,8 +460,8 @@ stage:
       - "  - <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目，且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）"
       - ""
       - "=== 批次进度追踪（必须写在 {OUT}/{DUT}_static_bug_analysis.md 末尾）==="
-      - "  本批次分析完毕后，将每个已分析文件追加到 '## 批次分析进度' 表格中。若该章节不存在则先创建："
-      - "  ## 批次分析进度"
+      - "  本批次分析完毕后，将每个已分析文件追加到<STATIC-BUG-PROGRESS>后的表格中。若规范骨架不存在，使用Skill脚本创建，不能只补中文标题："
+      - "  <STATIC-BUG-PROGRESS>"
       - "  | 源文件 | 发现疑似Bug数 | 状态 |"
       - "  |--------|-------------|------|"
       - "  | <file>rtl/dut.v</file> | 2 | ✅ 完成 |"
@@ -404,6 +534,7 @@ stage:
          - "实现dut fixture，包含完整的生命周期管理"
          - "请按已有模板确保:"
          - "- 确保在dut fixture的清理阶段，调用通过get_coverage_data_path(request, new_path=False)获取已有路径的代码行覆盖率文件，并传递给 set_line_coverage"
+         - "- 确保在dut fixture的清理阶段（yield之后）调用set_func_coverage(request, func_coverage_group)，将功能覆盖率和mark_function映射传递给toffee-test"
          - "- 确保dut fixture能正确初始化和清理芯片"
          - "- 确保dut fixture的scope设置为function"
        checker:
@@ -576,6 +707,8 @@ stage:
        reference_files:
          - "Guide_Doc/dut_mock.md"
          - "{DUT}/__init__.py"
+       skill_list:
+         - "unitytest/mock-components"
        ignore: $(IGNORE_MOCK_COMPONENT: true)
      - name: mock_fixture_implementation
        desc: "Mock fixture实现"
@@ -584,6 +717,8 @@ stage:
         - "- 需要在文件{OUT}/tests/{DUT}_api.py中实现mock_dut fixture"
        reference_files:
          - "Guide_Doc/dut_mock_test.md"
+       skill_list:
+         - "unitytest/mock-components"
        checker:
          - name: mock_fixture_check
            clss: "UnityChipCheckerMockFixture"
@@ -645,6 +780,8 @@ stage:
                 batch_size: 1
           reference_files:
             - "Guide_Doc/dut_mock_test.md"
+          skill_list:
+            - "unitytest/mock-components"
           output_files:
             - "{OUT}/tests/test_{DUT}_mock_*.py"
           ignore: $(IGNORE_MOCK_COMPONENT: true)
@@ -803,13 +940,14 @@ stage:
     task:
       - "目标: 验证已实现的API函数功能是否正确，确保API接口质量"
       - "第1步：学习API测试规范 - 阅读Guide_Doc/dut_api_instruction.md，重点关注'API测试'部分"
-      - "第2步：分析测试需求 - 查看{OUT}/{DUT}_functions_and_checks.md，了解需要测试的API功能点"
+      - "第2步：分析测试需求 - 查看{OUT}/{DUT}_functions_and_checks.md，在FG-API分组中定位每个API函数对应的准确FC/CK；API测试必须优先完成这些API分组CK的关联和验证"
       - "第3步：创建API测试文件 - 在{OUT}/tests/目录下创建test_{DUT}_api_*.py测试文件"
       - "第4步：编写测试函数，每个测试函数需要："
       - "  - 函数名格式：test_<api_name>[_<test_scenario>]，api_name对应API函数名称(例如api_{DUT}_add)，test_scenario描述测试场景（可选）"
       - "     - 命名举例：test_api_{DUT}_add_basic, test_api_{DUT}_add_overflow"
       - "  - 第一个参数必须为：env (pytest fixture)"
-      - "  - 添加覆盖率标记：env.dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-XXX1', ...])"
+      - "  - 每个API测试函数都必须在函数开头添加对应API分组CK的覆盖率标记：env.dut.fc_cover['FG-API'].mark_function('FC-API-NAME', your_test_function, ['CK-API-XXX', ...])；FG/FC/CK必须来自{OUT}/{DUT}_functions_and_checks.md中该API实际对应的条目，不能只mark其他功能分组CK，也不能为通过Checker而批量标记无关API CK"
+      - "  - API测试可以额外mark FG-API以外的CK，但这些关联是可选项，并且测试必须真实激励和断言其行为；额外功能CK不能替代当前测试必需的对应FG-API/FC/CK关联"
       - "  - 包含详细的docstring：测试目标、流程、预期结果"
       - "  - 实现测试逻辑：设置输入、调用API、验证输出"
       - "第5步：测试内容包括："
@@ -826,12 +964,12 @@ stage:
       - "  - 注释和文档需要使用{DOC_GEN_LANG}编写"
       - "  - 发现的bug需要计入bug分析文档{OUT}/{DUT}_bug_analysis.md，格式请参考Guide_Doc/dut_bug_analysis.md"
       - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
+      - "  - API功能测试使用正确预期检查真实DUT输出，适用统一完成条件：测试/API/fixture/ref_model/时序/环境问题必须修复到Pass；只有正确测试确认的DUT设计Bug保留Fail，并完成非零置信度动态Bug、CK、源码根因和真实WaveInfo confirmed证据。不要把此前基础设施自检的‘全部Pass’要求套用到已确认DUT Bug复现用例"
       - "  - 文档{OUT}/{DUT}_bug_analysis.md中的检查点标记格式与{OUT}/{DUT}_functions_and_checks.md一致"
-      - "  - 如果测试函数和多个功能点关联，需要多次调用mark_function()"
-      - "  - 如果需要，请修复已经实现的API函数和Env fixture，如修复时序、等待、超时、Mock组件等问题"
+      - "  - 如果测试函数还真实覆盖其他FG/FC，可额外调用mark_function()保留这些关联；无论有多少额外关联，每个API测试都必须至少有一次指向对应FG-API分组CK的mark_function()"
+      - "  - 只有最早traceback、API契约和源码共同证明已实现的API函数或Env fixture存在缺陷时，才做与根因直接相关的最小修复并重跑专用API/fixture测试；不得为了让测试、mark_function或覆盖率门禁通过而重写提供的API模板、替换fake DUT或破坏fc_cover绑定"
       - "  - 注意{DUT}相关的文件名，用例名等大小写敏感"
-      - "  - 如果定义了参考模型，请在测试中使用ref_model fixture进行比对验证，如果发现参考模型实现有误，也请及时修正参考模型代码，确保测试通过"
-      - "是否已启用参考模型": $(NEED_REF_MODEL: false)
+      - "  - 测试函数包含ref_model fixture时，请使用其进行比对验证；如果发现参考模型实现有误，也请及时修正参考模型代码，确保测试结果可信"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -843,6 +981,7 @@ stage:
         clss: "UnityChipCheckerDutApiTest"
         args:
           api_prefix: "api_{DUT}_"
+          api_ck_prefix: "FG-API/"
           target_file_api: "{OUT}/tests/{DUT}_api.py"
           target_file_tests: "{OUT}/tests/test_{DUT}_api*.py"
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
@@ -851,6 +990,11 @@ stage:
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_api_{DUT}_"
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
@@ -874,6 +1018,8 @@ stage:
       - "  - 4) 最后添加assert False, 'Not implemented'防止意外通过"
       - "注意："
       - "  - 该阶段dut fixture为fake值，仅用于执行加速，因此请仅仅编写用例模板，不要去测试DUT"
+      - "  - 本阶段{OUT}/tests/{DUT}_api.py和{OUT}/tests/{DUT}_function_coverage_def.py是已提供的只读基础设施契约；只能新增/修改普通测试模板，禁止改动API、create_dut、dut/env fixture、fake DUT分支、覆盖组定义、fc_cover绑定、StepRis采样或coverage上报，也不能在测试文件中自建dut、fc_cover、CovGroup或替代fixture"
+      - "  - 如果fake DUT上执行mark_function失败，先核对当前模板中的FG/FC/CK字面量与函数文档和覆盖率定义；不得删除mark_function、改成空覆盖组、绕过fixture或把问题改写成普通断言。若最早traceback明确指向基础设施缺陷，应记录具体文件/行并回到对应API/fixture/覆盖率阶段处理"
       - "  - 测试函数模板不要实现具体的测试逻辑，只需添加TODO注释，功能覆盖标记和assert False语句"
       - "  - 确保每个功能点<FC-*>至少有一个测试用例"
       - "  - 测试用例应当具有针对性，不要冗余，不要一个测试用例关联过多功能点、测试点"
@@ -888,7 +1034,6 @@ stage:
       - "参考Guide_Doc/dut_test_template.md了解模板格式"
       - "当前批次测点与对应说明节选如下": "{LIST_CK_FILE_BLOCKS}"
       - "完成进度：{COVERED_CKS}/{TOTAL_CKS}个测试用例模板已完成"
-      - "是否已启用参考模型": $(NEED_REF_MODEL: false)
     skill_list:
       - "unitytest/create-test-case-templates"
     checker:
@@ -904,12 +1049,12 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           test_dir: "{OUT}/tests"
           ignore_tc_prefix: "test_api_{DUT}_"
+          ignore_ck_prefix: "FG-API/"
           data_key: "TEST_TEMPLATE_IMP_REPORT"
           batch_size: $(BATCH_SIZE_TMP: 20)
           template_must_fail: $(TEMPLATE_MUST_FAIL: true)
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
-          args_test_func_prefix: "test_api_{DUT}_"
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
@@ -922,18 +1067,23 @@ stage:
       - "目标：将测试模板填充为真实测试，发现并分析芯片bug"
       - "重要：测试用例失败时，优先怀疑是芯片设计问题，不要急于修改测试。可能在测试过程中发现覆盖率中的检查点有误，需进行相应调整"
       - "参考Guide_Doc/dut_test_case.md和dut_bug_analysis.md了解实现方法"
-      - "上述过程中，可能发现之前步骤中需要修正，你需要进行相应的调整，例如完善api、功能覆盖等"
+      - "上述过程中若发现之前步骤可能有误，必须先用最早traceback、API契约和源码确认责任文件；只有证据明确时才回到所属阶段最小修正API或功能覆盖，不能在测试阶段凭猜测重写已提供模板"
       - "注意："
       - "  - 工具RunTestCases只是基于pytest运行测试用例，它并不进行类似Check那样的结果验证"
       - "  - 通过`from {DUT}_api import *`正确导入 APIs 和 fixtures (必须用 import *)"
+      - "  - 实现测试时必须把现有{DUT}_api.py和{DUT}_function_coverage_def.py当作稳定接口使用；默认只修改当前测试文件。除非最早traceback和源码证据明确证明基础设施缺陷，否则不要改API模板、fixture或覆盖组定义来规避测试失败"
       - "  - 不要尝试修复{DUT}中的bug，而是记录和分析bug（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
       - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
-      - "  - 不要尝试修复确定为触发DUT bug的测试用例，而是保留测试用例为Fail"
+      - "  - 阶段完成条件：除已确认DUT Bug复现用例外，其他用例必须全部Pass；剩余每个Fail必须与非零置信度动态Bug、对应CK、源码根因和真实WaveInfo confirmed证据一一对应。不是要求已确认Bug用例也Pass"
+      - "  - 确定为DUT Bug后，不要修改正确的测试预期或弱化断言，应保留由DUT错误行为自然触发的Fail；已实现测试禁止使用assert False等人工失败。create_test_case_templates阶段的空模板必须assert False，但进入本阶段实现该模板时必须删除占位断言。若属于测试、断言、预期值、fixture/API、参考模型、复位/时序或环境问题，必须修复并重跑到Pass，不能记录为DUT Bug"
       - "  - 如果所有测试用例都通过了，需要再三确认是否都真的没有bug"
       - "  - 如果所有测试用例都失败了，大概率你编写测试有误，需要确认测试逻辑是否正确"
-      - "  - 对<BG-*-0>标记置信度为0的bug进行分析{BUG_ZERO_RATE_LIST}，确认是否真的需要"
+      - "  - 清理<BG-*-0>无效占位{BUG_ZERO_RATE_LIST}：它不能解释任何Fail；对应测试若不是DUT Bug必须修复到Pass，若确认是DUT Bug则改为非零置信度并补齐CK、源码根因和WaveInfo证据"
       - "  - 优先尝试复现{OUT}/{DUT}_static_bug_analysis.md中记录的高/中置信度静态分析潜在Bug"
-      - "  - 静态分析确认的Bug需在{OUT}/{DUT}_bug_analysis.md中添加对应完整记录（源码分析+修复建议）"
+      - "  - {OUT}/{DUT}_static_bug_analysis.md中的结论只是动态复现候选：必须先运行对应失败用例并真实调用WaveInfo确认波形，才可用新的非BG-STATIC-*标签写入{OUT}/{DUT}_bug_analysis.md；不能直接复制静态Bug标签或以静态分析代替波形证据"
+      - "  - 每一个准备记录到{OUT}/{DUT}_bug_analysis.md的非零置信度动态Bug都必须关联至少一个Fail测试用例，并在每个对应<TC-*>后的第一个非空行保存独立的真实WaveInfo receipt和事件级波形证据；YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的<WAVEFORM-VIEWER>链接。不能把多个用例的波形统一放在Bug条目末尾。无可用波形时，或缺少viewer链接时，修复生成流程、重跑用例，不能以unavailable或占位字段完成阶段"
+      - "  - 不确定波形测试名时只调用一次无参数WaveInfo inventory；随后逐字使用recommended_call中的非空test_case_name进行metadata和pattern分析。inventory不产生receipt，实际调用参数仍为空时必须修正参数而不是重复inventory"
+      - "  - Check/Complete失败时必须读取顶部failure_summary，并引用failed_checker_name、error_code和具体阻塞项继续修复；count_fail只是历史调用累计，failed_funct_point/failed_check_point为0也不能覆盖其他门禁。禁止将有具体error的失败归因于‘内部Checker机制’"
     checker:
       - name: test_check
         clss: "UnityChipCheckerTestCase"
@@ -941,9 +1091,17 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
         extra_args:
           max_try: -1
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
     reference_files:
       - "Guide_Doc/dut_test_case.md"
@@ -955,18 +1113,32 @@ stage:
         need_fail_llm_suggestion: false
         desc: "分批测试用例实现与对应bug分析[{COMPLETED_CASES}/{TOTAL_CASES}]"
         task:
-          - "第1步：理解芯片完整功能和预期行为"
-          - "第2步：将以下空的测试模板填充为可执行代码": "{LIST_CURRENT_CASES}"
-          - "第3步：使用API接口调用芯片功能，避免直接操作底层信号"
-          - "第4步：设计充分的测试数据：典型值、边界值、特殊值"
-          - "第5步：添加断言检查输出是否符合预期（Eg: assert output == excepted_output, error_msg），如果有ref_model fixture，可以通过assert output == ref_model.some_function(input)来进行比对验证"
-          - "第6步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
-          - "第7步：分析测试结果："
+          - "第1步：逐个打开以下当前批次测试模板，完整阅读函数的docstring、注释、TASK/TODO、已有mark_function和覆盖约束；这些内容定义模板的原始测试意图，不能跳过或只按文件名、函数名猜测": "{LIST_CURRENT_CASES}"
+          - "第1步补充：保留模板已经提供的fixture参数、import、mark_function和普通DUT访问路径；当前批次默认禁止编辑{OUT}/tests/{DUT}_api.py及{OUT}/tests/{DUT}_function_coverage_def.py，不得通过修改fake DUT或fixture绕过覆盖率关联"
+          - "第2步：对每个模板，从mark_function确定完整FG/FC/CK路径，并在{OUT}/{DUT}_functions_and_checks.md中定位对应CK原文；逐项分析其触发前提、输入组合、状态/时序、边界/异常行为和预期输出，并结合{OUT}/tests/{DUT}_function_coverage_def.py中的对应覆盖约束形成测试契约"
+          - "第3步：依据模板注释和测试契约设计针对性激励与严格断言；CK的每项关键条件都要有对应输入或状态设置，每项预期结果都要有能够区分DUT正确与错误行为的expected/actual检查"
+          - "  - 设计断言前必须确认结果何时有效：一次Step只推进仿真，不代表事务完成。阅读API/driver实现，确认其是否已Step或等待，并按规格要求的采样边沿、固定N周期、response valid/done/ack或busy清零条件读取输出；禁止API调用后机械地Step一次就断言data"
+          - "  - 禁止仅调用API、只确认没有异常、只检查类型/非空、使用无依据的宽松范围，或仅声明mark_function而没有实际验证CK行为"
+          - "第4步：若模板注释、CK原文、覆盖约束或DUT接口契约不一致，必须查阅相关文件定位原因并修正测试意图，不得静默忽略差异"
+          - "第5步：使用API接口调用芯片功能，避免直接操作底层信号"
+          - "第6步：覆盖CK要求的典型值、边界值、特殊值及必要的状态、时序和异常组合"
+          - "第7步：添加严格断言检查输出是否符合预期（Eg: assert actual == expected, error_msg）；测试函数包含ref_model fixture时，可以通过assert actual == ref_model.some_function(input)进行独立比对"
+          - "第8步：完成上述所有测试用例后，立即用RunTestCases('{TEST_BATCH_RUN_ARGS}')检查运行结果"
+          - "第9步：分析测试结果："
           - "  - 如果Pass且结果符合预期，则继续通过Check工具进行阶段检查"
-          - "  - 如果Fail但合理：可能发现了芯片bug，分析并记录到{OUT}/{DUT}_bug_analysis.md（需要基于源代码分析bug，给出源码修改建议,需要用{DOC_GEN_LANG}编写文档）"
+          - "  - 如果Fail：先核对功能规格和源码，排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；属于这些问题时修复后必须Pass，不得以测试Bug或BG-*-0占位保留Fail"
+          - "  - 波形判错前必须阅读测试使用的API/driver、callback和Step顺序，明确输入驱动边沿、ready/valid或等价接受条件、输出有效条件、backpressure和latency，并核对测试是否过早读取或重复Step；只有协议允许的同一事务响应窗口中的expected/actual差异才能支持Bug。任意时间点或无效周期的data不一致只能继续调查，不能直接生成BG"
+          - "  - 最终WaveInfo调用必须填写完整signal_groups：时序DUT的时钟、当前功能相关的输入数据/选择/使能、输出数据/状态/有效位、真实协议接受/响应控制，以及至少一个功能选择/状态/错误传播关键路径；组合DUT明确声明combinational且不虚构时钟。在线viewer必须显示同一签名信号集合，禁止只查看目标result后判Bug"
+          - "  - 只有正确测试稳定复现DUT设计缺陷时才保留Fail：必须按Guide_Doc/dut_bug_analysis.md记录非零置信度动态Bug、CK和源码根因，真实调用WaveInfo，并紧随每个对应<TC-*>（第一个非空行，允许空白行）写入独立```yaml代码块；代码块只能有顶层waveform_analysis映射，其下包含真实receipt_id和status: confirmed。YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的<WAVEFORM-VIEWER>链接；显示文字可改，但标签、URL和token不可改。中间不得插入说明、根因正文或其他标签，不能使用旧<WAVEFORM-ANALYSIS>标签、裸YAML或JSON围栏，也不能把多个用例的波形集中到条目末尾。无波形时先修复生成流程并重跑，status: unavailable不能完成阶段"
+          - "  - Skill中的recordbug.py只接收BG/TC/BD并生成含`<BUG-TODO>`的未完成骨架。脚本返回后当前任务不能结束：必须用真实bug_document_fields替换每个TC后的波形占位块，读取RTL/HDL定位首个错误决策与传播路径，再用文本编辑工具填完`<BUG-OVERVIEW>`至`<BUG-RETEST>`八个固定标记之间的字段并删除全部`<BUG-TODO>`及其提示文字；有源码时分别用`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`标记首错、传播和可见后果。结构标记不得删除、复制、改名或调换，中文标题和自然语言占位词不属于机器结构；不得向脚本传已删除的ROOT/FILE/FIX参数，也不得把脚本成功当成分析完成"
+          - "  - WaveInfo收据陈旧、缺失或无法重放时，必须重跑对应失败用例并重新调用WaveInfo更新证据；只要正确实现的测试仍Fail，禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支规避门禁。只有正确测试已经Pass或证据证明该记录并非DUT Bug时，才可按Guide重新分类或删除动态记录"
+          - "  - WaveInfo inventory只允许用于发现测试名；拿到recommended_call后，下一次调用必须使用其中的非空test_case_name。不要重复空参数inventory，也不要给可选参数传null，应使用schema中的空字符串、空数组或-1哨兵"
+          - "  - 只传pattern且没有logged_cycle+clock_signal或完整start_step+end_step时只是探索调用；返回evidence_window_required后必须逐字使用recommended_evidence_call重调，并把新返回的bug_document_fields作为```yaml中的完整waveform_analysis映射直接使用，不要重复包裹；关闭围栏后把同一次最终结果的bug_document_viewer_link整行放在第一条非空内容，保留<WAVEFORM-VIEWER>、URL和token。不能把analysis_window.effective_*手工写入Bug文档冒充原调用参数"
+          - "  - 重跑时在断言日志中打印cycle_basis、transaction ID、相关pin和真实握手/状态；日志cycle必须经clock occurrence index对齐，不能直接当作wave step。WaveInfo的pattern/timeline应覆盖ready/valid或DUT实际使用的等价请求接受、响应有效、状态和事务锚点；<BG-STATIC-*>只允许存在于{DUT}_static_bug_analysis.md，动态bug文档必须使用独立<BG-NAME-xx>并提供confirmed波形证据"
           - "  - 触发bug对应的测试用例必须 Fail，不能误报为 Pass"
-          - "  - 如果Fail不合理：修正测试逻辑"
-          - "第8步：完成所有目标测试用例后，使用Check工具进行阶段检查"
+          - "  - 当前批次通过条件：Pass用例行为正确；每个Fail都是完成上述全部动态证据的DUT Bug。任何未分类Fail、测试/基础设施Fail或仅BG-*-0占位的Fail都必须继续修正"
+          - "第10步：Check前逐个复核：模板注释中的测试意图已经落实，CK原文的关键条件均有对应激励，CK预期结果均有严格断言；mark_function本身不等于完成CK验证"
+          - "第11步：完成所有目标测试用例后，使用Check工具进行阶段检查"
           - "注意："
           - "  - 在该阶段，有需要可以增加测试用例，但不能删除已有用例"
           - "  - 测试用例应当与功能点、测试点精准对应，不要冗余，不要一个测试用例关联过多功能点、测试点"
@@ -976,11 +1148,11 @@ stage:
           - "  - 如果源码不存在，需要给出可能的设计缺陷分析和修复建议"
           - "  - 不能为了让测试通过而修改测试逻辑，例如使用不合理的断言等，必须确保测试逻辑正确，否则会掩盖bug"
           - "完成进度：{COMPLETED_CASES}/{TOTAL_CASES}个测试用例已完成"
-          - "是否已启用参考模型": $(NEED_REF_MODEL: false)
-          - "如果启用了参考模型，请特别关注测试用例的比对验证结果，如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
+          - "测试函数包含ref_model fixture时，请特别关注比对验证结果；如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
         skill_list:
           - "unitytest/test-case-implementation-in-batch"
         reference_files:
+          - "{OUT}/{DUT}_functions_and_checks.md"
           - "{OUT}/tests/{DUT}_function_coverage_def.py"
           - "Guide_Doc/dut_test_case.md"
           - "Guide_Doc/dut_bug_analysis.md"
@@ -998,16 +1170,95 @@ stage:
             doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
             doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
             test_dir: "{OUT}/tests"
-            ignore_tc_prefix: "test_api_{DUT}_mock_"
+            ignore_tc_prefix:
+              - "test_api_{DUT}_env_"
+              - "test_api_{DUT}_reference_model_"
+              - "test_api_{DUT}_mock_"
             batch_size: $(BATCH_SIZE_TC: 10)
             data_key: "TEST_TEMPLATE_IMP_REPORT"
             pre_report_file: "{OUT}/.TEST_TEMPLATE_IMP_REPORT.json"
+            args_check: $(NEED_REF_MODEL: false)
+            args_pattern: ["env", "ref_model"]
+            args_error_msg: "第一个参数必须为env，第二个参数必须为ref_model"
+            ret_std_out: false
+            ret_std_error: false
+        - name: waveform_bug_analysis_check
+          clss: "UnityChipCheckerWaveformBugAnalysis"
+          args:
+            bug_file: "{OUT}/{DUT}_bug_analysis.md"
+            test_dir: "{OUT}/tests"
         need_human_check: false # 验证复杂DUT时建议开启该人工检查
+
+  - name: refine_test_cases_based_on_functional_points
+    desc: "按功能点完善测试用例[{COMPLETED_CKS}/{TOTAL_CKS}|{TOTAL_TCS}]"
+    task:
+      - "目标：按批次基于功能点和测试点完善测试用例，确保所有功能点和测试点都被充分覆盖"
+      - "第1步：阅读当前批次功能点/测试点说明和关联测试用例，理解每个CK需要验证的行为、边界条件和预期结果"
+      - "第2步：逐个分析当前批次CK对应的测试用例，确认测试逻辑是否真实覆盖该CK，而不是仅声明了mark_function"
+      - "第3步：如果覆盖不充分、断言不足、输入场景太少、预期结果不清晰，或测试逻辑有误，请修改或补充测试用例"
+      - "第4步：每完成当前批次中的一部分或全部CK测试用例完善后，调用Check(stage_args={\"refined\":{...}})记录这些CK已完成复核与完善"
+      - "第5步：所有批次都通过Check后，调用Complete完成阶段；如果最后一批尚未Check，也可以直接调用Complete(stage_args={\"refined\":{...}})"
+      - "注意："
+      - "  - 如果没必要，该阶段不要修改文件{OUT}/{DUT}_functions_and_checks.md"
+      - "  - 部分用例仅仅只是声明了覆盖某CK-*，但没有实际测试逻辑，需要补充测试逻辑"
+      - "  - 尽可能的只让一个测试用例覆盖一个功能点和测试点，避免一个测试用例覆盖过多功能点和测试点"
+      - "  - 尽可能多编写用例，也不要删除已有用例，确保每个功能点和测试点都有充分的测试"
+      - "  - 每个Fail必须先排除测试/断言/预期值/fixture/API/参考模型/时序/环境问题；非DUT Bug失败必须修复到Pass。只有确认的DUT设计Bug复现用例可保留Fail，并且必须在{OUT}/{DUT}_bug_analysis.md中具有非零置信度动态Bug、CK、源码根因和真实WaveInfo confirmed证据；BG-*-0不能解释Fail"
+      - "  - 当前阶段使用统一的stage_args参数，不要传递顶层refined/generated/bug_list；优先传入真实JSON对象。此阶段约定stage_args中的refined为CK到完善说明的映射：stage_args={\"refined\":{CK_KEY_1:Value1, CK_KEY_2:Value2, ...}}；嵌套对象无法正确传递时，可以把完整stage_args JSON对象作为字符串传入"
+      - "  - stage_args.refined中的CK_KEY必须来自当前批次待完善CK（见下方{LIST_CURRENT_CKS}中的CK字段），不能传入其他批次的CK，也不能传入文档中不存在的CK"
+      - "  - stage_args.refined的Value为该CK对应测试用例的完善说明；只要某个CK出现在stage_args.refined中，就表示该CK对应测试用例已经完成复核与完善"
+      - "  - 如果某个CK尚无关联测试用例，请先新增或修正测试用例及mark_function标记，再在stage_args.refined中说明新增/修正情况"
+      - "  - 如果某个CK已有测试用例但覆盖不足，请补充输入场景、边界条件、异常路径、断言和预期结果，再在stage_args.refined中说明完善内容"
+      - "  - 对象调用示例：Check(stage_args={\"refined\":{\"FG-A/FC-A-1/CK-A-1\":\"已新增边界输入和输出断言，确认测试逻辑真实覆盖该CK\", \"FG-B/FC-B-2/CK-B-2\":\"已有用例覆盖充分，补充了预期结果注释并确认断言有效\"}})"
+      - "  - 字符串fallback示例：Check(stage_args=\"{\\\"refined\\\":{\\\"FG-A/FC-A-1/CK-A-1\\\":\\\"已新增边界输入和输出断言\\\"}}\")；字符串内容必须是完整合法JSON对象"
+      - "  - 最后一批示例工具参数：Complete(stage_args={\"refined\":{\"FG-C/FC-C-3/CK-C-3\":\"已补充异常输入场景和bug复现断言\"}})；如果Check已经提示全部CK完成，则直接调用Complete()即可"
+      - "当前批次待完善CK、文档说明节选和关联测试用例（stage_args.refined的key只能从这里的CK字段选择）": "{LIST_CURRENT_CKS}"
+      - "当前完善进度": "{COMPLETED_CKS}/{TOTAL_CKS}"
+    reference_files:
+      - "{OUT}/{DUT}_functions_and_checks.md"
+      - "Guide_Doc/dut_test_case.md"
+      - "Guide_Doc/dut_bug_analysis.md"
+    checker:
+      - name: no_conftest_file
+        clss: FilesMustNotExist
+        args:
+          target_files:
+           - ["{OUT}/**/conftest.py",
+              "Can not use conftest.py, you need use 'from {DUT}_api import *' to import all things you need."]
+      - name: refine_test_cases_check
+        clss: "UnityChipCheckerRefineTestCases"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
+          batch_size: $(BATCH_SIZE_TC: 10)
+          data_key: "TEST_TEMPLATE_IMP_REPORT"
+      - name: test_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
+        extra_args:
+          max_try: -1
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
 
   - name: static_bug_validation
     desc: "静态分析Bug验证与动态关联"
     task:
       - "目标：通过动态测试消除{OUT}/{DUT}_static_bug_analysis.md中所有<LINK-BUG-[BG-TBD]>占位标签，建立静态Bug与动态Bug的标签级追踪链接"
+      - "静态报告使用独立行<STATIC-BUG-SUMMARY>、<STATIC-BUG-DETAILS>、<STATIC-BUG-PROGRESS>作为唯一机器分区，必须各出现一次且顺序固定；linkbug.py和Checker不解析中文标题，旧的仅标题格式不兼容"
       - "第1步：扫描{OUT}/{DUT}_static_bug_analysis.md，列出所有 '<LINK-BUG-[BG-TBD]>' 标签，确认每个待验证的<BG-STATIC-*>条目"
       - "第2步：检查{OUT}/{DUT}_bug_analysis.md及已有测试用例，确认是否有测试用例已能对应某些<LINK-BUG-[BG-TBD]>条目"
       - "  - 若已有Fail测试用例可证实该静态Bug：直接执行第3步替换，无需重复编写"
@@ -1017,9 +1268,15 @@ stage:
       - "  - 测试函数命名格式：test_static_{DUT}_<BugId>，例如test_static_{DUT}_bg_static_001"
       - "  - 通过`from {DUT}_api import *`导入env fixture和API"
       - "  - 在测试函数开始处添加功能覆盖标记（若有对应的<CK-*>检测点）"
+      - "  - 失败日志应包含cycle_basis、transaction ID、相关输入输出pin、握手/状态、expected和actual；动态复现后必须真实调用WaveInfo，并在{OUT}/{DUT}_bug_analysis.md每个对应<TC-*>后的第一个非空行写入独立```yaml代码块，使用唯一顶层键waveform_analysis并在其下保存真实receipt_id；关闭围栏后的第一条非空内容必须是同一最终结果返回的<WAVEFORM-VIEWER>链接"
+      - "  - 波形确认由LLM做协议语义审查：先阅读规格和测试API/driver、callback、Step顺序，确认驱动边沿、ready/valid或等价接受条件、busy/backpressure、响应latency和事务归属；不能把协议无效窗口或任意单点data mismatch直接当成静态候选已被动态证实"
+      - "  - 最终WaveInfo的signal_groups必须覆盖时钟（若有）、当前静态候选涉及的输入数据/控制、输出数据/状态/有效位、真实协议控制和至少一个能连接静态根因与接口现象的关键内部/状态信号；viewer必须显示该完整集合，pattern仍只用于事件定位"
+      - "  - 不得假设调用API后一个Step结果就有效；必须确认API内部是否已Step/等待，并按规格规定的边沿、周期数、valid/done/ack或busy清零条件采样。过早读取导致的Fail是测试时序问题，应修复后重跑"
+      - "  - 只有{OUT}/{DUT}_bug_analysis.md中的动态Bug需要波形；{OUT}/{DUT}_static_bug_analysis.md中的纯静态分析条目不需要waveform_analysis YAML块；<BG-STATIC-*>严禁写入动态Bug文档，动态测试证实后必须新建<BG-NAME-xx>并提供status: confirmed波形证据"
       - "第4步：根据测试结果更新{OUT}/{DUT}_static_bug_analysis.md中的<LINK-BUG-[BG-TBD]>标签"
       - "  情况A - 测试Fail（Bug已证实）："
       - "    1. 在{OUT}/{DUT}_bug_analysis.md中添加完整动态Bug记录（含<FG-*>/<FC-*>/<CK-*>/<BG-NAME-xx>/<TC-*>完整层级）"
+      - "       - Skill模式下先用recordbug.py生成含`<BUG-TODO>`的BG/TC骨架，再由LLM读取失败日志、WaveInfo和RTL/HDL，用文本编辑工具填完`<BUG-OVERVIEW>`至`<BUG-RETEST>`八个固定标记之间的字段并清除全部`<BUG-TODO>`及其提示文字；有源码时必须写齐三个`<BUG-SOURCE-*>`因果标签。结构标记不得删除、复制、改名或调换，骨架未填完时不得执行linkbug.py"
       - "    2. 将该静态Bug的 '<LINK-BUG-[BG-TBD]>' 替换为实际动态Bug标签"
       - "       - 若只对应一个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92]>"
       - "       - 若对应多个动态Bug：<LINK-BUG-[BG-FSM-DEAD-92][BG-FSM-DEFAULT-85]>"
@@ -1035,6 +1292,7 @@ stage:
       - "  - 阶段完成时{OUT}/{DUT}_static_bug_analysis.md中不允许有任何<LINK-BUG-[BG-TBD]>残留，Checker会通过parse_nested_keys强制验证此规则"
       - "  - <LINK-BUG-*>标签仅在{OUT}/{DUT}_static_bug_analysis.md中使用，不出现在{OUT}/{DUT}_bug_analysis.md中"
       - "  - 已证实的Bug必须有对应Fail测试用例，不能误报为Pass"
+      - "  - 已实现测试的Fail只有两种处理结果：确认DUT设计Bug后保留正确断言的Fail并完成动态波形取证；否则修复测试或验证基础设施直到Pass。禁止用测试Bug、assert False或BG-*-0保留失败；该限制不适用于此前create_test_case_templates阶段按要求生成的未实现空模板，但实现模板时必须删除其assert False占位"
       - "  - 所有文档内容使用{DOC_GEN_LANG}编写"
     skill_list:
       - "unitytest/static-bug-validation"
@@ -1062,7 +1320,14 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
+          args_check: $(NEED_REF_MODEL: false)
+          args_pattern: ["env", "ref_model"]
+          args_test_func_prefix: "test_static_{DUT}_"
+          args_error_msg: "静态Bug动态验证测试的第一个参数必须为env，第二个参数必须为ref_model"
     need_human_check: false
 
   - name: line_coverage_analysis_and_improvement
@@ -1088,7 +1353,10 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
           min_line_coverage: $(MIN_LINE_COV_RATE: 0.9) # 根据需要调整覆盖率要求，例如0.7表示70%，建议初始要求不要太高，完成所有功能测试后再提升该值大于95%
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
 
@@ -1097,30 +1365,50 @@ stage:
     skip: true # default skip this stage, can be enabled if needed
 
   - name: generate_random_test_cases
-    desc: "随机测试用例生成"
+    desc: "随机测试用例生成[{COMPLETED_CKS}/{TOTAL_CKS}|{TOTAL_RANDOM_TEST_COUNT}]"
     task:
-      - "目标：针对{DUT}中需要进行随机测试的功能点，编写随机测试用例"
-      - "第1步：根据{OUT}/{DUT}_functions_and_checks.md确定哪些功能点需要进行随机测试"
-      - "第2步：编写随机测试用例到文件{OUT}/tests/test_{DUT}_random_<name>.py"
+      - "目标：按批次分析{OUT}/{DUT}_functions_and_checks.md中的所有CK，针对确实需要随机激励的CK编写随机测试用例"
+      - "第1步：阅读当前批次待分析CK的文档说明，理解每个CK的功能行为、输入约束、边界条件和预期结果"
+      - "第2步：逐个判断当前批次CK是否适合随机测试："
+      - " - 如果随机输入能扩大输入空间、组合空间、状态转移空间或边界覆盖，请生成针对该CK的随机测试用例"
+      - " - 如果该CK是固定API存在性、单点复位行为、简单常量输出、已被穷举覆盖的小输入域，或随机激励不能增加有效验证价值，可以跳过该CK，但必须说明跳过原因"
+      - "第3步：需要随机测试的CK，请编写随机测试用例到文件{OUT}/tests/test_{DUT}_random_<name>.py"
       - " - 测试函数命名格式：test_random_<name>"
       - " - 测试函数的第一个参数为env (pytest fixture)"
       - " - 在测试函数最开始添加覆盖率标记，例如：env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ', ...])"
+      - " - mark_function中的FG/FC/CK名称建议使用字符串字面量，便于后续追踪该随机用例覆盖了哪个CK"
       - " - 测试函数中使用随机数生成器生成测试数据，可以使用Python的random模块，或者numpy等库"
       - " - 通过生成的随机数据计算预期结果 expected_output"
       - " - 调用DUT的API函数进行测试，获取实际结果 actual_output"
       - " - 使用合理的断言检查DUT的输出是否与预期结果一致： assert actual_output == expected_output, ..."
-      - "第3步：编写随机测试用例过程中，如果发现bug需要进行记录和分析"
+      - "第4步：每完成当前批次中的一部分或全部CK随机测试分析后，调用Check(stage_args={\"generated\":{...}})记录这些CK已完成随机测试生成或跳过"
+      - "第5步：所有批次都通过Check后，调用Complete完成阶段；如果最后一批尚未Check，也可以直接调用Complete(stage_args={\"generated\":{...}})"
+      - "第6步：编写随机测试用例过程中，如果发现bug需要进行记录和分析"
       - "注意："
       - " - <name>需要合理，例如按功能点命名"
-      - " - 一个随机测试用例可以覆盖多个测点、功能点"
-      - " - 多个随机测试用例之间尽可能的不要有过多覆盖点上的交叉"
+      - " - 一个随机测试用例可以覆盖多个测点、功能点，但必须确保每个被标记的CK都被真实验证，不要只声明mark_function"
+      - " - 多个随机测试用例之间尽可能不要有过多覆盖点交叉，避免冗余"
       - " - 每个用例都必须设置独立的随机种子以确保测试可重复"
       - " - 测试用例必须用 ucagent.repeat_count() 获取当前随机循环次数"
       - " - 如果用例有测试区间，需要通过pytest的参数化模式进行区间控制"
       - " - 其他用例要求请参考文档 Guide_Doc/dut_test_case.md"
       - " - 需要有合理的断言来检查输出是否符合预期，是否正确"
-      - "是否已启用参考模型": $(NEED_REF_MODEL: false)
-      - "如果启用了参考模型，请特别关注测试用例的比对验证结果，如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
+      - " - 如果随机测试Fail且测试逻辑合理，可能发现了芯片bug，需要保留Fail用例并在{OUT}/{DUT}_bug_analysis.md中基于源码分析bug和修复建议"
+      - " - 随机测试中的测试代码、oracle/预期值、fixture/API、参考模型、复位/时序或环境失败必须修复到Pass；只有正确测试稳定复现DUT设计Bug时才保留Fail，并完成非零置信度动态Bug、CK、源码根因和WaveInfo confirmed证据"
+      - " - 随机测试动态复现Bug后必须真实调用WaveInfo，并在{OUT}/{DUT}_bug_analysis.md每个对应<TC-*>后的第一个非空行写入独立```yaml代码块，使用唯一顶层键waveform_analysis并在其下保存真实receipt_id和status: confirmed；YAML关闭围栏后的第一条非空内容必须是同一最终结果返回的<WAVEFORM-VIEWER>链接，标签、URL和token不得手工修改。不能使用旧标签、裸YAML或JSON围栏，也不能把多个用例的波形集中到条目末尾。无波形时必须按WaveInfo诊断修复后重跑，status: unavailable不能完成阶段；<BG-STATIC-*>只能写入静态分析文档"
+      - " - 随机波形中的单点data mismatch不能直接判Bug；LLM必须从规格和测试驱动代码确认ready/valid或等价接受/响应条件、Step采样边沿、backpressure、latency和事务归属，只在协议有效的失败事务窗口比较expected/actual"
+      - " - 随机测试的最终WaveInfo signal_groups必须包含DUT时钟（若有）、生成该事务的相关输入、被检查的相关输出、协议有效/接受控制和至少一个能解释功能选择或错误传播的关键路径；在线viewer必须展示同一签名集合，不能只保留被断言的数据总线"
+      - " - 随机测试不能固定假设一个Step后结果有效；先检查API是否内部推进/等待，再按真实边沿、latency、valid/done/ack或busy条件采样，否则先修复测试时序"
+      - " - 当前阶段使用统一的stage_args参数，不要传递顶层refined/generated/bug_list；优先传入真实JSON对象。此阶段约定stage_args中的generated为CK到随机测试处理说明的映射：stage_args={\"generated\":{CK_KEY_1:Value1, CK_KEY_2:Value2, ...}}；嵌套对象无法正确传递时，可以把完整stage_args JSON对象作为字符串传入"
+      - " - stage_args.generated中的CK_KEY必须来自当前批次待分析CK（见下方{LIST_CURRENT_CKS}中的CK字段），不能传入其他批次的CK，也不能传入文档中不存在的CK"
+      - " - stage_args.generated的Value只需要说明该CK的处理结果即可，可以是简单字符串，也可以是包含更多信息的对象，不强制固定字段"
+      - " - 如果已生成随机用例，请在stage_args.generated的Value中简要说明新增/复用的随机用例、随机策略或断言；如果无需生成随机用例，请说明跳过原因"
+      - " - 对象调用示例：Check(stage_args={\"generated\":{\"FG-A/FC-A-1/CK-A-1\":\"已新增tests/test_{DUT}_random_a.py::test_random_a，固定seed并通过ucagent.repeat_count循环随机输入\", \"FG-B/FC-B-2/CK-B-2\":\"该CK为固定复位后默认值检查，已有定向用例覆盖，随机输入不能增加有效覆盖\"}})"
+      - " - 字符串fallback示例：Check(stage_args=\"{\\\"generated\\\":{\\\"FG-A/FC-A-1/CK-A-1\\\":\\\"已新增确定性随机边界测试和输出断言\\\"}}\")；字符串内容必须是完整合法JSON对象"
+      - " - 最后一批示例工具参数：Complete(stage_args={\"generated\":{\"FG-C/FC-C-3/CK-C-3\":\"已新增随机边界输入和非法组合过滤，并添加输出断言\"}})；如果Check已经提示全部CK完成，则直接调用Complete()即可"
+      - "当前批次待分析CK和文档说明节选（stage_args.generated的key只能从这里的CK字段选择）": "{LIST_CURRENT_CKS}"
+      - "当前随机测试分析进度": "{COMPLETED_CKS}/{TOTAL_CKS}"
+      - "测试函数包含ref_model fixture时，请特别关注比对验证结果；如果发现参考模型实现有误，也请及时修正参考模型代码，确保参考模型的正确性"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -1135,6 +1423,8 @@ stage:
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
           target_test_file: "{OUT}/tests/test_{DUT}_random*.py"
+          batch_size: $(BATCH_SIZE_RANDOM_TC: 10)
+          data_key: "RANDOM_TEST_CASES_REPORT"
           args_check: $(NEED_REF_MODEL: false)
           args_pattern: ["env", "ref_model"]
           args_test_func_prefix: "test_random_"
@@ -1153,7 +1443,14 @@ stage:
     desc: "验证审查与总结"
     task:
       - "目标：查漏补缺，对测试过程进行回顾，提炼经验教训"
-      - "第1步：整理测试过程中发现的问题，完善{OUT}/{DUT}_bug_analysis.md中对应的描述（必须基于源代码分析bug，用{DOC_GEN_LANG}编写文档）"
+      - "第1步：逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>，不能只检查标签存在或删除占位符："
+      - "  1.1 重新打开该BG关联的每个失败<TC-*>及其失败日志，确认严格断言、expected/actual、事务上下文和FG/FC/CK关联均正确；测试或基础设施问题必须修复到Pass，不得保留为DUT Bug"
+      - "  1.2 使用文档中的真实receipt重放confirmed WaveInfo证据，并重新阅读测试API/driver、callback和Step顺序；核对alignment_evidence是否证明真实驱动边沿、ready/valid或等价接受条件、backpressure/latency和事务归属，observed_behavior是否只在协议允许的响应采样窗口比较expected/actual，source_correlation是否对应同一失败事务。任意单点或无效周期不一致不能作为Bug；若波形或关联不成立，重新运行用例并重新取证"
+      - "  1.2.1 核对每个receipt的signal_groups和在线viewer是否同时包含时钟（若有）、相关输入、相关输出、协议控制及功能关键路径；只显示目标data、缺少valid/ready等实际有效性锚点或缺少解释根因的关键状态时，必须重新调用最终WaveInfo补齐证据"
+      - "  1.3 重新读取<BUG-SOURCE-EVIDENCE>引用的真实RTL/HDL行及其上下文，独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策、<BUG-SOURCE-PROPAGATION>是否解释错误如何到达输出、<BUG-SOURCE-OBSERVABLE>是否与波形可见后果一致；禁止只复述失败现象、测试名称或source_correlation"
+      - "  1.4 逐项核对<BUG-OVERVIEW>至<BUG-RETEST>八个字段：根因必须同时解释expected/actual和波形，修复必须直接消除首错而不是只掩盖输出，风险与复验必须覆盖受影响路径；发现泛化、猜测、行号不实或证据矛盾时直接重写对应字段"
+      - "  1.5 有源码分支必须使用真实path:L1-L2和完整HDL fenced代码块，三个<BUG-SOURCE-*>标签各一次且位于代码块内；无源码分支只使用<BUG-SOURCE-UNAVAILABLE>并完成黑盒因果分析，两种分支不得混用。不得依赖中文展示标题或自然语言占位词判断完成状态"
+      - "  1.6 完成一个BG后重新读取其完整范围，确认所有TC波形、根因、源码证据、因果链、修复和复验互相一致，再继续下一个BG；不得因recordbug.py成功、字段非空或Checker尚未报错而跳过语义审查"
       - "第2步：回顾{OUT}/{DUT}_static_bug_analysis.md，确认所有静态分析Bug的验证结论已完整记录，已证实的Bug在{OUT}/{DUT}_bug_analysis.md中均有对应完整记录"
       - "第3步：再次阅读{DUT}的所有源代码，确认是否有遗漏的bug，若发现新bug，补充测试用例并进行bug记录"
       - "第4步：对所有测试用例进行回顾，确认测试逻辑合理，确认用例中的所有assert都合理有效"
@@ -1175,5 +1472,70 @@ stage:
           doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
           doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
-          ignore_tc_prefix: "test_api_{DUT}_mock_"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
+      - name: waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
+
+  - name: record_and_report_bugs
+    desc: "记录并同步所有已确定的Bug[{COMPLETED_BUGS}/{TOTAL_BUGS}]"
+    task:
+      - "目标：完整记录{OUT}/{DUT}_bug_analysis.md中置信度不为0的所有Bug，并关联{OUT}/{DUT}_static_bug_analysis.md中已经动态确认的静态Bug；置信度为0的Bug无效，必须忽略"
+      - "第1步：阅读下方当前批次待记录Bug及其document_blocks、alias和ref，确认每个Bug关联的CK、置信度、静态Bug别名及文档上下文"
+      - "第2步：根据当前批次信息整理stage_args中的bug_list，并调用Check(stage_args={\"bug_list\":[...]})记录当前批次的一部分或全部Bug"
+      - "第3步：根据更新后的当前批次列表继续记录，直到{OUT}/{DUT}_bug_analysis.md中所有置信度不为0的Bug全部完成；记录不能多于或少于current_batch要求的有效Bug，置信度为0的Bug不记录且不计入总数"
+      - "第4步：全部Bug记录完成后调用Complete()完成当前阶段；如果最后一批尚未通过Check记录，也可以直接调用Complete(stage_args={\"bug_list\":[...]})"
+      - "最终分类门禁：每次Check/Complete先重跑全部DUT测试并核对Fail与BG/TC/CK；因此不得删除仍由正确测试稳定复现的动态Bug来缩小current_batch或规避收据错误。测试/基础设施问题修复到Pass后才能移除错误记录，真实DUT Bug必须保留Fail并更新证据"
+      - "最终波形门禁：Check/Complete会再次扫描动态Bug文档中的全部非零置信度Bug，只接受真实WaveInfo收据支持且可在当前最新波形重放的status: confirmed证据；status: unavailable不能完成；动态Bug文档禁止<BG-STATIC-*>，静态发现只能保留在独立静态文档并通过<LINK-BUG-*>关联；没有动态Bug或只有置信度0条目时不要求WaveInfo"
+      - "最终波形重放前必须运行完整DUT测试集合；增量阶段只运行部分用例时，不要删除或改写已有TC的有效签名证据，但最终门禁不会跳过任何动态Bug TC的重放"
+      - "stage_args.bug_list格式：优先把stage_args作为真实JSON对象传入，本阶段约定其中bug_list为JSON数组；如果嵌套对象无法正确传递，可以把完整stage_args JSON对象作为字符串传入，但不要只把bug_list数组单独编码成字符串。数组中的每个对象表示一个唯一Bug，并且必须包含bug_name、alias、CK、desc、locations、severity、confidence和ref字段"
+      - "bug_name：字符串，填写{OUT}/{DUT}_bug_analysis.md中<BG-BUG_NAME-XX>标签的BUG_NAME部分，例如CIN_OVERFLOW；不要额外创造文档中不存在的Bug"
+      - "alias：字符串数组，必须完整填写{OUT}/{DUT}_static_bug_analysis.md中通过<LINK-BUG-[BG-BUG_NAME-XX]>确认关联到该动态Bug的全部<BG-STATIC-*>标签名，例如[\"BG-STATIC-001-CIN_OVERFLOW\"]；一个动态Bug可有多个alias，一个静态Bug也可关联多个动态Bug；没有已确认静态Bug时填写空数组[]；BG-TBD、BG-NA和BG-STATIC-NULL不能作为alias"
+      - "CK：非空字符串数组，必须包含该Bug在文档中关联的全部CK；优先使用FG/FC/CK完整路径，例如FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW；同一Bug关联多个CK时，将所有CK路径放在同一个Bug对象的CK数组中"
+      - "desc：非空字符串，需要同时说明Bug现象和基于源码分析得到的根本原因，不能只填写Bug名称或简单结论"
+      - "locations：非空字符串数组，每项格式为相对工作区的源码路径:起始行-结束行，例如{DUT}.v:8-14；多个不连续范围可以写成{DUT}.sv:20-24,30-32"
+      - "severity：必填的Bug等级字符串，大小写不敏感，只允许lowest、low、medium、high、highest；不能省略、填写空字符串或使用其他值"
+      - "confidence：非零数值，使用0.0-1.0小数或0-100百分数，例如0.98或98；数值必须与文档中<BG-BUG_NAME-XX>标签的XX完全一致；XX为0的Bug不会出现在current_batch中，禁止提交"
+      - "ref：非空字符串数组，精确填写该Bug在静态和动态Bug文档中的记录行；同一文档的多个区间合并在同一个字符串中并用逗号分隔，例如[\"{OUT}/{DUT}_static_bug_analysis.md:29-39,88-100\",\"{OUT}/{DUT}_bug_analysis.md:30-100\"]；没有alias时只填写动态Bug文档的ref"
+      - "调用示例：Check(stage_args={\"bug_list\":[{\"bug_name\":\"CIN_OVERFLOW\",\"alias\":[\"BG-STATIC-001-CIN_OVERFLOW\"],\"CK\":[\"FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW\"],\"desc\":\"最大输入叠加进位时输出被截断；根因是加法结果信号位宽不足，最高位进位被丢弃\",\"locations\":[\"{DUT}.v:8-14\",\"{DUT}.sv:20-24,30-32\"],\"severity\":\"high\",\"confidence\":0.98,\"ref\":[\"{OUT}/{DUT}_static_bug_analysis.md:29-39\",\"{OUT}/{DUT}_bug_analysis.md:30-40\"]}]})"
+      - "字符串fallback示例：Check(stage_args=\"{\\\"bug_list\\\":[{\\\"bug_name\\\":\\\"CIN_OVERFLOW\\\",\\\"alias\\\":[],\\\"CK\\\":[\\\"FG-ARITHMETIC/FC-ADD/CK-CIN-OVERFLOW\\\"],\\\"desc\\\":\\\"Bug现象与源码根因\\\",\\\"locations\\\":[\\\"{DUT}.v:8-14\\\"],\\\"severity\\\":\\\"high\\\",\\\"confidence\\\":0.98,\\\"ref\\\":[\\\"{OUT}/{DUT}_bug_analysis.md:30-40\\\"]}]}\")；字符串内容必须是完整合法JSON对象"
+      - "批次要求：只提交current_batch中列出的Bug；可以一次提交当前批次的一部分或全部Bug，完成后根据下一次Check返回的新current_batch继续记录"
+      - "当前批次待记录Bug（stage_args.bug_list只能包含以下Bug）": "{LIST_CURRENT_BUGS}"
+      - "当前记录进度": "{COMPLETED_BUGS}/{TOTAL_BUGS}"
+    reference_files:
+      - "Guide_Doc/dut_bug_analysis.md"
+      - "{OUT}/{DUT}_bug_analysis.md"
+      - "{OUT}/{DUT}_static_bug_analysis.md"
+    checker:
+      - name: final_test_classification_check
+        clss: "UnityChipCheckerTestCase"
+        args:
+          doc_func_check: "{OUT}/{DUT}_functions_and_checks.md"
+          doc_bug_analysis: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          ignore_tc_prefix:
+            - "test_api_{DUT}_env_"
+            - "test_api_{DUT}_reference_model_"
+            - "test_api_{DUT}_mock_"
+      - name: final_waveform_bug_analysis_check
+        clss: "UnityChipCheckerWaveformBugAnalysis"
+        args:
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          test_dir: "{OUT}/tests"
+          require_current_replay: true
+      - name: bug_recorder
+        clss: "Recorder"
+        args:
+          type: "bug"
+          data_key: "BUG_RECORDS"
+          bug_file: "{OUT}/{DUT}_bug_analysis.md"
+          static_bug_file: "{OUT}/{DUT}_static_bug_analysis.md"
+          output: "{OUT}/{DUT}_bug_summary.md"
+          batch_size: $(BATCH_SIZE_BUG_RECORD: 10)
+    need_human_check: false

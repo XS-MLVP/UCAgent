@@ -137,31 +137,48 @@ class TestFileOpsTools(unittest.TestCase):
         tool = ReadTextFile(workspace=self.workspace)
         
         # Read entire file
-        result = tool._run(path="simple.txt", start=0, count=-1)
+        result = tool._run(path="simple.txt", start=1, count=-1)
         self.assertIn("Read 3/3 lines", result)
-        self.assertIn("0: Line 1", result)
-        self.assertIn("2: Line 3", result)
+        self.assertIn("1: Line 1", result)
+        self.assertIn("3: Line 3", result)
         
         # Read partial file
-        result = tool._run(path="simple.txt", start=1, count=1)
+        result = tool._run(path="simple.txt", start=2, count=1)
         self.assertIn("Read 1/3 lines", result)
-        self.assertIn("1: Line 2", result)
+        self.assertIn("2: Line 2", result)
+
+    def test_read_text_file_zero_count_confirms_without_content(self):
+        """A zero-line read should mark an already-known reference as read."""
+        tool = ReadTextFile(workspace=self.workspace)
+        callback_results = []
+        tool.append_callback(
+            lambda success, path, content: callback_results.append(
+                (success, path, content)
+            )
+        )
+
+        result = tool._run(path="simple.txt", start=1, count=0)
+
+        self.assertIn("Confirmed text file 'simple.txt'", result)
+        self.assertIn("read 0 lines", result)
+        self.assertNotIn("1: Line 1", result)
+        self.assertEqual(callback_results, [(True, "simple.txt", "")])
 
     def test_read_text_file_edge_cases(self):
         """Test edge cases for text file reading"""
         tool = ReadTextFile(workspace=self.workspace)
         
         # Empty file
-        result = tool._run(path="empty.txt", start=0, count=-1)
+        result = tool._run(path="empty.txt", start=1, count=-1)
         self.assertIn("File empty.txt is empty", result)
         
         # Out of range start
         result = tool._run(path="simple.txt", start=10, count=1)
         self.assertIn("out of range", result)
         
-        # Negative indexing
-        result = tool._run(path="simple.txt", start=-1, count=1)
-        self.assertIn("2: Line 3", result)
+        # A zero start is normalized to the first 1-based line for compatibility.
+        result = tool._run(path="simple.txt", start=0, count=1)
+        self.assertIn("1: Line 1", result)
 
     def test_read_bin_file(self):
         """Test binary file reading"""

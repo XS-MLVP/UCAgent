@@ -42,7 +42,7 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 
 ## 核心原则
 - 1.**只改不删**: 检查发现错误需要进行修改时,只修改格式错误的部分,不能将格式错误的条目删除,只能修改(因为已经分析出了有潜在Bug,所以不能删除这个条目,只能这个条目的格式有错误需要修改)
-- 2.**结构完整**: {OUT}/{DUT}_static_bug_analysis.md中共有3个栏目(`潜在Bug汇总`,`详细分析`,`批次分析进度`),每次修改只在对应栏目下进行追加或者修改操作,不要修改或删除其他栏目的内容,不要添加新的栏目,不要改变栏目顺序.
+- 2.**结构完整**: {OUT}/{DUT}_static_bug_analysis.md中共有3个栏目,唯一机器边界依次是`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`、`<STATIC-BUG-PROGRESS>`。每个标记必须独占一行、恰好出现一次且顺序固定；中文标题只是展示文本，可以本地化。每次修改只在对应标记范围内追加或修改，不要删除、复制、改名或调换标记.
 - 3.**一致性**: `潜在Bug汇总`和`详细分析`下的内容要相互一致,如果`潜在Bug汇总`中已经有了某个BG条目,则`详细分析`中必须有对应的BG条目,反之亦然.
 - 4.**脚本使用**: 仅能使用`RunSkillScript`工具来记录潜在Bug,不允许直接修改`{OUT}/{DUT}_static_bug_analysis.md`文件来添加或修改BG条目,且该文件的创建也必须通过脚本完成.
 
@@ -61,11 +61,15 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
 ```
 # {DUT} RTL 源码静态分析报告
 
+<STATIC-BUG-SUMMARY>
+
 ## 一、潜在Bug汇总
 
 | 序号 | Bug标签 | 功能路径 | 描述摘要 | 置信度 | 涉及文件 | 动态Bug关联 |
 |------|---------|----------|----------|--------|----------|-------------|
 | 001 | BG-STATIC-001-NAME | FG-XXX/FC-YYY/CK-ZZZ | Bug描述 | 高 | ALU754_RTL/ALU754.v | LINK-BUG-[BG-TBD] |
+
+<STATIC-BUG-DETAILS>
 
 ## 二、详细分析
 
@@ -79,6 +83,8 @@ python3 script -FG 'FG' -FGD 'FGD' -FC 'FC' -FCD 'FCD' -CK 'CK' -CKD 'CKD' -BG '
         xx: ...
         yy: ...
         ```
+
+<STATIC-BUG-PROGRESS>
 
 ## 三、批次分析进度
 

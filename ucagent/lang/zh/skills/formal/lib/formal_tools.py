@@ -47,11 +47,22 @@ __all__ = [
     "save_records",
     "get_all_ck_from_records",
     "generate_spec_doc",
+    "generate_planning_doc",
+    "generate_basic_info_doc",
     "generate_env_analysis_doc",
     "generate_bug_report_doc",
+    "generate_summary_doc",
+    "get_primary_clock_reset",
+    "set_nested_value",
+    "append_nested_value",
     "incremental_merge_checker",
     "auto_scaffold_analysis_entries",
     "auto_scaffold_bug_entries",
+    "parse_signal_declaration",
+    "whitebox_decl_to_input_decl",
+    "build_whitebox_signal_context",
+    "build_clock_reset_alias_context",
+    "validate_extra_config_against_design",
     "STYLE_PREFIX_MAP",
 ]
 
@@ -291,6 +302,193 @@ def get_all_ck_from_records(records: FormalRecords) -> list:
                 for ck in fc.check_points: items.append((ck.id, ck.style, ck.description))
     return items
 
+def set_nested_value(data: dict, dotted_path: str, value) -> dict:
+    cur = data
+    keys = [k for k in dotted_path.split(".") if k]
+    if not keys:
+        raise ValueError("Empty path")
+    for key in keys[:-1]:
+        if key not in cur or not isinstance(cur[key], dict):
+            cur[key] = {}
+        cur = cur[key]
+    cur[keys[-1]] = value
+    return data
+
+def append_nested_value(data: dict, dotted_path: str, value) -> dict:
+    cur = data
+    keys = [k for k in dotted_path.split(".") if k]
+    if not keys:
+        raise ValueError("Empty path")
+    for key in keys[:-1]:
+        if key not in cur or not isinstance(cur[key], dict):
+            cur[key] = {}
+        cur = cur[key]
+    leaf = cur.get(keys[-1])
+    if leaf is None:
+        cur[keys[-1]] = [value]
+    elif isinstance(leaf, list):
+        leaf.append(value)
+    else:
+        raise ValueError(f"Target at '{dotted_path}' is not a list")
+    return data
+
+
+def parse_signal_declaration(decl: str) -> dict:
+    """Parse a simple SV signal declaration and preserve unpacked array suffixes.
+
+    Supported shapes:
+    - logic token
+    - logic [W-1:0] token
+    - logic [W-1:0] token [N-1:0]
+    """
+    original = decl.rstrip(";").strip()
+    if not original:
+        raise ValueError("Empty signal declaration")
+
+    base = re.split(r"\s*=\s*", original, maxsplit=1)[0].strip()
+    match = re.match(
+        r"(?P<prefix>.*?)(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?P<suffix>(?:\s*\[[^\]]+\])*)\s*$",
+        base,
+    )
+    if not match:
+        raise ValueError(f"Unsupported signal declaration: {decl}")
+
+    prefix = match.group("prefix").rstrip()
+    name = match.group("name")
+    suffix = match.group("suffix") or ""
+    normalized_decl = " ".join(part for part in [prefix, name] if part).strip() + suffix
+
+    return {
+        "declaration": normalized_decl.strip(),
+        "name": name,
+        "prefix": prefix,
+        "unpacked_suffix": suffix,
+    }
+
+
+def whitebox_decl_to_input_decl(decl: str) -> str:
+    parsed = parse_signal_declaration(decl)
+    body = parsed["declaration"]
+    for keyword in ("logic ", "wire ", "reg ", "bit ", "var "):
+        if body.startswith(keyword):
+            body = body[len(keyword):]
+            break
+    return f"input {body}"
+
+
+def build_whitebox_signal_context(decls: Optional[List[str]]) -> List[dict]:
+    context = []
+    for decl in decls or []:
+        parsed = parse_signal_declaration(decl)
+        context.append(
+            {
+                "declaration": parsed["declaration"],
+                "name": parsed["name"],
+            }
+        )
+    return context
+
+
+def build_clock_reset_alias_context(records: FormalRecords) -> dict:
+    clock_cfg, reset_cfg = get_primary_clock_reset(records)
+    env_clock = "clk"
+    env_reset = "rst_n"
+    has_clock = bool(clock_cfg.get("signal"))
+    has_reset = bool(reset_cfg.get("signal"))
+    actual_clock = str(clock_cfg.get("signal", "")).strip()
+    actual_reset = str(reset_cfg.get("signal", "")).strip()
+    reset_active_level = str(reset_cfg.get("active_level", "low")).strip().lower() or "low"
+    reset_expr = env_reset if reset_active_level == "low" else f"~{env_reset}"
+
+    aliases = []
+    if has_clock and actual_clock != env_clock:
+        aliases.append({"name": actual_clock, "declaration": f"logic {actual_clock}", "expr": env_clock})
+    if has_reset and actual_reset != env_reset:
+        aliases.append({"name": actual_reset, "declaration": f"logic {actual_reset}", "expr": reset_expr})
+
+    return {
+        "env_clock": env_clock,
+        "env_reset": env_reset,
+        "actual_clock": actual_clock,
+        "actual_reset": actual_reset,
+        "has_clock": has_clock,
+        "has_reset": has_reset,
+        "clock_edge": clock_cfg.get("edge", "posedge") if has_clock else "",
+        "reset_active_level": reset_active_level,
+        "reset_disable_expr": f"!{env_reset}" if has_reset else "",
+        "aliases": aliases,
+    }
+
+
+def _normalize_port_decl(port_decl: str) -> str:
+    return " ".join(port_decl.strip().rstrip(",;").split())
+
+
+def _find_basic_info_input_ports(records: FormalRecords) -> List[dict]:
+    basic_info = records.basic_info or {}
+    ports = basic_info.get("ports", {}) if isinstance(basic_info, dict) else {}
+    inputs = ports.get("inputs", []) if isinstance(ports, dict) else []
+    return [port for port in inputs if isinstance(port, dict)]
+
+
+def validate_extra_config_against_design(records: FormalRecords, port_info: Optional[List[Tuple[str, str]]] = None) -> List[str]:
+    mismatches: List[str] = []
+    clock_cfg, reset_cfg = get_primary_clock_reset(records)
+
+    basic_info = records.basic_info or {}
+    clock_reset = basic_info.get("clock_reset", {}) if isinstance(basic_info, dict) else {}
+    normalized_ports = {name: _normalize_port_decl(decl) for name, decl in (port_info or [])}
+
+    def _meaningful_text(value) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or text in {"无", "不适用", "N/A", "None"}:
+            return None
+        return text
+
+    expected_clock = _meaningful_text(clock_reset.get("clock_signal"))
+    expected_reset = _meaningful_text(clock_reset.get("reset_signal"))
+
+    clock_count = _meaningful_text(clock_reset.get("clock_count"))
+    has_design_clock = expected_clock is not None or (clock_count not in {None, "0"})
+    has_design_reset = expected_reset is not None
+
+    configured_clock = str(clock_cfg.get("signal", "")).strip()
+    configured_reset = str(reset_cfg.get("signal", "")).strip()
+
+    if has_design_clock and expected_clock and configured_clock and configured_clock != expected_clock:
+        mismatches.append(
+            f"clock signal mismatch: basic_info.clock_reset.clock_signal declares '{expected_clock}' but renderer resolved '{configured_clock}'"
+        )
+    if has_design_reset and expected_reset and configured_reset and configured_reset != expected_reset:
+        mismatches.append(
+            f"reset signal mismatch: basic_info.clock_reset.reset_signal declares '{expected_reset}' but renderer resolved '{configured_reset}'"
+        )
+
+    reset_type = _meaningful_text(clock_reset.get("reset_type"))
+    configured_style = str(reset_cfg.get("style", "")).strip().lower()
+    if reset_type and configured_style:
+        if "同步" in reset_type and configured_style != "sync":
+            mismatches.append(
+                f"reset style mismatch: extra_config uses '{configured_style}' but basic_info reset_type is '{reset_type}'"
+            )
+        if "异步" in reset_type and configured_style != "async":
+            mismatches.append(
+                f"reset style mismatch: extra_config uses '{configured_style}' but basic_info reset_type is '{reset_type}'"
+            )
+
+    configured_active_level = str(reset_cfg.get("active_level", "")).strip().lower()
+    inferred_active_level = None
+    if has_design_reset and expected_reset:
+        inferred_active_level = "low" if expected_reset.lower().endswith("_n") else "high"
+    if inferred_active_level and configured_active_level and configured_active_level != inferred_active_level:
+        mismatches.append(
+            f"reset polarity mismatch: extra_config uses '{configured_active_level}' but reset signal '{expected_reset}' implies '{inferred_active_level}'"
+        )
+
+    return list(dict.fromkeys(mismatches))
+
 def auto_scaffold_analysis_entries(records: FormalRecords, lr: dict, cc: str) -> bool:
     if not records.analysis: records.analysis = AnalysisData(); ch = True
     else: ch = False
@@ -376,6 +574,20 @@ def generate_spec_doc(records: FormalRecords, op: str) -> None:
     }
     _render_to_file("functions_and_checks.md", context, op)
 
+def generate_planning_doc(records: FormalRecords, op: str) -> None:
+    context = {
+        "DUT": records.dut,
+        "planning": records.planning or {},
+    }
+    _render_to_file("verification_needs_and_plan.md", context, op)
+
+def generate_basic_info_doc(records: FormalRecords, op: str) -> None:
+    context = {
+        "DUT": records.dut,
+        "basic_info": records.basic_info or {},
+    }
+    _render_to_file("basic_info.md", context, op)
+
 def generate_env_analysis_doc(records: FormalRecords, lp: dict, op: str) -> None:
     summary_items = [
         ("Assert Pass", len(lp.get("pass", []))),
@@ -399,6 +611,83 @@ def generate_bug_report_doc(records: FormalRecords, op: str) -> None:
         "bugs": records.bugs or []
     }
     _render_to_file("bug_report.md", context, op)
+
+def generate_summary_doc(records: FormalRecords, op: str, coverage: Optional[dict] = None) -> None:
+    stats = {
+        "assume_total": 0,
+        "sva_total": 0,
+        "cover_total": 0,
+        "assert_pass": 0,
+        "assert_fail": 0,
+        "assert_tt": 0,
+        "cover_pass": 0,
+    }
+    if records.spec:
+        for fg in records.spec.function_groups:
+            for fc in fg.functions:
+                for ck in fc.check_points:
+                    style = (ck.style or "").lower()
+                    if style == "assume":
+                        stats["assume_total"] += 1
+                    elif style == "cover":
+                        stats["cover_total"] += 1
+                    else:
+                        stats["sva_total"] += 1
+    if records.run_results:
+        rs = records.run_results.stats or {}
+        stats["assert_pass"] = rs.get("pass_count", 0)
+        stats["assert_fail"] = rs.get("fail_count", 0)
+        stats["assert_tt"] = rs.get("tt_count", 0)
+        stats["cover_pass"] = rs.get("cover_pass_count", 0)
+    if records.summary and isinstance(records.summary.get("stats_override"), dict):
+        stats.update(records.summary["stats_override"])
+
+    cov = coverage or {"nets": {}, "dffs": {}}
+    cov_ctx = {
+        "nets": {
+            "total": cov.get("nets", {}).get("total", 0),
+            "covered": cov.get("nets", {}).get("covered", 0),
+            "uncovered": max(cov.get("nets", {}).get("total", 0) - cov.get("nets", {}).get("covered", 0), 0),
+            "pct": cov.get("nets", {}).get("pct", 0.0),
+        },
+        "dffs": {
+            "total": cov.get("dffs", {}).get("total", 0),
+            "covered": cov.get("dffs", {}).get("covered", 0),
+            "uncovered": max(cov.get("dffs", {}).get("total", 0) - cov.get("dffs", {}).get("covered", 0), 0),
+            "pct": cov.get("dffs", {}).get("pct", 0.0),
+        },
+    }
+    summary = dict(records.summary or {})
+    summary["stats"] = stats
+    summary["coverage"] = cov_ctx
+    context = {
+        "DUT": records.dut,
+        "summary": summary,
+    }
+    _render_to_file("formal_summary.md", context, op)
+
+def get_primary_clock_reset(records: FormalRecords) -> tuple[dict, dict]:
+    basic_info = records.basic_info or {}
+    clock_reset = basic_info.get("clock_reset", {}) if isinstance(basic_info, dict) else {}
+    clock_port = str(clock_reset.get("clock_signal", "") or "").strip()
+    reset_port = str(clock_reset.get("reset_signal", "") or "").strip()
+
+    reset_type = str(clock_reset.get("reset_type", "") or "").strip()
+    active_level = "low" if reset_port.lower().endswith("_n") else "high"
+    if "低" in reset_type:
+        active_level = "low"
+    elif "高" in reset_type:
+        active_level = "high"
+
+    style = ""
+    if "同步" in reset_type:
+        style = "sync"
+    elif "异步" in reset_type:
+        style = "async"
+
+    clock = {"signal": clock_port, "edge": "posedge", "period": 10} if clock_port else {}
+    reset = {"signal": reset_port, "active_level": active_level, "style": style, "init_cycles": 1} if reset_port else {}
+    return clock, reset
 
 # =============================================================================
 # YAML → SV Merging
@@ -441,23 +730,39 @@ def incremental_merge_checker(records: FormalRecords, sv_path: str, port_info: O
                         "sva_body": ck.sva_body if ck.sva_body else "    1'b1; // [LLM-TODO] Fill SVA body",
                     })
 
+    cr_ctx = build_clock_reset_alias_context(records)
+    clock_signal = cr_ctx["env_clock"]
+    reset_signal = cr_ctx["env_reset"]
+    actual_clock = cr_ctx["actual_clock"]
+    actual_reset = cr_ctx["actual_reset"]
+
     # 2. Case: Full Rendering (Stages 3-5)
     if mode == "full" or not os.path.exists(sv_path):
         hp = []
+        if cr_ctx["has_clock"]:
+            hp.append(f"input {clock_signal}")
+        if cr_ctx["has_reset"]:
+            hp.append(f"input {reset_signal}")
         if port_info:
-            if not any(n == "clk" for n, _ in port_info): hp.append("input clk")
-            if not any(n == "rst_n" for n, _ in port_info): hp.append("input rst_n")
             for n, pd in port_info:
-                if n not in ("clk", "rst_n"): hp.append(re.sub(r"^(input|output|inout)\s+", "input ", pd.strip()))
-        else: hp = ["input clk", "input rst_n"]
+                if n not in {clock_signal, reset_signal, actual_clock, actual_reset}:
+                    hp.append(re.sub(r"^(input|output|inout)\s+", "input ", pd.strip()))
+        whitebox_context = build_whitebox_signal_context(records.spec.whitebox_signals if records.spec else None)
+        if whitebox_context:
+            hp.extend(whitebox_decl_to_input_decl(sig["declaration"]) for sig in whitebox_context)
 
         context = {
             "DUT": records.dut,
             "header_ports": hp,
             "check_points": check_points_data,
-            "parameters": records.spec.parameters if records.spec else None,
-            "whitebox_signals": records.spec.whitebox_signals if records.spec else None,
-            "extra_config": records.extra_config
+            "parameter_items": list((records.spec.parameters or {}).items()) if records.spec and records.spec.parameters else [],
+            "whitebox_signals": whitebox_context,
+            "extra_config": records.extra_config,
+            "clock_signal": clock_signal,
+            "clock_edge": cr_ctx["clock_edge"],
+            "reset_signal": reset_signal,
+            "reset_disable_expr": cr_ctx["reset_disable_expr"],
+            "clock_reset_aliases": cr_ctx["aliases"],
         }
         _render_to_file("tests/checker.sv", context, sv_path)
         with open(sv_path, 'r', encoding='utf-8') as f: return f.read()

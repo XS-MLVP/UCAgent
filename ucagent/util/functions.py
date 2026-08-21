@@ -5,6 +5,16 @@ import shutil
 import socket
 import stat
 from collections.abc import Sequence
+from ucagent.util.bug_analysis_contract import (
+    BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_SOURCE_EVIDENCE_MARKERS,
+    BUG_SOURCE_UNAVAILABLE_MARKER,
+    BUG_TODO_MARKER,
+    DYNAMIC_BUGS_MARKER,
+    WAVEFORM_BLOCK_KEY,
+    WAVEFORM_FENCE_OPEN,
+    WAVEFORM_LLM_ANALYSIS_FIELDS,
+)
 from ucagent.util.log import info, warning
 import os
 from typing import List, Tuple, Union
@@ -15,10 +25,16 @@ import time
 import inspect
 import fnmatch
 import ast
+import codecs
+import locale
 from pathlib import Path
 import yaml
 from collections import OrderedDict
 import traceback
+import subprocess
+import selectors
+import signal
+import textwrap
 
 
 def fmt_time_deta(sec: Union[int, float, str, None], abbr: bool = False) -> str:
@@ -376,10 +392,12 @@ def load_toffee_report(
     workspace: str,
     run_test_success: bool,
     return_all_checks: bool,
+    return_test_details: bool = False,
 ) -> dict:
     """
     Load a Toffee JSON report from the specified path.
-    :param path: Path to the Toffee JSON report file.
+    :param result_json_path: Path to the Toffee JSON report file.
+    :param return_test_details: Include per-test failure phase and exception details.
     :return: Parsed Toffee report data.
     """
     assert os.path.exists(result_json_path), f"Toffee report file {result_json_path} does not exist."
@@ -421,6 +439,10 @@ def load_toffee_report(
         "fails": len(fails),
     }
     ret_data["tests"]["test_cases"] = tests_map
+    if return_test_details:
+        ret_data["tests"]["test_case_details"] = _get_toffee_test_case_details(
+            data, tests
+        )
     # coverages
     # functional coverage
     fc_data = data.get("coverages", {}).get("functional", {})
@@ -467,6 +489,7 @@ def load_toffee_report(
     ret_data["failed_test_case_with_check_point_list"] = failed_funcs_bins
     if return_all_checks:
         ret_data["all_check_point_list"] = bins_all
+        ret_data["test_case_with_check_point_list"] = bins_funcs
     if len(bins_fail) > 0:
         ret_data["failed_check_point_list"] = bins_fail
     ret_data["unmarked_check_points"] = len(bins_unmarked)
@@ -481,6 +504,60 @@ def load_toffee_report(
     if len(test_fc_no_check_points) > 0:
         ret_data["test_function_with_no_check_point_mark_list"] = test_fc_no_check_points
     return ret_data
+
+
+def _get_toffee_test_case_details(data: dict, tests: list) -> dict:
+    """Extract per-test exception information from a Toffee report."""
+    raw_tests = data.get("tests", [])
+    if not isinstance(raw_tests, list):
+        return {}
+
+    details = {}
+    # Toffee builds test_abstract_info and tests from the same ordered context.
+    # Pairing them preserves the source-location key produced above while the raw
+    # test entry supplies phase and exception information.
+    for index, (test_key, status) in enumerate(tests):
+        detail = {"status": status}
+        if index >= len(raw_tests) or not isinstance(raw_tests[index], dict):
+            details[test_key] = detail
+            continue
+
+        failure_phases = []
+        for phase in raw_tests[index].get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            call_text = str(phase.get("call", ""))
+            phase_status = phase.get("status", {})
+            phase_status = phase_status.get("word", "") if isinstance(phase_status, dict) else ""
+            if "excinfo=<ExceptionInfo" not in call_text and phase_status not in {"FAILED", "ERROR"}:
+                continue
+
+            phase_detail = {"status": phase_status}
+            when_match = re.search(r"\bwhen=['\"]([^'\"]+)", call_text)
+            if when_match:
+                phase_detail["phase"] = when_match.group(1)
+
+            exception_match = re.search(
+                r"excinfo=<ExceptionInfo\s+(.+?)\s+tblen=\d+>>",
+                call_text,
+                re.DOTALL,
+            )
+            if exception_match:
+                exception = exception_match.group(1).strip()
+                phase_detail["exception"] = exception[:1000]
+                type_match = re.match(r"([A-Za-z_][A-Za-z0-9_.]*)", exception)
+                if type_match:
+                    phase_detail["exception_type"] = type_match.group(1)
+            failure_phases.append(phase_detail)
+
+        if failure_phases:
+            detail["failure_phases"] = failure_phases
+            primary = failure_phases[0]
+            for key in ("phase", "exception", "exception_type"):
+                if key in primary:
+                    detail[key] = primary[key]
+        details[test_key] = detail
+    return details
 
 
 def del_report_keys(report: dict, keys: List[str]) -> dict:
@@ -1701,7 +1778,9 @@ def get_str_array_diff(str_list1, str_list2):
 
 
 def clean_report_with_keys(
-    report: dict, keys: list = None, default_keys=["all_check_point_list"]
+    report: dict,
+    keys: list = None,
+    default_keys=["all_check_point_list", "test_case_with_check_point_list"],
 ) -> dict:
     data = copy.deepcopy(report)
     target_keys = []
@@ -1711,29 +1790,31 @@ def clean_report_with_keys(
 
 
 def description_bug_doc():
+    section_markers = " -> ".join(
+        marker for _key, marker in BUG_ANALYSIS_SECTION_MARKERS
+    )
+    source_markers = ", ".join(BUG_SOURCE_EVIDENCE_MARKERS)
+    waveform_analysis_fields = ", ".join(WAVEFORM_LLM_ANALYSIS_FIELDS)
     return [
-        "[Bug Analysis Document Format] (see Guide_Doc/dut_bug_analysis.md for details)",
-        "  Tag hierarchy: <FG-GROUP> / <FC-FUNCTION> / <CK-CHECKPOINT> / <BG-BUGNAME-XX> / <TC-FAILEDTESTCASE>",
-        "  - Confidence(XX): integer 0~100, indicating confidence level (0=known ignore/placeholder, 100=confirmed bug)",
-        "  - <TC-*> format: <TC-test_xxx.py::[ClassName::]test_func_name>, ClassName is optional",
-        "  - Each <BG-*> must have at least one FAILED <TC-*> test case",
-        "  - Failed checkpoints should also be recorded as bugs, using 'assert False' as placeholder if needed",
-        "  Format example:",
-        "    <FG-LOGIC>",
-        "            <FC-ADD>",
-        "                <CK-BASIC>",
-        "                    <BG-ADD_OVERFLOW-80> Addition overflow handling error, 80% confidence",
-        "                       <TC-test_add.py::test_add_overflow> Overflow boundary test",
-        "                       <TC-test_add.py::test_add_max_value> Max value test",
-        "                   Bug root cause analysis:",
-        "                   ```verilog",
-        "                     // Adder.v line 10, bit-width error",
-        "                     10: output [WIDTH-2:0] sum,  // BUG: should be [WIDTH-1:0]",
-        "                   ```",
-        "                   Fix suggestion:",
-        "                   ```verilog",
-        "                     10: output [WIDTH-1:0] sum,  // FIX: restore correct bit-width",
-        "                   ```",
+        "[Dynamic Bug Analysis Contract] Read Guide_Doc/dut_bug_analysis.md and the active stage Skill for the complete workflow.",
+        f"  - Put one standalone {DYNAMIC_BUGS_MARKER} container marker before dynamic Bug entries.",
+        "  - Use standalone tags in this hierarchy: <FG-GROUP> -> <FC-FUNCTION> -> <CK-CHECKPOINT> -> <BG-BUGNAME-XX> -> <TC-WORKSPACE_RELATIVE_TEST::[ClassName::]test_name>.",
+        "  - XX must be 1..100 for a dynamically reproduced DUT Bug. A zero-confidence BG is ignored and cannot explain a failed test.",
+        "  - Every non-zero BG must contain at least one correctly implemented FAILED TC mapped to the same checkpoint.",
+        f"  - The first non-empty content after every TC must start with {WAVEFORM_FENCE_OPEN} and contain a mapping whose only top-level key is {WAVEFORM_BLOCK_KEY}. Paste the complete WaveInfo bug_document_fields mapping from a final evidence call; keep status confirmed, then add non-empty {waveform_analysis_fields} from the returned timeline and RTL. Do not invent or copy example receipt values.",
+        "  - A final WaveInfo call must provide complete signal_groups: the DUT clock mode and clock when present, relevant input data/control, relevant output data/status/validity, actual request/response protocol controls, and at least one function-specific selector, state, flag, or internal propagation signal. The same signed paths must be present in the timeline and online viewer; a target data bus alone is insufficient.",
+        "  - Event pattern entries locate the failed transaction; signal_groups load context without creating extra triggers. The LLM must classify roles from the specification, DUT ports, test API/driver, and RTL. The checker verifies real signed paths but does not infer protocol semantics from signal names.",
+        "  - WaveInfo event matches are not automatic Bug decisions. The LLM must read the interface specification and test-driver/API Step ordering, identify ready/valid or the DUT's actual equivalent request-accept and response-valid conditions, account for backpressure and latency, and prove the observed output belongs to the failed transaction.",
+        "  - One Step only advances simulation; it does not prove request acceptance or output validity. Check whether the API already steps/waits and sample only at the specified edge, after the required latency, or when response-valid/done/ack/busy conditions permit it.",
+        "  - Do not classify a data mismatch sampled while valid/enable is inactive, ready/accept is false, reset/idle/transition rules make data invalid, or the documented response latency has not elapsed. Such a point is only an investigation clue unless the specification explicitly requires behavior there.",
+        "  - The first non-empty content after that YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its visible [label] may be localized, but its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
+        f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
+        f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Display headings are optional/localizable and are not parsed.",
+        f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
+        f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",
+        "  - recordbug.py creates only the BG/TC scaffold, including a <WAVEFORM-VIEWER> link placeholder. After it returns, replace the YAML with complete WaveInfo bug_document_fields and replace the entire link placeholder with bug_document_viewer_link before filling the same BG's RTL/HDL analysis.",
+        "  - Keep all symptoms, trigger conditions, root cause, source evidence, causal chain, fix guidance, risk, and revalidation content inside the owning BG; do not create a detached global root-cause section.",
+        "  - Fix test code, expected values, fixtures/APIs, reference models, timing, and environment failures until they pass. Never preserve a non-Bug failure with assert False, weakened assertions, or BG-*-0.",
     ]
 
 
@@ -1757,7 +1838,7 @@ def description_func_doc():
     ]
 
 
-def check_file_block(file_blocks, workspace, checker=None):
+def check_file_block(file_blocks, workspace, checker=None, strip_comments=True):
     """
     Check if the file blocks exist in the workspace.
 
@@ -1765,6 +1846,7 @@ def check_file_block(file_blocks, workspace, checker=None):
         file_blocks (dict): The file blocks to check. eg: {'file1.py': {"k1": [line_from, line_to], 'k2': [line_from, line_to]}, ...}
         workspace (str): The workspace directory.
         checker (callable, optional): A function to further check each code block. It should accept the file block string as input.
+        strip_comments (bool): Remove comments before invoking checker. Disable for syntax-aware checkers.
     """
     assert isinstance(file_blocks, dict), "file_blocks must be a dictionary."
     ret_map = {}
@@ -1797,8 +1879,10 @@ def check_file_block(file_blocks, workspace, checker=None):
             block_key = _get_code_block_key(index)
             if block_key is None:
                 continue
-            # Remove comments and check if line is empty
-            line = line.split("#", 1)[0]
+            # Text-based checkers historically ignore comments. Syntax-aware
+            # checkers need the original line so strings containing '#' remain valid.
+            if strip_comments:
+                line = line.split("#", 1)[0]
             if not line.strip():
                 continue
             if not line.endswith("\n"):
@@ -1843,59 +1927,164 @@ def parse_test_case_name(tc, workspace=None):
     return f"{tc_file}::{tc_name}", (tc_rfile, line_from, line_to)
 
 
+def get_missing_functional_coverage_message(report):
+    """Return an actionable diagnostic when Toffee reports no usable coverage."""
+    if not isinstance(report, dict):
+        return (
+            "[Functional Coverage Report Missing] The Toffee report is unavailable or has an "
+            "invalid structure, so checkpoint associations cannot be validated."
+        )
+
+    total_points = report.get("total_funct_point", 0)
+    total_check_points = report.get("total_check_point", 0)
+    if (
+        isinstance(total_points, (int, float))
+        and not isinstance(total_points, bool)
+        and isinstance(total_check_points, (int, float))
+        and not isinstance(total_check_points, bool)
+        and total_points > 0
+        and total_check_points > 0
+    ):
+        return None
+
+    return (
+        "[Functional Coverage Missing] Functional coverage data is missing or empty in the "
+        f"Toffee report (function points: {total_points}, checkpoints: {total_check_points}). "
+        "The test functions may already call mark_function correctly; do not duplicate those "
+        "calls based only on this report. Verify that coverage groups define function points and "
+        "checkpoints, that the test uses the same group objects exposed by the DUT, and that the "
+        "fixture calls `set_func_coverage(request, func_coverage_group)` on a reachable teardown "
+        "path after `yield`."
+    )
+
+
+def description_checkpoint_association_missing(check_points):
+    """Explain checkpoint-to-test runtime association gaps without inferring a source cause."""
+    check_points = list(check_points or [])
+    return (
+        "[Checkpoint Association Missing] Toffee defined the following checkpoint(s), but "
+        "recorded no associated test execution: "
+        f"{list_str_abbr(check_points)}. This runtime report state does not identify why the "
+        "association was not recorded. Inspect the original `STDERR` and `STDOUT` attached to "
+        "the Check/Complete result for Toffee warnings, then verify that the expected tests "
+        "executed and that the fixture reported the active coverage-group objects after `yield`."
+    )
+
+
+def has_executable_mark_function_call(source_code):
+    """Return whether source contains an actual ``.mark_function(...)`` call."""
+    try:
+        tree = ast.parse(textwrap.dedent(source_code))
+    except (SyntaxError, IndentationError, TypeError):
+        return False
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "mark_function"
+        for node in ast.walk(tree)
+    )
+
+
 def description_mark_function_doc(
     func_list=[], workspace=None, func_RunTestCases=None, timeout_RunTestCases=0
 ):
     """
     Description for marking functions in test cases.
+
+    ``func_RunTestCases`` and ``timeout_RunTestCases`` are retained for caller
+    compatibility. Diagnostics use the original STDOUT/STDERR already returned
+    by Check/Complete and never rerun tests here.
     """
     simple_msg = (
-        "You need to use `mark_function` at the beginning of test functions to associate them with checkpoints. "
-        "Example: env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
+        "Add an executable `mark_function` call near the beginning of each test and associate "
+        "it with at least one checkpoint. Example: "
+        "env.dut.fc_cover['FG-GROUP'].mark_function('FC-FUNCTION', "
         "test_function_name, ['CK-CHECK1', 'CK-CHECK2']). "
-        "If a test case covers checkpoints of multiple functions, call mark_function multiple times. "
-        "If the test case is redundant, delete it. (See Guide_Doc/dut_test_case.md)"
+        "If a test covers checkpoints from multiple function points, call `mark_function` once "
+        "for each function point. If the test is redundant, delete it. "
+        "(See Guide_Doc/dut_test_case.md)"
     )
 
     if len(func_list) > 0:
-        assert workspace is not None, "workspace must be provided if func_list is empty."
+        assert workspace is not None, "workspace must be provided if func_list is not empty."
         func_file_blocks = {}
         func_test_cases = {}
+        unreadable_tc_list = []
         for tc in func_list:
-            tc_name, (file_path, line_from, line_to) = parse_test_case_name(tc, workspace)
+            try:
+                tc_name, (file_path, line_from, line_to) = parse_test_case_name(tc, workspace)
+            except Exception as e:
+                warning(f"Cannot resolve test case location '{tc}': {e}")
+                unreadable_tc_list.append(tc)
+                continue
             func_test_cases[tc] = tc_name
             if file_path not in func_file_blocks:
                 func_file_blocks[file_path] = {}
             func_file_blocks[file_path][tc] = [line_from, line_to]
+
         blocks = {}
-        for _, v in check_file_block(func_file_blocks, workspace, lambda x: ".mark_function" in x).items():
-            blocks.update(v)
+        try:
+            checked_blocks = check_file_block(
+                func_file_blocks,
+                workspace,
+                has_executable_mark_function_call,
+                strip_comments=False,
+            )
+            for _, value in checked_blocks.items():
+                blocks.update(value)
+        except (AssertionError, OSError, UnicodeError) as e:
+            warning(f"Cannot inspect test source for mark_function calls: {e}")
+            unreadable_tc_list.extend(
+                tc for tc in func_test_cases if tc not in unreadable_tc_list
+            )
+
         no_mark_tc_list = []
-        er_mark_tc_list = []
-        nf_mark_tc_list = []
+        recorded_no_association_tc_list = []
         for tc in func_list:
+            if tc in unreadable_tc_list:
+                continue
             if tc not in blocks:
-                nf_mark_tc_list.append(tc)
-            elif blocks[tc] == True:
-                er_mark_tc_list.append(tc)
+                unreadable_tc_list.append(tc)
+            elif blocks[tc] is True:
+                recorded_no_association_tc_list.append(tc)
             else:
                 no_mark_tc_list.append(tc)
-        if len(nf_mark_tc_list) > 0:
-            warning(f"Test cases not found in workspace {workspace}: {nf_mark_tc_list}")
-        emsg = ""
-        if len(er_mark_tc_list) > 0:
-            tc_to_run = " ".join([func_test_cases[tc] for tc in er_mark_tc_list])
-            tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors. " + \
-                    f"Please call RunTestCases('{tc_to_run}') to see detailed errors and verify that function point, test case, and checkpoint names match the documentation."
-            if func_RunTestCases is not None:
-                warning(f"Running test RunTestCases('{tc_to_run}') to get detailed error messages...")
-                _, run_msg = func_RunTestCases(pytest_args=tc_to_run, timeout=timeout_RunTestCases, return_line_coverage=False, raw_return=True, detail=True)
-                tc_msg = f"Test cases ({', '.join(er_mark_tc_list)}) already called 'mark_function' but encountered errors:\n STDOUT:\n{run_msg['STDOUT']}\nSTDERR:\n{run_msg['STDERR']}\n" + \
-                         f"Note: If you cannot find the root cause, call RunTestCases('{tc_to_run}') to get more detailed information."
-            emsg += tc_msg
-        if len(no_mark_tc_list) > 0:
-            emsg += f"Test cases not marked with 'mark_function': {', '.join(no_mark_tc_list)}. {simple_msg}"
-        return emsg
+
+        messages = []
+        if recorded_no_association_tc_list:
+            tc_msg = (
+                "[Call present, association absent] Source inspection found an executable "
+                f"`mark_function` call in: {', '.join(recorded_no_association_tc_list)}. "
+                "Do not add a duplicate call: the call exists, but Toffee did not record a "
+                "checkpoint association for these test executions. Check, in order: "
+                "(1) the call executes on every path before `return` or `pytest.skip`; "
+                "(2) its test-function argument refers to the current test; "
+                "(3) FG/FC/CK names exactly match the coverage definition, including case, and "
+                "the checkpoint list is non-empty; "
+                "(4) the fixture reports the same coverage-group objects via "
+                "`set_func_coverage(request, func_coverage_group)` after `yield`. "
+                "Inspect the original `STDERR` and `STDOUT` fields attached to this "
+                "Check/Complete result for Toffee warnings and the corresponding runtime "
+                "error."
+            )
+            messages.append(tc_msg)
+
+        if no_mark_tc_list:
+            messages.append(
+                "[Call missing] No executable `mark_function` call was found in: "
+                f"{', '.join(no_mark_tc_list)}. {simple_msg}"
+            )
+
+        if unreadable_tc_list:
+            warning(f"Test cases not found in workspace {workspace}: {unreadable_tc_list}")
+            messages.append(
+                "[Source location unavailable] The report locations could not be matched to "
+                f"readable source blocks for: {', '.join(unreadable_tc_list)}. Re-run the tests "
+                "from the current workspace and verify that the report does not contain stale or "
+                "external file paths."
+            )
+
+        return " ".join(messages)
     return simple_msg
 
 
@@ -2008,10 +2197,20 @@ def make_llm_tool_ret(ret, check_pass=True):
     return ret_str
 
 
-def list_str_abbr(data: list, max_items=50):
-    """Convert a list to a string representation with a maximum number of items."""
+def list_str_abbr(data: list, max_items=50, show_counts=False):
+    """Abbreviate a list and optionally report total, shown, and remaining counts."""
     if not isinstance(data, list):
         return str(data)
+    if show_counts:
+        total = len(data)
+        if total <= max_items:
+            return f"Total: {total}. Details: {', '.join(str(item) for item in data)}."
+        remaining = total - max_items
+        shown = ", ".join(str(item) for item in data[:max_items])
+        return (
+            f"Total: {total}. First {max_items}: {shown}. "
+            f"Remaining: {remaining} not shown."
+        )
     subfix = ", ..."
     if len(data) <= max_items:
         subfix = ""
@@ -2642,3 +2841,129 @@ def get_func_params_regex(source_code: str) -> list[str]:
     if current:
         params.append(current.strip())
     return params
+
+
+def process_bash_cmd(CWD, cmd, echo_func, interrupted_fc=None):
+    """
+    Process a bash command and return the output.
+    """
+    def _terminate_process(process):
+        if process.poll() is not None:
+            info(f"Process {process.pid} already terminated.")
+            return
+        warning(f"Terminating process {process.pid}...")
+        try:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                process.kill()
+            process.wait(timeout=1)
+        except ProcessLookupError:
+            warning(f"Process {process.pid} does not exist, it may have already terminated.")
+        except Exception as e:
+            warning(f"Failed to terminate process {process.pid}: {e}, trying to force kill...")
+            try:
+                process.kill()
+                process.wait(timeout=1)
+            except Exception as e:
+                warning(f"Failed to force kill process {process.pid}: {e}")
+    info(f'Executing bash command: {cmd}')
+    popen_kwargs = {}
+    if os.name != "nt":
+        popen_kwargs["start_new_session"] = True
+    process = subprocess.Popen(cmd, shell=True, cwd=CWD,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               bufsize=0, **popen_kwargs)
+    output_lines = []
+    interrupted = False
+    line_buffer = ""
+    decoder = codecs.getincrementaldecoder(locale.getpreferredencoding(False))(errors="replace")
+
+    def _emit_output_line(line):
+        line = line.strip()
+        output_lines.append(line)
+        if callable(echo_func):
+            echo_func(line)
+
+    def _append_output_text(text):
+        nonlocal line_buffer
+        line_buffer += text
+        lines = line_buffer.splitlines(keepends=True)
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            line_buffer = lines.pop()
+        else:
+            line_buffer = ""
+        for line in lines:
+            _emit_output_line(line)
+
+    def _flush_output_buffer():
+        nonlocal line_buffer
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            _append_output_text(tail)
+        if line_buffer:
+            _emit_output_line(line_buffer)
+            line_buffer = ""
+
+    with selectors.DefaultSelector() as selector:
+        stdout_fd = None
+        stdout_open = False
+        if process.stdout is not None:
+            stdout_fd = process.stdout.fileno()
+            os.set_blocking(stdout_fd, False)
+            selector.register(stdout_fd, selectors.EVENT_READ)
+            stdout_open = True
+
+        def _drain_stdout(timeout=0):
+            nonlocal stdout_open
+            if not stdout_open or stdout_fd is None:
+                return False
+            read_any = False
+            for _, _ in selector.select(timeout=timeout):
+                while True:
+                    try:
+                        chunk = os.read(stdout_fd, 4096)
+                    except BlockingIOError:
+                        break
+                    except OSError:
+                        stdout_open = False
+                        break
+                    if not chunk:
+                        stdout_open = False
+                        try:
+                            selector.unregister(stdout_fd)
+                        except Exception:
+                            pass
+                        break
+                    read_any = True
+                    _append_output_text(decoder.decode(chunk))
+            return read_any
+
+        try:
+            while True:
+                if callable(interrupted_fc) and interrupted_fc():
+                    interrupted = True
+                    _terminate_process(process)
+                    info(f"Bash command '{cmd}' aborted.")
+                    break
+                _drain_stdout(timeout=0.1)
+                if process.poll() is not None:
+                    break
+        except KeyboardInterrupt:
+            interrupted = True
+            _terminate_process(process)
+            info(f"Bash command '{cmd}' interrupted.")
+        while _drain_stdout(timeout=0):
+            pass
+        _flush_output_buffer()
+        if process.stdout is not None:
+            process.stdout.close()
+    return_code = process.poll()
+    info(f"Bash command '{cmd}' finished with return code {return_code}.")
+    return return_code, output_lines, interrupted

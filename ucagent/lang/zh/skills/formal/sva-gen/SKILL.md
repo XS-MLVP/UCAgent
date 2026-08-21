@@ -7,6 +7,8 @@ description: 在 YAML 中编写 SVA 属性检测代码
 
 本技能指导如何将 `.formal_records.yaml` 中的 `sva_body` 占位符翻译为完整的 SVA 断言代码。
 
+本阶段的唯一事实来源是 `.formal_records.yaml.spec.*.check_points[*].sva_body`。
+
 > **SVA 编码规范参见 `Guide_Doc/sva_property.md`**
 
 ## 核心原则：数据驱动同步
@@ -14,7 +16,8 @@ description: 在 YAML 中编写 SVA 属性检测代码
 UCAgent 采用 **YAML 作为唯一事实来源 (SSOT)** 的架构。
 1. **禁止直接修改 `.sv` 文件**：`checker.sv` 和 `wrapper.sv` 是由系统自动根据 YAML 渲染生成的只读产物。
 2. **通过 YAML 更新代码**：使用 `update_sva_body.py` 技能脚本更新检测点的实现代码。
-3. **自动同步**：当你调用 `Check` 工具进行验证时，系统会自动将 YAML 中的代码渲染到 `.sv` 文件中。
+3. **自动同步**：当你调用 `Check` 工具进行验证时，系统会自动将 YAML 中的代码 full refresh 渲染到 `.sv` 文件中。
+4. **执行入口**：在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本，不要假设宿主 `python3` 环境具备所有依赖。
 
 ## 步骤
 
@@ -26,7 +29,7 @@ UCAgent 采用 **YAML 作为唯一事实来源 (SSOT)** 的架构。
 
 ### 2. 使用工具更新 YAML
 
-使用 `update_sva_body.py` 脚本将代码注入 YAML。
+使用 `RunSkillScript` 调用 `update_sva_body.py` 将代码注入 YAML。
 
 ```bash
 python3 .ucagent/skills/formal/sva-gen/scripts/update_sva_body.py <CK-ID> "<SVA_CODE_BODY>"
@@ -41,7 +44,7 @@ python3 .ucagent/skills/formal/sva-gen/scripts/update_sva_body.py CK-ADD-CORE-EQ
 
 调用 `ucagent.checkers.formal.PropertyStructureChecker`。
 - 如果仍有检测点未填写，Checker 会报错并列出缺失项。
-- 如果全部填写完成，Checker 会自动渲染生成最新的 `checker.sv` 和 `wrapper.sv` 供后续 EDA 工具使用。
+- 如果全部填写完成，Checker 会自动 full refresh 生成最新的 `checker.sv` 和 `wrapper.sv` 供后续 EDA 工具使用。
 
 ## 核心规则
 

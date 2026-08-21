@@ -143,6 +143,32 @@ class TestFormatCheckerPassScenarios:
         assert_pass(fmt_checker("static_ok_multifile.md").do_check(), "multifile")
 
 
+def test_static_report_sections_use_markers_not_display_titles(tmp_path):
+    (tmp_path / "rtl").mkdir()
+    (tmp_path / "rtl/DUT.v").write_text("module DUT; endmodule\n", encoding="utf-8")
+    (tmp_path / "fc.md").write_text(
+        "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n", encoding="utf-8"
+    )
+    body = (
+        "## Localized summary\n<STATIC-BUG-SUMMARY>\n"
+        "## Localized details\n<STATIC-BUG-DETAILS>\n"
+        "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n"
+        "<BG-STATIC-001-GUARD>\n<LINK-BUG-[BG-TBD]>\n"
+        "<FILE-rtl/DUT.v:1>\n"
+        "## Localized progress\n<STATIC-BUG-PROGRESS>\n"
+    )
+    (tmp_path / "static.md").write_text(body, encoding="utf-8")
+    checker = UnityChipCheckerStaticBugFormat(
+        static_doc="static.md", functions_and_checks_doc="fc.md"
+    ).set_workspace(str(tmp_path))
+    assert_pass(checker.do_check())
+
+    (tmp_path / "static.md").write_text(
+        body.replace("<STATIC-BUG-DETAILS>\n", ""), encoding="utf-8"
+    )
+    assert_fail(checker.do_check(), "<STATIC-BUG-DETAILS>", "exactly once")
+
+
 class TestFormatCheckerMissingDocument:
 
     def test_static_doc_not_exist(self):

@@ -3,15 +3,14 @@ import json
 import os
 import re
 
-project_root = os.getcwd()
-SECTION_TITLE = "## 未测试通过检测点分析"
-ROOT_CAUSE_SECTION_TITLE = "## 缺陷根因分析"
+DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
+TODO_MARKER = "<BUG-TODO>"
+OVERVIEW_MARKER = "<BUG-OVERVIEW>"
 bug_analysis_template = '''
-{DUT} 缺陷分析文档
+# {DUT} 动态 Bug 分析
 
-{SECTION_TITLE}
-
-{ROOT_CAUSE_SECTION_TITLE}
+## 未测试通过检测点分析
+{DYNAMIC_BUGS_MARKER}
 '''
 
 def parse_args():
@@ -31,20 +30,26 @@ def parse_args():
         ),
     )
     parser.add_argument("-BD", required=True, help="Bug description")
-    parser.add_argument(
-        "-ROOT",
-        required=False,
-        default="",
-        help="Root cause analysis of bug",
-    )
-    parser.add_argument("-FILE", required=True, help="Source file path and start, end line numbers, e.g., ALU754_RTL/ALU754.v:13-14")
-    parser.add_argument("-FIX", required=True, help="Suggestions for repairing defects")
     return parser.parse_args()
 
 
 def validate_tag(tag, prefix):
     if not tag.startswith(prefix + "-"):
         raise ValueError(f"Error: {prefix} tag format invalid: {tag}")
+
+
+def validate_dynamic_bg_tag(tag):
+    validate_tag(tag, "BG")
+    if tag.startswith("BG-STATIC-"):
+        raise ValueError(
+            "Error: -BG is a dynamic Bug tag and cannot use the BG-STATIC-* "
+            "namespace. Keep <BG-STATIC-*> in {DUT}_static_bug_analysis.md, "
+            "create a distinct BG-NAME-XX tag here, and link it with LINK-BUG."
+        )
+    if bg_confidence(tag) == 0:
+        raise ValueError(
+            "Error: -BG confidence must be greater than 0 for a confirmed dynamic Bug."
+        )
 
 
 def parse_tc_target(tc_tag):
@@ -139,37 +144,15 @@ def bg_confidence(bg_tag):
 def locate_section(lines):
     start = -1
     for i, line in enumerate(lines):
-        if line.strip() == SECTION_TITLE:
+        if line.strip() == DYNAMIC_BUGS_MARKER:
             start = i
             break
     if start < 0:
         raise ValueError(
-            f"Error: section '{SECTION_TITLE}' not found in target markdown."
+            f"Error: marker '{DYNAMIC_BUGS_MARKER}' not found in target markdown."
         )
 
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## "):
-            end = i
-            break
-    return start, end
-
-
-def locate_section_by_title(lines, title):
-    start = -1
-    for i, line in enumerate(lines):
-        if line.strip() == title:
-            start = i
-            break
-    if start < 0:
-        raise ValueError(f"Error: section '{title}' not found in target markdown.")
-
-    end = len(lines)
-    for i in range(start + 1, len(lines)):
-        if lines[i].startswith("## "):
-            end = i
-            break
-    return start, end
+    return start, len(lines)
 
 
 def find_tag_line(lines, start, end, tag):
@@ -201,10 +184,59 @@ def escape_markdown_asterisk(text):
     return re.sub(r"(?<!\\)\*", r"\\*", text)
 
 
+def make_tc_scaffold(tc, bd):
+    return ensure_trailing_newline_block(
+        f"    - <{tc}> {bd}\n"
+        "      ```yaml\n"
+        "      waveform_analysis:\n"
+        f"        status: \"{TODO_MARKER}\"\n"
+        f"        receipt_id: \"{TODO_MARKER}\"\n"
+        "        signal_groups:\n"
+        f"          clock_mode: \"{TODO_MARKER}\"\n"
+        f"          clocks: [\"{TODO_MARKER}\"]\n"
+        f"          inputs: [\"{TODO_MARKER}\"]\n"
+        f"          outputs: [\"{TODO_MARKER}\"]\n"
+        "          protocol: []\n"
+        f"          key_signals: [\"{TODO_MARKER}\"]\n"
+        "      ```\n"
+        f"      <WAVEFORM-VIEWER> [{TODO_MARKER}](/surfer/?wave={TODO_MARKER})\n"
+    )
+
+
+def make_bug_analysis_scaffold(bd):
+    return ensure_trailing_newline_block(
+        f"    {OVERVIEW_MARKER}\n"
+        "    **Bug 概述**\n\n"
+        f"    {bd}\n\n"
+        "    <BUG-SYMPTOMS>\n"
+        "    **现象与等级**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-TRIGGER>\n"
+        "    **触发条件与影响范围**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-ROOT-CAUSE>\n"
+        "    **根因分析**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-SOURCE-EVIDENCE>\n"
+        "    **源码证据与逐行分析**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-CAUSAL-CHAIN>\n"
+        "    **动态因果链**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-FIX>\n"
+        "    **修复建议**\n\n"
+        f"    {TODO_MARKER}\n\n"
+        "    <BUG-RETEST>\n"
+        "    **风险与复验计划**\n\n"
+        f"    {TODO_MARKER}\n"
+    )
+
+
 def make_bg_tc_block(bg, bd, tc, confidence):
     return ensure_trailing_newline_block(
         f"  - <{bg}> Bug 置信度 {confidence}%\n"
-        f"    - <{tc}> {bd}\n"
+        f"{make_tc_scaffold(tc, bd)}"
+        f"{make_bug_analysis_scaffold(bd)}"
     )
 
 
@@ -216,6 +248,7 @@ def make_ck_bg_block(ck, bg, bd, tc, confidence):
 
 
 def insert_content(lines, fg, fc, ck, bg, tc, bd):
+    lines[:] = "".join(lines).splitlines(keepends=True)
     confidence = bg_confidence(bg)
     sec_start, sec_end = locate_section(lines)
 
@@ -276,8 +309,16 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
             if tc_line >= 0:
                 return "CK/BG/TC already exist. Nothing changed."
 
-            lines.insert(bg_end, f"    - <{tc}> {bd}\n")
-            return "CK/BG exist; appended missing TC entry."
+            details_line = next(
+                (
+                    i
+                    for i in range(bg_line + 1, bg_end)
+                    if lines[i].strip() == OVERVIEW_MARKER
+                ),
+                bg_end,
+            )
+            lines.insert(details_line, make_tc_scaffold(tc, bd))
+            return "CK/BG exist; appended missing TC scaffold."
 
         # Same CK exists but different BG: append another bug item after this CK block.
         lines.insert(ck_end, bg_tc_block)
@@ -286,127 +327,12 @@ def insert_content(lines, fg, fc, ck, bg, tc, bd):
     lines.insert(fc_end, ck_bg_block)
     return "Inserted new CK/BG/TC under existing FG/FC."
 
-
-def _tc_display_for_root_section(tc_tag):
-    file_path, class_name, func_name = parse_tc_target(tc_tag)
-    short_file = os.path.basename(file_path)
-    if class_name:
-        return f"{short_file}::{class_name}::{func_name}"
-    return f"{short_file}::{func_name}"
-
-
-def _build_root_cause_block(fg, fc, ck, bg, tc_display, bd, root, file, lang, code_snippet, fix):
-    return (
-        f"### {fg} / {fc} / {ck}\n"
-        f"**Bug标签**: {bg}\n"
-        f"**测试用例**: {tc_display}\n"
-        f"**问题描述**:{bd}\n"
-        f"**根因分析**: \n"
-        f"{root}\n"
-        f"```{lang}\n"
-        f"// {file}\n"
-        f"{code_snippet}\n"
-        f"```\n"
-        f"**修复建议**\n"
-        f"{fix}\n"
-    )
-
-def get_code_snippet(file_path, start_line, end_line, indent_level=0):
-    """Reads a snippet of code from a file."""
-    abs_path = os.path.join(project_root, file_path)
-    if not os.path.exists(abs_path):
-        return [0, f"Error: File {abs_path} not found. Please use the correct path and use `RunSkillScript` tool again."]
-
-    try:
-        with open(abs_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        start_index = start_line - 1
-        end_index = end_line
-
-        if start_index < 0 or end_index > len(lines):
-            return [0, f"Error: Line numbers {start_line}-{end_line} are out of file range. Please use correct line numbers and use `RunSkillScript` tool again."]
-
-        snippet_lines = lines[start_index:end_index]
-
-        formatted_snippet = ""
-        indent_str = " " * indent_level
-        for i, line in enumerate(snippet_lines):
-            line_content = line.rstrip()
-            formatted_snippet += f"{indent_str}{start_line + i}:  {line_content}"
-            if i < len(snippet_lines) - 1:
-                formatted_snippet += "\n"
-
-        return [1, formatted_snippet]
-
-    except Exception as e:
-        return [0, f"Error reading file {abs_path}: {e}"]
-
-def insert_root_cause_content(lines, fg, fc, ck, bg, tc, bd, root, file, fix):
-    if not root:
-        return "ROOT is empty; skipped root cause insertion."
-    
-    relative_path = ""
-    start_line = 0
-    end_line = 0
-    file_match = re.fullmatch(r'([^:]+):(\d+)(?:-(\d+))?', file)
-    relative_path, start_str, end_str = file_match.groups()
-    start_line = int(start_str)
-    end_line = int(end_str) if end_str else start_line
-
-    correct, code_snippet = get_code_snippet(relative_path, start_line, end_line, indent_level=0)
-    if not correct:
-        return code_snippet
-
-    lang = ""
-    if relative_path.split('.')[-1] in ['v', 'sv']:
-        lang = "verilog"
-    elif relative_path.split('.')[-1] in ['scala']:
-        lang = "scala"
-
-    rc_start, rc_end = locate_section_by_title(lines, ROOT_CAUSE_SECTION_TITLE)
-    heading = f"### {fg} / {fc} / {ck}"
-    tc_display = _tc_display_for_root_section(tc)
-
-    heading_line = -1
-    for i in range(rc_start + 1, rc_end):
-        if lines[i].strip() == heading:
-            heading_line = i
-            break
-
-    if heading_line < 0:
-        block = _build_root_cause_block(fg, fc, ck, bg, tc_display, bd, root, file, lang, code_snippet, fix)
-        lines.insert(rc_end, block)
-        return "Inserted new root cause block."
-
-    block_end = next_boundary(
-        lines,
-        heading_line + 1,
-        rc_end,
-        [lambda t: t.startswith("### "), lambda t: t.startswith("## ")],
-    )
-
-    root_prefix = "**相关源码位置**:"
-    for i in range(heading_line + 1, block_end):
-        if lines[i].startswith(root_prefix):
-            lines[i] = f"{root_prefix} {root}\n"
-            return "Updated ROOT in existing root cause block."
-
-    insert_pos = block_end
-    while insert_pos > heading_line + 1 and lines[insert_pos - 1].strip() == "":
-        insert_pos -= 1
-    lines.insert(insert_pos, f"\n{root_prefix} {root}\n")
-    return "Inserted ROOT into existing root cause block."
-
-
 def main():
     args = parse_args()
-    validate_tag(args.BG, "BG")
+    validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
 
     escaped_bd = escape_markdown_asterisk(args.BD)
-    escaped_root = escape_markdown_asterisk(args.ROOT)
-    escaped_fix = escape_markdown_asterisk(args.FIX)
 
     dut = os.environ.get("DUT")
     out = os.environ.get("OUT")
@@ -425,8 +351,7 @@ def main():
         os.makedirs(os.path.dirname(target), exist_ok=True)
         initial_content = bug_analysis_template.format(
             DUT=dut,
-            SECTION_TITLE=SECTION_TITLE,
-            ROOT_CAUSE_SECTION_TITLE=ROOT_CAUSE_SECTION_TITLE,
+            DYNAMIC_BUGS_MARKER=DYNAMIC_BUGS_MARKER,
         ).lstrip()
         with open(target, "w", encoding="utf-8") as f:
             f.write(initial_content)
@@ -437,15 +362,15 @@ def main():
     msgs = []
     for fg, fc, ck in fg_fc_ck_list:
         msg = insert_content(lines, fg, fc, ck, args.BG, args.TC, escaped_bd)
-        root_msg = insert_root_cause_content(
-            lines, fg, fc, ck, args.BG, args.TC, escaped_bd, escaped_root, args.FILE, escaped_fix
-        )
-        msgs.append(f"{msg} {root_msg} (resolved: {fg}/{fc}/{ck})")
+        msgs.append(f"{msg} (resolved: {fg}/{fc}/{ck})")
 
     with open(target, "w", encoding="utf-8") as f:
         f.writelines(lines)
 
-    print("; ".join(msgs) + f" -> {target}")
+    print(
+        "; ".join(msgs)
+        + f" -> {target}. Incomplete scaffold marker: {TODO_MARKER}."
+    )
 
 
 if __name__ == "__main__":

@@ -173,7 +173,7 @@ docker run -it --rm \
   ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist  --as-master
 ```
 
-如果 ghcr.io 无法访问，可以直接替换其为 ghcr.nju.edu.cn 等镜像地址。
+如果 ghcr.io 无法访问，可以直接替换其为 `ghcr.nju.edu.cn` 等镜像地址。
 
 启动成功后，在浏览器中访问 `http://localhost:8800` 即可。
 

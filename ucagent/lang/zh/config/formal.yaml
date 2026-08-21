@@ -142,52 +142,55 @@ mcp_server:
 stage:
   - name: requirement_analysis_and_planning
     desc: "需求分析与验证规划"
+    skill_list: ["formal/plan"]
     task:
-      - "第1步：打开已为你准备好的模板文件 `{OUT_PATH}/01_{DUT}_verification_needs_and_plan.md`。"
-      - "第2步：阅读 `{DUT}` 目录下的 README 以及 RTL 源文件，深刻理解该模块的功能。"
-      - "第3步：基于你对该模块的设计复杂度、状态空间和预期目标的理解，填充 01 文档中由 `<!-- -->` 占位的所有章节。"
-      - "第4步：在规划中强调，目标是发现设计缺陷。属性失败（Fail）是通往更高设计质量的路径。"
+      - "目标：将验证规划写入 `.formal_records.yaml.planning`，并由系统自动渲染 `01_{DUT}_verification_needs_and_plan.md`。"
+      - "**首要行动：加载 `formal/plan` 技能并严格按其步骤执行。**"
+      - "本阶段只负责维护 YAML 子树 `planning`；`01_{DUT}_verification_needs_and_plan.md` 是派生产物，禁止直接编辑。"
+      - "阅读 `{DUT}` 目录下的 README 和 RTL 源文件，提炼项目概述、验证范围、策略、交付物、风险与初步缺陷线索。"
+      - "强调形式化验证目标是发现设计缺陷，属性失败（Fail）是重要输出。"
     reference_files:
       - "{DUT}/README.md"
       - "{RTL_PATH}/*.v"
       - "{RTL_PATH}/*.sv"
     output_files:
-      - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
+      - "{OUT}/.formal_records.yaml"
     checker:
-          - name: markdown_file_check
-            clss: "UnityChipCheckerMarkdownFileFormat"
-            args:
-              markdown_file_list: "{OUT}/01_{DUT}_verification_needs_and_plan.md"
-              no_line_break: true
+      - name: planning_structure_check
+        clss: "ucagent.checkers.formal.PlanningStructureChecker"
+        args:
+          dut_name: "{DUT}"
 
   # ========== Stage 2: DUT Function Understanding ==========
   - name: dut_function_understanding
     desc: "{DUT}功能理解"
+    skill_list: ["formal/basic-info"]
     task:
-      - "第1步：打开已为你准备好的模板文件 `{OUT_PATH}/02_{DUT}_basic_info.md`。"
-      - "第2步：通读代码，梳理出所有 input/output 的端口方向及位宽，仔细排查是否有些管脚连线、位宽可能存在设计疏漏。"
-      - "第3步：确认该模块是同步逻辑还是纯组合逻辑。如果是同步逻辑，识别出时钟域和复位域。"
-      - "第4步：填充 `02_{DUT}_basic_info.md` 中包含的所有留白注释区域。"
+      - "目标：将 DUT 基本信息写入 `.formal_records.yaml.basic_info`，并由系统自动渲染 `02_{DUT}_basic_info.md`。"
+      - "**首要行动：加载 `formal/basic-info` 技能并严格按其步骤执行。**"
+      - "本阶段只负责维护 YAML 子树 `basic_info`；`02_{DUT}_basic_info.md` 是派生产物，禁止直接编辑。"
+      - "通读代码，梳理 input/output、参数、时钟域、复位域、核心功能与潜在明显缺陷。"
+      - "禁止直接编辑 Markdown 文档，所有内容必须通过脚本写入 YAML。"
     reference_files:
       - "{DUT}/README.md"
       - "{RTL_PATH}/*.v"
       - "{RTL_PATH}/*.sv"
     output_files:
-      - "{OUT}/02_{DUT}_basic_info.md"
+      - "{OUT}/.formal_records.yaml"
     checker:
-          - name: markdown_file_check
-            clss: "UnityChipCheckerMarkdownFileFormat"
-            args:
-              markdown_file_list: "{OUT}/02_{DUT}_basic_info.md"
-              no_line_break: true
+      - name: basic_info_structure_check
+        clss: "ucagent.checkers.formal.BasicInfoStructureChecker"
+        args:
+          dut_name: "{DUT}"
 
   # ========== Stage 3: Functional Specification Analysis and Formal Strategy Definition ==========
   - name: functional_specification_analysis
     desc: "功能规格分析与形式化策略定义{COUNT_FG}/{COUNT_FC}/{COUNT_CK}"
     skill_list: ["formal/func-spec"]
     task:
-      - "目标：基于 DUT 的基础信息，分批次划分功能组(FG)、功能点(FC)和检测点(CK)，通过脚本写入 YAML。"
+      - "目标：基于 DUT 的基础信息，分批次划分功能组(FG)、功能点(FC)和检测点(CK)，通过脚本写入 `.formal_records.yaml.spec`。"
       - "**首要行动：加载 `formal/func-spec` 技能并严格按其步骤执行。**"
+      - "本阶段只负责维护 YAML 子树 `spec`；`03_{DUT}_functions_and_checks.md` 是派生产物，禁止直接编辑。"
       - "参考 `Guide_Doc/functions_and_checks.md` 的标签规范与高级模式。"
     reference_files:
       - "{DUT}/*.md"
@@ -242,10 +245,11 @@ stage:
     desc: "SVA 属性实现与自动同步"
     skill_list: ["formal/sva-gen"]
     task:
-      - "目标：将 `.formal_records.yaml` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
+      - "目标：将 `.formal_records.yaml.spec` 中的 `sva_body` 占位符替换为真实的 SVA 断言代码。"
       - "**首要行动：加载 `formal/sva-gen` 技能并严格按其步骤执行。**"
+      - "本阶段只负责维护 YAML 子树 `spec.*.check_points[*].sva_body`。"
       - "1. 使用 `update_sva_body.py` 脚本为每个检测点填充逻辑。"
-      - "2. **禁止直接修改 .sv 文件**，系统会自动渲染生成验证环境。"
+      - "2. **禁止直接修改 .sv 文件**，系统会自动 full refresh 渲染生成验证环境。"
       - "3. 参考 `Guide_Doc/sva_property.md` 了解编码规范。"
     reference_files:
       - "{OUT}/.formal_records.yaml"
@@ -262,14 +266,19 @@ stage:
   # ========== Stage 5: Verification Script Generation ==========
   - name: script_generation
     desc: "验证脚本校验"
+    skill_list: ["formal/env-config"]
     task:
-      - "第1步：TCL 文件 `{OUT}/tests/{DUT}_formal.tcl` 已经由模板系统生成。"
-      - "第2步：请打开它，查看一下它的时钟配置、复位配置，如果有和实际 wrapper 不匹配的，直接在里面修改保存。"
-      - "第3步：调用 Check 工具来测试它是否能正常跑起来。"
+      - "目标：基于 `.formal_records.yaml.basic_info.clock_reset` 与 `.formal_records.yaml.extra_config.tcl` 自动渲染 `wrapper/checker/formal.tcl`。"
+      - "**首要行动：加载 `formal/env-config` 技能并严格按其步骤执行。**"
+      - "本阶段只负责确认 `basic_info.clock_reset` 与 `extra_config.tcl`；`formal.tcl`、`wrapper.sv`、`checker.sv` 都是派生产物，禁止直接编辑。"
+      - "时钟和复位信号必须在 Stage 2 的 `basic_info.clock_reset` 中明确定义；Stage 5 只渲染，不再推断。"
+      - "当 YAML 或模板发生变化时，应以 full refresh 后的生成环境为准。"
+      - "完成配置后调用 Check 工具验证生成的 formal 环境可以正常运行。"
     reference_files:
+      - "{OUT}/.formal_records.yaml"
       - "{OUT}/tests/{DUT}_checker.sv"
     output_files:
-      - "{OUT}/tests/{DUT}_formal.tcl"
+      - "{OUT}/.formal_records.yaml"
     checker:
       - name: script_generation_check
         clss: "ucagent.checkers.formal.ScriptGenerationChecker"
@@ -284,6 +293,7 @@ stage:
     task:
       - "目标：消除所有环境问题（TRIVIALLY_TRUE 和环境相关 FALSE），确保验证环境无过约束/欠约束。"
       - "**首要行动：加载 `formal/sva-audit` 技能并严格按其步骤执行。**"
+      - "本阶段主要维护 YAML 子树 `analysis`，必要时联动修正 `spec`。"
       - "1. **环境纠偏**：如果遇到参数未定义（如 WIDTH）或位宽错误，**禁止手动修改 SV 文件**，必须使用 `update_spec.py` 的 `set_param` 或 `add_signal` 动作更新 YAML。"
       - "2. **分析填写**：使用 `update_analysis.py` 脚本为每个异常属性填写分析详情。"
 
@@ -310,6 +320,7 @@ stage:
     task:
       - "目标：分析 fanin 覆盖率报告，为未覆盖信号补充断言以提升 COI。"
       - "**首要行动：加载 `formal` 目录下技能并按其步骤执行。**"
+      - "本阶段主要维护 YAML 子树 `spec` 与对应 `sva_body`，不要直接编辑 `checker.sv`。"
     reference_files:
       - "{OUT}/tests/{FANIN_REP}"
       - "{OUT}/tests/{DUT}_checker.sv"
@@ -360,6 +371,7 @@ stage:
     task:
       - "目标：对 RTL_BUG 属性进行深度分析并生成 BUG 报告。"
       - "**首要行动：加载 `formal/bug-report` 技能并填充 Bug 详情。**"
+      - "本阶段只负责维护 YAML 子树 `bugs`；`04_{DUT}_bug_report.md` 是派生产物。"
       - "注：Checker 已自动在 .formal_records.yaml 中为所有 RTL_BUG 生成了 Bug 报告骨架，你只需通过 `update_bug.py` 脚本开始填写即可。"
     reference_files:
       - "Guide_Doc/bug_report.md"
@@ -423,11 +435,13 @@ stage:
   # ========== Stage 11: Verification Summary and Review ==========
   - name: verification_review_and_summary
     desc: "验证总结与审查"
+    skill_list: ["formal/summary"]
     task:
-      - "目标：生成形式化验证的最终总结与审查报告。"
-      - "第1步：读取 `{OUT}/tests/{LOG_FILE}` 和 `{OUT}/01_{DUT}_verification_needs_and_plan.md`，统计属性状态（PASS/FALSE/COVER）。"
-      - "第2步：参考 `Guide_Doc/formal_summary.md` 格式，编写 `{OUT}/05_{DUT}_formal_summary.md`。"
-      - "第3步：完成后调用 Check 工具，等待人工审核。"
+      - "目标：将最终总结写入 `.formal_records.yaml.summary`，并自动渲染 `05_{DUT}_formal_summary.md`。"
+      - "**首要行动：加载 `formal/summary` 技能并严格按其步骤执行。**"
+      - "本阶段只负责维护 YAML 子树 `summary`；`05_{DUT}_formal_summary.md` 是派生产物，禁止直接编辑。"
+      - "结合 `run_results`、覆盖率、Bug 报告与验证规划，填写总体结果、完备性评估、严重漏洞汇总和验收结论。"
+      - "禁止直接编辑 Markdown 总结文档。"
     reference_files:
       - "{OUT}/01_{DUT}_verification_needs_and_plan.md"
       - "{OUT}/tests/{LOG_FILE}"
@@ -436,10 +450,12 @@ stage:
       - "{OUT}/tests/test_{DUT}_counterexample.py"
       - "Guide_Doc/formal_summary.md"
     output_files:
-      - "{OUT}/05_{DUT}_formal_summary.md"
+      - "{OUT}/.formal_records.yaml"
     checker:
-      - name: human_check_formal_summary
-        clss: "HumanChecker"
+      - name: formal_summary_check
+        clss: "ucagent.checkers.formal.FormalSummaryChecker"
+        args:
+          dut_name: "{DUT}"
 
 ################## Check Fail LLM & Complete Pass LLM 配置 ##################
 

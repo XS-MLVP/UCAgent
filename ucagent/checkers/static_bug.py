@@ -36,6 +36,7 @@ import os
 from typing import List, Tuple
 
 import ucagent.util.functions as fc
+from ucagent.util.bug_analysis_contract import STATIC_BUG_SECTION_MARKERS
 from ucagent.util.log import info, warning
 from ucagent.checkers.base import Checker, UnityChipBatchTask
 
@@ -87,6 +88,31 @@ _RE_FILE_KEY = re.compile(
     r'^(.+):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$'
 )
 
+
+def _check_static_bug_section_markers(path: str) -> List[str]:
+    """Validate the canonical language-independent static report sections."""
+
+    with open(path, "r", encoding="utf-8") as handle:
+        lines = handle.read().splitlines()
+    positions = []
+    errors = []
+    for marker in STATIC_BUG_SECTION_MARKERS:
+        matches = [index + 1 for index, line in enumerate(lines) if line.strip() == marker]
+        if len(matches) != 1:
+            errors.append(
+                f"Static report marker '{marker}' must occur on a standalone line "
+                f"exactly once; found {len(matches)} occurrence(s)."
+            )
+        else:
+            positions.append(matches[0])
+    if not errors and positions != sorted(positions):
+        errors.append(
+            "Static report section markers are out of canonical order; expected "
+            + " -> ".join(STATIC_BUG_SECTION_MARKERS)
+            + "."
+        )
+    return errors
+
 # Regex for parsing <file>path</file> completion markers written by the LLM
 # into the static doc at the end of each batch.  Using a plain regex (not
 # an XML parser) because the surrounding markdown contains unclosed
@@ -97,6 +123,102 @@ _RE_FILE_PROGRESS_TAG = re.compile(r'<file>(.*?)</file>', re.DOTALL)
 # nested_keys_as_list (0-based: FG=0, FC=1, CK=2, BG-STATIC=3, LINK-BUG=4, FILE=5).
 # Used to split file_path strings without losing "/" inside a filepath.
 _STATIC_FILE_LEVEL = len(_STATIC_KEYNAMES) - 1  # 5
+
+
+def parse_source_location(location: str) -> dict:
+    """Parse a workspace-relative ``path:line-range`` source location."""
+    if not isinstance(location, str) or not location.strip():
+        raise ValueError("source location must be a non-empty string")
+    raw = location.strip()
+    match = _RE_FILE_KEY.fullmatch(raw)
+    if not match:
+        raise ValueError(
+            f"'{location}' must use filepath:line1-line2[,line3-line4] format"
+        )
+    ranges = []
+    for line_range in match.group(2).split(","):
+        start_text, separator, end_text = line_range.partition("-")
+        start = int(start_text)
+        end = int(end_text) if separator else start
+        if start < 1 or end < start:
+            raise ValueError(f"'{location}' contains an invalid line range '{line_range}'")
+        ranges.append({"start": start, "end": end})
+    return {"location": raw, "path": match.group(1), "ranges": ranges}
+
+
+def parse_confirmed_static_bug_links(static_path: str, parsed_data=None) -> List[dict]:
+    """Return confirmed static-to-dynamic Bug links and their document ranges.
+
+    ``BG-TBD``, ``BG-NA``, and ``BG-STATIC-NULL`` entries are intentionally
+    excluded. Each returned item represents one static Bug, while
+    ``dynamic_bug_tags`` preserves every confirmed dynamic Bug linked from it.
+    """
+    data = parsed_data
+    if data is None:
+        data = fc.parse_nested_keys(
+            static_path,
+            _STATIC_KEYNAMES,
+            _STATIC_PREFIXES,
+            _STATIC_SUFFIXES,
+        )
+    link_paths, _, _ = fc.nested_keys_as_list(
+        data,
+        "LINK-BUG",
+        _STATIC_KEYNAMES,
+    )
+
+    with open(static_path, "r", encoding="utf-8") as static_file:
+        lines = static_file.read().splitlines()
+    occurrences = []
+    for line_number, line in enumerate(lines, start=1):
+        match = re.search(r"<(BG-STATIC-[^<>]+)>", line)
+        if match:
+            occurrences.append((match.group(1), line_number))
+
+    ranges_by_start = {}
+    for index, (alias, start) in enumerate(occurrences):
+        end = len(lines)
+        next_start = occurrences[index + 1][1] if index + 1 < len(occurrences) else None
+        for candidate in range(start + 1, (next_start or len(lines) + 1)):
+            line = lines[candidate - 1]
+            if re.search(r"<(?:FG|FC|CK)-[^<>]+>", line) or re.match(
+                r"^\s*#{1,3}\s+", line
+            ):
+                end = candidate - 1
+                break
+        else:
+            if next_start is not None:
+                end = next_start - 1
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        ranges_by_start[start] = {"start": start, "end": end}
+
+    confirmed_links = []
+    for path in link_paths:
+        parts = path.split("/")
+        if len(parts) < 5:
+            continue
+        alias = parts[-2]
+        link_key = parts[-1]
+        if alias == _NULL_SENTINEL_KEY or not _RE_LINK_CONFIRMED.fullmatch(link_key):
+            continue
+        try:
+            alias_node = data[parts[0]]["FC"][parts[1]]["CK"][parts[2]][
+                "BG-STATIC"
+            ][alias]
+            document_range = ranges_by_start[alias_node["line"]]
+        except (KeyError, TypeError):
+            raise ValueError(
+                f"Cannot determine the document range for static Bug '<{alias}>'."
+            ) from None
+        confirmed_links.append({
+            "alias": alias,
+            "dynamic_bug_tags": [
+                f"BG-{match.group(1)}" for match in _RE_BRACKET_TAG.finditer(link_key)
+            ],
+            "range": document_range,
+        })
+    return confirmed_links
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +343,8 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 "error": f"Static bug analysis document '{self.static_doc}' does not exist."
             }
 
+        section_errors = _check_static_bug_section_markers(real_path)
+
         # ── parse hierarchy ──────────────────────────────────────────────────
         try:
             data = fc.parse_nested_keys(
@@ -248,6 +372,14 @@ class UnityChipCheckerStaticBugFormat(Checker):
         # ── no BG-STATIC tags at all ──────────────────────────────────────────
         if not klist and not blist:
             if empty_is_ok:
+                if section_errors:
+                    return False, {
+                        "error": section_errors,
+                        "check_list": [
+                            "Keep the three canonical static report section markers even while a batch is in progress",
+                            "Display headings may be localized and are not parsed",
+                        ],
+                    }
                 return True, {"message": "No static bugs recorded."}
             return False, {
                 "error": (
@@ -265,7 +397,7 @@ class UnityChipCheckerStaticBugFormat(Checker):
                 ],
             }
 
-        errors: List[str] = []
+        errors: List[str] = list(section_errors)
 
         # ── CK path cross-reference against functions_and_checks ─────────────
         fc_path = self.get_path(self.functions_and_checks_doc)
@@ -356,15 +488,16 @@ class UnityChipCheckerStaticBugFormat(Checker):
             file_key = parts[_STATIC_FILE_LEVEL] if len(parts) > _STATIC_FILE_LEVEL else file_path.split("/")[-1]
             # strip the "FILE-" prefix to get the user-written filepath:linerange
             file_content = file_key[5:] if file_key.startswith("FILE-") else file_key
-            m = _RE_FILE_KEY.match(file_content)
-            if not m:
+            try:
+                parsed_location = parse_source_location(file_content)
+            except ValueError:
                 errors.append(
                     f"FILE tag '<{file_key}>' in path '{file_path}': invalid format. "
                     f"Expected '<FILE-filepath:line1-line2[,line3-line4]>' "
                     f"(e.g. '<FILE-src/dut.v:50-56>')."
                 )
             else:
-                src_filepath = m.group(1)
+                src_filepath = parsed_location["path"]
                 abs_src = self.get_path(src_filepath)
                 if not os.path.exists(abs_src):
                     errors.append(
@@ -440,6 +573,8 @@ class UnityChipCheckerStaticBugValidation(Checker):
                 "error": f"Static bug analysis document '{self.static_doc}' does not exist."
             }
 
+        section_errors = _check_static_bug_section_markers(static_path)
+
         # ── parse hierarchy ──────────────────────────────────────────────────
         try:
             data = fc.parse_nested_keys(
@@ -461,8 +596,12 @@ class UnityChipCheckerStaticBugValidation(Checker):
         null_entries = [item for item in blist if item[1].split("/")[-1] == _NULL_SENTINEL_KEY]
         real_broken  = [item for item in blist if item[1].split("/")[-1] != _NULL_SENTINEL_KEY]
 
-        errors:         List[str]              = []
-        confirmed_refs: List[Tuple[str, int]]  = []   # (tag_name_upper, line_no_placeholder)
+        errors: List[str] = list(section_errors)
+        confirmed_refs = [
+            (tag[3:].upper(), 0)
+            for link in parse_confirmed_static_bug_links(static_path, data)
+            for tag in link["dynamic_bug_tags"]
+        ]
 
         # ── CK path cross-reference against functions_and_checks ─────────────
         fc_path = self.get_path(self.functions_and_checks_doc)
@@ -539,9 +678,6 @@ class UnityChipCheckerStaticBugValidation(Checker):
                 )
                 continue
 
-            # ── collect confirmed tag names for cross-reference ──────────────
-            for m in _RE_BRACKET_TAG.finditer(link_key):
-                confirmed_refs.append((m.group(1).upper(), 0))
         # ── FILE tag presence and format ──────────────────────────────────
         file_klist, file_blist, _ = fc.nested_keys_as_list(data, "FILE", _STATIC_KEYNAMES)
         for _, path, _ in (item for item in file_blist if item[0] == "LINK-BUG"):
@@ -554,14 +690,15 @@ class UnityChipCheckerStaticBugValidation(Checker):
             parts = file_path.split("/", _STATIC_FILE_LEVEL)
             file_key = parts[_STATIC_FILE_LEVEL] if len(parts) > _STATIC_FILE_LEVEL else file_path.split("/")[-1]
             file_content = file_key[5:] if file_key.startswith("FILE-") else file_key
-            m = _RE_FILE_KEY.match(file_content)
-            if not m:
+            try:
+                parsed_location = parse_source_location(file_content)
+            except ValueError:
                 errors.append(
                     f"FILE tag '<{file_key}>' in path '{file_path}': invalid format. "
                     f"Expected '<FILE-filepath:line1-line2[,line3-line4]>'."
                 )
             else:
-                src_filepath = m.group(1)
+                src_filepath = parsed_location["path"]
                 abs_src = self.get_path(src_filepath)
                 if not os.path.exists(abs_src):
                     errors.append(
@@ -751,6 +888,15 @@ class UnityChipBatchCheckerStaticBug(Checker):
                 content = ""
 
         if content:
+            section_errors = _check_static_bug_section_markers(doc_path)
+            if section_errors:
+                return False, {
+                    "error": section_errors,
+                    "task": [
+                        "Use the canonical tagged static report structure even in black-box mode.",
+                        "Keep the explanation between <STATIC-BUG-DETAILS> and <STATIC-BUG-PROGRESS>.",
+                    ],
+                }
             warning(
                 f"UnityChipBatchCheckerStaticBug: No source files found "
                 f"matching {self.file_list}. Black-box verification mode — "

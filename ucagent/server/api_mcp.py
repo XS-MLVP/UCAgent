@@ -9,10 +9,28 @@ Protocol (MCP).  The class follows the same lifecycle pattern as
 """
 
 import threading
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from ucagent.verify_pdb import VerifyPDB
+
+
+def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
+    """Return MCP-visible tools, retaining bounded waveform diagnostics.
+
+    ``--mcp-server-no-file-tools`` hides generic workspace file operations.  WaveInfo
+    has its own constrained input/output contract and is required to produce dynamic
+    Bug-analysis receipts, so it is deliberately exposed in both modes.
+    """
+    tools = (
+        agent.tool_list_base
+        + agent.tool_list_task
+        + agent.tool_list_ext
+        + getattr(agent, "tool_list_waveform", [])
+    )
+    if not no_file_ops:
+        tools += agent.tool_list_file
+    return tools
 
 
 class PdbMcpServer:
@@ -86,10 +104,7 @@ class PdbMcpServer:
 
         agent = self.pdb.agent
 
-        # Collect tools from the agent
-        tools = agent.tool_list_base + agent.tool_list_task + agent.tool_list_ext
-        if not self.no_file_ops:
-            tools += agent.tool_list_file
+        tools = _collect_mcp_tools(agent, self.no_file_ops)
 
         agent.cfg.update_template(
             {"TOOLS": ", ".join([t.name for t in tools])}

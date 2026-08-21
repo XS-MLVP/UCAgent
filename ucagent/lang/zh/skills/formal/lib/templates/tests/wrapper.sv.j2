@@ -1,14 +1,19 @@
-module {{ DUT }}_wrapper(
-  input clk,
-  input rst_n
-);
-
-{%- if parameters %}
-  // Parameters
-{%- for key, value in parameters.items() %}
-  parameter {{ key }} = {{ value }};
-{%- endfor %}
+module {{ DUT }}_wrapper
+{%- if parameter_items %}
+  #(
+  {%- for key, value in parameter_items %}
+    parameter {{ key }} = {{ value }}{{ "," if not loop.last }}
+  {%- endfor %}
+  )
 {%- endif %}
+(
+{%- set port_items = [] %}
+{%- if has_clock %}{% set _ = port_items.append('input ' ~ (clock_signal or 'clk')) %}{% endif %}
+{%- if has_reset %}{% set _ = port_items.append('input ' ~ (reset_signal or 'rst_n')) %}{% endif %}
+{%- if port_items %}
+  {{ port_items | join(',\n  ') }}
+{%- endif %}
+);
 
   // Auto-generated symbolic signals
 {% for decl in internal_decls %}
@@ -18,22 +23,22 @@ module {{ DUT }}_wrapper(
 {%- if whitebox_signals %}
   // Manual whitebox signals
 {%- for sig in whitebox_signals %}
-  {{ sig.rstrip(';') }};
+  {{ sig.declaration }};
 {%- endfor %}
 {%- endif %}
 
-  assign rst = ~rst_n;
-{%- if whitebox_signals %}
-{%- for sig in whitebox_signals %}
-{%- set sig_name = sig.rstrip(';').split()[-1] %}
-  assign {{ sig_name }} = u_dut.{{ sig_name }};
+{%- if clock_reset_aliases %}
+  // Auto-generated aliases from generic env clk/rst_n to DUT-local clock/reset names
+{%- for alias in clock_reset_aliases %}
+  {{ alias.declaration }};
+  assign {{ alias.name }} = {{ alias.expr }};
 {%- endfor %}
 {%- endif %}
 
   {{ DUT }} 
-{%- if parameters %}
+{%- if parameter_items %}
   #(
-  {%- for key, value in parameters.items() %}
+  {%- for key, value in parameter_items %}
     .{{ key }}({{ key }}){{ "," if not loop.last }}
   {%- endfor %}
   ) 
@@ -42,10 +47,16 @@ module {{ DUT }}_wrapper(
     {{ dut_connections | join(',\n    ') }}
   );
 
+{%- if whitebox_signals %}
+{%- for sig in whitebox_signals %}
+  assign {{ sig.name }} = u_dut.{{ sig.name }};
+{%- endfor %}
+{%- endif %}
+
   {{ DUT }}_checker 
-{%- if parameters %}
+{%- if parameter_items %}
   #(
-  {%- for key, value in parameters.items() %}
+  {%- for key, value in parameter_items %}
     .{{ key }}({{ key }}){{ "," if not loop.last }}
   {%- endfor %}
   ) 

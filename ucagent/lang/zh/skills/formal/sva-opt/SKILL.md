@@ -7,8 +7,15 @@ description: 指导解释覆盖率报告并优化未覆盖死角的技能
 
 本技能指导如何根据覆盖率检查结果对断言集合进行增补，实现 COI 覆盖闭环。
 
+本阶段的主要写入口是 `.formal_records.yaml.spec` 与对应的 `sva_body` 字段。
+
 > **COI 概念、fanin.rep 格式、信号映射表参见 `Guide_Doc/coi_coverage.md`**
 > **SVA 编码规范参见 `Guide_Doc/sva_property.md`**
+
+执行说明：
+- 在本工作流中，请优先通过 `RunSkillScript` 调用技能脚本
+- 不要假设宿主 `python3` 环境具备所有依赖
+- `checker.sv` 是派生产物，新增断言后应以 full refresh 生成结果为准
 
 ## 步骤
 
@@ -52,5 +59,5 @@ python3 .ucagent/skills/formal/sva-opt/scripts/run_formal_verification.py -timeo
 ## 核心规则
 
 1. 每个未覆盖信号至少需要一个 assert，仅 cover 引用不够
-2. 补断言时必须先更新 `.formal_records.yaml` 再改 checker.sv
+2. 补断言时必须先更新 `.formal_records.yaml`，不要直接编辑 checker.sv
 3. UNREACHABLE 必须满足严格条件才能标记（参见 `Guide_Doc/coi_coverage.md`）

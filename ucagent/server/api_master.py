@@ -1060,8 +1060,28 @@ class PdbMasterApiServer:
             raise ValueError("Compiled workspace directory not found")
         return picker_workspace
 
+    def _relaunch_workspace_dir(self, ws: Dict[str, Any]) -> str:
+        for value in (
+            ws.get("picker_workspace"),
+            os.path.join(str(ws.get("workspace_dir") or ""), "workspace"),
+            ws.get("workspace_dir"),
+        ):
+            raw = str(value or "").strip()
+            if not raw:
+                continue
+            workspace_root = os.path.abspath(raw)
+            if workspace_root and os.path.isdir(workspace_root) and self._is_ucagent_workspace_root(workspace_root):
+                return workspace_root
+        raise ValueError("Relaunch workspace is missing .ucagent/ucagent_info.json")
+
+    def _launchable_workspace_dir(self, ws: Dict[str, Any]) -> str:
+        compile_info = ws.get("compile") or {}
+        if compile_info.get("status") != "success":
+            return self._relaunch_workspace_dir(ws)
+        return self._compiled_workspace_dir(ws)
+
     def _create_compiled_workspace_archive(self, ws: Dict[str, Any], archive_stem: str = "") -> Tuple[str, str, str]:
-        picker_workspace = self._compiled_workspace_dir(ws)
+        picker_workspace = self._launchable_workspace_dir(ws)
         archive_stem = _safe_name(
             archive_stem or os.path.basename(os.path.abspath(ws.get("workspace_dir", ""))),
             "workspace",
@@ -5044,9 +5064,8 @@ class PdbMasterApiServer:
                 "generated_filelist": False,
                 "copied_files": [],
                 "config_path": "",
-                "use_zip_workspace": False,
+                "use_zip_workspace": bool(req.get("use_zip_workspace", True)),
             }
-            req["use_zip_workspace"] = False
             picker_status = "success"
 
         compiled_config = str(compile_info.get("config_path") or "").strip()
@@ -5859,11 +5878,6 @@ class PdbMasterApiServer:
         }
 
     def _workspace_id_for_relaunch_path(self, workspace_root: str, info: Optional[Dict[str, Any]] = None) -> str:
-        info = info or {}
-        for key in ("workspace_id", "task_id"):
-            candidate = _safe_name(str(info.get(key) or "").strip(), "")
-            if candidate:
-                return candidate
         root_abs = os.path.abspath(workspace_root)
         base_name = os.path.basename(root_abs)
         if base_name == "workspace":
@@ -5873,6 +5887,23 @@ class PdbMasterApiServer:
             return base
         digest = hashlib.sha256(os.path.realpath(root_abs).encode("utf-8")).hexdigest()[:16]
         return f"relaunch_{digest}"
+
+    def _validate_relaunch_info_identity(self, workspace_root: str, info: Dict[str, Any], expected_id: str) -> None:
+        mismatches = []
+        info_path = self._ucagent_info_path_for_root(workspace_root)
+        for key in ("workspace_id", "task_id"):
+            raw = str((info or {}).get(key) or "").strip()
+            if not raw:
+                continue
+            actual = _safe_name(raw, "")
+            if actual and actual != expected_id:
+                mismatches.append(f"{key}={raw!r}")
+        if mismatches:
+            raise ValueError(
+                f"Relaunch workspace identity mismatch: {info_path} records "
+                f"{', '.join(mismatches)}, but the workspace directory resolves to '{expected_id}'. "
+                "Update .ucagent/ucagent_info.json to match the workspace directory before relaunching."
+            )
 
     def _register_relaunch_workspace_from_path(self, workspace_root: str) -> Optional[Dict[str, Any]]:
         workspace_root = os.path.abspath(os.path.expanduser(str(workspace_root or "").strip()))
@@ -5886,7 +5917,8 @@ class PdbMasterApiServer:
         except Exception:
             info = {}
         workspace_id = self._workspace_id_for_relaunch_path(workspace_root, info)
-        task_id = _safe_name(str(info.get("task_id") or workspace_id).strip(), workspace_id)
+        self._validate_relaunch_info_identity(workspace_root, info, workspace_id)
+        task_id = workspace_id
         picker_workspace = workspace_root
         launch_workspace_dir = os.path.dirname(workspace_root) if os.path.basename(workspace_root) == "workspace" else workspace_root
         now = _now()
@@ -6370,6 +6402,80 @@ class PdbMasterApiServer:
         @app.get("/api/workspace-sync/status", summary="Workspace sync-back status", dependencies=[Depends(_check_access_key)])
         def workspace_sync_status(agent_id: str = Query(default="")):
             return {"status": "ok", "data": self._workspace_sync_status(agent_id)}
+
+        @app.post("/api/records", summary="Report structured records", dependencies=[Depends(_check_access_key)])
+        def report_records(body: Dict[str, Any] = Body(default_factory=dict)):
+            raw_agent_id = body.get("agent_id")
+            raw_record_type = body.get("record_type")
+            raw_data_key = body.get("data_key", "")
+            if not isinstance(raw_agent_id, str) or not raw_agent_id.strip():
+                raise HTTPException(status_code=400, detail="'agent_id' must not be empty")
+            if not isinstance(raw_record_type, str) or not raw_record_type.strip():
+                raise HTTPException(status_code=400, detail="'record_type' must not be empty")
+            if not isinstance(raw_data_key, str):
+                raise HTTPException(status_code=400, detail="'data_key' must be a string")
+            if "payload" not in body:
+                raise HTTPException(status_code=400, detail="'payload' is required")
+            schema_version = body.get("schema_version", 1)
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int):
+                raise HTTPException(status_code=400, detail="'schema_version' must be an integer")
+            if schema_version < 1:
+                raise HTTPException(status_code=400, detail="'schema_version' must be at least 1")
+            source = body.get("source", {})
+            if source is None:
+                source = {}
+            if not isinstance(source, dict):
+                raise HTTPException(status_code=400, detail="'source' must be an object")
+
+            agent_id = raw_agent_id.strip()
+            record_type = raw_record_type.strip()
+            data_key = raw_data_key.strip()
+            payload = body["payload"]
+            launch_order = []
+            if (
+                record_type.lower() == "launch"
+                and isinstance(payload, dict)
+                and isinstance(payload.get("task_list"), list)
+            ):
+                task_list = payload["task_list"]
+                item_count = len(task_list)
+                for index, task in enumerate(task_list):
+                    if isinstance(task, dict):
+                        task_label = (
+                            task.get("task_name")
+                            or task.get("selected_module")
+                            or task.get("dut_name")
+                            or f"task-{index + 1}"
+                        )
+                    else:
+                        task_label = task
+                    launch_order.append(str(task_label))
+            elif isinstance(payload, (list, dict)):
+                item_count = len(payload)
+            else:
+                item_count = 0 if payload is None else 1
+            stage_name = str(source.get("stage_name") or "").strip()
+            launch_summary = (
+                f" launch_order={json.dumps(launch_order, ensure_ascii=False)}"
+                if launch_order
+                else ""
+            )
+            _master_log(
+                f"Record report received agent='{agent_id}' type='{record_type}' "
+                f"data_key='{data_key or '-'}' stage='{stage_name or '-'}' items={item_count} "
+                f"schema_version={schema_version}{launch_summary}"
+            )
+            return {
+                "status": "ok",
+                "message": "Record report accepted.",
+                "accepted": {
+                    "agent_id": agent_id,
+                    "record_type": record_type,
+                    "data_key": data_key,
+                    "item_count": item_count,
+                    "schema_version": schema_version,
+                },
+            }
 
         @app.post("/api/workspace-sync/back", summary="Sync a client workspace archive back to master", dependencies=[Depends(_check_access_key)])
         async def workspace_sync_back(request: Request):
@@ -7343,7 +7449,6 @@ class PdbMasterApiServer:
                 req["picker_args"] = list(compile_info.get("picker_extra_args") or [])
                 if status.get("workspace_source") == "ucagent_info":
                     req["_relaunch_from_ucagent_info"] = True
-                    req["use_zip_workspace"] = False
                 task = self._run_task_launch(req)
             except KeyError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -8581,6 +8686,52 @@ class PdbMasterClient:
         self._connected = False
         self._thread = None
         return True, f"Disconnected from master {self.master_url}"
+
+    def report_records(self, report: Dict[str, Any]) -> Tuple[bool, str]:
+        """Send one versioned, type-discriminated record envelope to the master."""
+        if self._kicked:
+            return False, f"This agent was removed from master {self.master_url}."
+        if self._auth_failed:
+            return False, f"Access key was rejected by master {self.master_url}."
+        if not self._running:
+            return False, f"Not connected to master {self.master_url}."
+        if not isinstance(report, dict):
+            return False, "Record report must be a dictionary."
+
+        import requests
+
+        try:
+            payload = _copy_jsonable(report)
+        except (TypeError, ValueError) as exc:
+            return False, f"Record report must be JSON serializable: {exc}"
+        payload["agent_id"] = self.agent_id
+        payload.setdefault("schema_version", 1)
+        url = f"{self.master_url}/api/records"
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=30,
+                headers=self._headers(),
+            )
+        except Exception as exc:
+            self._connected = False
+            return False, f"Failed to report records to master {self.master_url}: {exc}"
+        if response.status_code == 403:
+            self._auth_failed = True
+            self._running = False
+            self._connected = False
+            return False, f"Access key was rejected by master {self.master_url} (HTTP 403)."
+        if not response.ok:
+            return False, (
+                f"Record report failed for master {self.master_url}: "
+                f"HTTP {response.status_code} {self._response_detail(response)}"
+            )
+        self._connected = True
+        return True, (
+            f"Reported type '{payload.get('record_type')}' records to master "
+            f"{self.master_url} as '{self.agent_id}'."
+        )
 
     def workspace_sync_status(self) -> Tuple[bool, str, Dict[str, Any]]:
         if self._kicked:

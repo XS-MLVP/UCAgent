@@ -42,6 +42,48 @@ MISSMT/FC-FUNC2/CK-ASSERT:   1030-1042         # TODO: 补充断言
 - 单行映射也使用相同格式，例如 `12-12` 表示仅覆盖第 12 行；不允许省略结束值。
 - 以下写法视为非法：仅写单个数字（如 `1`）、起止颠倒（如 `200-10`）、包含非数字字符或混合不同分隔符。
 
+### 批处理行块与规范映射文件
+
+逐行查漏补缺阶段会将目标文档切分为行块。每个映射区间不得超过当前阶段配置的行范围上限，具体批次边界以 `Check`/`Complete` 返回的 `line_block`、`start_line` 和 `end_line` 为准；跨批次的连续内容应按实际行块拆分记录。空白或仅包含空白字符的行可以不映射，其他行不能遗漏。
+
+每个行块返回的 `map_file` 是唯一规范映射文件。一个目标文档无论被拆成多少批次，都必须累计更新同一个 `map_file`；不得根据 `line_block` 自行创建带 `1_100`、`101_200` 等行号后缀的映射文件。`Check` 会明确报告不会被读取的分块命名文件，处理时应将其中有效映射合并到 `map_file` 后删除误建文件。
+
+当前进度和待处理行块以动态任务描述及 `Check`/`Complete` 返回为准。正常执行时，目标文档是只读输入，本阶段不应修改其内容或行号；如果阶段外部更新、重新生成或其他进程修改了目标文档，`Check` 会检测到内容摘要变化并使受影响的完成状态失效，此时必须重新读取并按新的行块审查，不能修改参考文档来消除错误，也不能伪造完成状态。`MISSMT/...` 只能用于中间记录，不能作为最终完成结果；`IGNORE/FC-*/CK-*` 必须在映射行末注释中说明具体忽略原因。本阶段会自动选择实际的目标文档，执行时以任务描述及 `Check`/`Complete` 返回的当前批次为准；`Guide_Doc/` 只作为格式参考，不属于逐行覆盖目标。
+
+`Check` 和批次尚未全部完成时的 `Complete` 返回值会附带 `current_line_block_contents`，批次推进时还会附带 `next_line_block_contents`。两者都是行块列表，每个行块包含 `line_block`、`file`、`start_line`、`end_line`、`map_file` 和 `content`。`content` 是按物理行号升序排列的有序映射，键为物理行号，值为该行原文；空白行的值为空字符串。转换为 YAML 后示例如下：
+
+```yaml
+current_line_block_contents:
+  - line_block: path/to/file.md:1-3
+    file: path/to/file.md
+    start_line: 1
+    end_line: 3
+    map_file: output/line_map/path_to_file_md_line_func_map.txt
+    content:
+      1: 第一行原文
+      2: ''
+      3: 第三行原文
+```
+
+未覆盖校验还会返回 `uncovered_lines`。`uncovered_blocks` 汇总连续物理行区间，`uncovered_content` 则按物理行号保存当前行块内全部未覆盖非空白行的原文：
+
+```yaml
+uncovered_lines:
+  - line_block: path/to/file.md:41-73
+    uncovered_line_count: 3
+    uncovered_blocks:
+      - 52-53
+      - 60-60
+    uncovered_content:
+      52: 第五十二行原文
+      53: 第五十三行原文
+      60: 第六十行原文
+```
+
+`invalid_mappings[].details.error` 只展示有界的“物理行号: 原文”摘录，避免错误字符串过长；结构化的 `uncovered_content` 保留当前诊断涉及的全部未覆盖原文。通常可直接使用这些内容补齐映射，无需再次读取源文件。只有判断功能含义依赖跨行块的标题层级、表格表头、术语定义或前置说明时，才需要读取 `file` 指向的完整文件。
+
+这些结构不为每行重复创建 `line` 和 `content` 字段，并避免把整个行块序列化成包含换行转义的长字符串。它们用于减少重复读取，但映射判断仍必须以源文件实际内容为准。
+
 ### 特殊前缀约定
 
 | 前缀      | 适用场景                         | 必须说明的内容                          |

@@ -174,7 +174,7 @@ docker run -it --rm \
   ghcr.io/xs-mlvp/ucagent:latest ucagent --as-master-persist --as-master
 ```
 
-If ghcr.io is not accessible, you can directly replace it with mirror addresses such as ghcr.nju.edu.cn.
+If ghcr.io is not accessible, you can directly replace it with mirror addresses such as `ghcr.nju.edu.cn`.
 
 After successful startup, visit `http://localhost:8800` in your browser.
 

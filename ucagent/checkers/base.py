@@ -3,6 +3,7 @@
 
 import os
 import sys
+import json
 from typing import Tuple
 from ucagent.util.config import Config
 from ucagent.util.functions import render_template, rm_workspace_prefix, fill_template
@@ -17,6 +18,15 @@ CB_KEY_SET_WORKSPACE = "after_set_workspace"
 CB_KEY_ON_INIT = "after_on_init"
 CB_KEY_SET_STAGE_MANAGER = "after_set_stage_manager"
 CB_KEY_SET_STAGE = "after_set_stage"
+
+
+def format_stage_args_examples(tool_name, stage_args):
+    """Return canonical object and JSON-string tool-call examples."""
+    stage_args_json = json.dumps(stage_args, ensure_ascii=False)
+    return (
+        f"{tool_name}(stage_args={stage_args_json})",
+        f"{tool_name}(stage_args={json.dumps(stage_args_json, ensure_ascii=False)})",
+    )
 
 
 class Checker:

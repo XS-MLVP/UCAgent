@@ -68,6 +68,11 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import (
     save_records,
     auto_scaffold_analysis_entries,
     auto_scaffold_bug_entries,
+    generate_planning_doc,
+    generate_basic_info_doc,
+    generate_summary_doc,
+    get_primary_clock_reset,
+    validate_extra_config_against_design,
 )
 
 class BaseFormalChecker(Checker):
@@ -123,6 +128,82 @@ class BaseFormalChecker(Checker):
             info("✅ TCL execution successful, logs updated")
             
         return True, {}, need_rerun
+
+
+class PlanningStructureChecker(BaseFormalChecker):
+    """Validates YAML-backed planning data and renders the planning doc."""
+
+    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
+        """Validate planning fields in .formal_records.yaml and render the planning markdown."""
+        records = load_records(self.paths.records_yaml)
+        if not records or not records.planning:
+            return self._fail(
+                "❌ planning data missing in .formal_records.yaml",
+                suggestion="Use formal/plan skill to fill the planning section.",
+            )
+
+        planning = records.planning
+        errors = []
+        if not str(planning.get("project_overview", "")).strip():
+            errors.append("project_overview is empty")
+        if not (planning.get("verification_scope", {}) or {}).get("included"):
+            errors.append("verification_scope.included is empty")
+        if not planning.get("strategy"):
+            errors.append("strategy is empty")
+        if not planning.get("deliverables"):
+            errors.append("deliverables is empty")
+        if not planning.get("risks"):
+            errors.append("risks is empty")
+
+        if errors:
+            return self._fail(
+                f"❌ planning validation failed ({len(errors)} issues)",
+                details="\n".join(f"  - {e}" for e in errors),
+            )
+
+        generate_planning_doc(records, self.paths.planning)
+        info(f"Auto-generated planning doc: {self.paths.planning}")
+        return self._pass("✅ Planning section is complete and rendered.")
+
+
+class BasicInfoStructureChecker(BaseFormalChecker):
+    """Validates YAML-backed basic info data and renders the basic info doc."""
+
+    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
+        """Validate basic_info fields in .formal_records.yaml and render the basic info markdown."""
+        records = load_records(self.paths.records_yaml)
+        if not records or not records.basic_info:
+            return self._fail(
+                "❌ basic_info data missing in .formal_records.yaml",
+                suggestion="Use formal/basic-info skill to fill the basic_info section.",
+            )
+
+        basic_info = records.basic_info
+        errors = []
+        if not str(basic_info.get("module_type", "")).strip():
+            errors.append("module_type is empty")
+        if not (basic_info.get("ports", {}) or {}).get("inputs"):
+            errors.append("ports.inputs is empty")
+        if not (basic_info.get("ports", {}) or {}).get("outputs"):
+            errors.append("ports.outputs is empty")
+        clock_reset = (basic_info.get("clock_reset", {}) or {})
+        clock_count = str(clock_reset.get("clock_count", "")).strip()
+        if clock_count and clock_count != "0" and not str(clock_reset.get("clock_signal", "")).strip():
+            errors.append("clock_reset.clock_signal is empty for a clocked DUT")
+        if not basic_info.get("core_functions"):
+            errors.append("core_functions is empty")
+        if not basic_info.get("correctness_requirements"):
+            errors.append("correctness_requirements is empty")
+
+        if errors:
+            return self._fail(
+                f"❌ basic_info validation failed ({len(errors)} issues)",
+                details="\n".join(f"  - {e}" for e in errors),
+            )
+
+        generate_basic_info_doc(records, self.paths.basic_info)
+        info(f"Auto-generated basic info doc: {self.paths.basic_info}")
+        return self._pass("✅ Basic info section is complete and rendered.")
 
 
 class FormalSpecJsonChecker(BaseFormalChecker):
@@ -290,13 +371,6 @@ class PropertyStructureChecker(BaseFormalChecker):
                 suggestion="Use 'update_sva_body.py' skill to fill 'sva_body' for each checkpoint in YAML."
             )
 
-        # Determine Rendering Mode based on stage name
-        # Stages 3-5 (foundational) use 'full', Stage 6+ (iterative) use 'append'
-        mode = "full"
-        stage_name = getattr(self.stage, "name", "").lower()
-        if any(s in stage_name for s in ["debugging", "optimization", "audit", "iteration"]):
-            mode = "append"
-
         # All CKs have implementation in YAML -> Trigger Rendering
         try:
             import subprocess
@@ -308,7 +382,7 @@ class PropertyStructureChecker(BaseFormalChecker):
             env_script = os.path.normpath(env_script)
             if os.path.exists(env_script):
                 result = subprocess.run(
-                    ["python3", env_script, "--mode", mode],
+                    ["python3", env_script, "--mode", "full"],
                     capture_output=True, text=True,
                     env={**os.environ, "DUT": self.dut_name},
                     timeout=30,
@@ -339,6 +413,41 @@ class ScriptGenerationChecker(BaseFormalChecker):
     """Integrated checker for the script_generation stage."""
     def do_check(self, timeout=300, **kwargs) -> tuple[bool, object]:
         """Validates the formal verification script (TCL)."""
+        records = load_records(self.paths.records_yaml)
+        if not records:
+            return self._fail("❌ .formal_records.yaml not found", suggestion="Run previous stages first.")
+
+        clock_cfg, reset_cfg = get_primary_clock_reset(records)
+        mismatches = validate_extra_config_against_design(records)
+        if mismatches:
+            return self._fail(
+                "❌ basic_info.clock_reset does not match DUT interface description",
+                details="\n".join(f"  - {item}" for item in mismatches),
+                suggestion="Update .formal_records.yaml.basic_info.clock_reset and related input port signal_type fields before rendering formal.tcl and wrapper.",
+            )
+
+        try:
+            import subprocess
+            env_script = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "..", "lang", "zh", "skills", "formal", "sva-gen",
+                "scripts", "generate_formal_env.py"
+            )
+            env_script = os.path.normpath(env_script)
+            result = subprocess.run(
+                ["python3", env_script, "--mode", "full"],
+                capture_output=True, text=True,
+                env={**os.environ, "DUT": self.dut_name},
+                timeout=30,
+            )
+            if result.returncode != 0:
+                return self._fail(
+                    "❌ Failed to render formal environment from YAML",
+                    details=result.stderr[:400] or result.stdout[:400],
+                    suggestion="Check basic_info/spec/extra_config.tcl fields in .formal_records.yaml.",
+                )
+        except Exception as e:
+            return self._fail(f"❌ Failed to render formal environment: {e}")
 
         # --- Step 1: TCL keyword check ---
         info("📝 Step 1/2: Checking TCL script keywords...")
@@ -349,7 +458,11 @@ class ScriptGenerationChecker(BaseFormalChecker):
         with open(tcl_path, 'r', encoding='utf-8') as f:
             tcl_content = f.read()
 
-        required_cmds = required_script_commands()
+        required_cmds = ["read_design", "prove"]
+        if clock_cfg.get("signal"):
+            required_cmds.append("def_clk")
+        if reset_cfg.get("signal"):
+            required_cmds.append("def_rst")
         missing = [k for k in required_cmds if k not in tcl_content]
         if missing:
             return self._fail(
@@ -1088,6 +1201,42 @@ class BugReportConsistencyChecker(BaseFormalChecker):
         }
 
 
+class FormalSummaryChecker(BaseFormalChecker):
+    """Validates YAML-backed summary data and renders final summary markdown."""
+
+    def do_check(self, timeout=0, **kwargs) -> tuple[bool, object]:
+        """Validate summary fields in .formal_records.yaml and render the final summary markdown."""
+        records = load_records(self.paths.records_yaml)
+        if not records or not records.summary:
+            return self._fail(
+                "❌ summary data missing in .formal_records.yaml",
+                suggestion="Use formal/summary skill to fill the summary section.",
+            )
+
+        summary = records.summary
+        errors = []
+        if not str(summary.get("core_function", "")).strip():
+            errors.append("core_function is empty")
+        if not str(summary.get("overall_result", "")).strip():
+            errors.append("overall_result is empty")
+        if not str(summary.get("acceptance_conclusion", "")).strip():
+            errors.append("acceptance_conclusion is empty")
+        for key in ("safety", "liveness", "cover"):
+            if not str((summary.get("completeness", {}) or {}).get(key, "")).strip():
+                errors.append(f"completeness.{key} is empty")
+
+        if errors:
+            return self._fail(
+                f"❌ summary validation failed ({len(errors)} issues)",
+                details="\n".join(f"  - {e}" for e in errors),
+            )
+
+        coverage = parse_coverage(self.paths.tests)
+        generate_summary_doc(records, self.paths.summary, coverage=coverage)
+        info(f"Auto-generated summary doc: {self.paths.summary}")
+        return self._pass("✅ Summary section is complete and rendered.")
+
+
 
 # =============================================================================
 # Static Bug - Formal Bug Linkage Checker
@@ -1156,4 +1305,3 @@ class StaticFormalBugLinkageChecker(BaseFormalChecker):
         }
 
         return True, result
-

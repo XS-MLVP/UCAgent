@@ -4,7 +4,7 @@
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
-from pydantic import Field, BaseModel, PrivateAttr
+from pydantic import Field, BaseModel, ConfigDict, PrivateAttr
 from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
 from langchain_mcp_adapters.tools import _get_injected_args, create_model, ArgModelBase, FuncMetadata
@@ -21,6 +21,23 @@ import time
 class EmptyArgs(BaseModel):
     """Empty arguments for tools that do not require any input."""
     pass
+
+
+class ExtraArgModelBase(ArgModelBase):
+    """FastMCP argument model base that preserves undeclared tool arguments."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
+
+    def model_dump_one_level(self) -> dict[str, Any]:
+        kwargs = super().model_dump_one_level()
+        kwargs.update(getattr(self, "__pydantic_extra__", None) or {})
+        return kwargs
+
+
+class ForbidExtraArgModelBase(ArgModelBase):
+    """FastMCP argument model base that rejects undeclared tool arguments."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
 class UCTool(BaseTool):
@@ -242,10 +259,12 @@ class UCTool(BaseTool):
         self.call_count += 1
         self.last_call_time = time.time()
         ctx = input.get("ctx", None)
+        tool_input = input.copy()
+        tool_input.pop("ctx", None)
         if not isinstance(ctx, Context):
             try:
                 self.is_in_call = True
-                return await super().ainvoke(input, config, **kwargs), None
+                return await super().ainvoke(tool_input, config, **kwargs), None
             finally:
                 self.is_in_call = False
                 self.last_call_time = time.time()
@@ -270,7 +289,7 @@ class UCTool(BaseTool):
         alive_thread = threading.Thread(target=self.__alive_loop, args=(timeout, ctx), daemon=True)
         alive_thread.start()
         try:
-            data = await super().ainvoke(input, config, **kwargs)
+            data = await super().ainvoke(tool_input, config, **kwargs)
         except Exception as e:
             import traceback
             fc.info(f"error: {e}")
@@ -326,10 +345,32 @@ def to_fastmcp(tool: BaseTool) -> FastMCPTool:
         field: (field_info.annotation, field_info)
         for field, field_info in tool.tool_call_schema.model_fields.items()
     }
+    raw_parameters = tool.args_schema.model_json_schema()
+    if "additionalProperties" in raw_parameters:
+        parameters["additionalProperties"] = raw_parameters.get(
+            "additionalProperties",
+            parameters.get("additionalProperties"),
+        )
+    extra_mode = getattr(
+        getattr(tool, "args_schema", None), "model_config", {}
+    ).get("extra")
+    if raw_parameters.get("description") and (
+        extra_mode == "allow" or not parameters.get("description")
+    ):
+        parameters["description"] = (
+            f"{parameters.get('description', '')}\n\n{raw_parameters['description']}"
+            if parameters.get("description")
+            else raw_parameters["description"]
+        )
+    arg_model_base = ArgModelBase
+    if extra_mode == "allow":
+        arg_model_base = ExtraArgModelBase
+    elif extra_mode == "forbid":
+        arg_model_base = ForbidExtraArgModelBase
     arg_model = create_model(
         f"{tool.name}Arguments",
         **field_definitions,
-        __base__=ArgModelBase,
+        __base__=arg_model_base,
     )
     fn_metadata = FuncMetadata(arg_model=arg_model)
 

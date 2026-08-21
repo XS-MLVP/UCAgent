@@ -1,22 +1,32 @@
-module {{ DUT }}_checker(
+module {{ DUT }}_checker
+{%- if parameter_items %}
+  #(
+  {%- for key, value in parameter_items %}
+    parameter {{ key }} = {{ value }}{{ "," if not loop.last }}
+  {%- endfor %}
+  )
+{%- endif %}
+(
 {%- if header_ports %}
   {{ header_ports | join(',\n  ') }}
-{%- else %}
-  input clk,
-  input rst_n
 {%- endif %}
 );
 
-{%- if parameters %}
-  // Parameters
-{%- for key, value in parameters.items() %}
-  parameter {{ key }} = {{ value }};
+{%- if clock_reset_aliases %}
+  // Auto-generated aliases from generic env clk/rst_n to DUT-local clock/reset names
+{%- for alias in clock_reset_aliases %}
+  {{ alias.declaration }};
+  assign {{ alias.name }} = {{ alias.expr }};
 {%- endfor %}
 {%- endif %}
 
   // Auto-generated checker skeleton from .formal_records.yaml
-  default clocking cb @(posedge clk); endclocking
-  default disable iff (!rst_n);
+{%- if has_clock %}
+  default clocking cb @({{ clock_edge or 'posedge' }} {{ clock_signal or 'clk' }}); endclocking
+{%- endif %}
+{%- if has_reset %}
+  default disable iff ({{ reset_disable_expr or '!rst_n' }});
+{%- endif %}
 
 {% for ck in check_points %}
   // {{ ck.description }}

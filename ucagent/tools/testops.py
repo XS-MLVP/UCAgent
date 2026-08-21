@@ -113,7 +113,8 @@ class RunPyTest(UCTool):
                 else:
                     raise ValueError(f"pytest_ex_args ({pytest_ex_args}) must be a string or a list.")
 
-        cmd = ["pytest", "-s", *self.get_pytest_args(), *test_target]
+        ENV_ARGS = env.get("UCA_PYTEST_ARGS", "").replace(";", " ").strip().split()
+        cmd = ["pytest", *ENV_ARGS, "-s", *self.get_pytest_args(), *test_target]
         info(f"Run command: PYTHONPATH={env['PYTHONPATH']} {' '.join(cmd)} (in {work_dir})\n")
         try:
             worker = subprocess.Popen(
@@ -228,6 +229,7 @@ class RunUnityChipTest(RunPyTest):
              run_manager: CallbackManagerForToolRun = None, return_all_checks=False,
              **kw) -> dict:
         """Run the Unity chip tests."""
+        return_test_details = kw.get("return_test_details", False)
         shutil.rmtree(self.result_dir, ignore_errors=True)
         all_pass, pyt_out, pyt_err = RunPyTest.do(self,
                                           os.path.join(self.workspace, test_dir_or_file),
@@ -243,7 +245,13 @@ class RunUnityChipTest(RunPyTest):
             "run_test_success": all_pass,
         }
         if os.path.exists(result_json_path):
-            ret_data = load_toffee_report(result_json_path, self.workspace, all_pass, return_all_checks)
+            ret_data = load_toffee_report(
+                result_json_path,
+                self.workspace,
+                all_pass,
+                return_all_checks,
+                return_test_details=return_test_details,
+            )
         info(f"Run UnityChip test report:\n{json.dumps(ret_data, indent=2)}\n")
         return ret_data, pyt_out, pyt_err
 

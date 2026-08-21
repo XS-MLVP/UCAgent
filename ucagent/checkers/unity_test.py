@@ -14,9 +14,58 @@ import copy
 import inspect
 import ast
 
-from ucagent.checkers.base import Checker, UnityChipBatchTask
+from ucagent.checkers.base import Checker, UnityChipBatchTask, format_stage_args_examples
 from ucagent.checkers.toffee_report import check_report, check_line_coverage
 from collections import OrderedDict
+
+
+def _normalize_test_prefixes(prefixes):
+    if prefixes in (None, ""):
+        return []
+    if isinstance(prefixes, str):
+        values = [prefixes]
+    elif isinstance(prefixes, (list, tuple)):
+        values = list(prefixes)
+    else:
+        raise TypeError(
+            "ignore_tc_prefix must be a string or a list/tuple of strings."
+        )
+    normalized = []
+    for prefix in values:
+        if not isinstance(prefix, str):
+            raise TypeError(
+                "ignore_tc_prefix entries must be strings."
+            )
+        prefix = prefix.strip()
+        if prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return normalized
+
+
+def _normalize_checkpoint_prefixes(prefixes):
+    if prefixes in (None, ""):
+        return []
+    if isinstance(prefixes, str):
+        values = [prefixes]
+    elif isinstance(prefixes, (list, tuple)):
+        values = list(prefixes)
+    else:
+        raise TypeError(
+            "ignore_ck_prefix must be a string or a list/tuple of strings."
+        )
+    normalized = []
+    for prefix in values:
+        if not isinstance(prefix, str):
+            raise TypeError("ignore_ck_prefix entries must be strings.")
+        prefix = prefix.strip()
+        if prefix and prefix not in normalized:
+            normalized.append(prefix)
+    return normalized
+
+
+def _test_name_matches_prefixes(test_name, prefixes):
+    return any(test_name.startswith(prefix) for prefix in prefixes)
+
 
 class UnityChipCheckerMarkdownFileFormat(Checker):
     def __init__(self, markdown_file_list, no_line_break=False, **kw):
@@ -55,6 +104,8 @@ class UnityChipCheckerLabelStructure(Checker):
         self.min_count = min_count
         self.must_have_prefix = must_have_prefix
         self.data_key = data_key
+        self.data_val = []
+        self.need_save_data = True if data_key else False
         self.leaf_count = None
         self.set_human_check_needed(need_human_check)
 
@@ -97,16 +148,144 @@ class UnityChipCheckerLabelStructure(Checker):
                     find_prefix = True
             if not find_prefix:
                 return False, {"error": f"In the document ({self.doc_file}), it must have group/."}
-        if self.data_key:
-            self.smanager_set_value(self.data_key, data)
+        self.data_val = copy.deepcopy(data)
+        if self.data_key and self.need_save_data:
+            self.smanager_set_value(self.data_key, self.data_val)
             info(f"Cache {self.leaf_node} marks(size={len(data)}) to data key '{self.data_key}'.")
         self.leaf_count = len(data)
         return True, {"message": msg, f"{self.leaf_node}_count": len(data)}
 
     def get_template_data(self):
         return {
-            f"COUNT_{self.leaf_node}": f"[{self.leaf_count}]" if self.leaf_count else ""
+            f"COUNT_{self.leaf_node}": f"{self.leaf_count}" if self.leaf_count else "-"
         }
+
+
+class UnityChipCheckerLabelStructureRefine(UnityChipCheckerLabelStructure):
+    def __init__(self,
+                 doc_file,
+                 leaf_node,
+                 data_key,
+                 min_count=1, must_have_prefix="FG-API", need_human_check=False,
+                 batch_size = 10,
+                 **kw):
+        super().__init__(doc_file, leaf_node, min_count, must_have_prefix, data_key, need_human_check, **kw)
+        assert data_key, "data_key must be provided for UnityChipCheckerLabelStructureRefine."
+        self.need_save_data = False
+        self.batch_size = batch_size
+        self.refine_result = {}
+        self.batch_task = UnityChipBatchTask("CK", self)
+
+    def on_init(self):
+        if not self.batch_task.source_task_list:
+            source_task_list = self.smanager_get_value(self.data_key, [])
+            if not isinstance(source_task_list, list) or not source_task_list:
+                try:
+                    source_task_list = fc.get_unity_chip_doc_marks(
+                        self.get_path(self.doc_file),
+                        self.leaf_node,
+                        self.min_count,
+                    )
+                    self.smanager_set_value(self.data_key, copy.deepcopy(source_task_list))
+                    info(f"Initialized CK refine source from '{self.doc_file}' "
+                         f"(size={len(source_task_list)}) to data key '{self.data_key}'.")
+                except Exception as e:
+                    warning(f"Failed to initialize CK refine source from '{self.doc_file}': {e}")
+                    source_task_list = []
+            self.batch_task.source_task_list = copy.deepcopy(source_task_list)
+        saved_refine_result = self.smanager_get_value("_CK_REFINE_RESULT", {})
+        if isinstance(saved_refine_result, dict):
+            self.refine_result = copy.deepcopy(saved_refine_result)
+        self.batch_task.update_current_tbd()
+        return super().on_init()
+
+    def get_template_data(self):
+        super_data = super().get_template_data()
+        data = self.batch_task.get_template_data(
+            "TOTAL_POINTS", "COMPLETED_POINTS", "LIST_CURRENT_POINTS"
+        )
+        super_data.update(data)
+        return super_data
+
+    def do_check(self, timeout=0, is_complete=False, refined=None, **kw):
+        """Refine CK labels by requiring every original CK to be explicitly reviewed."""
+        ck_pass, ck_error = super().do_check(timeout, **kw)
+        if not ck_pass:
+            return ck_pass, ck_error
+        error_mesg = []
+        if not self.batch_task.source_task_list:
+            return False, {
+                "error": f"No original CK labels were loaded from data key '{self.data_key}'. "
+                         "Please complete the previous CK label structure stage before refining CK labels."
+            }
+        if refined is None:
+            refined_map = {}
+        elif not isinstance(refined, dict):
+            return False, {
+                "error": "stage_args.refined must be a JSON object like {'FG-.../FC-.../CK-...': 'refine note'}; "
+                         "pass it as stage_args={'refined': {...}}." + \
+                         f" But find type(refined)={type(refined)}. value={refined}"
+            }
+        else:
+            refined_map = OrderedDict()
+            for key, value in refined.items():
+                if key is None:
+                    continue
+                ck = str(key).strip()
+                if ck:
+                    refined_map[ck] = value
+
+        unknown_tasks = [key for key in refined_map if key not in self.batch_task.source_task_list]
+        if unknown_tasks:
+            error_mesg.extend([
+                "The following refined CK labels are not in the original list of labels. Please ensure that you are refining the correct labels:",
+                *unknown_tasks
+            ])
+
+        current_batch = set(self.batch_task.tbd_task_list)
+        out_of_batch_tasks = [
+            key for key in refined_map
+            if key in self.batch_task.source_task_list and key not in current_batch
+        ]
+        if out_of_batch_tasks and current_batch:
+            error_mesg.extend([
+                "The following refined CK labels are valid, but they are not in the current batch. Please refine the current batch first:",
+                *out_of_batch_tasks
+            ])
+
+        if unknown_tasks or out_of_batch_tasks:
+            if self.batch_task.tbd_task_list:
+                error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
+            return False, {"error": error_mesg}
+
+        valid_tasks = [
+            key for key in refined_map
+            if key in current_batch
+        ]
+        self.batch_task.update_current_tbd()
+        if len(valid_tasks) < 1 and self.batch_task.tbd_task_list:
+            error_mesg.append(
+                "No valid CK labels were refined in the current batch (pass a CK mapping in stage_args.refined). "
+                f"Please refine at least one of these CK labels: {', '.join(self.batch_task.tbd_task_list)}."
+            )
+            return False, {"error": error_mesg}
+
+        for ck in valid_tasks:
+            self.refine_result[ck] = refined_map[ck]
+        self.smanager_set_value("_CK_REFINE_RESULT", self.refine_result)
+
+        completed_tasks = [ck for ck in self.batch_task.gen_task_list if ck in self.batch_task.source_task_list]
+        for ck in valid_tasks:
+            if ck not in completed_tasks:
+                completed_tasks.append(ck)
+        self.batch_task.sync_gen_task(completed_tasks, error_mesg, f"Refined CKs changed.")
+        ck_pass, ck_error = self.batch_task.do_complete(error_mesg, is_complete,
+                                                        f"in Origin",
+                                                        f"in Newly Refined",
+                                                        " Please refine and mask the CKs by the task needs.")
+        if ck_pass and is_complete:
+            self.smanager_set_value(self.data_key, self.data_val)
+        return ck_pass, ck_error
 
 
 class UnityChipCheckerDutCreation(Checker):
@@ -294,17 +473,139 @@ class UnityChipCheckerDutFixture(UnityChipCheckerBaseFixture):
         self.source_code_need = {
             "get_coverage_data_path": (msg, None)
         }
-        self.source_code_cb = self._check_yield
+        self.source_code_cb = self._check_lifecycle
 
-    def _check_yield(self, source_code, dut_func):
+    @staticmethod
+    def _call_name(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return None
+
+    @staticmethod
+    def _is_valid_set_func_coverage_call(call):
+        positional_request = (
+            len(call.args) >= 1
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "request"
+        )
+        keyword_names = {keyword.arg for keyword in call.keywords}
+        has_request = positional_request or "request" in keyword_names
+        has_groups = len(call.args) >= 2 or "g" in keyword_names
+        return has_request and has_groups
+
+    def _check_lifecycle(self, source_code, dut_func):
         tree = ast.parse(source_code)
-        has_yield = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Yield) or isinstance(node, ast.YieldFrom):
-                has_yield = True
-                break
-        if not has_yield:
+        fixture_node = next(
+            (
+                node for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == dut_func.__name__
+            ),
+            None,
+        )
+        if fixture_node is None:
+            return False, {
+                "error": f"Cannot parse the '{dut_func.__name__}' fixture body in "
+                         f"'{self.target_file}'."
+            }
+
+        class LifecycleVisitor(ast.NodeVisitor):
+            conditional_nodes = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Match)
+
+            def __init__(self, root):
+                self.root = root
+                self.conditional_depth = 0
+                self.yields = []
+                self.func_coverage_calls = []
+
+            def visit_FunctionDef(self, node):
+                if node is self.root:
+                    for statement in node.body:
+                        self.visit(statement)
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, node):
+                return
+
+            def generic_visit(self, node):
+                is_conditional = isinstance(node, self.conditional_nodes)
+                if is_conditional:
+                    self.conditional_depth += 1
+                super().generic_visit(node)
+                if is_conditional:
+                    self.conditional_depth -= 1
+
+            def visit_Yield(self, node):
+                self.yields.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+            def visit_YieldFrom(self, node):
+                self.yields.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+            def visit_Call(self, node):
+                if UnityChipCheckerDutFixture._call_name(node.func) == "set_func_coverage":
+                    self.func_coverage_calls.append((node, self.conditional_depth))
+                self.generic_visit(node)
+
+        visitor = LifecycleVisitor(fixture_node)
+        visitor.visit(fixture_node)
+        yield_lines = [node.lineno for node, _ in visitor.yields]
+        if not yield_lines:
             return False, {"error": f"The '{dut_func.__name__}' fixture in '{self.target_file}' does not contain 'yield' statement. Pytest fixtures should yield the DUT instance for proper setup/teardown."}
+
+        func_coverage_calls = [call for call, _ in visitor.func_coverage_calls]
+        if not func_coverage_calls:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    "'set_func_coverage(request, func_coverage_group)' during teardown. "
+                    "Calling mark_function in tests is not enough: without set_func_coverage, "
+                    "Toffee reports no functional coverage groups and every test appears unmarked."
+            }
+
+        valid_func_coverage_calls = [
+            (call, conditional_depth)
+            for call, conditional_depth in visitor.func_coverage_calls
+            if self._is_valid_set_func_coverage_call(call)
+        ]
+        if not valid_func_coverage_calls:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must pass both "
+                    "the pytest 'request' and the coverage group data to "
+                    "'set_func_coverage(request, func_coverage_group)'."
+            }
+
+        unconditional_yield_lines = [
+            node.lineno for node, conditional_depth in visitor.yields
+            if conditional_depth == 0
+        ]
+        if not unconditional_yield_lines:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must yield the "
+                    "DUT on an unconditional fixture path; a yield nested under if/loop/match "
+                    "cannot guarantee setup for every test."
+            }
+
+        first_yield_line = min(unconditional_yield_lines)
+        teardown_calls = [
+            call for call, conditional_depth in valid_func_coverage_calls
+            if call.lineno > first_yield_line and conditional_depth == 0
+        ]
+        if not teardown_calls:
+            return False, {
+                "error":
+                    f"The '{dut_func.__name__}' fixture in '{self.target_file}' must call "
+                    "'set_func_coverage(request, func_coverage_group)' on an unconditional "
+                    "teardown path after 'yield'. Calls before yield, inside nested functions, "
+                    "or under if/loop/match branches cannot guarantee that final coverage "
+                    "samples and mark_function mappings are attached to every test report."
+            }
         return True, {}
 
 
@@ -407,7 +708,14 @@ class UnityChipCheckerTestMustPass(Checker):
         tc_failed = report["tests"]["fails"]
         if tc_failed > 0:
             return False, {
-                "error": f"Test failed: {tc_failed}/{tc_total} test cases failed. Need all test cases to pass.",
+                "error": (
+                    f"[Infrastructure Self-Test Failure] {tc_failed}/{tc_total} test "
+                    "case(s) failed. UnityChipCheckerTestMustPass validates mock, fixture, "
+                    "or reference-model infrastructure, so every case in this stage must "
+                    "pass. Fix the verification infrastructure; do not record these failures "
+                    "as DUT Bugs. This all-Pass rule does not apply to correctly implemented "
+                    "tests that reproduce real DUT design Bugs in DUT verification stages."
+                ),
                 "STD_OUT": str_out,
                 "STD_ERR": str_err,
             }
@@ -673,6 +981,26 @@ class BaseUnityChipCheckerTestCase(Checker):
                 warning(f"Test directory '{self.test_dir}' does not exist in workspace.")
         return self
 
+    def get_waveform_tool_for_checker(self):
+        """Return the active WaveInfo instance whose real calls carry receipts."""
+
+        if self.stage_manager is None:
+            return None
+        return self.get_tool_by_name("WaveInfo")
+
+    def _ignored_test_prefixes(self):
+        return _normalize_test_prefixes(self.ignore_tc_prefix)
+
+    def _is_ignored_test_case(self, test_case):
+        test_name = str(test_case).rsplit("::", 1)[-1]
+        return _test_name_matches_prefixes(test_name, self._ignored_test_prefixes())
+
+    def _pytest_ignore_expression(self):
+        prefixes = self._ignored_test_prefixes()
+        if not prefixes:
+            return None
+        return " and ".join(f"not {prefix}" for prefix in prefixes)
+
     def _check_test_func_args(self, report, str_out, str_err):
         """
         Check test function argument names against self.args_pattern.
@@ -740,10 +1068,11 @@ class BaseUnityChipCheckerTestCase(Checker):
             lambda p: self.set_check_process(p, self.timeout)  # Set the process for the checker
         )
         timeout = timeout if timeout > 0 else self.timeout
-        if self.ignore_tc_prefix:
+        ignore_expression = self._pytest_ignore_expression()
+        if ignore_expression:
             pytest_args = pytest_args if pytest_args else "."
             pytest_args = pytest_args.split()
-            pytest_args = ["-k", f"not {self.ignore_tc_prefix}"] + pytest_args
+            pytest_args = ["-k", ignore_expression] + pytest_args
         report, str_out, str_err = self.run_test.do(
             self.test_dir,
             pytest_ex_args=pytest_args,
@@ -808,6 +1137,31 @@ class UnityChipCheckerTestFree(BaseUnityChipCheckerTestCase):
 
 class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
 
+    def _load_checkpoint_scope(self):
+        all_doc_checkpoints, file_blocks = fc.get_unity_chip_doc_marks(
+            self.get_path(self.doc_func_check),
+            leaf_node="CK",
+            return_line_block=True,
+        )
+        ignored_prefixes = _normalize_checkpoint_prefixes(
+            self.extra_kwargs.get("ignore_ck_prefix", "")
+        )
+        ignored_checkpoints = [
+            checkpoint
+            for checkpoint in all_doc_checkpoints
+            if any(
+                checkpoint.startswith(prefix)
+                for prefix in ignored_prefixes
+            )
+        ]
+        target_checkpoints = [
+            checkpoint
+            for checkpoint in all_doc_checkpoints
+            if checkpoint not in ignored_checkpoints
+        ]
+        self.ignored_source_checkpoints = ignored_checkpoints
+        return all_doc_checkpoints, target_checkpoints, file_blocks
+
     def get_template_data(self):
         if hasattr(self, "batch_task"):
             data = self.batch_task.get_template_data("TOTAL_CKS", "COVERED_CKS", "LIST_CKS_TO_BE_COVERED")
@@ -827,9 +1181,14 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
     def on_init(self):
         self.total_tests_count = 0
         self.batch_task = UnityChipBatchTask("check_points", self)
-        self.batch_task.source_task_list, self.cached_ck_file_blocks = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK", return_line_block=True)
+        _, target_checkpoints, self.cached_ck_file_blocks = self._load_checkpoint_scope()
+        self.batch_task.source_task_list = target_checkpoints
         self.batch_task.update_current_tbd()
-        info(f"Load all doc ck list(size={len(self.batch_task.source_task_list)}) from doc file '{self.doc_func_check}'.")
+        info(
+            f"Load template ck list(size={len(target_checkpoints)}, "
+            f"ignored={len(self.ignored_source_checkpoints)}) from doc file "
+            f"'{self.doc_func_check}'."
+        )
         return super().on_init()
 
     def do_check(self, timeout=0, is_complete=False, **kw) -> Tuple[bool, str]:
@@ -841,7 +1200,12 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                               and the second element is a message string.
         """
         pytest_ex_env={"UC_IS_IMP_TEMPLATE":"true"}
-        report, str_out, str_err = super().do_check(pytest_ex_env=pytest_ex_env, timeout=timeout, **kw)
+        kw["return_test_details"] = True
+        report, str_out, str_err = super().do_check(
+            pytest_ex_env=pytest_ex_env,
+            timeout=timeout,
+            **kw,
+        )
         test_pass, test_msg = fc.is_run_report_pass(report, str_out, str_err)
         if not test_pass:
             return False, test_msg
@@ -849,6 +1213,7 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         all_bins_test = report.get("all_check_point_list", [])
         msg_report = fc.clean_report_with_keys(report,
                                                ["tests.test_cases",
+                                                "tests.test_case_details",
                                                 "failed_test_case_with_check_point_list"])
         info_report = OrderedDict({"TEST_REPORT": msg_report})
         info_runtest = OrderedDict({"TEST_REPORT": msg_report})
@@ -858,12 +1223,20 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         if self.ret_std_error:
             info_report.update({"STDERR": str_err})
             info_runtest.update({"STDERR": str_err})
+        collection_error = self._get_pytest_collection_error(str_out, str_err)
+        if collection_error:
+            info_runtest["error"] = collection_error
+            return False, info_runtest
         test_cases = report.get("tests", {}).get("test_cases", None)
         if test_cases is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test report is generated correctly."
             return False, info_runtest
-        self.total_tests_count = len([k for k, _ in test_cases.items() if not (self.ignore_tc_prefix in k or ":"+self.ignore_tc_prefix in k)])
+        self.total_tests_count = len([
+            test_case
+            for test_case in test_cases
+            if not self._is_ignored_test_case(test_case)
+        ])
         if report.get("tests") is None:
             info_runtest["error"] = "No test cases found in the report. " +\
                                     "Please ensure that the test cases are defined correctly in the workspace."
@@ -873,36 +1246,31 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                     f"minimum required is {self.min_tests}. " + \
                                      "Please ensure that the test cases are defined in the correct format and location."
             return False, info_runtest
-        try:
-            all_bins_docs = fc.get_unity_chip_doc_marks(self.get_path(self.doc_func_check), leaf_node="CK")
-        except Exception as e:
-            info_report["error"] = f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. " + \
-                                    "Review your task requirements and the file format to fix your documentation file."
-            return False, info_report
-
         # Additional template-specific validations
         template_validation_result = self._validate_template_structure(report, str_out, str_err)
         if not template_validation_result[0]:
             info_runtest["error"] = template_validation_result[1]
             return False, info_runtest
 
-        # check batch
-        note_msg = []
-        if report['unmarked_check_points'] > 0:
-            marked_bins = [ck for ck in all_bins_test if ck not in report['unmarked_check_point_list']]
-        else:
-            marked_bins = all_bins_test
-        self.batch_task.sync_source_task(all_bins_docs, note_msg, f"{self.doc_func_check} file CK points changed.")
-        self.batch_task.sync_gen_task(marked_bins, note_msg, "Test cases CK points changed.")
-        ckpass, emssage = self.batch_task.do_complete(note_msg,
-                                                      is_complete,
-                                                      f"in file: {self.doc_func_check}",
-                                                      f"in dir: {self.test_dir}",
-                                                      " Please mark the check points in its related test functions using 'mark_function' correctly.")
-        if not ckpass:
-            return ckpass, emssage
+        missing_coverage_message = fc.get_missing_functional_coverage_message(report)
+        if missing_coverage_message:
+            info_runtest["error"] = missing_coverage_message
+            return False, info_runtest
 
-        # complete check
+        try:
+            all_bins_docs, target_bins_docs, self.cached_ck_file_blocks = (
+                self._load_checkpoint_scope()
+            )
+        except Exception as e:
+            info_report["error"] = (
+                "Failed to parse the function and check documentation file "
+                f"{self.doc_func_check}: {str(e)}. Review your task requirements and the "
+                "file format to fix your documentation file."
+            )
+            return False, info_report
+
+        # Validate report/document consistency before updating batch progress so
+        # a root-cause diagnostic is not hidden behind a generic incomplete batch.
         bins_not_in_docs = []
         bins_not_in_test = []
         for b in all_bins_test:
@@ -922,28 +1290,66 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
                                      "Review your task requirements and the test cases."
             return False, info_runtest
 
-        if report['unmarked_check_points'] > 0:
-            unmark_check_points = report['unmarked_check_point_list']
-            if len(unmark_check_points) > 0:
-                info_runtest["error"] = f"Test template validation failed, cannot find the follow {len(unmark_check_points)} check points: `{fc.list_str_abbr(unmark_check_points)}` " + \
-                                         "in the test templates. All check points defined in the documentation must be associated with test cases using 'mark_function'. " + \
-                                         fc.description_mark_function_doc() + \
-                                         "This ensures proper coverage mapping between documentation and test implementation. " + \
-                                         "Review your task requirements and complete the check point markings. "
-                return False, info_runtest
+        unassociated_test_count = report.get(
+            'test_function_with_no_check_point_mark', 0
+        )
+        if unassociated_test_count > 0:
+            unmarked_functions = report.get(
+                'test_function_with_no_check_point_mark_list', []
+            )
+            mark_function_desc = fc.description_mark_function_doc(
+                unmarked_functions,
+                self.workspace,
+            )
+            info_runtest["error"] = (
+                "[Test Association Missing] Toffee recorded "
+                f"{unassociated_test_count} executed test function(s) without any checkpoint "
+                f"association. {mark_function_desc}"
+            )
+            return False, info_runtest
 
-        if report['test_function_with_no_check_point_mark'] > 0:
-            unmarked_functions = report['test_function_with_no_check_point_mark_list']
-            if len(unmarked_functions) > 0:
-                mark_function_desc = fc.description_mark_function_doc(unmarked_functions, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
-                info_runtest["error"] = f"Test template validation failed: Found {report['test_function_with_no_check_point_mark']} test functions without correct check point marks. " + \
-                                         mark_function_desc
-                return False, info_runtest
+        unmarked_doc_checkpoints = [
+            ck for ck in report.get('unmarked_check_point_list', [])
+            if ck in target_bins_docs
+        ]
+        if unmarked_doc_checkpoints:
+            info_runtest["error"] = fc.description_checkpoint_association_missing(
+                unmarked_doc_checkpoints
+            )
+            return False, info_runtest
+
+        # All structural and association checks passed; batch progress can now
+        # be derived without masking the reason a checkpoint was omitted.
+        target_bins_test = [
+            checkpoint
+            for checkpoint in all_bins_test
+            if checkpoint in target_bins_docs
+        ]
+        note_msg = []
+        self.batch_task.sync_source_task(
+            target_bins_docs,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
+        self.batch_task.sync_gen_task(
+            target_bins_test,
+            note_msg,
+            "Test cases CK points changed.",
+        )
+        ckpass, emssage = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            f"in file: {self.doc_func_check}",
+            f"in dir: {self.test_dir}",
+            " Please define and associate every required checkpoint with its related tests.",
+        )
+        if not ckpass:
+            return ckpass, emssage
 
         # Success message with template-specific details
         info_report["success"] = ["Test template validation successful!",
                                  f"✓ Generated {report['tests']['total']} test case templates (all properly failing as expected).",
-                                 f"✓ All {len(all_bins_test)} check points are properly documented and marked in test functions.",
+                                 f"✓ All {len(target_bins_test)} in-scope check points are properly documented and marked in test functions.",
                                  f"✓ Coverage mapping is consistent between documentation and test implementation.",
                                  f"✓ Template structure follows the required format with proper TODO comments and fail assertions.",
                                  "Your test templates are ready for implementation! Each test function provides clear guidance for the actual test logic to be implemented."]
@@ -967,45 +1373,242 @@ class UnityChipCheckerTestTemplate(BaseUnityChipCheckerTestCase):
         Returns:
             Tuple[bool, str]: Validation result and message
         """
-        # Check that all tests failed as expected in template
-        passed_test = []
         test_cases = report.get("tests", {}).get("test_cases", None)
         if test_cases is None:
             return False, "Test template structure validation failed: No test cases found in the report. " +\
                           "Please ensure that the test report is generated correctly."
-        for fv, rt in test_cases.items():
-            if self.ignore_tc_prefix and ":"+self.ignore_tc_prefix in fv:
-                continue
-            if rt == "PASSED":
-                passed_test.append(fv + "=" + rt)
 
         must_fail = self.extra_kwargs.get("template_must_fail", True)
-        if passed_test and must_fail:
-            return False, f"Test template structure validation failed: Not all test functions ({fc.list_str_abbr(passed_test)}) are properly failing. " + \
-                          f"In test templates, ALL test functions (except test functions with prefix '{self.ignore_tc_prefix}') must fail with 'assert False, \"Not implemented\"' to indicate they are templates. " + \
-                           "This prevents incomplete templates from being accidentally considered as passing tests. " + \
-                           "Please ensure every test function ends with the required fail assertion."
-        # Check for proper TODO comments (this would require parsing the actual test files)
-        # For now, we rely on the fact that properly structured templates should fail with "Not implemented"
-        if self.ret_std_out and self.ret_std_error:
-            if must_fail:
-                if "Not implemented" not in str_out and "Not implemented" not in str_err:
-                    info(f"STDOUT: {str_out}")
-                    info(f"STDERR: {str_err}")
-                    return False, "Test template structure validation failed: Template functions should contain 'Not implemented' messages. " + \
-                                  "Test templates must include 'assert False, \"Not implemented\"' statements to clearly indicate unfinished implementation. " + \
-                                  "This helps distinguish between actual test failures and template placeholders. " + \
-                                  "If you have implemented as the template requires, please make sure the `mark_function` works correctly."
+        if not must_fail:
+            return True, "Template structure validation passed."
+        assert_example = 'assert False, "Not implemented"'
+        expected_assertion = (
+            "AssertionError('Not implemented') "
+            f"(Correct example: {assert_example})"
+        )
+
+        def is_ignored(test_case):
+            return self._is_ignored_test_case(test_case)
+
+        checked_cases = {
+            test_case: status
+            for test_case, status in test_cases.items()
+            if not is_ignored(test_case)
+        }
+        test_details = report.get("tests", {}).get("test_case_details", {})
+
+        def describe(test_case, status):
+            detail = test_details.get(test_case, {})
+            exception = detail.get("exception") or detail.get("exception_type")
+            phase = detail.get("phase")
+            description = f"{test_case}={status}"
+            if exception:
+                description += f" ({phase + ': ' if phase else ''}{exception})"
+            return description
+
+        execution_error_cases = [
+            test_case
+            for test_case, status in checked_cases.items()
+            if status not in {"PASSED", "FAILED"}
+        ]
+        execution_errors = [
+            describe(test_case, checked_cases[test_case])
+            for test_case in execution_error_cases
+        ]
+        if execution_errors:
+            guidance = self._get_template_execution_guidance(
+                execution_error_cases, test_details
+            )
+            return False, (
+                "Test template execution failed: Some tests ended with execution or lifecycle "
+                f"errors instead of the required {expected_assertion}: "
+                f"{fc.list_str_abbr(execution_errors, max_items=20, show_counts=True)} "
+                "These are not missing template assertions "
+                f"and are not necessarily caused by the test function itself. {guidance}"
+            )
+
+        passed_tests = [
+            describe(test_case, status)
+            for test_case, status in checked_cases.items()
+            if status == "PASSED"
+        ]
+        if passed_tests:
+            return False, (
+                "Test template structure validation failed: The following test functions passed "
+                "instead of reaching the required fail assertion: "
+                f"{fc.list_str_abbr(passed_tests, max_items=20, show_counts=True)} "
+                f"Required outcome: {expected_assertion}."
+            )
+
+        unexpected_failure_cases = []
+        missing_failure_details = []
+        wrong_assert_messages = []
+        for test_case, status in checked_cases.items():
+            if status != "FAILED":
+                continue
+            detail = test_details.get(test_case, {})
+            exception_type = detail.get("exception_type")
+            exception = detail.get("exception", "")
+            if not exception_type:
+                missing_failure_details.append(describe(test_case, status))
+            elif exception_type != "AssertionError":
+                unexpected_failure_cases.append(test_case)
+            elif "Not implemented" not in exception:
+                wrong_assert_messages.append(describe(test_case, status))
+
+        if unexpected_failure_cases:
+            unexpected_failures = [
+                describe(test_case, checked_cases[test_case])
+                for test_case in unexpected_failure_cases
+            ]
+            guidance = self._get_template_execution_guidance(
+                unexpected_failure_cases, test_details
+            )
+            return False, (
+                "Test template execution failed: Some tests raised unexpected exceptions instead "
+                f"of the required {expected_assertion}: "
+                f"{fc.list_str_abbr(unexpected_failures, max_items=20, show_counts=True)} "
+                "The underlying exception may come from "
+                f"the test, a called component, or the execution environment. {guidance}"
+            )
+        if missing_failure_details:
+            return False, (
+                "Test template assertion validation failed: Could not determine the exception type "
+                "for these tests: "
+                f"{fc.list_str_abbr(missing_failure_details, max_items=20, show_counts=True)} "
+                "Review the first relevant "
+                "traceback in STDOUT/STDERR and fix the component that owns the failing frame. "
+                f"Required outcome: {expected_assertion}."
+            )
+        if wrong_assert_messages:
+            return False, (
+                "Test template structure validation failed: The following tests raised AssertionError "
+                "without the required 'Not implemented' message: "
+                f"{fc.list_str_abbr(wrong_assert_messages, max_items=20, show_counts=True)} "
+                f"Required outcome: {expected_assertion}."
+            )
         return True, "Template structure validation passed."
+
+    @staticmethod
+    def _get_template_execution_guidance(test_cases, test_details):
+        """Build ownership-aware advice from pytest lifecycle phases."""
+        phases = {
+            str(test_details.get(test_case, {}).get("phase", "")).lower()
+            for test_case in test_cases
+        }
+        phases.discard("")
+        suggestions = []
+        if "setup" in phases:
+            suggestions.append(
+                "For setup-phase failures, the test body may not have run: check fixtures, "
+                "DUT/simulator environment initialization, imports and dependencies, build "
+                "artifacts, and configuration"
+            )
+        if "call" in phases:
+            suggestions.append(
+                "For call-phase failures, check both the test body and the code it invokes, "
+                "including fixture objects, APIs, reference models, the DUT/simulator, and "
+                "external dependencies"
+            )
+        if "teardown" in phases:
+            suggestions.append(
+                "For teardown-phase failures, check fixture finalizers, resource release, "
+                "simulator shutdown, and cleanup hooks"
+            )
+        if not suggestions:
+            suggestions.append(
+                "The failing phase is unknown, so check collection/imports, fixtures, "
+                "DUT/environment initialization, dependencies, and the test body"
+            )
+        return (
+            "Resolution guidance: "
+            + "; ".join(suggestions)
+            + ". Follow the earliest relevant traceback frame to the owning module and fix that "
+              "underlying issue before changing or adding the placeholder assertion."
+        )
+
+    @staticmethod
+    def _get_pytest_collection_error(str_out, str_err):
+        """Return a specific message for failures that prevent test collection."""
+        output = "\n".join(part for part in (str_out, str_err) if part)
+        collection_markers = (
+            "ERROR collecting",
+            "error during collection",
+            "errors during collection",
+            "ImportError while importing test module",
+            "INTERNALERROR",
+        )
+        if not any(marker.lower() in output.lower() for marker in collection_markers):
+            return None
+
+        exception_types = re.findall(
+            r"\b(SyntaxError|IndentationError|TabError|ImportError|ModuleNotFoundError)\b",
+            output,
+        )
+        exception_desc = ", ".join(dict.fromkeys(exception_types)) or "pytest collection error"
+        return (
+            "Test template collection failed before the expected assertion failures could be "
+            f"validated ({exception_desc}). This is a test execution/collection error, not a "
+            "missing template assertion, and it may be in the test module or an imported module, "
+            "dependency, plugin, or configuration. Follow the first collection traceback to the "
+            "owning file/module and fix that underlying issue before checking assertions."
+        )
 
 
 class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
 
-    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check, doc_bug_analysis, min_tests=1, timeout=15, **kw):
+    def __init__(self, api_prefix, target_file_api, target_file_tests, doc_func_check,
+                 doc_bug_analysis, min_tests=1, timeout=15,
+                 api_ck_prefix="FG-API/", **kw):
         super().__init__(doc_func_check, "", doc_bug_analysis, min_tests, timeout, **kw)
         self.api_prefix = api_prefix
         self.target_file_api = target_file_api
         self.target_file_tests = target_file_tests
+        self.api_ck_prefix = api_ck_prefix.rstrip("/") + "/"
+
+    @staticmethod
+    def _missing_functional_coverage_message(report):
+        return fc.get_missing_functional_coverage_message(report)
+
+    def _missing_api_checkpoint_association_message(self, report):
+        """Require every executed API test to include an API-group checkpoint."""
+
+        test_cases = report.get("tests", {}).get("test_cases", {})
+        associations = report.get("test_case_with_check_point_list")
+        if not isinstance(associations, dict):
+            return (
+                "[API Checkpoint Mapping Unavailable] The Toffee report does not contain "
+                "per-test checkpoint associations. Rerun the API tests, then call Check or "
+                "Complete to generate a current report; do not infer completion from global "
+                "checkpoint totals."
+            )
+
+        missing = []
+        for test_case in test_cases:
+            checkpoints = associations.get(test_case, [])
+            if not isinstance(checkpoints, list):
+                checkpoints = []
+            if any(
+                isinstance(checkpoint, str)
+                and checkpoint.startswith(self.api_ck_prefix)
+                for checkpoint in checkpoints
+            ):
+                continue
+            missing.append(
+                f"{test_case} -> {fc.list_str_abbr(checkpoints) if checkpoints else '[]'}"
+            )
+
+        if not missing:
+            return None
+        return (
+            f"[API Checkpoint Association Missing] {len(missing)} API test function(s) "
+            f"have no checkpoint association under '{self.api_ck_prefix}': "
+            f"{fc.list_str_abbr(missing)}. Every API test must call mark_function for the "
+            "corresponding API-group FG/FC/CK defined in the functions-and-checks document. "
+            "Checkpoint associations from other functional groups are optional additions: "
+            "keep every valid extra relation, but it cannot replace the required API-group "
+            "relation. Do not mark unrelated API checkpoints merely to satisfy this check."
+        )
 
     def do_check(self, timeout=0, **kw) -> tuple[bool, object]:
         """Perform the check for DUT API tests."""
@@ -1057,6 +1660,9 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             if "Signal bind error" in str_err:
                 msg["WARNING"] = "The DUT signals are not handled properly by toffee Bundle, you should fix this issue first."
             return msg
+        missing_coverage_message = self._missing_functional_coverage_message(report)
+        if missing_coverage_message:
+            return False, get_emsg(missing_coverage_message)
         if api_un_tested:
             info(f"Missed APIs: {','.join(api_un_tested)}")
             info(f"Found test APIs: {','.join(test_functions)}")
@@ -1064,16 +1670,37 @@ class UnityChipCheckerDutApiTest(BaseUnityChipCheckerTestCase):
             return False, get_emsg(f"Missing test functions for {len(api_un_tested)} API(s): {fc.list_str_abbr(api_un_tested)} (Defined in file: {self.target_file_api}). " + \
                                    f"Please create the missing functions: {fc.list_str_abbr(['test_' + f for f in api_un_tested])} (format: test_<api_name>, add prefix 'test_' to the API name). " + \
                                    f"Note: All dut APIs must be defined in: {self.target_file_api}. ")
-        test_count_no_check_point_mark = report["test_function_with_no_check_point_mark"]
+        test_count_no_check_point_mark = report.get("test_function_with_no_check_point_mark", 0)
         if test_count_no_check_point_mark > 0:
-            func_list = report['test_function_with_no_check_point_mark_list']
-            mark_function_desc = fc.description_mark_function_doc(func_list, self.workspace, self.stage_manager.tool_run_test_cases, timeout)
-            return False, get_emsg(f"Find {test_count_no_check_point_mark} functions do not have correct check point marks. " + \
-                                     mark_function_desc + \
-                                    "This ensures proper coverage mapping between documentation and test implementation. " + \
-                                    "Review your task requirements and complete the check point markings. ")
+            unmarked_functions = report.get(
+                "test_function_with_no_check_point_mark_list", []
+            )
+            mark_function_desc = fc.description_mark_function_doc(
+                unmarked_functions,
+                self.workspace,
+            )
+            return False, get_emsg(
+                "[Checkpoint Association Missing] Toffee did not record any checkpoint "
+                f"association for {test_count_no_check_point_mark} executed API test "
+                f"function(s): {fc.list_str_abbr(unmarked_functions)}. "
+                f"{mark_function_desc}"
+            )
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, "FG-API/", func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
+        api_association_message = self._missing_api_checkpoint_association_message(
+            report
+        )
+        if api_association_message:
+            return False, get_emsg(api_association_message)
+
+        ret, msg, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            self.api_ck_prefix,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=os.path.dirname(self.target_file_api),
+        )
         if not ret:
             return ret, get_emsg(msg)
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
@@ -1124,6 +1751,26 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
     def rm_line_no(self, s):
         return re.sub(r":\d+-\d+", "", s)
 
+    @staticmethod
+    def _compact_validation_report(report, return_tests):
+        tests = report.get("tests", {})
+        return {
+            "run_test_success": report.get("run_test_success", False),
+            "tests": {
+                "total": tests.get("total", len(return_tests)),
+                "fails": tests.get(
+                    "fails",
+                    sum(status != "PASSED" for status in return_tests.values()),
+                ),
+                "test_cases": return_tests,
+            },
+            "failed_checkpoints": report.get("failed_check_point_list", []),
+            "failed_test_case_checkpoints": report.get(
+                "failed_test_case_with_check_point_list", {}
+            ),
+            "unmarked_checkpoints": report.get("unmarked_check_point_list", []),
+        }
+
     def on_init(self):
         self.check_data()
         return super().on_init()
@@ -1144,7 +1791,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             passed_tc = []
             failed_tc = []
             for k,v in pre_report.get("tests", {}).get("test_cases", {}).items():
-                if ":"+self.ignore_tc_prefix in k:
+                if self._is_ignored_test_case(k):
                     info(f"{self.__class__.__name__} ignore test case: {k}")
                     continue
                 if v == "PASSED":
@@ -1198,9 +1845,16 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
                                    "Please ensure that all test cases are properly implemented and reported."
             return False, error_msgs
 
-        ret, msg, _ = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, only_marked_ckp_in_tc=True, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
-        report  = fc.clean_report_with_keys(report, ["all_check_point_list", "unmarked_check_points", "unmarked_check_point_list", "failed_check_point_list"])
-        error_msgs["REPORT"] = report
+        ret, msg, _ = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            only_marked_ckp_in_tc=True,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
+        )
+        error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
         if not ret:
             error_msgs["error"] = msg
             return ret, error_msgs
@@ -1295,10 +1949,17 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
         
         # Parse documentation marks for validation
         zero_list = self.get_zero_bug_rate_list()
-        zero_rate_msg = f"Note: Found {len(zero_list)} bug mark(s) with confidence 0: {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
-                         "If these bugs are confirmed during testing, please update their confidence; otherwise this message can be ignored."
+        zero_rate_msg = f"Note: Found {len(zero_list)} invalid zero-confidence dynamic Bug placeholder(s): {', '.join(zero_list[:10])}{' ... ' if len(zero_list) > 10 else '.'}" + \
+                         " They cannot explain failed tests. Fix non-DUT failures to Pass, or promote a confirmed DUT Bug to non-zero confidence and add all required dynamic evidence."
 
-        ret, msg, marked_bugs = check_report(self.workspace, report, self.doc_func_check, self.doc_bug_analysis, func_RunTestCases=self.stage_manager.tool_run_test_cases, timeout_RunTestCases=timeout)
+        ret, msg, marked_bugs = check_report(
+            self.workspace,
+            report,
+            self.doc_func_check,
+            self.doc_bug_analysis,
+            waveform_tool=self.get_waveform_tool_for_checker(),
+            waveform_test_dir=self.test_dir,
+        )
         if not ret:
             info_runtest["error"] = msg
             if len(zero_list) > 0:
@@ -1316,12 +1977,15 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
             return False, info_runtest
 
         # Success: All validations passed
+        failed_count = report["tests"].get("fails", 0)
+        passed_count = report["tests"]["total"] - failed_count
         success_msg = ["Test case verification passed!",
                       f"+ Executed {report['tests']['total']} test case(s).",
+                      f"+ {passed_count} case(s) passed; {failed_count} remaining failed case(s) are confirmed DUT Bug reproducers with complete required evidence.",
                       f"+ All {len(all_bins_test)} checkpoint(s) correctly implemented and consistent with documentation.",
                       f"+ Test-documentation consistency check passed.",
                       f"+ {marked_bugs} bug(s) marked in bug analysis document {self.doc_bug_analysis}.",
-                      "Test implementation successfully verified DUT functionality!"]
+                      "Completion does not require confirmed DUT Bug reproducers to pass; every other case must pass."]
         if len(zero_list) > 0:
             success_msg.append(zero_rate_msg)
         if marked_bugs == 0:
@@ -1367,3 +2031,510 @@ class UnityChipCheckerTestCaseWithLineCoverage(UnityChipCheckerTestCase):
             return ret, msg
         ret, msg, self.cur_line_coverage = check_line_coverage(self.workspace, self.coverage_json, self.coverage_ignore, self.coverage_analysis, self.min_line_coverage)
         return ret, msg
+
+
+class UnityChipCheckerRefineTestCases(Checker):
+    def __init__(self,
+                 doc_func_check,
+                 test_dir=None,
+                 ignore_tc_prefix="",
+                 batch_size=10,
+                 data_key=None,
+                 **extra_kwargs):
+        super().__init__()
+        self.doc_func_check = doc_func_check
+        self.test_dir = test_dir
+        self.ignore_tc_prefix = ignore_tc_prefix
+        self.batch_size = batch_size
+        self.data_key = data_key
+        self.refine_result = OrderedDict()
+        self.cached_ck_file_blocks = OrderedDict()
+        self.ck_test_cases_map = OrderedDict()
+        self.unresolved_mark_function = []
+        self.total_test_cases_count = -1
+        self._refine_result_key = "_TC_REFINE_RESULT"
+        self.batch_task = UnityChipBatchTask("CK", self)
+
+    def _load_doc_cks(self, min_count=1):
+        doc_path = self.get_path(self.doc_func_check)
+        if not os.path.exists(doc_path):
+            raise FileNotFoundError(
+                f"Function and check documentation file {self.doc_func_check} does not exist in workspace."
+            )
+        return fc.get_unity_chip_doc_marks(
+            doc_path,
+            leaf_node="CK",
+            mini_leaf_count=min_count,
+            return_line_block=True,
+        )
+
+    def _sync_source_from_doc(self, current_doc_ck_list, note_msg=None):
+        if note_msg is None:
+            note_msg = []
+        self.batch_task.sync_source_task(
+            current_doc_ck_list,
+            note_msg,
+            f"{self.doc_func_check} file CK points changed.",
+        )
+        self.batch_task.update_tbd_and_cmp()
+        self.batch_task.gen_task_list = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        self.batch_task.update_current_tbd()
+
+    def on_init(self):
+        saved_refine_result = {}
+        if self.stage_manager is not None:
+            saved_refine_result = self.smanager_get_value(self._refine_result_key, {})
+        if isinstance(saved_refine_result, dict):
+            self.refine_result = OrderedDict(saved_refine_result)
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=0)
+            self._sync_source_from_doc(current_doc_ck_list)
+            if self.test_dir and os.path.exists(self.get_path(self.test_dir)):
+                self.ck_test_cases_map = self.get_ck_test_cases_info(current_doc_ck_list)
+        except Exception as e:
+            warning(f"Failed to initialize test-case refine context: {e}")
+        return super().on_init()
+
+    def _build_current_ck_infos(self, ck_list):
+        ck_infos = []
+        for ck in ck_list:
+            ck_infos.append(OrderedDict({
+                "CK": ck,
+                "doc_block": self.cached_ck_file_blocks.get(ck, []),
+                "related_test_cases": self.ck_test_cases_map.get(ck, []),
+            }))
+        return ck_infos
+
+    def get_template_data(self):
+        data = self.batch_task.get_template_data("TOTAL_CKS", "COMPLETED_CKS", "LIST_CURRENT_CKS")
+        data["LIST_CURRENT_CKS"] = self._build_current_ck_infos(data["LIST_CURRENT_CKS"])
+        data["TOTAL_TCS"] = self.total_test_cases_count if self.total_test_cases_count >= 0 else "-"
+        if self.unresolved_mark_function:
+            data["UNRESOLVED_MARK_FUNCTION"] = self.unresolved_mark_function
+        return data
+
+    def get_ck_test_cases_info(self, doc_ck_list=None):
+        """
+        Statically collect test cases related to each CK from test_dir.
+
+        Returns:
+            OrderedDict: {"FG-X/FC-Y/CK-Z": ["tests/test_x.py:12-20::test_case"]}
+        """
+        if doc_ck_list is None:
+            doc_ck_list, _ = self._load_doc_cks(min_count=0)
+        test_dir_full_path = self.get_path(self.test_dir)
+        if not os.path.exists(test_dir_full_path):
+            raise FileNotFoundError(f"test directory '{self.test_dir}' does not exist in workspace.")
+
+        def literal_str(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            return None
+
+        def literal_str_list(node):
+            value = literal_str(node)
+            if value is not None:
+                return [value]
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                values = []
+                for element in node.elts:
+                    element_value = literal_str(element)
+                    if element_value is None:
+                        return []
+                    values.append(element_value)
+                return values
+            return []
+
+        def split_ck_key(ck_key):
+            parts = ck_key.split("/")
+            ck_idx = None
+            for i in range(len(parts) - 1, -1, -1):
+                if parts[i].startswith("CK-"):
+                    ck_idx = i
+                    break
+            if ck_idx is None:
+                return None, None, None
+            fc_idx = None
+            for i in range(ck_idx - 1, -1, -1):
+                if parts[i].startswith("FC-"):
+                    fc_idx = i
+                    break
+            fg_idx = None
+            if fc_idx is not None:
+                for i in range(fc_idx - 1, -1, -1):
+                    if parts[i].startswith("FG-"):
+                        fg_idx = i
+                        break
+            fg_name = parts[fg_idx] if fg_idx is not None else None
+            fc_name = parts[fc_idx] if fc_idx is not None else None
+            ck_name = parts[ck_idx]
+            return fg_name, fc_name, ck_name
+
+        def extract_fg_from_receiver(node):
+            for sub_node in ast.walk(node):
+                if not isinstance(sub_node, ast.Subscript):
+                    continue
+                slice_node = sub_node.slice
+                if isinstance(slice_node, ast.Index):
+                    slice_node = slice_node.value
+                value = literal_str(slice_node)
+                if value and value.startswith("FG-"):
+                    return value
+            return None
+
+        def extract_keyword(call, names):
+            for keyword in call.keywords:
+                if keyword.arg in names:
+                    return keyword.value
+            return None
+
+        def references_enclosing_test(node, expected_name):
+            if isinstance(node, ast.Name):
+                return node.id == expected_name
+            if isinstance(node, ast.Attribute):
+                return node.attr == expected_name
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                return any(
+                    references_enclosing_test(element, expected_name)
+                    for element in node.elts
+                )
+            return False
+
+        def is_test_file(path):
+            name = os.path.basename(path)
+            return name.startswith("test_") and name.endswith(".py") or name.endswith("_test.py")
+
+        def iter_test_functions(tree):
+            class TestFunctionVisitor(ast.NodeVisitor):
+                def __init__(self):
+                    self.class_stack = []
+                    self.test_functions = []
+
+                def visit_ClassDef(self, node):
+                    self.class_stack.append(node.name)
+                    for body_node in node.body:
+                        self.visit(body_node)
+                    self.class_stack.pop()
+
+                def visit_FunctionDef(self, node):
+                    if node.name.startswith("test_"):
+                        qualname = "::".join(self.class_stack + [node.name])
+                        self.test_functions.append((node, qualname))
+
+                visit_AsyncFunctionDef = visit_FunctionDef
+
+            visitor = TestFunctionVisitor()
+            visitor.visit(tree)
+            return visitor.test_functions
+
+        ck_test_cases_map = OrderedDict((ck, []) for ck in doc_ck_list)
+        fc_ck_index = {}
+        fg_fc_ck_index = {}
+        for ck_key in doc_ck_list:
+            fg_name, fc_name, ck_name = split_ck_key(ck_key)
+            if fc_name and ck_name:
+                fc_ck_index.setdefault((fc_name, ck_name), []).append(ck_key)
+            if fg_name and fc_name and ck_name:
+                fg_fc_ck_index.setdefault((fg_name, fc_name, ck_name), []).append(ck_key)
+
+        unresolved_mark_function = []
+        total_test_cases_count = 0
+        test_files = sorted(
+            f for f in glob.glob(os.path.join(test_dir_full_path, "**", "*.py"), recursive=True)
+            if is_test_file(f)
+        )
+        for test_file in test_files:
+            rel_file = fc.rm_workspace_prefix(self.workspace, test_file)
+            try:
+                with open(test_file, "r", encoding="utf-8") as fr:
+                    source = fr.read()
+                tree = ast.parse(source, filename=rel_file)
+            except SyntaxError as e:
+                unresolved_mark_function.append(OrderedDict({
+                    "file": rel_file,
+                    "line": e.lineno,
+                    "reason": f"SyntaxError: {e.msg}",
+                }))
+                continue
+            except Exception as e:
+                unresolved_mark_function.append(OrderedDict({
+                    "file": rel_file,
+                    "line": None,
+                    "reason": f"Failed to parse file: {e}",
+                }))
+                continue
+
+            for func_node, qualname in iter_test_functions(tree):
+                test_func_name = qualname.split("::")[-1]
+                if _test_name_matches_prefixes(
+                    test_func_name,
+                    _normalize_test_prefixes(self.ignore_tc_prefix),
+                ):
+                    continue
+                total_test_cases_count += 1
+                line_to = getattr(func_node, "end_lineno", func_node.lineno)
+                test_case = f"{rel_file}:{func_node.lineno}-{line_to}::{qualname}"
+                for call in ast.walk(func_node):
+                    if not (isinstance(call, ast.Call)
+                            and isinstance(call.func, ast.Attribute)
+                            and call.func.attr == "mark_function"):
+                        continue
+                    fc_arg = call.args[0] if len(call.args) >= 1 else extract_keyword(call, ["fc_name"])
+                    test_arg = call.args[1] if len(call.args) >= 2 else extract_keyword(
+                        call,
+                        [
+                            "test_function_or_list", "test_function", "test_functions",
+                            "test_func", "test_funcs", "func", "functions",
+                        ],
+                    )
+                    ck_arg = call.args[2] if len(call.args) >= 3 else extract_keyword(
+                        call,
+                        [
+                            "ck_name", "ck_names", "ck_list", "ck_points",
+                            "check_point_names", "check_points", "checks",
+                            "bins", "checkpoints",
+                        ],
+                    )
+                    fc_name = literal_str(fc_arg) if fc_arg is not None else None
+                    ck_names = literal_str_list(ck_arg) if ck_arg is not None else []
+                    fg_name = extract_fg_from_receiver(call.func.value)
+                    if not references_enclosing_test(test_arg, test_func_name):
+                        unresolved_mark_function.append(OrderedDict({
+                            "test_case": test_case,
+                            "line": getattr(call, "lineno", func_node.lineno),
+                            "fg": fg_name,
+                            "fc": fc_name,
+                            "cks": ck_names,
+                            "reason": "mark_function does not statically reference the enclosing test function.",
+                        }))
+                        continue
+                    if not fc_name or not fc_name.startswith("FC-") or not ck_names:
+                        unresolved_mark_function.append(OrderedDict({
+                            "test_case": test_case,
+                            "line": getattr(call, "lineno", func_node.lineno),
+                            "fg": fg_name,
+                            "fc": fc_name,
+                            "cks": ck_names,
+                            "reason": "Cannot statically parse FC/CK names from mark_function call.",
+                        }))
+                        continue
+                    for ck_name in ck_names:
+                        if not ck_name.startswith("CK-"):
+                            unresolved_mark_function.append(OrderedDict({
+                                "test_case": test_case,
+                                "line": getattr(call, "lineno", func_node.lineno),
+                                "fg": fg_name,
+                                "fc": fc_name,
+                                "ck": ck_name,
+                                "reason": "Parsed checkpoint name does not start with CK-.",
+                            }))
+                            continue
+                        matches = fc_ck_index.get((fc_name, ck_name), [])
+                        matched_ck = None
+                        reason = "No matching CK in documentation."
+                        if fg_name:
+                            exact_matches = fg_fc_ck_index.get((fg_name, fc_name, ck_name), [])
+                            matched_ck = exact_matches[0] if len(exact_matches) == 1 else None
+                            if matched_ck is None and matches:
+                                reason = (
+                                    "FG does not match the documented FG for this FC/CK, "
+                                    "or the full FG/FC/CK path is ambiguous."
+                                )
+                        elif len(matches) == 1:
+                            matched_ck = matches[0]
+                        elif len(matches) > 1:
+                            reason = "Ambiguous CK in documentation; FG is required to disambiguate."
+                        if matched_ck is None:
+                            unresolved_mark_function.append(OrderedDict({
+                                "test_case": test_case,
+                                "line": getattr(call, "lineno", func_node.lineno),
+                                "fg": fg_name,
+                                "fc": fc_name,
+                                "ck": ck_name,
+                                "reason": reason,
+                            }))
+                            continue
+                        if test_case not in ck_test_cases_map.setdefault(matched_ck, []):
+                            ck_test_cases_map[matched_ck].append(test_case)
+
+        self.ck_test_cases_map = ck_test_cases_map
+        self.unresolved_mark_function = unresolved_mark_function
+        self.total_test_cases_count = total_test_cases_count
+        return ck_test_cases_map
+
+    def do_check(self, timeout=0, is_complete=False, refined=None, **kw):
+        """Refine test cases in batches and check their implementation status."""
+        try:
+            current_doc_ck_list, self.cached_ck_file_blocks = self._load_doc_cks(min_count=1)
+        except Exception as e:
+            return False, {
+                "error": f"Failed to parse the function and check documentation file {self.doc_func_check}: {str(e)}. "
+                         "Review the file format and ensure it contains valid <FG-*>, <FC-*>, and <CK-*> labels."
+            }
+        try:
+            self.ck_test_cases_map = self.get_ck_test_cases_info(current_doc_ck_list)
+        except Exception as e:
+            return False, {"error": str(e)}
+
+        note_msg = []
+        self._sync_source_from_doc(current_doc_ck_list, note_msg)
+        completed_tasks = [
+            ck for ck in self.batch_task.gen_task_list
+            if ck in current_doc_ck_list
+        ]
+        for ck in self.refine_result.keys():
+            if ck in current_doc_ck_list and ck not in completed_tasks:
+                completed_tasks.append(ck)
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Refined test-case CK records changed.",
+        )
+        self.batch_task.update_current_tbd()
+
+        current_batch = list(self.batch_task.tbd_task_list)
+        tool_name = "Complete" if is_complete else "Check"
+
+        def refined_call_guidance(candidate_cks=None):
+            """Build an executable refined argument example for error messages."""
+            has_current_batch = bool(current_batch)
+            candidates = list(candidate_cks or current_batch or current_doc_ck_list)
+            if candidates:
+                example_ck = candidates[0]
+                example_note = (
+                    "Reviewed the related test cases and updated coverage for this checkpoint."
+                )
+                object_example, string_example = format_stage_args_examples(
+                    tool_name,
+                    {"refined": {example_ck: example_note}},
+                )
+                guidance = (
+                    f"Call the {tool_name} tool with the stage_args JSON object. "
+                    "For this stage, stage_args.refined maps each full CK path to a review/update note. "
+                    f"Object example: {object_example} "
+                    f"JSON-string fallback: {string_example} "
+                )
+                if has_current_batch or candidate_cks:
+                    guidance += (
+                        f"Allowed current-batch CK labels: {', '.join(candidates)}. "
+                        "Do not submit CK labels outside the current batch. "
+                    )
+                else:
+                    guidance += "There are currently no pending CK labels in the batch. "
+                return guidance + (
+                    "Pass stage_args directly as shown; do not use a top-level refined field, "
+                    "or nest stage_args under args or parameters."
+                )
+            object_example, string_example = format_stage_args_examples(
+                tool_name,
+                {"refined": {"FG-.../FC-.../CK-...": "review note"}},
+            )
+            return (
+                f"Call the {tool_name} tool with {object_example}. "
+                f"If nested object serialization fails, use {string_example}."
+            )
+
+        if refined is None:
+            refined_map = OrderedDict()
+        elif not isinstance(refined, dict):
+            return False, {
+                "error": (
+                    "stage_args.refined must be a JSON object whose keys are CK labels and whose values "
+                    "are review/update notes. "
+                    f"{refined_call_guidance()} "
+                    f"Received type(refined)={type(refined)}; value={refined}"
+                )
+            }
+        else:
+            refined_map = OrderedDict()
+            for key, value in refined.items():
+                if key is None:
+                    continue
+                ck = str(key).strip()
+                if ck:
+                    refined_map[ck] = value
+
+        error_mesg = []
+        unknown_tasks = [key for key in refined_map if key not in current_doc_ck_list]
+        if unknown_tasks:
+            error_mesg.extend([
+                "The following refined CK labels are not in the current function/check document. "
+                "Please ensure that you are refining the correct labels:",
+                *unknown_tasks,
+            ])
+
+        current_batch_set = set(current_batch)
+        out_of_batch_tasks = [
+            key for key in refined_map
+            if key in current_doc_ck_list and key not in current_batch_set
+        ]
+        if out_of_batch_tasks and current_batch_set:
+            error_mesg.extend([
+                "The following refined CK labels are valid, but they are not in the current batch. "
+                "Please refine the current batch first:",
+                *out_of_batch_tasks,
+            ])
+
+        if unknown_tasks or (out_of_batch_tasks and current_batch_set):
+            error_mesg.append(refined_call_guidance())
+            if self.batch_task.tbd_task_list:
+                error_mesg.append(f"Current batch CK labels: {', '.join(self.batch_task.tbd_task_list)}")
+                error_mesg.append({"current_batch": self._build_current_ck_infos(self.batch_task.tbd_task_list)})
+            return False, {"error": error_mesg}
+
+        valid_tasks = [
+            key for key in refined_map
+            if key in current_batch_set
+        ]
+        remaining_current_batch = [
+            ck for ck in self.batch_task.tbd_task_list
+            if ck not in completed_tasks
+        ]
+        if len(valid_tasks) < 1 and remaining_current_batch:
+            return False, {
+                "error": [
+                    "No valid CK labels were refined in the current batch. "
+                    f"Please refine at least one of these CK labels: {', '.join(remaining_current_batch)}.",
+                    {"current_batch": self._build_current_ck_infos(remaining_current_batch)},
+                    refined_call_guidance(remaining_current_batch),
+                ]
+            }
+
+        for ck in valid_tasks:
+            self.refine_result[ck] = refined_map[ck]
+            if ck not in completed_tasks:
+                completed_tasks.append(ck)
+
+        self.batch_task.sync_gen_task(
+            completed_tasks,
+            note_msg,
+            "Refined test-case CK records changed.",
+        )
+
+        if self.stage_manager is not None:
+            self.smanager_set_value(self._refine_result_key, copy.deepcopy(self.refine_result))
+            if self.data_key:
+                self.smanager_set_value(self.data_key, OrderedDict({
+                    "source_ck_list": current_doc_ck_list,
+                    "refine_result": copy.deepcopy(self.refine_result),
+                    "ck_test_cases_map": copy.deepcopy(self.ck_test_cases_map),
+                    "unresolved_mark_function": copy.deepcopy(self.unresolved_mark_function),
+                    "total_test_cases_count": self.total_test_cases_count,
+                }))
+
+        ck_pass, ck_error = self.batch_task.do_complete(
+            note_msg,
+            is_complete,
+            f"in file: {self.doc_func_check}",
+            f"in dir: {self.test_dir}",
+            " Please review and refine the related test cases, then confirm with stage_args={refined: {CK: note}}.",
+        )
+        if isinstance(ck_error, dict):
+            if self.batch_task.tbd_task_list:
+                ck_error["current_batch"] = self._build_current_ck_infos(self.batch_task.tbd_task_list)
+            if self.unresolved_mark_function:
+                ck_error["unresolved_mark_function"] = self.unresolved_mark_function
+        return ck_pass, ck_error

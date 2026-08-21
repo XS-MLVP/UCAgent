@@ -65,6 +65,10 @@ init_%:
 	cp $(SRC)/$*/*.vh $(CWD)/$*_RTL/ || true
 	cp $(SRC)/$*/*.scala $(CWD)/$*_RTL/ || true
 	cp $(SRC)/$*/filelist.txt $(CWD)/$*_RTL/ || true
+	@if [ -d $(SRC)/$*/Doc ]; then \
+		echo "Copying Doc files from $(SRC)/$*/Doc to $(CWD)/$*_Doc/"; \
+		cp -r $(SRC)/$*/Doc $(CWD)/$*_Doc/ || true; \
+	fi
 	@if [ ! -d $(CWD)/$* ]; then \
 		option_fs=""; \
 		if [ -f $(CWD)/$*_RTL/filelist.txt ]; then \

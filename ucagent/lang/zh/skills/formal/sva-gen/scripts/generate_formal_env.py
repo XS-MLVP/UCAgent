@@ -19,6 +19,9 @@ from ucagent.lang.zh.skills.formal.lib.formal_tools import (
     get_all_ck_from_records,
     STYLE_PREFIX_MAP,
     incremental_merge_checker,
+    get_primary_clock_reset,
+    build_whitebox_signal_context,
+    build_clock_reset_alias_context,
 )
 from ucagent.util.log import str_error, str_info
 import ucagent.util.functions as fc
@@ -125,42 +128,57 @@ def _render_to_file(template_name: str, context: dict, output_path: str) -> None
         print(str_error(f"Failed to render template {template_name}: {e}"))
 
 
-def _render_wrapper(dut_name: str, port_info: List[Tuple[str, str]], wrapper_path: str, parameters: dict = None, whitebox_signals: list = None) -> None:
+def _render_wrapper(
+    dut_name: str,
+    port_info: List[Tuple[str, str]],
+    wrapper_path: str,
+    parameters: dict = None,
+    whitebox_signals: list = None,
+    clock_signal: str = "clk",
+    reset_signal: str = "rst_n",
+    actual_clock_signal: str = "clk",
+    actual_reset_signal: str = "rst_n",
+    clock_reset_aliases: list = None,
+) -> None:
     internal_decls = []
     for name, pdef in port_info:
-        if name in ("clk", "rst_n"):
+        if name in {clock_signal, reset_signal, actual_clock_signal, actual_reset_signal}:
             continue
         internal_decls.append(_to_internal_decl(pdef))
 
     dut_conns = [f".{name}({name})" for name, _ in port_info]
     
-    checker_conns = [".clk(clk)", ".rst_n(rst_n)"]
+    checker_conns = []
+    if any(alias.get("expr") == clock_signal for alias in (clock_reset_aliases or [])) or actual_clock_signal == clock_signal:
+        checker_conns.append(f".{clock_signal}({clock_signal})")
+    if any("rst_n" in str(alias.get("expr", "")) for alias in (clock_reset_aliases or [])) or actual_reset_signal == reset_signal:
+        checker_conns.append(f".{reset_signal}({reset_signal})")
     for name, _ in port_info:
-        if name in ("clk", "rst_n"):
+        if name in {clock_signal, reset_signal, actual_clock_signal, actual_reset_signal}:
             continue
         checker_conns.append(f".{name}({name})")
-    if whitebox_signals:
-        for sig in whitebox_signals:
-            sig_clean = sig.rstrip(";").strip()
-            name_match = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*$", sig_clean)
-            if not name_match:
-                continue
-            sig_name = name_match.group(1)
-            checker_conns.append(f".{sig_name}({sig_name})")
+    whitebox_context = build_whitebox_signal_context(whitebox_signals)
+    for sig in whitebox_context:
+        checker_conns.append(f".{sig['name']}({sig['name']})")
 
     context = {
         "DUT": dut_name,
         "internal_decls": internal_decls,
         "dut_connections": dut_conns,
         "checker_connections": checker_conns,
-        "parameters": parameters,
-        "whitebox_signals": whitebox_signals
+        "parameter_items": list((parameters or {}).items()),
+        "whitebox_signals": whitebox_context,
+        "clock_signal": clock_signal,
+        "reset_signal": reset_signal,
+        "has_clock": bool(actual_clock_signal),
+        "has_reset": bool(actual_reset_signal),
+        "clock_reset_aliases": clock_reset_aliases or [],
     }
     _render_to_file("tests/wrapper.sv", context, wrapper_path)
 
 
-def _render_tcl(dut_name: str, tcl_path: str, extra_config: dict = None) -> None:
-    context = {"DUT": dut_name, "extra_config": extra_config}
+def _render_tcl(dut_name: str, tcl_path: str, extra_config: dict = None, basic_info: dict = None) -> None:
+    context = {"DUT": dut_name, "extra_config": extra_config, "basic_info": basic_info or {}}
     _render_to_file("tests/formal.tcl", context, tcl_path)
 
 
@@ -184,6 +202,12 @@ def main() -> None:
     tcl_path = paths.tcl
 
     try:
+        lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lib")
+        print(str_info(f"[generate_formal_env] workspace={paths.workspace}"))
+        print(str_info(f"[generate_formal_env] records={paths.records_yaml}"))
+        print(str_info(f"[generate_formal_env] rtl_dir={rtl_dir_res}"))
+        print(str_info(f"[generate_formal_env] template_dir={os.path.join(lib_dir, 'templates')}"))
+        print(str_info(f"[generate_formal_env] formal_tools={sys.modules['ucagent.lang.zh.skills.formal.lib.formal_tools'].__file__}"))
         rtl_file_path = _find_rtl_file(rtl_dir_res, dut)
         port_info = _extract_ports_simple(rtl_file_path, dut)
         records = load_records(paths.records_yaml)
@@ -191,6 +215,8 @@ def main() -> None:
         if not records:
             print(str_error(f"Records file not found: {paths.records_yaml}"))
             return
+
+        cr_ctx = build_clock_reset_alias_context(records)
 
         # 1. Generate/Update Checker
         os.makedirs(os.path.dirname(checker_path), exist_ok=True)
@@ -202,11 +228,22 @@ def main() -> None:
             os.makedirs(os.path.dirname(wrapper_path), exist_ok=True)
             params = records.spec.parameters if records.spec else None
             wb_sigs = records.spec.whitebox_signals if records.spec else None
-            _render_wrapper(dut, port_info, wrapper_path, parameters=params, whitebox_signals=wb_sigs)
+            _render_wrapper(
+                dut,
+                port_info,
+                wrapper_path,
+                parameters=params,
+                whitebox_signals=wb_sigs,
+                clock_signal=cr_ctx["env_clock"],
+                reset_signal=cr_ctx["env_reset"],
+                actual_clock_signal=cr_ctx["actual_clock"],
+                actual_reset_signal=cr_ctx["actual_reset"],
+                clock_reset_aliases=cr_ctx["aliases"],
+            )
             
         if args.mode == "full" or not os.path.exists(tcl_path):
             os.makedirs(os.path.dirname(tcl_path), exist_ok=True)
-            _render_tcl(dut, tcl_path, extra_config=records.extra_config)
+            _render_tcl(dut, tcl_path, extra_config=records.extra_config, basic_info=records.basic_info)
 
         mode_str = "Full overwrite" if args.mode == "full" else "Append missing only"
         result = str_info(

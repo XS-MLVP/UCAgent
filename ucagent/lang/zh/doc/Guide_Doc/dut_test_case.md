@@ -48,9 +48,9 @@ def test_basic_functionality(env):
     assert actual_result == expected_result, f"预期: {expected_result}, 实际: {actual_result}"
 ```
 
-### API 测试函数的参数规范（重要）
+### DUT功能测试函数的参数规范（重要）
 
-以 `test_api_{DUT}_` 为前缀的 **API 测试函数**有严格的参数顺序要求：
+API测试、功能测试模板、静态Bug动态验证测试和随机测试都必须遵守当前参考模型配置的参数顺序：
 
 | 参数位置 | 参数名 | 说明 |
 |---------|--------|------|
@@ -89,7 +89,9 @@ def test_api_{DUT}_add_basic(ref_model, env): ...
 def test_api_{DUT}_add_basic(dut, env, ref_model): ...
 ```
 
-> **注意：** 检查器会自动验证所有 `test_api_{DUT}_*` 函数的参数顺序。若启用了 `ref_model` fixture，则必须将 `ref_model` 作为第二个参数，否则检查将不通过。
+> **注意：** 对应阶段的检查器会验证目标测试函数的参数顺序。若启用了`ref_model` fixture，则必须将`ref_model`作为第二个参数，否则检查不通过。
+
+Mock组件独立测试使用另一套固定契约：`def test_api_{DUT}_mock_xxx(mock_dut):`。运行配置中的`need_ref_model: true`不会给Mock测试增加`ref_model`；`mock_components_enabled: true`也不会让普通DUT测试把`env`替换为`mock_dut`。这两个值必须取自已解析的`agent.cfg.runtime_options`或`.ucagent/runtime_config.json`，不能由测试代码直接读取环境变量。
 
 ## 覆盖率关联机制
 
@@ -100,6 +102,8 @@ env.dut.fc_cover["{功能分组}"].mark_function("{功能点}", {测试函数}, 
 ```
 
 需要在测试函数的最开始就通过mark_function进行覆盖率关联。不建议在函数结束时关联，因为有可能测试不通过导致关联失败。一次调用mark_function只能关联一个功能点中的多个测试点，如果一个测试用例覆盖多个功能点，需要多次调用mark_function分别进行标记
+
+测试阶段应把现有`{DUT}_api.py`、`dut/env` fixture、fake DUT路径和`{DUT}_function_coverage_def.py`视为公共契约。`mark_function`失败时先核对FG/FC/CK字面量并读取最早traceback；不得在测试文件中伪造`fc_cover`，也不得为了单个测试通过而重写提供的API模板、替换fixture、删除覆盖标记或破坏覆盖率上报。只有证据明确证明公共基础设施本身违反契约时，才做最小修复并重跑其专用Checker。
 
 
 **参数说明：**

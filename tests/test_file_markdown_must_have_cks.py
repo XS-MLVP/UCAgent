@@ -51,21 +51,21 @@ def test_must_have_cks_passes_when_source_contains_all_required_cks(tmp_path):
     passed, msg = checker.do_check()
 
     assert passed is True
-    assert "All source files contain required CK labels" in msg["note"]
+    assert "All source files contain only CK labels" in msg["note"]
 
 
-def test_must_have_cks_fails_when_required_ck_is_missing_from_source(tmp_path):
+def test_must_have_cks_fails_when_source_contains_ck_missing_from_doc(tmp_path):
     write_doc(
         tmp_path / "functions_and_checks.md",
         [
             ("API", "BASIC", "RESET"),
-            ("API", "BASIC", "READY"),
         ],
     )
     write_doc(
         tmp_path / "source.md",
         [
             ("API", "BASIC", "RESET"),
+            ("API", "BASIC", "READY"),
         ],
     )
 
@@ -77,8 +77,8 @@ def test_must_have_cks_fails_when_required_ck_is_missing_from_source(tmp_path):
     passed, msg = checker.do_check()
 
     assert passed is False
-    assert "missing required" in msg["error"]
-    assert "FG-API/FC-BASIC/CK-READY (functions_and_checks.md:7)" in msg["details"]
+    assert "Some 1 source file(s) contain 1 CK labels" in msg["error"]
+    assert "FG-API/FC-BASIC/CK-READY (source.md:7)" in msg["details"]
 
 
 def test_must_have_cks_fails_when_no_source_file_matches(tmp_path):
@@ -105,20 +105,19 @@ def test_must_have_cks_requires_each_matched_source_file_to_cover_required_cks(t
         tmp_path / "functions_and_checks.md",
         [
             ("API", "BASIC", "RESET"),
-            ("API", "BASIC", "READY"),
         ],
     )
     write_doc(
         tmp_path / "source_good.md",
         [
             ("API", "BASIC", "RESET"),
-            ("API", "BASIC", "READY"),
         ],
     )
     write_doc(
         tmp_path / "source_bad.md",
         [
             ("API", "BASIC", "RESET"),
+            ("API", "BASIC", "READY"),
         ],
     )
 
@@ -130,8 +129,9 @@ def test_must_have_cks_requires_each_matched_source_file_to_cover_required_cks(t
     passed, msg = checker.do_check()
 
     assert passed is False
+    assert "Some 1 source file(s) contain 1 CK labels" in msg["error"]
     assert "source_bad.md" in msg["details"]
-    assert "FG-API/FC-BASIC/CK-READY (functions_and_checks.md:7)" in msg["details"]
+    assert "FG-API/FC-BASIC/CK-READY (source_bad.md:7)" in msg["details"]
     assert "source_good.md" not in msg["details"]
 
 

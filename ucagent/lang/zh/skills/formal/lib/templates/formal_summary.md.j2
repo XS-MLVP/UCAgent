@@ -1,0 +1,56 @@
+# {{ DUT }} 形式化验证总结报告
+
+> 本文档由 `.formal_records.yaml` 自动生成，请勿手动编辑。
+
+## 1. 验证实施概况
+
+- **被测模块**: {{ DUT }}
+- **核心功能**: {{ summary.core_function or "" }}
+- **工具引擎**: FormalMC
+- **测试结果**: {{ summary.overall_result or "" }}
+
+## 2. 断言与属性统计
+
+| 属性类型 | 提取自 Checker (总数) | Log (Pass) | Log (Fail) | Log (Trivially_True) | 覆盖率(Cover) |
+|----------|-----------------------|------------|------------|----------------------|---------------|
+| Assume   | {{ summary.stats.assume_total or 0 }} | 无数据 | 无数据 | 无数据 | - |
+| SVA (CK) | {{ summary.stats.sva_total or 0 }} | {{ summary.stats.assert_pass or 0 }} | {{ summary.stats.assert_fail or 0 }} | {{ summary.stats.assert_tt or 0 }} | - |
+| Cover    | {{ summary.stats.cover_total or 0 }} | - | - | - | {{ summary.stats.cover_pass or 0 }}/{{ summary.stats.cover_total or 0 }} |
+
+## 3. COI 覆盖率报告 (Cone-Of-Influence)
+
+| 类型 | 目标总数 | 已覆盖数 | 未覆盖数 | 覆盖率 |
+|------|----------|----------|----------|--------|
+| Net  | {{ summary.coverage.nets.total or 0 }} | {{ summary.coverage.nets.covered or 0 }} | {{ summary.coverage.nets.uncovered or 0 }} | {{ summary.coverage.nets.pct or 0 }}% |
+| Dff  | {{ summary.coverage.dffs.total or 0 }} | {{ summary.coverage.dffs.covered or 0 }} | {{ summary.coverage.dffs.uncovered or 0 }} | {{ summary.coverage.dffs.pct or 0 }}% |
+
+**未覆盖信号说明：**
+{% for item in summary.coi_assessment.unreachable_notes or [] -%}
+- {{ item }}
+{% endfor %}
+
+## 4. 验证完备性评估
+
+### 4.1 Safety (安全性) 评估
+
+{{ summary.completeness.safety or "" }}
+
+### 4.2 Liveness (活跃性) 评估
+
+{{ summary.completeness.liveness or "" }}
+
+### 4.3 Cover (可达性) 评估
+
+{{ summary.completeness.cover or "" }}
+
+## 5. 发现的严重漏洞汇总
+
+| Bug ID | 类型 | 描述 | Checker 关联 |
+|--------|------|------|--------------|
+{% for item in summary.severe_bugs or [] -%}
+| {{ item.bug_id }} | {{ item.bug_type }} | {{ item.desc }} | {{ item.checker_link }} |
+{% endfor %}
+
+## 6. 验收结论
+
+{{ summary.acceptance_conclusion or "" }}

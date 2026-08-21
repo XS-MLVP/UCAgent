@@ -10,3 +10,4 @@ from .planning import *
 from .workdiff import *
 from .bash import *
 from .skill import *
+from .waveform import *
