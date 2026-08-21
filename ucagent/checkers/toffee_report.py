@@ -15,12 +15,21 @@ from ucagent.util.bug_analysis_contract import (
     BUG_SOURCE_UNAVAILABLE_MARKER as _BUG_SOURCE_UNAVAILABLE_MARKER,
     BUG_TODO_MARKER as _BUG_TODO_MARKER,
     DOCUMENT_TAG_PATTERN as _DOCUMENT_TAG_PATTERN,
+    DYNAMIC_BUGS_END_MARKER as _DYNAMIC_BUGS_END_MARKER,
     DYNAMIC_BUGS_MARKER as _DYNAMIC_BUGS_MARKER,
+    WAVEFORM_BUG_ANALYSIS_FIELDS as _WAVEFORM_BUG_ANALYSIS_FIELDS,
     WAVEFORM_BLOCK_KEY as _WAVEFORM_BLOCK_KEY,
+    WAVEFORM_EVIDENCE_END_MARKER as _WAVEFORM_EVIDENCE_END_MARKER,
+    WAVEFORM_EVIDENCE_MARKER as _WAVEFORM_EVIDENCE_MARKER,
     WAVEFORM_FENCE_CLOSE as _WAVEFORM_FENCE_CLOSE,
     WAVEFORM_FENCE_OPEN as _WAVEFORM_FENCE_OPEN,
     WAVEFORM_LLM_ANALYSIS_FIELDS as _WAVEFORM_LLM_ANALYSIS_FIELDS,
+    WAVEFORM_REFERENCE_MARKER as _WAVEFORM_REFERENCE_MARKER,
     WAVEFORM_SIGNAL_GROUP_FIELDS as _WAVEFORM_SIGNAL_GROUP_FIELDS,
+    normalize_test_case_tag as _normalize_test_case_tag,
+    waveform_anchor_id as _waveform_anchor_id,
+    waveform_record_tag as _waveform_record_tag,
+    waveform_reference as _waveform_reference,
 )
 from ucagent.checkers.base import Checker
 import copy
@@ -163,6 +172,7 @@ def _parse_documented_dynamic_bug_records(
     fence_open = False
     dynamic_container_lines = []
     first_bug_line = None
+    in_dynamic_container = False
 
     def close_current(end_index: int):
         nonlocal current
@@ -179,11 +189,21 @@ def _parse_documented_dynamic_bug_records(
             continue
         if fence_open:
             continue
+        matches = list(_DOCUMENT_TAG_PATTERN.finditer(line))
+        if first_bug_line is None and any(
+            match.group(1) == "BG" for match in matches
+        ):
+            first_bug_line = index + 1
         if stripped == _DYNAMIC_BUGS_MARKER:
             dynamic_container_lines.append(index + 1)
+            in_dynamic_container = True
             continue
-
-        matches = list(_DOCUMENT_TAG_PATTERN.finditer(line))
+        if stripped == _DYNAMIC_BUGS_END_MARKER:
+            close_current(index)
+            in_dynamic_container = False
+            continue
+        if not in_dynamic_container:
+            continue
         if not matches:
             continue
         if current is not None and any(
@@ -201,8 +221,6 @@ def _parse_documented_dynamic_bug_records(
             elif kind == "CK":
                 hierarchy["CK"] = label
             elif kind == "BG":
-                if first_bug_line is None:
-                    first_bug_line = index + 1
                 try:
                     _bug_name, confidence = parse_bug_label(label)
                 except ValueError as error:
@@ -285,269 +303,293 @@ def _parse_waveform_analysis_blocks(
     workspace: str,
     bug_file: str,
 ) -> tuple[bool, dict, object]:
-    """Parse fenced ``waveform_analysis`` mappings directly following BG/TC tags."""
+    """Parse one central waveform record per documented failing test case."""
 
     path = os.path.join(workspace, bug_file)
     if not os.path.isfile(path):
         return False, {}, {
             "error": f"[Bug Analysis Missing] Dynamic bug document '{bug_file}' does not exist."
         }
-
     with open(path, "r", encoding="utf-8") as handle:
         lines = handle.read().splitlines()
-
-    current_bug = None
-    current_test = None
-    pending_test = None
-    pending_viewer = None
-    opened = None
-    payload_lines: list[str] = []
-    blocks = {}
-    for line_number, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if "<WAVEFORM-ANALYSIS>" in stripped or "</WAVEFORM-ANALYSIS>" in stripped:
+    stripped_lines = [line.strip() for line in lines]
+    marker_indexes = {
+        marker: [index for index, value in enumerate(stripped_lines) if value == marker]
+        for marker in (
+            _DYNAMIC_BUGS_MARKER,
+            _DYNAMIC_BUGS_END_MARKER,
+            _WAVEFORM_EVIDENCE_MARKER,
+            _WAVEFORM_EVIDENCE_END_MARKER,
+        )
+    }
+    for marker, indexes in marker_indexes.items():
+        if len(indexes) != 1:
             return False, {}, {
                 "error": (
-                    f"[Legacy Waveform Analysis Format] Line {line_number} in '{bug_file}' "
-                    "uses the unsupported <WAVEFORM-ANALYSIS> tag. Put a ```yaml fence "
-                    "directly after the corresponding <TC-*> and use 'waveform_analysis:' "
-                    "as the only top-level YAML key."
+                    f"[Waveform Container Format Error] '{bug_file}' must contain exactly "
+                    f"one standalone {marker}; found {len(indexes)}."
                 )
             }
-
-        if opened is not None:
-            if WAVEFORM_VIEWER_MARKER in stripped or "/surfer/?wave=" in stripped:
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Viewer Link Inside YAML] Line {line_number} in "
-                        f"'{bug_file}' places the online viewer link inside the YAML "
-                        "fence. Close the fence first, then copy the complete "
-                        "bug_document_viewer_link as the next non-empty line."
-                    ),
-                    "details": {
-                        "bug": opened["bug"],
-                        "test_case": opened["test_case"],
-                        "line": line_number,
-                    },
-                }
-            if stripped.startswith("```") and stripped != _WAVEFORM_FENCE_CLOSE:
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis Fence Error] Nested or malformed fence "
-                        f"{stripped!r} at line {line_number} in '{bug_file}'. Close the "
-                        "current YAML block with a standalone ``` first."
-                    )
-                }
-            if stripped != _WAVEFORM_FENCE_CLOSE:
-                payload_lines.append(line)
-                continue
-
-            payload_ok, payload, payload_error = _extract_waveform_yaml_payload(
-                payload_lines,
-                block_line=opened["line"],
-                bug_file=bug_file,
-            )
-            if not payload_ok:
-                return False, {}, payload_error
-            pair = (opened["bug"], opened["test_case"])
-            if pair in blocks:
-                return False, {}, {
-                    "error": (
-                        f"[Duplicate Waveform Analysis] '{pair[0]}/{pair[1]}' has more "
-                        f"than one {_WAVEFORM_BLOCK_KEY} block in '{bug_file}'."
-                    )
-                }
-            blocks[pair] = {
-                "line": opened["line"],
-                "data": payload,
-            }
-            pending_viewer = {
-                "bug": opened["bug"],
-                "test_case": opened["test_case"],
-                "block_line": opened["line"],
-            }
-            opened = None
-            payload_lines = []
-            continue
-
-        if pending_viewer is not None:
-            if not stripped:
-                continue
-            try:
-                viewer_token, viewer_payload = parse_waveform_viewer_markdown_link(
-                    stripped
-                )
-            except WaveformViewerProtocolError as error:
-                pair = (pending_viewer["bug"], pending_viewer["test_case"])
-                documented_receipt = blocks[pair]["data"].get("receipt_id")
-                recovery_arguments = {
-                    "target_file": bug_file,
-                    "bug_tag": pending_viewer["bug"],
-                    "test_case_tag": pending_viewer["test_case"],
-                    "receipt_id": (
-                        documented_receipt
-                        if isinstance(documented_receipt, str)
-                        and documented_receipt.strip()
-                        and _BUG_TODO_MARKER not in documented_receipt
-                        else ""
-                    ),
-                }
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Viewer Link Invalid] The first non-empty content after "
-                        f"the YAML block at line {pending_viewer['block_line']} for "
-                        f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' must be "
-                        "a tool-generated viewer link. Do not edit or copy the token; call "
-                        "ApplyWaveInfoEvidence with the recovery_call below to atomically "
-                        f"repair the YAML and link. Line {line_number} is invalid: {error}."
-                    ),
-                    "details": {
-                        "bug": pending_viewer["bug"],
-                        "test_case": pending_viewer["test_case"],
-                        "block_line": pending_viewer["block_line"],
-                        "viewer_line": line_number,
-                        "recovery_call": {
-                            "tool": "ApplyWaveInfoEvidence",
-                            "arguments": recovery_arguments,
-                        },
-                    },
-                }
-            pair = (pending_viewer["bug"], pending_viewer["test_case"])
-            blocks[pair].update(
-                {
-                    "viewer_line": line_number,
-                    "viewer_token": viewer_token,
-                    "viewer_payload": viewer_payload,
-                    "viewer_url": build_waveform_viewer_url(viewer_payload),
-                }
-            )
-            pending_viewer = None
-            continue
-
-        if pending_test is not None:
-            if not stripped:
-                continue
-            if stripped.lower() == _WAVEFORM_FENCE_OPEN:
-                opened = {
-                    "line": line_number,
-                    "test_line": pending_test["line"],
-                    "bug": pending_test["bug"],
-                    "test_case": pending_test["test_case"],
-                }
-                pending_test = None
-                payload_lines = []
-                continue
-            if stripped.startswith("```"):
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis Fence Error] The first non-empty content after "
-                        f"<{pending_test['test_case']}> at line {line_number} in "
-                        f"'{bug_file}' must be ```yaml, not {stripped!r}."
-                    )
-                }
-            if stripped == f"{_WAVEFORM_BLOCK_KEY}:":
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis Fence Required] Bare '{_WAVEFORM_BLOCK_KEY}:' "
-                        f"at line {line_number} in '{bug_file}' is not accepted. Put the "
-                        "mapping inside a ```yaml ... ``` block."
-                    )
-                }
-            pending_test = None
-
-        if stripped.lower() == _WAVEFORM_FENCE_OPEN:
-            if current_bug is not None and current_test is not None:
-                pair = (current_bug, current_test)
-                if pair in blocks:
-                    return False, {}, {
-                        "error": (
-                            f"[Duplicate Waveform Analysis] '{pair[0]}/{pair[1]}' has more "
-                            f"than one {_WAVEFORM_BLOCK_KEY} block in '{bug_file}'."
-                        )
-                    }
-                return False, {}, {
-                    "error": (
-                        f"[Waveform Analysis Cascade Error] YAML fence at line "
-                        f"{line_number} in '{bug_file}' is not the first non-empty content "
-                        f"after <{current_test}>. Put ```yaml immediately after its exact "
-                        "<TC-*> tag and use 'waveform_analysis:' as the top-level key."
-                    )
-                }
-            return False, {}, {
-                "error": (
-                    f"[Waveform Analysis Association Missing] YAML fence at line "
-                    f"{line_number} must be the first non-empty content after a dynamic "
-                    "<BG-*>/<TC-*> entry."
-                )
-            }
-
-        if WAVEFORM_VIEWER_MARKER in stripped or "/surfer/?wave=" in stripped:
-            return False, {}, {
-                "error": (
-                    f"[Waveform Viewer Link Unassociated] Viewer link at line "
-                    f"{line_number} in '{bug_file}' is duplicated or is not the first "
-                    "non-empty line after a waveform YAML fence. Remove it and copy the "
-                    "WaveInfo-generated link after the matching BG/TC block."
-                ),
-                "details": {"line": line_number},
-            }
-
-        for match in _DOCUMENT_TAG_PATTERN.finditer(line):
-            kind, value = match.groups()
-            label = f"{kind}-{value}"
-            if kind in {"FG", "FC", "CK"}:
-                current_bug = None
-                current_test = None
-            elif kind == "BG":
-                current_bug = label
-                current_test = None
-            elif kind == "TC":
-                current_test = label
-                if current_bug is not None:
-                    pending_test = {
-                        "line": line_number,
-                        "bug": current_bug,
-                        "test_case": current_test,
-                    }
-
-    if opened is not None:
+    dynamic_start = marker_indexes[_DYNAMIC_BUGS_MARKER][0]
+    dynamic_end = marker_indexes[_DYNAMIC_BUGS_END_MARKER][0]
+    evidence_start = marker_indexes[_WAVEFORM_EVIDENCE_MARKER][0]
+    evidence_end = marker_indexes[_WAVEFORM_EVIDENCE_END_MARKER][0]
+    if not dynamic_start < dynamic_end < evidence_start < evidence_end:
         return False, {}, {
             "error": (
-                f"[Waveform Analysis Fence Error] YAML block opened at line "
-                f"{opened['line']} in '{bug_file}' is missing a standalone closing ```."
+                f"[Waveform Container Order Error] '{bug_file}' must place the closed "
+                "DYNAMIC-BUGS container before the closed WAVEFORM-EVIDENCE container."
             )
         }
-    if pending_viewer is not None:
-        pair = (pending_viewer["bug"], pending_viewer["test_case"])
-        documented_receipt = blocks[pair]["data"].get("receipt_id")
+
+    ok, records, error = _parse_documented_dynamic_bug_records(workspace, bug_file)
+    if not ok:
+        return False, {}, error
+    associations: dict[str, set[str]] = {}
+    association_lines: dict[tuple[str, str], int] = {}
+    reference_indexes: set[int] = set()
+    for record in records:
+        for test in record["tests"]:
+            try:
+                test_label = _normalize_test_case_tag(test["test_label"])
+            except ValueError as parse_error:
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Test Tag Error] Invalid TC tag at line {test['line']} "
+                        f"in '{bug_file}': {parse_error}."
+                        )
+                    }
+            pair = (record["bug"], test_label)
+            if pair in association_lines:
+                return False, {}, {
+                    "error": (
+                        f"[Duplicate Waveform Association] <{record['bug']}> references "
+                        f"<{test_label}> more than once. Keep one BG/TC association and one "
+                        "generated WAVEFORM-REF."
+                    )
+                }
+            associations.setdefault(test_label, set()).add(record["bug"])
+            association_lines[pair] = test["line"]
+            next_index = test["line"]
+            while next_index < dynamic_end and not stripped_lines[next_index]:
+                next_index += 1
+            expected_reference = _waveform_reference(test_label)
+            if next_index >= dynamic_end or stripped_lines[next_index] != expected_reference:
+                return False, {}, {
+                    "error": (
+                        f"[Waveform Reference Missing] <{test_label}> at line {test['line']} "
+                        f"under <{record['bug']}> must be followed by exact reference "
+                        f"'{expected_reference}'. Call ApplyWaveInfoEvidence to create or "
+                        "repair the association."
+                    ),
+                    "details": {
+                        "bug": record["bug"],
+                        "test_case": test_label,
+                        "line": test["line"],
+                    },
+                }
+            reference_indexes.add(next_index)
+
+    for index in range(dynamic_start + 1, dynamic_end):
+        stripped = stripped_lines[index]
+        if _WAVEFORM_REFERENCE_MARKER in stripped and index not in reference_indexes:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Reference Unexpected] Line {index + 1} in '{bug_file}' "
+                    "contains an extra WAVEFORM-REF. Keep exactly one generated reference "
+                    "as the first non-empty content after its BG/TC association."
+                )
+            }
+        if (
+            (
+                stripped.startswith("<WAVEFORM-")
+                and _WAVEFORM_REFERENCE_MARKER not in stripped
+            )
+            or stripped == f"{_WAVEFORM_BLOCK_KEY}:"
+            or WAVEFORM_VIEWER_MARKER in stripped
+            or "/surfer/?wave=" in stripped
+        ):
+            return False, {}, {
+                "error": (
+                    f"[Waveform Placement Error] Line {index + 1} in '{bug_file}' contains "
+                    "waveform data inside DYNAMIC-BUGS. Keep only WAVEFORM-REF there and "
+                    "store one WAVEFORM-TC record in WAVEFORM-EVIDENCE."
+                )
+            }
+
+    blocks = {}
+    index = evidence_start + 1
+    heading_pattern = re.compile(r"^###\s+<(WAVEFORM-TC-[^<>]+)>\s*$")
+    while index < evidence_end:
+        if not stripped_lines[index]:
+            index += 1
+            continue
+        anchor_match = re.fullmatch(r'<a id="([^"]+)"></a>', stripped_lines[index])
+        if anchor_match is None:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Anchor Error] Unexpected content at line {index + 1} "
+                    f"in '{bug_file}'. Every central record must start with its generated "
+                    "waveform anchor."
+                )
+            }
+        anchor_line = index + 1
+        index += 1
+        while index < evidence_end and not stripped_lines[index]:
+            index += 1
+        heading_match = (
+            heading_pattern.fullmatch(stripped_lines[index])
+            if index < evidence_end
+            else None
+        )
+        if heading_match is None:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Tag Error] Anchor at line {anchor_line} in "
+                    f"'{bug_file}' must be followed by ### <WAVEFORM-TC-...>."
+                )
+            }
+        raw_test_label = heading_match.group(1)[len("WAVEFORM-") :]
+        try:
+            test_label = _normalize_test_case_tag(raw_test_label)
+        except ValueError as parse_error:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Tag Error] Invalid tag at line {index + 1} in "
+                    f"'{bug_file}': {parse_error}."
+                )
+            }
+        expected_anchor = _waveform_anchor_id(test_label)
+        if anchor_match.group(1) != expected_anchor:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Anchor Error] Record <{_waveform_record_tag(test_label)}> "
+                    f"must use anchor '{expected_anchor}', not '{anchor_match.group(1)}'."
+                )
+            }
+        if test_label in blocks:
+            return False, {}, {
+                "error": (
+                    f"[Duplicate Waveform Record] <{test_label}> has more than one central "
+                    f"record in '{bug_file}'."
+                )
+            }
+        heading_line = index + 1
+        index += 1
+        while index < evidence_end and not stripped_lines[index]:
+            index += 1
+        if index >= evidence_end or stripped_lines[index].lower() != _WAVEFORM_FENCE_OPEN:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Analysis Fence Error] Record at line {heading_line} in "
+                    f"'{bug_file}' must contain a ```yaml block."
+                )
+            }
+        block_line = index + 1
+        index += 1
+        payload_lines = []
+        while index < evidence_end and stripped_lines[index] != _WAVEFORM_FENCE_CLOSE:
+            if stripped_lines[index].startswith("```"):
+                return False, {}, {
+                    "error": f"[Waveform Analysis Fence Error] Malformed fence at line {index + 1}."
+                }
+            payload_lines.append(lines[index])
+            index += 1
+        if index >= evidence_end:
+            return False, {}, {
+                "error": f"[Waveform Analysis Fence Error] Block at line {block_line} is unclosed."
+            }
+        payload_ok, payload, payload_error = _extract_waveform_yaml_payload(
+            payload_lines,
+            block_line=block_line,
+            bug_file=bug_file,
+        )
+        if not payload_ok:
+            return False, {}, payload_error
+        expected_bugs = sorted(associations.get(test_label, set()))
+        recovery_call = {
+            "tool": "ApplyWaveInfoEvidence",
+            "arguments": {
+                "target_file": bug_file,
+                "bug_tag": expected_bugs[0] if expected_bugs else "",
+                "test_case_tag": test_label,
+                "receipt_id": payload.get("receipt_id", ""),
+            },
+        }
+        index += 1
+        while index < evidence_end and not stripped_lines[index]:
+            index += 1
+        if index >= evidence_end:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Viewer Link Missing] Central record for <{test_label}> "
+                    "has no tool-generated WAVEFORM-VIEWER link."
+                ),
+                "details": {"recovery_call": recovery_call},
+            }
+        try:
+            viewer_token, viewer_payload = parse_waveform_viewer_markdown_link(
+                stripped_lines[index]
+            )
+        except WaveformViewerProtocolError as viewer_error:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Viewer Link Invalid] Line {index + 1} for <{test_label}> "
+                    f"must be the tool-generated WAVEFORM-VIEWER link: {viewer_error}."
+                ),
+                "details": {"recovery_call": recovery_call},
+            }
+        documented_bugs = payload.get("bug_tags")
+        bug_evidence = payload.get("bug_evidence")
+        if payload.get("test_case") != test_label:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Test Mismatch] Block at line {block_line} must set "
+                    f"test_case to '{test_label}'."
+                )
+            }
+        if documented_bugs != expected_bugs or not expected_bugs:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Bug Association Mismatch] Record <{test_label}> must list "
+                    "exactly the Bugs that reference it. Delete the record when its final Bug "
+                    "association is removed."
+                ),
+                "details": {
+                    "documented_bug_tags": documented_bugs,
+                    "expected_bug_tags": expected_bugs,
+                },
+            }
+        if not isinstance(bug_evidence, dict) or sorted(bug_evidence) != expected_bugs:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Bug Evidence Mismatch] bug_evidence for <{test_label}> must "
+                    "contain exactly one mapping for every associated Bug."
+                )
+            }
+        blocks[test_label] = {
+            "line": block_line,
+            "anchor_line": anchor_line,
+            "heading_line": heading_line,
+            "data": payload,
+            "bugs": expected_bugs,
+            "association_lines": {
+                bug: association_lines[(bug, test_label)] for bug in expected_bugs
+            },
+            "viewer_line": index + 1,
+            "viewer_token": viewer_token,
+            "viewer_payload": viewer_payload,
+            "viewer_url": build_waveform_viewer_url(viewer_payload),
+        }
+        index += 1
+
+    orphan_records = sorted(set(blocks) - set(associations))
+    if orphan_records:
         return False, {}, {
             "error": (
-                f"[Waveform Viewer Link Missing] YAML block at line "
-                f"{pending_viewer['block_line']} for "
-                f"'{pending_viewer['bug']}/{pending_viewer['test_case']}' has no online "
-                "viewer link. Call ApplyWaveInfoEvidence with the recovery_call below; "
-                "the tool inserts the signed link without LLM-authored token handling."
-            ),
-            "details": {
-                "bug": pending_viewer["bug"],
-                "test_case": pending_viewer["test_case"],
-                "block_line": pending_viewer["block_line"],
-                "recovery_call": {
-                    "tool": "ApplyWaveInfoEvidence",
-                    "arguments": {
-                        "target_file": bug_file,
-                        "bug_tag": pending_viewer["bug"],
-                        "test_case_tag": pending_viewer["test_case"],
-                        "receipt_id": (
-                            documented_receipt
-                            if isinstance(documented_receipt, str)
-                            and documented_receipt.strip()
-                            and _BUG_TODO_MARKER not in documented_receipt
-                            else ""
-                        ),
-                    },
-                },
-            },
+                f"[Orphan Waveform Record] Central records have no BG/TC reference: "
+                f"{fc.list_str_abbr(orphan_records)}. Delete them."
+            )
         }
     return True, blocks, ""
 
@@ -854,7 +896,7 @@ def check_dynamic_bug_analysis_content(
                 f"'{bug_file}':\n"
                 + "\n".join(summaries)
                 + "\nCreate the BG/TC scaffold with a text-editing tool using "
-                "Guide_Doc/dut_bug_analysis.md section 6.1.1, or use the optional "
+                "Guide_Doc/dut_bug_analysis.md section 5.1, or use the optional "
                 "record_dynamic_bug.py helper when available. Then read the failing assertion, "
                 "confirmed WaveInfo timeline, and RTL/HDL source; replace "
                 "every scaffold field with evidence-backed analysis inside that BG before "
@@ -1001,7 +1043,7 @@ def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
     deletion_guard = (
         " Do not delete a TC, BG, or enclosing FG/FC/CK branch merely to remove this "
         "validation error while the correctly implemented test still fails. Rerun the "
-        "test and WaveInfo, then replace the evidence block. Remove a dynamic record only "
+        "test and WaveInfo, then replace the central evidence record. Remove a dynamic record only "
         "after a correct test passes or other evidence proves it is not a DUT Bug."
     )
     if len(issues) == 1:
@@ -1091,6 +1133,12 @@ def check_waveform_bug_analysis(
     if not ok:
         return False, error
     if not required:
+        if os.path.isfile(os.path.join(workspace, bug_file)):
+            structure_ok, _blocks, structure_error = _parse_waveform_analysis_blocks(
+                workspace, bug_file
+            )
+            if not structure_ok:
+                return False, structure_error
         content_ok, content_message = check_dynamic_bug_analysis_content(
             workspace, bug_file
         )
@@ -1104,7 +1152,7 @@ def check_waveform_bug_analysis(
     missing_items = [
         item
         for item in required
-        if (item["bug"], item["test_label"]) not in blocks
+        if item["test_label"] not in blocks
     ]
     if missing_items:
         missing = [
@@ -1124,31 +1172,38 @@ def check_waveform_bug_analysis(
         ]
         return _waveform_error(
             f"[Waveform Analysis Missing] {len(missing)} dynamic Bug/test association(s) "
-            f"lack a fenced '{_WAVEFORM_BLOCK_KEY}' mapping: {fc.list_str_abbr(missing)}. "
+            f"lack a central '{_WAVEFORM_BLOCK_KEY}' record: {fc.list_str_abbr(missing)}. "
             "Call final WaveInfo for each failing test, then invoke the corresponding "
-            "ApplyWaveInfoEvidence recovery call below. The tool creates the YAML and "
-            "viewer block at the exact TC; do not author or copy machine fields. "
+            "ApplyWaveInfoEvidence recovery call below. The tool creates the WAVEFORM-REF "
+            "and the TC's unique central WAVEFORM-TC record. "
             "Static-only findings belong in the separate static Bug document and cannot "
             "be represented here with a <BG-STATIC-*> tag.",
             missing=missing,
             recovery_calls=recovery_calls,
         )
 
-    status_issues = []
+    validation_items = []
     for item in required:
-        pair = (item["bug"], item["test_label"])
-        block = blocks[pair]
+        if any(existing["test_label"] == item["test_label"] for existing in validation_items):
+            continue
+        central_item = dict(item)
+        central_item["bugs"] = blocks[item["test_label"]]["bugs"]
+        validation_items.append(central_item)
+
+    status_issues = []
+    for item in validation_items:
+        block = blocks[item["test_label"]]
         if block["data"].get("status") != "confirmed":
             status_issues.append(
                 {
                     "message": (
                         f"[Waveform Confirmation Required] Block at line {block['line']} for "
-                        f"'{item['bug']}/{item['test_label']}' must use status: confirmed. "
+                        f"'{item['test_label']}' must use status: confirmed. "
                         "A non-zero-confidence Bug cannot be completed with status: unavailable. "
                         "Rerun the failing test, call WaveInfo, and record event-level evidence."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": block["line"],
                     },
@@ -1161,9 +1216,8 @@ def check_waveform_bug_analysis(
         getattr(waveform_tool, "get_analysis_receipt", None)
     ):
         return _waveform_error(
-            "[WaveInfo Tool Required] Dynamic Bug waveform validation cannot proceed because "
-            "the active WaveInfo tool instance is unavailable. Enable WaveInfo and call it "
-            "before Check/Complete; document-only waveform data is not accepted."
+            "[WaveInfo Required] Dynamic Bug waveform validation requires WaveInfo. Enable and "
+            "call WaveInfo before Check/Complete; document-only waveform data is not accepted."
         )
     if waveform_test_dir:
         expected_test_dir = (
@@ -1174,16 +1228,15 @@ def check_waveform_bug_analysis(
         configured_test_dir = os.path.abspath(str(getattr(waveform_tool, "test_dir", "")))
         if configured_test_dir != expected_test_dir:
             return _waveform_error(
-                "[WaveInfo Test Directory Mismatch] The active WaveInfo instance searches "
-                f"'{configured_test_dir}', but this checker executed tests in "
+                "[WaveInfo Test Directory Mismatch] WaveInfo searches "
+                f"'{configured_test_dir}', but the current test artifacts are in "
                 f"'{expected_test_dir}'. Waveform receipts from another test directory cannot "
                 "be used as Bug evidence."
             )
 
     issues = []
-    for item in required:
-        pair = (item["bug"], item["test_label"])
-        block = blocks[pair]
+    for item in validation_items:
+        block = blocks[item["test_label"]]
         data = block["data"]
         line = block["line"]
         receipt_id = data.get("receipt_id")
@@ -1195,7 +1248,7 @@ def check_waveform_bug_analysis(
                         "receipt_id returned by an actual WaveInfo call."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                     },
@@ -1208,14 +1261,13 @@ def check_waveform_bug_analysis(
                 {
                     "message": (
                         f"[WaveInfo Receipt Not Found] receipt_id '{receipt_id}' at line {line} "
-                        "was not found in the active WaveInfo instance or its signed workspace "
-                        "checkpoint store. If this is a resumed run, verify that the same "
-                        "workspace/test directory is used; otherwise call WaveInfo again for "
-                        "this test and replace the block. Copied or invented waveform data "
-                        "cannot pass this checker."
+                        "was not found in this workspace's signed WaveInfo receipt store. Verify "
+                        "the workspace/test directory, or call final WaveInfo again for this test "
+                        "and pass the new receipt to ApplyWaveInfoEvidence. Copied or invented "
+                        "waveform data cannot satisfy validation."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                     },
@@ -1235,7 +1287,7 @@ def check_waveform_bug_analysis(
                         f"'{receipt_args.get('test_case_name')}', not '{item['test_case']}'."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                     },
@@ -1287,11 +1339,11 @@ def check_waveform_bug_analysis(
                         "or by copying analysis_window.effective_* into this document. Call "
                         f"WaveInfo again for '{receipt_args.get('test_case_name')}' with "
                         f"start_step={start_step!r}, end_step={end_step!r}, the same pattern, "
-                        "context_steps, and max_points; then replace the receipt and copy the "
-                        "new bug_document_fields."
+                        "context_steps, and max_points; then pass the new receipt to "
+                        "ApplyWaveInfoEvidence."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                         "receipt_id": receipt_id,
@@ -1438,8 +1490,61 @@ def check_waveform_bug_analysis(
         if (receipt_result.get("event_summary") or {}).get("timeline_truncated") is not False:
             errors.append("the referenced WaveInfo timeline was truncated")
         for key in _WAVEFORM_LLM_ANALYSIS_FIELDS:
-            if not _is_nonempty_string(data.get(key)):
-                errors.append(f"'{key}' must be a non-empty string")
+            value = data.get(key)
+            if not _is_nonempty_string(value) or _BUG_TODO_MARKER in value:
+                errors.append(f"'{key}' must be a completed non-empty string")
+
+        signal_group_mapping = (
+            documented_signal_groups
+            if isinstance(documented_signal_groups, dict)
+            else {}
+        )
+        documented_signal_set = {
+            signal
+            for field_name in _WAVEFORM_SIGNAL_GROUP_FIELDS
+            for signal in signal_group_mapping.get(field_name, [])
+            if isinstance(signal, str) and signal
+        }
+        bug_evidence = data.get("bug_evidence")
+        for associated_bug in item["bugs"]:
+            fields = (
+                bug_evidence.get(associated_bug)
+                if isinstance(bug_evidence, dict)
+                else None
+            )
+            if not isinstance(fields, dict):
+                errors.append(
+                    f"bug_evidence.{associated_bug} must be a mapping"
+                )
+                continue
+            required_signals = fields.get("required_signals")
+            if (
+                not isinstance(required_signals, list)
+                or not required_signals
+                or not all(
+                    isinstance(signal, str) and bool(signal.strip())
+                    for signal in required_signals
+                )
+                or len(required_signals) != len(set(required_signals))
+            ):
+                errors.append(
+                    f"bug_evidence.{associated_bug}.required_signals must be a non-empty "
+                    "list of unique exact signal paths"
+                )
+            else:
+                missing_signals = sorted(set(required_signals) - documented_signal_set)
+                if missing_signals:
+                    errors.append(
+                        f"bug_evidence.{associated_bug}.required_signals are absent from the "
+                        f"signed signal_groups: {missing_signals}"
+                    )
+            for field_name in _WAVEFORM_BUG_ANALYSIS_FIELDS[1:]:
+                value = fields.get(field_name)
+                if not _is_nonempty_string(value) or _BUG_TODO_MARKER in value:
+                    errors.append(
+                        f"bug_evidence.{associated_bug}.{field_name} must be a completed "
+                        "non-empty string"
+                    )
 
         mode = data.get("analysis_mode")
         if mode == "clock_aligned":
@@ -1526,7 +1631,7 @@ def check_waveform_bug_analysis(
                         + "; ".join(errors)
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                         "field_differences": field_differences,
@@ -1542,6 +1647,16 @@ def check_waveform_bug_analysis(
         if not callable(replay_method):
             replay_method = waveform_tool.analyze
         replay = replay_method(**receipt_args)
+        update_call = {
+            "tool": "ApplyWaveInfoEvidence",
+            "arguments": {
+                "target_file": bug_file,
+                "bug_tag": item["bugs"][0],
+                "test_case_tag": item["test_label"],
+                "receipt_id": "",
+                "replace_existing": True,
+            },
+        }
         if replay.get("success") is not True or replay.get("evidence_usable") is not True:
             replay_status = replay.get("status")
             if replay_status in _DEFERRED_WAVEFORM_REPLAY_STATUSES:
@@ -1549,7 +1664,7 @@ def check_waveform_bug_analysis(
                     f"[Waveform Current Replay Required] The latest test session does not "
                     f"contain a current waveform for '{item['test_case']}' (status "
                     f"'{replay_status}'). The signed receipt and logical viewer link "
-                    "remain valid historical evidence, but this final gate requires a fresh "
+                    "remain valid signed evidence, but this final gate requires a fresh "
                     "all-tests run that emits every documented Bug waveform in one session."
                 )
             else:
@@ -1557,16 +1672,18 @@ def check_waveform_bug_analysis(
                     f"[Waveform Analysis No Longer Reproduces] Current WaveInfo replay for "
                     f"'{item['test_case']}' returned status '{replay_status}'. The "
                     "documented pattern is not valid evidence for the waveform generated "
-                    "by this Check; call WaveInfo again and update the block."
+                    "by this Check; call final WaveInfo again and use ApplyWaveInfoEvidence "
+                    "to update the central record."
                 )
             issues.append(
                 {
                     "message": replay_message,
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                         "current_waveinfo": replay,
+                        "update_call_after_final_waveinfo": update_call,
                     },
                 }
             )
@@ -1581,11 +1698,11 @@ def check_waveform_bug_analysis(
                         f"[Waveform Viewer Link Changed] Current WaveInfo replay for "
                         f"'{item['test_case']}' produced a different window, cursor, or "
                         "signal list than the link at line "
-                        f"{block.get('viewer_line')}. Call final WaveInfo again and replace "
-                        "both the YAML block and bug_document_viewer_link."
+                        f"{block.get('viewer_line')}. Call final WaveInfo again and pass the "
+                        "new receipt to ApplyWaveInfoEvidence."
                     ),
                     "details": {
-                        "bug": item["bug"],
+                        "bugs": item["bugs"],
                         "test_case": item["test_case"],
                         "line": line,
                         "viewer_line": block.get("viewer_line"),
@@ -1593,6 +1710,7 @@ def check_waveform_bug_analysis(
                         "current_waveform_viewer": current_viewer,
                         "documented_replay_contract": documented_replay_contract,
                         "current_replay_contract": current_replay_contract,
+                        "update_call_after_final_waveinfo": update_call,
                     },
                 }
             )
@@ -1618,11 +1736,12 @@ def check_waveform_bug_analysis(
                     {
                         "message": "; ".join(candidate_errors) + " Call WaveInfo again and update the analysis.",
                         "details": {
-                            "bug": item["bug"],
+                            "bugs": item["bugs"],
                             "test_case": item["test_case"],
                             "line": line,
                             "field_differences": candidate_differences,
                             "current_waveinfo": replay,
+                            "update_call_after_final_waveinfo": update_call,
                         },
                     }
                 )
@@ -1641,12 +1760,13 @@ def check_waveform_bug_analysis(
                             "again and update the analysis."
                         ),
                         "details": {
-                            "bug": item["bug"],
+                            "bugs": item["bugs"],
                             "test_case": item["test_case"],
                             "line": line,
                             "documented_wave_step": data.get("wave_step"),
                             "current_event_steps": current_event_steps,
                             "current_waveinfo": replay,
+                            "update_call_after_final_waveinfo": update_call,
                         },
                     }
                 )
@@ -1661,7 +1781,8 @@ def check_waveform_bug_analysis(
         return False, content_message
 
     message = (
-        f"Validated WaveInfo receipts for {len(required)} dynamic Bug/test association(s)."
+        f"Validated {len(validation_items)} central WaveInfo record(s) for {len(required)} "
+        "dynamic Bug/test association(s)."
     )
     if not require_current_replay:
         message += (
@@ -1727,6 +1848,12 @@ def check_all_documented_waveform_bug_analysis(
     if not ok:
         return False, message
     if not documented_test_map:
+        if os.path.isfile(os.path.join(workspace, bug_file)):
+            structure_ok, _blocks, structure_error = _parse_waveform_analysis_blocks(
+                workspace, bug_file
+            )
+            if not structure_ok:
+                return False, structure_error
         return True, message
     content_ok, content_message = check_dynamic_bug_analysis_content(
         workspace, bug_file

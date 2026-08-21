@@ -32,6 +32,11 @@ from ucagent.checkers.unity_test import (
 from ucagent.checkers.unity_test_random import RandomTestCasesChecker
 from ucagent.tools.waveform import WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
+from ucagent.util.bug_analysis_contract import (
+    waveform_anchor_id,
+    waveform_record_tag,
+    waveform_reference,
+)
 from ucagent.util.waveform_viewer import build_waveform_viewer_markdown_link
 
 
@@ -161,7 +166,11 @@ def _write_functions(tmp_path: Path) -> None:
     )
 
 
-def _waveform_block_lines(block: dict) -> list[str]:
+def _waveform_block_lines(
+    block: dict,
+    test_label: str = f"TC-{DOCUMENT_TEST}",
+    bug_tags: tuple[str, ...] = ("BG-DYNAMIC-80",),
+) -> list[str]:
     block = copy.deepcopy(block)
     viewer_link = block.pop(
         "_viewer_link",
@@ -169,12 +178,46 @@ def _waveform_block_lines(block: dict) -> list[str]:
             {"v": 1, "file": "tests/data/placeholder.vcd"}
         ),
     )
+    observed_behavior = block.pop(
+        "observed_behavior", "completed observed behavior"
+    )
+    source_correlation = block.pop(
+        "source_correlation", "completed source correlation"
+    )
+    signal_groups = block.get("signal_groups") or {}
+    required_signals = list(
+        dict.fromkeys(
+            signal
+            for field in ("clocks", "inputs", "outputs", "protocol", "key_signals")
+            for signal in signal_groups.get(field, [])
+        )
+    ) or ["TOP.dut.valid"]
+    analysis = {
+        "test_case": test_label,
+        "bug_tags": sorted(bug_tags),
+        **block,
+        "bug_evidence": {
+            bug: {
+                "required_signals": required_signals,
+                "observed_behavior": observed_behavior,
+                "source_correlation": source_correlation,
+            }
+            for bug in sorted(bug_tags)
+        },
+    }
     payload = yaml.safe_dump(
-        {"waveform_analysis": block},
+        {"waveform_analysis": analysis},
         allow_unicode=True,
         sort_keys=False,
     ).rstrip()
-    return ["```yaml", payload, "```", viewer_link]
+    return [
+        f'<a id="{waveform_anchor_id(test_label)}"></a>',
+        f"### <{waveform_record_tag(test_label)}>",
+        "```yaml",
+        payload,
+        "```",
+        viewer_link,
+    ]
 
 
 def _report() -> dict:
@@ -209,10 +252,48 @@ def _write_bug_doc(
         "<CK-A>",
         "<BG-DYNAMIC-80>",
         f"<TC-{test_case}>",
+        waveform_reference(f"TC-{test_case}"),
+        analysis,
+        "</DYNAMIC-BUGS>",
+        "<WAVEFORM-EVIDENCE>",
     ]
     if block is not None:
-        lines.extend(_waveform_block_lines(block))
-    lines.append(analysis)
+        lines.extend(_waveform_block_lines(block, f"TC-{test_case}"))
+    lines.append("</WAVEFORM-EVIDENCE>")
+    (tmp_path / "bugs.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_central_waveform_document(
+    tmp_path: Path,
+    associations: list[tuple[str, str]],
+    blocks: dict[str, dict],
+    *,
+    include_analysis: bool = False,
+) -> None:
+    bugs: dict[str, list[str]] = {}
+    bugs_by_test: dict[str, list[str]] = {}
+    for bug, test_case in associations:
+        bugs.setdefault(bug, []).append(test_case)
+        bugs_by_test.setdefault(test_case, []).append(bug)
+
+    lines = ["<DYNAMIC-BUGS>", "<FG-A>", "<FC-A>", "<CK-A>"]
+    for bug, tests in bugs.items():
+        lines.append(f"<{bug}>")
+        for test_case in tests:
+            test_label = f"TC-{test_case}"
+            lines.extend([f"<{test_label}>", waveform_reference(test_label)])
+        if include_analysis:
+            lines.append(COMPLETE_BUG_ANALYSIS)
+    lines.extend(["</DYNAMIC-BUGS>", "<WAVEFORM-EVIDENCE>"])
+    for test_case, block in blocks.items():
+        lines.extend(
+            _waveform_block_lines(
+                block,
+                f"TC-{test_case}",
+                tuple(sorted(bugs_by_test.get(test_case, []))),
+            )
+        )
+    lines.append("</WAVEFORM-EVIDENCE>")
     (tmp_path / "bugs.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -384,7 +465,7 @@ def test_missing_or_tampered_viewer_link_is_rejected(tmp_path):
 
     passed, message, _ = _check(tmp_path, tool)
     assert passed is False
-    assert "[Waveform Viewer Link Invalid]" in str(message)
+    assert "[Waveform Viewer Link Missing]" in str(message)
 
     tampered = copy.deepcopy(result["waveform_viewer"]["payload"])
     tampered["cursor"] = str(int(tampered["cursor"]) + 1)
@@ -421,7 +502,7 @@ def test_invalid_viewer_link_returns_structured_apply_recovery_call(tmp_path):
     recovery = error["details"]["recovery_call"]
 
     assert passed is False
-    assert "ApplyWaveInfoEvidence" in error["error"]
+    assert "[Waveform Viewer Link Invalid]" in error["error"]
     assert recovery == {
         "tool": "ApplyWaveInfoEvidence",
         "arguments": {
@@ -559,11 +640,7 @@ def test_check_report_accepts_explicit_wave_window_receipt(tmp_path):
     assert analysis_fields["receipt_id"] == result[
         "waveform_analysis_receipt"
     ]["receipt_id"]
-    assert result["bug_document_completion_required"] == [
-        "alignment_evidence",
-        "observed_behavior",
-        "source_correlation",
-    ]
+    assert result["bug_document_completion_required"] == ["alignment_evidence"]
     _write_bug_doc(tmp_path, _explicit_block(result, pattern, wave_step=15))
 
     passed, message, bug_count = _check(tmp_path, tool)
@@ -662,7 +739,7 @@ def test_missing_or_invented_receipt_cannot_pass(tmp_path):
     assert "Do not delete a TC, BG, or enclosing FG/FC/CK branch" in str(message)
 
 
-def test_dynamic_bug_requires_active_waveinfo_tool_instance(tmp_path):
+def test_dynamic_bug_requires_waveinfo(tmp_path):
     _write_functions(tmp_path)
     test_dir = tmp_path / "tests"
     _write_waveform(test_dir)
@@ -688,7 +765,7 @@ def test_dynamic_bug_requires_active_waveinfo_tool_instance(tmp_path):
     )
 
     assert passed is False
-    assert "[WaveInfo Tool Required]" in str(message)
+    assert "[WaveInfo Required]" in str(message)
 
 
 def test_dynamic_test_checkers_use_the_active_waveinfo_tool():
@@ -815,20 +892,16 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
     second_block = _confirmed_block(second_result, pattern)
     second_block["logged_cycle"] = 1
 
-    document_lines = ["<DYNAMIC-BUGS>", "<FG-A>", "<FC-A>", "<CK-A>"]
-    for bug_label, test_case, block in (
-        ("BG-DYNAMIC-A-80", DOCUMENT_TEST, first_block),
-        ("BG-DYNAMIC-B-80", "test_b.py::test_b", second_block),
-    ):
-        document_lines.extend(
-            [
-                f"<{bug_label}>",
-                f"<TC-{test_case}>",
-                *_waveform_block_lines(block),
-            ]
-        )
-    (tmp_path / "bugs.md").write_text(
-        "\n".join(document_lines) + "\n", encoding="utf-8"
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-DYNAMIC-A-80", DOCUMENT_TEST),
+            ("BG-DYNAMIC-B-80", "test_b.py::test_b"),
+        ],
+        {
+            DOCUMENT_TEST: first_block,
+            "test_b.py::test_b": second_block,
+        },
     )
     failed_tests = {
         REPORT_TEST: [CHECKPOINT],
@@ -898,8 +971,7 @@ def test_current_replay_must_keep_the_documented_clock_candidate(
     assert "[Waveform Candidate Changed]" in str(message)
 
 
-def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
-    _write_functions(tmp_path)
+def test_current_replay_runs_once_for_multi_bug_central_record(tmp_path, monkeypatch):
     test_dir = tmp_path / "tests"
     _write_waveform(test_dir)
     tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
@@ -912,154 +984,174 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
         cycle_tolerance=2,
         clock_signal="TOP.dut.clk",
     )
-    block_lines = _waveform_block_lines(_confirmed_block(result, pattern))
-    (tmp_path / "bugs.md").write_text(
-        "\n".join(
-            [
-                "<DYNAMIC-BUGS>",
-                "<FG-A>",
-                "<FC-A>",
-                "<CK-A>",
-                "<BG-DYNAMIC-80>",
-                f"<TC-{DOCUMENT_TEST}>",
-                *block_lines,
-                *block_lines,
-            ]
-        )
-        + "\n",
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-FIRST-DEFECT-80", DOCUMENT_TEST),
+            ("BG-SECOND-DEFECT-90", DOCUMENT_TEST),
+        ],
+        {DOCUMENT_TEST: _confirmed_block(result, pattern)},
+        include_analysis=True,
+    )
+    replay_calls = []
+    original_replay = WaveInfo.replay_analysis
+
+    def tracked_replay(self, **kwargs):
+        replay_calls.append(kwargs)
+        return original_replay(self, **kwargs)
+
+    monkeypatch.setattr(WaveInfo, "replay_analysis", tracked_replay)
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=tool,
+        waveform_test_dir="tests",
+        require_current_replay=True,
+    )
+
+    assert passed is True, message
+    assert len(replay_calls) == 1
+    assert "1 central WaveInfo record(s) for 2 dynamic Bug/test association(s)" in message
+
+
+def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
+    block = {"status": "confirmed", "receipt_id": "receipt-1"}
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: block},
+    )
+    path = tmp_path / "bugs.md"
+    content = path.read_text(encoding="utf-8")
+    duplicate = "\n".join(
+        _waveform_block_lines(block, f"TC-{DOCUMENT_TEST}")
+    )
+    path.write_text(
+        content.replace("</WAVEFORM-EVIDENCE>", duplicate + "\n</WAVEFORM-EVIDENCE>"),
         encoding="utf-8",
     )
 
-    passed, message, _ = _check(tmp_path, tool)
+    passed, _blocks, error = _parse_waveform_analysis_blocks(str(tmp_path), "bugs.md")
 
     assert passed is False
-    assert "[Duplicate Waveform Analysis]" in str(message)
+    assert "[Duplicate Waveform Record]" in str(error)
 
 
 def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
     malformed_documents = (
         (
             "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: confirmed\n",
-            "missing a standalone closing",
+            f"<TC-{DOCUMENT_TEST}>\n{waveform_reference(f'TC-{DOCUMENT_TEST}')}\n"
+            "<WAVEFORM-DATA>\n</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n"
+            "</WAVEFORM-EVIDENCE>\n",
+            "[Waveform Placement Error]",
         ),
         (
             "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n```yaml\nwaveform_analysis:\n  status: [\n```\n",
+            f"<TC-{DOCUMENT_TEST}>\n{waveform_reference(f'TC-{DOCUMENT_TEST}')}\n"
+            "</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n"
+            f'<a id="{waveform_anchor_id(f"TC-{DOCUMENT_TEST}")}"></a>\n'
+            f"### <{waveform_record_tag(f'TC-{DOCUMENT_TEST}')}>\n"
+            "```yaml\nwaveform_analysis:\n  status: [\n```\n"
+            f"{VIEWER_LINK}\n</WAVEFORM-EVIDENCE>\n",
             "[Waveform Analysis YAML Error]",
         ),
         (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n```yaml\n"
-            "waveform_analysis:\n  status: confirmed\n```\n"
-            f"<BG-DYNAMIC-80>\n<TC-{DOCUMENT_TEST}>\n",
-            "[Waveform Analysis Association Missing]",
-        ),
-        (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n"
-            "```json\n{\"waveform_analysis\": {\"status\": \"confirmed\"}}\n```\n",
-            "must be ```yaml",
-        ),
-        (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n"
-            "```yml\nwaveform_analysis:\n  status: confirmed\n```\n",
-            "must be ```yaml",
-        ),
-        (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n<WAVEFORM-ANALYSIS>\n",
-            "[Legacy Waveform Analysis Format]",
+            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n</DYNAMIC-BUGS>\n"
+            "<WAVEFORM-EVIDENCE>\n"
+            f'<a id="{waveform_anchor_id(f"TC-{DOCUMENT_TEST}")}"></a>\n'
+            f"### <{waveform_record_tag(f'TC-{DOCUMENT_TEST}')}>\n"
+            "```yaml\nwaveform_analysis:\n"
+            f"  test_case: TC-{DOCUMENT_TEST}\n"
+            "  bug_tags: [BG-DYNAMIC-80]\n"
+            "  bug_evidence:\n"
+            "    BG-DYNAMIC-80: {}\n"
+            "```\n"
+            f"{VIEWER_LINK}\n</WAVEFORM-EVIDENCE>\n",
+            "[Waveform Bug Association Mismatch]",
         ),
     )
-    _write_functions(tmp_path)
     for contents, expected_error in malformed_documents:
         (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
 
-        passed, message, _ = check_report(
-            str(tmp_path),
-            _report(),
-            "functions.md",
-            "bugs.md",
-            waveform_tool=object(),
-            waveform_test_dir="tests",
+        passed, _blocks, error = _parse_waveform_analysis_blocks(
+            str(tmp_path), "bugs.md"
         )
 
         assert passed is False
-        assert expected_error in str(message)
+        assert expected_error in str(error)
 
 
 def test_waveform_block_may_follow_tc_after_blank_lines(tmp_path):
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n\n  \n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
-        f"{VIEWER_LINK}\n"
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+    path = tmp_path / "bugs.md"
+    content = path.read_text(encoding="utf-8")
+    reference = waveform_reference(f"TC-{DOCUMENT_TEST}")
+    path.write_text(content.replace(reference, "\n  \n" + reference), encoding="utf-8")
 
     passed, blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
     assert passed is True, error
-    assert ("BG-DYNAMIC-80", f"TC-{DOCUMENT_TEST}") in blocks
+    assert f"TC-{DOCUMENT_TEST}" in blocks
 
 
-def test_waveform_block_rejects_legacy_tag_format(tmp_path):
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n"
-        "<WAVEFORM-ANALYSIS>\nstatus: confirmed\n</WAVEFORM-ANALYSIS>\n"
+def test_waveform_data_must_not_appear_in_dynamic_bug_container(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+    path = tmp_path / "bugs.md"
+    content = path.read_text(encoding="utf-8")
+    reference = waveform_reference(f"TC-{DOCUMENT_TEST}")
+    path.write_text(
+        content.replace(reference, reference + "\n<WAVEFORM-DATA>"),
+        encoding="utf-8",
+    )
 
     passed, _blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
     assert passed is False
-    assert "[Legacy Waveform Analysis Format]" in str(error)
+    assert "[Waveform Placement Error]" in str(error)
 
 
 def test_waveform_block_accepts_markdown_fenced_yaml(tmp_path):
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n"
-        "  ```yaml\n"
-        "  waveform_analysis:\n"
-        "    status: confirmed\n"
-        "    receipt_id: receipt-1\n"
-        "  ```\n"
-        f"{VIEWER_LINK}\n"
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
     passed, blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
     assert passed is True, error
-    block = blocks[("BG-DYNAMIC-80", f"TC-{DOCUMENT_TEST}")]
-    assert block["data"] == {
-        "status": "confirmed",
-        "receipt_id": "receipt-1",
-    }
+    block = blocks[f"TC-{DOCUMENT_TEST}"]
+    assert block["data"]["receipt_id"] == "receipt-1"
+    assert block["bugs"] == ["BG-DYNAMIC-80"]
 
 
 def test_waveform_blocks_associate_multiple_tests_with_one_bug(tmp_path):
     first_test = "test_first.py::test_first"
     second_test = "test_second.py::test_second"
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{first_test}>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-1\n```\n"
-        f"{VIEWER_LINK}\n"
-        f"<TC-{second_test}>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-2\n```\n"
-        f"{VIEWER_LINK}\n"
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", first_test), ("BG-DYNAMIC-80", second_test)],
+        {
+            first_test: {"status": "confirmed", "receipt_id": "receipt-1"},
+            second_test: {"status": "confirmed", "receipt_id": "receipt-2"},
+        },
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
     passed, blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
@@ -1067,11 +1159,11 @@ def test_waveform_blocks_associate_multiple_tests_with_one_bug(tmp_path):
 
     assert passed is True, error
     assert (
-        blocks[("BG-DYNAMIC-80", f"TC-{first_test}")]["data"]["receipt_id"]
+        blocks[f"TC-{first_test}"]["data"]["receipt_id"]
         == "receipt-1"
     )
     assert (
-        blocks[("BG-DYNAMIC-80", f"TC-{second_test}")]["data"]["receipt_id"]
+        blocks[f"TC-{second_test}"]["data"]["receipt_id"]
         == "receipt-2"
     )
 
@@ -1080,25 +1172,23 @@ def test_waveform_blocks_associate_one_test_with_multiple_bugs(tmp_path):
     test_case = "tests/test_shared.py::test_shared_failure"
     first_bug = "BG-FIRST-DEFECT-80"
     second_bug = "BG-SECOND-DEFECT-90"
-    document = (
-        f"<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<{first_bug}>\n"
-        f"<TC-{test_case}>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-1\n```\n"
-        f"{VIEWER_LINK}\n"
-        f"<{second_bug}>\n"
-        f"<TC-{test_case}>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n  receipt_id: receipt-2\n```\n"
-        f"{VIEWER_LINK}\n"
+    _write_central_waveform_document(
+        tmp_path,
+        [(first_bug, test_case), (second_bug, test_case)],
+        {test_case: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
     passed, blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
     assert passed is True, error
-    assert blocks[(first_bug, f"TC-{test_case}")]["data"]["receipt_id"] == "receipt-1"
-    assert blocks[(second_bug, f"TC-{test_case}")]["data"]["receipt_id"] == "receipt-2"
+    assert list(blocks) == [f"TC-{test_case}"]
+    assert blocks[f"TC-{test_case}"]["bugs"] == sorted([first_bug, second_bug])
+    assert set(blocks[f"TC-{test_case}"]["association_lines"]) == {
+        first_bug,
+        second_bug,
+    }
 
 
 @pytest.mark.parametrize(
@@ -1115,10 +1205,14 @@ def test_waveform_blocks_associate_one_test_with_multiple_bugs(tmp_path):
 def test_waveform_block_rejects_invalid_markdown_fences(
     tmp_path, payload, expected_error
 ):
+    test_label = f"TC-{DOCUMENT_TEST}"
     document = (
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n"
-        f"{payload}\n"
+        f"<{test_label}>\n{waveform_reference(test_label)}\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n"
+        f'<a id="{waveform_anchor_id(test_label)}"></a>\n'
+        f"### <{waveform_record_tag(test_label)}>\n{payload}\n"
+        f"{VIEWER_LINK}\n</WAVEFORM-EVIDENCE>\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
 
@@ -1130,42 +1224,90 @@ def test_waveform_block_rejects_invalid_markdown_fences(
     assert expected_error in str(error)
 
 
-def test_waveform_block_must_be_the_first_nonempty_line_after_tc(tmp_path):
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n"
-        "根因分析正文不能插在测试标签和波形块之间。\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
+def test_waveform_reference_must_be_the_first_nonempty_line_after_tc(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+    path = tmp_path / "bugs.md"
+    content = path.read_text(encoding="utf-8")
+    reference = waveform_reference(f"TC-{DOCUMENT_TEST}")
+    path.write_text(
+        content.replace(reference, "analysis text\n" + reference),
+        encoding="utf-8",
+    )
 
     passed, _blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
     assert passed is False
-    assert "[Waveform Analysis Cascade Error]" in str(error)
+    assert "[Waveform Reference Missing]" in str(error)
 
 
-def test_waveform_block_after_multiple_tests_belongs_only_to_last_test(tmp_path):
-    first_test = "test_first.py::test_first"
-    second_test = "test_second.py::test_second"
-    document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{first_test}>\n"
-        f"<TC-{second_test}>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
-        f"{VIEWER_LINK}\n"
+def test_waveform_reference_must_be_unique_for_each_bug_test_association(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
     )
-    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+    path = tmp_path / "bugs.md"
+    reference = waveform_reference(f"TC-{DOCUMENT_TEST}")
+    content = path.read_text(encoding="utf-8")
+    path.write_text(
+        content.replace(reference, f"{reference}\n{reference}"),
+        encoding="utf-8",
+    )
 
-    passed, blocks, error = _parse_waveform_analysis_blocks(
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
         str(tmp_path), "bugs.md"
     )
 
-    assert passed is True, error
-    assert ("BG-DYNAMIC-80", f"TC-{first_test}") not in blocks
-    assert ("BG-DYNAMIC-80", f"TC-{second_test}") in blocks
+    assert passed is False
+    assert "[Waveform Reference Unexpected]" in str(error)
+
+
+def test_waveform_bug_test_association_must_not_be_duplicated(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-DYNAMIC-80", DOCUMENT_TEST),
+            ("BG-DYNAMIC-80", DOCUMENT_TEST),
+        ],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
+    )
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Duplicate Waveform Association]" in str(error)
+
+
+def test_each_of_multiple_tests_requires_its_own_reference(tmp_path):
+    first_test = "test_first.py::test_first"
+    second_test = "test_second.py::test_second"
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", first_test), ("BG-DYNAMIC-80", second_test)],
+        {
+            first_test: {"status": "confirmed", "receipt_id": "receipt-1"},
+            second_test: {"status": "confirmed", "receipt_id": "receipt-2"},
+        },
+    )
+    path = tmp_path / "bugs.md"
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(waveform_reference(f"TC-{first_test}") + "\n", "", 1)
+    path.write_text(content, encoding="utf-8")
+
+    passed, _blocks, error = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Waveform Reference Missing]" in str(error)
 
 
 def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
@@ -1178,6 +1320,9 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
                 "<CK-A>",
                 "<BG-DYNAMIC-0>",
                 f"<TC-{DOCUMENT_TEST}>",
+                "</DYNAMIC-BUGS>",
+                "<WAVEFORM-EVIDENCE>",
+                "</WAVEFORM-EVIDENCE>",
             ]
         )
         + "\n",
@@ -1199,9 +1344,11 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
 
 def test_prefix_check_requires_waveform_for_actual_failed_checkpoint(tmp_path):
     _write_functions(tmp_path)
+    test_label = f"TC-{DOCUMENT_TEST}"
     (tmp_path / "bugs.md").write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n",
+        f"<{test_label}>\n{waveform_reference(test_label)}\n"
+        "</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 
@@ -1585,8 +1732,8 @@ def test_dynamic_bug_content_rejects_black_box_marker_without_analysis(tmp_path)
     assert "has no content beyond display/control markers" in message["error"]
 
 
-def test_dynamic_bug_content_rejects_legacy_source_annotation_text(tmp_path):
-    legacy_source = SOURCE_EVIDENCE_BLOCK.replace(
+def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_path):
+    noncanonical_source = SOURCE_EVIDENCE_BLOCK.replace(
         "<BUG-SOURCE-FIRST-ERROR>", "[分析-首错]"
     ).replace(
         "<BUG-SOURCE-PROPAGATION>", "[分析-传播]"
@@ -1594,7 +1741,7 @@ def test_dynamic_bug_content_rejects_legacy_source_annotation_text(tmp_path):
         "<BUG-SOURCE-OBSERVABLE>", "[分析-可见后果]"
     )
     analysis = COMPLETE_BUG_ANALYSIS.replace(
-        SOURCE_EVIDENCE_BLOCK, legacy_source
+        SOURCE_EVIDENCE_BLOCK, noncanonical_source
     )
     (tmp_path / "bugs.md").write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
@@ -1615,9 +1762,11 @@ def test_dynamic_bug_content_rejects_legacy_source_annotation_text(tmp_path):
 @pytest.mark.parametrize(
     "contents",
     [
-        "# No Bugs found\n<DYNAMIC-BUGS>\n",
+        "# No Bugs found\n<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-0>\n"
-        f"<TC-{DOCUMENT_TEST}>\n",
+        f"<TC-{DOCUMENT_TEST}>\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
     ],
 )
 def test_final_waveform_gate_allows_no_effective_dynamic_bugs_without_tool(
@@ -1634,6 +1783,29 @@ def test_final_waveform_gate_allows_no_effective_dynamic_bugs_without_tool(
 
     assert passed is True
     assert "No documented non-zero-confidence" in message
+
+
+@pytest.mark.parametrize(
+    "contents",
+    (
+        "<DYNAMIC-BUGS>\n",
+        "<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n",
+    ),
+)
+def test_final_waveform_gate_requires_complete_current_document_structure(
+    tmp_path, contents
+):
+    (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
+
+    passed, message = check_all_documented_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        waveform_tool=None,
+        waveform_test_dir="tests",
+    )
+
+    assert passed is False
+    assert "[Waveform Container Format Error]" in str(message)
 
 
 def test_final_waveform_gate_rejects_static_bug_labels_in_dynamic_document(tmp_path):
@@ -1656,7 +1828,8 @@ def test_final_waveform_gate_rejects_static_bug_labels_in_dynamic_document(tmp_p
 def test_final_waveform_gate_allows_static_bug_name_as_plain_text(tmp_path):
     (tmp_path / "bugs.md").write_text(
         "# Review note\n<DYNAMIC-BUGS>\n"
-        "Related static finding: BG-STATIC-001-SOURCE\n",
+        "Related static finding: BG-STATIC-001-SOURCE\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 
@@ -1796,7 +1969,7 @@ def test_final_waveform_checker_uses_active_tool_and_accepts_real_receipt(tmp_pa
     passed, message = checker.do_check()
 
     assert passed is True, message
-    assert "Validated WaveInfo receipts" in message["success"]
+    assert "Validated 1 central WaveInfo record" in message["success"]
 
 
 def test_final_waveform_checker_accepts_workspace_relative_tc_path(tmp_path):
@@ -1826,7 +1999,7 @@ def test_final_waveform_checker_accepts_workspace_relative_tc_path(tmp_path):
     )
 
     assert passed is True, message
-    assert "Validated WaveInfo receipts for 1" in message
+    assert "Validated 1 central WaveInfo record" in message
 
 
 def test_partial_run_defers_replay_but_final_gate_requires_current_waveform(tmp_path):

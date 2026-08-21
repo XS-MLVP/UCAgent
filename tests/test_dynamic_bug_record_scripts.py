@@ -126,11 +126,10 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     lines = module.bug_analysis_template.format(
         DUT="Adder",
         DYNAMIC_BUGS_MARKER=module.DYNAMIC_BUGS_MARKER,
+        DYNAMIC_BUGS_END_MARKER=module.DYNAMIC_BUGS_END_MARKER,
+        WAVEFORM_EVIDENCE_MARKER=module.WAVEFORM_EVIDENCE_MARKER,
+        WAVEFORM_EVIDENCE_END_MARKER=module.WAVEFORM_EVIDENCE_END_MARKER,
     ).lstrip().splitlines(keepends=True)
-    lines = [
-        line.replace("## 未测试通过检测点分析", "## Dynamic Bug Entries")
-        for line in lines
-    ]
 
     module.insert_content(
         lines,
@@ -143,7 +142,6 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     )
 
     document = "".join(lines)
-    assert "## 缺陷根因分析" not in document
     markers = (
         module.OVERVIEW_MARKER,
         "<BUG-SYMPTOMS>",
@@ -159,12 +157,11 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert [document.index(marker) for marker in markers] == sorted(
         document.index(marker) for marker in markers
     )
-    assert document.count(module.TODO_MARKER) >= 8
-    assert "waveform_analysis:" in document
-    assert (
-        f"<WAVEFORM-VIEWER> [{module.TODO_MARKER}]"
-        f"(/surfer/?wave={module.TODO_MARKER})"
-    ) in document
+    assert document.count(module.TODO_MARKER) == 7
+    assert "waveform_analysis:" not in document
+    assert document.count("<WAVEFORM-REF>") == 1
+    assert document.index("<BG-CIN-OVERFLOW-98>") < document.index("</DYNAMIC-BUGS>")
+    assert document.index("</DYNAMIC-BUGS>") < document.index("<WAVEFORM-EVIDENCE>")
     assert "replace with WaveInfo" not in document
     assert "填写严重度" not in document
     assert "插入带真实路径" not in document
@@ -182,12 +179,12 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert document.index(
         "<TC-tests/test_adder.py::test_overflow_random>"
     ) < document.index(module.OVERVIEW_MARKER)
-    assert document.count("waveform_analysis:") == 2
-    assert document.count("<WAVEFORM-VIEWER>") == 2
+    assert document.count("<WAVEFORM-REF>") == 2
+    assert document.count("<WAVEFORM-VIEWER>") == 0
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
-def test_dynamic_bug_record_script_rejects_removed_analysis_arguments(
+def test_dynamic_bug_record_script_rejects_unsupported_analysis_arguments(
     script_path, monkeypatch
 ):
     module = _load_script(script_path)
@@ -203,7 +200,7 @@ def test_dynamic_bug_record_script_rejects_removed_analysis_arguments(
             "-BD",
             "Overflow is not raised.",
             "-ROOT",
-            "legacy root cause",
+            "unsupported root cause argument",
         ],
     )
 
@@ -239,7 +236,7 @@ def test_static_bug_record_template_uses_markers_before_localizable_titles():
     )
 
 
-def test_static_bug_link_script_does_not_accept_legacy_title_label():
+def test_static_bug_link_script_does_not_accept_noncanonical_title_label():
     module = _load_script(LINK_SCRIPT)
 
     assert module.collect_bg_tags_from_bug_analysis(
@@ -252,7 +249,10 @@ def test_static_bug_link_script_rejects_incomplete_dynamic_scaffold(tmp_path):
     bug_file = tmp_path / "bugs.md"
     bug_file.write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DIV-INF-BY-NUM-95>\n"
-        "<TC-tests/test_a.py::test_a>\n<BUG-TODO>\n",
+        "<TC-tests/test_a.py::test_a>\n"
+        "<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-placeholder)\n"
+        "<BUG-TODO>\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 
@@ -264,6 +264,9 @@ def test_static_bug_link_script_rejects_incomplete_dynamic_scaffold(tmp_path):
 
 def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
     module = _load_script(LINK_SCRIPT)
+    test_tag = "TC-tests/test_a.py::test_a"
+    reference = module.waveform_reference(test_tag)
+    anchor = reference.rsplit("#", 1)[1].rstrip(")")
     sections = "\n".join(
         f"{marker}\n**Localized {key} title**\ncompleted evidence-backed content"
         for key, marker in module.DYNAMIC_BUG_SECTION_MARKERS
@@ -271,10 +274,25 @@ def test_static_bug_link_script_accepts_filled_dynamic_analysis(tmp_path):
     bug_file = tmp_path / "bugs.md"
     bug_file.write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DIV-INF-BY-NUM-95>\n"
-        "<TC-tests/test_a.py::test_a>\n"
-        "```yaml\nwaveform_analysis:\n  status: confirmed\n```\n"
-        "<WAVEFORM-VIEWER> [localized viewer](/surfer/?wave=eyJ2IjoxfQ)\n"
-        f"{sections}\n",
+        f"<{test_tag}>\n"
+        f"{reference}\n"
+        f"{sections}\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n"
+        f"<a id=\"{anchor}\"></a>\n"
+        f"### <WAVEFORM-{test_tag}>\n"
+        "```yaml\nwaveform_analysis:\n"
+        f"  test_case: {test_tag}\n"
+        "  bug_tags: [BG-DIV-INF-BY-NUM-95]\n"
+        "  status: confirmed\n"
+        "  alignment_evidence: completed\n"
+        "  bug_evidence:\n"
+        "    BG-DIV-INF-BY-NUM-95:\n"
+        "      required_signals: [TOP.dut.valid]\n"
+        "      observed_behavior: completed\n"
+        "      source_correlation: completed\n"
+        "```\n"
+        "<WAVEFORM-VIEWER> [viewer](/surfer/?wave=eyJ2IjoxfQ)\n"
+        "</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 
@@ -303,6 +321,8 @@ def test_static_bug_link_script_rejects_missing_dynamic_container(tmp_path):
 
 def test_static_bug_link_script_requires_structured_confirmed_waveform(tmp_path):
     module = _load_script(LINK_SCRIPT)
+    test_tag = "TC-tests/test_a.py::test_a"
+    reference = module.waveform_reference(test_tag)
     sections = "\n".join(
         f"{marker}\ncompleted evidence-backed content"
         for _key, marker in module.DYNAMIC_BUG_SECTION_MARKERS
@@ -310,13 +330,15 @@ def test_static_bug_link_script_requires_structured_confirmed_waveform(tmp_path)
     bug_file = tmp_path / "bugs.md"
     bug_file.write_text(
         "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DIV-INF-BY-NUM-95>\n"
-        "<TC-tests/test_a.py::test_a>\n"
+        f"<{test_tag}>\n"
+        f"{reference}\n"
         "waveform_analysis: status: confirmed\n"
-        f"{sections}\n",
+        f"{sections}\n</DYNAMIC-BUGS>\n"
+        "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="confirmed waveform_analysis.*missing"):
+    with pytest.raises(ValueError, match="central evidence"):
         module.ensure_link_targets_exist_in_bug_analysis(
             ["BG-DIV-INF-BY-NUM-95"], str(bug_file)
         )

@@ -1,17 +1,26 @@
 import argparse
+import hashlib
 import json
 import os
 import posixpath
 import re
 
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
+DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
+WAVEFORM_EVIDENCE_MARKER = "<WAVEFORM-EVIDENCE>"
+WAVEFORM_EVIDENCE_END_MARKER = "</WAVEFORM-EVIDENCE>"
 TODO_MARKER = "<BUG-TODO>"
 OVERVIEW_MARKER = "<BUG-OVERVIEW>"
 bug_analysis_template = '''
-# {DUT} 动态 Bug 分析
+# {DUT} Dynamic Bug Analysis
 
-## 未测试通过检测点分析
+## Failed Checkpoint Analysis
 {DYNAMIC_BUGS_MARKER}
+{DYNAMIC_BUGS_END_MARKER}
+
+## Waveform Evidence
+{WAVEFORM_EVIDENCE_MARKER}
+{WAVEFORM_EVIDENCE_END_MARKER}
 '''
 
 def parse_args():
@@ -163,17 +172,13 @@ def bg_confidence(bg_tag):
 
 
 def locate_section(lines):
-    start = -1
-    for i, line in enumerate(lines):
-        if line.strip() == DYNAMIC_BUGS_MARKER:
-            start = i
-            break
-    if start < 0:
+    starts = [i for i, line in enumerate(lines) if line.strip() == DYNAMIC_BUGS_MARKER]
+    ends = [i for i, line in enumerate(lines) if line.strip() == DYNAMIC_BUGS_END_MARKER]
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
         raise ValueError(
-            f"Error: marker '{DYNAMIC_BUGS_MARKER}' not found in target markdown."
+            "Error: target markdown must contain one closed DYNAMIC-BUGS container."
         )
-
-    return start, len(lines)
+    return starts[0], ends[0]
 
 
 def find_tag_line(lines, start, end, tag):
@@ -206,56 +211,37 @@ def escape_markdown_asterisk(text):
 
 
 def make_tc_scaffold(tc, bd):
+    anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
     return ensure_trailing_newline_block(
         f"    - <{tc}> {bd}\n"
-        "      ```yaml\n"
-        "      waveform_analysis:\n"
-        f"        status: \"{TODO_MARKER}\"\n"
-        f"        receipt_id: \"{TODO_MARKER}\"\n"
-        "        signal_groups:\n"
-        f"          clock_mode: \"{TODO_MARKER}\"\n"
-        f"          clocks: [\"{TODO_MARKER}\"]\n"
-        f"          inputs: [\"{TODO_MARKER}\"]\n"
-        f"          outputs: [\"{TODO_MARKER}\"]\n"
-        "          protocol: []\n"
-        f"          key_signals: [\"{TODO_MARKER}\"]\n"
-        "      ```\n"
-        f"      <WAVEFORM-VIEWER> [{TODO_MARKER}](/surfer/?wave={TODO_MARKER})\n"
+        f"      <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{anchor})\n"
     )
 
 
 def make_bug_analysis_scaffold(bd):
     return ensure_trailing_newline_block(
         f"    {OVERVIEW_MARKER}\n"
-        "    **Bug 概述**\n\n"
         f"    {bd}\n\n"
         "    <BUG-SYMPTOMS>\n"
-        "    **现象与等级**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-TRIGGER>\n"
-        "    **触发条件与影响范围**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-ROOT-CAUSE>\n"
-        "    **根因分析**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-SOURCE-EVIDENCE>\n"
-        "    **源码证据与逐行分析**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-CAUSAL-CHAIN>\n"
-        "    **动态因果链**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-FIX>\n"
-        "    **修复建议**\n\n"
         f"    {TODO_MARKER}\n\n"
         "    <BUG-RETEST>\n"
-        "    **风险与复验计划**\n\n"
         f"    {TODO_MARKER}\n"
     )
 
 
 def make_bg_tc_block(bg, bd, tc, confidence):
     return ensure_trailing_newline_block(
-        f"  - <{bg}> Bug 置信度 {confidence}%\n"
+        f"  - <{bg}> confidence: {confidence}%\n"
         f"{make_tc_scaffold(tc, bd)}"
         f"{make_bug_analysis_scaffold(bd)}"
     )
@@ -373,6 +359,9 @@ def main():
         initial_content = bug_analysis_template.format(
             DUT=dut,
             DYNAMIC_BUGS_MARKER=DYNAMIC_BUGS_MARKER,
+            DYNAMIC_BUGS_END_MARKER=DYNAMIC_BUGS_END_MARKER,
+            WAVEFORM_EVIDENCE_MARKER=WAVEFORM_EVIDENCE_MARKER,
+            WAVEFORM_EVIDENCE_END_MARKER=WAVEFORM_EVIDENCE_END_MARKER,
         ).lstrip()
         with open(target, "w", encoding="utf-8") as f:
             f.write(initial_content)

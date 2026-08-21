@@ -235,13 +235,17 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   for developer debugging rather than the stage-running LLM.
 - Keep LLM-facing text concise and stage-local. Remove background information
   that cannot influence the current stage's decisions, output, or completion.
+- Describe only the current canonical contract. Do not mention superseded
+  formats, migrations, backward compatibility, removed arguments, or what older
+  releases accepted unless the current task explicitly requires migration work.
+  When input has the wrong shape, state the required current structure and the
+  exact repair action without teaching the LLM about historical alternatives.
 
 ### Shared Runtime Contract
 
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
-- If legacy compatibility is not explicitly required, keep one canonical format
-  instead of accepting several ambiguous variants.
+- Keep one canonical format instead of accepting several ambiguous variants.
 - Keep examples syntactically valid, visually readable in Markdown, and exactly
   consistent with checker expectations.
 
@@ -297,16 +301,20 @@ Preserve these established semantics unless the task explicitly changes them:
   `{DUT}_static_bug_analysis.md`. A dynamically reproduced Bug gets a separate
   non-static BG tag in `{DUT}_bug_analysis.md`.
 - Dynamic Bug entries require real WaveInfo evidence for every associated TC.
-  The TC must be immediately followed by a fenced `yaml` block whose sole
-  top-level key is `waveform_analysis` and whose receipt can be verified.
-- Do not accept the removed legacy `<WAVEFORM-ANALYSIS>` text format.
+  Each TC must be immediately followed by a canonical `<WAVEFORM-REF>` link to
+  its unique record in the document-level `<WAVEFORM-EVIDENCE>` section. The
+  record's fenced `yaml` block must have `waveform_analysis` as its sole
+  top-level key, name every associated BG, and contain a verifiable receipt.
+- A failed TC has exactly one central waveform record even when it is associated
+  with multiple Bugs. The signed signal groups must cover the union of each
+  associated BG's `required_signals`.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they
   are identical indexes.
-- Keep all information for one dynamic Bug inside its BG entry: description,
-  failing TCs and per-TC waveforms, trigger, source location, causal root analysis,
-  fix guidance, risk, and re-verification plan.
+- Keep Bug-specific conclusions in the BG entry and the matching central
+  `bug_evidence` item. Keep shared receipt, viewer, alignment, and signals only
+  in the TC's central waveform record.
 
 ## Code Style and Scope
 

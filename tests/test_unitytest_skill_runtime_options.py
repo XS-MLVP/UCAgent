@@ -330,10 +330,10 @@ def test_unitytest_skills_document_fixture_boundaries():
         "中断或重启后可以复用通过验证的`WaveInfo` receipt",
         "不得删除历史TC/BG",
         "`bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入",
-        "BG位置唯一时工具自动创建尚不存在的兄弟TC",
-        "不要再次运行骨架脚本或手工复制BG/TC",
+        "由工具创建缺失的兄弟TC、引用和中央记录",
+        "不得手工创建另一套BG层级",
         "同一Fail TC揭示多个独立Bug时",
-        "每个精确BG/TC分别调用`ApplyWaveInfoEvidence`",
+        "为每个BG用相同TC调用一次",
     ):
         assert viewer_text in implementation_skill
     assert "同一Fail TC证实多个独立动态Bug时" in static_skill
