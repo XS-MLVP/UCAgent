@@ -32,6 +32,7 @@ import yaml
 from ucagent.util.functions import make_llm_tool_ret
 from ucagent.util.bug_analysis_contract import (
     BUG_ANALYSIS_SECTION_MARKERS,
+    BUG_ANALYSIS_SECTION_TITLES,
     WAVEFORM_BUG_ANALYSIS_FIELDS,
     BUG_TODO_MARKER,
     DOCUMENT_TAG_PATTERN,
@@ -3164,6 +3165,7 @@ class ApplyWaveInfoEvidence(UCTool):
         test_locations: list[tuple[str | None, str, int, int | None, str]] = []
         target_tests: list[tuple[int, int | None]] = []
         section_markers = {marker for _name, marker in BUG_ANALYSIS_SECTION_MARKERS}
+        section_titles = {title for _name, title in BUG_ANALYSIS_SECTION_TITLES}
         analysis_started_for_bug: set[int] = set()
         in_fence = False
         for index in range(dynamic_start + 1, dynamic_end):
@@ -3186,7 +3188,10 @@ class ApplyWaveInfoEvidence(UCTool):
                     f"waveform viewer at line {index + 1} must follow the YAML in one "
                     "central WAVEFORM-TC record"
                 )
-            if stripped in section_markers and current_bug_index is not None:
+            if (
+                stripped in section_markers | section_titles
+                and current_bug_index is not None
+            ):
                 section_locations.append((current_bug_index, index))
                 analysis_started_for_bug.add(current_bug_index)
             for match in DOCUMENT_TAG_PATTERN.finditer(lines[index]):
@@ -3215,8 +3220,8 @@ class ApplyWaveInfoEvidence(UCTool):
                     if current_bug_index in analysis_started_for_bug:
                         raise ValueError(
                             f"TC heading at line {index + 1} appears after the owning BG's "
-                            "analysis fields; place every TC and WAVEFORM-REF before "
-                            "<BUG-OVERVIEW>"
+                            "analysis fields; place every TC and WAVEFORM-REF before the "
+                            "first analysis title"
                         )
                     try:
                         label = normalize_test_case_tag(label)

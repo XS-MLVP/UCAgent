@@ -16,6 +16,7 @@ WAVEFORM_EVIDENCE_MARKER = "<WAVEFORM-EVIDENCE>"
 WAVEFORM_EVIDENCE_END_MARKER = "</WAVEFORM-EVIDENCE>"
 TODO_MARKER = "<BUG-TODO>"
 OVERVIEW_MARKER = "<BUG-OVERVIEW>"
+OVERVIEW_TITLE = "###### Bug \u6982\u8ff0"
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
 GENERIC_VISIBLE_TITLES = {
     "\u529f\u80fd\u7ec4",
@@ -468,7 +469,7 @@ def insert_content(
     fc_block = subtree_from_tag(entry_block, fc)
     ck_bg_block = subtree_from_tag(entry_block, ck)
     bg_tc_block = subtree_from_tag(entry_block, bg)
-    tc_block = subtree_from_tag(entry_block, tc, OVERVIEW_MARKER)
+    tc_block = subtree_from_tag(entry_block, tc, OVERVIEW_TITLE)
 
     if fg_line < 0:
         new_block = f"\n{entry_block}"
@@ -525,7 +526,7 @@ def insert_content(
                 (
                     i
                     for i in range(bg_line + 1, bg_end)
-                    if lines[i].strip() == OVERVIEW_MARKER
+                    if lines[i].strip() == OVERVIEW_TITLE
                 ),
                 bg_end,
             )

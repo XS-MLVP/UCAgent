@@ -45,7 +45,7 @@ import yaml
 
 
 _HDL_SOURCE_LOCATION = re.compile(
-    r"[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala):\d+(?:-\d+)?",
+    r"[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala):L\d+-L\d+",
     re.IGNORECASE,
 )
 _HDL_FENCED_BLOCK = re.compile(
@@ -177,6 +177,7 @@ def _parse_documented_dynamic_bug_records(
     first_bug_line = None
     in_dynamic_container = False
     analysis_markers = {marker for _key, marker in _BUG_ANALYSIS_SECTION_MARKERS}
+    analysis_titles = {title for _key, title in _BUG_ANALYSIS_SECTION_TITLES}
 
     def close_current(end_index: int):
         nonlocal current
@@ -208,7 +209,7 @@ def _parse_documented_dynamic_bug_records(
             continue
         if not in_dynamic_container:
             continue
-        if current is not None and stripped in analysis_markers:
+        if current is not None and stripped in analysis_markers | analysis_titles:
             if current["analysis_start_line"] is None:
                 current["analysis_start_line"] = index + 1
         if not matches:
@@ -731,49 +732,104 @@ def _documented_dynamic_bug_blocks(
     return _parse_documented_dynamic_bug_records(workspace, bug_file)
 
 
-def _parse_bug_analysis_sections(content: str) -> tuple[dict[str, str], list[str]]:
-    """Split one Bug block using the canonical language-independent markers."""
+def _parse_bug_analysis_sections(content: str) -> tuple[dict[str, dict], list[dict]]:
+    """Split canonical title-marker-content fields and retain field line offsets."""
 
-    matches_by_key = {}
+    markers = dict(_BUG_ANALYSIS_SECTION_MARKERS)
+    titles = dict(_BUG_ANALYSIS_SECTION_TITLES)
+    pairs = {}
     problems = []
-    for key, marker in _BUG_ANALYSIS_SECTION_MARKERS:
-        matches = list(
-            re.finditer(
-                rf"(?m)^[ \t]*{re.escape(marker)}[ \t]*$",
-                content,
-            )
-        )
-        if len(matches) != 1:
-            problems.append(
-                f"marker {marker!r} occurs {len(matches)} time(s); exactly one is required"
-            )
-        else:
-            matches_by_key[key] = matches[0]
 
-    if len(matches_by_key) != len(_BUG_ANALYSIS_SECTION_MARKERS):
+    def line_offset(position: int) -> int:
+        return content.count("\n", 0, position)
+
+    for key, marker in _BUG_ANALYSIS_SECTION_MARKERS:
+        marker_matches = list(
+            re.finditer(rf"(?m)^[ \t]*{re.escape(marker)}[ \t]*$", content)
+        )
+        title = titles[key]
+        title_matches = list(
+            re.finditer(rf"(?m)^[ \t]*{re.escape(title)}[ \t]*$", content)
+        )
+        if len(marker_matches) != 1:
+            nearest_match = (
+                marker_matches[0]
+                if marker_matches
+                else (title_matches[0] if title_matches else None)
+            )
+            problems.append(
+                {
+                    "line_offset": (
+                        line_offset(nearest_match.start())
+                        if nearest_match is not None
+                        else None
+                    ),
+                    "problem": (
+                        f"marker {marker!r} occurs {len(marker_matches)} time(s); "
+                        "exactly one is required"
+                    ),
+                }
+            )
+            continue
+        marker_match = marker_matches[0]
+        if len(title_matches) != 1:
+            problems.append(
+                {
+                    "line_offset": line_offset(marker_match.start()),
+                    "problem": (
+                        f"field {key!r} must use canonical title {title!r} immediately "
+                        f"before marker {marker!r}; found {len(title_matches)} title occurrence(s)"
+                    ),
+                }
+            )
+            continue
+        title_match = title_matches[0]
+        if title_match.end() > marker_match.start() or content[
+            title_match.end() : marker_match.start()
+        ].strip():
+            problems.append(
+                {
+                    "line_offset": line_offset(marker_match.start()),
+                    "problem": (
+                        f"field {key!r} must place canonical title {title!r} immediately "
+                        f"before marker {marker!r}"
+                    ),
+                }
+            )
+            continue
+        pairs[key] = (title_match, marker_match)
+
+    if len(pairs) != len(_BUG_ANALYSIS_SECTION_MARKERS):
         return {}, problems
 
     expected_keys = [key for key, _marker in _BUG_ANALYSIS_SECTION_MARKERS]
-    ordered = sorted(matches_by_key.items(), key=lambda item: item[1].start())
-    actual_keys = [key for key, _match in ordered]
+    ordered = sorted(pairs.items(), key=lambda item: item[1][0].start())
+    actual_keys = [key for key, _pair in ordered]
     if actual_keys != expected_keys:
-        expected_markers = " -> ".join(
-            marker for _key, marker in _BUG_ANALYSIS_SECTION_MARKERS
-        )
+        expected_markers = " -> ".join(markers[key] for key in expected_keys)
         problems.append(
-            "analysis markers are out of canonical order; expected "
-            + expected_markers
+            {
+                "line_offset": line_offset(ordered[0][1][0].start()),
+                "problem": (
+                    "analysis fields are out of canonical order; expected "
+                    + expected_markers
+                ),
+            }
         )
         return {}, problems
 
     sections = {}
-    for index, (key, match) in enumerate(ordered):
+    for index, (key, (title_match, marker_match)) in enumerate(ordered):
         content_end = (
-            ordered[index + 1][1].start()
+            ordered[index + 1][1][0].start()
             if index + 1 < len(ordered)
             else len(content)
         )
-        sections[key] = content[match.end() : content_end].strip()
+        sections[key] = {
+            "content": content[marker_match.end() : content_end].strip(),
+            "title_line_offset": line_offset(title_match.start()),
+            "marker_line_offset": line_offset(marker_match.start()),
+        }
     return sections, problems
 
 
@@ -813,53 +869,43 @@ def check_dynamic_bug_analysis_content(
         content = block["content"]
         sections, section_problems = _parse_bug_analysis_sections(content)
         for problem in section_problems:
+            problem_line = block["line"]
+            if problem["line_offset"] is not None:
+                problem_line += problem["line_offset"] + 1
             issues.append(
                 {
                     "bug": block["bug"],
                     "path": block["path"],
-                    "line": block["line"],
-                    "problem": problem,
+                    "line": problem_line,
+                    "problem": problem["problem"],
                 }
             )
 
         if _BUG_TODO_MARKER in content:
+            todo_offset = content.count(
+                "\n", 0, content.index(_BUG_TODO_MARKER)
+            )
             issues.append(
                 {
                     "bug": block["bug"],
                     "path": block["path"],
-                    "line": block["line"],
+                    "line": block["line"] + todo_offset + 1,
                     "problem": f"unfinished marker {_BUG_TODO_MARKER!r} remains",
                 }
             )
 
         if sections:
             markers_by_key = dict(_BUG_ANALYSIS_SECTION_MARKERS)
-            titles_by_key = dict(_BUG_ANALYSIS_SECTION_TITLES)
-            for key, section_content in sections.items():
-                content_lines = [
-                    line.strip()
-                    for line in section_content.splitlines()
-                    if line.strip()
-                ]
-                expected_title = titles_by_key[key]
-                if not content_lines or content_lines[0] != expected_title:
-                    issues.append(
-                        {
-                            "bug": block["bug"],
-                            "path": block["path"],
-                            "line": block["line"],
-                            "problem": (
-                                f"field {key!r} after {markers_by_key[key]!r} "
-                                f"must start with canonical title {expected_title!r}"
-                            ),
-                        }
-                    )
+            for key, section in sections.items():
+                section_content = section["content"]
                 if not _normalized_bug_analysis_field_text(section_content):
                     issues.append(
                         {
                             "bug": block["bug"],
                             "path": block["path"],
-                            "line": block["line"],
+                            "line": (
+                                block["line"] + section["marker_line_offset"] + 1
+                            ),
                             "problem": (
                                 f"field {key!r} after {markers_by_key[key]!r} "
                                 "has no content beyond display/control markers"
@@ -867,7 +913,9 @@ def check_dynamic_bug_analysis_content(
                         }
                     )
 
-            source_content = sections["source_evidence"]
+            source_section = sections["source_evidence"]
+            source_content = source_section["content"]
+            source_line = block["line"] + source_section["marker_line_offset"] + 1
             unavailable_markers = list(
                 re.finditer(
                     rf"(?m)^[ \t]*{re.escape(_BUG_SOURCE_UNAVAILABLE_MARKER)}[ \t]*$",
@@ -879,7 +927,7 @@ def check_dynamic_bug_analysis_content(
                     {
                         "bug": block["bug"],
                         "path": block["path"],
-                        "line": block["line"],
+                        "line": source_line,
                         "problem": (
                             f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} occurs "
                             f"{len(unavailable_markers)} time(s); at most one is allowed"
@@ -904,7 +952,7 @@ def check_dynamic_bug_analysis_content(
                         {
                             "bug": block["bug"],
                             "path": block["path"],
-                            "line": block["line"],
+                            "line": source_line,
                             "problem": (
                                 f"marker {_BUG_SOURCE_UNAVAILABLE_MARKER!r} is mutually "
                                 "exclusive with " + " and ".join(conflicting_evidence)
@@ -936,7 +984,7 @@ def check_dynamic_bug_analysis_content(
                         {
                             "bug": block["bug"],
                             "path": block["path"],
-                            "line": block["line"],
+                            "line": source_line,
                             "problem": (
                                 "source analysis lacks "
                                 + ", ".join(missing_source_evidence)

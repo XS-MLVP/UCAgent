@@ -258,6 +258,10 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
   left to invent alternate titles or layouts.
 - Keep examples syntactically valid, visually readable in Markdown, and exactly
   consistent with checker expectations.
+- In LLM-facing content, qualify every Guide_Doc section reference with its
+  runtime-relative file path, for example
+  `Guide_Doc/dut_bug_analysis.md section 5.1`. Never use a bare reference such
+  as `Guide section 5.1` or `section 5.1` when directing the LLM to a document.
 
 ### Optional Skill Contract
 
@@ -321,7 +325,8 @@ Preserve these established semantics unless the task explicitly changes them:
 - Within each dynamic `<BG-*>`, list every `<TC-*>` and its immediately following
   `<WAVEFORM-REF>` before the eight ordered `<BUG-*>` analysis fields. The fields
   begin only after the final TC/reference pair; never append another TC after the
-  first analysis field.
+  first analysis field. Each field uses its canonical level-six visible title,
+  then its matching `<BUG-*>` marker on the next nonempty line, then its body.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they

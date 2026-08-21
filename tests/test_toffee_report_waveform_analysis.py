@@ -121,50 +121,50 @@ def _dynamic_test_heading(
 
 SOURCE_EVIDENCE_BLOCK = """
 ```systemverilog
-// rtl/Demo.sv:12-14
+// Adder/Adder.v:L10-L14
 12: logic [4:0] intermediate; // <BUG-SOURCE-FIRST-ERROR> width is too narrow for the full result
 13: assign intermediate = data + 1; // <BUG-SOURCE-PROPAGATION> truncation enters the result path
 14: assign result = intermediate[3:0]; // <BUG-SOURCE-OBSERVABLE> output exposes the truncated value
 ```
 """.strip()
 COMPLETE_BUG_ANALYSIS = f"""
-<BUG-OVERVIEW>
 ###### Bug 概述
+<BUG-OVERVIEW>
 
 The result path truncates the expected value for the reproduced request.
 
-<BUG-SYMPTOMS>
 ###### 现象与严重度
+<BUG-SYMPTOMS>
 
 High severity; expected result 3 but observed result 2 in a stable reproducer.
 
-<BUG-TRIGGER>
 ###### 触发条件与影响
+<BUG-TRIGGER>
 
 The request is valid with data 3 and affects the result output at CK-A.
 
-<BUG-ROOT-CAUSE>
 ###### 根因分析
+<BUG-ROOT-CAUSE>
 
 The RTL slices the intermediate value before it reaches the result output.
 
-<BUG-SOURCE-EVIDENCE>
 ###### 源码证据
+<BUG-SOURCE-EVIDENCE>
 
 {SOURCE_EVIDENCE_BLOCK}
 
-<BUG-CAUSAL-CHAIN>
 ###### 动态因果链
+<BUG-CAUSAL-CHAIN>
 
 Input data 3 reaches the request, truncation occurs in RTL, result becomes 2, and CK-A fails.
 
-<BUG-FIX>
 ###### 修复建议
+<BUG-FIX>
 
 Preserve the complete intermediate width until the result assignment.
 
-<BUG-RETEST>
 ###### 风险与复验
+<BUG-RETEST>
 
 Retest boundary values, regress result-path cases, and confirm the corrected waveform event.
 """.strip()
@@ -1716,7 +1716,50 @@ def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
     )
 
     assert passed is False
-    assert "must start with canonical title '###### 源码证据'" in message["error"]
+    assert "must use canonical title '###### 源码证据'" in message["error"]
+
+
+def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):
+    inverted = COMPLETE_BUG_ANALYSIS.replace(
+        "###### Bug 概述\n<BUG-OVERVIEW>",
+        "<BUG-OVERVIEW>\n###### Bug 概述",
+    )
+    (tmp_path / "bugs.md").write_text(
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{inverted}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    issue = next(
+        item
+        for item in message["details"]["issues"]
+        if item["problem"].startswith("field 'overview'")
+    )
+    assert "immediately before marker '<BUG-OVERVIEW>'" in issue["problem"]
+    assert issue["line"] == 7
+
+
+def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
+    invalid_location = COMPLETE_BUG_ANALYSIS.replace(
+        "Adder/Adder.v:L10-L14", "Adder/Adder.v:10-14"
+    )
+    (tmp_path / "bugs.md").write_text(
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{invalid_location}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "source analysis lacks real HDL path and line range" in message["error"]
 
 
 def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
@@ -1782,12 +1825,15 @@ def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path
         ),
         (
             COMPLETE_BUG_ANALYSIS.replace(
-                "<BUG-TRIGGER>\n", "<BUG-ROOT-CAUSE>\n"
+                "###### 触发条件与影响\n<BUG-TRIGGER>", "__TRIGGER_FIELD__"
             ).replace(
-                "<BUG-ROOT-CAUSE>\n###### 根因分析",
-                "<BUG-TRIGGER>\n###### 根因分析",
+                "###### 根因分析\n<BUG-ROOT-CAUSE>",
+                "###### 触发条件与影响\n<BUG-TRIGGER>",
+            ).replace(
+                "__TRIGGER_FIELD__",
+                "###### 根因分析\n<BUG-ROOT-CAUSE>",
             ),
-            "analysis markers are out of canonical order",
+            "analysis fields are out of canonical order",
         ),
     ],
 )

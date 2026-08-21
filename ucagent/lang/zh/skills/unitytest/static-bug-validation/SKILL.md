@@ -7,7 +7,7 @@ description: 验证静态Bug候选并维护其与已完成动态Bug或BG-NA的LI
 
 逐个验证`{OUT}/{DUT}_static_bug_analysis.md`中的`<BG-STATIC-*>`候选。测试、参考模型、fixture、API、复位、采样或环境问题必须修复为Pass，不能记录成动态Bug。
 
-`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可选用于首个动态BG/TC骨架；缺少该技能时直接使用文本编辑工具，按`Guide_Doc/dut_bug_analysis.md`第 5.1 节完整标准案例和第 5.2 节骨架填写具体中文可见名称、Markdown层级与标签顺序。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
+`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可选用于首个动态BG/TC骨架；缺少该技能时直接使用文本编辑工具，按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架填写具体中文可见名称、Markdown层级与标签顺序。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；不能只写尖括号标签或类型名。
 
 新建`test_static_{DUT}_*`时，参考当前工作区已有的普通DUT测试模板，沿用其fixture参数和顺序：`def test_static_{DUT}_xxx(env):`或`def test_static_{DUT}_xxx(env, ref_model):`。真实DUT测试不能改用`mock_dut`；Mock组件独立单元测试不能用于证实静态RTL候选。
 

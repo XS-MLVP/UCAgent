@@ -109,7 +109,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
-    assert "不可用时按Guide第5.1节完整标准案例和第5.2节骨架" in system_prompt
+    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
     assert "只为新Bug生成首个BG/TC" in system_prompt
@@ -129,7 +129,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
     assert "record_dynamic_bug.py仅为可选骨架辅助" in batch_task
-    assert "不可用时按Guide第5.1节完整标准案例和第5.2节骨架" in batch_task
+    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in batch_task
     assert "完成共享alignment_evidence、逐Bug证据和八个分析字段" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
@@ -473,7 +473,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "##### 进位输出 <CK-CARRY-OUT>" in guide
     assert "###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>" in guide
     assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>" in guide
-    assert "rtl/Adder.sv:24-26" in guide
+    assert "rtl/Adder.sv:L24-L26" in guide
     assert (
         "### 进位输入产生进位波形 "
         "<WAVEFORM-TC-tests/test_adder.py::test_cin_carry>"
@@ -483,12 +483,31 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "标准案例体现以下不可变边界" in guide
     assert "建立骨架并分阶段写入" in guide
     assert "脚本不可用时也不阻塞整个流程" in guide
-    assert "参照第 5.1 节的完整标准案例和本节骨架" in guide
+    assert "参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
     assert "只接收`BG/TC/BD`" in guide
     assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
     assert "任何非零 BG 残留占位都不能完成" in guide
+
+    config = load_yaml_with_env_vars(
+        str(Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml")
+    )
+    rendered_config = str(config)
+    assert "Guide第5.1节" not in rendered_config
+    assert "Guide第 5.1 节" not in rendered_config
+
+    skill_paths = (
+        "dynamic-bug-recording/SKILL.md",
+        "static-bug-validation/SKILL.md",
+        "test-case-implementation-in-batch/SKILL.md",
+    )
+    skill_root = Path(__file__).parents[1] / "ucagent/lang/zh/skills/unitytest"
+    for relative_path in skill_paths:
+        skill_text = (skill_root / relative_path).read_text(encoding="utf-8")
+        assert "Guide_Doc/dut_bug_analysis.md中的第" in skill_text
+        assert "Guide第5.1节" not in skill_text
+        assert "Guide第 5.1 节" not in skill_text
 
 
 def test_bug_analysis_guide_scaffold_shows_multi_child_hierarchy():
@@ -544,9 +563,11 @@ def test_bug_analysis_guide_places_fields_after_all_tests():
     assert scaffold.count("<TC-") == 2
     assert scaffold.rindex("<TC-") < scaffold.index("<BUG-OVERVIEW>")
     assert "第一个`<BUG-*>`字段出现后不得再追加 TC" in guide
-    assert "新增 TC 必须插入该 BG 的`<BUG-OVERVIEW>`之前" in guide
+    assert "新增 TC 必须插入该 BG 的首个分析标题之前" in guide
     assert "before the eight ordered `<BUG-*>` analysis fields" in agent_rules
     assert "never append another TC after the" in agent_rules
+    assert "qualify every Guide_Doc section reference" in agent_rules
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in agent_rules
 
 
 def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):

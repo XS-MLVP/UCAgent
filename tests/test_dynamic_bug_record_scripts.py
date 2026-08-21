@@ -318,6 +318,9 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert [document.index(marker) for marker in markers] == sorted(
         document.index(marker) for marker in markers
     )
+    assert document.index("###### Bug 概述") < document.index(
+        module.OVERVIEW_MARKER
+    )
     assert document.count(module.TODO_MARKER) == 7
     assert "waveform_analysis:" not in document
     assert document.count("<WAVEFORM-REF>") == 1

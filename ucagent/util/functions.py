@@ -1824,7 +1824,7 @@ def description_bug_doc():
         "  - The first non-empty content after the central YAML fence must be the same final WaveInfo result's <WAVEFORM-VIEWER> tagged Markdown link. Its marker, /surfer/?wave= route, and signed token must not be edited or constructed manually.",
         f"  - Inside every non-zero BG, include each analysis marker exactly once and in this order: {section_markers}.",
         "  - Put every TC and its WAVEFORM-REF directly after the owning BG heading. Put all eight <BUG-*> analysis fields after the final TC/reference; no TC may appear after the first analysis marker.",
-        f"  - After those markers, use these exact display titles in the same order: {section_titles}. Do not rename, translate, omit, duplicate, or reorder them.",
+        f"  - Start each analysis field with its exact display title, put the matching marker on the next non-empty line, then write the field body. Use these title-marker pairs in order: {section_titles} paired with {section_markers}. Do not rename, translate, omit, duplicate, or reorder them.",
         f"  - Fill every marked field with evidence-backed content and remove every {BUG_TODO_MARKER}. Follow the complete canonical reference in Guide_Doc/dut_bug_analysis.md section 5.1; do not invent alternate sections or layouts.",
         f"  - With source access, <BUG-SOURCE-EVIDENCE> must contain a real HDL path:L1-L2 and a complete HDL fenced block containing each marker exactly once: {source_markers}.",
         f"  - Without source access, put one standalone {BUG_SOURCE_UNAVAILABLE_MARKER} in <BUG-SOURCE-EVIDENCE> and provide a black-box causal analysis from the interface contract, failure log, and waveform. This branch cannot contain an HDL fence or any {source_markers} marker.",

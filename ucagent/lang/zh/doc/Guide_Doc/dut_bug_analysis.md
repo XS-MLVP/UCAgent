@@ -43,29 +43,29 @@
 - 进位输入触发溢出 <TC-tests/test_adder.py::test_overflow>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-0123456789abcdef)
 
-<BUG-OVERVIEW>
 ###### Bug 概述
+<BUG-OVERVIEW>
 ...
-<BUG-SYMPTOMS>
 ###### 现象与严重度
+<BUG-SYMPTOMS>
 ...
-<BUG-TRIGGER>
 ###### 触发条件与影响
+<BUG-TRIGGER>
 ...
-<BUG-ROOT-CAUSE>
 ###### 根因分析
+<BUG-ROOT-CAUSE>
 ...
-<BUG-SOURCE-EVIDENCE>
 ###### 源码证据
+<BUG-SOURCE-EVIDENCE>
 ...
-<BUG-CAUSAL-CHAIN>
 ###### 动态因果链
+<BUG-CAUSAL-CHAIN>
 ...
-<BUG-FIX>
 ###### 修复建议
+<BUG-FIX>
 ...
-<BUG-RETEST>
 ###### 风险与复验
+<BUG-RETEST>
 ...
 ```
 
@@ -170,7 +170,7 @@ ApplyWaveInfoEvidence(
 
 同一 TC 新增 Bug 时，对新 BG 再调用一次 Apply。若原 receipt 已包含新 Bug 所需信号，工具复用中央记录并保留已有分析；若需要新增信号，重新调用最终 WaveInfo，使`signal_groups`成为所有 Bug 所需信号的并集，再使用`replace_existing=true`。替换不同 receipt 时，工具保留各 BG 的`required_signals`，并重置共享和逐 Bug 语义结论，要求重新审查。
 
-同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次。目标 TC 不存在且 BG 位置唯一时，Apply 会从目标测试函数的非空 docstring 读取中文可见标题，在该 BG 的`<BUG-OVERVIEW>`之前创建 TC 和引用；测试源码或 docstring 不存在时会拒绝生成，LLM 不得猜测标题。LLM 不得手工复制 BG、创建兄弟 TC或拼接 receipt。同一 Fail TC 揭示多个独立 Bug 时，使用相同 TC 和不同 BG 分别调用；每次调用只更新目标关联，不会覆盖其他 Bug。签名窗口和 `signal_groups` 同时支持各缺陷时才能复用 receipt。
+同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次。目标 TC 不存在且 BG 位置唯一时，Apply 会从目标测试函数的非空 docstring 读取中文可见标题，在该 BG 的首个分析标题之前创建 TC 和引用；测试源码或 docstring 不存在时会拒绝生成，LLM 不得猜测标题。LLM 不得手工复制 BG、创建兄弟 TC或拼接 receipt。同一 Fail TC 揭示多个独立 Bug 时，使用相同 TC 和不同 BG 分别调用；每次调用只更新目标关联，不会覆盖其他 Bug。签名窗口和 `signal_groups` 同时支持各缺陷时才能复用 receipt。
 
 ### 5.1 完整标准案例
 
@@ -189,25 +189,25 @@ ApplyWaveInfoEvidence(
 - 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
 
-<BUG-OVERVIEW>
 ###### Bug 概述
+<BUG-OVERVIEW>
 当 `a + b + cin` 产生第 `WIDTH+1` 位进位时，DUT 在组合加法路径中提前截断中间结果，导致 `cout` 始终为 0。
 
-<BUG-SYMPTOMS>
 ###### 现象与严重度
+<BUG-SYMPTOMS>
 边界用例 `a=8'hff, b=8'h00, cin=1` 的期望结果为 `{cout,sum}=9'h100`，实际结果为 `9'h000`。该问题会破坏所有依赖进位输出的多字加法，严重度为高。
 
-<BUG-TRIGGER>
 ###### 触发条件与影响
+<BUG-TRIGGER>
 触发条件是两个操作数与 `cin` 的无符号和大于 `2^WIDTH-1`。低 `WIDTH` 位未溢出时结果正常；发生进位时，`sum` 保留低位而 `cout` 丢失，影响 `CK-CARRY-OUT` 及其上层级联运算。
 
-<BUG-ROOT-CAUSE>
 ###### 根因分析
+<BUG-ROOT-CAUSE>
 `sum_full` 只声明为 `WIDTH` 位，却承接 `WIDTH+1` 位表达式。赋值时最高进位位被截断，后续拼接只能在已截断值前补 0，因此无法恢复真实 `cout`。
 
-<BUG-SOURCE-EVIDENCE>
 ###### 源码证据
-首个错误位于 `rtl/Adder.sv:24-26`：
+<BUG-SOURCE-EVIDENCE>
+首个错误位于 `rtl/Adder.sv:L24-L26`：
 
 ```systemverilog
 24: logic [WIDTH-1:0] sum_full; // <BUG-SOURCE-FIRST-ERROR> 中间量少一位，无法保存进位。
@@ -215,16 +215,16 @@ ApplyWaveInfoEvidence(
 26: assign {cout, sum} = {1'b0, sum_full}; // <BUG-SOURCE-OBSERVABLE> 输出端观察到固定为 0 的 cout。
 ```
 
-<BUG-CAUSAL-CHAIN>
 ###### 动态因果链
+<BUG-CAUSAL-CHAIN>
 测试在有效组合输入窗口驱动 `8'hff + 8'h00 + 1`；完整和为 `9'h100`；第 25 行写入 8 位 `sum_full` 后变为 `8'h00`；第 26 行再补零形成 `9'h000`；波形中的 `cout=0` 与失败断言一致。
 
-<BUG-FIX>
 ###### 修复建议
+<BUG-FIX>
 将 `sum_full` 声明为 `logic [WIDTH:0]`，直接执行 `assign {cout, sum} = sum_full;`。保持表达式和中间存储均为 `WIDTH+1` 位，避免在进位提取前发生截断。
 
-<BUG-RETEST>
 ###### 风险与复验
+<BUG-RETEST>
 复验 `0+0+0`、最大值加 0、最大值加 1、最大值加最大值及随机输入，并检查 `sum` 与 `cout`。同时回归所有级联使用 `cout` 的上层用例，并在新波形中确认第 `WIDTH+1` 位从中间量传播到输出。
 
 </DYNAMIC-BUGS>
@@ -287,7 +287,7 @@ waveform_analysis:
         - TOP.dut.sum[7:0]
         - TOP.dut.cout
       observed_behavior: 完整输入和应为 9'h100，但中间量与输出均为 0，最高进位没有到达 cout。
-      source_correlation: rtl/Adder.sv:24-26 的 sum_full 宽度截断与波形中丢失的最高位一致。
+      source_correlation: rtl/Adder.sv:L24-L26 的 sum_full 宽度截断与波形中丢失的最高位一致。
 ```
 <WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN)
 
@@ -298,11 +298,11 @@ waveform_analysis:
 
 ### 5.2 建立骨架并分阶段写入
 
-`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、引用和八个带`<BUG-TODO>`的分析章节。脚本从功能检查文档读取 FG/FC/CK 的中文名称，从测试 docstring 读取 TC 名称，并用`BD`生成 BG 名称。脚本不可用时也不阻塞整个流程，使用文本编辑工具从相同来源读取名称，参照第 5.1 节的完整标准案例和本节骨架建立相同结构。
+`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、引用和八个带`<BUG-TODO>`的分析章节。脚本从功能检查文档读取 FG/FC/CK 的中文名称，从测试 docstring 读取 TC 名称，并用`BD`生成 BG 名称。脚本不可用时也不阻塞整个流程，使用文本编辑工具从相同来源读取名称，参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架建立相同结构。
 
 #### 5.2.1 多分支层次骨架
 
-FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下骨架明确展示两个 FG；每个 FG 下两个 FC；每个 FC 下两个 CK；每个 CK 下两个 BG；每个 BG 下两个 TC。为突出树结构，本图省略每条 TC 后由`ApplyWaveInfoEvidence`生成的`<WAVEFORM-REF>`以及每个 BG 的八个分析字段；实际文档不得省略，必须按第 5.2.2 节展开。
+FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下骨架明确展示两个 FG；每个 FG 下两个 FC；每个 FC 下两个 CK；每个 CK 下两个 BG；每个 BG 下两个 TC。为突出树结构，本图省略每条 TC 后由`ApplyWaveInfoEvidence`生成的`<WAVEFORM-REF>`以及每个 BG 的八个分析字段；实际文档不得省略，必须按Guide_Doc/dut_bug_analysis.md中的第 5.2.2 节展开。
 
 ```markdown
 <DYNAMIC-BUGS>
@@ -388,34 +388,34 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#tool-generated-anchor)
 - [另一个测试 docstring 描述] <TC-test_file.py::test_another_name>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#another-tool-generated-anchor)
-<BUG-OVERVIEW>
 ###### Bug 概述
+<BUG-OVERVIEW>
 <BUG-TODO>
-<BUG-SYMPTOMS>
 ###### 现象与严重度
+<BUG-SYMPTOMS>
 <BUG-TODO>
-<BUG-TRIGGER>
 ###### 触发条件与影响
+<BUG-TRIGGER>
 <BUG-TODO>
-<BUG-ROOT-CAUSE>
 ###### 根因分析
+<BUG-ROOT-CAUSE>
 <BUG-TODO>
-<BUG-SOURCE-EVIDENCE>
 ###### 源码证据
+<BUG-SOURCE-EVIDENCE>
 <BUG-TODO>
-<BUG-CAUSAL-CHAIN>
 ###### 动态因果链
+<BUG-CAUSAL-CHAIN>
 <BUG-TODO>
-<BUG-FIX>
 ###### 修复建议
+<BUG-FIX>
 <BUG-TODO>
-<BUG-RETEST>
 ###### 风险与复验
+<BUG-RETEST>
 <BUG-TODO>
 </DYNAMIC-BUGS>
 ```
 
-方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。锚点和引用仍由 Apply 修复为精确值。LLM 必须替换标签值、可见标题和分析正文，但不得修改 Markdown 层级、八个固定分析标题、字段顺序或容器布局。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入该 BG 的`<BUG-OVERVIEW>`之前。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除八个分析章节中的全部 `<BUG-TODO>`；任何非零 BG 残留占位都不能完成。
+方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。锚点和引用仍由 Apply 修复为精确值。LLM 必须替换标签值、可见标题和分析正文，但不得修改 Markdown 层级、八个固定分析标题、字段顺序或容器布局。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入该 BG 的首个分析标题之前。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除八个分析章节中的全部 `<BUG-TODO>`；任何非零 BG 残留占位都不能完成。
 
 ## 6. 证据保留与重放
 
@@ -429,7 +429,7 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 ## 7. Bug 根因字段
 
-八个标记必须唯一、有序、内容非空。每个标记后的第一条非空行必须依次为`###### Bug 概述`、`###### 现象与严重度`、`###### 触发条件与影响`、`###### 根因分析`、`###### 源码证据`、`###### 动态因果链`、`###### 修复建议`、`###### 风险与复验`；不得翻译、改写、改成粗体或更换标题级别。`<BUG-SOURCE-EVIDENCE>`有两种互斥模式：
+八个字段必须唯一、有序、内容非空。每个字段先写固定六级标题，下一非空行写对应标签，再写正文；八组标题与标签依次为`###### Bug 概述`/`<BUG-OVERVIEW>`、`###### 现象与严重度`/`<BUG-SYMPTOMS>`、`###### 触发条件与影响`/`<BUG-TRIGGER>`、`###### 根因分析`/`<BUG-ROOT-CAUSE>`、`###### 源码证据`/`<BUG-SOURCE-EVIDENCE>`、`###### 动态因果链`/`<BUG-CAUSAL-CHAIN>`、`###### 修复建议`/`<BUG-FIX>`、`###### 风险与复验`/`<BUG-RETEST>`。不得翻译、改写、改成粗体、更换标题级别或交换标题与标签。`<BUG-SOURCE-EVIDENCE>`有两种互斥模式：
 
 - 有源码：包含真实`path:L1-L2`与完整 HDL fenced 代码，并在语言原生注释中各放一次`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`。
 - 无可访问源码：单独写`<BUG-SOURCE-UNAVAILABLE>`，用规格、接口、日志和波形完成黑盒因果链，不虚构源码位置。
@@ -437,8 +437,8 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 无源码分支必须完整写成以下形态，不能只留下标记：
 
 ```markdown
-<BUG-SOURCE-EVIDENCE>
 ###### 源码证据
+<BUG-SOURCE-EVIDENCE>
 <BUG-SOURCE-UNAVAILABLE>
 当前工作区未提供可访问的 RTL/HDL。接口规格规定请求在 `valid && ready` 时接受，失败日志和已确认波形共同显示响应有效周期的 `result` 比期望值少 1；因此根因范围限定在接受后到结果输出之间的状态更新或算术路径，不能虚构具体文件与行号。
 ```
@@ -469,7 +469,7 @@ Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-rec
 ## 10. 完成检查
 
 - 两个容器各出现一次、均正确关闭、顺序正确。
-- 文档标题、分区标题、FG/FC/CK/BG/TC 层级和八个字段标题与第 5.1 节完整标准案例一致；每个标签行都有具体可见标题，不含类型名或方括号占位。
+- 文档标题、分区标题、FG/FC/CK/BG/TC 层级和八个字段标题与Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例一致；每个标签行都有具体可见标题，不含类型名或方括号占位。
 - 每个中央波形标题逐字复用关联 TC 的可见标题并追加“波形”。
 - 每个非零 BG 至少有一个真实 Fail TC和完整八字段分析。
 - 每个 BG 的全部 TC/引用连续位于 BG 标题后，八个`<BUG-*>`字段位于最后一个 TC/引用后，字段开始后不再出现 TC。
