@@ -709,6 +709,148 @@ class TestFileOpsTools(unittest.TestCase):
         with open(target, "r", encoding="utf-8") as file_obj:
             self.assertEqual(file_obj.read(), self.test_files["simple.txt"])
 
+    def test_replace_string_preserves_existing_positional_arguments(self):
+        target = os.path.join(self.workspace, "simple.txt")
+        original = self.test_files["simple.txt"].encode("utf-8")
+
+        result = ReplaceStringInFile(workspace=self.workspace)._run(
+            "simple.txt",
+            "Line 2",
+            "Changed",
+            hashlib.sha256(original).hexdigest(),
+            True,
+        )
+
+        self.assertIn("Dry run successful", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(file_obj.read(), original)
+
+    def test_replace_string_line_blocks_limit_search(self):
+        target = os.path.join(self.workspace, "replace-blocks.txt")
+        original = "first\ntarget\nmiddle\ntarget\nlast\n"
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write(original)
+
+        whole_file_result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="replace-blocks.txt",
+            old_string="target",
+            new_string="changed",
+        )
+        block_result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="replace-blocks.txt",
+            old_string="target",
+            new_string="changed",
+            line_blocks=[[4, 4]],
+        )
+
+        self.assertIn("appears 2 times in the whole file", whole_file_result)
+        self.assertIn("Successfully replaced 1 occurrence", block_result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                "first\ntarget\nmiddle\nchanged\nlast\n",
+            )
+
+    def test_replace_string_supports_multiple_line_blocks(self):
+        target = os.path.join(self.workspace, "replace-multiple-blocks.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("one\ntarget\nthree\ntarget\nfive\n")
+
+        tool = ReplaceStringInFile(workspace=self.workspace)
+        duplicate_result = tool.invoke(
+            {
+                "path": "replace-multiple-blocks.txt",
+                "old_string": "target",
+                "new_string": "changed",
+                "line_blocks": [[1, 2], [4, 5]],
+            }
+        )
+        result = tool.invoke(
+            {
+                "path": "replace-multiple-blocks.txt",
+                "old_string": "target",
+                "new_string": "changed",
+                "line_blocks": [[1, 2], [5, 5]],
+            }
+        )
+
+        self.assertIn("appears 2 times in line_blocks [1-2, 4-5]", duplicate_result)
+        self.assertIn("Successfully replaced 1 occurrence", result)
+        self.assertIn("within line_blocks [1-2, 5-5]", result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                "one\nchanged\nthree\ntarget\nfive\n",
+            )
+
+    def test_replace_string_requires_match_inside_one_normalized_block(self):
+        target = os.path.join(self.workspace, "replace-boundary.txt")
+        original = "one\ntwo\nthree\nfour\n"
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write(original)
+
+        outside_result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="replace-boundary.txt",
+            old_string="two\nthree",
+            new_string="changed",
+            line_blocks=[[2, 2], [4, 4]],
+        )
+        adjacent_result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="replace-boundary.txt",
+            old_string="two\nthree",
+            new_string="changed",
+            line_blocks=[[2, 2], [3, 3]],
+        )
+
+        self.assertIn("was not found in line_blocks [2-2, 4-4]", outside_result)
+        self.assertIn("Successfully replaced 1 occurrence", adjacent_result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), "one\nchanged\nfour\n")
+
+    def test_replace_string_line_blocks_validate_before_writing(self):
+        target = os.path.join(self.workspace, "replace-invalid-blocks.txt")
+        original = "one\ntarget\nthree\n"
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write(original)
+        tool = ReplaceStringInFile(workspace=self.workspace)
+
+        reverse_result = tool._run(
+            path="replace-invalid-blocks.txt",
+            old_string="target",
+            new_string="changed",
+            line_blocks=[[3, 2]],
+        )
+        range_result = tool._run(
+            path="replace-invalid-blocks.txt",
+            old_string="target",
+            new_string="changed",
+            line_blocks=[[2, 4]],
+        )
+
+        self.assertIn("start <= end", reverse_result)
+        self.assertIn("out of range", range_result)
+        with open(target, "r", encoding="utf-8") as file_obj:
+            self.assertEqual(file_obj.read(), original)
+
+    def test_replace_string_line_blocks_preserve_crlf(self):
+        target = os.path.join(self.workspace, "replace-blocks-crlf.txt")
+        with open(target, "wb") as file_obj:
+            file_obj.write(b"one\r\ntarget\r\nthree\r\ntarget\r\n")
+
+        result = ReplaceStringInFile(workspace=self.workspace)._run(
+            path="replace-blocks-crlf.txt",
+            old_string="target\n",
+            new_string="changed\n",
+            line_blocks=[[4, 4]],
+        )
+
+        self.assertIn("Successfully replaced 1 occurrence", result)
+        with open(target, "rb") as file_obj:
+            self.assertEqual(
+                file_obj.read(),
+                b"one\r\ntarget\r\nthree\r\nchanged\r\n",
+            )
+
     def test_edit_text_file_minimal_call_creates_and_overwrites(self):
         target = os.path.join(self.workspace, "created.txt")
         tool = EditTextFile(workspace=self.workspace)
@@ -784,6 +926,17 @@ class TestFileOpsTools(unittest.TestCase):
             {"path", "old_string", "new_string"},
         )
         self.assertEqual(
+            set(replace_schema["properties"]),
+            {
+                "path",
+                "old_string",
+                "new_string",
+                "line_blocks",
+                "expected_sha256",
+                "dry_run",
+            },
+        )
+        self.assertEqual(
             set(delete_lines_schema["required"]),
             {"path", "line_blocks"},
         )
@@ -807,6 +960,24 @@ class TestFileOpsTools(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ArgReplaceStringInFile.model_validate(
                 {"path": "x", "old_string": "a", "new_string": "b", "typo": True}
+            )
+        with self.assertRaises(ValidationError):
+            ArgReplaceStringInFile.model_validate(
+                {
+                    "path": "x",
+                    "old_string": "a",
+                    "new_string": "b",
+                    "line_blocks": [],
+                }
+            )
+        with self.assertRaises(ValidationError):
+            ArgReplaceStringInFile.model_validate(
+                {
+                    "path": "x",
+                    "old_string": "a",
+                    "new_string": "b",
+                    "line_blocks": [[4, 2]],
+                }
             )
 
     def test_edit_text_file_converts_to_unambiguous_mcp_schema(self):
@@ -841,6 +1012,30 @@ class TestFileOpsTools(unittest.TestCase):
         self.assertIn("use ReplaceStringInFile", tool.description)
         self.assertIn("original pre-deletion line numbers", tool.description)
         self.assertIn("use [[10, 20]] for one range", tool.description)
+
+    def test_replace_string_converts_line_blocks_to_mcp_schema(self):
+        tool = ReplaceStringInFile(workspace=self.workspace)
+        mcp_tool = to_fastmcp(tool)
+
+        self.assertEqual(
+            set(mcp_tool.parameters["required"]),
+            {"path", "old_string", "new_string"},
+        )
+        self.assertFalse(mcp_tool.parameters.get("additionalProperties", True))
+        self.assertEqual(
+            set(mcp_tool.parameters["properties"]),
+            {
+                "path",
+                "old_string",
+                "new_string",
+                "line_blocks",
+                "expected_sha256",
+                "dry_run",
+            },
+        )
+        self.assertIn("Omit for the whole file", mcp_tool.parameters[
+            "properties"
+        ]["line_blocks"]["description"])
 
     def test_async_validation_error_does_not_leak_tool_lock(self):
         async def run_calls():

@@ -1602,7 +1602,8 @@ class CreateDirectory(UCTool, BaseReadWrite):
 
 
 _LineNumber = Annotated[int, Field(strict=True, ge=1)]
-_LineBlock = Union[_LineNumber, Tuple[_LineNumber, _LineNumber]]
+_LineRange = Tuple[_LineNumber, _LineNumber]
+_LineBlock = Union[_LineNumber, _LineRange]
 
 
 class ArgDeleteTextLines(StrictToolArgs):
@@ -1825,6 +1826,15 @@ class ArgReplaceStringInFile(StrictToolArgs):
     new_string: str = Field(
         ...,
         description="The exact literal text to replace old_string with. Ensure the resulting code is correct and idiomatic.")
+    line_blocks: Optional[List[_LineRange]] = Field(
+        default=None,
+        min_length=1,
+        max_length=1000,
+        description=(
+            "Optional one-based inclusive [start, end] search blocks. "
+            "Omit for the whole file."
+        ),
+    )
     expected_sha256: Optional[str] = Field(
         default=None,
         description="Optional SHA-256 returned by ReadTextFile. The replacement fails if the file changed since it was read."
@@ -1834,6 +1844,15 @@ class ArgReplaceStringInFile(StrictToolArgs):
         description="Validate the replacement and return its diff without writing the file."
     )
 
+    @model_validator(mode="after")
+    def validate_line_blocks(self):
+        for start, end in self.line_blocks or []:
+            if start > end:
+                raise ValueError(
+                    f"line block [{start}, {end}] must have start <= end"
+                )
+        return self
+
 
 class ReplaceStringInFile(UCTool, BaseReadWrite):
     """Replace exact string content in a text file with precise string matching."""
@@ -1842,9 +1861,12 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
         "Replace one unique occurrence of non-empty old_string in an existing UTF-8 "
         "text file. Both old_string and new_string must match the intended whitespace "
         "and newlines exactly. Include enough surrounding context to make old_string "
-        "unique. Use EditTextFile to create, overwrite, or append to a file. Repeating "
-        "an already-applied replacement is reported as an actionable mismatch; calling "
-        "with identical old_string and new_string is treated as success."
+        "unique. Optionally pass one-based inclusive line_blocks such as "
+        "[[10, 20], [40, 50]] to limit the search; omit line_blocks to search the whole "
+        "file. Overlapping or adjacent blocks are merged, and the match must fit fully "
+        "inside one normalized block. Use EditTextFile to create, overwrite, or append to "
+        "a file. Repeating an already-applied replacement is reported as an actionable "
+        "mismatch; calling with identical old_string and new_string is treated as success."
     )
     args_schema: Optional[ArgsSchema] = ArgReplaceStringInFile
     return_direct: bool = False
@@ -1852,6 +1874,7 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
 
     def _run(self, path: str, old_string: str, new_string: str,
              expected_sha256: Optional[str] = None, dry_run: bool = False,
+             line_blocks: Optional[List[_LineRange]] = None,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Replace exact string content in a text file."""
         success, msg, real_path = self.check_file(path, for_write=True)
@@ -1884,26 +1907,76 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
 
             old_content = _convert_newlines(old_string, newline)
             replacement_content = _convert_newlines(new_string, newline)
-            if old_content not in original_content:
+            normalized_blocks = None
+            search_ranges = [(0, len(original_content))]
+            if line_blocks is not None:
+                original_lines = original_content.splitlines(keepends=True)
+                try:
+                    normalized_blocks = DeleteTextLines._normalize_line_blocks(
+                        line_blocks,
+                        len(original_lines),
+                    )
+                except ValueError as error:
+                    error_msg = (
+                        f"Invalid line_blocks for {path}: {error}. "
+                        "No replacement was made."
+                    )
+                    self.do_callback(False, path, error_msg)
+                    return str_error(error_msg)
+                line_offsets = [0]
+                for line in original_lines:
+                    line_offsets.append(line_offsets[-1] + len(line))
+                search_ranges = [
+                    (line_offsets[start - 1], line_offsets[end])
+                    for start, end in normalized_blocks
+                ]
+
+            occurrence_count = 0
+            match_offset = None
+            for range_start, range_end in search_ranges:
+                selected_content = original_content[range_start:range_end]
+                range_occurrence_count = selected_content.count(old_content)
+                occurrence_count += range_occurrence_count
+                if range_occurrence_count and match_offset is None:
+                    match_offset = range_start + selected_content.find(old_content)
+
+            scope_text = "the whole file"
+            if normalized_blocks is not None:
+                blocks_text = ", ".join(
+                    f"{start}-{end}" for start, end in normalized_blocks
+                )
+                scope_text = f"line_blocks [{blocks_text}]"
+            if occurrence_count == 0:
                 error_msg = (
-                    "The specified old_string was not found. Read the current file and "
+                    f"The specified old_string was not found in {scope_text}. "
+                    "Read the current file and "
                     "retry with exact, unique text; if the desired content is already "
                     "present, no further write is needed."
                 )
                 self.do_callback(False, path, error_msg)
                 return str_error(error_msg)
-            occurrence_count = original_content.count(old_content)
             if occurrence_count > 1:
                 error_msg = (
-                    f"The specified old_string appears {occurrence_count} times. "
-                    "Include more surrounding context so it matches exactly once."
+                    f"The specified old_string appears {occurrence_count} times in "
+                    f"{scope_text}. Narrow line_blocks or include more surrounding "
+                    "context so it matches exactly once."
                 )
                 self.do_callback(False, path, error_msg)
                 return str_error(error_msg)
-            new_content = original_content.replace(old_content, replacement_content, 1)
+            assert match_offset is not None
+            new_content = (
+                original_content[:match_offset]
+                + replacement_content
+                + original_content[match_offset + len(old_content):]
+            )
             if new_content == original_content:
                 result = {
                     "changed": False,
+                    "line_blocks": (
+                        [list(block) for block in normalized_blocks]
+                        if normalized_blocks is not None
+                        else None
+                    ),
                     "before_sha256": original_sha256,
                     "after_sha256": original_sha256,
                 }
@@ -1932,8 +2005,12 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
                 _atomic_write_text(real_path, new_content, existing_mode=existing_mode)
             else:
                 _atomic_create_text(real_path, new_content)
+            scope_suffix = (
+                f" within {scope_text}" if normalized_blocks is not None else ""
+            )
             success_msg = (
-                f"Successfully replaced 1 occurrence of the specified string in {path}. "
+                f"Successfully replaced 1 occurrence of the specified string in {path}"
+                f"{scope_suffix}. "
                 f"SHA256: {original_sha256} -> {new_sha256}."
             )
             self.do_callback(
@@ -1942,6 +2019,11 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
                 {
                     "old_string": old_string,
                     "new_string": new_string,
+                    "line_blocks": (
+                        [list(block) for block in normalized_blocks]
+                        if normalized_blocks is not None
+                        else None
+                    ),
                     "before_sha256": original_sha256,
                     "after_sha256": new_sha256,
                 },

@@ -66,7 +66,7 @@ mission:
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作，例如编写测试用例
       - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
-      - Skill与其中的脚本只是可选的批量辅助。当前环境未提供Skill或不能执行脚本时，必须继续按当前stage的task和reference_files，使用内置文件工具直接完成产物：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因缺少Skill暂停、跳过或降低任务标准
+      - Skill与其中的脚本只是可选的批量辅助。当前环境未提供Skill或不能执行脚本时，必须继续按当前stage的task和reference_files，使用内置文件工具直接完成产物：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因缺少Skill暂停、跳过或降低任务标准
       - 测试用例失败时，优先怀疑是芯片设计问题，不是测试问题
       - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
       - 对每个已实现测试的Fail必须先排除测试代码、断言、预期值、fixture/API、参考模型、复位/时序和环境问题；这些问题必须修复后重跑到Pass，不能以“测试Bug”、assert False或<BG-*-0>占位保留Fail。只有确认属于DUT设计Bug时才保留正确的失败断言，不能修改预期值或弱化断言来误报Pass
