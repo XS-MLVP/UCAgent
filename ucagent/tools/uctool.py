@@ -4,6 +4,7 @@
 
 from langchain_core.tools import BaseTool
 from langchain_core.tools.base import ArgsSchema
+from langchain_core.messages import ToolMessage
 from pydantic import Field, BaseModel, ConfigDict, PrivateAttr, ValidationError
 from typing import Callable, Optional, Any
 from mcp.server.fastmcp import Context
@@ -184,13 +185,43 @@ class UCTool(BaseTool):
         return {"error": f"Tool ({self.__class__.__name__}) call timed out after {self.call_time_out} seconds.",
                 "logs":  data}
 
+    @staticmethod
+    def _tool_call_details(input) -> Optional[tuple[str, str]]:
+        if not isinstance(input, dict) or input.get("type") != "tool_call":
+            return None
+        tool_call_id = input.get("id")
+        if not isinstance(tool_call_id, str) or not tool_call_id:
+            return None
+        name = input.get("name")
+        return tool_call_id, name if isinstance(name, str) and name else ""
+
+    @classmethod
+    def _tool_arguments(cls, input):
+        if cls._tool_call_details(input) is None:
+            return input
+        arguments = input.get("args")
+        return arguments if isinstance(arguments, dict) else input
+
+    def _error_output(self, input, error_msg: str):
+        details = self._tool_call_details(input)
+        if details is None:
+            return error_msg
+        tool_call_id, name = details
+        return ToolMessage(
+            content=error_msg,
+            tool_call_id=tool_call_id,
+            name=name or self.name,
+            status="error",
+        )
+
     def _get_call_locks(self, input) -> list[asyncio.Lock]:
-        if not self.call_lock_arguments or not isinstance(input, dict):
+        tool_arguments = self._tool_arguments(input)
+        if not self.call_lock_arguments or not isinstance(tool_arguments, dict):
             return [self.async_lock]
         workspace = os.path.realpath(str(getattr(self, "workspace", "")))
         lock_keys = set()
         for argument in self.call_lock_arguments:
-            value = input.get(argument)
+            value = tool_arguments.get(argument)
             if isinstance(value, str) and value.strip():
                 lock_keys.add(os.path.realpath(os.path.join(workspace, value)))
         if not lock_keys:
@@ -215,7 +246,7 @@ class UCTool(BaseTool):
         except ValidationError as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) invoke error: {str(e)}"
             fc.warning(error_msg)
-            return error_msg
+            return self._error_output(input, error_msg)
         finally:
             self.is_in_call = False
             self.last_call_time = time.time()
@@ -269,7 +300,8 @@ class UCTool(BaseTool):
 
     async def ainvoke(self, input, config = None, **kwargs):
         if self.is_disabled:
-            return f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+            error_msg = f"[ERROR] Tool ({self.__class__.__name__}) is disabled. Reason: {self.disable_reason}"
+            return self._error_output(input, error_msg)
         call_locks = self._get_call_locks(input)
         acquired_locks = []
         try:
@@ -283,13 +315,13 @@ class UCTool(BaseTool):
             fc.warning(error_msg)
             for call_lock in reversed(acquired_locks):
                 call_lock.release()
-            return error_msg
+            return self._error_output(input, error_msg)
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) acquire lock error: {str(e)}"
             fc.warning(error_msg)
             for call_lock in reversed(acquired_locks):
                 call_lock.release()
-            return error_msg
+            return self._error_output(input, error_msg)
         alive_thread = None
         try:
             data, alive_thread = await self._ainvoke(input, config, **kwargs)
@@ -297,7 +329,7 @@ class UCTool(BaseTool):
         except Exception as e:
             error_msg = f"[ERROR] Tool ({self.__class__.__name__}) ainvoke error: {str(e)}"
             fc.warning(error_msg)
-            return error_msg
+            return self._error_output(input, error_msg)
         finally:
             try:
                 if alive_thread is not None:

@@ -1831,8 +1831,9 @@ class ArgReplaceStringInFile(StrictToolArgs):
         min_length=1,
         max_length=1000,
         description=(
-            "Optional one-based inclusive [start, end] search blocks. "
-            "Omit for the whole file."
+            "Optional one-based inclusive search blocks. Use [[start, end]] "
+            "for one block or [[start1, end1], [start2, end2]] for multiple "
+            "blocks; do not pass [start, end]. Omit for the whole file."
         ),
     )
     expected_sha256: Optional[str] = Field(
@@ -1861,9 +1862,10 @@ class ReplaceStringInFile(UCTool, BaseReadWrite):
         "Replace one unique occurrence of non-empty old_string in an existing UTF-8 "
         "text file. Both old_string and new_string must match the intended whitespace "
         "and newlines exactly. Include enough surrounding context to make old_string "
-        "unique. Optionally pass one-based inclusive line_blocks such as "
-        "[[10, 20], [40, 50]] to limit the search; omit line_blocks to search the whole "
-        "file. Overlapping or adjacent blocks are merged, and the match must fit fully "
+        "unique. Optionally pass one-based inclusive line_blocks: use [[10, 20]] "
+        "for one block or [[10, 20], [40, 50]] for multiple blocks; do not pass "
+        "[10, 20]. Omit line_blocks to search the whole file. Overlapping or "
+        "adjacent blocks are merged, and the match must fit fully "
         "inside one normalized block. Use EditTextFile to create, overwrite, or append to "
         "a file. Repeating an already-applied replacement is reported as an actionable "
         "mismatch; calling with identical old_string and new_string is treated as success."

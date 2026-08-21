@@ -11,6 +11,9 @@ import asyncio
 import threading
 from unittest.mock import patch
 
+from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode
 from pydantic import ValidationError
 
 # Add project root to path
@@ -783,6 +786,41 @@ class TestFileOpsTools(unittest.TestCase):
                 "one\nchanged\nthree\ntarget\nfive\n",
             )
 
+    def test_replace_string_validation_error_returns_tool_message(self):
+        tool = ReplaceStringInFile(workspace=self.workspace)
+        call = {
+            "name": tool.name,
+            "args": {
+                "path": "simple.txt",
+                "old_string": "Line 2",
+                "new_string": "Changed",
+                "line_blocks": [43, 46],
+            },
+            "id": "replace-invalid-blocks",
+            "type": "tool_call",
+        }
+        builder = StateGraph(MessagesState)
+        builder.add_node("tools", ToolNode([tool]))
+        builder.add_edge(START, "tools")
+        builder.add_edge("tools", END)
+        graph = builder.compile()
+
+        sync_result = graph.invoke(
+            {"messages": [AIMessage(content="", tool_calls=[call])]}
+        )["messages"][-1]
+        async_result = asyncio.run(
+            graph.ainvoke(
+                {"messages": [AIMessage(content="", tool_calls=[call])]}
+            )
+        )["messages"][-1]
+
+        for result in (sync_result, async_result):
+            self.assertIsInstance(result, ToolMessage)
+            self.assertEqual(result.tool_call_id, call["id"])
+            self.assertEqual(result.status, "error")
+            self.assertIn("line_blocks.0", result.content)
+            self.assertIn("valid tuple", result.content)
+
     def test_replace_string_requires_match_inside_one_normalized_block(self):
         target = os.path.join(self.workspace, "replace-boundary.txt")
         original = "one\ntwo\nthree\nfour\n"
@@ -1034,6 +1072,9 @@ class TestFileOpsTools(unittest.TestCase):
             },
         )
         self.assertIn("Omit for the whole file", mcp_tool.parameters[
+            "properties"
+        ]["line_blocks"]["description"])
+        self.assertIn("do not pass [start, end]", mcp_tool.parameters[
             "properties"
         ]["line_blocks"]["description"])
 
