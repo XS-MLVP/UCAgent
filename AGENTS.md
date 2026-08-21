@@ -210,12 +210,60 @@ These layers form one behavioral contract and often must change together:
 
 Do not change only one layer when a format or mandatory behavior changes.
 
+### LLM-Facing Content
+
+LLM-facing content includes system/stage/task prompts, rendered stage
+descriptions, checker diagnostics, tool descriptions and argument fields, tool
+results, runtime `Guide_Doc`, templates, and skill instructions.
+
+- Write from the perspective of the agent executing the current stage. State the
+  objective, usable inputs and actions, required artifacts/formats/evidence,
+  acceptance criteria, and the concrete next action.
+- Do not expose UCAgent architecture or implementation details that do not
+  change the LLM's valid next action. Avoid Python class/module names, object
+  lifecycle and call order, checker internals, checkpoint/state storage,
+  configuration assembly, backend/MCP/server wiring, private data structures,
+  and enforcement rationale.
+- Preserve public runtime interfaces the LLM must actually use, including tool
+  names and arguments, workspace paths, tags and schemas, stage commands,
+  constraints, and validation results. Present them as task contracts, not as
+  explanations of how UCAgent implements or enforces them.
+- Translate internal failures into task-oriented diagnostics: identify the
+  affected artifact/input and location, the expected condition, the observed
+  problem, and the exact corrective action or next tool call. Do not expose
+  stack traces, internal booleans, or call chains unless the text is explicitly
+  for developer debugging rather than the stage-running LLM.
+- Keep LLM-facing text concise and stage-local. Remove background information
+  that cannot influence the current stage's decisions, output, or completion.
+
+### Shared Runtime Contract
+
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
 - If legacy compatibility is not explicitly required, keep one canonical format
   instead of accepting several ambiguous variants.
 - Keep examples syntactically valid, visually readable in Markdown, and exactly
   consistent with checker expectations.
+
+### Optional Skill Contract
+
+- Skill support is optional. Every workflow and stage must remain executable and
+  checker-completable when skills are disabled and when `.ucagent/skills` is
+  absent.
+- Treat a skill as an acceleration or guidance path, never as the sole source of
+  mandatory behavior. The stage prompt, runtime guidance, tool contracts, and
+  templates available without skills must still expose every required objective,
+  input, output format, evidence rule, and completion criterion.
+- Make skill references in task prompts conditional and provide an actionable
+  non-skill path using the normally available tools and source files. Do not
+  unconditionally instruct the LLM to read a skill, call a skill-only tool, run
+  a skill script, or stop because a skill is unavailable.
+- Skill-enabled and skill-disabled paths must produce the same canonical
+  artifacts and meet the same checker standards. Disabling skills must not skip
+  work, weaken evidence, or relax validation.
+- Any requirement to invoke a skill or validate skill-use evidence must be
+  conditional on the resolved skill setting. It must not block Check or Complete
+  when skills are disabled.
 - Skill directories require `SKILL.md` with valid `name` and `description`
   frontmatter. Keep a skill concise and put deterministic repeated work in
   `scripts/`.
@@ -227,6 +275,10 @@ Do not change only one layer when a format or mandatory behavior changes.
 - Skills are copied into a workspace at agent initialization. Source changes do
   not automatically update an already-running workspace; restart/recopy before
   diagnosing stale skill behavior.
+- For every skill-related workflow change, test both enabled and disabled
+  configurations. The disabled case must cover an absent skill directory and
+  must verify that rendered prompts, available actions, checker behavior, and
+  completion do not depend on skill-only content.
 
 ## Verification Domain Invariants
 
