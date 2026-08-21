@@ -29,9 +29,11 @@ STATIC_RECORD_SCRIPT = (
 
 def test_bug_record_scripts_have_distinct_owners_and_names():
     assert RECORD_SCRIPTS[0].is_file()
-    assert not re.search(
-        r"[\u4e00-\u9fff]", RECORD_SCRIPTS[0].read_text(encoding="utf-8")
-    )
+    dynamic_script = RECORD_SCRIPTS[0].read_text(encoding="utf-8")
+    assert not re.search(r"[\u4e00-\u9fff]", dynamic_script)
+    assert "load_runtime_config(os.getcwd())" in dynamic_script
+    assert 'os.environ.get("DUT")' not in dynamic_script
+    assert 'os.environ.get("OUT")' not in dynamic_script
     assert STATIC_RECORD_SCRIPT.is_file()
     assert not list(
         (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
@@ -50,6 +52,22 @@ def _load_script(path: Path):
     return module
 
 
+def _insert_content(module, lines, fg, fc, ck, bg, tc, bd):
+    return module.insert_content(
+        lines,
+        fg,
+        fc,
+        ck,
+        bg,
+        tc,
+        bd,
+        "算术功能",
+        "结果计算",
+        "精确输出",
+        "结果不匹配",
+    )
+
+
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
 def test_dynamic_bug_record_script_rejects_static_tag(script_path):
     module = _load_script(script_path)
@@ -60,6 +78,13 @@ def test_dynamic_bug_record_script_rejects_static_tag(script_path):
         module.validate_dynamic_bg_tag("BG-DIV-INF-BY-NUM-0")
 
     module.validate_dynamic_bg_tag("BG-DIV-INF-BY-NUM-95")
+
+    with pytest.raises(ValueError, match="must describe the actual item"):
+        module.normalize_visible_title("功能组", "FG-ARITHMETIC")
+    with pytest.raises(ValueError, match="cannot contain angle-bracket tags"):
+        module.normalize_visible_title("算术功能 <FG-ARITHMETIC>", "FG-ARITHMETIC")
+    with pytest.raises(ValueError, match="replace bracketed scaffold text"):
+        module.normalize_visible_title("[功能组具体名称]", "FG-ARITHMETIC")
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
@@ -125,6 +150,137 @@ def test_dynamic_bug_record_script_resolves_absolute_class_test_report_key(
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_record_script_resolves_visible_source_titles(
+    script_path, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    out_dir = tmp_path / "unity_test"
+    tests_dir = out_dir / "tests"
+    tests_dir.mkdir(parents=True)
+    function_file = out_dir / "Adder_functions_and_checks.md"
+    function_file.write_text(
+        """## Functions
+
+### 算术功能
+<FG-ARITHMETIC>
+
+#### 加法结果
+<FC-ADD>
+
+- <CK-OVERFLOW> 进位输出：验证进位位
+""",
+        encoding="utf-8",
+    )
+    (tests_dir / "test_adder.py").write_text(
+        'def test_overflow(env):\n    """进位输入产生进位"""\n    pass\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert module.resolve_checkpoint_titles(
+        function_file, "FG-ARITHMETIC", "FC-ADD", "CK-OVERFLOW"
+    ) == ("算术功能", "加法结果", "进位输出")
+    assert module.resolve_test_title(
+        "TC-tests/test_adder.py::test_overflow", "unity_test"
+    ) == "进位输入产生进位"
+
+    lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
+    module.insert_content(
+        lines,
+        "FG-ARITHMETIC",
+        "FC-ADD",
+        "CK-OVERFLOW",
+        "BG-CIN-OVERFLOW-98",
+        "TC-tests/test_adder.py::test_overflow",
+        "完整和进位丢失",
+        "算术功能",
+        "加法结果",
+        "进位输出",
+        "进位输入产生进位",
+    )
+    document = "".join(lines)
+    assert "### 算术功能 <FG-ARITHMETIC>" in document
+    assert "#### 加法结果 <FC-ADD>" in document
+    assert "##### 进位输出 <CK-OVERFLOW>" in document
+    assert "###### 完整和进位丢失（98%） <BG-CIN-OVERFLOW-98>" in document
+    assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_overflow>" in document
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
+def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sources(
+    script_path, tmp_path, monkeypatch
+):
+    module = _load_script(script_path)
+    runtime_dir = tmp_path / ".ucagent"
+    runtime_dir.mkdir()
+    (runtime_dir / "runtime_config.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "unity_test"
+    tests_dir = out_dir / "tests"
+    tests_dir.mkdir(parents=True)
+    (out_dir / ".TEST_TEMPLATE_IMP_REPORT.json").write_text(
+        json.dumps(
+            {
+                "failed_test_case_with_check_point_list": {
+                    "unity_test/tests/test_adder.py:1-4::test_overflow": [
+                        "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW"
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (out_dir / "Adder_functions_and_checks.md").write_text(
+        "### 算术功能\n<FG-ARITHMETIC>\n\n"
+        "#### 加法结果\n<FC-ADD>\n\n"
+        "- <CK-OVERFLOW> 进位输出：验证进位位\n",
+        encoding="utf-8",
+    )
+    (tests_dir / "test_adder.py").write_text(
+        'def test_overflow(env):\n    """进位输入产生进位"""\n    pass\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DUT", "WrongDut")
+    monkeypatch.setenv("OUT", "wrong_output")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(script_path),
+            "-BG",
+            "BG-CARRY-DROPPED-95",
+            "-TC",
+            "TC-tests/test_adder.py::test_overflow",
+            "-BD",
+            "完整和进位丢失",
+        ],
+    )
+
+    module.main()
+
+    document = (out_dir / "Adder_bug_analysis.md").read_text(encoding="utf-8")
+    assert "### 算术功能 <FG-ARITHMETIC>" in document
+    assert "#### 加法结果 <FC-ADD>" in document
+    assert "##### 进位输出 <CK-OVERFLOW>" in document
+    assert "###### 完整和进位丢失（95%） <BG-CARRY-DROPPED-95>" in document
+    assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_overflow>" in document
+    assert not (tmp_path / "wrong_output").exists()
+
+
+@pytest.mark.parametrize("script_path", RECORD_SCRIPTS)
 def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script_path):
     module = _load_script(script_path)
     initial_document = module.make_bug_analysis_document("Adder")
@@ -135,7 +291,8 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert initial_document == rendered_template
     lines = initial_document.splitlines(keepends=True)
 
-    module.insert_content(
+    _insert_content(
+        module,
         lines,
         "FG-ARITHMETIC",
         "FC-ADD",
@@ -165,11 +322,11 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert "waveform_analysis:" not in document
     assert document.count("<WAVEFORM-REF>") == 1
     for heading in (
-        "### 功能组：<FG-ARITHMETIC>",
-        "#### 功能：<FC-ADD>",
-        "##### 检测点：<CK-OVERFLOW>",
-        "###### 动态 Bug（98%）：<BG-CIN-OVERFLOW-98>",
-        "- 失败用例：<TC-tests/test_adder.py::test_overflow>",
+        "### 算术功能 <FG-ARITHMETIC>",
+        "#### 结果计算 <FC-ADD>",
+        "##### 精确输出 <CK-OVERFLOW>",
+        "###### Overflow is not raised.（98%） <BG-CIN-OVERFLOW-98>",
+        "- 结果不匹配 <TC-tests/test_adder.py::test_overflow>",
         "###### Bug 概述",
         "###### 现象与严重度",
         "###### 触发条件与影响",
@@ -186,7 +343,8 @@ def test_dynamic_bug_record_script_generates_incomplete_analysis_scaffold(script
     assert "填写严重度" not in document
     assert "插入带真实路径" not in document
 
-    module.insert_content(
+    _insert_content(
+        module,
         lines,
         "FG-ARITHMETIC",
         "FC-ADD",
@@ -209,20 +367,25 @@ def test_dynamic_bug_record_script_preserves_canonical_nested_order(script_path)
     lines = module.make_bug_analysis_document("Adder").splitlines(keepends=True)
     entries = (
         ("FG-A", "FC-A", "CK-A", "BG-A-90", "TC-tests/test_a.py::test_a"),
+        ("FG-A", "FC-A", "CK-A", "BG-A-90", "TC-tests/test_a.py::test_a_edge"),
         ("FG-B", "FC-B", "CK-B", "BG-B-90", "TC-tests/test_b.py::test_b"),
         ("FG-A", "FC-C", "CK-C", "BG-C-90", "TC-tests/test_c.py::test_c"),
         ("FG-A", "FC-A", "CK-D", "BG-D-90", "TC-tests/test_d.py::test_d"),
         ("FG-A", "FC-A", "CK-A", "BG-E-90", "TC-tests/test_e.py::test_e"),
     )
     for fg, fc, ck, bg, tc in entries:
-        module.insert_content(lines, fg, fc, ck, bg, tc, bg)
+        _insert_content(module, lines, fg, fc, ck, bg, tc, bg)
 
     document = "".join(lines)
     assert document.index("<FG-A>") < document.index("<FG-B>")
     assert document.index("<FC-A>") < document.index("<FC-C>") < document.index("<FG-B>")
     assert document.index("<CK-A>") < document.index("<CK-D>") < document.index("<FC-C>")
     assert document.index("<BG-A-90>") < document.index("<BG-E-90>") < document.index("<CK-D>")
-    assert document.count("###### Bug 概述") == len(entries)
+    first_bg_end = document.index("<BG-E-90>")
+    first_bg = document[document.index("<BG-A-90>") : first_bg_end]
+    assert first_bg.count("<TC-") == 2
+    assert first_bg.rindex("<TC-") < first_bg.index(module.OVERVIEW_MARKER)
+    assert document.count("###### Bug 概述") == len({entry[3] for entry in entries})
 
 
 @pytest.mark.parametrize("script_path", RECORD_SCRIPTS)

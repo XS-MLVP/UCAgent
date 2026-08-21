@@ -28,6 +28,8 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_REFERENCE_MARKER as _WAVEFORM_REFERENCE_MARKER,
     WAVEFORM_SIGNAL_GROUP_FIELDS as _WAVEFORM_SIGNAL_GROUP_FIELDS,
     normalize_test_case_tag as _normalize_test_case_tag,
+    parse_dynamic_tag_heading as _parse_dynamic_tag_heading,
+    parse_waveform_record_heading as _parse_waveform_record_heading,
     waveform_anchor_id as _waveform_anchor_id,
     waveform_record_tag as _waveform_record_tag,
     waveform_reference as _waveform_reference,
@@ -174,6 +176,7 @@ def _parse_documented_dynamic_bug_records(
     dynamic_container_lines = []
     first_bug_line = None
     in_dynamic_container = False
+    analysis_markers = {marker for _key, marker in _BUG_ANALYSIS_SECTION_MARKERS}
 
     def close_current(end_index: int):
         nonlocal current
@@ -205,6 +208,9 @@ def _parse_documented_dynamic_bug_records(
             continue
         if not in_dynamic_container:
             continue
+        if current is not None and stripped in analysis_markers:
+            if current["analysis_start_line"] is None:
+                current["analysis_start_line"] = index + 1
         if not matches:
             continue
         if current is not None and any(
@@ -215,6 +221,18 @@ def _parse_documented_dynamic_bug_records(
         for match in matches:
             kind, value = match.groups()
             label = f"{kind}-{value}"
+            try:
+                display_title = _parse_dynamic_tag_heading(line, kind, label)
+            except ValueError as heading_error:
+                return False, [], {
+                    "error": (
+                        f"[Dynamic Bug Heading Format Error] <{label}> at line "
+                        f"{index + 1} in '{bug_file}' needs meaningful visible text: "
+                        f"{heading_error}. Follow Guide_Doc/dut_bug_analysis.md "
+                        "section 5.1."
+                    ),
+                    "details": {"tag": label, "line": index + 1},
+                }
             if kind == "FG":
                 hierarchy.update({"FG": label, "FC": None, "CK": None})
             elif kind == "FC":
@@ -245,9 +263,27 @@ def _parse_documented_dynamic_bug_records(
                     "checkpoint": checkpoint,
                     "line": index + 1,
                     "start": index,
+                    "display_title": display_title,
                     "tests": [],
+                    "analysis_start_line": None,
                 }
             elif kind == "TC" and current is not None:
+                if current["analysis_start_line"] is not None:
+                    return False, [], {
+                        "error": (
+                            f"[Dynamic Bug Child Order Error] <{label}> at line "
+                            f"{index + 1} in '{bug_file}' appears after Bug analysis "
+                            f"started at line {current['analysis_start_line']}. Put every "
+                            "TC and its WAVEFORM-REF immediately under the owning BG, then "
+                            "place all eight <BUG-*> fields after the final TC."
+                        ),
+                        "details": {
+                            "bug": current["bug"],
+                            "test": label,
+                            "line": index + 1,
+                            "analysis_start_line": current["analysis_start_line"],
+                        },
+                    }
                 test_case = value.strip()
                 if not test_case:
                     return False, [], {
@@ -261,6 +297,7 @@ def _parse_documented_dynamic_bug_records(
                     {
                         "test_label": f"TC-{test_case}",
                         "test_case": test_case,
+                        "display_title": display_title,
                         "line": index + 1,
                     }
                 )
@@ -420,7 +457,6 @@ def _parse_waveform_analysis_blocks(
 
     blocks = {}
     index = evidence_start + 1
-    heading_pattern = re.compile(r"^###\s+<(WAVEFORM-TC-[^<>]+)>\s*$")
     while index < evidence_end:
         if not stripped_lines[index]:
             index += 1
@@ -438,26 +474,16 @@ def _parse_waveform_analysis_blocks(
         index += 1
         while index < evidence_end and not stripped_lines[index]:
             index += 1
-        heading_match = (
-            heading_pattern.fullmatch(stripped_lines[index])
-            if index < evidence_end
-            else None
-        )
-        if heading_match is None:
+        try:
+            test_label, record_title = _parse_waveform_record_heading(
+                stripped_lines[index] if index < evidence_end else ""
+            )
+        except ValueError as heading_error:
             return False, {}, {
                 "error": (
                     f"[Waveform Record Tag Error] Anchor at line {anchor_line} in "
-                    f"'{bug_file}' must be followed by ### <WAVEFORM-TC-...>."
-                )
-            }
-        raw_test_label = heading_match.group(1)[len("WAVEFORM-") :]
-        try:
-            test_label = _normalize_test_case_tag(raw_test_label)
-        except ValueError as parse_error:
-            return False, {}, {
-                "error": (
-                    f"[Waveform Record Tag Error] Invalid tag at line {index + 1} in "
-                    f"'{bug_file}': {parse_error}."
+                    f"'{bug_file}' must be followed by a semantic waveform heading: "
+                    f"{heading_error}."
                 )
             }
         expected_anchor = _waveform_anchor_id(test_label)
@@ -473,6 +499,21 @@ def _parse_waveform_analysis_blocks(
                 "error": (
                     f"[Duplicate Waveform Record] <{test_label}> has more than one central "
                     f"record in '{bug_file}'."
+                )
+            }
+        referenced_titles = {
+            test["display_title"]
+            for record in records
+            for test in record["tests"]
+            if test["test_label"] == test_label
+        }
+        if referenced_titles and referenced_titles != {record_title}:
+            return False, {}, {
+                "error": (
+                    f"[Waveform Record Title Error] Record "
+                    f"<{_waveform_record_tag(test_label)}> at line {index + 1} must "
+                    "reuse the associated TC's visible description; "
+                    f"found {record_title!r}, expected {sorted(referenced_titles)!r}."
                 )
             }
         heading_line = index + 1

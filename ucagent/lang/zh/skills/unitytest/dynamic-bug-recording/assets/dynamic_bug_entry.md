@@ -1,8 +1,8 @@
-### 功能组：<$FG>
-#### 功能：<$FC>
-##### 检测点：<$CK>
-###### 动态 Bug（$CONFIDENCE%）：<$BG>
-- 失败用例：<$TC>
+### $FG_TITLE <$FG>
+#### $FC_TITLE <$FC>
+##### $CK_TITLE <$CK>
+###### $BD（$CONFIDENCE%） <$BG>
+- $TC_TITLE <$TC>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-$ANCHOR)
 <BUG-OVERVIEW>
 ###### Bug 概述

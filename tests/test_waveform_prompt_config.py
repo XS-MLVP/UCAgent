@@ -280,7 +280,7 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "v2 逻辑定位" not in guide
     assert "普通增量 stage 使用`require_current_replay=false`" in guide
     assert "只有对应验证项配置`require_current_replay=true`" in guide
-    assert "不得自行翻译标题、改用粗体" in guide
+    assert "不得改用粗体" in guide
     assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
     assert "先确认事务有效，再判断数据是否错误" in guide
     assert "调用一次 `Step(1)` 只表示仿真时间推进了一步" in guide
@@ -352,6 +352,9 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "###### Bug 概述" in help_text
     assert "###### 源码证据" in help_text
     assert "Root cause analysis inside this BG entry" not in help_text
+    assert "Angle-bracket tags may be hidden by Markdown" in help_text
+    assert "every visible title must describe the actual item" in help_text
+    assert "visible heading reuses the TC title" in help_text
     assert "receipt_id: <real WaveInfo receipt_id>" not in help_text
     assert "Adder.v line 10" not in help_text
 
@@ -365,8 +368,12 @@ def test_bug_analysis_guide_examples_link_tests_to_central_waveform_records():
     assert "每个 BG/TC 关联必须紧跟一个由工具生成的链接" in guide
     assert "<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-" in guide
     assert "<WAVEFORM-EVIDENCE>" in guide
-    assert "### <WAVEFORM-TC-tests/test_adder.py::test_overflow>" in guide
-    assert guide.count("### <WAVEFORM-TC-tests/test_adder.py::test_overflow>") == 1
+    heading = (
+        "### 进位输入触发溢出波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_overflow>"
+    )
+    assert heading in guide
+    assert guide.count(heading) == 1
     assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
 
 
@@ -461,10 +468,18 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
 
     assert "### 5.1 完整标准案例" in guide
     assert "# Adder 动态 Bug 分析" in guide
-    assert "### 功能组：<FG-ARITHMETIC>" in guide
-    assert "###### 动态 Bug（95%）：<BG-SUM-CARRY-DROPPED-95>" in guide
+    assert "### 算术功能 <FG-ARITHMETIC>" in guide
+    assert "#### 加法结果 <FC-ADD-RESULT>" in guide
+    assert "##### 进位输出 <CK-CARRY-OUT>" in guide
+    assert "###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>" in guide
+    assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>" in guide
     assert "rtl/Adder.sv:24-26" in guide
-    assert "### <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>" in guide
+    assert (
+        "### 进位输入产生进位波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_cin_carry>"
+    ) in guide
+    assert "### 功能组：<FG-ARITHMETIC>" not in guide
+    assert "- 失败用例：<TC-tests/test_adder.py::test_cin_carry>" not in guide
     assert "标准案例体现以下不可变边界" in guide
     assert "建立骨架并分阶段写入" in guide
     assert "脚本不可用时也不阻塞整个流程" in guide
@@ -474,6 +489,64 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "只接收`BG/TC/BD`" in guide
     assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
     assert "任何非零 BG 残留占位都不能完成" in guide
+
+
+def test_bug_analysis_guide_scaffold_shows_multi_child_hierarchy():
+    guide = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    hierarchy = guide.split("#### 5.2.1 多分支层次骨架", 1)[1].split(
+        "#### 5.2.2 单个 BG 的完整字段骨架", 1
+    )[0]
+
+    assert hierarchy.count("<FG-") == 2
+    assert hierarchy.count("<FC-") == 4
+    assert hierarchy.count("<CK-") == 8
+    assert hierarchy.count("<BG-") == 16
+    assert hierarchy.count("<TC-") == 32
+
+    bg_test_counts = {}
+    current_bg = None
+    for line in hierarchy.splitlines():
+        bg_match = re.search(r"<(BG-[^<>]+)>", line)
+        if bg_match:
+            current_bg = bg_match.group(1)
+            bg_test_counts[current_bg] = 0
+            continue
+        if current_bg and re.search(r"<TC-[^<>]+>", line):
+            bg_test_counts[current_bg] += 1
+    assert set(bg_test_counts.values()) == {2}
+
+    assert hierarchy.index("<FG-ARITHMETIC>") < hierarchy.index("<FG-PROTOCOL>")
+    assert hierarchy.index("<FC-ADD-RESULT>") < hierarchy.index("<FC-SUB-RESULT>")
+    assert hierarchy.index("<CK-SUM-OUT>") < hierarchy.index("<CK-CARRY-OUT>")
+    assert hierarchy.index("<BG-SUM-TRUNCATED-95>") < hierarchy.index(
+        "<BG-SUM-STALE-90>"
+    )
+    first_bg = hierarchy.split("<BG-SUM-TRUNCATED-95>", 1)[1].split(
+        "<BG-SUM-STALE-90>", 1
+    )[0]
+    assert first_bg.count("<TC-") == 2
+
+
+def test_bug_analysis_guide_places_fields_after_all_tests():
+    repo_root = Path(__file__).parents[1]
+    guide = (
+        repo_root
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    agent_rules = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
+    scaffold = guide.split("#### 5.2.2 单个 BG 的完整字段骨架", 1)[1].split(
+        "## 6. 证据保留与重放", 1
+    )[0]
+
+    assert scaffold.count("<TC-") == 2
+    assert scaffold.rindex("<TC-") < scaffold.index("<BUG-OVERVIEW>")
+    assert "第一个`<BUG-*>`字段出现后不得再追加 TC" in guide
+    assert "新增 TC 必须插入该 BG 的`<BUG-OVERVIEW>`之前" in guide
+    assert "before the eight ordered `<BUG-*>` analysis fields" in agent_rules
+    assert "never append another TC after the" in agent_rules
 
 
 def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 from bisect import bisect_left, bisect_right
 from collections import OrderedDict
 import copy
@@ -44,8 +45,12 @@ from ucagent.util.bug_analysis_contract import (
     WAVEFORM_LLM_ANALYSIS_FIELDS,
     WAVEFORM_REFERENCE_MARKER,
     WAVEFORM_SIGNAL_GROUP_FIELDS,
+    normalize_display_title,
     normalize_test_case_tag,
+    parse_dynamic_tag_heading,
+    parse_waveform_record_heading,
     waveform_anchor_id,
+    waveform_record_heading,
     waveform_record_tag,
     waveform_reference,
 )
@@ -2877,6 +2882,7 @@ class _DocumentEvidenceTarget:
     reference_index: int | None
     evidence_end_index: int
     associated_bug_tags: tuple[str, ...]
+    test_display_title: str
     record_start: int | None = None
     record_end: int | None = None
     open_index: int | None = None
@@ -2898,6 +2904,8 @@ class ApplyWaveInfoEvidence(UCTool):
         "requires replace_existing=true, preserves required_signals, and resets semantic "
         "conclusions to BUG-TODO. receipt_id may be blank to select the newest matching final "
         "receipt. The BG must already exist; a missing TC is created under its unique BG. "
+        "Creating a missing TC reads its visible title from the target test's docstring, so "
+        "the test source and a non-empty docstring must exist. "
         "The target must be an existing workspace-relative Markdown file inside the configured "
         "write directories."
     )
@@ -3110,8 +3118,8 @@ class ApplyWaveInfoEvidence(UCTool):
             return {"receipt_id": receipt_matches[0]} if len(receipt_matches) == 1 else {}
         return analysis
 
-    @staticmethod
     def _find_target_region(
+        self,
         lines: list[str],
         bug_tag: str,
         test_case_tag: str,
@@ -3153,9 +3161,10 @@ class ApplyWaveInfoEvidence(UCTool):
         bug_locations: list[tuple[str, int]] = []
         structure_boundaries = [dynamic_end]
         section_locations: list[tuple[int, int]] = []
-        test_locations: list[tuple[str | None, str, int, int | None]] = []
+        test_locations: list[tuple[str | None, str, int, int | None, str]] = []
         target_tests: list[tuple[int, int | None]] = []
         section_markers = {marker for _name, marker in BUG_ANALYSIS_SECTION_MARKERS}
+        analysis_started_for_bug: set[int] = set()
         in_fence = False
         for index in range(dynamic_start + 1, dynamic_end):
             stripped = stripped_lines[index]
@@ -3179,9 +3188,18 @@ class ApplyWaveInfoEvidence(UCTool):
                 )
             if stripped in section_markers and current_bug_index is not None:
                 section_locations.append((current_bug_index, index))
+                analysis_started_for_bug.add(current_bug_index)
             for match in DOCUMENT_TAG_PATTERN.finditer(lines[index]):
                 kind, value = match.groups()
                 label = f"{kind}-{value}"
+                try:
+                    display_title = parse_dynamic_tag_heading(
+                        lines[index], kind, label
+                    )
+                except ValueError as error:
+                    raise ValueError(
+                        f"invalid {kind} heading at line {index + 1}: {error}"
+                    ) from error
                 if kind in {"FG", "FC", "CK"}:
                     current_bug = None
                     current_bug_index = None
@@ -3194,11 +3212,21 @@ class ApplyWaveInfoEvidence(UCTool):
                     if label not in available_bugs:
                         available_bugs.append(label)
                 elif kind == "TC":
+                    if current_bug_index in analysis_started_for_bug:
+                        raise ValueError(
+                            f"TC heading at line {index + 1} appears after the owning BG's "
+                            "analysis fields; place every TC and WAVEFORM-REF before "
+                            "<BUG-OVERVIEW>"
+                        )
                     try:
                         label = normalize_test_case_tag(label)
                     except ValueError as error:
-                        raise ValueError(f"invalid TC tag at line {index + 1}: {error}") from error
-                    test_locations.append((current_bug, label, index, current_bug_index))
+                        raise ValueError(
+                            f"invalid TC heading at line {index + 1}: {error}"
+                        ) from error
+                    test_locations.append(
+                        (current_bug, label, index, current_bug_index, display_title)
+                    )
                     if current_bug == bug_tag and label == test_case_tag:
                         target_tests.append((index, current_bug_index))
         if in_fence:
@@ -3230,7 +3258,7 @@ class ApplyWaveInfoEvidence(UCTool):
             pair_end = bug_end_index(bug_index)
             sibling_indexes = sorted(
                 index
-                for owner_bug, _label, index, owner_index in test_locations
+                for owner_bug, _label, index, owner_index, _title in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index and index > test_index
             )
             if sibling_indexes:
@@ -3265,7 +3293,7 @@ class ApplyWaveInfoEvidence(UCTool):
             )
             siblings = [
                 index
-                for owner_bug, _label, index, owner_index in test_locations
+                for owner_bug, _label, index, owner_index, _title in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index
             ]
             if siblings:
@@ -3278,8 +3306,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 if prefix.strip() in {"-", "*", "+"}:
                     test_indent += "  "
 
-        record_pattern = re.compile(r"^###\s+<(WAVEFORM-TC-[^<>]+)>\s*$")
-        record_headings: list[tuple[str, int]] = []
+        record_headings: list[tuple[str, str, int]] = []
         in_fence = False
         for index in range(evidence_start + 1, evidence_end):
             stripped = stripped_lines[index]
@@ -3288,40 +3315,53 @@ class ApplyWaveInfoEvidence(UCTool):
                 continue
             if in_fence:
                 continue
-            match = record_pattern.fullmatch(stripped)
-            if not match:
+            if "<WAVEFORM-TC-" not in stripped:
                 continue
-            raw_tag = match.group(1)[len("WAVEFORM-") :]
             try:
-                canonical = normalize_test_case_tag(raw_tag)
+                canonical, display_title = parse_waveform_record_heading(stripped)
             except ValueError as error:
                 raise ValueError(
-                    f"invalid WAVEFORM-TC tag at line {index + 1}: {error}"
+                    f"invalid WAVEFORM-TC heading at line {index + 1}: {error}"
                 ) from error
-            record_headings.append((canonical, index))
+            record_headings.append((canonical, display_title, index))
         if in_fence:
             raise ValueError(f"'{target_file}' contains an unclosed Markdown fence")
         matching_records = [
-            (canonical, index)
-            for canonical, index in record_headings
+            (canonical, display_title, index)
+            for canonical, display_title, index in record_headings
             if canonical == test_case_tag
         ]
         associated_bug_tags = tuple(
             sorted(
                 {
                     owner_bug
-                    for owner_bug, label, _index, _owner_index in test_locations
+                    for owner_bug, label, _index, _owner_index, _title in test_locations
                     if owner_bug is not None and label == test_case_tag
                 }
                 | {bug_tag}
             )
         )
         if len(matching_records) > 1:
-            locations = ", ".join(str(index + 1) for _tag, index in matching_records)
+            locations = ", ".join(
+                str(index + 1) for _tag, _title, index in matching_records
+            )
             raise ValueError(
                 f"'{test_case_tag}' has multiple central waveform records at lines {locations}"
             )
         if not matching_records:
+            matching_test_titles = {
+                title
+                for _owner, label, _index, _owner_index, title in test_locations
+                if label == test_case_tag
+            }
+            if not matching_test_titles and test_index is None:
+                matching_test_titles.add(
+                    self._resolve_test_display_title(target_file, test_case_tag)
+                )
+            if len(matching_test_titles) != 1:
+                raise ValueError(
+                    f"'{test_case_tag}' must use one consistent visible description"
+                )
             return _DocumentEvidenceTarget(
                 test_index=test_index,
                 test_create_index=test_create_index,
@@ -3329,9 +3369,19 @@ class ApplyWaveInfoEvidence(UCTool):
                 reference_index=reference_index,
                 evidence_end_index=evidence_end,
                 associated_bug_tags=associated_bug_tags,
+                test_display_title=next(iter(matching_test_titles)),
             )
 
-        _canonical, heading_index = matching_records[0]
+        _canonical, record_title, heading_index = matching_records[0]
+        matching_test_titles = {
+            title
+            for _owner, label, _index, _owner_index, title in test_locations
+            if label == test_case_tag
+        }
+        if matching_test_titles != {record_title}:
+            raise ValueError(
+                f"central record for '{test_case_tag}' must reuse its TC visible description"
+            )
         previous = heading_index - 1
         while previous > evidence_start and not stripped_lines[previous]:
             previous -= 1
@@ -3341,7 +3391,11 @@ class ApplyWaveInfoEvidence(UCTool):
                 f"central record for '{test_case_tag}' must have anchor {expected_anchor} "
                 f"immediately before line {heading_index + 1}"
             )
-        next_headings = [index for _tag, index in record_headings if index > heading_index]
+        next_headings = [
+            index
+            for _tag, _title, index in record_headings
+            if index > heading_index
+        ]
         record_end = min(next_headings) - 1 if next_headings else evidence_end
         open_index = heading_index + 1
         while open_index < record_end and not stripped_lines[open_index]:
@@ -3368,17 +3422,99 @@ class ApplyWaveInfoEvidence(UCTool):
             reference_index=reference_index,
             evidence_end_index=evidence_end,
             associated_bug_tags=associated_bug_tags,
+            test_display_title=record_title,
             record_start=previous,
             record_end=record_end,
             open_index=open_index,
             close_index=close_index,
         )
 
+    def _resolve_test_display_title(
+        self,
+        target_file: str,
+        test_case_tag: str,
+    ) -> str:
+        """Read the canonical visible TC title from the target test's docstring."""
+
+        payload = normalize_test_case_tag(test_case_tag)[len("TC-") :]
+        parts = payload.split("::")
+        file_path = Path(parts[0])
+        class_name = parts[1] if len(parts) == 3 else None
+        function_name = parts[-1]
+        target_parent = (Path(self.workspace) / target_file).resolve().parent
+        test_root = Path(self.waveinfo.test_dir).resolve().parent
+        candidates = []
+        for candidate in (
+            target_parent / file_path,
+            test_root / file_path,
+            Path(self.workspace) / file_path,
+        ):
+            resolved = candidate.resolve(strict=False)
+            if resolved not in candidates:
+                candidates.append(resolved)
+        source_path = next((path for path in candidates if path.is_file()), None)
+        if source_path is None:
+            searched = ", ".join(str(path) for path in candidates)
+            raise ValueError(
+                f"cannot create '{test_case_tag}' because its test source was not found; "
+                f"searched: {searched}"
+            )
+        try:
+            tree = ast.parse(
+                source_path.read_text(encoding="utf-8"),
+                filename=str(source_path),
+            )
+        except (OSError, SyntaxError, UnicodeError) as error:
+            raise ValueError(
+                f"cannot read the visible title for '{test_case_tag}' from "
+                f"'{source_path}': {error}"
+            ) from error
+
+        scope = tree.body
+        if class_name is not None:
+            class_node = next(
+                (
+                    node
+                    for node in scope
+                    if isinstance(node, ast.ClassDef) and node.name == class_name
+                ),
+                None,
+            )
+            if class_node is None:
+                raise ValueError(
+                    f"cannot create '{test_case_tag}' because class '{class_name}' "
+                    f"was not found in '{source_path}'"
+                )
+            scope = class_node.body
+        function_node = next(
+            (
+                node
+                for node in scope
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == function_name
+            ),
+            None,
+        )
+        if function_node is None:
+            raise ValueError(
+                f"cannot create '{test_case_tag}' because function '{function_name}' "
+                f"was not found in '{source_path}'"
+            )
+        docstring = ast.get_docstring(function_node, clean=True)
+        if not docstring:
+            raise ValueError(
+                f"cannot create '{test_case_tag}' because the test function needs a "
+                "non-empty docstring for its visible title"
+            )
+        title = next(line.strip() for line in docstring.splitlines() if line.strip())
+        return normalize_display_title(title)
+
     @staticmethod
     def _render_evidence_record(
         analysis: dict[str, Any],
         viewer_link: str,
         test_case_tag: str,
+        test_display_title: str,
         newline: str,
     ) -> list[str]:
         payload = yaml.safe_dump(
@@ -3391,7 +3527,7 @@ class ApplyWaveInfoEvidence(UCTool):
         return (
             [
                 f'<a id="{waveform_anchor_id(test_case_tag)}"></a>{newline}',
-                f"### <{waveform_record_tag(test_case_tag)}>{newline}",
+                f"{waveform_record_heading(test_case_tag, test_display_title)}{newline}",
                 f"{WAVEFORM_FENCE_OPEN}{newline}",
             ]
             + [f"{line}{newline}" for line in payload.splitlines()]
@@ -3655,7 +3791,8 @@ class ApplyWaveInfoEvidence(UCTool):
                             region.test_create_index,
                             region.test_create_index,
                             [
-                                f"{region.test_indent}- <{test_case_tag}>{newline}",
+                                f"{region.test_indent}- {region.test_display_title} "
+                                f"<{test_case_tag}>{newline}",
                                 reference_line,
                                 newline,
                             ],
@@ -3686,6 +3823,7 @@ class ApplyWaveInfoEvidence(UCTool):
                     generated,
                     evidence["bug_document_viewer_link"],
                     test_case_tag,
+                    region.test_display_title,
                     newline,
                 )
                 if region.record_start is None:

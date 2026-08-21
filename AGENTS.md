@@ -318,6 +318,10 @@ Preserve these established semantics unless the task explicitly changes them:
 - A failed TC has exactly one central waveform record even when it is associated
   with multiple Bugs. The signed signal groups must cover the union of each
   associated BG's `required_signals`.
+- Within each dynamic `<BG-*>`, list every `<TC-*>` and its immediately following
+  `<WAVEFORM-REF>` before the eight ordered `<BUG-*>` analysis fields. The fields
+  begin only after the final TC/reference pair; never append another TC after the
+  first analysis field.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they

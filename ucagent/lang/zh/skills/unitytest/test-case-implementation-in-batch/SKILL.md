@@ -91,7 +91,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
-- `record_dynamic_bug.py`只负责在封闭的`<DYNAMIC-BUGS>`分区生成`FG/FC/CK/BG/TC`、`<WAVEFORM-REF>`和分析字段骨架，不创建波形YAML，也不负责根因判断；脚本成功绝不表示Bug分析完成
+- `record_dynamic_bug.py`只负责在封闭的`<DYNAMIC-BUGS>`分区生成带具体中文可见名称的`FG/FC/CK/BG/TC`、`<WAVEFORM-REF>`和分析字段骨架，不创建波形YAML，也不负责根因判断；脚本成功绝不表示Bug分析完成
 - 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内只保留TC与引用，YAML和viewer只放在中央记录中
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
 - 最终显式窗口调用必须同时提供`start_step`和`end_step`。成功后使用真实`receipt_id`调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。随后完成TC共享的`alignment_evidence`，并在`bug_evidence.<BG>`下完成该Bug的`required_signals`、`observed_behavior`、`source_correlation`
@@ -133,7 +133,7 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 
 WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用例并重新调用 WaveInfo，然后通过`ApplyWaveInfoEvidence(..., replace_existing=true)`替换该 TC 的中央记录。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来绕过验收；只有正确测试已经 Pass，或复查证明它不是 DUT Bug 时，才可同步重新分类或删除记录。
 
-动态条目容器使用独立行`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。每个标记后的第一条非空行必须逐字使用Guide第 5.1 节的六级中文标题。LLM只填写标题后的证据正文，不能删除、复制、改名、翻译、调换标记或标题，也不能改用粗体或其他标题级别。
+动态条目容器使用独立行`<DYNAMIC-BUGS>`定位。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；每行必须同时保留具体中文可见名称和尖括号标签，不能只写标签或类型名。中央波形标题复用TC名称并追加“波形”。同一BG的全部TC及其`<WAVEFORM-REF>`连续放在BG标题后，八个`<BUG-*>`字段整体放在最后一个TC/引用后；第一个字段出现后禁止再追加TC。八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。每个标记后的第一条非空行必须逐字使用Guide第 5.1 节的六级中文标题。LLM只填写标题后的证据正文，不能删除、复制、改名、翻译、调换标记或标题，也不能改用粗体或其他标题级别。
 
 文本编辑或可选脚本生成结构，LLM负责分析和填空；两步缺一不可。所有根因、修复和复验内容必须留在所属BG条目内，不建立全局根因汇总。
 

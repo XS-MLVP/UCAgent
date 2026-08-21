@@ -33,6 +33,7 @@ from ucagent.checkers.unity_test_random import RandomTestCasesChecker
 from ucagent.tools.waveform import WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.bug_analysis_contract import (
+    waveform_record_heading,
     waveform_anchor_id,
     waveform_record_tag,
     waveform_reference,
@@ -95,6 +96,29 @@ WORKSPACE_RELATIVE_DOCUMENT_TEST = "unity_test/tests/test_a.py::test_a"
 VIEWER_LINK = build_waveform_viewer_markdown_link(
     {"v": 1, "file": "tests/data/placeholder.vcd"}
 )
+TEST_DISPLAY_TITLE = "Reproduced result mismatch"
+
+
+def _dynamic_checkpoint_headings() -> str:
+    return (
+        "### Arithmetic behavior <FG-A>\n"
+        "#### Result calculation <FC-A>\n"
+        "##### Exact output <CK-A>\n"
+    )
+
+
+def _dynamic_bug_heading(bug_tag: str = "BG-DYNAMIC-80") -> str:
+    confidence = bug_tag.rsplit("-", 1)[-1]
+    return f"###### Truncated result（{confidence}%） <{bug_tag}>\n"
+
+
+def _dynamic_test_heading(
+    test_label: str = f"TC-{DOCUMENT_TEST}",
+    title: str = TEST_DISPLAY_TITLE,
+) -> str:
+    return f"- {title} <{test_label}>\n"
+
+
 SOURCE_EVIDENCE_BLOCK = """
 ```systemverilog
 // rtl/Demo.sv:12-14
@@ -212,7 +236,7 @@ def _waveform_block_lines(
     ).rstrip()
     return [
         f'<a id="{waveform_anchor_id(test_label)}"></a>',
-        f"### <{waveform_record_tag(test_label)}>",
+        waveform_record_heading(test_label, TEST_DISPLAY_TITLE),
         "```yaml",
         payload,
         "```",
@@ -247,11 +271,11 @@ def _write_bug_doc(
 ) -> None:
     lines = [
         "<DYNAMIC-BUGS>",
-        "<FG-A>",
-        "<FC-A>",
-        "<CK-A>",
-        "<BG-DYNAMIC-80>",
-        f"<TC-{test_case}>",
+        "### Arithmetic behavior <FG-A>",
+        "#### Result calculation <FC-A>",
+        "##### Exact output <CK-A>",
+        "###### Truncated result（80%） <BG-DYNAMIC-80>",
+        f"- {TEST_DISPLAY_TITLE} <TC-{test_case}>",
         waveform_reference(f"TC-{test_case}"),
         analysis,
         "</DYNAMIC-BUGS>",
@@ -276,12 +300,23 @@ def _write_central_waveform_document(
         bugs.setdefault(bug, []).append(test_case)
         bugs_by_test.setdefault(test_case, []).append(bug)
 
-    lines = ["<DYNAMIC-BUGS>", "<FG-A>", "<FC-A>", "<CK-A>"]
+    lines = [
+        "<DYNAMIC-BUGS>",
+        "### Arithmetic behavior <FG-A>",
+        "#### Result calculation <FC-A>",
+        "##### Exact output <CK-A>",
+    ]
     for bug, tests in bugs.items():
-        lines.append(f"<{bug}>")
+        confidence = bug.rsplit("-", 1)[-1]
+        lines.append(f"###### Reproduced defect（{confidence}%） <{bug}>")
         for test_case in tests:
             test_label = f"TC-{test_case}"
-            lines.extend([f"<{test_label}>", waveform_reference(test_label)])
+            lines.extend(
+                [
+                    f"- {TEST_DISPLAY_TITLE} <{test_label}>",
+                    waveform_reference(test_label),
+                ]
+            )
         if include_analysis:
             lines.append(COMPLETE_BUG_ANALYSIS)
     lines.extend(["</DYNAMIC-BUGS>", "<WAVEFORM-EVIDENCE>"])
@@ -1039,29 +1074,34 @@ def test_duplicate_waveform_blocks_for_same_bug_and_test_are_rejected(tmp_path):
 
 
 def test_malformed_or_unassociated_waveform_block_is_rejected(tmp_path):
+    test_label = f"TC-{DOCUMENT_TEST}"
+    dynamic_bug = (
+        "<DYNAMIC-BUGS>\n"
+        f"{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}"
+        f"{_dynamic_test_heading(test_label)}"
+    )
     malformed_documents = (
         (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n{waveform_reference(f'TC-{DOCUMENT_TEST}')}\n"
+            f"{dynamic_bug}{waveform_reference(test_label)}\n"
             "<WAVEFORM-DATA>\n</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n"
             "</WAVEFORM-EVIDENCE>\n",
             "[Waveform Placement Error]",
         ),
         (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n{waveform_reference(f'TC-{DOCUMENT_TEST}')}\n"
+            f"{dynamic_bug}{waveform_reference(test_label)}\n"
             "</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n"
-            f'<a id="{waveform_anchor_id(f"TC-{DOCUMENT_TEST}")}"></a>\n'
-            f"### <{waveform_record_tag(f'TC-{DOCUMENT_TEST}')}>\n"
+            f'<a id="{waveform_anchor_id(test_label)}"></a>\n'
+            f"{waveform_record_heading(test_label, TEST_DISPLAY_TITLE)}\n"
             "```yaml\nwaveform_analysis:\n  status: [\n```\n"
             f"{VIEWER_LINK}\n</WAVEFORM-EVIDENCE>\n",
             "[Waveform Analysis YAML Error]",
         ),
         (
-            "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n</DYNAMIC-BUGS>\n"
+            f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}</DYNAMIC-BUGS>\n"
             "<WAVEFORM-EVIDENCE>\n"
-            f'<a id="{waveform_anchor_id(f"TC-{DOCUMENT_TEST}")}"></a>\n'
-            f"### <{waveform_record_tag(f'TC-{DOCUMENT_TEST}')}>\n"
+            f'<a id="{waveform_anchor_id(test_label)}"></a>\n'
+            f"{waveform_record_heading(test_label, TEST_DISPLAY_TITLE)}\n"
             "```yaml\nwaveform_analysis:\n"
             f"  test_case: TC-{DOCUMENT_TEST}\n"
             "  bug_tags: [BG-DYNAMIC-80]\n"
@@ -1207,11 +1247,12 @@ def test_waveform_block_rejects_invalid_markdown_fences(
 ):
     test_label = f"TC-{DOCUMENT_TEST}"
     document = (
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<{test_label}>\n{waveform_reference(test_label)}\n</DYNAMIC-BUGS>\n"
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading(test_label)}"
+        f"{waveform_reference(test_label)}\n</DYNAMIC-BUGS>\n"
         "<WAVEFORM-EVIDENCE>\n"
         f'<a id="{waveform_anchor_id(test_label)}"></a>\n'
-        f"### <{waveform_record_tag(test_label)}>\n{payload}\n"
+        f"{waveform_record_heading(test_label, TEST_DISPLAY_TITLE)}\n{payload}\n"
         f"{VIEWER_LINK}\n</WAVEFORM-EVIDENCE>\n"
     )
     (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
@@ -1315,11 +1356,9 @@ def test_zero_confidence_dynamic_bug_does_not_require_waveinfo(tmp_path):
         "\n".join(
             [
                 "<DYNAMIC-BUGS>",
-                "<FG-A>",
-                "<FC-A>",
-                "<CK-A>",
-                "<BG-DYNAMIC-0>",
-                f"<TC-{DOCUMENT_TEST}>",
+                *_dynamic_checkpoint_headings().rstrip().splitlines(),
+                _dynamic_bug_heading("BG-DYNAMIC-0").rstrip(),
+                _dynamic_test_heading().rstrip(),
                 "</DYNAMIC-BUGS>",
                 "<WAVEFORM-EVIDENCE>",
                 "</WAVEFORM-EVIDENCE>",
@@ -1346,8 +1385,9 @@ def test_prefix_check_requires_waveform_for_actual_failed_checkpoint(tmp_path):
     _write_functions(tmp_path)
     test_label = f"TC-{DOCUMENT_TEST}"
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<{test_label}>\n{waveform_reference(test_label)}\n"
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading(test_label)}"
+        f"{waveform_reference(test_label)}\n"
         "</DYNAMIC-BUGS>\n<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
         encoding="utf-8",
     )
@@ -1444,8 +1484,8 @@ def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
         "<BUG-TODO>\nRead RTL and fill the root cause.",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{scaffold}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{scaffold}\n",
         encoding="utf-8",
     )
 
@@ -1462,6 +1502,102 @@ def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("bad_line", "tag"),
+    (
+        ("### 功能组：<FG-A>", "FG-A"),
+        ("#### 功能： <FC-A>", "FC-A"),
+        ("##### <CK-A>", "CK-A"),
+        ("###### 动态 Bug（80%） <BG-DYNAMIC-80>", "BG-DYNAMIC-80"),
+        (f"- 失败用例： <TC-{DOCUMENT_TEST}>", f"TC-{DOCUMENT_TEST}"),
+        ("### [功能组具体名称] <FG-A>", "FG-A"),
+    ),
+)
+def test_dynamic_bug_headings_require_meaningful_visible_text(tmp_path, bad_line, tag):
+    lines = [
+        "<DYNAMIC-BUGS>",
+        *_dynamic_checkpoint_headings().rstrip().splitlines(),
+        _dynamic_bug_heading().rstrip(),
+        _dynamic_test_heading().rstrip(),
+        COMPLETE_BUG_ANALYSIS,
+        "</DYNAMIC-BUGS>",
+    ]
+    replacement_index = {
+        "FG": 1,
+        "FC": 2,
+        "CK": 3,
+        "BG": 4,
+        "TC": 5,
+    }[tag.split("-", 1)[0]]
+    lines[replacement_index] = bad_line
+    (tmp_path / "bugs.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is False
+    assert "[Dynamic Bug Heading Format Error]" in message["error"]
+    assert f"<{tag}>" in message["error"]
+    assert "meaningful visible text" in message["error"]
+
+
+def test_central_waveform_heading_must_reuse_tc_visible_title(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
+    )
+    path = tmp_path / "bugs.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            waveform_record_heading(f"TC-{DOCUMENT_TEST}", TEST_DISPLAY_TITLE),
+            waveform_record_heading(f"TC-{DOCUMENT_TEST}", "Different test description"),
+        ),
+        encoding="utf-8",
+    )
+
+    passed, _blocks, message = _parse_waveform_analysis_blocks(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    assert "[Waveform Record Title Error]" in message["error"]
+
+
+def test_dynamic_bug_analysis_fields_must_follow_all_tests(tmp_path):
+    second_test = "test_a.py::test_second"
+    document = (
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+        f"{COMPLETE_BUG_ANALYSIS}\n"
+        f"- Second reproducer <TC-{second_test}>\n"
+        "</DYNAMIC-BUGS>\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is False
+    assert "[Dynamic Bug Child Order Error]" in message["error"]
+    assert f"<TC-{second_test}>" in message["error"]
+    assert "place all eight <BUG-*> fields after the final TC" in message["error"]
+
+
+def test_dynamic_bug_analysis_accepts_multiple_tests_before_fields(tmp_path):
+    second_test = "test_a.py::test_second"
+    document = (
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+        f"- Second reproducer <TC-{second_test}>\n"
+        f"{COMPLETE_BUG_ANALYSIS}\n"
+        "</DYNAMIC-BUGS>\n"
+    )
+    (tmp_path / "bugs.md").write_text(document, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is True, message
+
+
+@pytest.mark.parametrize(
     ("prefix", "expected_error"),
     [
         ("", "[Dynamic Bug Container Format Error]"),
@@ -1470,7 +1606,7 @@ def test_dynamic_bug_content_rejects_unfilled_scaffold(tmp_path):
             "[Dynamic Bug Container Format Error]",
         ),
         (
-            "<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
+            f"{_dynamic_checkpoint_headings()}{_dynamic_bug_heading()}"
             "<DYNAMIC-BUGS>\n",
             "[Dynamic Bug Container Order Error]",
         ),
@@ -1480,11 +1616,11 @@ def test_dynamic_bug_content_requires_one_container_before_bugs(
     tmp_path, prefix, expected_error
 ):
     if "<BG-DYNAMIC-80>" in prefix:
-        contents = f"{prefix}<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n"
+        contents = f"{prefix}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
     else:
         contents = (
-            f"{prefix}<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-            f"<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n"
+            f"{prefix}{_dynamic_checkpoint_headings()}{_dynamic_bug_heading()}"
+            f"{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
         )
     (tmp_path / "bugs.md").write_text(contents, encoding="utf-8")
 
@@ -1517,8 +1653,8 @@ def test_dynamic_bug_content_does_not_parse_natural_language_placeholders(tmp_pa
         "the complete intermediate width until the result assignment.",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
         encoding="utf-8",
     )
 
@@ -1535,8 +1671,8 @@ def test_dynamic_bug_content_does_not_apply_prose_length_threshold(tmp_path):
         "x",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
         encoding="utf-8",
     )
 
@@ -1549,8 +1685,9 @@ def test_dynamic_bug_content_does_not_apply_prose_length_threshold(tmp_path):
 
 def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n**根因分析**\n只有泛化结论。\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+        "**根因分析**\n只有泛化结论。\n",
         encoding="utf-8",
     )
 
@@ -1569,8 +1706,8 @@ def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
         "###### 源码证据", "###### Source Evidence"
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{localized}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{localized}\n",
         encoding="utf-8",
     )
 
@@ -1598,8 +1735,8 @@ def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
         + "<BUG-SOURCE-OBSERVABLE>",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{misplaced}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{misplaced}\n",
         encoding="utf-8",
     )
 
@@ -1617,8 +1754,8 @@ def test_dynamic_bug_content_rejects_mixed_source_availability_branches(tmp_path
         f"<BUG-SOURCE-UNAVAILABLE>\n{SOURCE_EVIDENCE_BLOCK}",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{mixed}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{mixed}\n",
         encoding="utf-8",
     )
 
@@ -1658,8 +1795,8 @@ def test_dynamic_bug_content_rejects_invalid_marker_contract(
     tmp_path, analysis, expected_problem
 ):
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
         encoding="utf-8",
     )
 
@@ -1673,8 +1810,9 @@ def test_dynamic_bug_content_rejects_invalid_marker_contract(
 
 def test_dynamic_bug_content_accepts_source_backed_analysis(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{COMPLETE_BUG_ANALYSIS}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}"
+        f"{COMPLETE_BUG_ANALYSIS}\n",
         encoding="utf-8",
     )
 
@@ -1694,8 +1832,8 @@ def test_dynamic_bug_content_accepts_explicit_black_box_analysis(tmp_path):
         "show truncation at the output boundary.",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{black_box}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{black_box}\n",
         encoding="utf-8",
     )
 
@@ -1712,8 +1850,8 @@ def test_dynamic_bug_content_rejects_black_box_marker_without_analysis(tmp_path)
         "<BUG-SOURCE-UNAVAILABLE>",
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{black_box}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{black_box}\n",
         encoding="utf-8",
     )
 
@@ -1738,8 +1876,8 @@ def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_pat
         SOURCE_EVIDENCE_BLOCK, noncanonical_source
     )
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n"
-        f"<TC-{DOCUMENT_TEST}>\n{analysis}\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{analysis}\n",
         encoding="utf-8",
     )
 
@@ -1758,8 +1896,9 @@ def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_pat
     [
         "# No Bugs found\n<DYNAMIC-BUGS>\n</DYNAMIC-BUGS>\n"
         "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-0>\n"
-        f"<TC-{DOCUMENT_TEST}>\n</DYNAMIC-BUGS>\n"
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading('BG-DYNAMIC-0')}{_dynamic_test_heading()}"
+        "</DYNAMIC-BUGS>\n"
         "<WAVEFORM-EVIDENCE>\n</WAVEFORM-EVIDENCE>\n",
     ],
 )
@@ -1852,7 +1991,8 @@ def test_final_waveform_gate_allows_missing_document_as_no_bug_case(tmp_path):
 
 def test_final_waveform_gate_requires_test_for_each_dynamic_bug(tmp_path):
     (tmp_path / "bugs.md").write_text(
-        "<DYNAMIC-BUGS>\n<FG-A>\n<FC-A>\n<CK-A>\n<BG-DYNAMIC-80>\n",
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}",
         encoding="utf-8",
     )
 

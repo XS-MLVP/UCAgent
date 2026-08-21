@@ -18,6 +18,19 @@ STATIC_BUG_SECTION_MARKERS = (
     "<STATIC-BUG-PROGRESS>",
 )
 DOCUMENT_TAG_PATTERN = re.compile(r"<(FG|FC|CK|BG|TC)-([^<>]+)>")
+GENERIC_DYNAMIC_TITLES = frozenset(
+    {
+        "\u529f\u80fd\u7ec4",
+        "\u529f\u80fd\u7ec4\uff1a",
+        "\u529f\u80fd",
+        "\u529f\u80fd\uff1a",
+        "\u68c0\u6d4b\u70b9",
+        "\u68c0\u6d4b\u70b9\uff1a",
+        "\u52a8\u6001 Bug",
+        "\u5931\u8d25\u7528\u4f8b",
+        "\u5931\u8d25\u7528\u4f8b\uff1a",
+    }
+)
 WAVEFORM_BLOCK_KEY = "waveform_analysis"
 WAVEFORM_FENCE_OPEN = "```yaml"
 WAVEFORM_FENCE_CLOSE = "```"
@@ -63,6 +76,84 @@ BUG_ANALYSIS_SECTION_TITLES = (
     ("fix", "###### \u4fee\u590d\u5efa\u8bae"),
     ("retest", "###### \u98ce\u9669\u4e0e\u590d\u9a8c"),
 )
+
+
+def normalize_display_title(value: str) -> str:
+    """Return one safe, visible Markdown title without embedded machine tags."""
+
+    title = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not title:
+        raise ValueError("visible description must be non-empty")
+    if "\n" in str(value) or "\r" in str(value) or "<" in title or ">" in title:
+        raise ValueError("visible description must be one line without angle-bracket tags")
+    if title.startswith("[") and title.endswith("]"):
+        raise ValueError("visible description must replace bracketed scaffold text")
+    if title in GENERIC_DYNAMIC_TITLES:
+        raise ValueError("visible description must identify the tagged item")
+    return title
+
+
+def parse_dynamic_tag_heading(line: str, kind: str, label: str) -> str:
+    """Validate one semantic FG/FC/CK/BG/TC heading and return its visible title."""
+
+    prefixes = {
+        "FG": "### ",
+        "FC": "#### ",
+        "CK": "##### ",
+        "BG": "###### ",
+        "TC": "- ",
+    }
+    if kind not in prefixes:
+        raise ValueError(f"unsupported dynamic tag kind: {kind}")
+    text = str(line).strip()
+    prefix = prefixes[kind]
+    suffix = f" <{label}>"
+    if not text.startswith(prefix) or not text.endswith(suffix):
+        raise ValueError(
+            f"use '{prefix}<visible description>{suffix}' with the tag at line end"
+        )
+    title = text[len(prefix) : -len(suffix)].strip()
+    if kind == "BG":
+        confidence_match = re.fullmatch(r"(.+)\uff08(\d{1,3})%\uff09", title)
+        if confidence_match is None:
+            raise ValueError(
+                "BG visible description must end with full-width '(confidence%)' notation"
+            )
+        title = confidence_match.group(1).strip()
+        label_match = re.fullmatch(r"BG-.+-(\d{1,3})", label)
+        if label_match is None or confidence_match.group(2) != label_match.group(1):
+            raise ValueError("BG visible confidence must match the BG tag suffix")
+    return normalize_display_title(title)
+
+
+def waveform_record_heading(test_case_tag: str, test_title: str) -> str:
+    """Return the visible heading for one central waveform record."""
+
+    title = normalize_display_title(test_title)
+    return (
+        f"### {title}\u6ce2\u5f62 "
+        f"<{waveform_record_tag(test_case_tag)}>"
+    )
+
+
+def parse_waveform_record_heading(line: str) -> tuple[str, str]:
+    """Return the canonical TC tag and visible title from a waveform record heading."""
+
+    match = re.fullmatch(r"###\s+(.+?)\s+<(WAVEFORM-TC-[^<>]+)>", str(line).strip())
+    if match is None:
+        raise ValueError(
+            "use a level-3 heading with a visible test description, the required "
+            "localized waveform suffix, and <WAVEFORM-TC-...> at line end"
+        )
+    visible = match.group(1)
+    suffix = "\u6ce2\u5f62"
+    if not visible.endswith(suffix):
+        raise ValueError(
+            "waveform record visible description must end with the required localized suffix"
+        )
+    title = normalize_display_title(visible[: -len(suffix)])
+    test_case_tag = normalize_test_case_tag(match.group(2)[len("WAVEFORM-") :])
+    return test_case_tag, title
 
 
 def normalize_test_case_tag(value: str) -> str:

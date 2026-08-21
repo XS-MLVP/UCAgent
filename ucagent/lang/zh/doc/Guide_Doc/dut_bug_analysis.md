@@ -1,6 +1,6 @@
 # DUT Bug 分析指南
 
-本文定义动态与静态 Bug 文档的唯一机器格式。动态 Bug 文档必须逐字使用本文标准案例中的中文标题、Markdown 层级、尖括号标签和字段顺序；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。不得自行翻译标题、改用粗体、增加平行章节或重新组织标签。
+本文定义动态与静态 Bug 文档的唯一机器格式。尖括号标签在 Markdown 渲染后可能不可见，因此 FG/FC/CK/BG/TC 和中央波形记录必须同时写出能独立表达含义的中文可见标题；不能用“功能组”“功能”“检测点”“动态 Bug”“失败用例”等类型名代替具体描述。动态 Bug 文档必须使用本文定义的 Markdown 层级、尖括号标签、字段顺序和八个固定分析标题；YAML 字段、签名 receipt 与 viewer token 必须由工具生成并保持原样。不得改用粗体、增加平行章节或重新组织标签。
 
 ## 1. 先分类
 
@@ -33,14 +33,14 @@
 
 ## 3. Bug 层级与引用
 
-标签顺序为`FG -> FC -> CK -> BG -> TC`。标题、Markdown 层级与标签必须写在同一行，并使用以下固定结构。一个非零置信度 BG 至少关联一个真实 Fail TC。每个 BG/TC 关联必须紧跟一个由工具生成的链接：
+标签顺序为`FG -> FC -> CK -> BG -> TC`。可见标题、Markdown 层级与标签必须写在同一行，并使用以下固定结构。可见标题是该条目的具体语义描述，不能只是标签类型的释义。一个非零置信度 BG 至少关联一个真实 Fail TC。一个 BG 的所有 TC 及其`<WAVEFORM-REF>`必须连续位于该`<BG-*>`标题之后；八个`<BUG-*>`字段整体位于最后一个 TC/引用之后。第一个`<BUG-*>`字段出现后不得再追加 TC。每个 BG/TC 关联必须紧跟一个由工具生成的链接：
 
 ```markdown
-### 功能组：<FG-ARITHMETIC>
-#### 功能：<FC-ADD>
-##### 检测点：<CK-OVERFLOW>
-###### 动态 Bug（98%）：<BG-CIN-OVERFLOW-98>
-- 失败用例：<TC-tests/test_adder.py::test_overflow>
+### 算术功能 <FG-ARITHMETIC>
+#### 加法结果 <FC-ADD>
+##### 溢出输出 <CK-OVERFLOW>
+###### 进位输入溢出丢失（98%） <BG-CIN-OVERFLOW-98>
+- 进位输入触发溢出 <TC-tests/test_adder.py::test_overflow>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-0123456789abcdef)
 
 <BUG-OVERVIEW>
@@ -69,19 +69,19 @@
 ...
 ```
 
-锚点由规范化 TC 标签稳定计算，禁止手工猜测或改写。使用`ApplyWaveInfoEvidence`创建或修复`<WAVEFORM-REF>`。
+可见标题来源固定：FG 和 FC 使用`{OUT}/{DUT}_functions_and_checks.md`中对应功能层级的标题；CK 使用同一文档中该 CK 的检查点名称；BG 使用该缺陷的具体问题描述；TC 使用测试函数 docstring 的首个非空描述行。若同一 TC 关联多个 BG，各处必须使用相同 TC 可见标题。锚点由规范化 TC 标签稳定计算，禁止手工猜测或改写。使用`ApplyWaveInfoEvidence`创建或修复`<WAVEFORM-REF>`。
 
 同一 Bug 有多个 Fail TC：每个 TC 各有一条引用和一份中央记录。同一 Fail TC 触发多个 Bug：每个 BG 下都引用相同锚点，但中央记录仍只有一份。
 
 ## 4. 中央波形记录
 
-每个规范化 TC 在整个文档中有且只有一个`<WAVEFORM-TC-...>`记录：
+每个规范化 TC 在整个文档中有且只有一个`<WAVEFORM-TC-...>`记录。中央记录的可见标题必须逐字复用对应 TC 的可见标题并追加“波形”：
 
 ````markdown
 <WAVEFORM-EVIDENCE>
 
 <a id="waveform-0123456789abcdef"></a>
-### <WAVEFORM-TC-tests/test_adder.py::test_overflow>
+### 进位输入触发溢出波形 <WAVEFORM-TC-tests/test_adder.py::test_overflow>
 ```yaml
 waveform_analysis:
   test_case: TC-tests/test_adder.py::test_overflow
@@ -170,11 +170,11 @@ ApplyWaveInfoEvidence(
 
 同一 TC 新增 Bug 时，对新 BG 再调用一次 Apply。若原 receipt 已包含新 Bug 所需信号，工具复用中央记录并保留已有分析；若需要新增信号，重新调用最终 WaveInfo，使`signal_groups`成为所有 Bug 所需信号的并集，再使用`replace_existing=true`。替换不同 receipt 时，工具保留各 BG 的`required_signals`，并重置共享和逐 Bug 语义结论，要求重新审查。
 
-同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次。目标 TC 不存在且 BG 位置唯一时，Apply 会创建 TC 和引用；LLM 不得手工复制 BG、创建兄弟 TC或拼接 receipt。同一 Fail TC 揭示多个独立 Bug 时，使用相同 TC 和不同 BG 分别调用；每次调用只更新目标关联，不会覆盖其他 Bug。签名窗口和 `signal_groups` 同时支持各缺陷时才能复用 receipt。
+同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次。目标 TC 不存在且 BG 位置唯一时，Apply 会从目标测试函数的非空 docstring 读取中文可见标题，在该 BG 的`<BUG-OVERVIEW>`之前创建 TC 和引用；测试源码或 docstring 不存在时会拒绝生成，LLM 不得猜测标题。LLM 不得手工复制 BG、创建兄弟 TC或拼接 receipt。同一 Fail TC 揭示多个独立 Bug 时，使用相同 TC 和不同 BG 分别调用；每次调用只更新目标关联，不会覆盖其他 Bug。签名窗口和 `signal_groups` 同时支持各缺陷时才能复用 receipt。
 
 ### 5.1 完整标准案例
 
-以下案例是动态 Bug 文档的完整标准结构。实际文档逐字保留标题、层级、标签、字段顺序和 fenced block 位置，只替换 DUT 名、标签值、工具生成字段及证据分析正文。案例中的 receipt、fingerprint、时间和 viewer token 只说明字段形态；实际值必须来自当前 `WaveInfo` 和 `ApplyWaveInfoEvidence`，禁止复制案例值。
+以下案例是动态 Bug 文档的完整标准结构。实际文档保留文档标题、Markdown 层级、标签位置、字段顺序、八个固定分析标题和 fenced block 位置；FG/FC/CK/BG/TC 标题必须按实际功能、检查点、缺陷和测试描述填写，不能复制类型占位文字。案例中的 receipt、fingerprint、时间和 viewer token 只说明字段形态；实际值必须来自当前 `WaveInfo` 和 `ApplyWaveInfoEvidence`，禁止复制案例值。
 
 `````markdown
 # Adder 动态 Bug 分析
@@ -182,11 +182,11 @@ ApplyWaveInfoEvidence(
 ## 动态 Bug 记录
 <DYNAMIC-BUGS>
 
-### 功能组：<FG-ARITHMETIC>
-#### 功能：<FC-ADD-RESULT>
-##### 检测点：<CK-CARRY-OUT>
-###### 动态 Bug（95%）：<BG-SUM-CARRY-DROPPED-95>
-- 失败用例：<TC-tests/test_adder.py::test_cin_carry>
+### 算术功能 <FG-ARITHMETIC>
+#### 加法结果 <FC-ADD-RESULT>
+##### 进位输出 <CK-CARRY-OUT>
+###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>
+- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-9f3516eabf18829d)
 
 <BUG-OVERVIEW>
@@ -233,7 +233,7 @@ ApplyWaveInfoEvidence(
 <WAVEFORM-EVIDENCE>
 
 <a id="waveform-9f3516eabf18829d"></a>
-### <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>
+### 进位输入产生进位波形 <WAVEFORM-TC-tests/test_adder.py::test_cin_carry>
 ```yaml
 waveform_analysis:
   test_case: TC-tests/test_adder.py::test_cin_carry
@@ -294,20 +294,100 @@ waveform_analysis:
 </WAVEFORM-EVIDENCE>
 `````
 
-标准案例体现以下不可变边界：一个 BG 的全部分析都位于该 BG 内；BG 下只保留失败 TC 与引用；一个 TC 的 YAML 和 viewer 只在中央波形分区出现一次；源码路径含真实行范围，三个源码因果标签各在 HDL fenced block 中出现一次。
+标准案例体现以下不可变边界：每个层级即使不显示尖括号标签也能从可见标题理解其含义；一个 BG 的全部分析都位于该 BG 内；BG 下只保留失败 TC 与引用；一个 TC 的 YAML 和 viewer 只在中央波形分区出现一次；源码路径含真实行范围，三个源码因果标签各在 HDL fenced block 中出现一次。
 
 ### 5.2 建立骨架并分阶段写入
 
-`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、引用和八个带`<BUG-TODO>`的分析章节。脚本不可用时也不阻塞整个流程，使用文本编辑工具参照第 5.1 节的完整标准案例和本节骨架建立完全相同的中文标题与层级：
+`record_dynamic_bug.py`是可选脚本，只接收`BG/TC/BD`并创建新 Bug 的第一份 BG/TC、引用和八个带`<BUG-TODO>`的分析章节。脚本从功能检查文档读取 FG/FC/CK 的中文名称，从测试 docstring 读取 TC 名称，并用`BD`生成 BG 名称。脚本不可用时也不阻塞整个流程，使用文本编辑工具从相同来源读取名称，参照第 5.1 节的完整标准案例和本节骨架建立相同结构。
+
+#### 5.2.1 多分支层次骨架
+
+FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下骨架明确展示两个 FG；每个 FG 下两个 FC；每个 FC 下两个 CK；每个 CK 下两个 BG；每个 BG 下两个 TC。为突出树结构，本图省略每条 TC 后由`ApplyWaveInfoEvidence`生成的`<WAVEFORM-REF>`以及每个 BG 的八个分析字段；实际文档不得省略，必须按第 5.2.2 节展开。
 
 ```markdown
 <DYNAMIC-BUGS>
-### 功能组：<FG-NAME>
-#### 功能：<FC-NAME>
-##### 检测点：<CK-NAME>
-###### 动态 Bug（XX%）：<BG-NAME-XX>
-- 失败用例：<TC-test_file.py::test_name>
+### 算术功能 <FG-ARITHMETIC>
+#### 加法结果 <FC-ADD-RESULT>
+##### 求和输出 <CK-SUM-OUT>
+###### 边界求和截断（95%） <BG-SUM-TRUNCATED-95>
+- 最大值加一求和 <TC-tests/test_adder.py::test_sum_max_plus_one>
+- 随机溢出求和 <TC-tests/test_adder.py::test_sum_random_overflow>
+###### 模式切换后求和陈旧（90%） <BG-SUM-STALE-90>
+- 加法模式切换求和 <TC-tests/test_adder.py::test_sum_after_mode_switch>
+- 复位后首次求和 <TC-tests/test_adder.py::test_sum_after_reset>
+##### 进位输出 <CK-CARRY-OUT>
+###### 完整和进位丢失（95%） <BG-CARRY-DROPPED-95>
+- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>
+- 双最大值产生进位 <TC-tests/test_adder.py::test_double_max_carry>
+###### 无溢出时进位误置（85%） <BG-CARRY-SPURIOUS-85>
+- 小数值相加无进位 <TC-tests/test_adder.py::test_small_add_no_carry>
+- 零值相加无进位 <TC-tests/test_adder.py::test_zero_add_no_carry>
+#### 减法结果 <FC-SUB-RESULT>
+##### 差值输出 <CK-DIFFERENCE-OUT>
+###### 负差值截断（92%） <BG-DIFFERENCE-TRUNCATED-92>
+- 小数减大数 <TC-tests/test_subtractor.py::test_negative_difference>
+- 随机负差值 <TC-tests/test_subtractor.py::test_random_negative_difference>
+###### 相等操作数差值非零（88%） <BG-EQUAL-DIFFERENCE-NONZERO-88>
+- 最大值自减 <TC-tests/test_subtractor.py::test_max_minus_self>
+- 随机值自减 <TC-tests/test_subtractor.py::test_random_minus_self>
+##### 借位输出 <CK-BORROW-OUT>
+###### 负差值借位丢失（94%） <BG-BORROW-DROPPED-94>
+- 零减一产生借位 <TC-tests/test_subtractor.py::test_zero_minus_one_borrow>
+- 随机负差值借位 <TC-tests/test_subtractor.py::test_random_borrow>
+###### 非负差值借位误置（84%） <BG-BORROW-SPURIOUS-84>
+- 最大值减零无借位 <TC-tests/test_subtractor.py::test_max_minus_zero_no_borrow>
+- 大数减小数无借位 <TC-tests/test_subtractor.py::test_positive_difference_no_borrow>
+
+### 接口控制 <FG-PROTOCOL>
+#### 请求控制 <FC-REQUEST-CONTROL>
+##### 请求接受 <CK-REQUEST-ACCEPT>
+###### 就绪请求未接受（93%） <BG-READY-REQUEST-DROPPED-93>
+- 单周期就绪请求 <TC-tests/test_protocol.py::test_ready_request_accept>
+- 连续就绪请求 <TC-tests/test_protocol.py::test_back_to_back_accept>
+###### 未就绪请求被误接受（89%） <BG-STALLED-REQUEST-ACCEPTED-89>
+- 背压期间单次请求 <TC-tests/test_protocol.py::test_stalled_request_rejected>
+- 背压期间连续请求 <TC-tests/test_protocol.py::test_stalled_burst_rejected>
+##### 背压保持 <CK-BACKPRESSURE-HOLD>
+###### 背压期间请求数据变化（91%） <BG-REQUEST-DATA-UNSTABLE-91>
+- 单周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_one_cycle>
+- 多周期背压数据保持 <TC-tests/test_protocol.py::test_request_hold_multi_cycle>
+###### 背压解除后请求丢失（87%） <BG-REQUEST-LOST-AFTER-STALL-87>
+- 单周期背压解除 <TC-tests/test_protocol.py::test_request_after_short_stall>
+- 多周期背压解除 <TC-tests/test_protocol.py::test_request_after_long_stall>
+#### 响应控制 <FC-RESPONSE-CONTROL>
+##### 响应有效 <CK-RESPONSE-VALID>
+###### 结果就绪时有效信号缺失（94%） <BG-RESPONSE-VALID-MISSING-94>
+- 单次响应有效 <TC-tests/test_protocol.py::test_single_response_valid>
+- 连续响应有效 <TC-tests/test_protocol.py::test_back_to_back_response_valid>
+###### 空闲周期有效信号误置（86%） <BG-RESPONSE-VALID-SPURIOUS-86>
+- 复位后空闲响应 <TC-tests/test_protocol.py::test_idle_valid_after_reset>
+- 请求间隔空闲响应 <TC-tests/test_protocol.py::test_idle_valid_between_requests>
+##### 响应顺序 <CK-RESPONSE-ORDER>
+###### 连续响应顺序颠倒（92%） <BG-RESPONSE-ORDER-REVERSED-92>
+- 两笔连续响应顺序 <TC-tests/test_protocol.py::test_two_response_order>
+- 随机突发响应顺序 <TC-tests/test_protocol.py::test_random_burst_order>
+###### 背压后响应重复（88%） <BG-RESPONSE-DUPLICATED-88>
+- 单周期背压后响应 <TC-tests/test_protocol.py::test_response_after_short_stall>
+- 多周期背压后响应 <TC-tests/test_protocol.py::test_response_after_long_stall>
+</DYNAMIC-BUGS>
+```
+
+禁止把同一 FG/FC/CK/BG 标签复制成多个平行节点。已有父节点时在该节点范围内添加新的子节点；同一 BG 的多个 TC 只增加 TC 与引用，不复制八个分析字段。同一 TC 关联多个 BG 时，在每个 BG 下保留同名 TC 与相同中央锚点，但中央波形记录仍只有一份。
+
+#### 5.2.2 单个 BG 的完整字段骨架
+
+以下骨架用于展开上图中的每个新 BG；方括号内容必须替换为实际可见名称。两个 TC 示例刻意放在八字段之前，用于强调固定顺序：
+
+```markdown
+<DYNAMIC-BUGS>
+### [功能组具体名称] <FG-NAME>
+#### [功能具体名称] <FC-NAME>
+##### [检查点具体名称] <CK-NAME>
+###### [缺陷具体描述]（XX%） <BG-NAME-XX>
+- [测试 docstring 描述] <TC-test_file.py::test_name>
   <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#tool-generated-anchor)
+- [另一个测试 docstring 描述] <TC-test_file.py::test_another_name>
+  <WAVEFORM-REF> [WAVEFORM-EVIDENCE](#another-tool-generated-anchor)
 <BUG-OVERVIEW>
 ###### Bug 概述
 <BUG-TODO>
@@ -335,7 +415,7 @@ waveform_analysis:
 </DYNAMIC-BUGS>
 ```
 
-锚点和引用仍由 Apply 修复为精确值。LLM 只替换标签值和分析正文，不得修改案例定义的中文标题、Markdown 层级、字段顺序或容器布局。不要为同一 BG 的后续 Fail TC 复制该结构。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除八个分析章节中的全部 `<BUG-TODO>`；任何非零 BG 残留占位都不能完成。
+方括号内的文字是必须替换的可见标题，不是允许保留的模板文本。锚点和引用仍由 Apply 修复为精确值。LLM 必须替换标签值、可见标题和分析正文，但不得修改 Markdown 层级、八个固定分析标题、字段顺序或容器布局。不要为同一 BG 的后续 Fail TC 复制该结构；新增 TC 必须插入该 BG 的`<BUG-OVERVIEW>`之前。调用 `ApplyWaveInfoEvidence`写入中央记录后，必须清除八个分析章节中的全部 `<BUG-TODO>`；任何非零 BG 残留占位都不能完成。
 
 ## 6. 证据保留与重放
 
@@ -389,8 +469,10 @@ Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-rec
 ## 10. 完成检查
 
 - 两个容器各出现一次、均正确关闭、顺序正确。
-- 文档标题、分区标题、FG/FC/CK/BG/TC 层级和八个字段标题与第 5.1 节完整标准案例一致。
+- 文档标题、分区标题、FG/FC/CK/BG/TC 层级和八个字段标题与第 5.1 节完整标准案例一致；每个标签行都有具体可见标题，不含类型名或方括号占位。
+- 每个中央波形标题逐字复用关联 TC 的可见标题并追加“波形”。
 - 每个非零 BG 至少有一个真实 Fail TC和完整八字段分析。
+- 每个 BG 的全部 TC/引用连续位于 BG 标题后，八个`<BUG-*>`字段位于最后一个 TC/引用后，字段开始后不再出现 TC。
 - 每个 BG/TC 紧随精确`<WAVEFORM-REF>`，链接到该 TC 的稳定锚点。
 - 每个关联 TC 在中央分区恰有一份记录，无重复、无孤儿。
 - `bug_tags`、BG/TC 引用和`bug_evidence`三者完全一致。

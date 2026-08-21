@@ -1,4 +1,5 @@
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -7,6 +8,8 @@ import re
 from pathlib import Path
 from string import Template
 
+from ucagent.util.config import load_runtime_config
+
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
 DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
 WAVEFORM_EVIDENCE_MARKER = "<WAVEFORM-EVIDENCE>"
@@ -14,6 +17,13 @@ WAVEFORM_EVIDENCE_END_MARKER = "</WAVEFORM-EVIDENCE>"
 TODO_MARKER = "<BUG-TODO>"
 OVERVIEW_MARKER = "<BUG-OVERVIEW>"
 ASSET_DIR = Path(__file__).resolve().parent.parent / "assets"
+GENERIC_VISIBLE_TITLES = {
+    "\u529f\u80fd\u7ec4",
+    "\u529f\u80fd",
+    "\u68c0\u6d4b\u70b9",
+    "\u52a8\u6001 Bug",
+    "\u5931\u8d25\u7528\u4f8b",
+}
 
 
 def load_asset_template(name):
@@ -65,6 +75,25 @@ def validate_dynamic_bg_tag(tag):
         raise ValueError(
             "Error: -BG confidence must be greater than 0 for a confirmed dynamic Bug."
         )
+
+
+def normalize_visible_title(value, source):
+    title = re.sub(r"\s+", " ", str(value or "")).strip().rstrip("\uff1a:")
+    if not title:
+        raise ValueError(f"Error: {source} visible title is empty.")
+    if "<" in title or ">" in title:
+        raise ValueError(
+            f"Error: {source} visible title cannot contain angle-bracket tags."
+        )
+    if title.startswith("[") and title.endswith("]"):
+        raise ValueError(
+            f"Error: {source} visible title must replace bracketed scaffold text."
+        )
+    if title in GENERIC_VISIBLE_TITLES:
+        raise ValueError(
+            f"Error: {source} visible title must describe the actual item, not its type."
+        )
+    return title
 
 
 def parse_tc_target(tc_tag):
@@ -164,6 +193,155 @@ def resolve_fg_fc_ck_list_by_tc(tc_tag, out_dir):
     return uniq
 
 
+def _outside_fences(lines):
+    visible = []
+    in_fence = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            visible.append("")
+        elif in_fence:
+            visible.append("")
+        else:
+            visible.append(line)
+    return visible
+
+
+def _tag_line_index(lines, tag, start=0, end=None):
+    indexes = [
+        index
+        for index in range(start, len(lines) if end is None else end)
+        if f"<{tag}>" in lines[index]
+    ]
+    if len(indexes) != 1:
+        raise ValueError(
+            f"Error: expected one <{tag}> in the function specification, "
+            f"found {len(indexes)}."
+        )
+    return indexes[0]
+
+
+def _next_tag_index(lines, prefix, start, end):
+    token = f"<{prefix}-"
+    return next((index for index in range(start, end) if token in lines[index]), end)
+
+
+def _nearest_heading(lines, tag_index, level, start, end, tag):
+    pattern = re.compile(rf"^#{{{level}}}(?!#)\s+(.+?)\s*$")
+    candidates = []
+    for index in range(start, end):
+        match = pattern.match(lines[index].strip())
+        if match and f"<{tag}>" not in match.group(1):
+            candidates.append((abs(index - tag_index), index, match.group(1).strip()))
+    if not candidates:
+        raise ValueError(
+            f"Error: no visible level-{level} heading found for <{tag}> in "
+            "the function specification."
+        )
+    distance, _index, title = min(candidates)
+    if distance > 4:
+        raise ValueError(
+            f"Error: visible heading for <{tag}> is too far from its tag in "
+            "the function specification."
+        )
+    return normalize_visible_title(title, tag)
+
+
+def _checkpoint_title(line, tag):
+    _prefix, suffix = line.split(f"<{tag}>", 1)
+    title = suffix.strip().lstrip("-*: ")
+    title = re.split(r"[:\uff1a]", title, maxsplit=1)[0].strip()
+    if not title:
+        raise ValueError(
+            f"Error: <{tag}> must be followed by a visible checkpoint name in "
+            "the function specification."
+        )
+    return normalize_visible_title(title, tag)
+
+
+def resolve_checkpoint_titles(function_file, fg, fc, ck):
+    if not os.path.isfile(function_file):
+        raise FileNotFoundError(
+            f"Error: function specification not found: {function_file}"
+        )
+    with open(function_file, "r", encoding="utf-8") as handle:
+        lines = _outside_fences(handle.readlines())
+
+    fg_index = _tag_line_index(lines, fg)
+    fg_end = _next_tag_index(lines, "FG", fg_index + 1, len(lines))
+    previous_fg = max(
+        (index for index in range(0, fg_index) if "<FG-" in lines[index]),
+        default=-1,
+    )
+    fg_title = _nearest_heading(
+        lines, fg_index, 3, previous_fg + 1, fg_end, fg
+    )
+
+    fc_index = _tag_line_index(lines, fc, fg_index + 1, fg_end)
+    fc_end = min(
+        _next_tag_index(lines, "FC", fc_index + 1, fg_end),
+        fg_end,
+    )
+    fc_title = _nearest_heading(lines, fc_index, 4, fg_index + 1, fc_end, fc)
+
+    ck_index = _tag_line_index(lines, ck, fc_index + 1, fc_end)
+    ck_title = _checkpoint_title(lines[ck_index], ck)
+    return fg_title, fc_title, ck_title
+
+
+def resolve_test_title(tc_tag, out_dir):
+    file_path, class_name, func_name = parse_tc_target(tc_tag)
+    normalized_out = _workspace_relative_posix_path(out_dir)
+    normalized_file = _workspace_relative_posix_path(file_path)
+    if normalized_out not in ("", ".") and normalized_file.startswith(
+        normalized_out + "/"
+    ):
+        source_path = normalized_file
+    else:
+        source_path = posixpath.join(normalized_out, normalized_file)
+    if not os.path.isfile(source_path):
+        raise FileNotFoundError(f"Error: test source not found: {source_path}")
+    with open(source_path, "r", encoding="utf-8") as handle:
+        tree = ast.parse(handle.read(), filename=source_path)
+
+    scope = tree.body
+    if class_name:
+        class_node = next(
+            (
+                node
+                for node in scope
+                if isinstance(node, ast.ClassDef) and node.name == class_name
+            ),
+            None,
+        )
+        if class_node is None:
+            raise ValueError(
+                f"Error: test class '{class_name}' not found in {source_path}."
+            )
+        scope = class_node.body
+    function_node = next(
+        (
+            node
+            for node in scope
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ),
+        None,
+    )
+    if function_node is None:
+        raise ValueError(
+            f"Error: test function '{func_name}' not found in {source_path}."
+        )
+    docstring = ast.get_docstring(function_node, clean=True)
+    if not docstring:
+        raise ValueError(
+            f"Error: test function '{func_name}' needs a visible description in its docstring."
+        )
+    title = next(line.strip() for line in docstring.splitlines() if line.strip())
+    return normalize_visible_title(title, tc_tag)
+
+
 def bg_confidence(bg_tag):
     m = re.match(r"^BG-.+-(\d{1,3})$", bg_tag)
     if not m:
@@ -215,7 +393,19 @@ def escape_markdown_asterisk(text):
     return re.sub(r"(?<!\\)\*", r"\\*", text)
 
 
-def render_bug_entry(fg, fc, ck, bg, tc, bd, confidence):
+def render_bug_entry(
+    fg,
+    fc,
+    ck,
+    bg,
+    tc,
+    bd,
+    confidence,
+    fg_title,
+    fc_title,
+    ck_title,
+    tc_title,
+):
     anchor = hashlib.sha256(tc.encode("utf-8")).hexdigest()[:16]
     return ensure_trailing_newline_block(
         dynamic_bug_entry_template.substitute(
@@ -227,6 +417,10 @@ def render_bug_entry(fg, fc, ck, bg, tc, bd, confidence):
             BD=bd,
             CONFIDENCE=confidence,
             ANCHOR=anchor,
+            FG_TITLE=fg_title,
+            FC_TITLE=fc_title,
+            CK_TITLE=ck_title,
+            TC_TITLE=tc_title,
         )
     )
 
@@ -250,13 +444,27 @@ def subtree_from_tag(block, tag, end_marker=None):
     return ensure_trailing_newline_block("".join(lines[start:end]))
 
 
-def insert_content(lines, fg, fc, ck, bg, tc, bd):
+def insert_content(
+    lines, fg, fc, ck, bg, tc, bd, fg_title, fc_title, ck_title, tc_title
+):
     lines[:] = "".join(lines).splitlines(keepends=True)
     confidence = bg_confidence(bg)
     sec_start, sec_end = locate_section(lines)
 
     fg_line = find_tag_line(lines, sec_start + 1, sec_end, fg)
-    entry_block = render_bug_entry(fg, fc, ck, bg, tc, bd, confidence)
+    entry_block = render_bug_entry(
+        fg,
+        fc,
+        ck,
+        bg,
+        tc,
+        bd,
+        confidence,
+        fg_title,
+        fc_title,
+        ck_title,
+        tc_title,
+    )
     fc_block = subtree_from_tag(entry_block, fc)
     ck_bg_block = subtree_from_tag(entry_block, ck)
     bg_tc_block = subtree_from_tag(entry_block, bg)
@@ -337,16 +545,17 @@ def main():
     validate_dynamic_bg_tag(args.BG)
     validate_tag(args.TC, "TC")
 
-    escaped_bd = escape_markdown_asterisk(args.BD)
+    escaped_bd = escape_markdown_asterisk(
+        normalize_visible_title(args.BD, args.BG)
+    )
 
-    dut = os.environ.get("DUT")
-    out = os.environ.get("OUT")
-    if not dut or not out:
-        raise ValueError(
-            "Error: missing env DUT/OUT. Set -TARGET or export DUT and OUT."
-        )
+    runtime_config = load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out = runtime_config["OUT"]
 
     fg_fc_ck_list = resolve_fg_fc_ck_list_by_tc(args.TC, out)
+    function_file = os.path.join(os.getcwd(), out, f"{dut}_functions_and_checks.md")
+    tc_title = resolve_test_title(args.TC, out)
 
     target = os.path.join(os.getcwd(), out, f"{dut}_bug_analysis.md")
 
@@ -363,7 +572,22 @@ def main():
 
     msgs = []
     for fg, fc, ck in fg_fc_ck_list:
-        msg = insert_content(lines, fg, fc, ck, args.BG, args.TC, escaped_bd)
+        fg_title, fc_title, ck_title = resolve_checkpoint_titles(
+            function_file, fg, fc, ck
+        )
+        msg = insert_content(
+            lines,
+            fg,
+            fc,
+            ck,
+            args.BG,
+            args.TC,
+            escaped_bd,
+            fg_title,
+            fc_title,
+            ck_title,
+            tc_title,
+        )
         msgs.append(f"{msg} (resolved: {fg}/{fc}/{ck})")
 
     with open(target, "w", encoding="utf-8") as f:
