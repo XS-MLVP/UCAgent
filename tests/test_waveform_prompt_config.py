@@ -349,8 +349,8 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "complete HDL fenced block containing each marker" in help_text
     assert "This branch cannot contain an HDL fence" in help_text
     assert "Do not rename, translate, omit, duplicate, or reorder them" in help_text
-    assert "###### Bug 概述" in help_text
-    assert "###### 源码证据" in help_text
+    assert "exact level-6 display title" in help_text
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in help_text
     assert "Root cause analysis inside this BG entry" not in help_text
     assert "Angle-bracket tags may be hidden by Markdown" in help_text
     assert "every visible title must describe the actual item" in help_text

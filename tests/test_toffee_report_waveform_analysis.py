@@ -33,6 +33,7 @@ from ucagent.checkers.unity_test_random import RandomTestCasesChecker
 from ucagent.tools.waveform import WaveInfo
 from ucagent.util.config import load_yaml_with_env_vars
 from ucagent.util.bug_analysis_contract import (
+    BUG_ANALYSIS_SECTION_TITLES,
     waveform_record_heading,
     waveform_anchor_id,
     waveform_record_tag,
@@ -1716,7 +1717,12 @@ def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
     )
 
     assert passed is False
-    assert "must use canonical title '###### 源码证据'" in message["error"]
+    assert (
+        "field 'source_evidence' must use its exact level-6 title"
+        in message["error"]
+    )
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in message["error"]
+    assert dict(BUG_ANALYSIS_SECTION_TITLES)["source_evidence"] not in message["error"]
 
 
 def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):

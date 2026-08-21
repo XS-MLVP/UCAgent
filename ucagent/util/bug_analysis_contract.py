@@ -2,6 +2,8 @@
 """Canonical machine-readable contract for dynamic Bug analysis documents."""
 
 import hashlib
+import json
+from pathlib import Path
 import posixpath
 import re
 
@@ -18,19 +20,6 @@ STATIC_BUG_SECTION_MARKERS = (
     "<STATIC-BUG-PROGRESS>",
 )
 DOCUMENT_TAG_PATTERN = re.compile(r"<(FG|FC|CK|BG|TC)-([^<>]+)>")
-GENERIC_DYNAMIC_TITLES = frozenset(
-    {
-        "\u529f\u80fd\u7ec4",
-        "\u529f\u80fd\u7ec4\uff1a",
-        "\u529f\u80fd",
-        "\u529f\u80fd\uff1a",
-        "\u68c0\u6d4b\u70b9",
-        "\u68c0\u6d4b\u70b9\uff1a",
-        "\u52a8\u6001 Bug",
-        "\u5931\u8d25\u7528\u4f8b",
-        "\u5931\u8d25\u7528\u4f8b\uff1a",
-    }
-)
 WAVEFORM_BLOCK_KEY = "waveform_analysis"
 WAVEFORM_FENCE_OPEN = "```yaml"
 WAVEFORM_FENCE_CLOSE = "```"
@@ -66,15 +55,67 @@ BUG_ANALYSIS_SECTION_MARKERS = (
     ("fix", "<BUG-FIX>"),
     ("retest", "<BUG-RETEST>"),
 )
-BUG_ANALYSIS_SECTION_TITLES = (
-    ("overview", "###### Bug \u6982\u8ff0"),
-    ("symptoms", "###### \u73b0\u8c61\u4e0e\u4e25\u91cd\u5ea6"),
-    ("trigger", "###### \u89e6\u53d1\u6761\u4ef6\u4e0e\u5f71\u54cd"),
-    ("root_cause", "###### \u6839\u56e0\u5206\u6790"),
-    ("source_evidence", "###### \u6e90\u7801\u8bc1\u636e"),
-    ("causal_chain", "###### \u52a8\u6001\u56e0\u679c\u94fe"),
-    ("fix", "###### \u4fee\u590d\u5efa\u8bae"),
-    ("retest", "###### \u98ce\u9669\u4e0e\u590d\u9a8c"),
+
+
+def _load_locale_contract() -> dict:
+    """Load and validate the localized display contract."""
+
+    contract_path = (
+        Path(__file__).resolve().parents[1]
+        / "lang"
+        / "zh"
+        / "config"
+        / "bug_analysis_contract.json"
+    )
+    try:
+        payload = json.loads(contract_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"cannot load Bug analysis locale contract '{contract_path}': {error}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("Bug analysis locale contract must be a JSON object")
+
+    generic_titles = payload.get("generic_visible_titles")
+    confidence = payload.get("bg_confidence")
+    waveform_suffix = payload.get("waveform_title_suffix")
+    section_titles = payload.get("analysis_section_titles")
+    expected_keys = [key for key, _marker in BUG_ANALYSIS_SECTION_MARKERS]
+    if not isinstance(generic_titles, list) or not all(
+        isinstance(value, str) and value for value in generic_titles
+    ):
+        raise RuntimeError("generic_visible_titles must be a non-empty string list")
+    if not isinstance(confidence, dict) or not all(
+        isinstance(confidence.get(key), str) and confidence[key]
+        for key in ("prefix", "suffix")
+    ):
+        raise RuntimeError("bg_confidence must define non-empty prefix and suffix")
+    if not isinstance(waveform_suffix, str) or not waveform_suffix:
+        raise RuntimeError("waveform_title_suffix must be a non-empty string")
+    if not isinstance(section_titles, dict) or list(section_titles) != expected_keys:
+        raise RuntimeError(
+            "analysis_section_titles keys must match the canonical marker order"
+        )
+    if not all(
+        isinstance(section_titles[key], str)
+        and section_titles[key].startswith("###### ")
+        and "\n" not in section_titles[key]
+        for key in expected_keys
+    ):
+        raise RuntimeError(
+            "analysis_section_titles values must be single level-6 Markdown headings"
+        )
+    return payload
+
+
+_LOCALE_CONTRACT = _load_locale_contract()
+GENERIC_DYNAMIC_TITLES = frozenset(_LOCALE_CONTRACT["generic_visible_titles"])
+_BG_CONFIDENCE_PREFIX = _LOCALE_CONTRACT["bg_confidence"]["prefix"]
+_BG_CONFIDENCE_SUFFIX = _LOCALE_CONTRACT["bg_confidence"]["suffix"]
+_WAVEFORM_TITLE_SUFFIX = _LOCALE_CONTRACT["waveform_title_suffix"]
+BUG_ANALYSIS_SECTION_TITLES = tuple(
+    (key, _LOCALE_CONTRACT["analysis_section_titles"][key])
+    for key, _marker in BUG_ANALYSIS_SECTION_MARKERS
 )
 
 
@@ -114,10 +155,15 @@ def parse_dynamic_tag_heading(line: str, kind: str, label: str) -> str:
         )
     title = text[len(prefix) : -len(suffix)].strip()
     if kind == "BG":
-        confidence_match = re.fullmatch(r"(.+)\uff08(\d{1,3})%\uff09", title)
+        confidence_match = re.fullmatch(
+            rf"(.+){re.escape(_BG_CONFIDENCE_PREFIX)}"
+            rf"(\d{{1,3}}){re.escape(_BG_CONFIDENCE_SUFFIX)}",
+            title,
+        )
         if confidence_match is None:
             raise ValueError(
-                "BG visible description must end with full-width '(confidence%)' notation"
+                "BG visible description must end with the confidence notation shown in "
+                "Guide_Doc/dut_bug_analysis.md section 5.1"
             )
         title = confidence_match.group(1).strip()
         label_match = re.fullmatch(r"BG-.+-(\d{1,3})", label)
@@ -131,7 +177,7 @@ def waveform_record_heading(test_case_tag: str, test_title: str) -> str:
 
     title = normalize_display_title(test_title)
     return (
-        f"### {title}\u6ce2\u5f62 "
+        f"### {title}{_WAVEFORM_TITLE_SUFFIX} "
         f"<{waveform_record_tag(test_case_tag)}>"
     )
 
@@ -143,13 +189,15 @@ def parse_waveform_record_heading(line: str) -> tuple[str, str]:
     if match is None:
         raise ValueError(
             "use a level-3 heading with a visible test description, the required "
-            "localized waveform suffix, and <WAVEFORM-TC-...> at line end"
+            "waveform suffix shown in Guide_Doc/dut_bug_analysis.md section 5.1, "
+            "and <WAVEFORM-TC-...> at line end"
         )
     visible = match.group(1)
-    suffix = "\u6ce2\u5f62"
+    suffix = _WAVEFORM_TITLE_SUFFIX
     if not visible.endswith(suffix):
         raise ValueError(
-            "waveform record visible description must end with the required localized suffix"
+            "waveform record visible description must end with the suffix shown in "
+            "Guide_Doc/dut_bug_analysis.md section 5.1"
         )
     title = normalize_display_title(visible[: -len(suffix)])
     test_case_tag = normalize_test_case_tag(match.group(2)[len("WAVEFORM-") :])

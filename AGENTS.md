@@ -338,8 +338,16 @@ Preserve these established semantics unless the task explicitly changes them:
 ## Code Style and Scope
 
 - Match nearby style; the repository is not uniformly autoformatted.
-- Use UTF-8. Chinese is expected in runtime prompts and Guide_Doc files. Keep
-  Python identifiers and implementation comments concise and conventional.
+- Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
+  literals in generic implementation Python files outside the language tree,
+  including Unicode escapes that decode to Chinese at runtime. When generic
+  Python needs localized titles, templates, prompt text, or diagnostic guidance,
+  load them from the matching `ucagent/lang/<lang>/` resource instead of
+  duplicating them in Python.
+- Keep generic checker and tool diagnostics language-neutral. Refer to stable
+  field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a
+  locale's full display-title list into generic runtime messages.
+- Keep Python identifiers and implementation comments concise and conventional.
 - Prefer standard parsers and structured data over ad hoc string replacement.
 - Add comments only for non-obvious lifecycle, security, or parsing logic.
 - Avoid broad abstractions for a single checker/tool unless they clearly reduce

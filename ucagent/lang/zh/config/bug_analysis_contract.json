@@ -1,0 +1,28 @@
+{
+  "generic_visible_titles": [
+    "功能组",
+    "功能组：",
+    "功能",
+    "功能：",
+    "检测点",
+    "检测点：",
+    "动态 Bug",
+    "失败用例",
+    "失败用例："
+  ],
+  "bg_confidence": {
+    "prefix": "（",
+    "suffix": "%）"
+  },
+  "waveform_title_suffix": "波形",
+  "analysis_section_titles": {
+    "overview": "###### Bug 概述",
+    "symptoms": "###### 现象与严重度",
+    "trigger": "###### 触发条件与影响",
+    "root_cause": "###### 根因分析",
+    "source_evidence": "###### 源码证据",
+    "causal_chain": "###### 动态因果链",
+    "fix": "###### 修复建议",
+    "retest": "###### 风险与复验"
+  }
+}

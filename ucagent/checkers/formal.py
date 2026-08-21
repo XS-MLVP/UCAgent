@@ -295,7 +295,9 @@ class FormalSpecJsonChecker(BaseFormalChecker):
         # FG-API is required at ck level
         if self._check_level == "ck":
             if not any(fid.startswith("FG-API") for fid in fg_ids):
-                errors.append("Missing required 'FG-API' function group (环境约束).")
+                errors.append(
+                    "Missing required 'FG-API' function group (environment constraints)."
+                )
 
         self._counts = {"fg": len(fg_ids), "fc": fc_count, "ck": ck_count}
 
@@ -592,13 +594,12 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
 
         # 6d: Field completeness, [LLM-TODO] detection, and enum validity
         _TT_REQUIRED = ["root_cause", "action", "analysis"]
-        _TT_LABELS = {"root_cause": "根因分类", "action": "修复动作", "analysis": "分析"}
         for prop, entry in tt_entries.items():
             for field_key in _TT_REQUIRED:
                 val = entry.get(field_key, "")
                 if val is None or self._is_unfilled(str(val)):
                     errors.append(
-                        f"❌ <TT> entry '{prop}': field '{_TT_LABELS[field_key]}' "
+                        f"❌ <TT> entry '{prop}': field '{field_key}' "
                         f"is unfilled. Fill this in .formal_records.yaml → analysis.tt_entries."
                     )
 
@@ -614,13 +615,12 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                     errors.append(f"❌ <TT> entry '{prop}' has invalid action: '{action}'.")
 
         _FA_REQUIRED = ["resolution", "analysis"]
-        _FA_LABELS = {"resolution": "解决状态", "analysis": "分析/反例"}
         for prop, entry in fa_entries.items():
             for field_key in _FA_REQUIRED:
                 val = entry.get(field_key, "")
                 if val is None or self._is_unfilled(str(val)):
                     errors.append(
-                        f"❌ <FA> entry '{prop}': field '{_FA_LABELS[field_key]}' "
+                        f"❌ <FA> entry '{prop}': field '{field_key}' "
                         f"is unfilled. Fill this in .formal_records.yaml → analysis.fa_entries."
                     )
 
@@ -639,7 +639,7 @@ class EnvironmentAnalysisChecker(BaseFormalChecker):
                 f"❌ {len(unresolved_env)} ENV_PENDING properties are analyzed but NOT yet resolved:\n"
                 + "\n".join(f"  - '{p}'" for p in unresolved_env) + "\n"
                 f"  Hint: Re-run verification after adding/modifying assume constraints, "
-                f"then update the '解决状态' field to 'ENV_FIXED'."
+                f"then update the 'resolution' field to 'ENV_FIXED'."
             )
 
         return errors, warnings
@@ -984,8 +984,8 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
                     details=(
                         f"Please create '{self.paths.test_file}'. "
                         "Since no RTL_BUG properties were found, "
-                        "the file should contain a comment: "
-                        "'# 形式化验证未发现 RTL 缺陷，无需生成反例测试用例'"
+                        "the file should contain a comment explaining that no RTL defects "
+                        "were found and no counterexample tests are required."
                     ),
                 )
             return self._fail(
@@ -997,16 +997,8 @@ class CounterexampleTestgenChecker(BaseFormalChecker):
                 ),
             )
 
-        with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
-            test_content = f.read()
-
         # Step 3: No RTL bugs case
         if not rtl_bugs:
-            # Just verify the file exists and has the no-defects comment
-            if '无需生成反例测试' in test_content or '未发现 RTL 缺陷' in test_content or 'no RTL defect' in test_content.lower():
-                return True, {
-                    "message": "✅ No RTL_BUG properties found; test file correctly indicates no defects",
-                }
             return True, {
                 "message": "✅ No RTL_BUG properties found; test file exists",
                 "note": "Consider adding a comment indicating no RTL defects were found",

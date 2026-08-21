@@ -513,8 +513,8 @@ def _parse_waveform_analysis_blocks(
                 "error": (
                     f"[Waveform Record Title Error] Record "
                     f"<{_waveform_record_tag(test_label)}> at line {index + 1} must "
-                    "reuse the associated TC's visible description; "
-                    f"found {record_title!r}, expected {sorted(referenced_titles)!r}."
+                    "reuse the associated TC's visible description exactly. Update the "
+                    "record heading to match the TC heading."
                 )
             }
         heading_line = index + 1
@@ -777,8 +777,10 @@ def _parse_bug_analysis_sections(content: str) -> tuple[dict[str, dict], list[di
                 {
                     "line_offset": line_offset(marker_match.start()),
                     "problem": (
-                        f"field {key!r} must use canonical title {title!r} immediately "
-                        f"before marker {marker!r}; found {len(title_matches)} title occurrence(s)"
+                        f"field {key!r} must use its exact level-6 title "
+                        f"immediately before marker {marker!r}; found "
+                        f"{len(title_matches)} matching title occurrence(s). See "
+                        "Guide_Doc/dut_bug_analysis.md section 5.1"
                     ),
                 }
             )
@@ -791,8 +793,9 @@ def _parse_bug_analysis_sections(content: str) -> tuple[dict[str, dict], list[di
                 {
                     "line_offset": line_offset(marker_match.start()),
                     "problem": (
-                        f"field {key!r} must place canonical title {title!r} immediately "
-                        f"before marker {marker!r}"
+                        f"field {key!r} must place its exact level-6 title "
+                        f"immediately before marker {marker!r}. See "
+                        "Guide_Doc/dut_bug_analysis.md section 5.1"
                     ),
                 }
             )
@@ -2220,7 +2223,7 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
                                 *fc.description_bug_doc(),
                                 "5. Never use 'lambda x: True', assert False, a weakened check, or <BG-*-0> to force a classification result.",
                                 "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
-                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`， but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
+                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`, but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
                                 "Important: If it is determined to be a sampling or checking logic issue, you MUST fix it to ensure correct coverage collection and checking."
                                 ], -1
 
