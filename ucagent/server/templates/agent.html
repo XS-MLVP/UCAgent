@@ -353,6 +353,10 @@ textarea#edit-content{flex:1;background:var(--bg);color:var(--text);border:none;
 #view-md code{background:var(--bg3);border-radius:3px;padding:1px 5px;font-family:var(--mono);font-size:12px}
 #view-md pre{background:var(--bg3);border-radius:var(--radius);padding:12px;overflow:auto;margin:8px 0}
 #view-md pre code{background:none;padding:0}
+#view-md details.md-yaml-block{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);margin:8px 0;overflow:hidden}
+#view-md details.md-yaml-block>summary{color:var(--text-dim);cursor:pointer;font-family:var(--mono);font-size:12px;font-weight:600;padding:7px 12px;user-select:none}
+#view-md details.md-yaml-block>summary:hover{color:var(--text-bright)}
+#view-md details.md-yaml-block>pre{border-radius:0;border-top:1px solid var(--border);margin:0}
 #view-md a{color:var(--accent)}
 #view-md blockquote{border-left:3px solid var(--border);padding-left:12px;color:var(--text-dim);margin:8px 0}
 #view-md table{border-collapse:collapse;margin:8px 0;width:100%}
@@ -2308,11 +2312,27 @@ function _renderViewCode(content,ext){
   pre.onscroll=()=>{gutter.scrollTop=pre.scrollTop;};
 }
 
+function _collapseMarkdownYamlBlocks(root){
+  if(!root)return;
+  root.querySelectorAll("pre > code").forEach(code=>{
+    if(!code.classList.contains("language-yaml")&&!code.classList.contains("language-yml"))return;
+    const pre=code.parentElement;
+    if(!pre||pre.parentElement?.classList.contains("md-yaml-block"))return;
+    const details=document.createElement("details");
+    details.className="md-yaml-block";
+    const summary=document.createElement("summary");
+    summary.textContent="YAML";
+    pre.replaceWith(details);
+    details.append(summary,pre);
+  });
+}
+
 function _renderViewMarkdown(content){
   const el=qs("#view-md");
   if(!el)return;
   try{el.innerHTML=typeof marked!=="undefined"?marked.parse(content):'<pre>'+esc(content)+'</pre>';}
   catch(e){el.innerHTML='<pre>'+esc(content)+'</pre>';}
+  _collapseMarkdownYamlBlocks(el);
   _decorateWaveformViewerLinks(el);
 }
 
