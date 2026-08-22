@@ -129,9 +129,117 @@ class TestFileOpsTools(unittest.TestCase):
             context_after=1,
         )
 
-        self.assertIn("Line 2 (context):     def method", result)
-        self.assertIn("Line 3:         return 42", result)
-        self.assertIn("Line 4 (context):     # comment", result)
+        self.assertIn(
+            "indented.py:\n```text\n"
+            "2:     def method(self):\n"
+            "3:         return 42\n"
+            "4:     # comment\n```",
+            result,
+        )
+        self.assertEqual(result.count("indented.py"), 1)
+
+    def test_search_text_defaults_to_one_context_line(self):
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="Line 2",
+            directory="simple.txt",
+        )
+
+        self.assertIn(
+            "simple.txt:\n```text\n"
+            "1: Line 1\n"
+            "2: Line 2\n"
+            "3: Line 3\n```",
+            result,
+        )
+
+    def test_search_text_groups_matches_and_separates_context_ranges(self):
+        target = os.path.join(self.workspace, "grouped.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write(
+                "before first\nfirst match\nafter first\n"
+                "omitted one\nomitted two\n"
+                "before second\nsecond match\nafter second\n"
+            )
+
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="match",
+            directory="grouped.txt",
+        )
+
+        self.assertEqual(result.count("grouped.txt"), 1)
+        self.assertEqual(result.count("```text"), 1)
+        self.assertIn(
+            "1: before first\n"
+            "2: first match\n"
+            "3: after first\n"
+            "...\n"
+            "6: before second\n"
+            "7: second match\n"
+            "8: after second",
+            result,
+        )
+        self.assertNotIn("omitted one", result)
+
+    def test_search_text_can_disable_context_and_line_numbers(self):
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="Line 2",
+            directory="simple.txt",
+            context_before=0,
+            context_after=0,
+            include_line_numbers=False,
+        )
+
+        self.assertIn("simple.txt:\n```text\nLine 2\n```", result)
+        self.assertNotIn("Line 1", result)
+        self.assertNotIn("2: Line 2", result)
+
+    def test_search_text_context_arguments_default_to_one(self):
+        schema = ArgSearchText.model_json_schema()
+
+        self.assertEqual(schema["properties"]["context_before"]["default"], 1)
+        self.assertEqual(schema["properties"]["context_after"]["default"], 1)
+
+    def test_search_text_directory_results_use_workspace_relative_paths(self):
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="Nested file",
+        )
+
+        self.assertIn("subdir/nested.txt:\n```text", result)
+        self.assertNotIn("../", result)
+
+    def test_search_text_truncation_stays_inside_the_file_block(self):
+        target = os.path.join(self.workspace, "many-matches.txt")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("match one\nafter one\nmatch two\nafter two\n")
+
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="match",
+            directory="many-matches.txt",
+            max_match_lines=1,
+        )
+
+        self.assertEqual(result.count("many-matches.txt"), 1)
+        self.assertIn(
+            "1: match one\n"
+            "2: after one\n"
+            "... (truncated to 1 matching line)\n```",
+            result,
+        )
+
+    def test_search_text_uses_a_safe_fence_for_markdown_content(self):
+        target = os.path.join(self.workspace, "fenced.md")
+        with open(target, "w", encoding="utf-8") as file_obj:
+            file_obj.write("before\n```python\nmatch\n```\nafter\n")
+
+        result = SearchText(workspace=self.workspace)._run(
+            pattern="match",
+            directory="fenced.md",
+            context_before=2,
+            context_after=1,
+        )
+
+        self.assertIn("fenced.md:\n````text\n", result)
+        self.assertTrue(result.endswith("````"))
 
     def test_search_text_bounds_regex_execution_time(self):
         target = os.path.join(self.workspace, "regex-timeout.txt")

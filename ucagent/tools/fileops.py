@@ -460,16 +460,16 @@ class ArgSearchText(StrictToolArgs):
         description="If True, include line numbers in results. If False, show only the matching content."
     )
     context_before: int = Field(
-        default=0,
+        default=1,
         ge=0,
         le=20,
-        description="Number of original lines to return before each match."
+        description="Number of original lines to return before each match (default: 1)."
     )
     context_after: int = Field(
-        default=0,
+        default=1,
         ge=0,
         le=20,
-        description="Number of original lines to return after each match."
+        description="Number of original lines to return after each match (default: 1)."
     )
     regex_timeout_ms: int = Field(
         default=50,
@@ -483,7 +483,10 @@ class SearchText(UCTool, BaseReadWrite):
     name: str = "SearchText"
     description: str = (
         "Search for text in files within the workspace directory with support for plain text, wildcards, and regex patterns. "
-        "Returns a list of matching files with line numbers and content. Supports case-sensitive/insensitive search."
+        "Each matching file is returned once with a fenced code block containing line-numbered matching lines and optional "
+        "context (one line before and after by default). For example: "
+        "'path/to/file.py:\\n```text\\n29: matching line\\n30: nearby line\\n```'. "
+        "Supports case-sensitive/insensitive search."
     )
     args_schema: Optional[ArgsSchema] = ArgSearchText
     return_direct: bool = False
@@ -492,13 +495,20 @@ class SearchText(UCTool, BaseReadWrite):
 
     def _run(self, pattern: str, directory: str = "", max_match_lines: int = 20, max_match_files: int = 10,
              use_regex: bool = False, case_sensitive: bool = False, include_line_numbers: bool = True,
-             context_before: int = 0, context_after: int = 0,
+             context_before: int = 1, context_after: int = 1,
              regex_timeout_ms: int = 50,
              run_manager: Optional[CallbackManagerForToolRun] = None) -> str:
         """Search for text in files within a workspace directory."""
         if not pattern:
             self.do_callback(False, directory, "No text pattern provided for search.")
             return str_error("No text pattern provided for search.")
+        if not 0 <= context_before <= 20 or not 0 <= context_after <= 20:
+            error_msg = (
+                "Context line counts must be between 0 and 20: "
+                f"context_before={context_before}, context_after={context_after}."
+            )
+            self.do_callback(False, directory, error_msg)
+            return str_error(error_msg)
         
         result = []
         count_files = 0
@@ -558,7 +568,12 @@ class SearchText(UCTool, BaseReadWrite):
                             )
                         if line_matches and local_matches >= max_match_lines:
                             truncated = True
-                            break
+                            if line_number <= include_until:
+                                local_lines.setdefault(line_number, (raw_line, False))
+                            if line_number >= include_until:
+                                break
+                            before_lines.append((line_number, raw_line))
+                            continue
                         if line_matches:
                             local_matches += 1
                             for previous_number, previous_line in before_lines:
@@ -574,17 +589,41 @@ class SearchText(UCTool, BaseReadWrite):
                 info(f"Could not read file {sfile}: {str(e)}")
                 return False
 
-            for line_number, (line, is_match) in local_lines.items():
-                if include_line_numbers:
-                    context_label = "" if is_match else " (context)"
-                    result.append(f"{fname}: Line {line_number}{context_label}: {line}")
-                else:
-                    result.append(f"{fname}: {line}")
-            count_lines += local_matches
-            if truncated:
+            if local_lines:
+                rendered_lines = []
+                previous_line_number = None
+                for line_number, (line, _) in sorted(local_lines.items()):
+                    if (
+                        previous_line_number is not None
+                        and line_number > previous_line_number + 1
+                    ):
+                        rendered_lines.append("...")
+                    if include_line_numbers:
+                        rendered_lines.append(f"{line_number}: {line}")
+                    else:
+                        rendered_lines.append(line)
+                    previous_line_number = line_number
+                if truncated:
+                    match_label = "line" if max_match_lines == 1 else "lines"
+                    rendered_lines.append(
+                        f"... (truncated to {max_match_lines} matching {match_label})"
+                    )
+                content = "\n".join(rendered_lines)
+                longest_backtick_run = 0
+                current_backtick_run = 0
+                for character in content:
+                    if character == "`":
+                        current_backtick_run += 1
+                        longest_backtick_run = max(
+                            longest_backtick_run, current_backtick_run
+                        )
+                    else:
+                        current_backtick_run = 0
+                fence = "`" * max(3, longest_backtick_run + 1)
                 result.append(
-                    f"... ({fname} truncated to {max_match_lines} matching lines)"
+                    f"{fname}:\n{fence}text\n{content}\n{fence}"
                 )
+            count_lines += local_matches
             return local_matches > 0
 
         try:
@@ -599,18 +638,22 @@ class SearchText(UCTool, BaseReadWrite):
                 self.do_callback(False, directory, str(exc))
                 return str_error(str(exc))
             if count_lines > 0:
-                ret_head = str_info(f"\nFound {count_lines} matching lines in file {directory}.\n\n")
+                line_label = "line" if count_lines == 1 else "lines"
+                ret_head = str_info(
+                    f"\nFound {count_lines} matching {line_label} in 1 file.\n\n"
+                )
                 self.do_callback(True, directory, result)
-                return ret_head + str_return("\n".join(result))
+                return ret_head + str_return("\n\n".join(result))
         else:
             success, msg, real_path = self.check_dir(directory)
             if not success:
                 self.do_callback(False, directory, msg)
                 return str_error(msg)
             info(f"Searching for text '{pattern}' in {real_path}")
+            resolved_workspace = str(Path(self.workspace).resolve())
             for root, dirs, files in os.walk(real_path):
-                relative_root = os.path.relpath(root, self.workspace)
-                dirs[:] = [
+                relative_root = os.path.relpath(root, resolved_workspace)
+                dirs[:] = sorted([
                     directory_name for directory_name in dirs
                     if not (
                         (self.ignore_hidden and directory_name.startswith('.'))
@@ -619,17 +662,20 @@ class SearchText(UCTool, BaseReadWrite):
                             self.ignore_pattern_list,
                         )
                     )
-                ]
-                for file in files:
+                ])
+                for file in sorted(files):
                     if self.ignore_hidden and file.startswith('.'):
                         continue
-                    if match_pattern_list(os.path.join(os.path.relpath(root, self.workspace), file), self.ignore_pattern_list):
+                    relative_file = os.path.relpath(
+                        os.path.join(root, file), resolved_workspace
+                    ).replace(os.sep, "/")
+                    if match_pattern_list(relative_file, self.ignore_pattern_list):
                         continue
                     file_path = os.path.join(root, file)
                     if not is_text_file(file_path):
                         continue
                     try:
-                        if search_in_file(pattern, file_path, os.path.relpath(file_path, self.workspace)):
+                        if search_in_file(pattern, file_path, relative_file):
                             count_files += 1
                     except TimeoutError as exc:
                         self.do_callback(False, directory, str(exc))
@@ -640,9 +686,14 @@ class SearchText(UCTool, BaseReadWrite):
                 if count_files >= max_match_files:
                     break
             if result:
-                ret_head = str_info(f"\nFound {count_files} files with {count_lines} matching lines.\n\n")
+                file_label = "file" if count_files == 1 else "files"
+                line_label = "line" if count_lines == 1 else "lines"
+                ret_head = str_info(
+                    f"\nFound {count_lines} matching {line_label} in "
+                    f"{count_files} {file_label}.\n\n"
+                )
                 self.do_callback(True, directory, result)
-                return ret_head + str_return("\n".join(result))
+                return ret_head + str_return("\n\n".join(result))
             self.do_callback(False, directory, None)
         return str_error(f"No matches found for '{pattern}' in the specified directory({directory if directory else '.'}).")
 

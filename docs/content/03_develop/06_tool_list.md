@@ -91,6 +91,9 @@
     - use_regex: bool — 是否使用正则
     - case_sensitive: bool — 区分大小写
     - include_line_numbers: bool — 返回是否带行号
+    - context_before: int — 每个命中前返回的上下文行数（0–20，默认 1）
+    - context_after: int — 每个命中后返回的上下文行数（0–20，默认 1）
+  - 返回：每个命中文件仅显示一次文件名，其后为带原始行号的代码块；重叠的上下文会自动合并，不连续的片段以 `...` 分隔。
 
 - FindFiles（FindFiles）
   - 用途：按通配符查找文件。
