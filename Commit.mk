@@ -11,11 +11,12 @@ EXPECTED_BRANCH ?= dwl
 WORKFLOW_BUILDER_PATH ?= examples/workflow_builder
 WORKFLOW_BUILDER_DOCS_PATH ?= docs/content/extension/workflow_builder
 DOCS_NAV_PATH ?= docs/mkdocs.yml
+DOCS_PANDOC_PATH ?= docs/pandoc.mk
 COMMIT_MAKEFILE_PATH ?= Commit.mk
 MAX_FILE_MB ?= 10
 MSG ?=
 
-ALLOWED_PATHS := $(WORKFLOW_BUILDER_PATH) $(WORKFLOW_BUILDER_DOCS_PATH) $(DOCS_NAV_PATH) $(COMMIT_MAKEFILE_PATH)
+ALLOWED_PATHS := $(WORKFLOW_BUILDER_PATH) $(WORKFLOW_BUILDER_DOCS_PATH) $(DOCS_NAV_PATH) $(DOCS_PANDOC_PATH) $(COMMIT_MAKEFILE_PATH)
 
 # Negative pathspecs prevent runtime and AI-assistant files from entering the
 # index in the first place. The post-stage purge and verify rules below remain
@@ -24,6 +25,7 @@ STAGE_PATHS := \
 	':(top)$(WORKFLOW_BUILDER_PATH)' \
 	':(top)$(WORKFLOW_BUILDER_DOCS_PATH)' \
 	':(top)$(DOCS_NAV_PATH)' \
+	':(top)$(DOCS_PANDOC_PATH)' \
 	':(top)$(COMMIT_MAKEFILE_PATH)' \
 	':(top,exclude)$(WORKFLOW_BUILDER_PATH)/workspace' \
 	':(top,exclude,glob)$(WORKFLOW_BUILDER_PATH)/workspace/**' \
@@ -100,6 +102,9 @@ repo-check:
 	@test -f "$(REPO_ROOT)/$(DOCS_NAV_PATH)" || { \
 		echo 'Error: missing $(DOCS_NAV_PATH) below $(REPO_ROOT).' >&2; exit 2; \
 	}
+	@test -f "$(REPO_ROOT)/$(DOCS_PANDOC_PATH)" || { \
+		echo 'Error: missing $(DOCS_PANDOC_PATH) below $(REPO_ROOT).' >&2; exit 2; \
+	}
 
 branch: repo-check
 	@current="$$($(GIT) branch --show-current)"; \
@@ -167,8 +172,9 @@ verify: branch
 		-v workflow='$(WORKFLOW_BUILDER_PATH)/' \
 		-v docs='$(WORKFLOW_BUILDER_DOCS_PATH)/' \
 		-v nav='$(DOCS_NAV_PATH)' \
+		-v pandoc='$(DOCS_PANDOC_PATH)' \
 		-v helper='$(COMMIT_MAKEFILE_PATH)' \
-		'$$0 == nav || $$0 == helper || index($$0, workflow) == 1 || index($$0, docs) == 1 { next } { print }')"; \
+		'$$0 == nav || $$0 == pandoc || $$0 == helper || index($$0, workflow) == 1 || index($$0, docs) == 1 { next } { print }')"; \
 	if [[ -n "$$outside" ]]; then \
 		echo 'Error: staged paths outside the allowed scope:' >&2; \
 		printf '  %s\n' $$outside >&2; exit 2; \
