@@ -38,7 +38,7 @@ REQUIRED = [
     "02_usage/05_增量修复与版本管理.md",
     "02_usage/06_提示词使用方法.md",
     "02_usage/提示词.md",
-    "04_q_and_experience/00_Q&A与经验总述.md",
+    "04_q_and_experience/00_QA与经验总述.md",
     "04_q_and_experience/01_安装与环境问题.md",
     "04_q_and_experience/02_运行与阶段失败.md",
     "04_q_and_experience/03_评估审批与增量修复.md",
