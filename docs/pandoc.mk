@@ -5,11 +5,8 @@
 DOC := ucagent-doc
 VERSION := $(shell git describe --always --dirty --tags 2>/dev/null || git rev-parse --short HEAD)
 
-# Keep Make prerequisites as raw paths, but pass a separately shell-escaped list
-# to Pandoc. Documentation titles may legitimately contain spaces, Chinese text,
-# or shell metacharacters such as the '&' in Q&A filenames.
-DOC_SRCS := $(shell find docs/content -type f -name "*.md" -printf "%p\n" | sort)
-PANDOC_SRCS := $(shell find docs/content -type f -name "*.md" -print0 | sort -z | xargs -0 -r bash -c 'for path; do printf "%q " "$$path"; done' _)
+# Auto-generate SRCS by sorting filenames (by basename) with numeric prefixes
+SRCS := $(shell find docs/content -type f -name "*.md" -printf "%p\n" | sort)
 
 # Auto-generate resource paths from directories containing images
 RESOURCE_DIRS := $(shell find docs/content -type f \( -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" -o -name "*.svg" \) -printf "%h\n" | sort -u | tr '\n' ':' | sed 's/:$$//')

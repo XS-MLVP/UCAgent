@@ -11,10 +11,16 @@ EXPECTED_BRANCH ?= dwl
 WORKFLOW_BUILDER_PATH ?= examples/workflow_builder
 WORKFLOW_BUILDER_DOCS_PATH ?= docs/content/extension/workflow_builder
 COMMIT_MAKEFILE_PATH ?= Commit.mk
+RESTORE_SHARED_DOCS ?= 0
 MAX_FILE_MB ?= 10
 MSG ?=
 
-ALLOWED_PATHS := $(WORKFLOW_BUILDER_PATH) $(WORKFLOW_BUILDER_DOCS_PATH) $(COMMIT_MAKEFILE_PATH)
+SHARED_DOC_RESTORE_PATHS :=
+ifeq ($(RESTORE_SHARED_DOCS),1)
+SHARED_DOC_RESTORE_PATHS := docs/mkdocs.yml docs/pandoc.mk
+endif
+
+ALLOWED_PATHS := $(WORKFLOW_BUILDER_PATH) $(WORKFLOW_BUILDER_DOCS_PATH) $(SHARED_DOC_RESTORE_PATHS) $(COMMIT_MAKEFILE_PATH)
 
 # Negative pathspecs prevent runtime and AI-assistant files from entering the
 # index in the first place. The post-stage purge and verify rules below remain
@@ -22,6 +28,7 @@ ALLOWED_PATHS := $(WORKFLOW_BUILDER_PATH) $(WORKFLOW_BUILDER_DOCS_PATH) $(COMMIT
 STAGE_PATHS := \
 	':(top)$(WORKFLOW_BUILDER_PATH)' \
 	':(top)$(WORKFLOW_BUILDER_DOCS_PATH)' \
+	$(foreach path,$(SHARED_DOC_RESTORE_PATHS),':(top)$(path)') \
 	':(top)$(COMMIT_MAKEFILE_PATH)' \
 	':(top,exclude)$(WORKFLOW_BUILDER_PATH)/workspace' \
 	':(top,exclude,glob)$(WORKFLOW_BUILDER_PATH)/workspace/**' \
@@ -85,7 +92,8 @@ help:
 	  '  make -f Commit.mk unstage' \
 	  '      Unstage this helper scope without changing working-tree files.' \
 	  '' \
-	  'Overrides: EXPECTED_BRANCH=dwl MAX_FILE_MB=10 WORKFLOW_BUILDER_PATH=examples/workflow_builder'
+	  'Overrides: EXPECTED_BRANCH=dwl MAX_FILE_MB=10 WORKFLOW_BUILDER_PATH=examples/workflow_builder' \
+	  '  RESTORE_SHARED_DOCS=1 includes only the pending reverts for docs/mkdocs.yml and docs/pandoc.mk.'
 
 repo-check:
 	@test -n "$(REPO_ROOT)" || { echo 'Error: Commit.mk is not inside a Git repository.' >&2; exit 2; }
@@ -161,8 +169,9 @@ verify: branch
 	outside="$$(printf '%s\n' "$$staged" | awk \
 		-v workflow='$(WORKFLOW_BUILDER_PATH)/' \
 		-v docs='$(WORKFLOW_BUILDER_DOCS_PATH)/' \
+		-v restore='$(RESTORE_SHARED_DOCS)' \
 		-v helper='$(COMMIT_MAKEFILE_PATH)' \
-		'$$0 == helper || index($$0, workflow) == 1 || index($$0, docs) == 1 { next } { print }')"; \
+		'$$0 == helper || index($$0, workflow) == 1 || index($$0, docs) == 1 || (restore == "1" && ($$0 == "docs/mkdocs.yml" || $$0 == "docs/pandoc.mk")) { next } { print }')"; \
 	if [[ -n "$$outside" ]]; then \
 		echo 'Error: staged paths outside the allowed scope:' >&2; \
 		printf '  %s\n' $$outside >&2; exit 2; \

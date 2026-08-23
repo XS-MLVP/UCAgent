@@ -1,3 +1,10 @@
+---
+classoption:
+  - fontset=none
+CJKmainfont: Noto Serif CJK SC
+CJKsansfont: Noto Sans CJK SC
+---
+
 # Workflow Builder 文档中心
 
 本目录是 Workflow Builder 的完整使用和维护文档入口。Workflow Builder 的职责不是直接完成某个业务，而是根据用户提供的需求文档和样例输入，生成一个可以独立运行、检查、评估和增量维护的 UCAgent 子工作流。阅读文档时必须区分两层对象：当前仓库中的“构建工作流”和最终生成到业务工作区中的“业务工作流”。二者都有 Makefile、配置文件和运行阶段，但工作目录、输入输出和修改边界不同。

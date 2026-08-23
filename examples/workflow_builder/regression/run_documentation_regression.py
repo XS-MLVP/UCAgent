@@ -49,6 +49,7 @@ REQUIRED = [
 
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 FENCED_CODE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
+YAML_FRONT_MATTER = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
 
 DEVELOPER_REQUIREMENTS = {
     "00_开发者文档总述.md": {
@@ -136,6 +137,11 @@ def effective_prose_length(content: str) -> int:
     prose = FENCED_CODE.sub("", content)
     prose = re.sub(r"<!--.*?-->", "", prose, flags=re.DOTALL)
     return len(re.sub(r"\s+", "", prose))
+
+
+def markdown_body(content: str) -> str:
+    """Remove optional document metadata before checking the visible Markdown body."""
+    return YAML_FRONT_MATTER.sub("", content, count=1)
 
 
 def make_targets() -> set[str]:
@@ -230,7 +236,7 @@ def main() -> int:
     documents = sorted(DOCS.rglob("*.md"))
     for document in documents:
         content = document.read_text(encoding="utf-8")
-        if not content.startswith("# "):
+        if not markdown_body(content).startswith("# "):
             failures.append(f"{document.relative_to(REPO_ROOT)}: missing H1")
         linkable_content = FENCED_CODE.sub("", content)
         for raw_target in LINK.findall(linkable_content):
