@@ -10,11 +10,11 @@ from pathlib import Path
 
 import yaml
 
-from workflow_builder.command_runner import WorkflowCommandError, run_restricted_command
-from workflow_builder.core import TOOL_SPEC_CHECKER
-from workflow_builder.plan_contract import append_record, validate_records
-from workflow_guidedoc_generator.core import generate_guidedocs
-from workflow_tool_generator.core import (
+from examples.workflow_builder.tools.workflow_builder.command_runner import WorkflowCommandError, run_restricted_command
+from examples.workflow_builder.tools.workflow_builder.core import TOOL_SPEC_CHECKER
+from examples.workflow_builder.tools.workflow_builder.plan_contract import append_record, validate_records
+from examples.workflow_builder.tools.workflow_guidedoc_generator.core import generate_guidedocs
+from examples.workflow_builder.tools.workflow_tool_generator.core import (
     ToolGenerationError,
     generate_tools,
     generate_tools_from_specs,

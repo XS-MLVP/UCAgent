@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from workflow_builder.uc_checkers import WorkflowRequirementCoverageChecker
+from examples.workflow_builder.tools.workflow_builder.uc_checkers import WorkflowRequirementCoverageChecker
 
 
 def _write_yaml(path: Path, value: dict) -> None:

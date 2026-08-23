@@ -11,9 +11,9 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from examples.workflow_builder.workflow_evaluation_control.json_store import load_document, mutate_document
-from examples.workflow_builder.workflow_evaluation_control import design_monitor
-from examples.workflow_builder.workflow_evaluation_control.review_server import (
+from examples.workflow_builder.tools.workflow_evaluation_control.json_store import load_document, mutate_document
+from examples.workflow_builder.tools.workflow_evaluation_control import design_monitor
+from examples.workflow_builder.tools.workflow_evaluation_control.review_server import (
     ReviewHandler,
     ThreadingHTTPServer,
     initialize_workspace,
@@ -182,7 +182,7 @@ def main() -> None:
                 "findings": [{
                     "id": "tool-finding-1",
                     "fingerprint": "tool-finding-fingerprint",
-                    "severity": "medium",
+                    "severity": "info",
                     "category": "contract",
                     "component": "workflow/tools/example.py",
                     "title": "Tool documentation is incomplete",
@@ -214,6 +214,7 @@ def main() -> None:
             assert 'id="workflowTreeNav"' in page and 'id="ucagentProgress"' in page
             assert 'id="documentOutlinePanel"' not in page and 'id="incrementalFileNav"' in page
             assert 'id="openIncrementalPlanButton"' not in page and 'id="openWorkflowPlanButton"' not in page
+            assert 'value="info" checked' in page
             metadata = request_json(base_url, "/api/meta")
             assert metadata["result"]["workspace"] == str(workspace.resolve())
             serve(workspace, "127.0.0.1", server.server_port)
@@ -226,6 +227,7 @@ def main() -> None:
             assert "designPathFromView" in script and "loadDesignSnapshot" in script
             assert "renderUcagentProgress" in script and "renderDocumentOutline" in script
             assert "planningReaderScroll" in script and "documentOutlineBar" in script
+            assert '"critical", "high", "medium", "low", "info", "user"' in script
             state = request_json(base_url, "/api/state")
             assert state["ok"] and len(state["result"]["reports"]) == 5
             finding_review_id = next(

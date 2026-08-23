@@ -132,23 +132,23 @@ prepare_workspace_state:
 		echo "[PASS] restored writable UCAgent history snapshots"; \
 	fi
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" initialize
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" validate
 
 prepare_inc_workspace: prepare_workspace_state
 	@rm -rf "$(WFB_WORKSPACE)/tmp/ui_validation"
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" start-inc-run
 
 run: prepare_input prepare_workspace_state
 	@mkdir -p $(WFB_WORKSPACE) $(WFB_WORKSPACE)/$(NORMALIZED_OUT) $(WFB_WORKSPACE)/.ucagent
 	cd $(WFB_WORKSPACE) && { \
 		PYTHONPATH="$(WORKFLOW_PYTHONPATH)" $(PYTHON) -m \
-			examples.workflow_builder.workflow_builder.history_permissions \
+			examples.workflow_builder.tools.workflow_builder.history_permissions \
 			--path "$(WFB_WORKSPACE)/.ucagent/history" \
 			--interval "$(HISTORY_GUARD_INTERVAL)" & \
 		history_guard_pid=$$!; \
@@ -185,7 +185,7 @@ run_inc: prepare_input prepare_inc_workspace
 	@mkdir -p $(WFB_WORKSPACE) $(WFB_WORKSPACE)/$(NORMALIZED_OUT) $(WFB_WORKSPACE)/.ucagent
 	@chmod -R u+w "$(WFB_WORKSPACE)/workflow" 2>/dev/null || true
 	cd $(WFB_WORKSPACE) && \
-	INC_RUN_ID="$$(PYTHONPATH="$(WORKFLOW_PYTHONPATH)" $(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" current-inc-run --plain)"; \
+	INC_RUN_ID="$$(PYTHONPATH="$(WORKFLOW_PYTHONPATH)" $(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" current-inc-run --plain)"; \
 	trap 'chmod -R u+w "$(WFB_WORKSPACE)/workflow" 2>/dev/null || true' EXIT; \
 	PYTHONPATH="$(WORKFLOW_PYTHONPATH)" UCAGENT_INC_RUN_ID="$$INC_RUN_ID" UCAGENT_OUTPUT=$(NORMALIZED_OUT) $(UCAGENT) $(WFB_WORKSPACE) $(TARGET)_inc \
 		--config $(INC_CONFIG_FILE) --output $(NORMALIZED_OUT) --guid-doc-path $(GUIDE_DOC_PATH) \
@@ -197,7 +197,7 @@ run_inc_cli: prepare_input prepare_inc_workspace
 	@mkdir -p $(WFB_WORKSPACE) $(WFB_WORKSPACE)/$(NORMALIZED_OUT) $(WFB_WORKSPACE)/.ucagent
 	@chmod -R u+w "$(WFB_WORKSPACE)/workflow" 2>/dev/null || true
 	cd $(WFB_WORKSPACE) && \
-	INC_RUN_ID="$$(PYTHONPATH="$(WORKFLOW_PYTHONPATH)" $(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" current-inc-run --plain)"; \
+	INC_RUN_ID="$$(PYTHONPATH="$(WORKFLOW_PYTHONPATH)" $(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" current-inc-run --plain)"; \
 	trap 'chmod -R u+w "$(WFB_WORKSPACE)/workflow" 2>/dev/null || true' EXIT; \
 	{ PYTHONPATH="$(WORKFLOW_PYTHONPATH)" UCAGENT_INC_RUN_ID="$$INC_RUN_ID" UCAGENT_OUTPUT=$(NORMALIZED_OUT) $(UCAGENT) $(WFB_WORKSPACE) $(TARGET)_inc \
 		--config $(INC_CONFIG_FILE) --output $(NORMALIZED_OUT) --guid-doc-path $(GUIDE_DOC_PATH) \
@@ -237,7 +237,7 @@ $(eval $(call EVAL_TARGETS,env,EVAL_ENV_CONFIG_FILE))
 
 aggregate_eval:
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" aggregate
 
 run_eval: run_eval_tools run_eval_checkers run_eval_flow run_eval_env aggregate_eval
@@ -246,38 +246,38 @@ run_eval_cli: run_eval_tools_cli run_eval_checkers_cli run_eval_flow_cli run_eva
 
 eval-review: prepare_workspace_state
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" review --show-evidence
 
 eval-list: prepare_workspace_state
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" list-review
 
 eval-approve eval-reject eval-defer: prepare_workspace_state
 	@test -n "$(ID)" || (echo "ID is required" && exit 2)
 	@test -n "$(REASON)" || (echo "REASON is required" && exit 2)
 	@action="$(@:eval-%=%)"; cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" "$$action" --id "$(ID)" --reason "$(REASON)"
 
 eval-suggest: prepare_workspace_state
 	@test -n "$(TITLE)" || (echo "TITLE is required" && exit 2)
 	@test -n "$(DESCRIPTION)" || (echo "DESCRIPTION is required" && exit 2)
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli \
 		--workspace "$(WFB_WORKSPACE)" suggest --title "$(TITLE)" \
 		--description "$(DESCRIPTION)" --priority "$(PRIORITY)"
 
 eval-ui: prepare_workspace_state
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.review_server \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.review_server \
 		--workspace "$(WFB_WORKSPACE)" --host "$(EVAL_UI_HOST)" --port "$(EVAL_UI_PORT)"
 
 define EVAL_RUNTIME_TARGETS
 run_eval_runtime_$(1): prepare_input prepare_workspace_state
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" \
 		request-run --mode $(1) --workflow-root workflow --target example
 	@chmod -R u+w "$(WFB_WORKSPACE)/.ucagent" 2>/dev/null || true
 	@rm -rf "$(WFB_WORKSPACE)/.ucagent"
@@ -290,7 +290,7 @@ run_eval_runtime_$(1): prepare_input prepare_workspace_state
 
 run_eval_runtime_$(1)_cli: prepare_input prepare_workspace_state
 	@cd "$(WFB_WORKSPACE)" && PYTHONPATH="$(WORKFLOW_PYTHONPATH)" \
-		$(PYTHON) -m examples.workflow_builder.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" \
+		$(PYTHON) -m examples.workflow_builder.tools.workflow_evaluation_control.cli --workspace "$(WFB_WORKSPACE)" \
 		request-run --mode $(1) --workflow-root workflow --target example
 	@chmod -R u+w "$(WFB_WORKSPACE)/.ucagent" 2>/dev/null || true
 	@rm -rf "$(WFB_WORKSPACE)/.ucagent"

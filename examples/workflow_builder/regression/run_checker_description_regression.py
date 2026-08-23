@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from workflow_checker_generator.core import generate_checkers_from_specs
+from examples.workflow_builder.tools.workflow_checker_generator.core import generate_checkers_from_specs
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +24,7 @@ def _load_class(path: Path, class_name: str):
 
 
 def main() -> None:
-    source_specs = sorted((ROOT / "workflow_checker_generator/test_data").glob("*_checker.yaml"))
+    source_specs = sorted((ROOT / "tools/workflow_checker_generator/test_data").glob("*_checker.yaml"))
     assert len(source_specs) == 4, source_specs
 
     with tempfile.TemporaryDirectory(prefix="checker_description_regression_") as temp:

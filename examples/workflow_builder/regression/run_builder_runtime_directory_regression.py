@@ -13,11 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from examples.workflow_builder.workflow_builder.core import build_workflow
+from examples.workflow_builder.tools.workflow_builder.core import build_workflow
 
 
 def main() -> int:
-    source = Path(__file__).resolve().parents[1] / "workflow_builder/test_data/workflow_build.yaml"
+    source = Path(__file__).resolve().parents[1] / "tools/workflow_builder/test_data/workflow_build.yaml"
     data = yaml.safe_load(source.read_text(encoding="utf-8"))
     data["root"]["path"] = "./generated"
     data["root"]["overwrite"] = False

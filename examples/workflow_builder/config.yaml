@@ -1,15 +1,15 @@
 # config4.yaml - workflow_builder self-build workflow
 
 ex_tools:
-- examples.workflow_builder.workflow_builder.uc_tools.WorkflowBuilder
-- examples.workflow_builder.workflow_builder.uc_tools.WorkflowCommandRunner
-- examples.workflow_builder.workflow_builder.uc_tools.WorkflowArtifactInspector
-- examples.workflow_builder.workflow_builder.uc_tools.WorkflowEnvironmentPreflight
-- examples.workflow_builder.workflow_builder.uc_tools.WorkflowPlanAppender
-- examples.workflow_builder.workflow_tool_generator.uc_tools.WorkflowToolGenerator
-- examples.workflow_builder.workflow_config_generator.uc_tools.WorkflowConfigGenerator
-- examples.workflow_builder.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator
-- examples.workflow_builder.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor
+- examples.workflow_builder.tools.workflow_builder.uc_tools.WorkflowBuilder
+- examples.workflow_builder.tools.workflow_builder.uc_tools.WorkflowCommandRunner
+- examples.workflow_builder.tools.workflow_builder.uc_tools.WorkflowArtifactInspector
+- examples.workflow_builder.tools.workflow_builder.uc_tools.WorkflowEnvironmentPreflight
+- examples.workflow_builder.tools.workflow_builder.uc_tools.WorkflowPlanAppender
+- examples.workflow_builder.tools.workflow_tool_generator.uc_tools.WorkflowToolGenerator
+- examples.workflow_builder.tools.workflow_config_generator.uc_tools.WorkflowConfigGenerator
+- examples.workflow_builder.tools.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator
+- examples.workflow_builder.tools.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor
 tools:
   RunTestCases:
     test_dir: .workflow/tool_tests/cases
@@ -67,7 +67,7 @@ stage:
   desc: 提取完整需求清单、输入示例契约和工作流实现计划
   task:
   - 第1步（必须首先执行）：只调用 ReadTextFile 读取 {DESC_FILE}；它是唯一需求入口。在成功读取前禁止读取其他参考文档、搜索、测试或 Check。
-  - 第2步：读取 Guide_Doc/stages/00_extract_requirements_and_plan.md，严格按其中的最小通过版本、完整示例、输入路径规则和常见问题处理流程执行；随后用 PathList(path='{TEST_INPUT_DIR}', depth=-1) 枚举示例输入并用 GetFileInfo 建立完整路径、类型和大小清单。只全文读取运行契约要求的文本文件、示例入口和直接引用文件；知识库、大型文本、素材说明和代码按相关性每批最多 2 个文件读取并立即记录摘要，禁止为建立清单而全文读取全部输入。
+  - 第2步：读取 Guide_Doc/stages/00_extract_requirements_and_plan.md，严格按其中的最小通过版本、完整示例、输入路径规则和常见问题处理流程执行；随后用 PathList(path='{TEST_INPUT_DIR}', depth=-1) 枚举示例输入并用 GetFileInfo 建立完整路径、类型和大小清单，禁止调用不存在的 ListFiles。只全文读取运行契约要求的文本文件、示例入口和直接引用文件；知识库、大型文本、素材说明和代码按相关性每批最多 2 个文件读取并立即记录摘要，禁止为建立清单而全文读取全部输入。
   - 第3步：创建 {WFGEN_DIR}/requirements_manifest.yaml、{WFGEN_DIR}/input_example_manifest.yaml 和 {WFGEN_DIR}/workflow_implementation_plan.md。requirements_manifest 的每个 required_stages 条目必须同时写精确 name、非空 label 和具体 config；标准、评估、增量阶段分别绑定 config.yaml、config/eval.yaml、config/inc.yaml，config 必须逐字匹配 required_configs 中已声明的具体文件，禁止省略后依赖 config.yaml 默认值。计划必须把用户需求扩展成可实施的工程设计而不是复述原文：每个 required_stage 使用精确英文名三级标题并至少写 200 个有效字符；每个 required_tool、固定基础设施 run_command_tool 与 required_checker 使用精确名称三级标题并至少 300 个有效正文字符。组件正文内部禁止再使用二级至六级标题，解析器从当前组件标题读取到下一个二级至六级标题为止，否则会在子标题处截断；内部结构统一使用加粗行内标记。Checker 正文必须逐字出现“使用阶段、检查对象、检查内容或验证内容、通过条件、失败条件、实现文件或入口类或 do_check、关键分支或判定流程或检查流程、异常或错误处理或失败传播、测试或 fixture 或回归、扩展点或调整方式或可配置”。“关键判定分支”不等于连续的“关键分支”，不得用它替代必需标记。Python 标准库不得列入 required_python_dependencies；禁止生成 quickstart.md、config/default.yaml 或 config/empty.yaml。
   - 第4步：严格仿照阶段指导中的 workflow_implementation_plan.md 最小可通过示例，对每个 manifest 阶段、工具和 Checker 逐项完成标题边界、有效字符数和精确标记自审；全部架构正文最终定稿后，才调用 WorkflowPlanAppender 为 extract_requirements_and_plan 追加包含五个必需三级标题的 Stage 00 记录。Appender 生成的 SHA256 覆盖此前全部字节，追加后禁止修改记录之前的任何正文，也禁止手填或替换摘要。在三份产物齐全且追加成功前禁止 Check，也不得创建 workflow_build.yaml 或 Checker 源码。
   - 第5步：运行本阶段 Check，读取并处理全部结构化结果；通过后用 SetCurrentStageJournal 记录需求数量、输入语义、示例来源、规划路径和 Checker 证据，再 Complete。
@@ -80,22 +80,22 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: extract_requirements_and_plan
   - name: requirements_manifest_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
     args:
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
       mode: manifest
   - name: workflow_implementation_plan_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowImplementationPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowImplementationPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
   - name: input_example_manifest_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowInputExampleManifestChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowInputExampleManifestChecker
     args:
       manifest_path: '{WFGEN_DIR}/input_example_manifest.yaml'
 - name: design_workflow_build_config
@@ -118,18 +118,18 @@ stage:
   - '{BUILD_CONFIG}'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: design_workflow_build_config
   - name: workflow_build_config_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowBuildConfigChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowBuildConfigChecker
     args:
       build_config_path: '{BUILD_CONFIG}'
       expected_root: '{TEST_WORKFLOW_ROOT}'
       run_planned_checker_tests: true
   - name: initial_build_requirement_coverage
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
     args:
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
       build_config_path: '{BUILD_CONFIG}'
@@ -192,19 +192,19 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/.install/manifest.json'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: build_initial_template
   - name: workflow_builder_output_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowBuildOutputChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowBuildOutputChecker
     args:
       build_config_path: '{BUILD_CONFIG}'
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       input_example_manifest_path: '{WFGEN_DIR}/input_example_manifest.yaml'
       run_make_check: false
   - name: initial_template_requirement_coverage
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
     args:
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
       build_config_path: '{BUILD_CONFIG}'
@@ -248,12 +248,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: verify_tool_generation_loop
   - name: workflow_tool_generation_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowToolGenerationChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowToolGenerationChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_make_targets: true
@@ -290,12 +290,12 @@ stage:
   - '{WFGEN_DIR}/smoke_tool_selection.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: design_smoke_business_tool_spec
   - name: workflow_business_tool_spec_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
@@ -337,12 +337,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: implement_smoke_business_tool
   - name: workflow_generated_tool_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
@@ -383,12 +383,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: strengthen_smoke_business_tool_tests
   - name: workflow_generated_tool_strengthened_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowGeneratedToolChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       tool_selection_file: '{WFGEN_DIR}/smoke_tool_selection.yaml'
@@ -460,17 +460,17 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: initialize_smoke_workflow
   - name: workflow_minimal_init_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMinimalInitChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowMinimalInitChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_make_check: true
   - name: workflow_environment_setup_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowEnvironmentSetupChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowEnvironmentSetupChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_test: true
@@ -512,12 +512,12 @@ stage:
   - '{WFGEN_DIR}/mcp_baseline_evidence.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: verify_generated_tools_through_mcp
   - name: workflow_mcp_tool_integration_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_test: true
@@ -541,12 +541,12 @@ stage:
   - '{WFGEN_DIR}/requirements_manifest.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: freeze_smoke_baseline
   - name: smoke_manifest_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
     args:
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
       mode: manifest
@@ -590,7 +590,7 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/.workflow/config_specs/inc.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: design_complete_runtime_configs
@@ -623,12 +623,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config/inc.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: generate_complete_runtime_configs
   - name: runtime_config_reference_audit
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRuntimeConfigAuditChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRuntimeConfigAuditChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
@@ -661,7 +661,7 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: design_all_business_tool_specs
@@ -690,7 +690,7 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/config.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: generate_all_business_tools
@@ -717,12 +717,12 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: run_full_tool_test_suite
   - name: full_mcp_tool_integration_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowMCPToolIntegrationChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       required_tools_file: '{WFGEN_DIR}/requirements_manifest.yaml'
@@ -754,12 +754,12 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: design_all_document_specs
   - name: guidedoc_spec_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGuideDocSpecChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowGuideDocSpecChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
@@ -784,12 +784,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/docs/05开发者文档-checkers.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: generate_all_documentation_and_dependencies
   - name: generated_guidedoc_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowGeneratedGuideDocChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowGeneratedGuideDocChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
@@ -802,12 +802,12 @@ stage:
       - '## Checks'
       - '## Failure Recovery'
   - name: generated_user_docs_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowUserDocsChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowUserDocsChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
   - name: generated_dependency_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowDependencyChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowDependencyChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
@@ -827,7 +827,7 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: generate_all_reusable_templates
@@ -869,7 +869,7 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/Makefile'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: complete_readme_and_makefile
@@ -891,7 +891,7 @@ stage:
   - '{WFGEN_DIR}/requirements_manifest.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: mark_feature_complete
@@ -915,12 +915,12 @@ stage:
   - '{WFGEN_DIR}/requirements_manifest.yaml'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: verify_final_requirement_coverage
   - name: final_requirement_coverage
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowRequirementCoverageChecker
     args:
       manifest_path: '{WFGEN_DIR}/requirements_manifest.yaml'
       workflow_root: '{TEST_WORKFLOW_ROOT}'
@@ -944,7 +944,7 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: clean_release_candidate
@@ -976,12 +976,12 @@ stage:
   - '{TEST_WORKFLOW_ROOT}/.install/packages/partial/install.py'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: prepare_and_verify_migration_packages
   - name: generated_migration_package_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_deploy_test: false
@@ -1004,12 +1004,12 @@ stage:
   - '{WFGEN_DIR}/workflow_implementation_plan.md'
   checker:
   - name: living_plan_update_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowLivingPlanChecker
     args:
       plan_path: '{WFGEN_DIR}/workflow_implementation_plan.md'
       current_stage: verify_migrated_release
   - name: final_migration_package_check
-    clss: examples.workflow_builder.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
+    clss: examples.workflow_builder.tools.workflow_builder.uc_checkers.WorkflowMigrationPackageChecker
     args:
       workflow_root: '{TEST_WORKFLOW_ROOT}'
       run_deploy_test: true

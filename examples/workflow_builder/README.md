@@ -2,7 +2,7 @@
 
 Workflow Builder 根据用户提供的 `input/guide.md` 和 `input/test_input/` 生成可独立运行、评估和增量维护的 UCAgent 业务工作流。
 
-完整文档、快速启动、开发说明和排障经验请从 **[docs/README.md](docs/README.md)** 进入。首次使用建议先执行：
+完整文档、快速启动、开发说明和排障经验请从 **[Workflow Builder 文档](../../docs/content/extension/workflow_builder/00_index.md)** 进入。首次使用建议先执行：
 
 ```bash
 python setup.py
@@ -79,20 +79,21 @@ tmux attach -t ucagent_workflow_builder -r
 ## 组件关系
 
 ```text
-workflow_builder
-  -> 创建工程骨架、Makefile、基础 config，并从 workflow_spec 直接生成业务 Checker
-workflow_tool_generator
-  -> 从 tool spec 生成工具并注册
-workflow_checker_generator
-  -> 供 Builder 物化内联 Checker、显式 fixture，也支持后续受控维护
-workflow_config_generator
-  -> 从 config spec 生成最终配置，并从 workflow_spec 注入阶段契约
-workflow_guidedoc_generator
-  -> 从 GuideDoc spec 生成指导文档并注册
-workflow_child_supervisor
-  -> 在独立 tmux 会话中启动、观察和停止长时间运行的子工作流
-workflow_evaluation_control
-  -> 校验并原子更新 eval/res JSON、聚合报告、部署显式批准的增量修改
+tools/
+  workflow_builder
+    -> 创建工程骨架、Makefile、基础 config，并从 workflow_spec 直接生成业务 Checker
+  workflow_tool_generator
+    -> 从 tool spec 生成工具并注册
+  workflow_checker_generator
+    -> 供 Builder 物化内联 Checker、显式 fixture，也支持后续受控维护
+  workflow_config_generator
+    -> 从 config spec 生成最终配置，并从 workflow_spec 注入阶段契约
+  workflow_guidedoc_generator
+    -> 从 GuideDoc spec 生成指导文档并注册
+  workflow_child_supervisor
+    -> 在独立 tmux 会话中启动、观察和停止长时间运行的子工作流
+  workflow_evaluation_control
+    -> 校验并原子更新 eval/res JSON、聚合报告、部署显式批准的增量修改
 regression
   -> 确定性验证上述生成器
 ```

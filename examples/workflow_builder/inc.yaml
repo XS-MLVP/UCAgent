@@ -1,14 +1,14 @@
 ex_tools:
-  - "examples.workflow_builder.workflow_tool_generator.uc_tools.WorkflowToolGenerator"
-  - "examples.workflow_builder.workflow_checker_generator.uc_tools.WorkflowCheckerGenerator"
-  - "examples.workflow_builder.workflow_config_generator.uc_tools.WorkflowConfigGenerator"
-  - "examples.workflow_builder.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.IncrementalContextInventory"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.IncrementalCandidateStager"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.IncrementalChangeDeployer"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+  - "examples.workflow_builder.tools.workflow_tool_generator.uc_tools.WorkflowToolGenerator"
+  - "examples.workflow_builder.tools.workflow_checker_generator.uc_tools.WorkflowCheckerGenerator"
+  - "examples.workflow_builder.tools.workflow_config_generator.uc_tools.WorkflowConfigGenerator"
+  - "examples.workflow_builder.tools.workflow_guidedoc_generator.uc_tools.WorkflowGuideDocGenerator"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalContextInventory"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalCandidateStager"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.IncrementalChangeDeployer"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.EvaluationCommandRunner"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
 tools:
   RunTestCases: {test_dir: ".workflow/tool_tests/cases"}
 template_overwrite:
@@ -55,7 +55,7 @@ stage:
     output_files: ["tmp/inc_runs/current.json"]
     checker:
       - name: generated_workflow_context_complete
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalContextReportChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalContextReportChecker"
         args: {workflow_root: "workflow", report_path: "tmp/inc_runs/current.json", resource_root: "res"}
   - name: plan_approved_changes
     desc: "验证评估结果与用户批准，形成严格限定的增量候选计划"
@@ -73,10 +73,10 @@ stage:
     output_files: ["eval/applied_changes.json"]
     checker:
       - name: approved_changes_deployed
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalApplicationChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApplicationChecker"
         args: {workflow_root: "workflow", manifest_path: "eval/applied_changes.json"}
       - name: applied_changes_have_approval
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
         args: {approvals_path: "eval/approvals.json", changes_path: "eval/applied_changes.json", require_all_current: true}
   - name: verify_and_report_increment
     desc: "在正式工作流中运行全量检查与受影响测试，只有 make check 返回零才允许完成"
@@ -89,19 +89,19 @@ stage:
     output_files: ["tmp/inc_runs/current.json", "eval/incremental_report.json"]
     checker:
       - name: incremental_report_complete
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
         args:
           report_path: "eval/incremental_report.json"
           required_checks: ["INC-AUTHORIZATION", "INC-PROVENANCE", "INC-FRESHNESS", "INC-SCOPE", "INC-CANDIDATE", "INC-SOURCE-SYNC", "INC-REGRESSION", "INC-DEPLOYMENT", "INC-RECHECK", "INC-CHALLENGE"]
       - name: incremental_guide_complete
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
         args: {guide_path: "Guide_Doc/incremental_evaluation.md", required_markers: ["INC-AUTHORIZATION", "INC-CHALLENGE"], min_effective_lines: 300}
       - name: incremental_static_audit_covered
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalAuditCoverageChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalAuditCoverageChecker"
         args: {audit_path: "tmp/inc_runs/current.json", report_path: "eval/incremental_report.json"}
       - name: incremental_make_check_passed
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalRegressionChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalRegressionChecker"
         args: {workflow_root: "workflow", manifest_path: "eval/applied_changes.json"}
       - name: all_current_approvals_deployed
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.IncrementalApprovalChecker"
         args: {approvals_path: "eval/approvals.json", changes_path: "eval/applied_changes.json", require_all_current: true}

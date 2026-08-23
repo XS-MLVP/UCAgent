@@ -288,7 +288,22 @@
 - CONTRACT-FALSEPOS-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-FALSEPOS-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 18. CONTRACT-FALSENEG-001：正例替代拒错测试
+### 18. CONTRACT-REACHABILITY-001：合成输入被冒充为真实缺陷
+- CONTRACT-REACHABILITY-001检查对象：生产者、写入边界、artifact 与失败状态的可达路径。
+- CONTRACT-REACHABILITY-001风险说明：如果该规则失败，可能出现“随意篡改字段类型后将不可达异常定为正式缺陷”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
+- CONTRACT-REACHABILITY-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
+- CONTRACT-REACHABILITY-001操作步骤一：从中心规划或用户需求定位声明，再向配置绑定、源码实现、测试和实际产物正向追踪。
+- CONTRACT-REACHABILITY-001操作步骤二：从最终产物或运行入口反向追踪到生产者，确认没有孤立实现、隐式假设或未声明依赖。
+- CONTRACT-REACHABILITY-001通过条件：声明、实现、调用、产物与验证相互一致，并有独立证据证明不会发生“随意篡改字段类型后将不可达异常定为正式缺陷”。
+- CONTRACT-REACHABILITY-001失败条件：发现确定矛盾、最小反例可复现，或者关键证据缺失到无法证明工作流可正确完成。
+- CONTRACT-REACHABILITY-001正确示例：报告列出精确文件和字段、预期行为、实际结果、受控命令返回码，并解释为什么满足“合成输入被冒充为真实缺陷”。
+- CONTRACT-REACHABILITY-001常见错误示例：仅写“看起来正常”或只引用搜索片段；这种记录不能证明“生产者、写入边界、artifact 与失败状态的可达路径”已经得到验证。
+- CONTRACT-REACHABILITY-001证据要求：至少给出一个可定位源码或配置证据；涉及行为时再给出独立fixture、命令结果或产物内容证据。
+- CONTRACT-REACHABILITY-001默认严重程度：medium；若会导致无法启动、卡死、破坏或假成功，升级为critical；若证据不足则标blocked或suspected。
+- CONTRACT-REACHABILITY-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
+- CONTRACT-REACHABILITY-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
+
+### 19. CONTRACT-FALSENEG-001：正例替代拒错测试
 - CONTRACT-FALSENEG-001检查对象：错误、缺失、空值、边界和恶意输入。
 - CONTRACT-FALSENEG-001风险说明：如果该规则失败，可能出现“只跑 happy path 就判定可靠”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-FALSENEG-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -303,7 +318,7 @@
 - CONTRACT-FALSENEG-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-FALSENEG-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 19. CONTRACT-HISTORY-001：历史报告被覆盖
+### 20. CONTRACT-HISTORY-001：历史报告被覆盖
 - CONTRACT-HISTORY-001检查对象：runs 追加语义和 latest_run_id。
 - CONTRACT-HISTORY-001风险说明：如果该规则失败，可能出现“新评估删除旧运行记录”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-HISTORY-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -318,7 +333,7 @@
 - CONTRACT-HISTORY-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-HISTORY-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 20. CONTRACT-JSON-001：结构化文件被直接编辑
+### 21. CONTRACT-JSON-001：结构化文件被直接编辑
 - CONTRACT-JSON-001检查对象：StructuredJsonStore 与审计事件。
 - CONTRACT-JSON-001风险说明：如果该规则失败，可能出现“Agent 用普通写文件工具修改 eval JSON”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-JSON-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -333,7 +348,7 @@
 - CONTRACT-JSON-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-JSON-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 21. CONTRACT-TEMP-001：临时文件越界
+### 22. CONTRACT-TEMP-001：临时文件越界
 - CONTRACT-TEMP-001检查对象：tmp 下的日志、fixture、候选和缓存。
 - CONTRACT-TEMP-001风险说明：如果该规则失败，可能出现“临时内容污染 wfgen、workflow 或 eval”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-TEMP-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -348,7 +363,7 @@
 - CONTRACT-TEMP-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-TEMP-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 22. CONTRACT-RES-001：用户知识被修改
+### 23. CONTRACT-RES-001：用户知识被修改
 - CONTRACT-RES-001检查对象：res 只读约束。
 - CONTRACT-RES-001风险说明：如果该规则失败，可能出现“评估 Agent 改写专业知识以迎合结果”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-RES-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -363,7 +378,7 @@
 - CONTRACT-RES-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-RES-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 23. CONTRACT-APPROVAL-001：未批准修改
+### 24. CONTRACT-APPROVAL-001：未批准修改
 - CONTRACT-APPROVAL-001检查对象：审批来源、决定和指纹。
 - CONTRACT-APPROVAL-001风险说明：如果该规则失败，可能出现“开放 finding 被自动实施”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-APPROVAL-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -378,7 +393,7 @@
 - CONTRACT-APPROVAL-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-APPROVAL-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 24. CONTRACT-APPROVAL-002：过期批准复用
+### 25. CONTRACT-APPROVAL-002：过期批准复用
 - CONTRACT-APPROVAL-002检查对象：source fingerprint 和当前报告。
 - CONTRACT-APPROVAL-002风险说明：如果该规则失败，可能出现“目标变化后仍使用旧批准”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-APPROVAL-002使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -393,7 +408,7 @@
 - CONTRACT-APPROVAL-002误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-APPROVAL-002修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 25. CONTRACT-BLOCK-001：证据不足仍给结论
+### 26. CONTRACT-BLOCK-001：证据不足仍给结论
 - CONTRACT-BLOCK-001检查对象：blocked 状态与缺失原因。
 - CONTRACT-BLOCK-001风险说明：如果该规则失败，可能出现“环境不可用时猜测 passed 或 failed”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-BLOCK-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -408,7 +423,7 @@
 - CONTRACT-BLOCK-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-BLOCK-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 26. CONTRACT-REPRO-001：复现步骤不可执行
+### 27. CONTRACT-REPRO-001：复现步骤不可执行
 - CONTRACT-REPRO-001检查对象：受控命令、输入和预期输出。
 - CONTRACT-REPRO-001风险说明：如果该规则失败，可能出现“建议无法被下一位开发者验证”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-REPRO-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -423,7 +438,7 @@
 - CONTRACT-REPRO-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-REPRO-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 27. CONTRACT-SECURITY-001：敏感信息进入报告
+### 28. CONTRACT-SECURITY-001：敏感信息进入报告
 - CONTRACT-SECURITY-001检查对象：令牌、代理凭据、主机路径和用户数据。
 - CONTRACT-SECURITY-001风险说明：如果该规则失败，可能出现“证据原样泄漏秘密”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-SECURITY-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -438,7 +453,7 @@
 - CONTRACT-SECURITY-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CONTRACT-SECURITY-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 28. CONTRACT-CLOSURE-001：跨阶段问题无人负责
+### 29. CONTRACT-CLOSURE-001：跨阶段问题无人负责
 - CONTRACT-CLOSURE-001检查对象：专项报告、summary、审批和增量复评。
 - CONTRACT-CLOSURE-001风险说明：如果该规则失败，可能出现“问题在工作流间丢失”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CONTRACT-CLOSURE-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。

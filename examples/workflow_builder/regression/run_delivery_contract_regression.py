@@ -10,16 +10,16 @@ from pathlib import Path
 
 import yaml
 
-from workflow_builder.core import (
+from examples.workflow_builder.tools.workflow_builder.core import (
     WorkflowBuildError,
     build_workflow,
     copy_input_example_tree,
     validate_build_config,
 )
-from workflow_builder.artifact_inspector import inspect_artifacts
-from workflow_builder.delivery_contract import load_acceptance_contract
-from workflow_builder.environment_preflight import inspect_environment
-from workflow_builder.uc_checkers import (
+from examples.workflow_builder.tools.workflow_builder.artifact_inspector import inspect_artifacts
+from examples.workflow_builder.tools.workflow_builder.delivery_contract import load_acceptance_contract
+from examples.workflow_builder.tools.workflow_builder.environment_preflight import inspect_environment
+from examples.workflow_builder.tools.workflow_builder.uc_checkers import (
     WorkflowBuildConfigChecker,
     WorkflowBuildOutputChecker,
     WorkflowDependencyChecker,
@@ -34,14 +34,14 @@ from workflow_builder.uc_checkers import (
     WorkflowUserDocsChecker,
     find_parent_workflow_path_leaks,
 )
-from workflow_config_generator.core import (
+from examples.workflow_builder.tools.workflow_config_generator.core import (
     ConfigGenerationError,
     generate_config,
     validate_config_spec,
 )
-from workflow_guidedoc_generator.core import generate_guidedocs
-from workflow_tool_generator.core import generate_tools
-from workflow_evaluation_control.uc_checkers import EvaluationEvidenceChecker
+from examples.workflow_builder.tools.workflow_guidedoc_generator.core import generate_guidedocs
+from examples.workflow_builder.tools.workflow_tool_generator.core import generate_tools
+from examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers import EvaluationEvidenceChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -368,7 +368,7 @@ def main() -> None:
     assert "source_dir: input/test_input" in workflow_build_guide
     assert "source_path: rtl/counter.v" in workflow_build_guide
     assert "不能根据 `workflow.name` 推导目录名" in workflow_build_guide
-    test_build_config = ROOT / "workflow_builder/test_data/workflow_build.yaml"
+    test_build_config = ROOT / "tools/workflow_builder/test_data/workflow_build.yaml"
     ok, details = _checker(
         WorkflowBuildConfigChecker(
             build_config_path=str(test_build_config),
@@ -415,7 +415,7 @@ def main() -> None:
     assert not any(guidedoc_coverage.values()), guidedoc_coverage
 
     config_spec = yaml.safe_load(
-        (ROOT / "workflow_config_generator/test_data/config_spec.yaml").read_text(
+        (ROOT / "tools/workflow_config_generator/test_data/config_spec.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -450,7 +450,7 @@ def main() -> None:
     validate_config_spec(short_spec)
 
     complete_build = yaml.safe_load(
-        (ROOT / "workflow_builder/test_data/workflow_build.yaml").read_text(
+        (ROOT / "tools/workflow_builder/test_data/workflow_build.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -513,7 +513,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="workflow_delivery_contract_") as temp:
         workspace = Path(temp)
         report = build_workflow(
-            ROOT / "workflow_builder/test_data/workflow_build.yaml",
+            ROOT / "tools/workflow_builder/test_data/workflow_build.yaml",
             workspace,
         )
         generated = Path(report.root_path)
@@ -583,7 +583,7 @@ def main() -> None:
         ).read_bytes()
         assert not (generated / "input/example/rtl/README.md").exists()
         copy_checker = WorkflowBuildOutputChecker(
-            build_config_path="workflow_builder/test_data/workflow_build.yaml",
+            build_config_path="tools/workflow_builder/test_data/workflow_build.yaml",
             workflow_root=generated.relative_to(workspace).as_posix(),
             input_example_manifest_path="wfgen/input_example_manifest.yaml",
             run_make_check=False,

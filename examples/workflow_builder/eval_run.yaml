@@ -1,7 +1,7 @@
 ex_tools:
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StructuredJsonStore"
-  - "examples.workflow_builder.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor"
-  - "examples.workflow_builder.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StructuredJsonStore"
+  - "examples.workflow_builder.tools.workflow_child_supervisor.uc_tools.ChildWorkflowSupervisor"
+  - "examples.workflow_builder.tools.workflow_evaluation_control.uc_tools.StaticEvaluationAudit"
 template_overwrite:
   TEST_WORKFLOW_ROOT: "workflow"
   REPORT: "eval/run_report.json"
@@ -25,8 +25,8 @@ stage:
     output_files: ["eval/run_report.json"]
     checker:
       - name: run_report_complete
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationJsonReportChecker"
         args: {report_path: "eval/run_report.json", expected_report_type: "run"}
       - name: run_guide_complete
-        clss: "examples.workflow_builder.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
+        clss: "examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers.EvaluationGuideCoverageChecker"
         args: {guide_path: "Guide_Doc/eval_run.md", required_markers: ["RUN-PREFLIGHT", "RUN-CHALLENGE"], min_effective_lines: 300}

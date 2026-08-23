@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from workflow_builder.plan_contract import append_record, validate_records
-from workflow_builder.uc_checkers import WorkflowLivingPlanChecker
+from examples.workflow_builder.tools.workflow_builder.plan_contract import append_record, validate_records
+from examples.workflow_builder.tools.workflow_builder.uc_checkers import WorkflowLivingPlanChecker
 
 
 def _record(label: str) -> str:

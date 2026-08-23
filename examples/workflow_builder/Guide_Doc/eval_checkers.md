@@ -316,7 +316,37 @@
 - CHECKERS-FIXTURE-002误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-FIXTURE-002修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 20. CHECKERS-SCOPE-001：关键产物没有Checker
+### 20. CHECKERS-FIXTURE-003：无来源的畸形字段造成误报
+- CHECKERS-FIXTURE-003检查对象：真实生产者、用户输入边界、artifact 契约和 reachability 证据。
+- CHECKERS-FIXTURE-003风险说明：如果该规则失败，可能出现“将字段随意改为 null 或错误容器类型后把不可达异常定为业务缺陷”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
+- CHECKERS-FIXTURE-003使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
+- CHECKERS-FIXTURE-003操作步骤一：从中心规划或用户需求定位声明，再向配置绑定、源码实现、测试和实际产物正向追踪。
+- CHECKERS-FIXTURE-003操作步骤二：从最终产物或运行入口反向追踪到生产者，确认没有孤立实现、隐式假设或未声明依赖。
+- CHECKERS-FIXTURE-003通过条件：声明、实现、调用、产物与验证相互一致，并有独立证据证明不会发生“将字段随意改为 null 或错误容器类型后把不可达异常定为业务缺陷”。
+- CHECKERS-FIXTURE-003失败条件：发现确定矛盾、最小反例可复现，或者关键证据缺失到无法证明工作流可正确完成。
+- CHECKERS-FIXTURE-003正确示例：报告列出精确文件和字段、预期行为、实际结果、受控命令返回码，并解释为什么满足“无来源的畸形字段造成误报”。
+- CHECKERS-FIXTURE-003常见错误示例：仅写“看起来正常”或只引用搜索片段；这种记录不能证明“真实生产者、用户输入边界、artifact 契约和 reachability 证据”已经得到验证。
+- CHECKERS-FIXTURE-003证据要求：至少给出一个可定位源码或配置证据；涉及行为时再给出独立fixture、命令结果或产物内容证据。
+- CHECKERS-FIXTURE-003默认严重程度：medium；若会导致无法启动、卡死、破坏或假成功，升级为critical；若证据不足则标blocked或suspected。
+- CHECKERS-FIXTURE-003误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
+- CHECKERS-FIXTURE-003修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
+
+### 21. CHECKERS-INTEGRATION-001：正例未使用真实生产者产物
+- CHECKERS-INTEGRATION-001检查对象：注册生产者、实际 artifact、Checker 绑定和判定结果。
+- CHECKERS-INTEGRATION-001风险说明：如果该规则失败，可能出现“自带 fixture 与错误实现相互印证而掩盖产销契约不一致”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
+- CHECKERS-INTEGRATION-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
+- CHECKERS-INTEGRATION-001操作步骤一：从中心规划或用户需求定位声明，再向配置绑定、源码实现、测试和实际产物正向追踪。
+- CHECKERS-INTEGRATION-001操作步骤二：从最终产物或运行入口反向追踪到生产者，确认没有孤立实现、隐式假设或未声明依赖。
+- CHECKERS-INTEGRATION-001通过条件：声明、实现、调用、产物与验证相互一致，并有独立证据证明不会发生“自带 fixture 与错误实现相互印证而掩盖产销契约不一致”。
+- CHECKERS-INTEGRATION-001失败条件：发现确定矛盾、最小反例可复现，或者关键证据缺失到无法证明工作流可正确完成。
+- CHECKERS-INTEGRATION-001正确示例：报告列出精确文件和字段、预期行为、实际结果、受控命令返回码，并解释为什么满足“正例未使用真实生产者产物”。
+- CHECKERS-INTEGRATION-001常见错误示例：仅写“看起来正常”或只引用搜索片段；这种记录不能证明“注册生产者、实际 artifact、Checker 绑定和判定结果”已经得到验证。
+- CHECKERS-INTEGRATION-001证据要求：至少给出一个可定位源码或配置证据；涉及行为时再给出独立fixture、命令结果或产物内容证据。
+- CHECKERS-INTEGRATION-001默认严重程度：high；若会导致无法启动、卡死、破坏或假成功，升级为critical；若证据不足则标blocked或suspected。
+- CHECKERS-INTEGRATION-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
+- CHECKERS-INTEGRATION-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
+
+### 22. CHECKERS-SCOPE-001：关键产物没有Checker
 - CHECKERS-SCOPE-001检查对象：stage output与checker消费图。
 - CHECKERS-SCOPE-001风险说明：如果该规则失败，可能出现“主要结果完全未验证”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-SCOPE-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -331,7 +361,7 @@
 - CHECKERS-SCOPE-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-SCOPE-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 21. CHECKERS-SCOPE-002：重复检查掩盖空白
+### 23. CHECKERS-SCOPE-002：重复检查掩盖空白
 - CHECKERS-SCOPE-002检查对象：各Checker覆盖的字段和需求。
 - CHECKERS-SCOPE-002风险说明：如果该规则失败，可能出现“多个Checker检查同一格式却遗漏语义”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-SCOPE-002使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -346,7 +376,7 @@
 - CHECKERS-SCOPE-002误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-SCOPE-002修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 22. CHECKERS-ERROR-001：失败消息不可诊断
+### 24. CHECKERS-ERROR-001：失败消息不可诊断
 - CHECKERS-ERROR-001检查对象：错误字段、实际值、期望值和路径。
 - CHECKERS-ERROR-001风险说明：如果该规则失败，可能出现“Agent只能盲目重试”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-ERROR-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -361,7 +391,7 @@
 - CHECKERS-ERROR-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-ERROR-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 23. CHECKERS-TIMEOUT-001：检查可能永久阻塞
+### 25. CHECKERS-TIMEOUT-001：检查可能永久阻塞
 - CHECKERS-TIMEOUT-001检查对象：子进程、文件等待和timeout参数。
 - CHECKERS-TIMEOUT-001风险说明：如果该规则失败，可能出现“工作流卡死”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-TIMEOUT-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -376,7 +406,7 @@
 - CHECKERS-TIMEOUT-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-TIMEOUT-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 24. CHECKERS-PATH-001：路径基准或类型错误
+### 26. CHECKERS-PATH-001：路径基准或类型错误
 - CHECKERS-PATH-001检查对象：文件与目录、cwd和workspace。
 - CHECKERS-PATH-001风险说明：如果该规则失败，可能出现“等价路径被误判或目录被当文件”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-PATH-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -391,7 +421,7 @@
 - CHECKERS-PATH-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-PATH-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 25. CHECKERS-STATE-001：依赖历史残留
+### 27. CHECKERS-STATE-001：依赖历史残留
 - CHECKERS-STATE-001检查对象：旧产物、缓存和执行顺序。
 - CHECKERS-STATE-001风险说明：如果该规则失败，可能出现“干净工作区失败而脏工作区通过”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-STATE-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -406,7 +436,7 @@
 - CHECKERS-STATE-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-STATE-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 26. CHECKERS-SECURITY-001：Checker执行危险命令
+### 28. CHECKERS-SECURITY-001：Checker执行危险命令
 - CHECKERS-SECURITY-001检查对象：shell、删除、网络和工作区外访问。
 - CHECKERS-SECURITY-001风险说明：如果该规则失败，可能出现“验证阶段破坏或泄漏数据”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-SECURITY-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -421,7 +451,7 @@
 - CHECKERS-SECURITY-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-SECURITY-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 27. CHECKERS-COVERAGE-001：需求追踪缺失
+### 29. CHECKERS-COVERAGE-001：需求追踪缺失
 - CHECKERS-COVERAGE-001检查对象：每个用户验证要求到Checker规则。
 - CHECKERS-COVERAGE-001风险说明：如果该规则失败，可能出现“无法证明验收需求被覆盖”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-COVERAGE-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。
@@ -436,7 +466,7 @@
 - CHECKERS-COVERAGE-001误报排除：检查框架允许的适配器、路径归一化、明确的顺序refinement和用户声明的支持边界，不得把架构偏好当缺陷。
 - CHECKERS-COVERAGE-001修复方向：指出最小责任模块、需要同步的规范/实现/测试/文档以及复评规则，不在评估阶段直接代替工作流修复。
 
-### 28. CHECKERS-RESULT-001：返回协议错误
+### 30. CHECKERS-RESULT-001：返回协议错误
 - CHECKERS-RESULT-001检查对象：tuple布尔值、details类型和异常。
 - CHECKERS-RESULT-001风险说明：如果该规则失败，可能出现“UCAgent无法解释检查结果”，评估者必须分析它对启动、进度、产物和用户语义的真实影响。
 - CHECKERS-RESULT-001使用工具：优先使用YAML/JSON解析器、Python AST、受控静态审计工具和EvaluationCommandRunner；禁止用模糊关键词搜索代替结构化检查。

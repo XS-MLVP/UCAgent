@@ -12,51 +12,52 @@ from pathlib import Path
 
 import yaml
 
-from examples.workflow_builder.workflow_builder.core import generate_workflow_spec
-from examples.workflow_builder.workflow_child_supervisor.core import _run_dir, _validate_runtime_target
-from examples.workflow_builder.workflow_evaluation_control.incremental import (
+from examples.workflow_builder.tools.workflow_builder.core import generate_workflow_spec
+from examples.workflow_builder.tools.workflow_child_supervisor.core import _run_dir, _validate_runtime_target
+from examples.workflow_builder.tools.workflow_evaluation_control.incremental import (
     delete_incremental_backup,
     IncrementalDeploymentError,
     deploy_incremental_changes as _deploy_incremental_changes,
     restore_incremental_backup,
     verify_incremental_application,
 )
-from examples.workflow_builder.workflow_evaluation_control.incremental_runs import (
+from examples.workflow_builder.tools.workflow_evaluation_control.incremental_runs import (
     IncrementalRunError,
     current_incremental_run,
     incremental_attempt_paths,
     stage_incremental_candidates,
     start_incremental_run,
 )
-from examples.workflow_builder.workflow_evaluation_control.approvals import (
+from examples.workflow_builder.tools.workflow_evaluation_control.approvals import (
     create_suggestion,
     decide_item,
     decide_repair,
     review_items,
 )
-from examples.workflow_builder.workflow_evaluation_control.rules import (
+from examples.workflow_builder.tools.workflow_evaluation_control.rules import (
     REQUIRED_CHECK_IDS,
     expected_report_status,
 )
-from examples.workflow_builder.workflow_evaluation_control.static_audit import run_static_audit
-from examples.workflow_builder.workflow_evaluation_control.uc_checkers import (
+from examples.workflow_builder.tools.workflow_evaluation_control.static_audit import run_static_audit
+from examples.workflow_builder.tools.workflow_evaluation_control.uc_checkers import (
+    EvaluationJsonReportChecker,
     IncrementalApprovalChecker,
     IncrementalAuditCoverageChecker,
     IncrementalContextReportChecker,
     IncrementalRegressionChecker,
     StaticAuditCoverageChecker,
 )
-from examples.workflow_builder.workflow_evaluation_control.uc_tools import (
+from examples.workflow_builder.tools.workflow_evaluation_control.uc_tools import (
     IncrementalChangeDeployerArgs,
     IncrementalCandidateStagerArgs,
     IncrementalContextInventory,
     EvaluationCommandRunner,
 )
-from examples.workflow_builder.workflow_config_generator.core import (
+from examples.workflow_builder.tools.workflow_config_generator.core import (
     ConfigGenerationError,
     validate_config_spec,
 )
-from examples.workflow_builder.workflow_evaluation_control.json_store import (
+from examples.workflow_builder.tools.workflow_evaluation_control.json_store import (
     JsonStoreError,
     aggregate_summary,
     initialize_workspace,
@@ -1046,7 +1047,7 @@ stage:
         "medium finding did not produce passed_with_findings",
     )
     config_spec = yaml.safe_load(
-        (ROOT / "workflow_config_generator/test_data/config_spec.yaml").read_text(encoding="utf-8")
+        (ROOT / "tools/workflow_config_generator/test_data/config_spec.yaml").read_text(encoding="utf-8")
     )
     config_spec["stages"][0]["task"].append("Read {ARBITRARY_UNKNOWN_SYMBOL}.")
     try:
@@ -1365,6 +1366,101 @@ def check_incremental_receipt_gate() -> None:
                 os.environ["UCAGENT_WORKSPACE"] = prior_workspace
 
 
+def check_checker_reachability_gate() -> None:
+    """Synthetic malformed fields cannot become blocking findings without a real writer path."""
+    with tempfile.TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        initialize_workspace(workspace)
+        checks = [
+            {
+                "id": check_id,
+                "status": "passed",
+                "summary": f"Validated {check_id}.",
+                "evidence": [{
+                    "kind": "source",
+                    "path": "workflow/checkers/example.py",
+                    "location": "do_check",
+                    "observation": "Direct source inspection completed.",
+                }],
+            }
+            for check_id in REQUIRED_CHECK_IDS["checkers"]
+        ]
+        positive = next(item for item in checks if item["id"] == "CHECKERS-POSITIVE")
+        positive["evidence"].append({
+            "kind": "producer_checker",
+            "producer": "workflow/tools/ExampleProducer.py",
+            "checker": "workflow/checkers/example.py",
+            "artifact": "tmp/integration/example.json",
+            "observation": "The real producer output was passed to the bound Checker.",
+        })
+        finding = {
+            "id": "synthetic-shape",
+            "fingerprint": "synthetic-shape-v1",
+            "severity": "medium",
+            "category": "robustness",
+            "component": "workflow/checkers/example.py",
+            "title": "Synthetic field shape throws",
+            "description": "A manually mutated field causes an exception.",
+            "expected": "The Checker rejects reachable invalid artifacts.",
+            "actual": "A synthetic mutation throws.",
+            "severity_reason": "The case has not been shown reachable.",
+            "confidence": "confirmed",
+            "requirement_refs": ["CHECKERS-CHALLENGE"],
+            "evidence": [{
+                "kind": "test",
+                "path": "tmp/tests/test_synthetic.py",
+                "location": "test_invalid_shape",
+                "observation": "The handcrafted fixture throws.",
+            }],
+            "impact": "Unknown until reachability is proven.",
+            "recommendation": "Trace the actual producer before filing a defect.",
+            "repro": ["Run the synthetic fixture."],
+            "status": "open",
+        }
+        run = {
+            "run_id": "checkers-reachability",
+            "contract_version": 2,
+            "status": "passed_with_findings",
+            "started_at": "2026-08-06T00:00:00+00:00",
+            "finished_at": "2026-08-06T00:01:00+00:00",
+            "target": {"workflow_root": "workflow", "revision": "test"},
+            "checks": checks,
+            "findings": [finding],
+            "metrics": {},
+        }
+        mutate_document(workspace, "create", "eval/checkers_report.json", record=run)
+        checker = EvaluationJsonReportChecker(
+            report_path="eval/checkers_report.json",
+            expected_report_type="checkers",
+        )
+        checker.workspace = str(workspace)
+        passed, details = checker.do_check()
+        require(
+            not passed and "lacks reachability evidence" in json.dumps(details),
+            "synthetic malformed finding passed without reachability evidence",
+        )
+
+        finding["severity"] = "info"
+        finding["confidence"] = "suspected"
+        finding["evidence"].append({
+            "kind": "reachability",
+            "producer": "workflow/tools/ExampleProducer.py",
+            "artifact": "output/example.json:field",
+            "reachable": False,
+            "observation": "The registered producer always emits a list; no alternate writer exists.",
+        })
+        run["status"] = "passed"
+        mutate_document(
+            workspace,
+            "update",
+            "eval/checkers_report.json",
+            record=run,
+            record_id=run["run_id"],
+        )
+        passed, details = checker.do_check()
+        require(passed, f"non-blocking unreachable observation was rejected: {details}")
+
+
 def main() -> None:
     check_configs()
     check_incremental_candidate_stager()
@@ -1376,6 +1472,7 @@ def main() -> None:
     check_projected_semantic_gate()
     check_incremental_no_change_gate()
     check_incremental_receipt_gate()
+    check_checker_reachability_gate()
     print("evaluation split regression: PASS")
 
 

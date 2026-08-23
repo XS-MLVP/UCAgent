@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 from ucagent.tools.fileops import is_file_writeable
-from workflow_builder.history_permissions import restore_owner_write
+from examples.workflow_builder.tools.workflow_builder.history_permissions import restore_owner_write
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +38,7 @@ def main() -> int:
     assert "make run RUN_LOOP_ARGS=" in makefile
     assert 'chmod -R u+w "$(WFB_WORKSPACE)/.ucagent/history"' in makefile
     assert 'rm -rf "$(WFB_WORKSPACE)/.ucagent/history"' not in makefile
-    assert "workflow_builder.history_permissions" in makefile
+    assert "examples.workflow_builder.tools.workflow_builder.history_permissions" in makefile
     assert "history_guard_pid" in makefile
     assert "GUIDE_DOC_SOURCE_DIR ?= $(WORKFLOW_BUILDER_HOME)/Guide_Doc" in makefile
     assert 'cp -a "$(GUIDE_DOC_SOURCE_DIR)/." "$(WORKSPACE_GUIDE_DOC_DIR)/"' in makefile
@@ -126,7 +126,7 @@ def main() -> int:
             if isinstance(item, dict)
         }
         assert (
-            "examples.workflow_builder.workflow_builder.uc_checkers."
+            "examples.workflow_builder.tools.workflow_builder.uc_checkers."
             "WorkflowMCPToolIntegrationChecker"
         ) in checker_classes, f"{stage_name} must retain the MCP integration checker"
 

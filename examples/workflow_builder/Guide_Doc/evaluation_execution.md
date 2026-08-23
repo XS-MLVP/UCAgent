@@ -63,8 +63,21 @@
 ## Checker 评估
 
 Checker 队列按 Checker 名建立。每个 Checker 只读取：实现、对应 checker spec、阶段绑定、
-正例和一个最相关反例 fixture。验证构造参数、`do_check`、docstring、正反判定、异常路径和
-执行时机。不得默认相信 Checker 自己生成的 fixture，也不得把异常当作通过。报告必须含
+真实上游生产者、一个真实产物和一个最相关反例。必须先将注册工具或明确的阶段写入者产生的
+artifact 交给 Checker，再评估自带 fixture。`CHECKERS-POSITIVE` 证据中至少有一条
+`kind=producer_checker`，并明确 `producer`、`checker`、`artifact` 和判定结果。只跑 Checker 自己的
+正例不能证明正常链路通过，因为生产者和 fixture 可能分别实现了两套不同契约。
+
+负例必须有来源：正式输入契约允许的错误输入、真实生产者代码中可达的失败分支、真实运行留下的错误
+产物，或用户确实可以直接编辑的边界文件。禁止无来源地把 JSON 字段从 list 改为 string/dict、
+从 dict 改为 list，或改为 `null`，然后仅因 Checker 异常就提交正式缺陷。任何基于合成 fixture 的
+finding 都必须附带 `kind=reachability` 证据，包含 `producer`、`artifact`、布尔值 `reachable` 和可定位的
+观察说明。`reachable=false` 表示只是防御性编程机会，只能作为 `info/suspected` 观察，不得使
+`CHECKERS-NEGATIVE`、`CHECKERS-FALSE-RESULT` 或 `CHECKERS-CHALLENGE` 失败。若 `reachable=true`，必须给出真实生产者或
+写入边界和 artifact 路径，不能只写“理论上可能”。
+
+验证构造参数、`do_check`、docstring、正反判定、异常路径和执行时机。不得默认相信 Checker 自己生成的
+fixture，也不得把异常当作通过。报告必须含
 `CHECKERS-INVENTORY`、`CHECKERS-REGISTRATION`、`CHECKERS-SIGNATURE`、`CHECKERS-POSITIVE`、
 `CHECKERS-NEGATIVE`、`CHECKERS-BINDING`、`CHECKERS-TIMING`、`CHECKERS-SEMANTICS`、
 `CHECKERS-FALSE-RESULT` 和 `CHECKERS-CHALLENGE`。

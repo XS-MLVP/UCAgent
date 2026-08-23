@@ -12,38 +12,39 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ROOT / "docs"
+REPO_ROOT = ROOT.parents[1]
+DOCS = REPO_ROOT / "docs" / "content" / "extension" / "workflow_builder"
 
 REQUIRED = [
-    "README.md",
-    "QuickStart/00_快速启动总述.md",
-    "QuickStart/01_run工作流启动.md",
-    "QuickStart/02_评估工作流启动.md",
-    "QuickStart/03_增量工作流启动.md",
-    "QuickStart/04_工作流构建与评估控制台.md",
-    "Develop/00_开发者文档总述.md",
-    "Develop/01_工作流程简介.md",
-    "Develop/02_tool简介.md",
-    "Develop/03_checker简介.md",
-    "Develop/04_指导文档简介.md",
-    "Develop/05_评估与增量控制.md",
-    "Develop/06_测试与回归.md",
-    "Develop/07_工作流产物二次开发指南.md",
-    "Usage/00_完整使用总述.md",
-    "Usage/01_输入契约.md",
-    "Usage/02_输出与工作区结构.md",
-    "Usage/03_工作流构建完整使用.md",
-    "Usage/04_评估与审批完整使用.md",
-    "Usage/05_增量修复与版本管理.md",
-    "Usage/06_提示词使用方法.md",
-    "Usage/提示词.md",
-    "Q&A_Experience/00_Q&A与经验总述.md",
-    "Q&A_Experience/01_安装与环境问题.md",
-    "Q&A_Experience/02_运行与阶段失败.md",
-    "Q&A_Experience/03_评估审批与增量修复.md",
-    "Q&A_Experience/04_控制台与端口问题.md",
-    "Q&A_Experience/05_性能上下文与稳定性经验.md",
-    "Q&A_Experience/06_工作流设计质量经验.md",
+    "00_index.md",
+    "01_quickstart/00_快速启动总述.md",
+    "01_quickstart/01_run工作流启动.md",
+    "01_quickstart/02_评估工作流启动.md",
+    "01_quickstart/03_增量工作流启动.md",
+    "01_quickstart/04_工作流构建与评估控制台.md",
+    "03_develop/00_开发者文档总述.md",
+    "03_develop/01_工作流程简介.md",
+    "03_develop/02_tool简介.md",
+    "03_develop/03_checker简介.md",
+    "03_develop/04_指导文档简介.md",
+    "03_develop/05_评估与增量控制.md",
+    "03_develop/06_测试与回归.md",
+    "03_develop/07_工作流产物二次开发指南.md",
+    "02_usage/00_完整使用总述.md",
+    "02_usage/01_输入契约.md",
+    "02_usage/02_输出与工作区结构.md",
+    "02_usage/03_工作流构建完整使用.md",
+    "02_usage/04_评估与审批完整使用.md",
+    "02_usage/05_增量修复与版本管理.md",
+    "02_usage/06_提示词使用方法.md",
+    "02_usage/提示词.md",
+    "04_q_and_experience/00_Q&A与经验总述.md",
+    "04_q_and_experience/01_安装与环境问题.md",
+    "04_q_and_experience/02_运行与阶段失败.md",
+    "04_q_and_experience/03_评估审批与增量修复.md",
+    "04_q_and_experience/04_控制台与端口问题.md",
+    "04_q_and_experience/05_性能上下文与稳定性经验.md",
+    "04_q_and_experience/06_工作流设计质量经验.md",
 ]
 
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
@@ -52,45 +53,45 @@ FENCED_CODE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
 DEVELOPER_REQUIREMENTS = {
     "00_开发者文档总述.md": {
         "minimum_prose": 4482,
-        "sources": ("workflow_builder/core.py", "Makefile", "setup.py"),
+        "sources": ("tools/workflow_builder/core.py", "Makefile", "setup.py"),
     },
     "01_工作流程简介.md": {
         "minimum_prose": 5004,
         "sources": (
-            "workflow_builder/core.py",
-            "workflow_config_generator/core.py",
-            "workflow_evaluation_control/core.py",
-            "workflow_evaluation_control/incremental.py",
+            "tools/workflow_builder/core.py",
+            "tools/workflow_config_generator/core.py",
+            "tools/workflow_evaluation_control/core.py",
+            "tools/workflow_evaluation_control/incremental.py",
         ),
     },
     "02_tool简介.md": {
         "minimum_prose": 5025,
         "sources": (
-            "workflow_tool_generator/core.py",
-            "workflow_tool_generator/templates.py",
-            "workflow_tool_generator/uc_tools.py",
+            "tools/workflow_tool_generator/core.py",
+            "tools/workflow_tool_generator/templates.py",
+            "tools/workflow_tool_generator/uc_tools.py",
         ),
     },
     "03_checker简介.md": {
         "minimum_prose": 5166,
         "sources": (
-            "workflow_checker_generator/core.py",
-            "workflow_checker_generator/templates.py",
+            "tools/workflow_checker_generator/core.py",
+            "tools/workflow_checker_generator/templates.py",
         ),
     },
     "04_指导文档简介.md": {
         "minimum_prose": 3732,
         "sources": (
-            "workflow_guidedoc_generator/contract.py",
-            "workflow_guidedoc_generator/core.py",
+            "tools/workflow_guidedoc_generator/contract.py",
+            "tools/workflow_guidedoc_generator/core.py",
         ),
     },
     "05_评估与增量控制.md": {
         "minimum_prose": 3717,
         "sources": (
-            "workflow_evaluation_control/json_store.py",
-            "workflow_evaluation_control/approvals.py",
-            "workflow_evaluation_control/incremental.py",
+            "tools/workflow_evaluation_control/json_store.py",
+            "tools/workflow_evaluation_control/approvals.py",
+            "tools/workflow_evaluation_control/incremental.py",
         ),
     },
     "06_测试与回归.md": {
@@ -100,9 +101,9 @@ DEVELOPER_REQUIREMENTS = {
     "07_工作流产物二次开发指南.md": {
         "minimum_prose": 6000,
         "sources": (
-            "workflow_builder/core.py",
-            "workflow_tool_generator/core.py",
-            "workflow_checker_generator/core.py",
+            "tools/workflow_builder/core.py",
+            "tools/workflow_tool_generator/core.py",
+            "tools/workflow_checker_generator/core.py",
         ),
     },
 }
@@ -216,21 +217,21 @@ def require_inventory(
     missing = sorted(item for item in expected if item not in content)
     if missing:
         failures.append(
-            f"docs/{relative}: missing {inventory_name} inventory entries: {missing}"
+            f"{relative}: missing {inventory_name} inventory entries: {missing}"
         )
 
 
 def main() -> int:
     missing = [relative for relative in REQUIRED if not (DOCS / relative).is_file()]
     assert not missing, f"missing required documentation: {missing}"
-    assert not (DOCS / "提示词.md").exists(), "legacy prompt document was not moved"
+    assert not (ROOT / "docs").exists(), "legacy local documentation directory was not removed"
 
     failures: list[str] = []
     documents = sorted(DOCS.rglob("*.md"))
     for document in documents:
         content = document.read_text(encoding="utf-8")
         if not content.startswith("# "):
-            failures.append(f"{document.relative_to(ROOT)}: missing H1")
+            failures.append(f"{document.relative_to(REPO_ROOT)}: missing H1")
         linkable_content = FENCED_CODE.sub("", content)
         for raw_target in LINK.findall(linkable_content):
             target = raw_target.split("#", 1)[0].strip()
@@ -238,77 +239,77 @@ def main() -> int:
                 continue
             resolved = (document.parent / target).resolve()
             try:
-                resolved.relative_to(ROOT.resolve())
+                resolved.relative_to(REPO_ROOT.resolve())
             except ValueError:
                 failures.append(
-                    f"{document.relative_to(ROOT)}: link escapes repository area: {raw_target}"
+                    f"{document.relative_to(REPO_ROOT)}: link escapes repository area: {raw_target}"
                 )
                 continue
             if not resolved.exists():
                 failures.append(
-                    f"{document.relative_to(ROOT)}: missing link target: {raw_target}"
+                    f"{document.relative_to(REPO_ROOT)}: missing link target: {raw_target}"
                 )
 
     for filename, requirement in DEVELOPER_REQUIREMENTS.items():
-        path = DOCS / "Develop" / filename
+        path = DOCS / "03_develop" / filename
         content = path.read_text(encoding="utf-8")
         prose_length = effective_prose_length(content)
         if prose_length < requirement["minimum_prose"]:
             failures.append(
-                f"{path.relative_to(ROOT)}: effective prose {prose_length} is below "
+                f"{path.relative_to(REPO_ROOT)}: effective prose {prose_length} is below "
                 f"the three-times baseline {requirement['minimum_prose']}"
             )
         if len(FENCED_CODE.findall(content)) < 2:
             failures.append(
-                f"{path.relative_to(ROOT)}: requires at least two real source excerpts"
+                f"{path.relative_to(REPO_ROOT)}: requires at least two real source excerpts"
             )
         for source in requirement["sources"]:
             if source not in content:
                 failures.append(
-                    f"{path.relative_to(ROOT)}: missing required source analysis for {source}"
+                    f"{path.relative_to(REPO_ROOT)}: missing required source analysis for {source}"
                 )
         for topic in ("代码分析", "失败", "扩展", "回归"):
             if topic not in content:
                 failures.append(
-                    f"{path.relative_to(ROOT)}: missing developer analysis topic {topic}"
+                    f"{path.relative_to(REPO_ROOT)}: missing developer analysis topic {topic}"
                 )
         for heading in ("## 二次开发目标", "## 母工作流修改入口"):
             if heading not in content:
                 failures.append(
-                    f"{path.relative_to(ROOT)}: missing mother-workflow development section {heading}"
+                    f"{path.relative_to(REPO_ROOT)}: missing mother-workflow development section {heading}"
                 )
         if "母工作流" not in content[:1200]:
             failures.append(
-                f"{path.relative_to(ROOT)}: audience is not clearly identified as mother-workflow developers"
+                f"{path.relative_to(REPO_ROOT)}: audience is not clearly identified as mother-workflow developers"
             )
 
     require_inventory(
         failures,
-        "Develop/01_工作流程简介.md",
+        "03_develop/01_工作流程简介.md",
         configured_stage_names("config.yaml"),
         "main-stage",
     )
 
     tool_sources = [
-        ROOT / "workflow_builder/uc_tools.py",
-        ROOT / "workflow_tool_generator/uc_tools.py",
-        ROOT / "workflow_checker_generator/uc_tools.py",
-        ROOT / "workflow_child_supervisor/uc_tools.py",
-        ROOT / "workflow_config_generator/uc_tools.py",
-        ROOT / "workflow_guidedoc_generator/uc_tools.py",
-        ROOT / "workflow_evaluation_control/uc_tools.py",
-        ROOT / "workflow_builder/core.py",
+        ROOT / "tools/workflow_builder/uc_tools.py",
+        ROOT / "tools/workflow_tool_generator/uc_tools.py",
+        ROOT / "tools/workflow_checker_generator/uc_tools.py",
+        ROOT / "tools/workflow_child_supervisor/uc_tools.py",
+        ROOT / "tools/workflow_config_generator/uc_tools.py",
+        ROOT / "tools/workflow_guidedoc_generator/uc_tools.py",
+        ROOT / "tools/workflow_evaluation_control/uc_tools.py",
+        ROOT / "tools/workflow_builder/core.py",
     ]
     require_inventory(
         failures,
-        "Develop/02_tool简介.md",
+        "03_develop/02_tool简介.md",
         ast_classes(tool_sources, base="UCTool"),
         "UCTool-class",
     )
 
     checker_sources = [
-        ROOT / "workflow_builder/uc_checkers.py",
-        ROOT / "workflow_evaluation_control/uc_checkers.py",
+        ROOT / "tools/workflow_builder/uc_checkers.py",
+        ROOT / "tools/workflow_evaluation_control/uc_checkers.py",
     ]
     checker_inventory = ast_classes(checker_sources, suffix="Checker")
     config_files = [
@@ -325,7 +326,7 @@ def main() -> int:
     )
     require_inventory(
         failures,
-        "Develop/03_checker简介.md",
+        "03_develop/03_checker简介.md",
         checker_inventory | checker_aliases,
         "Checker-class-or-alias",
     )
@@ -336,7 +337,7 @@ def main() -> int:
     }
     require_inventory(
         failures,
-        "Develop/04_指导文档简介.md",
+        "03_develop/04_指导文档简介.md",
         guide_inventory,
         "Guide_Doc-file",
     )
@@ -350,7 +351,7 @@ def main() -> int:
     )
     require_inventory(
         failures,
-        "Develop/05_评估与增量控制.md",
+        "03_develop/05_评估与增量控制.md",
         evaluation_inventory,
         "evaluation-or-incremental-stage",
     )
@@ -360,14 +361,14 @@ def main() -> int:
     }
     require_inventory(
         failures,
-        "Develop/06_测试与回归.md",
+        "03_develop/06_测试与回归.md",
         regression_inventory,
         "regression-script",
     )
 
     require_inventory(
         failures,
-        "Develop/07_工作流产物二次开发指南.md",
+        "03_develop/07_工作流产物二次开发指南.md",
         {
             "config.yaml",
             "config/inc.yaml",
