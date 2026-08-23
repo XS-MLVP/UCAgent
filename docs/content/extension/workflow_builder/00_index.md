@@ -12,7 +12,7 @@
 | [Usage](02_usage/00_完整使用总述.md) | 日常使用者和项目负责人 | 输入输出契约、完整命令、审批、版本管理和协作提示词 |
 | [Develop](03_develop/00_开发者文档总述.md) | 对 Workflow Builder 母工作流进行二次开发的用户 | 24 阶段、全部 Tool/Checker/GuideDoc、评估增量、控制台、回归测试和生成产物二次开发 |
 | [Q&A_Experience](04_q_and_experience/00_QA与经验总述.md) | 排障和长期维护人员 | 真实运行中出现过的问题、确认方法、修复手段和设计经验 |
-| [resource](resource/) | 文档维护者 | 工作区、TUI、评估、增量和控制台截图 |
+| `resource/` | 文档维护者 | 工作区、TUI、评估、增量和控制台截图 |
 
 ## 推荐阅读路线
 
