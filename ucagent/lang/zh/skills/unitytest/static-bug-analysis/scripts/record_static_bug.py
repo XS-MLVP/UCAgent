@@ -3,6 +3,8 @@ import json
 import os
 import re
 
+from ucagent.util.config import load_runtime_config
+
 project_root = os.getcwd()
 script_dir = os.path.dirname(os.path.abspath(__file__))
 STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
@@ -214,12 +216,12 @@ def validate_hierarchy(DUT, f_dict, fg, fc, ck, bg, file_info):
     if not isinstance(bg, str) or not re.fullmatch(r'BG-STATIC-\d{3}-[^-\s]+(?:-[^-\s]+)*', bg):
         return [0, f"Error: -BG parameter '{bg}' format invalid, should be 'BG-STATIC-NNN-NAME'. Modify the tag and use `RunSkillScript` tool again."]
 
-    if not isinstance(file_info, str) or not re.fullmatch(r'[^:]+:\d+(?:-\d+)?', file_info):
-        return [0, "Error: -FILE parameter format invalid, should be 'path:start_line-end_line' or 'path:line_number', modify the parameter and use `RunSkillScript` tool again."]
+    if not isinstance(file_info, str) or not re.fullmatch(r'[^:]+:\d+-\d+', file_info):
+        return [0, "Error: -FILE parameter format invalid. Use 'path:start_line-end_line' without an L prefix; repeat the line number for one line (for example, 'rtl/dut.v:10-10') and use `RunSkillScript` again."]
 
-    file_match = re.fullmatch(r'([^:]+):(\d+)(?:-(\d+))?', file_info)
+    file_match = re.fullmatch(r'([^:]+):(\d+)-(\d+)', file_info)
     _, start_str, end_str = file_match.groups()
-    if end_str and int(end_str) < int(start_str):
+    if int(end_str) < int(start_str):
         return [0, f"Error: -FILE parameter '{file_info}' line range invalid, end_line must be greater than or equal to start_line. Modify the parameter and use `RunSkillScript` tool again."]
 
     return [1, None]
@@ -311,10 +313,9 @@ def format_bug_report(dut, fg, fgd, fc, fcd, ck, ckd, bg, file_info, bug_descrip
     }
 
 
-def update_target_md(target_md_path, formatted_output):
+def update_target_md(target_md_path, formatted_output, dut_name):
     if not os.path.exists(target_md_path):
         os.makedirs(os.path.dirname(target_md_path), exist_ok=True)
-        dut_name = os.environ.get("DUT", "{DUT}")
         initial_batch_rows = build_initial_batch_analysis_rows(dut_name)
         with open(target_md_path, 'w', encoding='utf-8') as f:
             f.write(static_bug_analysis_md_template.format(DUT=dut_name))
@@ -504,7 +505,7 @@ def parse_args():
     parser.add_argument("-CK", required=True, help="Check point tag, e.g., CK-ADD-ZERO-INPUT")
     parser.add_argument("-CKD", required=True, help="Description of CK")
     parser.add_argument("-BG", required=True, help="Bug tag, e.g., BG-STATIC-001-CARRY-INPUT")
-    parser.add_argument("-FILE", required=True, help="Source file path and start, end line numbers, e.g., ALU754_RTL/ALU754.v:13-14")
+    parser.add_argument("-FILE", required=True, help="Workspace-relative source path and inclusive line range without L, e.g., rtl/dut.v:13-14 or rtl/dut.v:13-13 for one line")
     parser.add_argument("-BD", required=True, help="Bug description.")
     parser.add_argument("-CL", required=True, help="Bug confidence, e.g., High, Medium, Low(in Chinese)")
 
@@ -513,8 +514,9 @@ def parse_args():
 
 def main():
     args = parse_args()
-    DUT = os.environ.get("DUT")
-    OUT = os.environ.get("OUT")
+    runtime_config = load_runtime_config(os.getcwd())
+    DUT = runtime_config["DUT"]
+    OUT = runtime_config["OUT"]
 
     function_dict = load_or_create_function_dict(DUT, OUT)
     formatted_output = format_bug_report(
@@ -537,7 +539,7 @@ def main():
         return
 
     target_md = os.path.join(project_root, OUT, f'{DUT}_static_bug_analysis.md')
-    result = update_target_md(target_md, formatted_output)
+    result = update_target_md(target_md, formatted_output, DUT)
     print(result)
 
 

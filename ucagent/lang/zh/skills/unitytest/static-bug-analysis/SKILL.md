@@ -28,7 +28,7 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 - `CKD`: 检测点描述,可直接复用{OUT}/{DUT}_functions_and_checks.md中的描述(10字以内)
 - `BG`: Bug标签，格式为BG-STATIC-NNN-NAME，其中NNN为三位数字递增(001开始,保持序号的连续)，NAME为简要描述. 示例: BG-STATIC-001-CARRY-INPUT
 - `BD`: 潜在Bug的简要描述,描述中不允许存在空格
-- `FILE`: 潜在Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:L1-L2",其中L1和L2分别是起始行和结束行,可以是单行或多行. 示例: "Adder_RTL/Adder.v:10-14"(代码务必高度相关且简洁,只列出与潜在Bug相关的代码)
+- `FILE`: 潜在Bug涉及的源文件路径和相关代码的行数范围，格式为"Adder_RTL/文件.v:起始行-结束行"，不带`L`；单行必须重复行号，例如"Adder_RTL/Adder.v:10-10"，多行示例为"Adder_RTL/Adder.v:10-14"（代码务必高度相关且简洁，只列出与潜在Bug相关的代码）
 - `CL`: Bug置信度,描述对该Bug存在的确信程度. 示例: "高"、"中"、"低"
 
 ### 步骤2: Bug记录
@@ -50,8 +50,8 @@ description: RTL源码静态Bug分析阶段专属技能,用于指导 static_bug_
 - 来源:所有 <FG-*>/<FC-*>/<CK-*> 必须来自 {OUT}/{DUT}_functions_and_checks.md；不存在的须先添加到{OUT}/{DUT}_functions_and_checks.md再使用
 - 多Bug:一个 <CK-*> 下可以有多个 <BG-STATIC-*> 标签，每个代表一个独立Bug
 - 每个 <BG-STATIC-*>（NULL除外）必须有且仅有一个 <LINK-BUG-[BG-TBD]> 子标签
-- 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:L1-L2> 子标签，并附上对应RTL源码片段
-- FILE格式：<FILE-相对路径/文件.v:L1-L2>（相对workspace根目录，示例：rtl/dut.v:50-56）
+- 每个 <LINK-BUG-[BG-TBD]> 必须有至少一个 <FILE-path:1-2> 子标签，并附上对应RTL源码片段
+- FILE格式：<FILE-相对路径/文件.v:起始行-结束行>（不带`L`；单行重复行号；相对workspace根目录，示例：rtl/dut.v:50-56）
 - 所有 <FG-*>/<FC-*>/<CK-*> 标签必须与 functions_and_checks.md 中的定义完全一致（区分大小写）
 - <BG-STATIC-NULL> 是唯一可以没有子标签的Bug条目,且仅用于表示在所有文件中都未发现任何Bug（不能应用于单文件没发现任何Bug）
 - `批次分析进度`中必须使用<file>和</file>标签标记文件路径

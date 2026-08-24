@@ -25,6 +25,10 @@ STATIC_RECORD_SCRIPT = (
     REPO_ROOT
     / "ucagent/lang/zh/skills/unitytest/static-bug-analysis/scripts/record_static_bug.py"
 )
+FUNCTIONS_UPDATE_SCRIPT = (
+    REPO_ROOT
+    / "ucagent/lang/zh/skills/unitytest/functions-and-checks/scripts/update.py"
+)
 
 
 def test_bug_record_scripts_have_distinct_owners_and_names():
@@ -35,6 +39,15 @@ def test_bug_record_scripts_have_distinct_owners_and_names():
     assert 'os.environ.get("DUT")' not in dynamic_script
     assert 'os.environ.get("OUT")' not in dynamic_script
     assert STATIC_RECORD_SCRIPT.is_file()
+    static_script = STATIC_RECORD_SCRIPT.read_text(encoding="utf-8")
+    assert "load_runtime_config(os.getcwd())" in static_script
+    assert 'os.environ.get("DUT")' not in static_script
+    assert 'os.environ.get("OUT")' not in static_script
+    for script_path in (FUNCTIONS_UPDATE_SCRIPT, LINK_SCRIPT):
+        script = script_path.read_text(encoding="utf-8")
+        assert "load_runtime_config(os.getcwd())" in script
+        assert 'os.environ.get("DUT")' not in script
+        assert 'os.environ.get("OUT")' not in script
     assert not list(
         (REPO_ROOT / "ucagent/lang/zh/skills/unitytest").glob(
             "*/scripts/recordbug.py"
@@ -444,6 +457,173 @@ def test_static_bug_record_template_uses_markers_before_localizable_titles():
     )
 
 
+@pytest.mark.parametrize(
+    "invalid_location",
+    (
+        "rtl/dut.v:10",
+        "rtl/dut.v:L10-L10",
+        "rtl/dut.v:14-10",
+    ),
+)
+def test_static_bug_record_script_rejects_noncanonical_source_ranges(
+    invalid_location,
+):
+    module = _load_script(STATIC_RECORD_SCRIPT)
+    functions = {"FG-A": {"FC-A": {"CK-A": {}}}}
+
+    passed, message = module.validate_hierarchy(
+        "Demo",
+        functions,
+        "FG-A",
+        "FC-A",
+        "CK-A",
+        "BG-STATIC-001-RESULT",
+        invalid_location,
+    )
+
+    assert passed == 0
+    assert "RunSkillScript" in message
+
+
+@pytest.mark.parametrize("location", ("rtl/dut.v:10-10", "rtl/dut.v:10-14"))
+def test_static_bug_record_script_accepts_explicit_source_ranges(location):
+    module = _load_script(STATIC_RECORD_SCRIPT)
+    functions = {"FG-A": {"FC-A": {"CK-A": {}}}}
+
+    passed, message = module.validate_hierarchy(
+        "Demo",
+        functions,
+        "FG-A",
+        "FC-A",
+        "CK-A",
+        "BG-STATIC-001-RESULT",
+        location,
+    )
+
+    assert passed == 1
+    assert message is None
+
+
+def test_static_bug_record_script_uses_resolved_runtime_config(
+    tmp_path,
+    monkeypatch,
+):
+    module = _load_script(STATIC_RECORD_SCRIPT)
+    runtime_dir = tmp_path / ".ucagent"
+    runtime_dir.mkdir()
+    (runtime_dir / "runtime_config.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Demo",
+                "OUT": "unity_test",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "unity_test"
+    out_dir.mkdir()
+    (out_dir / "Demo_functions_and_checks.md").write_text(
+        "<FG-A>\n<FC-A>\n<CK-A>\n",
+        encoding="utf-8",
+    )
+    source = tmp_path / "rtl" / "dut.v"
+    source.parent.mkdir()
+    source.write_text("module dut;\nendmodule\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, "project_root", str(tmp_path))
+    monkeypatch.setattr(
+        module,
+        "get_function_dict_json_path",
+        lambda dut: str(tmp_path / f"{dut}_functions_and_checks.json"),
+    )
+    monkeypatch.setenv("DUT", "WrongDut")
+    monkeypatch.setenv("OUT", "wrong_output")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(STATIC_RECORD_SCRIPT),
+            "-FG",
+            "FG-A",
+            "-FGD",
+            "Function A",
+            "-FC",
+            "FC-A",
+            "-FCD",
+            "Function C",
+            "-CK",
+            "CK-A",
+            "-CKD",
+            "Check A",
+            "-BG",
+            "BG-STATIC-001-RESULT",
+            "-FILE",
+            "rtl/dut.v:1-1",
+            "-BD",
+            "Result source candidate",
+            "-CL",
+            "High",
+        ],
+    )
+
+    module.main()
+
+    target = out_dir / "Demo_static_bug_analysis.md"
+    assert target.is_file()
+    assert "# Demo RTL" in target.read_text(encoding="utf-8")
+    assert not (tmp_path / "wrong_output").exists()
+
+
+@pytest.mark.parametrize(
+    ("script_path", "path_loader", "expected_name"),
+    (
+        (FUNCTIONS_UPDATE_SCRIPT, "load_doc_path", "Demo_functions_and_checks.md"),
+        (LINK_SCRIPT, "get_target_md_path", "Demo_static_bug_analysis.md"),
+        (LINK_SCRIPT, "get_bug_analysis_md_path", "Demo_bug_analysis.md"),
+    ),
+)
+def test_skill_path_loaders_use_resolved_runtime_config(
+    script_path,
+    path_loader,
+    expected_name,
+    tmp_path,
+    monkeypatch,
+):
+    module = _load_script(script_path)
+    runtime_dir = tmp_path / ".ucagent"
+    runtime_dir.mkdir()
+    (runtime_dir / "runtime_config.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Demo",
+                "OUT": "unity_test",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    expected = tmp_path / "unity_test" / expected_name
+    expected.parent.mkdir()
+    expected.write_text("canonical runtime target\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, "PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("DUT", "WrongDut")
+    monkeypatch.setenv("OUT", "wrong_output")
+
+    resolved = getattr(module, path_loader)()
+
+    assert Path(resolved) == expected
+
+
 def test_static_bug_link_script_does_not_accept_noncanonical_title_label():
     module = _load_script(LINK_SCRIPT)
 
@@ -562,7 +742,7 @@ def test_static_bug_link_script_updates_tagged_localized_report(tmp_path):
         "| 001 | BG-STATIC-001-DIV | FG-A/FC-A/CK-A | desc | high | rtl/a.v | LINK-BUG-[BG-TBD] |\n"
         "## Localized details\n<STATIC-BUG-DETAILS>\n"
         "<FG-A>\n<FC-A>\n<CK-A>\n<BG-STATIC-001-DIV>\n"
-        "<LINK-BUG-[BG-TBD]>\n<FILE-rtl/a.v:1>\n"
+        "<LINK-BUG-[BG-TBD]>\n<FILE-rtl/a.v:1-1>\n"
         "## Localized progress\n<STATIC-BUG-PROGRESS>\n",
         encoding="utf-8",
     )

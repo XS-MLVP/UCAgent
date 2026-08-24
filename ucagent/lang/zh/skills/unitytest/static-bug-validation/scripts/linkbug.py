@@ -7,6 +7,8 @@ from typing import List
 
 import yaml
 
+from ucagent.util.config import load_runtime_config
+
 
 PROJECT_ROOT = os.getcwd()
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
@@ -111,13 +113,10 @@ def waveform_reference(test_tag: str) -> str:
     return f"<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{anchor})"
 
 
-def get_target_md_path() -> str:
-    dut = os.environ.get("DUT")
-    out_dir = os.environ.get("OUT")
-    if not dut or not out_dir:
-        raise ValueError(
-            "Error: environment variable DUT or OUT is missing. Please run this script via `RunSkillScript`."
-        )
+def get_target_md_path(runtime_config=None) -> str:
+    runtime_config = runtime_config or load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out_dir = runtime_config["OUT"]
 
     path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_static_bug_analysis.md")
     if not os.path.exists(path):
@@ -127,13 +126,10 @@ def get_target_md_path() -> str:
     return path
 
 
-def get_bug_analysis_md_path() -> str:
-    dut = os.environ.get("DUT")
-    out_dir = os.environ.get("OUT")
-    if not dut or not out_dir:
-        raise ValueError(
-            "Error: environment variable DUT or OUT is missing. Please run this script via `RunSkillScript`."
-        )
+def get_bug_analysis_md_path(runtime_config=None) -> str:
+    runtime_config = runtime_config or load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out_dir = runtime_config["OUT"]
 
     path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_bug_analysis.md")
     if not os.path.exists(path):
@@ -544,8 +540,9 @@ def main():
     args = parse_args()
     validate_static_bg(args.SBG)
     link_targets = parse_link_targets(args.LBG)
-    target_md = get_target_md_path()
-    bug_analysis_md = get_bug_analysis_md_path()
+    runtime_config = load_runtime_config(os.getcwd())
+    target_md = get_target_md_path(runtime_config)
+    bug_analysis_md = get_bug_analysis_md_path(runtime_config)
     ensure_link_targets_exist_in_bug_analysis(link_targets, bug_analysis_md)
     print(update_static_bug_link(target_md, args.SBG, link_targets))
 

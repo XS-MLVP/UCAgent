@@ -154,7 +154,7 @@ def test_static_report_sections_use_markers_not_display_titles(tmp_path):
         "## Localized details\n<STATIC-BUG-DETAILS>\n"
         "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n"
         "<BG-STATIC-001-GUARD>\n<LINK-BUG-[BG-TBD]>\n"
-        "<FILE-rtl/DUT.v:1>\n"
+        "<FILE-rtl/DUT.v:1-1>\n"
         "## Localized progress\n<STATIC-BUG-PROGRESS>\n"
     )
     (tmp_path / "static.md").write_text(body, encoding="utf-8")
@@ -438,9 +438,35 @@ class TestEdgeCases:
         assert_pass(fmt_checker("static_ok_multi.md").do_check(), "multirange")
 
     def test_file_tag_single_line(self):
-        """FILE tag with a single line number (e.g. :13) is valid."""
-        # static_ok_one.md uses <FILE-rtl/DUT.v:13>
+        """FILE tag repeats the line number for a single line."""
+        # static_ok_one.md uses <FILE-rtl/DUT.v:13-13>
         assert_pass(fmt_checker("static_ok_one.md").do_check(), "single_line")
+
+    def test_file_tag_rejects_bare_single_line(self, tmp_path):
+        """FILE tag must use an explicit inclusive range even for one line."""
+        (tmp_path / "rtl").mkdir()
+        (tmp_path / "rtl/DUT.v").write_text(
+            "module DUT; endmodule\n", encoding="utf-8"
+        )
+        (tmp_path / "fc.md").write_text(
+            "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n", encoding="utf-8"
+        )
+        (tmp_path / "static.md").write_text(
+            "<STATIC-BUG-SUMMARY>\n<STATIC-BUG-DETAILS>\n"
+            "<FG-CTRL>\n<FC-FSM>\n<CK-FSM-GUARD>\n"
+            "<BG-STATIC-001-GUARD>\n<LINK-BUG-[BG-TBD]>\n"
+            "<FILE-rtl/DUT.v:1>\n<STATIC-BUG-PROGRESS>\n",
+            encoding="utf-8",
+        )
+        checker = UnityChipCheckerStaticBugFormat(
+            static_doc="static.md", functions_and_checks_doc="fc.md"
+        ).set_workspace(str(tmp_path))
+
+        assert_fail(
+            checker.do_check(),
+            "replace 'rtl/DUT.v:1' with 'rtl/DUT.v:1-1'",
+            "line1-line2",
+        )
 
     def test_format_and_validation_agree_on_null(self):
         """Both checkers must pass for the NULL sentinel doc."""

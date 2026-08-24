@@ -83,9 +83,9 @@ _NULL_CK_KEY = "CK-NULL"
 
 # <FILE-filepath:linerange> — source file location evidence for a static bug.
 # filepath : any non-empty path string (no whitespace, relative to project root)
-# linerange: N, N-M, or comma-separated N-M groups (e.g. 50-56,100-120)
+# linerange: N-M or comma-separated N-M groups (use N-N for one line)
 _RE_FILE_KEY = re.compile(
-    r'^(.+):(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$'
+    r'^(.+):(\d+-\d+(?:,\d+-\d+)*)$'
 )
 
 
@@ -132,6 +132,14 @@ def parse_source_location(location: str) -> dict:
     raw = location.strip()
     match = _RE_FILE_KEY.fullmatch(raw)
     if not match:
+        malformed = re.fullmatch(
+            r"(?P<path>.+):L?(?P<start>\d+)(?:-L?(?P<end>\d+))?", raw
+        )
+        if malformed:
+            start = malformed.group("start")
+            end = malformed.group("end") or start
+            replacement = f"{malformed.group('path')}:{start}-{end}"
+            raise ValueError(f"replace '{raw}' with '{replacement}'")
         raise ValueError(
             f"'{location}' must use filepath:line1-line2[,line3-line4] format"
         )
@@ -139,7 +147,7 @@ def parse_source_location(location: str) -> dict:
     for line_range in match.group(2).split(","):
         start_text, separator, end_text = line_range.partition("-")
         start = int(start_text)
-        end = int(end_text) if separator else start
+        end = int(end_text)
         if start < 1 or end < start:
             raise ValueError(f"'{location}' contains an invalid line range '{line_range}'")
         ranges.append({"start": start, "end": end})
@@ -490,9 +498,10 @@ class UnityChipCheckerStaticBugFormat(Checker):
             file_content = file_key[5:] if file_key.startswith("FILE-") else file_key
             try:
                 parsed_location = parse_source_location(file_content)
-            except ValueError:
+            except ValueError as error:
                 errors.append(
                     f"FILE tag '<{file_key}>' in path '{file_path}': invalid format. "
+                    f"{error}. "
                     f"Expected '<FILE-filepath:line1-line2[,line3-line4]>' "
                     f"(e.g. '<FILE-src/dut.v:50-56>')."
                 )
@@ -692,9 +701,10 @@ class UnityChipCheckerStaticBugValidation(Checker):
             file_content = file_key[5:] if file_key.startswith("FILE-") else file_key
             try:
                 parsed_location = parse_source_location(file_content)
-            except ValueError:
+            except ValueError as error:
                 errors.append(
                     f"FILE tag '<{file_key}>' in path '{file_path}': invalid format. "
+                    f"{error}. "
                     f"Expected '<FILE-filepath:line1-line2[,line3-line4]>'."
                 )
             else:

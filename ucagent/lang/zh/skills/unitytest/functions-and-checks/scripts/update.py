@@ -4,6 +4,8 @@ import os
 import re
 from typing import Any, Dict, List, Tuple
 
+from ucagent.util.config import load_runtime_config
+
 
 PROJECT_ROOT = os.getcwd()
 SECTION_TITLE = "## 功能点与检测点"
@@ -43,12 +45,9 @@ def parse_args():
 
 
 def load_doc_path() -> str:
-    dut = os.environ.get("DUT")
-    out_dir = os.environ.get("OUT")
-    if not dut or not out_dir:
-        raise ValueError(
-            "Error: environment variable DUT or OUT is missing. Run this script via `RunSkillScript`."
-        )
+    runtime_config = load_runtime_config(os.getcwd())
+    dut = runtime_config["DUT"]
+    out_dir = runtime_config["OUT"]
 
     path = os.path.join(PROJECT_ROOT, out_dir, f"{dut}_functions_and_checks.md")
     if not os.path.exists(path):
