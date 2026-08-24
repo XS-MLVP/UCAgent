@@ -91,12 +91,14 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - `create_test_case_templates`阶段生成空模板时必须使用`assert False, "Not implemented"`；当前实现阶段必须删除该占位断言，换成真实激励和严格预期检查
 - 已实现测试禁止用`assert False`制造Fail，禁止修改正确预期或弱化断言来制造Pass，也禁止用`BG-*-0`保留测试/基础设施失败
 - `RunTestCases`可能执行了很多的测试用例,但当前步骤中,只针对待实现的当前批次测试用例进行分析工作
-- `recordbug.py`只负责生成`FG/FC/CK/BG/TC`结构、波形占位块和分析章节骨架，不负责根因判断；脚本成功只表示骨架已创建，绝不表示Bug分析完成
-- 对可复现的动态Bug，必须真实调用`WaveInfo`，并在动态Bug文档对应`<BG-*>/<TC-*>`后立即写入```yaml代码块；该块必须且只能包含顶层`waveform_analysis`映射，并在其下保存工具返回的`receipt_id`和`status: confirmed`。YAML关闭围栏后的第一条非空内容必须是同一次最终调用返回的`bug_document_viewer_link`，以`<WAVEFORM-VIEWER>`标记并使用`/surfer/?wave=`相对路由。禁止使用旧`<WAVEFORM-ANALYSIS>`标签、裸YAML或JSON围栏；Checker会核对收据、链接和当前波形重放，不能伪造波形字段或token
+- `record_dynamic_bug.py`只负责在封闭的`<DYNAMIC-BUGS>`分区生成带具体中文可见名称的`FG/FC/CK/BG/TC`、`<WAVEFORM-REF>`和分析字段骨架，不创建波形YAML，也不负责根因判断；脚本成功绝不表示Bug分析完成
+- 对可复现的动态Bug，必须真实调用`WaveInfo`取得最终receipt，再调用`ApplyWaveInfoEvidence`原子维护BG侧`<WAVEFORM-REF>`和中央`<WAVEFORM-EVIDENCE>`分区中的唯一`<WAVEFORM-TC-...>`记录。不要复制receipt字段或viewer token；BG内只保留TC与引用，YAML和viewer只放在中央记录中
 - 只带pattern但没有`logged_cycle+clock_signal`或完整`start_step+end_step`的调用属于探索调用；返回`evidence_window_required`时必须逐字使用`recommended_evidence_call`重调，不能把`analysis_window.effective_*`手工写入文档冒充原调用参数
-- 最终显式窗口调用必须同时提供`start_step`和`end_step`，成功后优先复制`bug_document_fields`，再把`bug_document_viewer_link`整行放在YAML围栏后，最后根据真实timeline和RTL补写`alignment_evidence`、`observed_behavior`、`source_correlation`。链接的`[...]`展示文字可本地化，但不得修改`<WAVEFORM-VIEWER>`、URL或token，也不得手工构造token
+- 最终显式窗口调用必须同时提供`start_step`和`end_step`。成功后使用真实`receipt_id`调用`ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)`。随后完成TC共享的`alignment_evidence`，并在`bug_evidence.<BG>`下完成该Bug的`required_signals`、`observed_behavior`、`source_correlation`
+- 同一Bug有多个Fail TC时，对每个TC分别调用一次Apply工具；同一Fail TC揭示多个独立Bug时，为每个BG用相同TC调用一次。一个TC始终只有一个中央波形记录，`bug_tags`和`bug_evidence`必须精确覆盖所有引用它的BG
+- 多Bug共享TC时，最终WaveInfo的`signal_groups`必须暴露所有Bug所需信号的并集；新增Bug需要扩展信号时重新取得最终receipt，并传`replace_existing=true`。替换receipt会保留各Bug的`required_signals`，重置共享对齐结论和逐Bug语义结论
 - 最终WaveInfo调用必须填写完整`signal_groups`：时序DUT列出实际时钟，组合DUT声明`combinational`且不虚构时钟；同时列出当前功能相关输入数据/选择/使能、相关输出数据/状态/有效位、接口真实的请求接受与响应有效控制，以及至少一个能解释功能选择、状态或错误传播的关键外部/内部信号。所有路径必须来自`signal_catalog`，并由同一receipt签名后进入timeline和viewer；禁止只查看目标result就判Bug
-- `pattern`只用于定位真实失败事件，`signal_groups`用于加载必要上下文；不要为了让viewer出现信号而把所有上下文都设成`change`。`protocol`只有在规格与接口确认不存在ready/valid/enable/start/busy/done/ack等控制时才可为空，Checker不会按名字替代LLM完成该语义审查
+- `pattern`只用于定位真实失败事件，`signal_groups`用于加载必要上下文；不要为了让viewer出现信号而把所有上下文都设成`change`。`protocol`只有在规格与接口确认不存在ready/valid/enable/start/busy/done/ack等控制时才可为空，不能根据控制信号名称猜测协议语义
 - 有波形时用结构化pattern匹配输入、握手、状态和输出；无波形时先用metadata-only调用获取诊断，修复测试名称或波形生成流程并重跑，`status: unavailable`不能完成阶段
 - `WaveInfo`匹配到事件只说明该波形片段可重放，不会自动判定Bug。LLM必须结合规格和测试驱动方式审查真实接受条件、backpressure/stall、pipeline或响应latency、事务ID/顺序以及输出有效窗口；pattern和timeline应包含ready/valid或DUT实际使用的等价协议锚点
 - `valid/enable=0`、`ready/accept=0`、复位/空闲/过渡周期、尚未达到响应latency或协议声明data无效时看到的单点data mismatch只能作为调查线索，不能直接生成BG。若规格明确要求busy期间忽略请求或保持某值，则应引用该约束判断，而不是机械套用握手规则
@@ -105,45 +107,45 @@ description: 分批测试用例实现与对应Bug分析阶段专属技能，用�
 - 日志中的cycle与wavekit的wave step不是同一概念，二者可能相差0到数个周期且时间戳尺度也可能不同；必须指定clock_signal，通过clock occurrence index对齐，并在候选有歧义时增强日志后重跑
 - 找不到波形时，按`WaveInfo`返回的测试名称、最新session、`.dat`、SetWaveform、dut.Finish和文件损坏诊断逐项处理；不能改用旧session或其他测试的波形
 - 中断或重启后可以复用通过验证的`WaveInfo` receipt；当前批次只运行部分用例时，不得删除历史TC/BG、手工改写有效receipt或重造viewer链接。最终记录阶段必须运行完整测试集合并严格重放全部动态Bug TC
-- 只能复制工具返回的`bug_document_viewer_link`整行；除方括号内的展示文字外，不得修改标记、URL或token
+- `bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入；不得让LLM复制或修改标记、URL和token
 
 ### 步骤5: Bug记录
 
 #### 5.1 生成骨架
 
-针对确认的DUT Bug，使用`RunSkillScript`执行`recordbug.py`。脚本只接收`BG/TC/BD`，并在动态Bug文档中生成带`<BUG-TODO>`的未完成骨架：
-```bash
-python3 script -BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'
+针对确认的DUT Bug，默认可使用文本编辑工具逐字参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架，只建立一次带`<BUG-TODO>`的未完成BG结构和第一份TC。若共享技能`unitytest/dynamic-bug-recording`可用，也可以通过`RunSkillScript`执行一次只接收`BG/TC/BD`的`record_dynamic_bug.py`生成相同中文骨架；同一BG的后续Fail TC直接交给`ApplyWaveInfoEvidence`创建：
+```text
+["unitytest/dynamic-bug-recording", "record_dynamic_bug.py", "-BG 'BG-CIN-OVERFLOW-98' -TC 'TC-tests/test_adder.py::test_overflow' -BD '完整加法已截断但overflow仍为0。'"]
 ```
 
-不要向脚本传`ROOT/FILE/FIX`；这些参数已删除。不要把脚本输出当成完成结果，也不要在仍有`<BUG-TODO>`时调用`Check`或`Complete`。
+脚本参数仅为`BG/TC/BD`。不要把脚本输出当成完成结果，也不要在仍有`<BUG-TODO>`时调用`Check`或`Complete`。
 
 #### 5.2 LLM 填写分析
 
-脚本返回后，必须继续完成以下工作，不能结束当前任务：
+骨架建立后，必须继续完成以下工作，不能结束当前任务：
 
 1. 读取失败断言的expected/actual、事务上下文和对应CK原文，并阅读测试使用的API/driver、callback与`Step`顺序，确认真实驱动边沿、接受条件和输出采样窗口。
-2. 调用`WaveInfo`取得最终confirmed证据；调用中提供覆盖时钟（若有）、相关输入、相关输出、协议控制和功能关键路径的完整`signal_groups`。用真实`bug_document_fields`完整替换每个TC后的波形YAML占位块，并用同一结果的`bug_document_viewer_link`整行替换紧随围栏的`<WAVEFORM-VIEWER>`链接占位；打开viewer确认同一签名信号集合均已显示。
+2. 调用`WaveInfo`取得最终confirmed证据；`signal_groups`覆盖该TC关联的全部Bug所需信号并集。随后调用`ApplyWaveInfoEvidence`，由工具创建缺失的兄弟TC、引用和中央记录；打开viewer确认签名信号集合均已显示。目标TC已有不同真实receipt时显式传`replace_existing=true`，再重新完成被重置的语义结论。
 3. 打开DUT RTL/HDL，定位能解释波形错误的首个错误决策和传播路径；不要只复述测试失败或`source_correlation`。
-4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。Checker只识别`<BUG-TODO>`，不解析“待补充”等自然语言。
+4. 使用`EditTextFile`或`ReplaceStringInFile`直接编辑已生成的BG条目，逐项替换所有`<BUG-TODO>`及其提示文字，完成：Bug概述、现象与等级、触发条件与影响范围、根因分析、源码证据与逐行分析、动态因果链、修复建议、风险与复验计划。必须清除全部`<BUG-TODO>`，不得换成“待补充”等自然语言占位。
 5. 有源码时，源码证据必须包含真实`path:L1-L2`和完整HDL fenced代码块；`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`必须各出现一次并位于代码块的语言原生注释中，标签后方写具体解释。无源码时在`<BUG-SOURCE-EVIDENCE>`字段中加入独立行`<BUG-SOURCE-UNAVAILABLE>`，并用接口协议、失败日志和波形完成黑盒因果链，禁止伪造源码。两种分支互斥，不能同时使用无源码标记与HDL代码块或三个源码因果标签。
 6. 重新读取整个BG条目，确认根因、源码、波形和修复互相一致，且该BG内没有任何占位文本。
 
-WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用例并重新调用 WaveInfo，然后替换该 TC 的证据块。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来规避 Checker；只有正确测试已经 Pass，或复查证明它不是 DUT Bug 时，才可同步重新分类或删除记录。
+WaveInfo 收据陈旧、缺失或无法重放时，重新运行对应失败用例并重新调用 WaveInfo，然后通过`ApplyWaveInfoEvidence(..., replace_existing=true)`替换该 TC 的中央记录。只要正确实现的测试仍 Fail，禁止删除 `<TC-*>`、`<BG-*>` 或整个 FG/FC/CK 分支来绕过验收；只有正确测试已经 Pass，或复查证明它不是 DUT Bug 时，才可同步重新分类或删除记录。
 
-动态条目容器使用独立行`<DYNAMIC-BUGS>`定位，八个字段的唯一机器结构是以下独立行标记，顺序固定：`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。LLM只填写标记之间的内容，不能删除、复制、改名或调换标记。相邻中文粗体标题只是展示文字，可以本地化；Checker和Skill脚本不依赖标题文字。旧的仅标题格式不兼容。
+动态条目容器使用独立行`<DYNAMIC-BUGS>`定位。FG/FC/CK名称来自功能检查文档，BG名称来自具体缺陷描述，TC名称来自测试docstring；每行必须同时保留具体中文可见名称和尖括号标签，不能只写标签或类型名。中央波形标题复用TC名称并追加“波形”。同一BG的全部TC及其`<WAVEFORM-REF>`连续放在BG标题后，八个`<BUG-*>`字段整体放在最后一个TC/引用后；第一个字段出现后禁止再追加TC。八个字段分别先写Guide_Doc/dut_bug_analysis.md中的第 5.1 节规定的六级中文标题，下一非空行写对应独立标签，再写正文；标签顺序固定为`<BUG-OVERVIEW>`、`<BUG-SYMPTOMS>`、`<BUG-TRIGGER>`、`<BUG-ROOT-CAUSE>`、`<BUG-SOURCE-EVIDENCE>`、`<BUG-CAUSAL-CHAIN>`、`<BUG-FIX>`、`<BUG-RETEST>`。LLM只填写标签后的证据正文，不能删除、复制、改名、翻译、调换标签或标题，也不能改用粗体或其他标题级别。
 
-脚本生成结构，LLM负责分析和填空；两步缺一不可。所有根因、修复和复验内容必须留在所属BG条目内，不建立全局根因汇总。
+文本编辑或可选脚本生成结构，LLM负责分析和填空；两步缺一不可。所有根因、修复和复验内容必须留在所属BG条目内，不建立全局根因汇总。
 
 ### 步骤6：阶段检查
 
 操作：完成当前批次的测试用例后，使用`Check`工具进行阶段检查.若未通过检查,则基于反馈信息修正测试用例后,直到阶段检查通过为止;若通过检查,则执行下一批次的测试用例实现,或者是使用`Complete`工具进入下一阶段
 
-### RunSkillScript工具使用说明:
+### 可选RunSkillScript工具使用说明:
 - 允许一次性列举多条命令,但每条命令必须独立完整,且必须符合格式要求,例如记录Fail但合理的测试用例时,若有10个Fail但合理的测试用例待记录
 - 其他参数值替换为每个测试用例记录内容,只允许使用定义的参数,禁止额外参数,且参数值必须符合上述格式要求,每个参数必须使用单括号括起来
 - 使用`RunSkillScript`工具时,若有10条命令要执行,前5条命令行执行正常,成功记录,但第6条命令执行失败时,根据反馈信息修改第6条命令以及后续命令中存在的相同问题,并且使用`RunSkillScript`工具重新执行第6条命令以及后续命令,已经成功的命令不需要重新执行,只需要执行未完成的命令,直至所有命令执行完毕
-- `recordbug.py`是新增BG/TC结构的唯一入口；脚本生成骨架后，必须使用文本编辑工具在该BG内部填写真实波形与分析内容。不得手工创建另一套BG层级，也不得跳过填空步骤。
+- 共享技能`unitytest/dynamic-bug-recording`及其`record_dynamic_bug.py`可用时，只用于新Bug的第一份BG/TC结构；共享技能未复制、Skill整体禁用或脚本不可用时，使用文本编辑工具按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架只建立一次相同中文BG结构。后续兄弟TC、引用和中央记录由`ApplyWaveInfoEvidence`维护，再完成共享`alignment_evidence`、逐Bug语义字段和BG分析章节。不得手工创建另一套BG层级，也不得跳过填空步骤。
 
 
 ### 约束条件示例

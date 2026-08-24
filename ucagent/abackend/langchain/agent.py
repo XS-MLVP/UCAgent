@@ -168,6 +168,52 @@ class UCAgentLangChainBackend(AgentBackendBase):
             warning(f"Failed to get messages from agent state: {e}")
         return []
 
+    @staticmethod
+    def _pending_tool_calls(messages):
+        pending = {}
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                for call in msg.tool_calls:
+                    tool_call_id = call.get("id")
+                    if not tool_call_id:
+                        continue
+                    pending[tool_call_id] = call.get("name") or "unknown"
+            elif isinstance(msg, ToolMessage):
+                pending.pop(msg.tool_call_id, None)
+        return pending
+
+    def recover_pending_tool_calls(self, error) -> int:
+        pending = self._pending_tool_calls(self.messages_get_raw())
+        if not pending:
+            return 0
+        reason = str(error).strip().splitlines()[0]
+        if len(reason) > 500:
+            reason = reason[:497] + "..."
+        recovery_messages = [
+            ToolMessage(
+                content=(
+                    "[ERROR] The tool call ended before producing a usable result. "
+                    f"Reason: {reason or type(error).__name__}. Review the arguments "
+                    "and retry."
+                ),
+                tool_call_id=tool_call_id,
+                name=name,
+                status="error",
+            )
+            for tool_call_id, name in pending.items()
+        ]
+        try:
+            self.agent.update_state(
+                self.get_work_config(),
+                {"messages": recovery_messages},
+                as_node="tools",
+            )
+        except Exception as recovery_error:
+            warning(f"Failed to recover pending tool calls: {recovery_error}")
+            return 0
+        warning(f"Recovered {len(recovery_messages)} pending tool call(s).")
+        return len(recovery_messages)
+
     def get_work_config(self):
         work_config = {
             "configurable": {"thread_id": f"{self.vagent.thread_id}"},

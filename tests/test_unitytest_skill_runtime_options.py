@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,10 +13,14 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from ucagent.util.config import (
     Config,
+    get_config,
     load_runtime_config,
     load_yaml_with_env_vars,
     save_runtime_config,
 )
+from ucagent.stage.vstage import VerifyStage
+from ucagent.tools.skill import _scan_skills
+from ucagent.util.functions import copytree_incremental
 
 
 CREATE_SCRIPT = (
@@ -301,7 +306,8 @@ def test_unitytest_skills_document_fixture_boundaries():
         assert "runtime_options" not in skill
 
     assert "createtemplate.py" in create_skill
-    assert "脚本会自动生成正确的pytest函数签名" in create_skill
+    assert "脚本是可选助手" in create_skill
+    assert "内置文本编辑工具创建" in create_skill
     assert "当前批次已经生成的测试模板签名为准" in implementation_skill
     assert "def test_xxx(env, ref_model)" in implementation_skill
     assert "def test_api_{DUT}_mock_xxx(mock_dut)" in implementation_skill
@@ -323,13 +329,163 @@ def test_unitytest_skills_document_fixture_boundaries():
     for viewer_text in (
         "中断或重启后可以复用通过验证的`WaveInfo` receipt",
         "不得删除历史TC/BG",
-        "只能复制工具返回的`bug_document_viewer_link`整行",
+        "`bug_document_viewer_link`必须由`ApplyWaveInfoEvidence`直接写入",
+        "由工具创建缺失的兄弟TC、引用和中央记录",
+        "不得手工创建另一套BG层级",
+        "同一Fail TC揭示多个独立Bug时",
+        "为每个BG用相同TC调用一次",
     ):
         assert viewer_text in implementation_skill
+    assert "同一Fail TC证实多个独立动态Bug时" in static_skill
+    assert "目标BG/TC之外的Bug记录不会被修改" in static_skill
     assert "单独运行当前静态候选用例时" in static_skill
     assert "最终记录阶段仍需完整测试运行" in static_skill
     assert "CMD API" not in implementation_skill
     assert "CMD API" not in static_skill
+
+
+def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("NEED_REF_MODEL", "false")
+    monkeypatch.setenv("IGNORE_MOCK_COMPONENT", "true")
+    cfg = get_config(config_file=str(CONFIG_PATH))
+    config = load_yaml_with_env_vars(str(CONFIG_PATH))
+    stages = _stage_map(config)
+
+    assert cfg.skill.use_skill is True
+    assert cfg.launch.default_args.use_skill is True
+    assert "Skill与其中的脚本只是可选的批量辅助" in config["mission"]["prompt"]["system"]
+    assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]
+    assert (
+        "DeleteTextLines(path, line_blocks, expected_sha256)"
+        in config["mission"]["prompt"]["system"]
+    )
+    assert (
+        "重新读取缩短后的文件后用`ReplaceStringInFile`"
+        in config["mission"]["prompt"]["system"]
+    )
+    assert all(
+        stage.get("force_use_skill") is not True
+        for stage in _iter_stages(config["stage"])
+    )
+
+    function_task = "\n".join(
+        str(item) for item in stages["functional_specification_analysis"]["task"]
+    )
+    static_task = "\n".join(
+        str(item) for item in stages["static_bug_analysis"]["task"]
+    )
+    template_task = "\n".join(
+        str(item) for item in stages["create_test_case_templates"]["task"]
+    )
+    validation_task = "\n".join(
+        str(item) for item in stages["static_bug_validation"]["task"]
+    )
+    comprehensive = stages["comprehensive_verification_and_bug_analysis"]
+    batch_stage = next(
+        stage
+        for stage in comprehensive["stage"]
+        if stage["name"] == "test_case_implementation_in_batch"
+    )
+
+    assert "写入不依赖Skill脚本" in function_task
+    assert "直接使用文本编辑工具" in static_task
+    assert "ReadTextFile读取.ucagent/runtime_config.json" in template_task
+    assert "用文本编辑工具直接创建测试模板" in template_task
+    assert "LINK回填不依赖linkbug.py" in validation_task
+    assert "对已有静态报告使用ReplaceStringInFile" in validation_task
+    assert "ReplaceStringInFile或EditTextFile" not in validation_task
+    assert batch_stage["skill_list"] == [
+        "unitytest/test-case-implementation-in-batch"
+    ]
+    assert stages["static_bug_validation"]["skill_list"] == [
+        "unitytest/static-bug-validation"
+    ]
+
+
+def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
+    cfg = SimpleNamespace(
+        skill=SimpleNamespace(use_skill=False),
+        _temp_cfg={"OUT": "unity_test"},
+        hist_ignore_pattern=[],
+    )
+
+    stage = VerifyStage(
+        cfg=cfg,
+        workspace=str(tmp_path),
+        name="no_skill_stage",
+        description="no skill stage",
+        task=["edit the output with built-in tools"],
+        checker=[],
+        reference_files=[],
+        skill_list=["unitytest/not-copied"],
+        output_files=[],
+    )
+
+    assert stage.skill_list == {}
+
+
+def test_all_default_workflow_skills_keep_scripts_optional():
+    skill_docs = {
+        path.parent.name: path.read_text(encoding="utf-8")
+        for path in sorted(SKILL_ROOT.glob("*/SKILL.md"))
+    }
+
+    assert set(skill_docs) == {
+        "create-test-case-templates",
+        "dynamic-bug-recording",
+        "functions-and-checks",
+        "mock-components",
+        "static-bug-analysis",
+        "static-bug-validation",
+        "test-case-implementation-in-batch",
+    }
+    for name in (
+        "create-test-case-templates",
+        "dynamic-bug-recording",
+        "functions-and-checks",
+        "static-bug-analysis",
+        "static-bug-validation",
+        "test-case-implementation-in-batch",
+    ):
+        assert "文本编辑工具" in skill_docs[name]
+
+    for name in (
+        "create-test-case-templates",
+        "dynamic-bug-recording",
+        "functions-and-checks",
+        "static-bug-analysis",
+        "static-bug-validation",
+        "test-case-implementation-in-batch",
+    ):
+        assert "可选" in skill_docs[name]
+
+    assert "RunSkillScript" not in skill_docs["mock-components"]
+
+    assert "record_dynamic_bug.py" in skill_docs["dynamic-bug-recording"]
+    assert "record_static_bug.py" in skill_docs["static-bug-analysis"]
+    assert "unitytest/dynamic-bug-recording" in skill_docs[
+        "test-case-implementation-in-batch"
+    ]
+    assert "unitytest/dynamic-bug-recording" in skill_docs[
+        "static-bug-validation"
+    ]
+
+
+def test_shared_dynamic_bug_skill_is_copied_and_discoverable(tmp_path):
+    source_root = REPO_ROOT / "ucagent/lang/zh/skills"
+    workspace_skill_root = tmp_path / ".ucagent/skills"
+
+    copytree_incremental(str(source_root), str(workspace_skill_root))
+    skills = {skill["name"]: skill for skill in _scan_skills(str(tmp_path))}
+
+    assert "unitytest/dynamic-bug-recording" in skills
+    assert skills["unitytest/dynamic-bug-recording"]["script"] == {
+        "record_dynamic_bug.py": (
+            ".ucagent/skills/unitytest/dynamic-bug-recording/"
+            "scripts/record_dynamic_bug.py"
+        )
+    }
 
 
 def test_batch_test_implementation_requires_ck_driven_tests(monkeypatch):

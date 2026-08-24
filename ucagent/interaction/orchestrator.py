@@ -42,8 +42,9 @@ class ToolRecommendationEngine:
                 'MemoryPut', 'MemoryGet'
             ],
             ToolCategory.FILE_OPS: [
-                'ReadTextFile', 'EditTextFile', 'MoveFile',
-                'DeleteFile', 'CreateDirectory', 'PathList'
+                'ReadTextFile', 'EditTextFile', 'DeleteTextLines',
+                'ReplaceStringInFile', 'MoveFile', 'DeleteFile',
+                'CreateDirectory', 'PathList'
             ],
             ToolCategory.VERIFICATION: [
                 'RunTestCases', 'Status', 'Detail', 'CurrentTips'
@@ -59,7 +60,8 @@ class ToolRecommendationEngine:
                 'Reflect', 'HumanHelp'
             ],
             ToolCategory.EXECUTION: [
-                'RunTestCases', 'EditTextFile', 'ReplaceStringInFile'
+                'RunTestCases', 'EditTextFile', 'DeleteTextLines',
+                'ReplaceStringInFile'
             ]
         }
     
@@ -155,6 +157,20 @@ class ToolRecommendationEngine:
                 'exploration': "Read documentation and example files to understand context",
                 'implementation': "Read source files to understand implementation details",
                 'verification': "Read test files and results to understand requirements"
+            },
+            'DeleteTextLines': {
+                'implementation': (
+                    "Use only for large edits: delete all obsolete line blocks, reread "
+                    "the file, then use ReplaceStringInFile for precise edits"
+                ),
+                'focused_execution': (
+                    "Delete many complete lines in one call, then reread before using "
+                    "ReplaceStringInFile"
+                ),
+                'recovery': (
+                    "Reread the current file and recalculate all original line blocks "
+                    "before retrying"
+                )
             },
             'Reflect': {
                 'recovery': "Analyze what went wrong and identify alternative approaches",

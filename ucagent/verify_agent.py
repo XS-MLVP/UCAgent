@@ -260,12 +260,20 @@ class VerifyAgent:
         self.cwd_read_only_files = fc.chmode_ro_by_pattern(
             self.workspace, self.cfg.get_value("un_write_dirs", [])
         )
+        self.tool_waveinfo = WaveInfo(
+            workspace=self.workspace,
+            test_dir=self.cfg.tools.RunTestCases.test_dir,
+            dut_name=self.dut_name,
+        )
+        self.tool_apply_waveinfo_evidence = ApplyWaveInfoEvidence(
+            waveinfo=self.tool_waveinfo,
+            workspace=self.workspace,
+            write_dirs=self.cfg.write_dirs,
+            un_write_dirs=self.cfg.un_write_dirs,
+        )
         self.tool_list_waveform = [
-            WaveInfo(
-                workspace=self.workspace,
-                test_dir=self.cfg.tools.RunTestCases.test_dir,
-                dut_name=self.dut_name,
-            )
+            self.tool_waveinfo,
+            self.tool_apply_waveinfo_evidence,
         ]
         self.tool_list_file = [
             # Directory and file listing tools
@@ -283,6 +291,11 @@ class VerifyAgent:
                 un_write_dirs=self.cfg.un_write_dirs,
             ),
             EditTextFile(
+                self.workspace,
+                write_dirs=self.cfg.write_dirs,
+                un_write_dirs=self.cfg.un_write_dirs,
+            ),
+            DeleteTextLines(
                 self.workspace,
                 write_dirs=self.cfg.write_dirs,
                 un_write_dirs=self.cfg.un_write_dirs,
@@ -938,6 +951,12 @@ class VerifyAgent:
                 self.do_work_stream(instructions, config)
             else:
                 self.do_work_values(instructions, config)
+        except Exception as work_error:
+            try:
+                self.backend.recover_pending_tool_calls(work_error)
+            except Exception as recovery_error:
+                warning(f"Failed to recover tool call state: {recovery_error}")
+            raise
         finally:
             self._is_work_busy = False
             if self._exit_on_completion_pending:

@@ -496,7 +496,7 @@ def update_target_md(target_md_path, formatted_output):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Format a bug report and append it to the target file.")
+    parser = argparse.ArgumentParser(description="Record a static Bug candidate in the static analysis report.")
     parser.add_argument("-FG", required=True, help="Function Group tag, e.g., FG-BASIC-ARITHMETIC")
     parser.add_argument("-FGD", required=True, help="Description of FG")
     parser.add_argument("-FC", required=True, help="Sub-function tag, e.g., FC-SPECIAL-ADD")

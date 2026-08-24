@@ -37,6 +37,7 @@ dependencies = [
     "docker>=7.1.0",
     "kubernetes>=33.1.0",
     "wavekit>=0.7.0,<0.8.0",
+    "regex>=2024.11.6",
 ]
 dynamic = ["version"]
 

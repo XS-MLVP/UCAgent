@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import os
 import re
 import textwrap
@@ -9,6 +10,9 @@ import yaml
 
 PROJECT_ROOT = os.getcwd()
 DYNAMIC_BUGS_MARKER = "<DYNAMIC-BUGS>"
+DYNAMIC_BUGS_END_MARKER = "</DYNAMIC-BUGS>"
+WAVEFORM_EVIDENCE_MARKER = "<WAVEFORM-EVIDENCE>"
+WAVEFORM_EVIDENCE_END_MARKER = "</WAVEFORM-EVIDENCE>"
 STATIC_BUG_SUMMARY_MARKER = "<STATIC-BUG-SUMMARY>"
 STATIC_BUG_DETAILS_MARKER = "<STATIC-BUG-DETAILS>"
 STATIC_BUG_PROGRESS_MARKER = "<STATIC-BUG-PROGRESS>"
@@ -102,6 +106,11 @@ def build_link_payload(link_targets: List[str]) -> str:
     return "".join(f"[{tag}]" for tag in link_targets)
 
 
+def waveform_reference(test_tag: str) -> str:
+    anchor = hashlib.sha256(test_tag.encode("utf-8")).hexdigest()[:16]
+    return f"<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-{anchor})"
+
+
 def get_target_md_path() -> str:
     dut = os.environ.get("DUT")
     out_dir = os.environ.get("OUT")
@@ -173,6 +182,11 @@ def collect_dynamic_bg_blocks(lines: List[str], target_bg: str) -> List[str]:
     fence_open = False
     for index, line in enumerate(lines):
         stripped = line.strip()
+        if stripped == DYNAMIC_BUGS_END_MARKER:
+            if start is not None:
+                blocks.append("".join(lines[start:index]))
+                start = None
+            break
         if stripped.startswith("```"):
             fence_open = not fence_open
             continue
@@ -245,42 +259,58 @@ def has_dynamic_bug_field_content(content: str) -> bool:
     return bool(re.sub(r"\s+", "", without_optional_markers))
 
 
-def has_confirmed_waveform_analysis(block: str) -> bool:
-    lines = block.splitlines()
-    index = 0
-    while index < len(lines):
-        if lines[index].strip() != "```yaml":
+def collect_confirmed_waveform_records(lines: List[str]) -> dict[str, dict]:
+    start = find_marker_index(lines, WAVEFORM_EVIDENCE_MARKER)
+    end = find_marker_index(lines, WAVEFORM_EVIDENCE_END_MARKER)
+    if start >= end:
+        raise ValueError("Error: WAVEFORM-EVIDENCE container markers are out of order.")
+    records = {}
+    index = start + 1
+    heading_pattern = re.compile(r"^###\s+<WAVEFORM-(TC-[^<>]+)>\s*$")
+    while index < end:
+        heading = heading_pattern.fullmatch(lines[index].strip())
+        if heading is None:
             index += 1
             continue
+        test_tag = heading.group(1)
+        index += 1
+        while index < end and not lines[index].strip():
+            index += 1
+        if index >= end or lines[index].strip() != "```yaml":
+            raise ValueError(f"Error: central record <{test_tag}> has no YAML fence.")
         payload_lines = []
         index += 1
-        while index < len(lines) and lines[index].strip() != "```":
+        while index < end and lines[index].strip() != "```":
             payload_lines.append(lines[index])
             index += 1
-        if index >= len(lines):
-            return False
+        if index >= end:
+            raise ValueError(f"Error: central record <{test_tag}> has an unclosed YAML fence.")
         try:
-            payload = yaml.safe_load(textwrap.dedent("\n".join(payload_lines)))
-        except yaml.YAMLError:
-            index += 1
-            continue
-        if (
-            isinstance(payload, dict)
-            and set(payload) == {"waveform_analysis"}
-            and isinstance(payload["waveform_analysis"], dict)
-            and payload["waveform_analysis"].get("status") == "confirmed"
-        ):
-            index += 1
-            while index < len(lines) and not lines[index].strip():
-                index += 1
-            if index < len(lines) and re.fullmatch(
-                r"\s*<WAVEFORM-VIEWER>\s+\[[^\]\r\n]+\]"
-                r"\(/surfer/\?wave=[A-Za-z0-9_-]+\)\s*",
-                lines[index],
-            ):
-                return True
+            payload = yaml.safe_load(textwrap.dedent("".join(payload_lines)))
+        except yaml.YAMLError as error:
+            raise ValueError(f"Error: central record <{test_tag}> has invalid YAML: {error}")
         index += 1
-    return False
+        while index < end and not lines[index].strip():
+            index += 1
+        has_viewer = index < end and re.fullmatch(
+            r"\s*<WAVEFORM-VIEWER>\s+\[[^\]\r\n]+\]"
+            r"\(/surfer/\?wave=[A-Za-z0-9_-]+\)\s*",
+            lines[index],
+        )
+        analysis = payload.get("waveform_analysis") if isinstance(payload, dict) else None
+        valid_payload = isinstance(payload, dict) and set(payload) == {
+            "waveform_analysis"
+        }
+        if not valid_payload or not isinstance(analysis, dict) or not has_viewer:
+            raise ValueError(
+                f"Error: central record <{test_tag}> must contain one waveform_analysis "
+                "mapping followed by WAVEFORM-VIEWER."
+            )
+        if test_tag in records:
+            raise ValueError(f"Error: duplicate central waveform record for <{test_tag}>.")
+        records[test_tag] = analysis
+        index += 1
+    return records
 
 
 def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
@@ -289,6 +319,7 @@ def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
         raise ValueError(
             f"Error: linked BG tag '{target_bg}' has no canonical dynamic Bug block."
         )
+    waveform_records = collect_confirmed_waveform_records(lines)
     for block in blocks:
         sections, marker_problems = parse_dynamic_bug_sections(block)
         empty_fields = [
@@ -297,7 +328,46 @@ def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
             if not has_dynamic_bug_field_content(content)
         ]
         has_todo = DYNAMIC_BUG_TODO_MARKER in block
-        missing_waveform = not has_confirmed_waveform_analysis(block)
+        test_tags = re.findall(r"<(TC-[^<>]+)>", block)
+        waveform_problems = []
+        block_lines = block.splitlines()
+        for test_tag in test_tags:
+            test_indexes = [
+                index
+                for index, line in enumerate(block_lines)
+                if f"<{test_tag}>" in line
+            ]
+            if len(test_indexes) != 1:
+                waveform_problems.append(
+                    f"<{test_tag}> must occur exactly once in its dynamic Bug block"
+                )
+                continue
+            next_index = test_indexes[0] + 1
+            while next_index < len(block_lines) and not block_lines[next_index].strip():
+                next_index += 1
+            expected_reference = waveform_reference(test_tag)
+            if (
+                next_index >= len(block_lines)
+                or block_lines[next_index].strip() != expected_reference
+            ):
+                waveform_problems.append(
+                    f"<{test_tag}> must be followed by {expected_reference}"
+                )
+                continue
+            analysis = waveform_records.get(test_tag)
+            bug_evidence = analysis.get("bug_evidence") if isinstance(analysis, dict) else None
+            if (
+                not isinstance(analysis, dict)
+                or analysis.get("status") != "confirmed"
+                or target_bg not in analysis.get("bug_tags", [])
+                or not isinstance(bug_evidence, dict)
+                or not isinstance(bug_evidence.get(target_bg), dict)
+                or DYNAMIC_BUG_TODO_MARKER in str(bug_evidence[target_bg])
+            ):
+                waveform_problems.append(
+                    f"<{test_tag}> has no completed central evidence for <{target_bg}>"
+                )
+        missing_waveform = not test_tags or bool(waveform_problems)
         if marker_problems or empty_fields or has_todo or missing_waveform:
             detail = (
                 "invalid markers: " + "; ".join(marker_problems)
@@ -306,7 +376,7 @@ def ensure_dynamic_bg_complete(lines: List[str], target_bg: str) -> None:
                 if empty_fields
                 else f"unfinished marker {DYNAMIC_BUG_TODO_MARKER!r} remains"
                 if has_todo
-                else "confirmed waveform_analysis or its WAVEFORM-VIEWER link is missing"
+                else "; ".join(waveform_problems)
             )
             raise ValueError(
                 f"Error: linked BG tag '{target_bg}' is only an incomplete scaffold ({detail}). "

@@ -210,12 +210,78 @@ These layers form one behavioral contract and often must change together:
 
 Do not change only one layer when a format or mandatory behavior changes.
 
+### LLM-Facing Content
+
+LLM-facing content includes system/stage/task prompts, rendered stage
+descriptions, checker diagnostics, tool descriptions and argument fields, tool
+results, runtime `Guide_Doc`, templates, and skill instructions.
+
+- Write from the perspective of the agent executing the current stage. State the
+  objective, usable inputs and actions, required artifacts/formats/evidence,
+  acceptance criteria, and the concrete next action.
+- Do not expose UCAgent architecture or implementation details that do not
+  change the LLM's valid next action. Avoid Python class/module names, object
+  lifecycle and call order, checker internals, checkpoint/state storage,
+  configuration assembly, backend/MCP/server wiring, private data structures,
+  and enforcement rationale.
+- Preserve public runtime interfaces the LLM must actually use, including tool
+  names and arguments, workspace paths, tags and schemas, stage commands,
+  constraints, and validation results. Present them as task contracts, not as
+  explanations of how UCAgent implements or enforces them.
+- Translate internal failures into task-oriented diagnostics: identify the
+  affected artifact/input and location, the expected condition, the observed
+  problem, and the exact corrective action or next tool call. Do not expose
+  stack traces, internal booleans, or call chains unless the text is explicitly
+  for developer debugging rather than the stage-running LLM.
+- Keep LLM-facing text concise and stage-local. Remove background information
+  that cannot influence the current stage's decisions, output, or completion.
+- Describe only the current canonical contract. Do not mention superseded
+  formats, migrations, backward compatibility, removed arguments, or what older
+  releases accepted unless the current task explicitly requires migration work.
+  When input has the wrong shape, state the required current structure and the
+  exact repair action without teaching the LLM about historical alternatives.
+
+### Shared Runtime Contract
+
 - Tagged Markdown is a machine-readable interface. Treat FG/FC/CK, BG/TC,
   FILE/LINK-BUG, progress markers, and fenced evidence blocks like an API.
-- If legacy compatibility is not explicitly required, keep one canonical format
-  instead of accepting several ambiguous variants.
+- Keep one canonical format instead of accepting several ambiguous variants.
+- Every normative `Guide_Doc` file must include a complete canonical reference
+  example for its primary artifact contract. The example must show the entire
+  finished artifact from its title through its closing section, including exact
+  section order, heading levels, tag nesting, fences, required fields, and
+  representative completed content. Additional complete examples or focused
+  branch examples may cover alternate required branches. Small fragments may
+  explain individual rules, but they do not replace the complete example. Keep
+  the example synchronized with prompts, generated templates, optional skill
+  assets and scripts, checkers, and focused regression tests so the LLM is not
+  left to invent alternate titles or layouts.
 - Keep examples syntactically valid, visually readable in Markdown, and exactly
   consistent with checker expectations.
+- In LLM-facing content, qualify every Guide_Doc section reference with its
+  runtime-relative file path, for example
+  `Guide_Doc/dut_bug_analysis.md section 5.1`. Never use a bare reference such
+  as `Guide section 5.1` or `section 5.1` when directing the LLM to a document.
+
+### Optional Skill Contract
+
+- Skill support is optional. Every workflow and stage must remain executable and
+  checker-completable when skills are disabled and when `.ucagent/skills` is
+  absent.
+- Treat a skill as an acceleration or guidance path, never as the sole source of
+  mandatory behavior. The stage prompt, runtime guidance, tool contracts, and
+  templates available without skills must still expose every required objective,
+  input, output format, evidence rule, and completion criterion.
+- Make skill references in task prompts conditional and provide an actionable
+  non-skill path using the normally available tools and source files. Do not
+  unconditionally instruct the LLM to read a skill, call a skill-only tool, run
+  a skill script, or stop because a skill is unavailable.
+- Skill-enabled and skill-disabled paths must produce the same canonical
+  artifacts and meet the same checker standards. Disabling skills must not skip
+  work, weaken evidence, or relax validation.
+- Any requirement to invoke a skill or validate skill-use evidence must be
+  conditional on the resolved skill setting. It must not block Check or Complete
+  when skills are disabled.
 - Skill directories require `SKILL.md` with valid `name` and `description`
   frontmatter. Keep a skill concise and put deterministic repeated work in
   `scripts/`.
@@ -227,6 +293,10 @@ Do not change only one layer when a format or mandatory behavior changes.
 - Skills are copied into a workspace at agent initialization. Source changes do
   not automatically update an already-running workspace; restart/recopy before
   diagnosing stale skill behavior.
+- For every skill-related workflow change, test both enabled and disabled
+  configurations. The disabled case must cover an absent skill directory and
+  must verify that rendered prompts, available actions, checker behavior, and
+  completion do not depend on skill-only content.
 
 ## Verification Domain Invariants
 
@@ -245,22 +315,39 @@ Preserve these established semantics unless the task explicitly changes them:
   `{DUT}_static_bug_analysis.md`. A dynamically reproduced Bug gets a separate
   non-static BG tag in `{DUT}_bug_analysis.md`.
 - Dynamic Bug entries require real WaveInfo evidence for every associated TC.
-  The TC must be immediately followed by a fenced `yaml` block whose sole
-  top-level key is `waveform_analysis` and whose receipt can be verified.
-- Do not accept the removed legacy `<WAVEFORM-ANALYSIS>` text format.
+  Each TC must be immediately followed by a canonical `<WAVEFORM-REF>` link to
+  its unique record in the document-level `<WAVEFORM-EVIDENCE>` section. The
+  record's fenced `yaml` block must have `waveform_analysis` as its sole
+  top-level key, name every associated BG, and contain a verifiable receipt.
+- A failed TC has exactly one central waveform record even when it is associated
+  with multiple Bugs. The signed signal groups must cover the union of each
+  associated BG's `required_signals`.
+- Within each dynamic `<BG-*>`, list every `<TC-*>` and its immediately following
+  `<WAVEFORM-REF>` before the eight ordered `<BUG-*>` analysis fields. The fields
+  begin only after the final TC/reference pair; never append another TC after the
+  first analysis field. Each field uses its canonical level-six visible title,
+  then its matching `<BUG-*>` marker on the next nonempty line, then its body.
 - A no-Bug result must remain valid without manufacturing waveform evidence.
 - Test log cycle values and wavekit steps may differ by zero or several cycles.
   Align evidence by clock occurrence and transaction context; never assume they
   are identical indexes.
-- Keep all information for one dynamic Bug inside its BG entry: description,
-  failing TCs and per-TC waveforms, trigger, source location, causal root analysis,
-  fix guidance, risk, and re-verification plan.
+- Keep Bug-specific conclusions in the BG entry and the matching central
+  `bug_evidence` item. Keep shared receipt, viewer, alignment, and signals only
+  in the TC's central waveform record.
 
 ## Code Style and Scope
 
 - Match nearby style; the repository is not uniformly autoformatted.
-- Use UTF-8. Chinese is expected in runtime prompts and Guide_Doc files. Keep
-  Python identifiers and implementation comments concise and conventional.
+- Use UTF-8. Files in `ucagent/lang/zh/` may contain Chinese. Do not put Chinese
+  literals in generic implementation Python files outside the language tree,
+  including Unicode escapes that decode to Chinese at runtime. When generic
+  Python needs localized titles, templates, prompt text, or diagnostic guidance,
+  load them from the matching `ucagent/lang/<lang>/` resource instead of
+  duplicating them in Python.
+- Keep generic checker and tool diagnostics language-neutral. Refer to stable
+  field keys, machine tags, and exact Guide_Doc paths; do not embed or echo a
+  locale's full display-title list into generic runtime messages.
+- Keep Python identifiers and implementation comments concise and conventional.
 - Prefer standard parsers and structured data over ad hoc string replacement.
 - Add comments only for non-obvious lifecycle, security, or parsing logic.
 - Avoid broad abstractions for a single checker/tool unless they clearly reduce

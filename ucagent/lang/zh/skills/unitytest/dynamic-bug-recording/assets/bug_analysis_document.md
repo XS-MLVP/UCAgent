@@ -1,4 +1,4 @@
-# {{DUT}} 动态 Bug 分析
+# $DUT 动态 Bug 分析
 
 ## 动态 Bug 记录
 <DYNAMIC-BUGS>

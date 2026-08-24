@@ -16,12 +16,7 @@ if TYPE_CHECKING:
 
 
 def _collect_mcp_tools(agent: Any, no_file_ops: bool) -> List[Any]:
-    """Return MCP-visible tools, retaining bounded waveform diagnostics.
-
-    ``--mcp-server-no-file-tools`` hides generic workspace file operations.  WaveInfo
-    has its own constrained input/output contract and is required to produce dynamic
-    Bug-analysis receipts, so it is deliberately exposed in both modes.
-    """
+    """Return MCP-visible tools, optionally excluding generic file operations."""
     tools = (
         agent.tool_list_base
         + agent.tool_list_task

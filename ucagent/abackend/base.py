@@ -161,3 +161,7 @@ class AgentBackendBase(object):
         Reset the chat state, if applicable.
         """
         pass
+
+    def recover_pending_tool_calls(self, error) -> int:
+        """Record failed outputs for tool calls left pending by an exception."""
+        return 0

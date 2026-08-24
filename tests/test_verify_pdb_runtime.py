@@ -542,3 +542,75 @@ def test_exit_on_completion_defers_until_work_finishes():
 
     assert agent._need_break is False
     assert agent.pdb.cmds == [["sleep 5", "quit", "quit", "quit"]]
+
+
+def test_do_work_recovers_pending_tool_calls_before_reraising():
+    class _Backend:
+        def __init__(self):
+            self.errors = []
+
+        def recover_pending_tool_calls(self, error):
+            self.errors.append(error)
+            return 1
+
+    agent = VerifyAgent.__new__(VerifyAgent)
+    agent._exit_on_completion_pending = False
+    agent._is_work_busy = False
+    agent.stream_output = False
+    agent.backend = _Backend()
+
+    def fail_work(_instructions, _config):
+        raise RuntimeError("tool execution failed")
+
+    agent.do_work_values = fail_work
+
+    with pytest.raises(RuntimeError, match="tool execution failed"):
+        agent.do_work({}, {})
+
+    assert len(agent.backend.errors) == 1
+    assert agent.is_work_busy() is False
+
+
+def test_loop_retry_budget_is_not_refreshed_without_agent_progress(probe_pdb):
+    calls = 0
+    probe_pdb.max_loop_retry = 2
+    probe_pdb.retry_delay_start = 0
+    probe_pdb.retry_delay_end = 0
+    probe_pdb.loop_alive_time = -1
+    probe_pdb.agent.invoke_round = 0
+
+    def fail_without_progress(_message):
+        nonlocal calls
+        calls += 1
+        if calls >= 3:
+            probe_pdb.agent.set_break(True)
+        raise RuntimeError("deterministic failure")
+
+    probe_pdb.agent.run_loop = fail_without_progress
+
+    probe_pdb.do_loop("")
+
+    assert calls == 2
+
+
+def test_loop_retry_budget_can_refresh_after_agent_progress(probe_pdb):
+    calls = 0
+    probe_pdb.max_loop_retry = 2
+    probe_pdb.retry_delay_start = 0
+    probe_pdb.retry_delay_end = 0
+    probe_pdb.loop_alive_time = -1
+    probe_pdb.agent.invoke_round = 0
+
+    def fail_after_progress(_message):
+        nonlocal calls
+        calls += 1
+        probe_pdb.agent.invoke_round += 1
+        if calls >= 3:
+            probe_pdb.agent.set_break(True)
+        raise RuntimeError("failure after progress")
+
+    probe_pdb.agent.run_loop = fail_after_progress
+
+    probe_pdb.do_loop("")
+
+    assert calls == 3

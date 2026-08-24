@@ -91,6 +91,9 @@
     - use_regex: bool — 是否使用正则
     - case_sensitive: bool — 区分大小写
     - include_line_numbers: bool — 返回是否带行号
+    - context_before: int — 每个命中前返回的上下文行数（0–20，默认 1）
+    - context_after: int — 每个命中后返回的上下文行数（0–20，默认 1）
+  - 返回：每个命中文件仅显示一次文件名，其后为带原始行号的代码块；重叠的上下文会自动合并，不连续的片段以 `...` 分隔。
 
 - FindFiles（FindFiles）
   - 用途：按通配符查找文件。
@@ -120,14 +123,31 @@
     - count: int — 行数（-1 到文件末尾）
 
 - EditTextFile（EditTextFile）
-  - 用途：编辑/创建文本文件，模式：replace/overwrite/append。
+  - 用途：创建或覆盖完整文本文件；也可显式选择追加。
   - 参数：
-    - path: str — 文件路径（相对 workspace，不存在则创建）
-    - data: str — 写入的文本（None 表示清空）
-    - mode: str — 编辑模式（replace/overwrite/append，默认 replace）
-    - start: int — replace 模式的起始行（1-based）
-    - count: int — replace 模式替换行数（-1 到末尾，0 插入）
-    - preserve_indent: bool — replace 时是否保留缩进
+    - path: str — 文件路径（相对 workspace，必填）
+    - content: str — 完整文件内容（必填；空字符串表示创建或清空空文件）
+    - append: bool — 是否追加；默认 false，即创建或覆盖完整文件
+    - expected_sha256: str — 可选的读取时 SHA-256，用于避免覆盖并发修改
+
+- DeleteTextLines（DeleteTextLines）
+  - 用途：仅在大量文本修改时，从已有 UTF-8 文件中一次删除多个完整物理行或闭区间行块。少量局部修改直接使用 `ReplaceStringInFile`。推荐流程是先用 `ReadTextFile`确认行号和 SHA-256，调用本工具删除全部旧行块，重新读取缩短后的文件，再用 `ReplaceStringInFile`完成精确编辑或插入。
+  - 参数：
+    - path: str — 已有文本文件路径（相对 workspace，必填）
+    - line_blocks: list[int | [int, int]] — 1-based 单行或闭区间，例如 `[1, 4, 5, [10, 20], [40, 55]]`；区间必须嵌套在外层列表中，单独删除第 10 至 20 行应传 `[[10, 20]]`，而 `[10, 20]` 表示删除两个单行；所有项都引用删除前同一文件快照中的原始行号，不会逐项重新编号；重叠和相邻区间会合并
+    - expected_sha256: str — 可选但建议提供的读取时 SHA-256；文件已变化时整次拒绝
+  - 约束：全部行块会在写入前校验；任何反向或越界区间都会取消整个操作，不会部分删除，也不会删除文件本身。
+
+- ReplaceStringInFile（ReplaceStringInFile）
+  - 用途：在已有文本文件的指定行块中精确替换唯一的一处非空文本；未指定行块时搜索全文。
+  - 参数：
+    - path: str — 已有文件路径（相对 workspace，必填）
+    - old_string: str — 唯一匹配的非空原文本（必填）
+    - new_string: str — 替换后的文本（必填；空字符串表示删除匹配内容）
+    - line_blocks: list[[int, int]] — 可选的 1-based 闭区间搜索块，例如 `[[10, 20], [40, 50]]`；默认全文
+    - expected_sha256: str — 可选的读取时 SHA-256
+    - dry_run: bool — 仅校验并返回差异，不写入文件
+  - 约束：重叠或相邻块会先合并；匹配必须完整位于一个合并后的块中，并且在全部指定块中合计只出现一次。
 
 - CopyFile（CopyFile）
   - 用途：复制文件；可选覆盖。
@@ -154,13 +174,6 @@
     - path: str — 目录路径
     - parents: bool — 递归创建父目录
     - exist_ok: bool — 已存在是否忽略
-
-- ReplaceStringInFile（ReplaceStringInFile）
-  - 用途：精确字符串替换（强约束匹配；可新建文件）。
-  - 参数：
-    - path: str — 目标文件
-    - old_string: str — 需要被替换的完整原文（含上下文，精确匹配）
-    - new_string: str — 新内容
 
 - GetFileInfo（GetFileInfo）
   - 用途：获取文件信息（大小、修改时间、人类可读尺寸等）。

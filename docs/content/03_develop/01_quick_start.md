@@ -59,7 +59,7 @@ stage:
       - "Guide_Doc/project_analysis_guide.md" #以MyWorkflow目录为基准
     skill_list:
       - "unitytest/fail-analyze" 
-    force_use_skill: True # 开启了 --use-skill 参数后,在当前阶段必须使用的技能,并将强制检查执行情况
+    force_use_skill: True # 技能启用时，在当前阶段必须使用 skill_list 中的技能，并强制检查执行情况
     output_files:
       - "{OUT}/{PROJECT}_analysis.md"
     checker:

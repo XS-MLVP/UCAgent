@@ -3,14 +3,13 @@
 from pathlib import Path
 import re
 import sys
-import textwrap
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ucagent.checkers.toffee_report import check_dynamic_bug_analysis_content
 from ucagent.util.config import load_yaml_with_env_vars
-from ucagent.util.waveform_viewer import decode_waveform_viewer_token
 
 
 def test_api_test_prompt_and_guide_require_api_checkpoint_association():
@@ -86,49 +85,58 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     )
     template_task = "\n".join(str(item) for item in template_stage["task"])
 
-    assert "必须调用`WaveInfo`" in system_prompt
+    assert "`WaveInfo`是必须调用的诊断工具" in system_prompt
     assert "不得豁免动态Bug的`WaveInfo`取证" in system_prompt
-    assert "不能伪造receipt" in system_prompt
+    assert "LLM不得复制或修改receipt字段" in system_prompt
     assert 'WaveInfo(test_case_name="test_{DUT}_xxx"' in system_prompt
     assert "signal_catalog中确实存在时使用" in system_prompt
-    assert "可以直接复用文档中通过验证的receipt_id" in system_prompt
+    assert "可以继续使用已验证的签名receipt和中央记录" in system_prompt
     assert "任务中途只运行部分用例时" in system_prompt
     assert "最终record_and_report_bugs阶段必须先运行完整DUT测试集合" in system_prompt
     assert "CMD API" not in system_prompt
     assert "v2 token" not in system_prompt
-    assert "不需要重新调用WaveInfo或重写所有waveform_analysis YAML块" in system_prompt
+    assert "测试或波形后来变化不要求普通stage刷新已签名证据" in system_prompt
     assert "status: evidence_window_required" in system_prompt
     assert "recommended_evidence_call" in system_prompt
     assert "不能把`analysis_window.effective_start_step/effective_end_step`" in system_prompt
     assert "最终显式窗口调用必须同时传非负start_step和end_step" in system_prompt
-    assert "将返回的`bug_document_fields`作为```yaml代码块的完整映射" in system_prompt
-    assert "它已包含唯一顶层键waveform_analysis，不要再包一层" in system_prompt
-    assert "`bug_document_viewer_link`" in system_prompt
-    assert "`<WAVEFORM-VIEWER>`标签" in system_prompt
-    assert "方括号中的显示文字可以本地化" in system_prompt
+    assert "ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)" in system_prompt
+    assert "一个BG有多个Fail TC时分别调用" in system_prompt
+    assert "目标TC不存在且BG位置唯一时由工具创建" in system_prompt
+    assert "不得手工复制BG/TC" in system_prompt
+    assert "工具保留其他BG、兄弟TC和中央记录" in system_prompt
+    assert "一个Fail TC揭示多个独立Bug时保留不同BG" in system_prompt
+    assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
+    assert "新增关联不需要replace_existing" in system_prompt
+    assert "LLM不得复制或修改receipt字段" in system_prompt
+    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in system_prompt
     assert "必须集中在对应<BG-*>条目内" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
-    assert "recordbug.py`只生成带`<BUG-TODO>`" in system_prompt
-    assert "Checker不解析“待补充”等自然语言占位词" in system_prompt
+    assert "只为新Bug生成首个BG/TC" in system_prompt
+    assert "清除全部`<BUG-TODO>`" in system_prompt
+    assert "<WAVEFORM-REF>" in system_prompt
+    assert "<WAVEFORM-EVIDENCE>" in system_prompt
+    assert "一个Fail TC无论关联多少BG都只有一份波形数据" in system_prompt
+    assert "`bug_tags`与`bug_evidence`必须覆盖全部关联BG" in system_prompt
+    assert "`required_signals`并集" in system_prompt
     assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
     assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
     assert "<BUG-SOURCE-OBSERVABLE>" in system_prompt
-    assert "旧`-ROOT/-FILE/-FIX`参数已删除" in system_prompt
-    assert "都不能通过Check/Complete" in system_prompt
     assert "不能直接复制静态Bug标签" in parent_task
-    assert "无可用波形时" in parent_task
+    assert "真实WaveInfo confirmed证据" in parent_task
     assert "除已确认DUT Bug复现用例外，其他用例必须全部Pass" in parent_task
     assert "不是要求已确认Bug用例也Pass" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
-    assert "recordbug.py只接收BG/TC/BD并生成含`<BUG-TODO>`" in batch_task
-    assert "脚本成功当成分析完成" in batch_task
+    assert "record_dynamic_bug.py仅为可选骨架辅助" in batch_task
+    assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in batch_task
+    assert "完成共享alignment_evidence、逐Bug证据和八个分析字段" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
-    assert "不得因recordbug.py成功、字段非空或Checker尚未报错" in review_task
+    assert "不得因record_dynamic_bug.py成功或字段形式完整" in review_task
     assert "禁止通过删除<TC-*>、<BG-*>或整个FG/FC/CK分支" in batch_task
     assert "一次`Step(1)`只表示仿真推进一步" in system_prompt
-    assert "不能由Checker按固定信号名自动推断" in system_prompt
+    assert "不能按固定信号名推断" in system_prompt
     assert "最终WaveInfo取证不能只查看发生不一致的目标data" in system_prompt
     assert "`pattern`只负责定位事件" in system_prompt
     assert "同一组真实完整路径必须进入timeline、签名receipt和在线viewer" in system_prompt
@@ -141,7 +149,7 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "ready/valid或等价接受条件" in batch_task
     assert "禁止API调用后机械地Step一次就断言data" in batch_task
     assert "协议无效窗口或任意单点data mismatch" in static_validation_task
-    assert "observed_behavior是否只在协议允许的响应采样窗口" in review_task
+    assert "结论必须落在真实事务和有效响应窗口" in review_task
     assert "signal_groups和在线viewer是否同时包含时钟" in review_task
     assert "最终WaveInfo调用必须填写完整signal_groups" in batch_task
     for marker in (
@@ -151,8 +159,9 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     ):
         assert marker in static_task
         assert marker in static_validation_task
-    assert "Skill脚本和Checker不解析中文标题" in static_task
-    assert "linkbug.py和Checker不解析中文标题" in static_validation_task
+    assert "不能替代机器分区标签" in static_task
+    assert "不能替代机器分区标签" in static_validation_task
+    assert "LINK回填不依赖linkbug.py" in static_validation_task
 
 
 def test_system_prompt_distinguishes_infrastructure_and_dut_bug_failures():
@@ -254,28 +263,34 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "```yaml" in guide
     assert "`waveform_analysis:` 必须是唯一顶层键" in guide
     assert "`bug_document_viewer_link`" in guide
-    assert "`<WAVEFORM-VIEWER>`" in guide
+    assert "脚本不可用时也不阻塞整个流程" in guide
+    assert "调用 `ApplyWaveInfoEvidence`" in guide
+    assert "同一 Bug 有多个 Fail TC 时，对每个 BG/TC 分别调用一次" in guide
+    assert "目标 TC 不存在且 BG 位置唯一时" in guide
+    assert "LLM 不得手工复制 BG、创建兄弟 TC" in guide
+    assert "同一 Fail TC 揭示多个独立 Bug 时" in guide
+    assert "每次调用只更新目标关联，不会覆盖其他 Bug" in guide
+    assert "签名窗口和 `signal_groups` 同时支持各缺陷时" in guide
+    assert "每个规范化 TC 在整个文档中有且只有一个" in guide
+    assert "bug_tags" in guide and "bug_evidence" in guide
+    assert "required_signals" in guide
+    assert "<WAVEFORM-REF>" in guide
+    assert "<WAVEFORM-VIEWER>" in guide
     assert "CMD API" not in guide
     assert "v2 逻辑定位" not in guide
-    assert "非最终阶段的 Check/Complete 只验证文档与签名 receipt" in guide
-    assert "最终 `record_and_report_bugs` 阶段必须先运行完整 DUT 测试集合" in guide
-    assert "显示文字不参与解析" in guide
-    assert "不再使用 `<WAVEFORM-ANALYSIS>` 自定义标签" in guide
-    assert "省略了每个 `<TC-*>` 后的波形块" not in guide
+    assert "普通增量 stage 使用`require_current_replay=false`" in guide
+    assert "只有对应验证项配置`require_current_replay=true`" in guide
+    assert "不得改用粗体" in guide
+    assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
     assert "先确认事务有效，再判断数据是否错误" in guide
     assert "调用一次 `Step(1)` 只表示仿真时间推进了一步" in guide
     assert "API 内部是否已经调用 `Step`、等待握手或采样结果" in guide
     assert "一次单点 data mismatch 只能作为继续调查的线索" in guide
-    assert "不能由 Checker 根据特定信号名自动完成" in guide
-    assert "`signal_groups` 的固定子字段如下" in guide
+    assert "不能根据特定信号名猜测" in guide
+    assert "`signal_groups` 的固定子字段为" in guide
     assert "clocks -> inputs -> outputs -> protocol -> key_signals" in guide
     assert "最终调用若缺少完整角色" in guide
-    assert "在线 viewer 的签名信号集合覆盖上述时钟" in guide
     assert "TOP.dut.ready" in guide
-    clock_call = guide.split("时钟对齐最终调用示例：", 1)[1].split(
-        "显式时间窗最终调用示例：", 1
-    )[0]
-    assert clock_call.count("context_steps=1") == 1
 
     implementation_skill = (
         Path(__file__).parents[1]
@@ -295,6 +310,10 @@ def test_bug_document_error_help_uses_current_machine_contract():
     from ucagent.util.functions import description_bug_doc
 
     help_text = "\n".join(description_bug_doc())
+
+    assert "Follow the active stage task" in help_text
+    assert "only an optional helper" in help_text
+    assert "active stage Skill for the complete workflow" not in help_text
     for marker in (
         "<DYNAMIC-BUGS>",
         "<BUG-OVERVIEW>",
@@ -314,128 +333,48 @@ def test_bug_document_error_help_uses_current_machine_contract():
         assert marker in help_text
     assert "```yaml" in help_text
     assert "waveform_analysis" in help_text
-    assert "complete WaveInfo bug_document_fields" in help_text
-    assert "alignment_evidence, observed_behavior, source_correlation" in help_text
-    assert "Do not invent or copy example receipt values" in help_text
+    assert "first non-empty content after every TC" in help_text
+    assert "WAVEFORM-REF" in help_text
+    assert "exactly one central WAVEFORM-TC record" in help_text
+    assert "alignment_evidence" in help_text
+    assert "required_signals, observed_behavior, source_correlation" in help_text
+    assert "Do not copy, invent, or edit receipt-backed fields" in help_text
+    assert "owns one exact BG/TC association per call" in help_text
+    assert "If one failed TC exposes independent Bugs, keep distinct BGs" in help_text
+    assert "Cross-BG application does not require replace_existing" in help_text
+    assert "union of every bug_evidence.<BG>.required_signals" in help_text
     assert "One Step only advances simulation" in help_text
     assert "request-accept and response-valid conditions" in help_text
     assert "only an investigation clue" in help_text
     assert "complete HDL fenced block containing each marker" in help_text
     assert "This branch cannot contain an HDL fence" in help_text
-    assert "Display headings are optional/localizable and are not parsed" in help_text
+    assert "Do not rename, translate, omit, duplicate, or reorder them" in help_text
+    assert "exact level-6 display title" in help_text
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in help_text
     assert "Root cause analysis inside this BG entry" not in help_text
+    assert "Angle-bracket tags may be hidden by Markdown" in help_text
+    assert "every visible title must describe the actual item" in help_text
+    assert "visible heading reuses the TC title" in help_text
     assert "receipt_id: <real WaveInfo receipt_id>" not in help_text
     assert "Adder.v line 10" not in help_text
 
 
-def _assert_test_tags_cascade_to_waveform_yaml(example: str) -> None:
-    lines = example.splitlines()
-    test_lines = [
-        index
-        for index, line in enumerate(lines)
-        if re.search(r"<TC-(?!\*)[^<>]+>", line)
-    ]
-    assert test_lines
-    for test_line in test_lines:
-        fence_line = next(
-            index
-            for index in range(test_line + 1, len(lines))
-            if lines[index].strip()
-        )
-        assert lines[fence_line].strip() == "```yaml"
-        closing_line = next(
-            index
-            for index in range(fence_line + 1, len(lines))
-            if lines[index].strip() == "```"
-        )
-        payload = yaml.safe_load(
-            textwrap.dedent("\n".join(lines[fence_line + 1 : closing_line]))
-        )
-        assert set(payload) == {"waveform_analysis"}
-        analysis = payload["waveform_analysis"]
-        assert analysis["status"] == "confirmed"
-        common_fields = {
-            "receipt_id",
-            "result_fingerprint",
-            "waveform_file",
-            "freshness_identity",
-            "size_bytes",
-            "session_started_at",
-            "modified_at",
-            "modified_time_ns",
-            "observed_at",
-            "analysis_mode",
-            "pattern",
-            "signal_groups",
-            "context_steps",
-            "max_points",
-            "wave_step",
-            "timeline_truncated",
-            "alignment_evidence",
-            "observed_behavior",
-            "source_correlation",
-        }
-        assert common_fields <= set(analysis)
-        if analysis["analysis_mode"] == "clock_aligned":
-            assert {
-                "logged_cycle",
-                "cycle_tolerance",
-                "clock_signal",
-                "clock_edge",
-                "cycle_origin",
-                "clock_occurrence_index",
-                "cycle_delta",
-            } <= set(analysis)
-        else:
-            assert analysis["analysis_mode"] == "explicit_window"
-            assert {"start_step", "end_step"} <= set(analysis)
-        viewer_line = next(
-            index
-            for index in range(closing_line + 1, len(lines))
-            if lines[index].strip()
-        )
-        viewer_match = re.fullmatch(
-            r"<WAVEFORM-VIEWER> \[[^\]]+\]\(/surfer/\?wave=([A-Za-z0-9_-]+)\)",
-            lines[viewer_line].strip(),
-        )
-        assert viewer_match
-        viewer_payload = decode_waveform_viewer_token(viewer_match.group(1))
-        assert viewer_payload["v"] == 2
-        assert viewer_payload["test_dir"] == "unity_test/tests"
-        assert viewer_payload["test_case"] == Path(
-            analysis["waveform_file"]
-        ).stem
-        assert viewer_payload["cursor"] == str(analysis["wave_step"])
-        pattern_signals = [item["signal"] for item in analysis["pattern"]]
-        assert all(signal in viewer_payload["signals"] for signal in pattern_signals)
-        signal_groups = analysis["signal_groups"]
-        assert signal_groups["clock_mode"] in {"clocked", "combinational"}
-        assert signal_groups["inputs"]
-        assert signal_groups["outputs"]
-        assert signal_groups["key_signals"]
-        grouped_signals = [
-            signal
-            for field in ("clocks", "inputs", "outputs", "protocol", "key_signals")
-            for signal in signal_groups[field]
-        ]
-        assert all(signal in viewer_payload["signals"] for signal in grouped_signals)
-
-
-def test_bug_analysis_guide_examples_cascade_fenced_waveform_blocks_from_tests():
+def test_bug_analysis_guide_examples_link_tests_to_central_waveform_records():
     guide_path = (
         Path(__file__).parents[1]
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
-    bug_example = guide.split("### Bug条目示例", 1)[1].split(
-        "### 标签与字段书写要点", 1
-    )[0]
-    static_validation_example = guide.split(
-        "**阶段三：`{DUT}_bug_analysis.md` 中对应的动态Bug记录**", 1
-    )[1].split("### 7.4 全部文件都没有发现静态 Bug", 1)[0]
-
-    _assert_test_tags_cascade_to_waveform_yaml(bug_example)
-    _assert_test_tags_cascade_to_waveform_yaml(static_validation_example)
+    assert "每个 BG/TC 关联必须紧跟一个由工具生成的链接" in guide
+    assert "<WAVEFORM-REF> [WAVEFORM-EVIDENCE](#waveform-" in guide
+    assert "<WAVEFORM-EVIDENCE>" in guide
+    heading = (
+        "### 进位输入触发溢出波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_overflow>"
+    )
+    assert heading in guide
+    assert guide.count(heading) == 1
+    assert "YAML 与 viewer 只出现在该 TC 的中央记录中" in guide
 
 
 def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis():
@@ -481,28 +420,13 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
     for marker in required_markers:
         assert marker in guide
 
-    bug_example = guide.split("### Bug条目示例", 1)[1].split(
-        "### 标签与字段书写要点", 1
-    )[0]
-    for section in (
-        "**Bug 概述**",
-        "**现象与等级**",
-        "**复现用例与波形证据**",
-        "**触发条件与影响范围**",
-        "**根因分析**",
-        "**源码证据与逐行分析**",
-        "**动态因果链**",
-        "**修复建议**",
-        "**风险与复验计划**",
-    ):
-        assert section in bug_example
-    assert bug_example.index("**Bug 概述**") < bug_example.index(
-        "**源码证据与逐行分析**"
-    )
-    assert "<BUG-SOURCE-FIRST-ERROR>" in bug_example
-    assert "<BUG-SOURCE-PROPAGATION>" in bug_example
-    assert "<BUG-SOURCE-OBSERVABLE>" in bug_example
-    assert "有可访问源码时，根因分析必须包含源码代码块" in guide
+    assert "<WAVEFORM-REF>" in guide
+    assert "<WAVEFORM-TC-" in guide
+    assert "bug_tags" in guide
+    assert "bug_evidence" in guide
+    assert "required_signals" in guide
+    assert "所有 BG 的`required_signals`并集" in guide
+    assert "有源码时，根因分析必须包含源码代码块" in guide
     assert "<BUG-SOURCE-UNAVAILABLE>" in guide
     assert "## 缺陷根因分析" not in guide
     assert "不要在文档末尾再建立一个与 BG 标签分离的“根因分析汇总”" in guide
@@ -514,31 +438,11 @@ def test_bug_analysis_guide_examples_embed_annotated_source_after_overview():
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
-    dynamic_example = guide.split("### Bug条目示例", 1)[1].split(
-        "### 标签与字段书写要点", 1
-    )[0]
-    static_example = guide.split("### 7.2 static_bug_analysis 阶段示例", 1)[1].split(
-        "### 7.3 static_bug_validation 阶段如何更新 LINK", 1
-    )[0]
-    confirmed_example = guide.split(
-        "**阶段三：`{DUT}_bug_analysis.md` 中对应的动态Bug记录**", 1
-    )[1].split("### 7.4 全部文件都没有发现静态 Bug", 1)[0]
-
-    assert dynamic_example.index("**Bug 概述**") < dynamic_example.index(
-        "**源码证据与逐行分析**"
-    ) < dynamic_example.index("**动态因果链**")
-    assert static_example.index("**候选概述**") < static_example.index(
-        "**源码证据与逐行分析**"
-    ) < static_example.index("**静态因果链**")
-    assert confirmed_example.index("**Bug 概述**") < confirmed_example.index(
-        "**源码证据与逐行分析**"
-    ) < confirmed_example.index("**动态因果链**")
-
-    for example in (dynamic_example, static_example, confirmed_example):
-        assert "<BUG-SOURCE-FIRST-ERROR>" in example
-        assert "<BUG-SOURCE-PROPAGATION>" in example
-        assert "<BUG-SOURCE-OBSERVABLE>" in example
-    assert "UartTx.v:50-56" not in guide
+    assert guide.index("<BUG-OVERVIEW>") < guide.index("<BUG-SOURCE-EVIDENCE>")
+    source_example = guide.split("```systemverilog", 1)[1].split("```", 1)[0]
+    assert "<BUG-SOURCE-FIRST-ERROR>" in source_example
+    assert "<BUG-SOURCE-PROPAGATION>" in source_example
+    assert "<BUG-SOURCE-OBSERVABLE>" in source_example
 
 
 def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
@@ -550,22 +454,146 @@ def test_dynamic_bug_template_does_not_split_root_cause_from_bug_entries():
 
     assert template.startswith("# {{DUT}} 动态 Bug 分析")
     assert "<DYNAMIC-BUGS>" in template
-    assert "## 未测试通过检测点分析" in template
+    assert "## 动态 Bug 记录" in template
+    assert "## 波形证据" in template
     assert "## 缺陷根因分析" not in template
 
 
-def test_bug_analysis_guide_requires_skill_scaffold_completion():
+def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill():
     guide_path = (
         Path(__file__).parents[1]
         / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
     )
     guide = guide_path.read_text(encoding="utf-8")
 
-    assert "Skill 模式的两阶段写入" in guide
-    assert "脚本成功不代表分析完成" in guide
-    assert "旧 `-ROOT/-FILE/-FIX` 参数已经删除" in guide
-    assert "替换所有 `<BUG-TODO>`" in guide
-    assert "Checker 会逐个非零 BG 拒绝残留 `<BUG-TODO>`" in guide
+    assert "### 5.1 完整标准案例" in guide
+    assert "# Adder 动态 Bug 分析" in guide
+    assert "### 算术功能 <FG-ARITHMETIC>" in guide
+    assert "#### 加法结果 <FC-ADD-RESULT>" in guide
+    assert "##### 进位输出 <CK-CARRY-OUT>" in guide
+    assert "###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>" in guide
+    assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>" in guide
+    assert "rtl/Adder.sv:L24-L26" in guide
+    assert (
+        "### 进位输入产生进位波形 "
+        "<WAVEFORM-TC-tests/test_adder.py::test_cin_carry>"
+    ) in guide
+    assert "### 功能组：<FG-ARITHMETIC>" not in guide
+    assert "- 失败用例：<TC-tests/test_adder.py::test_cin_carry>" not in guide
+    assert "标准案例体现以下不可变边界" in guide
+    assert "建立骨架并分阶段写入" in guide
+    assert "脚本不可用时也不阻塞整个流程" in guide
+    assert "参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in guide
+    assert "调用 `ApplyWaveInfoEvidence`" in guide
+    assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
+    assert "只接收`BG/TC/BD`" in guide
+    assert "八个分析章节中的全部 `<BUG-TODO>`" in guide
+    assert "任何非零 BG 残留占位都不能完成" in guide
+
+    config = load_yaml_with_env_vars(
+        str(Path(__file__).parents[1] / "ucagent/lang/zh/config/default.yaml")
+    )
+    rendered_config = str(config)
+    assert "Guide第5.1节" not in rendered_config
+    assert "Guide第 5.1 节" not in rendered_config
+
+    skill_paths = (
+        "dynamic-bug-recording/SKILL.md",
+        "static-bug-validation/SKILL.md",
+        "test-case-implementation-in-batch/SKILL.md",
+    )
+    skill_root = Path(__file__).parents[1] / "ucagent/lang/zh/skills/unitytest"
+    for relative_path in skill_paths:
+        skill_text = (skill_root / relative_path).read_text(encoding="utf-8")
+        assert "Guide_Doc/dut_bug_analysis.md中的第" in skill_text
+        assert "Guide第5.1节" not in skill_text
+        assert "Guide第 5.1 节" not in skill_text
+
+
+def test_bug_analysis_guide_scaffold_shows_multi_child_hierarchy():
+    guide = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    hierarchy = guide.split("#### 5.2.1 多分支层次骨架", 1)[1].split(
+        "#### 5.2.2 单个 BG 的完整字段骨架", 1
+    )[0]
+
+    assert hierarchy.count("<FG-") == 2
+    assert hierarchy.count("<FC-") == 4
+    assert hierarchy.count("<CK-") == 8
+    assert hierarchy.count("<BG-") == 16
+    assert hierarchy.count("<TC-") == 32
+
+    bg_test_counts = {}
+    current_bg = None
+    for line in hierarchy.splitlines():
+        bg_match = re.search(r"<(BG-[^<>]+)>", line)
+        if bg_match:
+            current_bg = bg_match.group(1)
+            bg_test_counts[current_bg] = 0
+            continue
+        if current_bg and re.search(r"<TC-[^<>]+>", line):
+            bg_test_counts[current_bg] += 1
+    assert set(bg_test_counts.values()) == {2}
+
+    assert hierarchy.index("<FG-ARITHMETIC>") < hierarchy.index("<FG-PROTOCOL>")
+    assert hierarchy.index("<FC-ADD-RESULT>") < hierarchy.index("<FC-SUB-RESULT>")
+    assert hierarchy.index("<CK-SUM-OUT>") < hierarchy.index("<CK-CARRY-OUT>")
+    assert hierarchy.index("<BG-SUM-TRUNCATED-95>") < hierarchy.index(
+        "<BG-SUM-STALE-90>"
+    )
+    first_bg = hierarchy.split("<BG-SUM-TRUNCATED-95>", 1)[1].split(
+        "<BG-SUM-STALE-90>", 1
+    )[0]
+    assert first_bg.count("<TC-") == 2
+
+
+def test_bug_analysis_guide_places_fields_after_all_tests():
+    repo_root = Path(__file__).parents[1]
+    guide = (
+        repo_root
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    agent_rules = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
+    scaffold = guide.split("#### 5.2.2 单个 BG 的完整字段骨架", 1)[1].split(
+        "## 6. 证据保留与重放", 1
+    )[0]
+
+    assert scaffold.count("<TC-") == 2
+    assert scaffold.rindex("<TC-") < scaffold.index("<BUG-OVERVIEW>")
+    assert "第一个`<BUG-*>`字段出现后不得再追加 TC" in guide
+    assert "新增 TC 必须插入该 BG 的首个分析标题之前" in guide
+    assert "before the eight ordered `<BUG-*>` analysis fields" in agent_rules
+    assert "never append another TC after the" in agent_rules
+    assert "qualify every Guide_Doc section reference" in agent_rules
+    assert "Guide_Doc/dut_bug_analysis.md section 5.1" in agent_rules
+
+
+def test_bug_analysis_guide_canonical_example_is_checker_valid(tmp_path):
+    guide = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/doc/Guide_Doc/dut_bug_analysis.md"
+    ).read_text(encoding="utf-8")
+    section_start = guide.index("### 5.1 完整标准案例")
+    fence_start = guide.index("`````markdown\n", section_start) + len(
+        "`````markdown\n"
+    )
+    fence_end = guide.index("\n`````", fence_start)
+    example = guide[fence_start:fence_end]
+    (tmp_path / "Adder_bug_analysis.md").write_text(example, encoding="utf-8")
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "Adder_bug_analysis.md"
+    )
+    assert passed is True, message
+
+    yaml_text = example.split("```yaml\n", 1)[1].split("\n```", 1)[0]
+    payload = yaml.safe_load(yaml_text)
+    assert set(payload) == {"waveform_analysis"}
+    assert payload["waveform_analysis"]["bug_tags"] == [
+        "BG-SUM-CARRY-DROPPED-95"
+    ]
 
 
 def test_dynamic_test_classification_precedes_global_waveform_sweep():
