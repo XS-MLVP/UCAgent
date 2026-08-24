@@ -73,6 +73,7 @@ nav:
       - 工具列表: content/03_develop/06_tool_list.md
       - 检查器: content/03_develop/07_checkers.md
       - Mini 示例: content/03_develop/08_mini_example.md
+      - 经验系统: content/03_develop/09_experience.md
   - 实践案例:
       - 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md

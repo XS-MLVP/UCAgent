@@ -92,14 +92,14 @@ UCAgent 内置工具的完整参考：
 
 适合通过实践学习的用户。
 
-### 🧠 [经验系统 (Experience System)](10_experience_module_technical_design.md)
+### 🧠 [经验系统](09_experience.md)
 
 了解 UCAgent 的轻量经验闭环与提示注入机制：
 
-- **[经验模块改进说明](09_experience_improvement.md)**：改进目标、四项核心能力与机制设计
-- **[经验模块答辩问答](09_experience_improvement_defense_qa.md)**：技术痛点、设计动机与常见质询解答
-- **[经验模块技术设计](10_experience_module_technical_design.md)**：代码入口、配置加载链路、运行期 Hook 与产物审计
-- **[经验命令行指南 (CLI)](11_experience_cli.md)**：`--experience` / `--experience-profile` 等 CLI 启动模式与配置覆盖
+- **核心设计理念**：Checker 权威判定、候选提示注入与零跨阶段污染
+- **规则定义与配置**：`general.yaml` 通用经验库与 DUT 专属 Overlay
+- **命令行使用模式**：`--experience-profile`、`--experience-audit` 与 `--experience` 模式
+- **产物与最佳实践**：审计报告结构、Review-only 经验审查与敏感信息防护
 
 适合需要提高 Agent 验证恢复效率、避免重复踩坑的开发者。
 
