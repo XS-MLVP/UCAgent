@@ -81,8 +81,6 @@ UCAgent 内置工具的完整参考：
 - **内置检查器**：格式检查、业务验证等
 - **自定义检查器**：编写领域专用的验证逻辑
 
-适合需要定制验证规则的用户。
-
 ### 🎯 [Mini示例](08_mini_example.md)
 
 通过完整示例学习定制开发：
@@ -94,13 +92,18 @@ UCAgent 内置工具的完整参考：
 
 适合通过实践学习的用户。
 
+### 🧠 [经验系统 (Experience System)](10_experience_module_technical_design.md)
+
+了解 UCAgent 的轻量经验闭环与提示注入机制：
+
+- **[经验模块改进说明](09_experience_improvement.md)**：改进目标、四项核心能力与机制设计
+- **[经验模块答辩问答](09_experience_improvement_defense_qa.md)**：技术痛点、设计动机与常见质询解答
+- **[经验模块技术设计](10_experience_module_technical_design.md)**：代码入口、配置加载链路、运行期 Hook 与产物审计
+- **[经验命令行指南 (CLI)](11_experience_cli.md)**：`--experience` / `--experience-profile` 等 CLI 启动模式与配置覆盖
+
+适合需要提高 Agent 验证恢复效率、避免重复踩坑的开发者。
+
 ## 学习路径建议
-
-### 快速入门
-
-1. 先阅读 [快速开始](01_quick_start.md) 快速了解定制开发
-2. 查看 [Mini示例](08_mini_example.md) 理解完整工作流
-3. 浏览 [工具列表](06_tool_list.md) 了解可用的内置工具
 
 ### 深度定制
 

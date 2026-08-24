@@ -665,11 +665,11 @@ plain_text: not enabled
                 config_file=os.path.join(repo_root, "config.yaml"),
                 workspace=workspace,
                 experience_profile=profile,
-                cfg_override=[{"stage[11].task": "CLI wins"}],
+                cfg_override=[{"stage[12].task": "CLI wins"}],
             )
 
-        self.assertTrue(cfg.stage[11].get_value("experience-hook"))
-        self.assertEqual(cfg.stage[11].task, "CLI wins")
+        self.assertTrue(cfg.stage[12].get_value("experience-hook"))
+        self.assertEqual(cfg.stage[12].task, "CLI wins")
         loaded_names = [os.path.basename(path) for path in cfg._loaded_config_files]
         self.assertLess(loaded_names.index("config.yaml"), loaded_names.index("adder.yaml"))
 

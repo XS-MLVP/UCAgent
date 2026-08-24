@@ -1,9 +1,9 @@
 include:
   - general.yaml
 
-stage[11].experience-hook: true
-stage[12].stage[0].experience-hook: true
 stage[12].experience-hook: true
+stage[13].stage[0].experience-hook: true
+stage[13].experience-hook: true
 
 experience:
   candidate_failure_hints+:

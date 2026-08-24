@@ -5,10 +5,10 @@
 
 # Generic workflow guidance is injected for every DUT that includes this
 # overlay. Derive DUT-specific behavior from the current workspace at runtime.
-stage[11].task: "+可参考经验：模板阶段只追求所有文档 CK 有模板且 mark_function 正确；模板必须保留 assert False, 'Not implemented'。Check 返回下一批 CK 时继续补齐，直到 unmarked_check_points=0 且 test_function_with_no_check_point_mark=0。"
-stage[12].stage[0].task: "+可参考经验：分批实现只做当前批次列出的测试和必要 helper；不要为了同一缺陷扩写大量额外测试或新增 FG/FC/CK。每次 Check 失败后若出现 candidate_failure_hints，把它当作候选排查清单，先核对是否与本轮 checker 报告一致；不一致时以 checker/CurrentTips 为准。若出现 `No bin matched for pattern`、`KeyError: 'FG-*'`、`Invalid key ...` 或 mark_function 归属不一致，先对照 functions_and_checks.md 与 coverage_def 校准 FG/FC/CK/bin，再判断 DUT 缺陷；不要在映射未对齐时就补 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理文档类错误。"
-stage[12].task: "+可参考经验：综合检查以 checker 报告为准；若出现 candidate_failure_hints，先核对提示是否命中本轮错误，再参考其纠偏；没有提示或提示不适用时回到原始 checker 报告分析。不要保留旧文件名、旧函数名或历史批次的 <TC-*>。若分批实现阶段同时出现 coverage/mark 错误、remaining tests 和 bug_analysis 错误，优先级依次为：1) coverage 与 mark_function 对齐；2) 完成当前批次剩余测试；3) 最后处理 Undocumented Failed Cases、Checkpoint Not Marked、Checkpoint Not Found。不要在测试仍未实现完或 FG/FC/CK 尚未对齐时，把失败直接固化为 bug_analysis 结论。"
-stage[13].task: "+可参考经验：静态验证阶段的 FAILED nodeid 只用于定位，不代表 DUT 缺陷已经成立。遇到未记录失败时，先读取点名测试、直接调用的 API/fixture/reference model 和权威规格；独立推导预期、核对状态变化与观察时机，并单独复跑该 nodeid。只有预期行为有依据、失败稳定复现且实现证据一致时，才将精确 nodeid 写入对应 `<BG-*>`；测试或环境错误必须先修复，无法判定时不要写非零置信度 bug。禁止把一批失败未经逐项验证就统一归因到已有根因。"
+stage[12].task: "+可参考经验：模板阶段只追求所有文档 CK 有模板且 mark_function 正确；模板必须保留 assert False, 'Not implemented'。Check 返回下一批 CK 时继续补齐，直到 unmarked_check_points=0 且 test_function_with_no_check_point_mark=0。"
+stage[13].stage[0].task: "+可参考经验：分批实现只做当前批次列出的测试和必要 helper；不要为了同一缺陷扩写大量额外测试或新增 FG/FC/CK。每次 Check 失败后若出现 candidate_failure_hints，把它当作候选排查清单，先核对是否与本轮 checker 报告一致；不一致时以 checker/CurrentTips 为准。若出现 `No bin matched for pattern`、`KeyError: 'FG-*'`、`Invalid key ...` 或 mark_function 归属不一致，先对照 functions_and_checks.md 与 coverage_def 校准 FG/FC/CK/bin，再判断 DUT 缺陷；不要在映射未对齐时就补 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理文档类错误。"
+stage[13].task: "+可参考经验：综合检查以 checker 报告为准；若出现 candidate_failure_hints，先核对提示是否命中本轮错误，再参考其纠偏；没有提示或提示不适用时回到原始 checker 报告分析。不要保留旧文件名、旧函数名或历史批次的 <TC-*>。若分批实现阶段同时出现 coverage/mark 错误、remaining tests 和 bug_analysis 错误，优先级依次为：1) coverage 与 mark_function 对齐；2) 完成当前批次剩余测试；3) 最后处理 Undocumented Failed Cases、Checkpoint Not Marked、Checkpoint Not Found。不要在测试仍未实现完或 FG/FC/CK 尚未对齐时，把失败直接固化为 bug_analysis 结论。"
+stage[15].task: "+可参考经验：静态验证阶段的 FAILED nodeid 只用于定位，不代表 DUT 缺陷已经成立。遇到未记录失败时，先读取点名测试、直接调用的 API/fixture/reference model 和权威规格；独立推导预期、核对状态变化与观察时机，并单独复跑该 nodeid。只有预期行为有依据、失败稳定复现且实现证据一致时，才将精确 nodeid 写入对应 `<BG-*>`；测试或环境错误必须先修复，无法判定时不要写非零置信度 bug。禁止把一批失败未经逐项验证就统一归因到已有根因。"
 
 experience:
   max_candidate_failure_hints: 2

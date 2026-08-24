@@ -3,9 +3,9 @@ include:
   - general.yaml  # 2. 引入同目录下的通用经验
 
 # Enable Adder experience extraction only from this overlay.
-# Runtime stage 21 -> default.yaml stage[11] create_test_case_templates.
-# Runtime stage 22 -> default.yaml stage[12].stage[0] test_case_implementation_in_batch.
-# Runtime stage 23 -> default.yaml stage[12] comprehensive_verification_and_bug_analysis.
-stage[11].experience-hook: true
-stage[12].stage[0].experience-hook: true
+# Runtime stage 21 -> default.yaml stage[12] create_test_case_templates.
+# Runtime stage 22 -> default.yaml stage[13].stage[0] test_case_implementation_in_batch.
+# Runtime stage 23 -> default.yaml stage[13] comprehensive_verification_and_bug_analysis.
 stage[12].experience-hook: true
+stage[13].stage[0].experience-hook: true
+stage[13].experience-hook: true

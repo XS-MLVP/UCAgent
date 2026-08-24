@@ -1,12 +1,12 @@
 include:
   - general.yaml
 
-stage[11].experience-hook: true
-stage[12].stage[0].experience-hook: true
 stage[12].experience-hook: true
+stage[13].stage[0].experience-hook: true
+stage[13].experience-hook: true
 
-stage[12].stage[0].task: "+可参考经验：本阶段优先校准 mark_function 的 FG/FC/CK 归属关系，再判断 DUT 缺陷。若出现 `Invalid key ...`、`No bin matched for pattern ...` 或 coverage 相关异常，先对照 functions_and_checks.md 与 coverage_def 核对当前测试所挂的 FG/FC/CK 是否属于同一层级和同一功能点，不要在映射未对齐时就把失败写进 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理真实失败。"
-stage[12].task: "+可参考经验：综合验证与缺陷分析阶段，先把当前 failed pytest nodeid 分成两类：测试/API/env/coverage 映射问题，以及真实 DUT 失败。像 env.Step 返回值假设错误、轮密钥期望轮次写错、mark_function 归属错误这类先修测试或映射，不要直接记为 DUT bug；只有在测试实现、reference model 和 coverage 映射都校准后仍稳定失败的用例，才写入 bug_analysis 对应 CK/BG。"
+stage[13].stage[0].task: "+可参考经验：本阶段优先校准 mark_function 的 FG/FC/CK 归属关系，再判断 DUT 缺陷。若出现 `Invalid key ...`、`No bin matched for pattern ...` 或 coverage 相关异常，先对照 functions_and_checks.md 与 coverage_def 核对当前测试所挂的 FG/FC/CK 是否属于同一层级和同一功能点，不要在映射未对齐时就把失败写进 bug_analysis。若 checker 报 `remaining tests`，先完成当前批次列出的测试和必要 helper，再回头处理真实失败。"
+stage[13].task: "+可参考经验：综合验证与缺陷分析阶段，先把当前 failed pytest nodeid 分成两类：测试/API/env/coverage 映射问题，以及真实 DUT 失败。像 env.Step 返回值假设错误、轮密钥期望轮次写错、mark_function 归属错误这类先修测试或映射，不要直接记为 DUT bug；只有在测试实现、reference model 和 coverage 映射都校准后仍稳定失败的用例，才写入 bug_analysis 对应 CK/BG。"
 
 experience:
   candidate_failure_hints+:
