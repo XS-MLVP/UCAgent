@@ -146,13 +146,15 @@ make -i mcp_Adder ARGS="--loop --log --log-file log/exp.log --msg-file log/exp-m
 <workspace>/
 └── .ucagent/
     └── experience/
-        ├── stage_12_create_test_case_templates/
-        │   ├── stage_info_snapshot.json      # 阶段元数据快照
-        │   ├── prior_rule_audit.yaml         # 先验规则命中审计报告
-        │   └── adder_llm_failure_hints.yaml  # 模型提炼的候选经验规则 (Review-only)
-        └── stage_13_test_case_implementation_in_batch/
+        ├── stage_21_create_test_case_templates/
+        │   ├── adder_verification_experience.md # 已脱敏的阶段经验摘要
+        │   ├── prior_rule_audit.yaml            # 先验规则命中审计报告
+        │   ├── adder_llm_failure_hints.yaml     # 模型提炼的候选经验规则 (Review-only)
+        │   └── index.json                        # 产物索引与日志范围元数据
+        └── stage_22_test_case_implementation_in_batch/
+            ├── adder_verification_experience.md
             ├── prior_rule_audit.yaml
-            └── adder_llm_failure_hints.yaml
+            └── index.json
 ```
 
 ---

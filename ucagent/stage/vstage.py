@@ -502,9 +502,11 @@ class VerifyStage(object):
             log_path = self.vmanager._get_msg_log_path()
             if not log_path or not os.path.isfile(log_path):
                 return
+            stat = os.stat(log_path)
             self.meta_data["experience_log_scope"] = {
                 "log_path": log_path,
                 "start_offset": os.path.getsize(log_path),
+                "start_identity": {"dev": stat.st_dev, "ino": stat.st_ino},
                 "stage_index": getattr(self.vmanager, "stage_index", None),
                 "stage_name": self.name,
             }

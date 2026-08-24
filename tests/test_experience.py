@@ -133,6 +133,46 @@ Tool Calls:
 
         self.assertEqual(accumulator.extract_failure_events(), [])
 
+    def test_scoped_log_reconstructs_stage_across_multiple_rotations(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "stage.log")
+            original = b"before-stage\nstage-start\n"
+            middle_one = b"after-first-rotation\n"
+            middle_two = b"after-second-rotation\n"
+            active = b"stage-end\n"
+            with open(f"{log_path}.3", "wb") as handle:
+                handle.write(original)
+            with open(f"{log_path}.2", "wb") as handle:
+                handle.write(middle_one)
+            with open(f"{log_path}.1", "wb") as handle:
+                handle.write(middle_two)
+            with open(log_path, "wb") as handle:
+                handle.write(active)
+            stat = os.stat(f"{log_path}.3")
+            accumulator = ExperienceAccumulator(
+                workspace=temp_dir,
+                log_path=log_path,
+                target_stage_index=22,
+                log_start_offset=len(b"before-stage\n"),
+                log_end_offset=len(active),
+                log_start_identity={"dev": stat.st_dev, "ino": stat.st_ino},
+            )
+
+            text, line_base, scope = accumulator._read_scoped_log(max_bytes=4096)
+
+        self.assertEqual(
+            text,
+            "stage-start\nafter-first-rotation\nafter-second-rotation\nstage-end\n",
+        )
+        self.assertEqual(line_base, 2)
+        self.assertEqual(scope["rotation_count"], 3)
+        self.assertEqual(scope["resolved_log_paths"], [
+            f"{log_path}.3",
+            f"{log_path}.2",
+            f"{log_path}.1",
+            log_path,
+        ])
+
     def test_bug_stage_keeps_safe_artifacts_and_source_but_not_bug_details(self):
         accumulator = self._make_accumulator()
         stage = StageExperience(
@@ -417,6 +457,12 @@ Tool Calls:
         self.assertEqual(hints[0]["checkers"], ["CustomChecker"])
         prompt = model.input[-1].content if isinstance(model.input, list) else model.input
         self.assertIn("same_checker_changed_result", prompt)
+
+    def test_load_distill_prompts_loads_zh_prompt(self):
+        zh_acc = ExperienceAccumulator(workspace=".", lang="zh")
+        zh_sys, zh_user = zh_acc._load_distill_prompts()
+        self.assertIn("UCAgent experience distiller", zh_sys)
+        self.assertIn("请从下面给出的", zh_user)
 
 
 if __name__ == "__main__":

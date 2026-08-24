@@ -1115,6 +1115,7 @@ class StageManager(object):
             llm_model = getattr(backend, "model", None) if llm_distill else None
             log_path = self._get_msg_log_path()
             log_start_offset = self._stage_experience_log_start_offset(stage, log_path)
+            log_start_identity = self._stage_experience_log_start_identity(stage, log_path)
             log_end_offset = self._stage_experience_log_end_offset(log_path)
             prior_rules = self._get_cfg_value("experience.candidate_failure_hints", [])
             try:
@@ -1138,12 +1139,15 @@ class StageManager(object):
                 stage_task_info=stage_task_info,
                 log_start_offset=log_start_offset,
                 log_end_offset=log_end_offset,
+                log_start_identity=log_start_identity,
+                lang=self._get_cfg_value("lang", "zh"),
             )
             stage.meta_data["experience"] = {
                 "stage": self.stage_index,
                 "stage_name": getattr(stage, "name", ""),
                 "stage_dir_suffix": self._stage_experience_dir_suffix(stage),
                 "log_start_offset": log_start_offset,
+                "log_start_identity": log_start_identity,
                 "log_end_offset": log_end_offset,
                 "out_dir": summary.get("out_dir"),
                 "stage_count": summary.get("stage_count"),
@@ -1201,6 +1205,20 @@ class StageManager(object):
         try:
             return os.path.getsize(log_path)
         except OSError:
+            return None
+
+    def _stage_experience_log_start_identity(self, stage, log_path):
+        scope = getattr(stage, "meta_data", {}).get("experience_log_scope", {})
+        if not isinstance(scope, dict):
+            return None
+        if log_path and scope.get("log_path") and os.path.abspath(str(scope.get("log_path"))) != os.path.abspath(str(log_path)):
+            return None
+        identity = scope.get("start_identity")
+        if not isinstance(identity, dict):
+            return None
+        try:
+            return {"dev": int(identity["dev"]), "ino": int(identity["ino"])}
+        except (KeyError, TypeError, ValueError):
             return None
 
     def _get_msg_log_path(self):

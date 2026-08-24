@@ -55,3 +55,6 @@ local_scheme = "node-and-date"
 
 [tool.setuptools]
 packages = ["ucagent"]
+
+[tool.setuptools.package-data]
+ucagent = ["lang/*/experience/distill_prompt.yaml"]
