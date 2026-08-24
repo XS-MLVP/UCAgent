@@ -173,6 +173,32 @@ Tool Calls:
             log_path,
         ])
 
+    def test_scoped_log_uses_identity_after_rotation_when_active_log_grows(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = os.path.join(temp_dir, "stage.log")
+            prefix = b"before-stage\n"
+            old_stage_data = b"stage-before-rotation\n"
+            active_stage_data = b"stage-after-rotation-a\nstage-after-rotation-b\n"
+            with open(f"{log_path}.1", "wb") as handle:
+                handle.write(prefix + old_stage_data)
+            stat = os.stat(f"{log_path}.1")
+            with open(log_path, "wb") as handle:
+                handle.write(active_stage_data)
+            self.assertGreater(len(active_stage_data), len(prefix))
+            accumulator = ExperienceAccumulator(
+                workspace=temp_dir,
+                log_path=log_path,
+                target_stage_index=22,
+                log_start_offset=len(prefix),
+                log_end_offset=len(active_stage_data),
+                log_start_identity={"dev": stat.st_dev, "ino": stat.st_ino},
+            )
+
+            text, _line_base, scope = accumulator._read_scoped_log(max_bytes=4096)
+
+        self.assertEqual(text, (old_stage_data + active_stage_data).decode("utf-8"))
+        self.assertEqual(scope["resolved_log_paths"], [f"{log_path}.1", log_path])
+
     def test_bug_stage_keeps_safe_artifacts_and_source_but_not_bug_details(self):
         accumulator = self._make_accumulator()
         stage = StageExperience(

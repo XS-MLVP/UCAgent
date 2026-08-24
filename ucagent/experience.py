@@ -1082,6 +1082,7 @@ class ExperienceAccumulator:
             start is not None
             and 0 <= start <= active_size
             and (end is None or (start <= end <= active_size))
+            and self._active_log_matches_start_identity()
         )
         if not active_has_scope:
             rotated = self._read_rotated_scoped_log(
@@ -1197,6 +1198,18 @@ class ExperienceAccumulator:
             return {"dev": int(value["dev"]), "ino": int(value["ino"])}
         except (KeyError, TypeError, ValueError):
             return None
+
+    def _active_log_matches_start_identity(self) -> bool:
+        if self.log_start_identity is None:
+            return True
+        try:
+            stat = os.stat(self.log_path)
+        except OSError:
+            return False
+        return (
+            stat.st_dev == self.log_start_identity["dev"]
+            and stat.st_ino == self.log_start_identity["ino"]
+        )
 
     def _find_log_identity_rank(self) -> int | None:
         if self.log_start_identity is None:
