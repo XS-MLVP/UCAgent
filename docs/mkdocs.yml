@@ -77,6 +77,40 @@ nav:
       - 规范生成: content/04_case/00_genspec.md
       - 多实例并发执行: content/04_case/01_multirun.md
       - 批处理执行: content/04_case/02_batchrun.md
+      - Workflow Builder:
+          - 概览: content/04_case/03_workflow_builder/00_index.md
+          - 快速启动:
+              - 总述: content/04_case/03_workflow_builder/01_quickstart/00_快速启动总述.md
+              - 构建工作流: content/04_case/03_workflow_builder/01_quickstart/01_run工作流启动.md
+              - 评估工作流: content/04_case/03_workflow_builder/01_quickstart/02_评估工作流启动.md
+              - 增量工作流: content/04_case/03_workflow_builder/01_quickstart/03_增量工作流启动.md
+              - 构建与评估控制台: content/04_case/03_workflow_builder/01_quickstart/04_工作流构建与评估控制台.md
+          - 使用说明:
+              - 总述: content/04_case/03_workflow_builder/02_usage/00_完整使用总述.md
+              - 输入契约: content/04_case/03_workflow_builder/02_usage/01_输入契约.md
+              - 输出与工作区: content/04_case/03_workflow_builder/02_usage/02_输出与工作区结构.md
+              - 构建完整使用: content/04_case/03_workflow_builder/02_usage/03_工作流构建完整使用.md
+              - 评估与审批: content/04_case/03_workflow_builder/02_usage/04_评估与审批完整使用.md
+              - 增量修复与版本: content/04_case/03_workflow_builder/02_usage/05_增量修复与版本管理.md
+              - 提示词使用: content/04_case/03_workflow_builder/02_usage/06_提示词使用方法.md
+              - 协作 Agent 提示词: content/04_case/03_workflow_builder/02_usage/提示词.md
+          - 二次开发:
+              - 总述: content/04_case/03_workflow_builder/03_develop/00_开发者文档总述.md
+              - 工作流程: content/04_case/03_workflow_builder/03_develop/01_工作流程简介.md
+              - Tool: content/04_case/03_workflow_builder/03_develop/02_tool简介.md
+              - Checker: content/04_case/03_workflow_builder/03_develop/03_checker简介.md
+              - 指导文档: content/04_case/03_workflow_builder/03_develop/04_指导文档简介.md
+              - 评估与增量: content/04_case/03_workflow_builder/03_develop/05_评估与增量控制.md
+              - 测试与回归: content/04_case/03_workflow_builder/03_develop/06_测试与回归.md
+              - 子工作流二次开发: content/04_case/03_workflow_builder/03_develop/07_工作流产物二次开发指南.md
+          - 问答与经验:
+              - 总述: content/04_case/03_workflow_builder/04_q_and_experience/00_QA与经验总述.md
+              - 安装与环境: content/04_case/03_workflow_builder/04_q_and_experience/01_安装与环境问题.md
+              - 运行与阶段失败: content/04_case/03_workflow_builder/04_q_and_experience/02_运行与阶段失败.md
+              - 评估审批与修复: content/04_case/03_workflow_builder/04_q_and_experience/03_评估审批与增量修复.md
+              - 控制台与端口: content/04_case/03_workflow_builder/04_q_and_experience/04_控制台与端口问题.md
+              - 性能与稳定性: content/04_case/03_workflow_builder/04_q_and_experience/05_性能上下文与稳定性经验.md
+              - 工作流设计质量: content/04_case/03_workflow_builder/04_q_and_experience/06_工作流设计质量经验.md
 
 # 常用插件（已在 docs/requirements-docs.txt 中声明依赖）
 # - search: 内置搜索（Material 集成中文分词，若安装 jieba 会自动启用）

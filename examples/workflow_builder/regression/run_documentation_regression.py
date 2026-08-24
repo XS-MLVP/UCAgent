@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parents[1]
-DOCS = REPO_ROOT / "docs" / "content" / "extension" / "workflow_builder"
+DOCS = REPO_ROOT / "docs" / "content" / "04_case" / "03_workflow_builder"
 
 REQUIRED = [
     "00_index.md",

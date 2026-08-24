@@ -2,7 +2,7 @@
 
 Workflow Builder 根据用户提供的 `input/guide.md` 和 `input/test_input/` 生成可独立运行、评估和增量维护的 UCAgent 业务工作流。
 
-完整文档、快速启动、开发说明和排障经验请从 **[Workflow Builder 文档](../../docs/content/extension/workflow_builder/00_index.md)** 进入。首次使用建议先执行：
+完整文档、快速启动、开发说明和排障经验请从 **[Workflow Builder 文档](../../docs/content/04_case/03_workflow_builder/00_index.md)** 进入。首次使用建议先执行：
 
 ```bash
 python setup.py
