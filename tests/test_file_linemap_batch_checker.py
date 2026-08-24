@@ -175,6 +175,18 @@ def test_batch_checker_reports_uncovered_ranges_and_numbered_content(tmp_path):
     passed, result = checker.do_check(is_complete=False)
 
     assert passed is False
+    assert result["error_code"] == "LINE_MAP_UNCOVERED_LINES"
+    assert result["error"] != "The current line-block batch is not complete."
+    assert result["artifact"] == "out/line_map/src_dut_md_line_func_map.txt"
+    assert result["line_block"] == "src/dut.md:1-10"
+    assert result["uncovered_blocks"] == ["3-5", "8-9"]
+    assert list(result["uncovered_content"].items()) == [
+        (3, "source content 3"),
+        (4, "source content 4"),
+        (5, "source content 5"),
+        (8, "source content 8"),
+        (9, "source content 9"),
+    ]
     details = result["invalid_mappings"][0]["details"]
     assert details["uncovered_line_count"] == 5
     assert details["uncovered_line_blocks"] == ["3-5", "8-9"]
@@ -291,6 +303,30 @@ def test_strict_line_map_requires_valid_ck_and_ignore_reason(tmp_path):
     )
     assert passed is False
     assert "not found in documentation" in str(message)
+    assert message["diagnostic"]["error_code"] == "LINE_MAP_UNKNOWN_CK"
+    assert message["diagnostic"]["artifact"] == (
+        "out/line_map/source_md_line_func_map.txt"
+    )
+    assert message["diagnostic"]["location"] == (
+        "out/line_map/source_md_line_func_map.txt:1-1"
+    )
+    assert message["diagnostic"]["next_action"].startswith(
+        "At 'out/line_map/source_md_line_func_map.txt:1-1', replace the entry"
+    )
+
+    map_path.write_text("MISSMT/FC-API/CK-MISSING: 1-1\n", encoding="utf-8")
+    passed, message = _strict_check(
+        tmp_path,
+        "source.md",
+        "out/line_map/source_md_line_func_map.txt",
+        required_ranges=[(1, 2)],
+    )
+    assert passed is False
+    assert message["diagnostic"]["error_code"] == "LINE_MAP_MISSMT_FORBIDDEN"
+    assert message["diagnostic"]["location"] == (
+        "out/line_map/source_md_line_func_map.txt:1-1"
+    )
+    assert "replace the MISSMT entry at" in message["diagnostic"]["next_action"]
 
     map_path.write_text("IGNORE/FC-API/CK-API: 1-2\n", encoding="utf-8")
     passed, message = _strict_check(
@@ -301,6 +337,19 @@ def test_strict_line_map_requires_valid_ck_and_ignore_reason(tmp_path):
     )
     assert passed is False
     assert "requires a reason comment" in str(message)
+    assert message["error_code"] == "LINE_MAP_IGNORE_REASON_MISSING"
+    assert message["artifact"] == "out/line_map/source_md_line_func_map.txt"
+    assert message["location"] == (
+        "out/line_map/source_md_line_func_map.txt:1-1"
+    )
+    assert message["observed"] == (
+        "IGNORE mapping requires a reason comment after '#'."
+    )
+    assert "# concrete reason" in message["expected"]
+    assert message["next_action"] == (
+        "Add a concrete inline reason at "
+        "'out/line_map/source_md_line_func_map.txt:1-1', then call `Check` again."
+    )
 
     map_path.write_text(
         "IGNORE/FC-API/CK-API: 1-2 # generated documentation, not DUT behavior\n",
@@ -313,6 +362,48 @@ def test_strict_line_map_requires_valid_ck_and_ignore_reason(tmp_path):
         required_ranges=[(1, 2)],
     )
     assert passed is True, message
+
+
+def test_batch_checker_promotes_exact_ignore_repair_without_internal_task_token(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "out" / "line_map").mkdir(parents=True)
+    _write_spec(tmp_path / "out" / "spec.md")
+    (tmp_path / "src" / "dut.md").write_text("heading\n", encoding="utf-8")
+    (tmp_path / "out" / "line_map" / "src_dut_md_line_func_map.txt").write_text(
+        "IGNORE/FC-DOC/CK-HEADING: 1-1\n",
+        encoding="utf-8",
+    )
+    checker = UnityChipBatchCheckerFileLineMap(
+        name="functional_line_mapping",
+        file_list=["src/*.md"],
+        func_check_file="out/spec.md",
+        map_location="out/line_map",
+    ).set_workspace(str(tmp_path)).set_stage(_Stage())
+    checker.on_init()
+
+    passed, result = checker.do_check(is_complete=False)
+
+    assert passed is False
+    assert result["error_code"] == "LINE_MAP_IGNORE_REASON_MISSING"
+    assert result["error"] != "The current line-block batch is not complete."
+    assert result["artifact"] == "out/line_map/src_dut_md_line_func_map.txt"
+    assert result["location"] == (
+        "out/line_map/src_dut_md_line_func_map.txt:1-1"
+    )
+    assert result["line_block"] == "src/dut.md:1-1"
+    assert "Add a concrete inline reason" in result["next_action"]
+    assert "@sha256=" not in str(result)
+    for empty_category in (
+        "missing_mapping_files",
+        "uncovered_lines",
+        "unknown_ck",
+        "oversized_ranges",
+        "progress_state_mismatches",
+        "unexpected_mapping_files",
+        "configuration_errors",
+        "forbidden_missmt",
+    ):
+        assert empty_category not in result
 
 
 def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
@@ -367,6 +458,9 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     passed, result = checker.do_check(is_complete=False)
     assert passed is False
     assert result["progress"] == "1/2"
+    assert "@sha256=" not in str(result)
+    assert "actionable_diagnostics" not in result
+    assert "parse_errors" not in result
     assert result["current_line_block_contents"][0]["line_block"] == "src/dut.md:1-100"
     assert len(result["current_line_block_contents"][0]["content"]) == 100
     assert result["next_line_blocks"] == ["src/dut.md:101-101"]
@@ -379,6 +473,18 @@ def test_batch_checker_uses_only_files_configured_in_file_list(tmp_path):
     passed, result = checker.do_check(is_complete=False)
     assert passed is True
     assert result["progress"] == "2/2"
+    assert "@sha256=" not in str(result)
+    for empty_category in (
+        "missing_mapping_files",
+        "uncovered_lines",
+        "unknown_ck",
+        "oversized_ranges",
+        "unexplained_ignore",
+        "parse_errors",
+        "forbidden_missmt",
+        "actionable_diagnostics",
+    ):
+        assert empty_category not in result
     assert manager.data["CK_LIST"] == ["FG-API/FC-API/CK-API"]
 
     passed, result = checker.do_check(is_complete=True)
@@ -673,30 +779,30 @@ def test_default_config_defines_line_map_targets_only_in_checker_file_list():
     checker_args = child["checker"][0]["args"]
     assert child["desc"] == "功能规格逐行查漏补缺[{LINE_MAP_PROGRESS}|{COUNT_CK}]"
     task_text = "\n".join(child["task"])
-    assert "按批次审查运行时提供的目标文档行块" in task_text
-    assert "目标文档集合由当前阶段配置动态确定" in task_text
-    assert "所有有功能意义的非空白内容" in task_text
-    assert "不要自行猜测、补充或创建未返回的目标文件" in task_text
-    assert "参考文档是本阶段的输入，不得修改、重排、格式化、插入空行" in task_text
-    assert "正常情况下参考文档的路径和物理行范围保持不变" in task_text
-    assert "不得因为 functions_and_checks.md 变化而重算、平移或改写参考文档行号" in task_text
-    assert "视为输入已变化" in task_text
-    assert "不得自行修改参考文档来消除错误" in task_text
-    assert "不是对应源文件的完整内容" in task_text
-    assert "再使用ReadTextFile查看file字段指向的原文件" in task_text
-    assert "例如[99-120, 456-888]" in task_text
+    assert "逐行审查当前批次的目标文档" in task_text
+    assert "输入边界" in task_text
+    assert "每条有功能意义的非空白内容" in task_text
+    assert "不得猜测未返回的文件" in task_text
+    assert "不得修改、重排或插空行" in task_text
+    assert "语义责任" in task_text
+    assert "Checker 只能确认" in task_text
+    assert "不能确认所选 CK 或 IGNORE 理由在语义上正确" in task_text
+    assert "content 只是当前行块，不是全文" in task_text
+    assert "ReadTextFile" in task_text
     assert "uncovered_content" in task_text
-    assert "动态工作文档，不是静态只读输入" in task_text
-    assert "按可独立激励、观测和判定的维度拆分为多个 CK" in task_text
-    assert "不能通过删除标签掩盖功能遗漏" in task_text
-    assert "不能留下旧 CK、MISSMT 或不存在的标签" in task_text
-    assert "覆盖率定义、测试用例、静态/动态 Bug 证据" in task_text
-    assert "同一文档行如果确实同时描述多个独立且可验证的行为" in task_text
+    assert "按可独立激励、观测和判定的行为拆分" in task_text
+    assert "用删除标签掩盖仍需验证的行为" in task_text
+    assert "不能留下旧 CK、不存在的标签" in task_text
+    assert "覆盖率、测试用例或 Bug 证据" in task_text
+    assert "同一行确有多个独立行为" in task_text
     assert "file_list" not in task_text
     assert "MAX_LINE_BLOCK_LINES" not in task_text
     assert "max_example_lines" not in task_text
-    assert "100 行" not in task_text
     assert "1-100" not in task_text
+    assert "不得使用 MISSMT" in task_text
+    assert "failure_summary" in task_text
+    assert "error_code" in task_text
+    assert "next_action" in task_text
     assert child["reference_files"] == [
         "Guide_Doc/dut_functions_and_checks.md",
         "Guide_Doc/dut_line_func_map.md",
@@ -732,13 +838,36 @@ def test_runtime_line_map_guide_uses_configured_limits_and_user_facing_terms():
         guide_text = guide_file.read()
 
     assert "当前阶段配置的行范围上限" in guide_text
-    assert "以任务描述及 `Check`/`Complete` 返回的当前批次为准" in guide_text
+    assert "以当前返回的 `current_line_block_contents`" in guide_text
     assert "每个映射区间最多覆盖 100 行" not in guide_text
     assert "`max_example_lines`" not in guide_text
     assert "`file_list`" not in guide_text
-    assert "正常执行时，目标文档是只读输入" in guide_text
-    assert "阶段外部更新、重新生成或其他进程修改" in guide_text
+    assert "目标文档是只读输入" in guide_text
+    assert "LINE_MAP_PROGRESS_STATE_INVALID" in guide_text
     assert "`map_file`" in guide_text
     assert "进度文档" not in guide_text
     assert "checkpoint" not in guide_text
     assert "TUI" not in guide_text
+    assert "`MISSMT` 不是本阶段允许的结果" in guide_text
+    assert "完整规范示例" in guide_text
+    assert "LINE_MAP_IGNORE_REASON_MISSING" in guide_text
+    assert "100-200" not in guide_text
+    assert "MISSMT/" not in guide_text
+
+
+def test_optional_functions_skill_covers_line_mapping_without_weakening_contract():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    skill_path = os.path.join(
+        project_root,
+        "ucagent/lang/zh/skills/unitytest/functions-and-checks/SKILL.md",
+    )
+    with open(skill_path, encoding="utf-8") as skill_file:
+        skill_text = skill_file.read()
+
+    assert "`functional_line_mapping_gap_analysis`" in skill_text
+    assert "`Guide_Doc/dut_line_func_map.md`" in skill_text
+    assert "严格使用返回的 `map_file`" in skill_text
+    assert "空白行不映射" in skill_text
+    assert "不得使用 `MISSMT`" in skill_text
+    assert "不能证明 CK 选择或 IGNORE 理由在语义上正确" in skill_text
+    assert "failure_summary.next_action" in skill_text

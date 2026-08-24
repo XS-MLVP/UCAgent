@@ -1,171 +1,114 @@
-
 # 文件行与检查点映射
 
-## 背景说明
+## 1. 目标与边界
 
-在验证活动中，仅依靠文档或用例列表难以确保功能覆盖到位。通过“文件行 ↔ 功能检查点 (CK)” 映射，我们可以：
-- 快速定位某个 CK 对应的 RTL/文档行段；
-- 评估哪些代码尚未映射到任何 CK；
-- 在回归或评审中追踪缺口、忽略项与待办事项。
+逐行查漏补缺阶段建立“目标文档物理行 -> FG/FC/CK”的可追溯关系，用来发现功能规格和检查点缺口。当前阶段只处理 `Check`/`Complete` 返回的行块：
 
-该映射既适用于 RTL 文件，也可扩展到第三方交付件、说明文档或脚本。映射文件通常与 `{DUT}_functions_and_checks.md` 搭配使用，形成从需求 → 功能点 → 检测点 → 代码行的完整闭环。
+- 每条有功能意义的非空白行都必须映射到 `{OUT}/{DUT}_functions_and_checks.md` 中已经声明且语义准确的 `FG-*/FC-*/CK-*` 路径。
+- 只有确实不描述 DUT 功能、接口、约束、状态、时序、异常或边界行为的非空白行，才能使用 `IGNORE/FC-*/CK-*`，并在同一映射行写明具体原因。
+- 空白或只含空白字符的物理行无需映射。
+- `MISSMT` 不是本阶段允许的结果。缺少 CK 时，应先依据规格补充正式 CK，再写正式映射。
+- 目标文档是只读输入。不得为了通过映射校验而修改、重排、格式化或插入空行。
 
-## 文件格式规范
+`Guide_Doc/` 文件只提供格式和方法，不属于逐行覆盖目标。实际目标文件、行号和原文以当前返回的 `current_line_block_contents` 或 `next_line_block_contents` 为准。
 
-映射文件可使用任意文本后缀。建议为每个目标文件维护独立映射，例如 `Adder_line_func_map.txt`。典型结构如下：
+## 2. 规范映射格式
 
-```bash
-# Adder_line_func_map.txt
-# 注释以 # 开头，空行自动忽略
+每个行块返回的 `map_file` 是该源文档唯一的规范映射文件。一个源文档跨多个批次时，始终累计更新同一个 `map_file`，不得自行创建带 `1_100`、`101_200` 等行号后缀的文件。
 
-# 语法: FG-NAME/FC-NAME/CK-NAME: start-end, start-end, ...
-# 行号区间包含起止值；同一 CK 可对应多个离散区间，可分行重复书写。
+正式映射语法：
 
-FG-BASIC/FC-NORMADD/CK-OVERFLOW: 10-15, 20-20, 50-60
-FG-BASIC/FC-NORMADD/CK-OVERFLOW: 100-200
-FG-CARRY/FC-ADDCARR/CK-CARRY: 220-230
-
-# IGNORE: 需说明忽略原因
-IGNORE/FC-COMMENTS/CK-NONEDD: 500-600, 701-701 # 无效注释
-IGNORE/FC-BLANK/CK-JUSTIGNOR: 801-810          # 空白区
-IGNORE/FC-NONEED/CK-NOTCOMPLETE: 900-910       # 暂不关注
-
-# MISSMT: 记录待补齐的检查点
-MISSMT/FC-FUNC1/CK-EXPECTED: 1011-1022         # TODO: 补齐功能点
-MISSMT/FC-FUNC2/CK-ASSERT:   1030-1042         # TODO: 补充断言
+```text
+FG-NAME/FC-NAME/CK-NAME: start-end, start-end
 ```
 
-> **提示**：CK 命名应与 `dut_functions_and_checks.md` 保持一致；若出现临时命名，需明确标记处置计划。
+忽略映射语法：
 
-注意：
-- 行号区间统一写作 `start-end`（包含端点），多个离散区间用逗号分隔，例如 `100-200` 或 `100-200, 300-400, 679-890`。
-- 单行映射也使用相同格式，例如 `12-12` 表示仅覆盖第 12 行；不允许省略结束值。
-- 以下写法视为非法：仅写单个数字（如 `1`）、起止颠倒（如 `200-10`）、包含非数字字符或混合不同分隔符。
-
-### 批处理行块与规范映射文件
-
-逐行查漏补缺阶段会将目标文档切分为行块。每个映射区间不得超过当前阶段配置的行范围上限，具体批次边界以 `Check`/`Complete` 返回的 `line_block`、`start_line` 和 `end_line` 为准；跨批次的连续内容应按实际行块拆分记录。空白或仅包含空白字符的行可以不映射，其他行不能遗漏。
-
-每个行块返回的 `map_file` 是唯一规范映射文件。一个目标文档无论被拆成多少批次，都必须累计更新同一个 `map_file`；不得根据 `line_block` 自行创建带 `1_100`、`101_200` 等行号后缀的映射文件。`Check` 会明确报告不会被读取的分块命名文件，处理时应将其中有效映射合并到 `map_file` 后删除误建文件。
-
-当前进度和待处理行块以动态任务描述及 `Check`/`Complete` 返回为准。正常执行时，目标文档是只读输入，本阶段不应修改其内容或行号；如果阶段外部更新、重新生成或其他进程修改了目标文档，`Check` 会检测到内容摘要变化并使受影响的完成状态失效，此时必须重新读取并按新的行块审查，不能修改参考文档来消除错误，也不能伪造完成状态。`MISSMT/...` 只能用于中间记录，不能作为最终完成结果；`IGNORE/FC-*/CK-*` 必须在映射行末注释中说明具体忽略原因。本阶段会自动选择实际的目标文档，执行时以任务描述及 `Check`/`Complete` 返回的当前批次为准；`Guide_Doc/` 只作为格式参考，不属于逐行覆盖目标。
-
-`Check` 和批次尚未全部完成时的 `Complete` 返回值会附带 `current_line_block_contents`，批次推进时还会附带 `next_line_block_contents`。两者都是行块列表，每个行块包含 `line_block`、`file`、`start_line`、`end_line`、`map_file` 和 `content`。`content` 是按物理行号升序排列的有序映射，键为物理行号，值为该行原文；空白行的值为空字符串。转换为 YAML 后示例如下：
-
-```yaml
-current_line_block_contents:
-  - line_block: path/to/file.md:1-3
-    file: path/to/file.md
-    start_line: 1
-    end_line: 3
-    map_file: output/line_map/path_to_file_md_line_func_map.txt
-    content:
-      1: 第一行原文
-      2: ''
-      3: 第三行原文
+```text
+IGNORE/FC-NAME/CK-NAME: start-end # 该内容不具有 DUT 功能语义的具体原因
 ```
 
-未覆盖校验还会返回 `uncovered_lines`。`uncovered_blocks` 汇总连续物理行区间，`uncovered_content` 则按物理行号保存当前行块内全部未覆盖非空白行的原文：
+格式要求：
 
-```yaml
-uncovered_lines:
-  - line_block: path/to/file.md:41-73
-    uncovered_line_count: 3
-    uncovered_blocks:
-      - 52-53
-      - 60-60
-    uncovered_content:
-      52: 第五十二行原文
-      53: 第五十三行原文
-      60: 第六十行原文
+- 行号是从 1 开始的物理行号，区间包含起止值。
+- 单行也必须写完整区间，例如源位置 `docs/interface.md:10-10` 在映射项中写作 `10-10`，不能只写 `10`。
+- 多个离散区间用英文逗号分隔；同一个 CK 也可以分多行书写。
+- 每个区间必须位于实际源文件范围内，不得超过当前阶段配置的行范围上限，也不得跨越本次审查的行块边界。
+- 正式路径的三个标签必须与 `{OUT}/{DUT}_functions_and_checks.md` 的层级和拼写完全一致。
+- 同一源行确实包含多个可独立激励、观测和判定的行为时，可以分别映射到多个准确 CK。
+- `#` 开头的整行注释和映射文件中的空行会被忽略。
+
+## 3. 完整规范示例
+
+假设 `Check` 为 `docs/interface.md` 返回的唯一 `map_file` 是 `unity_test/line_map/docs_interface_md_line_func_map.txt`，源文件第 5 行为空白行。下面是该源文件完成全部批次后的完整映射文件；第 5 行不需要建立映射：
+
+```text
+# Target: docs/interface.md
+# Canonical map_file: unity_test/line_map/docs_interface_md_line_func_map.txt
+
+FG-INTERFACE/FC-REQUEST/CK-REQUEST-ACCEPT: 1-4
+FG-INTERFACE/FC-RESPONSE/CK-RESPONSE-LATENCY: 6-8
+IGNORE/FC-DOCUMENT/CK-METADATA: 9-9 # 文档修订日期，不描述 DUT 行为或验证约束
+FG-RESET/FC-SYNCHRONOUS/CK-RESET-OUTPUT: 10-12
 ```
 
-`invalid_mappings[].details.error` 只展示有界的“物理行号: 原文”摘录，避免错误字符串过长；结构化的 `uncovered_content` 保留当前诊断涉及的全部未覆盖原文。通常可直接使用这些内容补齐映射，无需再次读取源文件。只有判断功能含义依赖跨行块的标题层级、表格表头、术语定义或前置说明时，才需要读取 `file` 指向的完整文件。
+该示例只展示当前规范：文件路径来自 `map_file`，每个区间使用 `start-end`，空白源行未映射，`IGNORE` 带具体理由，且不存在临时缺口标签。
 
-这些结构不为每行重复创建 `line` 和 `content` 字段，并避免把整个行块序列化成包含换行转义的长字符串。它们用于减少重复读取，但映射判断仍必须以源文件实际内容为准。
+## 4. 每批执行流程
 
-### 特殊前缀约定
+1. 读取当前行块的 `file`、`start_line`、`end_line`、`map_file` 和 `content`。`content` 只是当前行块，不是源文件全文。
+2. 逐条判断非空白内容的功能语义。只有标题层级、表格表头、术语定义或前置说明不足以判断时，才使用 `ReadTextFile` 读取 `file` 指向的必要上下文。
+3. 对功能内容选择 `{OUT}/{DUT}_functions_and_checks.md` 中语义准确的 CK。若规格确实揭示 CK 缺失或错误，先修正功能检查点文档，再同步迁移已有映射和工作区中的下游 CK 引用。
+4. 把正式映射或带理由的 `IGNORE` 追加到当前行块指定的 `map_file`，然后调用 `Check`。当前批次通过后只处理返回的下一批；所有批次通过后调用 `Complete`。
 
-| 前缀      | 适用场景                         | 必须说明的内容                          |
-| ---------- | -------------------------------- | --------------------------------------- |
-| `FG-*/FC-*/CK-*` | 正常功能、接口、异常等正式检查点 | 关联功能点与行号，必要时补充行为说明        |
-| `IGNORE/FC-*/CK-*` | 需排除的行段（版权声明、空白、第三方 IP 等） | 忽略原因、是否会再次验证                  |
-| `MISSMT/FC-*/CK-*` | 尚未建立正式 CK 的逻辑（缺口）   | 缺失原因、补齐计划、责任人或跟踪条目         |
+修改 CK 是有条件的语义修复。映射文件缺失、语法错误、区间错误或 `IGNORE` 缺理由时，只修复诊断指出的映射问题，不应借此无关地重写 CK。
 
-## 书写注意事项
+## 5. Checker 能确认和不能确认的内容
 
-- 映射文件使用相对路径心智模型：同一目录下的命名保持统一，便于检索和自动化处理。
-- 正式 CK 必须在 `{DUT}_functions_and_checks.md` 中声明；映射文件仅描述其覆盖行段。
-- 对 `IGNORE`、`MISSMT` 等特殊条目，注释必须说明缘由与后续动作，避免“沉没成本”。
-- 每次提交映射文件前，最好运行校验脚本（语法、行号范围、CK 是否存在），确保构建流程可自动解析。
+Checker 会机械确认：
 
-## 最佳实践指南
+- 映射文件是否为返回的规范 `map_file`；
+- 映射语法、标签形状、物理行范围和区间长度是否合法；
+- 正式 CK 是否存在于 `{OUT}/{DUT}_functions_and_checks.md`；
+- `IGNORE` 是否带有行内理由；
+- 当前行块的每个非空白物理行是否至少被覆盖一次；
+- 已完成行块是否仍与当前源文档和映射一致。
 
-### 1. 目录与命名
-- 建议统一放置在 `{OUT}/line_map/`；文件命名 `{TargetFile}_line_func_map.txt`。
-- 与 Spec、用例、脚本共用仓库管理，保持版本一致性。
+Checker 不能确认：
 
-### 2. 映射策略
-- **自顶向下**：先按模块/功能块划分，再细化到具体逻辑，实现层次化管理。
-- **行为导向**：优先覆盖可观测行为（输入、输出、状态变化、时序逻辑），帮助测试快速定位。
-- **持续迭代**：先标注核心路径，逐步补齐细枝末节；必要时通过 `MISSMT` 标记待办。
-- **忽略有据**：`IGNORE` 条目需说明具体原因（如工具生成、协议保留字段等），为评审提供背景。
-- **缺口闭环**：`MISSMT` 条目需记录缺失的 CK 名称、预期补齐时间、负责人或 Issue ID。
+- 一个形式上存在的 CK 是否真正对应源行语义；
+- CK 描述是否遗漏触发条件、边界、状态、时序或预期可观测结果；
+- `IGNORE` 理由是否符合真实规格；
+- 同一行中的多个独立行为是否都映射到了各自 CK。
 
-### 3. 校验与度量
-- 定期运行语法校验与行号有效性检查，避免解析失败。
-- 覆盖率与回归报告需同步统计“未映射行块”和 `MISSMT` 清单，推动及时补齐。
-- 若工具链支持，可在 CI 中自动提示新增/删除的 CK 是否已更新映射。
+这些语义结论必须依据 Spec 和权威接口文档作出。实现可以帮助定位信号和可观测行为，但实现与 Spec 冲突时不能把 CK 改成迎合错误实现。
 
-### 4. 协作与流程
-- 映射文件与 Spec 变更应同步评审，确保功能描述、检查点与代码一致。
-- 新增或调整 CK 时，及时更新映射文件，并通知用例/回归负责人调整计划。
-- 对 `MISSMT` 条目建立跟踪机制（缺陷系统、自建表格等），直至补齐后移除。
+## 6. 失败诊断与确定修复
 
-### 5. 常见问题处理
-- **重复逻辑**：注明“共享实现”并在 Spec 中解释引用关系，避免误以为缺失映射。
-- **宏或生成代码**：必要时针对展开后文件单独建映射，或使用工具映射回原文件。
-- **外部 IP**：若不在验证范围内，使用 `IGNORE` 并说明来源；若后续计划覆盖，则以 `MISSMT` 标记并列入计划。
+`Check`/`Complete` 失败时，先处理顶部 `failure_summary`，不要在文件未变化时重复调用。常用字段如下：
 
-## 示例：Adder 模块映射
+- `error_code`：稳定的问题类型。
+- `artifact` 和 `location`：要修改的文件及准确位置；单行位置写作 `path:10-10`。
+- `observed` 和 `expected`：实际问题与必须满足的条件。
+- `next_action`：针对当前确定问题的直接修复动作。
+- `uncovered_blocks` 和 `uncovered_content`：未覆盖区间及其全部非空白原文，仅在逐行覆盖缺口时出现。
 
-```bash
-# 文件: unity_test/line_map/Adder_line_func_map.txt
-# 目标: 将 Adder.v 的关键行映射到既有 CK 标签，便于覆盖率与回归追踪
+按错误类型执行明确修复：
 
-# 基本加法逻辑
-FG-BASIC/FC-NORMADD/CK-BASIC:  12-28            # 主加法流程
-FG-BASIC/FC-NORMADD/CK-ZERO:   29-36            # 输入为 0 的行为
-FG-BASIC/FC-NORMADD/CK-NEG:    37-48            # 处理负数输入
-FG-BASIC/FC-NORMADD/CK-OVFLW:  55-74, 120-132   # 溢出检测与异常处理
+| `error_code` | 直接修复 |
+| --- | --- |
+| `LINE_MAP_FILE_MISSING` | 创建 `artifact` 指向的规范 `map_file`，写入当前行块映射。 |
+| `LINE_MAP_IGNORE_REASON_MISSING` | 在 `location` 指向的映射行末添加 `#` 和具体忽略理由。 |
+| `LINE_MAP_UNKNOWN_CK` | 核对标签拼写和层级；若规格确有缺口，先在功能检查点文档补充正式 CK，再替换映射路径。 |
+| `LINE_MAP_UNCOVERED_LINES` | 使用 `uncovered_blocks` 和 `uncovered_content` 为全部非空白行补充准确 CK 或有理由的 `IGNORE`。 |
+| `LINE_MAP_RANGE_FORMAT_INVALID`、`LINE_MAP_RANGE_INVALID` | 在 `location` 把区间改为合法且包含端点的 `start-end`。 |
+| `LINE_MAP_RANGE_TOO_LARGE`、`LINE_MAP_RANGE_OUT_OF_BOUNDS` | 按返回的行块边界拆分或收窄 `location` 中的区间。 |
+| `LINE_MAP_MISSMT_FORBIDDEN` | 补充或选定正式 CK，并用正式 `FG/FC/CK` 路径替换该项。 |
+| `LINE_MAP_UNEXPECTED_FILE` | 将有效内容合并到 `expected` 指定的规范文件，再删除错误的分块命名文件。 |
+| `LINE_MAP_PROGRESS_STATE_INVALID` | 重新读取受影响的当前源行块，修复规范映射后重新 `Check`。 |
 
-# 参数化配置
-FG-PARAM/FC-WIDTH/CK-CONFIG:   85-95            # 数据位宽参数
-FG-PARAM/FC-WIDTH/CK-LIMIT:    96-104           # 参数取值限制
-FG-PARAM/FC-SIGN/CK-DEFAULT:   105-110          # 有符号/无符号默认
+错误详情中的文本摘录可能有界；`uncovered_content` 保留该诊断涉及的全部未覆盖非空白原文。只有语义依赖行块外上下文时才需要再次读取源文件。
 
-# 接口与复位
-FG-IF/FC-HANDSHAKE/CK-READY:   145-166          # ready/valid 握手
-FG-IF/FC-RESET/CK-SEQU:        170-188, 210-214 # 复位时序
+## 7. 完成标准
 
-# 调试与诊断
-FG-DIAG/FC-ASSERT/CK-OVERFLOW: 190-203          # Overflow 断言
-FG-DIAG/FC-FAULT/CK-INJECT:    204-209          # 错误注入处理
-
-# 忽略区段
-IGNORE/FC-COMMENT/CK-LEGAL: 5-10             # 版权声明
-IGNORE/FC-GENIP/CK-VENDOR:  230-280          # 第三方 IP 逻辑
-IGNORE/FC-DOC/CK-LEGEND:    300-320          # 工具生成文档
-
-# 待补齐区段
-MISSMT/FC-SAT/CK-SATURATE:  321-340          # 饱和运算待建 CK
-MISSMT/FC-COV/CK-ASSERT:    350-360          # 断言待补齐
-```
-
-### 示例亮点
-- **结构清晰**：按功能块分组，阅读与维护成本低。
-- **注释到位**：每个条目均解释意图或忽略原因，评审时信息充分。
-- **闭环管理**：`MISSMT` 清单显式展示缺口，并注明补齐计划。
-- **可自动化**：命名规整，便于脚本解析与 CI 集成。
-
-通过上述规范，可实现需求—规格—检查点—代码行的可追溯闭环，帮助团队高效识别覆盖缺口、评估验证质量并落实改进措施。
+本阶段完成时必须同时满足：所有返回的行块都已通过；每条非空白内容都有语义准确的正式 CK 映射或有事实依据的 `IGNORE`；不存在临时缺口标签、未知 CK、错误映射文件或失效进度；最后一次 `Complete` 成功。

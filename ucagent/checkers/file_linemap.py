@@ -14,11 +14,76 @@ from ucagent.util.log import info, warning
 _TASK_DIGEST_SEPARATOR = "@sha256="
 
 
+class LineMapValidationError(ValueError):
+    """Carry a stable, task-facing diagnostic for one mapping-file line."""
+
+    def __init__(self, error_code, error, *, artifact, line_no=None,
+                 observed=None, expected=None, next_action=None):
+        super().__init__(error)
+        self.diagnostic = _line_map_failure(
+            error_code,
+            error,
+            artifact=artifact,
+            location=(
+                f"{artifact}:{line_no}-{line_no}"
+                if line_no is not None else artifact
+            ),
+            observed=observed,
+            expected=expected,
+            next_action=next_action,
+        )
+
+
+def _line_map_failure(error_code, error, *, artifact=None, location=None,
+                      line_block=None, observed=None, expected=None,
+                      next_action=None, **details):
+    """Build the compact diagnostic contract consumed by stage failure summaries."""
+    result = {
+        "error_code": error_code,
+        "error": error,
+    }
+    optional = {
+        "artifact": artifact,
+        "location": location,
+        "line_block": line_block,
+        "observed": observed,
+        "expected": expected,
+        "next_action": next_action,
+        **details,
+    }
+    result.update({key: value for key, value in optional.items()
+                   if value not in (None, "", [], {})})
+    return result
+
+
+def _raise_map_error(error_code, map_file, line_no, observed, expected,
+                     next_action):
+    location = f"{map_file}:{line_no}-{line_no}"
+    raise LineMapValidationError(
+        error_code,
+        f"{location}: {observed}",
+        artifact=map_file,
+        line_no=line_no,
+        observed=observed,
+        expected=expected,
+        next_action=next_action,
+    )
+
+
 def get_func_check_marks(workspace, func_check_file):
     """Get function check marks from the specified file."""
     real_path = os.path.abspath(workspace + os.path.sep + func_check_file)
     if not os.path.exists(real_path):
-        return False, {"error": f"Function check file '{func_check_file}' does not exist."}
+        return False, _line_map_failure(
+            "LINE_MAP_FUNCTION_CHECK_FILE_MISSING",
+            f"Function check file '{func_check_file}' does not exist.",
+            artifact=func_check_file,
+            location=func_check_file,
+            expected="An existing functions-and-checks document with valid FG/FC/CK tags.",
+            next_action=(
+                f"Create or restore '{func_check_file}' in its canonical format, then call `Check` again."
+            ),
+        )
     try:
         ck_list = fc.get_unity_chip_doc_marks(real_path, "CK", 1)
     except Exception as e:
@@ -35,7 +100,17 @@ def get_func_check_marks(workspace, func_check_file):
                 "Missing tag closure: All tags must be properly closed",
                 "Encoding issues: Ensure file is saved in UTF-8 format",
             ]})
-        return False, {"error": emsg}
+        return False, _line_map_failure(
+            "LINE_MAP_FUNCTION_CHECK_DOCUMENT_INVALID",
+            emsg,
+            artifact=func_check_file,
+            location=func_check_file,
+            observed=error_details,
+            expected="A parseable functions-and-checks document with valid FG/FC/CK nesting.",
+            next_action=(
+                f"Repair the malformed tags or line breaks in '{func_check_file}', then call `Check` again."
+            ),
+        )
     return True, ck_list
 
 
@@ -56,14 +131,41 @@ def _line_block_digest(task):
     return parts[1] if len(parts) == 2 else None
 
 
+def _without_line_block_digests(value):
+    """Remove internal source digests from values returned to the stage agent."""
+    if isinstance(value, str):
+        return re.sub(
+            rf"{re.escape(_TASK_DIGEST_SEPARATOR)}[0-9a-fA-F]+",
+            "",
+            value,
+        )
+    if isinstance(value, dict):
+        return value.__class__(
+            (key, _without_line_block_digests(item))
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return [_without_line_block_digests(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_without_line_block_digests(item) for item in value)
+    return value
+
+
 def _parse_strict_line_map(workspace, map_file, source_line_count, max_block_lines,
                            require_ignore_reason=False):
     """Parse and validate raw line ranges without losing block-size information."""
     real_file_path = os.path.abspath(workspace + os.path.sep + map_file)
     if not os.path.exists(real_file_path):
-        raise ValueError(f"Mapping file '{map_file}' does not exist.")
+        raise LineMapValidationError(
+            "LINE_MAP_FILE_MISSING",
+            f"Mapping file '{map_file}' does not exist.",
+            artifact=map_file,
+            expected="The canonical mapping file returned in the current line block's map_file field.",
+            next_action=f"Create '{map_file}' for the current line block, then call `Check` again.",
+        )
 
     ret = {}
+    key_locations = {}
     with open(real_file_path, "r", encoding="utf-8") as f:
         for line_no, raw_line in enumerate(f, 1):
             stripped = raw_line.strip()
@@ -73,77 +175,104 @@ def _parse_strict_line_map(workspace, map_file, source_line_count, max_block_lin
             value = value.strip()
             comment = comment.strip() if separator else ""
             if ":" not in value:
-                raise ValueError(
-                    f"{map_file} at line {line_no}: Missing ':' separator."
+                _raise_map_error(
+                    "LINE_MAP_SEPARATOR_MISSING", map_file, line_no,
+                    "The mapping entry has no ':' separator.",
+                    "FG-*/FC-*/CK-*: start-end or IGNORE/FC-*/CK-*: start-end # concrete reason.",
+                    f"Add the missing ':' and line range at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                 )
             key, line_ranges_str = value.split(":", 1)
             key = key.strip()
             parts = [part.strip() for part in key.split("/")]
             if len(parts) != 3 or any(not part for part in parts):
-                raise ValueError(
-                    f"{map_file} at line {line_no}: key must have exactly three "
-                    "segments (FG/FC/CK, IGNORE/FC/CK, or MISSMT/FC/CK)."
+                _raise_map_error(
+                    "LINE_MAP_KEY_INVALID", map_file, line_no,
+                    f"Mapping key '{key}' does not have exactly three non-empty segments.",
+                    "FG-*/FC-*/CK-* or IGNORE/FC-*/CK-*.",
+                    f"Correct the mapping key at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                 )
             if parts[0] == "IGNORE":
                 if not parts[1].startswith("FC-") or not parts[2].startswith("CK-"):
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: IGNORE key must be "
-                        "IGNORE/FC-*/CK-*."
+                    _raise_map_error(
+                        "LINE_MAP_IGNORE_KEY_INVALID", map_file, line_no,
+                        f"IGNORE key '{key}' is not in canonical form.",
+                        "IGNORE/FC-*/CK-*.",
+                        f"Correct the IGNORE key at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                     )
                 if require_ignore_reason and not comment:
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: IGNORE mapping requires a reason comment."
+                    _raise_map_error(
+                        "LINE_MAP_IGNORE_REASON_MISSING", map_file, line_no,
+                        "IGNORE mapping requires a reason comment after '#'.",
+                        "IGNORE/FC-*/CK-*: start-end # concrete reason this non-functional content is excluded.",
+                        f"Add a concrete inline reason at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                     )
             elif parts[0] == "MISSMT":
                 if not parts[1].startswith("FC-") or not parts[2].startswith("CK-"):
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: MISSMT key must be "
-                        "MISSMT/FC-*/CK-*."
+                    _raise_map_error(
+                        "LINE_MAP_MISSMT_KEY_INVALID", map_file, line_no,
+                        f"MISSMT key '{key}' is malformed.",
+                        "A formal FG-*/FC-*/CK-* mapping after adding the missing CK to the functions-and-checks document.",
+                        f"Replace the MISSMT entry at '{map_file}:{line_no}-{line_no}' with a formal CK mapping, then call `Check` again."
                     )
             elif not (
                 parts[0].startswith("FG-")
                 and parts[1].startswith("FC-")
                 and parts[2].startswith("CK-")
             ):
-                raise ValueError(
-                    f"{map_file} at line {line_no}: functional key must be FG-*/FC-*/CK-*."
+                _raise_map_error(
+                    "LINE_MAP_FUNCTION_KEY_INVALID", map_file, line_no,
+                    f"Functional key '{key}' is not in canonical form.",
+                    "FG-*/FC-*/CK-* using tags declared in the functions-and-checks document.",
+                    f"Correct the functional key at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                 )
 
             line_list = []
             for raw_range in line_ranges_str.split(","):
                 raw_range = raw_range.strip()
                 if "-" not in raw_range:
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: line range '{raw_range}' "
-                        "must use start-end format."
+                    _raise_map_error(
+                        "LINE_MAP_RANGE_FORMAT_INVALID", map_file, line_no,
+                        f"Line range '{raw_range}' does not use start-end format.",
+                        "An inclusive physical line range such as 12-12 or 20-35.",
+                        f"Rewrite the range at '{map_file}:{line_no}-{line_no}' in start-end form, then call `Check` again."
                     )
                 start_str, end_str = raw_range.split("-", 1)
                 if not start_str.strip().isdigit() or not end_str.strip().isdigit():
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: line range '{raw_range}' "
-                        "must contain integers."
+                    _raise_map_error(
+                        "LINE_MAP_RANGE_FORMAT_INVALID", map_file, line_no,
+                        f"Line range '{raw_range}' contains a non-integer endpoint.",
+                        "An inclusive physical line range containing two positive integers.",
+                        f"Correct the range at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                     )
                 start_line = int(start_str)
                 end_line = int(end_str)
                 if start_line < 1 or start_line > end_line:
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: invalid line range '{raw_range}'."
+                    _raise_map_error(
+                        "LINE_MAP_RANGE_INVALID", map_file, line_no,
+                        f"Line range '{raw_range}' has an invalid start or reversed endpoints.",
+                        "A range with 1 <= start <= end.",
+                        f"Correct the range at '{map_file}:{line_no}-{line_no}', then call `Check` again."
                     )
                 if max_block_lines and end_line - start_line + 1 > max_block_lines:
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: range '{raw_range}' exceeds "
-                        f"the {max_block_lines}-line block limit."
+                    _raise_map_error(
+                        "LINE_MAP_RANGE_TOO_LARGE", map_file, line_no,
+                        f"Line range '{raw_range}' exceeds the {max_block_lines}-line block limit.",
+                        f"One or more ranges no longer than {max_block_lines} physical lines and aligned to reviewed line blocks.",
+                        f"Split the range at '{map_file}:{line_no}-{line_no}' along the returned line-block boundaries, then call `Check` again."
                     )
                 if source_line_count >= 0 and end_line > source_line_count:
-                    raise ValueError(
-                        f"{map_file} at line {line_no}: range '{raw_range}' exceeds "
-                        f"source file length ({source_line_count})."
+                    _raise_map_error(
+                        "LINE_MAP_RANGE_OUT_OF_BOUNDS", map_file, line_no,
+                        f"Line range '{raw_range}' exceeds the source file length ({source_line_count}).",
+                        f"A range ending at or before physical line {source_line_count}.",
+                        f"Correct the range at '{map_file}:{line_no}-{line_no}' using the current source line numbers, then call `Check` again."
                     )
                 line_list.append((start_line, end_line))
 
             pre_list = ret.get(key, [])
             ret[key] = fc.range_list_merge(pre_list, line_list)
-    return ret
+            key_locations.setdefault(key, []).append(line_no)
+    return ret, key_locations
 
 
 def _mapped_lines(line_ck_map):
@@ -234,17 +363,34 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
     info(f"Checking line-function mapping for file '{source_file}'...")
     abs_source_file = os.path.abspath(workspace + os.path.sep + source_file)
     if not os.path.exists(abs_source_file):
-        return False, {"error": f"Source file '{source_file}' does not exist."}
+        diagnostic = _line_map_failure(
+            "LINE_MAP_SOURCE_FILE_MISSING",
+            f"Source file '{source_file}' does not exist.",
+            artifact=source_file,
+            source_block=source_file,
+            expected="A source file selected by the current stage file_list.",
+            next_action=f"Restore or correct the current source file '{source_file}', then call `Check` again.",
+        )
+        return False, diagnostic
     if not map_file:
         map_file = _mapping_file_for_source(source_file, map_location, map_suffix)
     if not os.path.exists(os.path.abspath(workspace + os.path.sep + map_file)):
-        return False, {"error": f"Mapping file '{map_file}' does not exist. You should create it first."}
+        diagnostic = _line_map_failure(
+            "LINE_MAP_FILE_MISSING",
+            f"Mapping file '{map_file}' does not exist.",
+            artifact=map_file,
+            source_block=source_file,
+            expected="The canonical mapping file returned in the current line block's map_file field.",
+            next_action=f"Create '{map_file}' for the current line block, then call `Check` again.",
+        )
+        return False, diagnostic
     try:
         with open(abs_source_file, "r", encoding="utf-8") as source_handle:
             source_lines = source_handle.readlines()
         strict = max_block_lines is not None or strict_line_bounds or require_ignore_reason
+        key_locations = {}
         if strict:
-            line_ck_map = _parse_strict_line_map(
+            line_ck_map, key_locations = _parse_strict_line_map(
                 workspace,
                 map_file,
                 len(source_lines) if strict_line_bounds else -1,
@@ -253,11 +399,21 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
             )
         else:
             line_ck_map = fc.parse_line_CK_map_file(workspace, map_file)
+    except LineMapValidationError as e:
+        warning(f"Error occurred while parsing mapping file {map_file}: {e}")
+        return False, e.diagnostic
     except Exception as e:
         error_details = str(e)
         warning(f"Error occurred while parsing mapping file {map_file}: {error_details}")
         warning(traceback.format_exc())
-        return False, {"error": f"Mapping file parsing failed for file '{map_file}': {error_details}."}
+        diagnostic = _line_map_failure(
+            "LINE_MAP_PARSE_ERROR",
+            f"Mapping file parsing failed for file '{map_file}': {error_details}.",
+            artifact=map_file,
+            expected="A canonical, parseable line-map entry.",
+            next_action=f"Repair the syntax at '{map_file}', then call `Check` again.",
+        )
+        return False, diagnostic
     # compare ck_list and line_ck_map
     miss_matched_lines = []
     erro_lines_keys = []
@@ -275,7 +431,7 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
             if cb_match_ck:
                 cb_match_ck(k, line_ck_map[k])
     if len(erro_lines_keys) > 0:
-        emsg = [f"Found {len(erro_lines_keys)} line block(s) in mapping file '{map_file}' that do not have corresponding CK tags:"]
+        emsg = [f"Found {len(erro_lines_keys)} mapping entr{'y' if len(erro_lines_keys) == 1 else 'ies'} in '{map_file}' that do not have corresponding CK tags:"]
         for ck_name, _ in erro_lines_keys[:max_example_lines]:
             emsg.append(f"  '{ck_name}' which is not found in documentation file '{ck_list_file}'.")
         if len(erro_lines_keys) > max_example_lines:
@@ -285,7 +441,31 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
             emsg.append(f"  '{ck}'")
         if len(ck_list) > max_example_lines:
             emsg.append(f"  ... and {len(ck_list) - max_example_lines} more.")
-        return False, {"error": emsg}
+        first_ck_name = erro_lines_keys[0][0]
+        first_line = next(iter(key_locations.get(first_ck_name, [])), None)
+        location = (
+            f"{map_file}:{first_line}-{first_line}"
+            if first_line is not None else map_file
+        )
+        diagnostic = _line_map_failure(
+            "LINE_MAP_UNKNOWN_CK",
+            f"{location}: Mapping entry '{first_ck_name}' is not declared in '{ck_list_file}'.",
+            artifact=map_file,
+            location=location,
+            observed=first_ck_name,
+            expected="A precise FG-*/FC-*/CK-* path declared in the functions-and-checks document.",
+            next_action=(
+                f"At '{location}', replace the entry with the exact declared CK path; "
+                f"if the specification proves the CK is missing, add it to '{ck_list_file}' first. "
+                "Then call `Check` again."
+            ),
+            issue_count=len(erro_lines_keys),
+        )
+        return False, {
+            "error": emsg,
+            "diagnostic": diagnostic,
+            "details": emsg,
+        }
     if must_has_no_miss_match and len(miss_matched_lines) > 0:
         emsg = [f"Found {len(miss_matched_lines)} line block(s) in mapping file '{map_file}' that are marked as MISSMT (miss-matched):"]
         for ck_name, _ in miss_matched_lines[:max_example_lines]:
@@ -293,7 +473,29 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
         if len(miss_matched_lines) > max_example_lines:
             emsg.append(f"  ... and {len(miss_matched_lines) - max_example_lines} more.")
         emsg.append(f"You need to add those missing CKs to file '{ck_list_file}' or correct the mapping.")
-        return False, {"error": emsg}
+        first_ck_name = miss_matched_lines[0][0]
+        first_line = next(iter(key_locations.get(first_ck_name, [])), None)
+        location = (
+            f"{map_file}:{first_line}-{first_line}"
+            if first_line is not None else map_file
+        )
+        diagnostic = _line_map_failure(
+            "LINE_MAP_MISSMT_FORBIDDEN",
+            f"{location}: Mapping entry '{first_ck_name}' uses MISSMT, which is not allowed as a final result.",
+            artifact=map_file,
+            location=location,
+            observed=first_ck_name,
+            expected="A formal FG-*/FC-*/CK-* mapping after the missing CK is added to the functions-and-checks document.",
+            next_action=(
+                f"Add the missing formal CK to '{ck_list_file}', replace the MISSMT entry at '{location}', then call `Check` again."
+            ),
+            issue_count=len(miss_matched_lines),
+        )
+        return False, {
+            "error": emsg,
+            "diagnostic": diagnostic,
+            "details": emsg,
+        }
     # Find unmapped lines.  ``required_ranges`` is used by the batch checker so
     # a partially completed file can be validated one line block at a time.
     uncovered_content = OrderedDict()
@@ -340,8 +542,24 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
                 f"{len(uncovered_line_blocks)} block(s), in source file "
                 f"'{source_file}':\n{detail_msg}"
             )
+            diagnostic = _line_map_failure(
+                "LINE_MAP_UNCOVERED_LINES",
+                f"{source_file} has {len(un_mapped_lines)} uncovered non-blank line(s) in the current block.",
+                artifact=map_file,
+                source_block=source_file,
+                observed=f"uncovered blocks: {uncovered_line_blocks}",
+                expected="Every non-blank physical line in the current line block has a formal CK or a reasoned IGNORE mapping.",
+                next_action=(
+                    f"Add mappings to '{map_file}' for blocks {uncovered_line_blocks}, then call `Check` again."
+                ),
+                uncovered_line_count=len(un_mapped_lines),
+                uncovered_blocks=uncovered_line_blocks,
+                uncovered_content=uncovered_content,
+            )
             return False, {
                 "error": emsg,
+                "diagnostic": diagnostic,
+                "details": emsg,
                 "uncovered_line_count": len(un_mapped_lines),
                 "uncovered_line_blocks": uncovered_line_blocks,
                 "uncovered_content": uncovered_content,
@@ -350,7 +568,17 @@ def line_map_check_one_file(workspace, source_file, map_file, ck_list, ck_list_f
             f"Found {len(un_mapped_lines)} un-mapped line block(s) in source file "
             f"'{source_file}':\n{detail_msg}"
         )
-        return False, {"error": emsg}
+        diagnostic = _line_map_failure(
+            "LINE_MAP_UNCOVERED_LINES",
+            f"{source_file} has {len(un_mapped_lines)} uncovered non-blank line(s) in the current block.",
+            artifact=map_file,
+            source_block=source_file,
+            observed=detail_msg,
+            expected="Every non-blank physical line in the current line block has a formal CK or a reasoned IGNORE mapping.",
+            next_action=f"Add mappings to '{map_file}' for the uncovered lines, then call `Check` again.",
+            uncovered_line_count=len(un_mapped_lines),
+        )
+        return False, {"error": emsg, "diagnostic": diagnostic, "details": emsg}
     info(f"All lines in file '{source_file}' are properly mapped.")
     return True, f"All lines in file '{source_file}' are properly mapped."
 
@@ -568,6 +796,18 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             "progress_state_mismatches": [],
             "unexpected_mapping_files": [],
             "configuration_errors": [],
+            "parse_errors": [],
+            "forbidden_missmt": [],
+            "actionable_diagnostics": [],
+        }
+
+    @staticmethod
+    def _visible_diagnostics(diagnostics):
+        """Return only non-empty public categories, without duplicating primary issues."""
+        return {
+            key: value
+            for key, value in diagnostics.items()
+            if key != "actionable_diagnostics" and value not in (None, "", [], {})
         }
 
     def _add_validation_diagnostics(self, diagnostics, task, message):
@@ -577,10 +817,36 @@ class UnityChipBatchCheckerFileLineMap(Checker):
         else:
             error_value = message
         error_text = str(error_value)
+        task_base = _line_block_base(task)
+        map_file = _mapping_file_for_source(
+            self._split_line_block(task)[0], self.map_location, self.map_suffix
+        )
+        diagnostic = None
+        if isinstance(message, dict) and isinstance(message.get("diagnostic"), dict):
+            diagnostic = dict(message["diagnostic"])
+        elif isinstance(message, dict) and message.get("error_code"):
+            diagnostic = dict(message)
+        if diagnostic is not None:
+            diagnostic.setdefault("line_block", task_base)
+            diagnostic.setdefault("source_block", task_base)
+            diagnostic.setdefault("artifact", map_file)
+            diagnostics["actionable_diagnostics"].append(diagnostic)
+            code = diagnostic["error_code"]
+            classified = {"line_block": task_base, "details": diagnostic}
+            if code == "LINE_MAP_UNKNOWN_CK":
+                diagnostics["unknown_ck"].append(classified)
+            elif code == "LINE_MAP_MISSMT_FORBIDDEN":
+                diagnostics["forbidden_missmt"].append(classified)
+            elif code == "LINE_MAP_IGNORE_REASON_MISSING":
+                diagnostics["unexplained_ignore"].append(classified)
+            elif code in {"LINE_MAP_RANGE_TOO_LARGE", "LINE_MAP_RANGE_OUT_OF_BOUNDS"}:
+                diagnostics["oversized_ranges"].append(classified)
+            elif code.startswith("LINE_MAP_") and code not in {
+                "LINE_MAP_FILE_MISSING",
+                "LINE_MAP_UNCOVERED_LINES",
+            }:
+                diagnostics["parse_errors"].append(classified)
         if "Mapping file '" in error_text and "does not exist" in error_text:
-            map_file = _mapping_file_for_source(
-                self._split_line_block(task)[0], self.map_location, self.map_suffix
-            )
             diagnostics["missing_mapping_files"].append(map_file)
         if "un-mapped line" in error_text:
             uncovered_blocks = (
@@ -607,26 +873,51 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 uncovered_blocks = _line_numbers_to_blocks(line_numbers)
                 uncovered_count = len(line_numbers)
             diagnostics["uncovered_lines"].append({
-                "line_block": _line_block_base(task),
+                "line_block": task_base,
                 "uncovered_line_count": uncovered_count,
                 "uncovered_blocks": uncovered_blocks,
                 "uncovered_content": uncovered_content,
             })
-        if "not found in documentation" in error_text:
+        if diagnostic is None and "not found in documentation" in error_text:
             diagnostics["unknown_ck"].append({
-                "line_block": _line_block_base(task),
+                "line_block": task_base,
                 "details": error_value,
             })
-        if "block limit" in error_text or ("exceeds the" in error_text and "line" in error_text):
+        if diagnostic is None and ("block limit" in error_text or ("exceeds the" in error_text and "line" in error_text)):
             diagnostics["oversized_ranges"].append({
-                "line_block": _line_block_base(task),
+                "line_block": task_base,
                 "details": error_value,
             })
-        if "IGNORE mapping requires a reason comment" in error_text:
+        if diagnostic is None and "IGNORE mapping requires a reason comment" in error_text:
             diagnostics["unexplained_ignore"].append({
-                "line_block": _line_block_base(task),
+                "line_block": task_base,
                 "details": error_value,
             })
+
+        if diagnostic is None and error_text:
+            code = None
+            next_action = None
+            expected = None
+            if "does not exist" in error_text and "Mapping file" in error_text:
+                code = "LINE_MAP_FILE_MISSING"
+                expected = "The canonical mapping file returned in the current line block's map_file field."
+                next_action = f"Create '{map_file}' for the current line block, then call `Check` again."
+            elif "IGNORE mapping requires a reason comment" in error_text:
+                code = "LINE_MAP_IGNORE_REASON_MISSING"
+                expected = "IGNORE/FC-*/CK-*: start-end # concrete reason."
+                next_action = f"Add a concrete inline reason to '{map_file}', then call `Check` again."
+            if code:
+                diagnostics["actionable_diagnostics"].append(
+                    _line_map_failure(
+                        code,
+                        error_text,
+                        artifact=map_file,
+                        line_block=task_base,
+                        source_block=task_base,
+                        expected=expected,
+                        next_action=next_action,
+                    )
+                )
 
     def _line_block_content(self, task):
         """Return the physical lines for a task so Check can guide the LLM directly."""
@@ -798,13 +1089,12 @@ class UnityChipBatchCheckerFileLineMap(Checker):
     def do_check(self, is_complete=False, **kw) -> tuple[bool, object]:
         """Validate the current line-map batch and advance the resumable task."""
         if not self._is_init:
-            return False, {
-                "error": (
-                    "UnityChipBatchCheckerFileLineMap has not been initialized. "
-                    "Wait for the stage on_init lifecycle before calling Check or Complete."
-                ),
-                "configuration_errors": ["Checker on_init has not run."],
-            }
+            return False, _line_map_failure(
+                "LINE_MAP_STAGE_NOT_READY",
+                "UnityChipBatchCheckerFileLineMap has not been initialized; the line-map stage is not ready to validate its current batch.",
+                expected="An initialized current stage with a rendered line-block batch.",
+                next_action="Call `CurrentTips` after stage initialization, then retry `Check` once.",
+            )
 
         success, ck_list_or_msg = get_func_check_marks(
             self.workspace, self.func_check_file
@@ -829,8 +1119,49 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                     diagnostics["progress_state_mismatches"].append(error)
                 elif "line-range suffixes" not in error:
                     diagnostics["configuration_errors"].append(error)
+            if diagnostics["configuration_errors"]:
+                diagnostics["actionable_diagnostics"].append(
+                    _line_map_failure(
+                        "LINE_MAP_CONFIGURATION_ERROR",
+                        diagnostics["configuration_errors"][0],
+                        artifact=self.map_location,
+                        expected="A valid configured file set and canonical mapping-file layout.",
+                        next_action="Correct the reported configuration or mapping-file layout, then call `Check` again.",
+                    )
+                )
+            if diagnostics["progress_state_mismatches"]:
+                diagnostics["actionable_diagnostics"].insert(
+                    0,
+                    _line_map_failure(
+                        "LINE_MAP_PROGRESS_STATE_INVALID",
+                        diagnostics["progress_state_mismatches"][0],
+                        artifact=self.map_location,
+                        expected="Recorded completed blocks still match the current source and canonical mappings.",
+                        next_action="Re-read the affected source block, repair its canonical mapping, then call `Check` again.",
+                    ),
+                )
+            if diagnostics["unexpected_mapping_files"]:
+                item = diagnostics["unexpected_mapping_files"][0]
+                diagnostics["actionable_diagnostics"].append(
+                    _line_map_failure(
+                        "LINE_MAP_UNEXPECTED_FILE",
+                        f"Mapping file '{item['file']}' uses line-range suffixes and is not a canonical file consumed by this stage.",
+                        artifact=item["file"],
+                        expected=f"Use canonical mapping file '{item['expected_map_file']}'.",
+                        next_action=(
+                            f"Merge valid entries into '{item['expected_map_file']}', remove '{item['file']}', then call `Check` again."
+                        ),
+                    )
+                )
+            primary = diagnostics["actionable_diagnostics"][0] if diagnostics["actionable_diagnostics"] else None
+            visible_diagnostics = self._visible_diagnostics(diagnostics)
             return False, self._attach_line_block_content(
-                {"error": self._task_errors, **diagnostics},
+                {
+                    "error": primary["error"] if primary else self._task_errors,
+                    **(primary if primary else {}),
+                    "issue_count": max(1, len(diagnostics["actionable_diagnostics"])),
+                    **visible_diagnostics,
+                },
                 self.batch_task.tbd_task_list,
             )
 
@@ -843,8 +1174,11 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                     self._add_validation_diagnostics(
                         diagnostics, task, item["details"]
                     )
+            primary = diagnostics["actionable_diagnostics"][0] if diagnostics["actionable_diagnostics"] else None
+            visible_diagnostics = self._visible_diagnostics(diagnostics)
             return False, self._attach_line_block_content({
-                "error": "A previously completed line-block mapping is no longer valid.",
+                "error": primary["error"] if primary else "A previously completed line-block mapping is no longer valid.",
+                **(primary if primary else {}),
                 "invalid_completed_mappings": self._completed_validation_errors,
                 "progress": (
                     f"{len(self.batch_task.gen_task_list)}/{len(source_tasks)}"
@@ -854,7 +1188,8 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "remaining_line_blocks": (
                     len(source_tasks) - len(self.batch_task.gen_task_list)
                 ),
-                **diagnostics,
+                "issue_count": max(1, len(diagnostics["actionable_diagnostics"])),
+                **visible_diagnostics,
             }, invalid_tasks or self.batch_task.tbd_task_list)
 
         if not source_tasks:
@@ -873,15 +1208,17 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                     "remaining_line_blocks": 0,
                     "current_batch": [],
                     "current_line_block_contents": [],
-                    **diagnostics,
                 }
             diagnostics["configuration_errors"].append(
                 "No files matched the configured file_list."
             )
-            return False, {
-                "error": "No target line blocks found. Check the configured file_list and DUT files.",
-                **diagnostics,
-            }
+            return False, _line_map_failure(
+                "LINE_MAP_TARGETS_NOT_FOUND",
+                "No target line blocks were found for this stage.",
+                observed="No source file matched the configured target patterns.",
+                expected="At least one non-blank target document selected by the current workflow.",
+                next_action="Confirm the DUT input documents exist at their configured workspace paths, then call `Check` again.",
+            )
 
         current_batch = list(self.batch_task.tbd_task_list)
         current_batch_bases = [_line_block_base(task) for task in current_batch]
@@ -897,23 +1234,32 @@ class UnityChipBatchCheckerFileLineMap(Checker):
                 "remaining_line_blocks": 0,
                 "current_batch": [],
                 "current_line_block_contents": [],
-                **diagnostics,
             }
 
         invalid_current = []
         for task in current_batch:
             valid, message = self._validate_line_block(task, ck_list)
             if not valid:
-                invalid_current.append({"line_block": task, "details": message})
+                invalid_current.append({
+                    "line_block": _line_block_base(task),
+                    "details": message,
+                })
                 self._add_validation_diagnostics(diagnostics, task, message)
         if invalid_current:
-            result = {"error": "The current line-block batch is not complete."}
+            primary = diagnostics["actionable_diagnostics"][0] if diagnostics["actionable_diagnostics"] else None
+            result = {
+                "error": primary["error"] if primary else "The current line-block batch is not complete.",
+                **(primary if primary else {}),
+            }
             result["invalid_mappings"] = invalid_current
             result["current_batch"] = current_batch_bases
             result["progress"] = (
                 f"{len(self.batch_task.gen_task_list)}/{len(source_tasks)}"
             )
-            result.update(diagnostics)
+            result["issue_count"] = max(
+                len(invalid_current), len(diagnostics["actionable_diagnostics"])
+            )
+            result.update(self._visible_diagnostics(diagnostics))
             self._attach_line_block_content(result, current_batch)
             return False, result
 
@@ -930,6 +1276,7 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             f"in canonical mapping files under {self.map_location}",
             " Use each line block's map_file field and call Check after finishing the current batch.",
         )
+        result = _without_line_block_digests(result)
         if passed:
             self._save_final_ck_list(ck_list)
         if isinstance(result, dict):
@@ -939,7 +1286,6 @@ class UnityChipBatchCheckerFileLineMap(Checker):
             result["completed_line_blocks"] = completed_count
             result["total_line_blocks"] = len(source_tasks)
             result["remaining_line_blocks"] = len(source_tasks) - completed_count
-            result.update(diagnostics)
             self._attach_line_block_content(result, current_batch)
             if self.batch_task.tbd_task_list:
                 result["next_line_blocks"] = [

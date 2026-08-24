@@ -979,6 +979,45 @@ class StageManager(object):
             return last_msg
         return "The checker failed without a concrete error message. Call `Check` again and inspect the returned failure_summary."
 
+    @staticmethod
+    def _extract_actionable_diagnostic(last_msg):
+        """Return one bounded, structured diagnostic without exposing full checker output."""
+        if not isinstance(last_msg, dict):
+            return None
+        diagnostic = last_msg.get("diagnostic")
+        if not isinstance(diagnostic, dict):
+            candidates = last_msg.get("actionable_diagnostics")
+            if isinstance(candidates, list):
+                diagnostic = next(
+                    (item for item in candidates if isinstance(item, dict)), None
+                )
+        if not isinstance(diagnostic, dict):
+            if last_msg.get("error_code"):
+                diagnostic = last_msg
+            else:
+                return None
+        allowed = {
+            "error_code",
+            "error",
+            "artifact",
+            "location",
+            "line_block",
+            "source_block",
+            "observed",
+            "expected",
+            "next_action",
+            "issue_count",
+            "uncovered_line_count",
+            "uncovered_blocks",
+            "uncovered_content",
+        }
+        compact = {
+            key: copy.deepcopy(value)
+            for key, value in diagnostic.items()
+            if key in allowed and value not in (None, "", [], {})
+        }
+        return compact or None
+
     @classmethod
     def _build_failure_summary(cls, stage, check_info, next_action, stage_index=None):
         checker_entries = check_info if isinstance(check_info, list) else [check_info]
@@ -1002,17 +1041,25 @@ class StageManager(object):
 
         if failed_entry is None:
             failed_entry = {"last_msg": check_info}
-        error_data = cls._extract_checker_error(failed_entry.get("last_msg"))
+        last_msg = failed_entry.get("last_msg")
+        diagnostic = cls._extract_actionable_diagnostic(last_msg)
+        error_data = (
+            diagnostic.get("error")
+            if diagnostic is not None and diagnostic.get("error")
+            else cls._extract_checker_error(last_msg)
+        )
         error_text = cls._error_text(error_data)
         error_label = re.search(r"\[([^\]]+)\]", error_text)
         error_code = "CHECKER_FAILED"
-        if error_label:
+        if diagnostic is not None and diagnostic.get("error_code"):
+            error_code = diagnostic["error_code"]
+        elif error_label:
             error_code = re.sub(r"[^A-Z0-9]+", "_", error_label.group(1).upper()).strip("_")
 
         checker_class = failed_entry.get("checker_class") or failed_entry.get("name") or "UnknownChecker"
         checker_name = failed_entry.get("checker_name") or checker_class
         remaining_checkers = max(0, len(checker_entries) - (failed_index + 1)) if failed_index is not None else 0
-        return OrderedDict({
+        summary = OrderedDict({
             "status": "checker_failed",
             "stage_index": stage_index,
             "stage_name": getattr(stage, "name", ""),
@@ -1024,11 +1071,27 @@ class StageManager(object):
             "next_action": next_action,
             "remaining_checkers_not_run": remaining_checkers,
             "diagnostic_note": (
-                "This summary contains the current actionable failure. Historical checker "
-                "counters and duplicate check_info diagnostics are intentionally omitted from "
-                "the tool response."
+                "This summary contains one bounded actionable failure. Historical checker "
+                "counters and duplicate check_info diagnostics are omitted from the tool response."
             ),
         })
+        if diagnostic is not None:
+            for key in (
+                "artifact",
+                "location",
+                "line_block",
+                "source_block",
+                "observed",
+                "expected",
+                "next_action",
+                "issue_count",
+                "uncovered_line_count",
+                "uncovered_blocks",
+                "uncovered_content",
+            ):
+                if key in diagnostic:
+                    summary[key] = diagnostic[key]
+        return summary
 
     @staticmethod
     def _batch_progress_action(tool_name):

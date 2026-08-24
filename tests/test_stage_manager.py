@@ -620,6 +620,97 @@ def test_check_failure_summary_precedes_verbose_diagnostics():
     assert rendered.index("failure_summary:") < rendered.index("verbose pytest output")
 
 
+def test_line_map_failure_summary_preserves_concrete_repair_fields():
+    class FailingStage:
+        name = "functional_line_mapping_gap_analysis"
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "UnityChipBatchCheckerFileLineMap",
+                "checker_name": "functional_line_mapping_batch_check",
+                "checker_class": "UnityChipBatchCheckerFileLineMap",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": {
+                    "error": "generic batch error",
+                    "diagnostic": {
+                        "error_code": "LINE_MAP_IGNORE_REASON_MISSING",
+                        "error": "map.txt:5-5: IGNORE mapping requires a reason comment after '#'.",
+                        "artifact": "out/line_map/map.txt",
+                        "location": "out/line_map/map.txt:5-5",
+                        "line_block": "docs/spec.md:1-10",
+                        "observed": "IGNORE mapping requires a reason comment after '#'.",
+                        "expected": "IGNORE/FC-*/CK-*: start-end # concrete reason.",
+                        "next_action": "Add a concrete inline reason at 'out/line_map/map.txt:5-5', then call `Check` again.",
+                    },
+                    "invalid_mappings": [{
+                        "line_block": "docs/spec.md:1-10@sha256=internal",
+                        "details": {"error": "large duplicate diagnostics" * 100},
+                    }],
+                },
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 8
+    manager.stages = [None] * 8 + [FailingStage()]
+    manager.last_check_info = None
+    manager.stage_need_llm_fail_suggestion = lambda _stage: False
+    manager.gen_fail_suggestion = StageManager.gen_fail_suggestion.__get__(
+        manager, StageManager
+    )
+
+    result = manager.check(30)
+    summary = result["failure_summary"]
+
+    assert summary["error_code"] == "LINE_MAP_IGNORE_REASON_MISSING"
+    assert summary["error"].startswith("map.txt:5-5:")
+    assert summary["artifact"] == "out/line_map/map.txt"
+    assert summary["location"] == "out/line_map/map.txt:5-5"
+    assert summary["line_block"] == "docs/spec.md:1-10"
+    assert summary["next_action"].startswith("Add a concrete inline reason")
+    assert "check_info" not in result
+    assert "@sha256=" not in str(summary)
+
+
+def test_line_map_failure_summary_keeps_complete_uncovered_content():
+    uncovered_content = {
+        3: "first uncovered requirement",
+        4: "second uncovered requirement",
+    }
+    check_info = [{
+        "checker_name": "functional_line_mapping_batch_check",
+        "checker_class": "UnityChipBatchCheckerFileLineMap",
+        "checked_in_last_run": True,
+        "last_check_pass": False,
+        "last_msg": {
+            "error_code": "LINE_MAP_UNCOVERED_LINES",
+            "error": "docs/spec.md has 2 uncovered non-blank lines.",
+            "artifact": "out/line_map/docs_spec_md_line_func_map.txt",
+            "line_block": "docs/spec.md:1-10",
+            "uncovered_line_count": 2,
+            "uncovered_blocks": ["3-4"],
+            "uncovered_content": uncovered_content,
+            "next_action": "Add mappings for block 3-4, then call `Check` again.",
+        },
+    }]
+
+    summary = StageManager._build_failure_summary(
+        SimpleNamespace(name="functional_line_mapping_gap_analysis"),
+        check_info,
+        "generic remediation",
+        stage_index=8,
+    )
+
+    assert summary["error_code"] == "LINE_MAP_UNCOVERED_LINES"
+    assert summary["uncovered_line_count"] == 2
+    assert summary["uncovered_blocks"] == ["3-4"]
+    assert summary["uncovered_content"] == uncovered_content
+    assert summary["next_action"] == (
+        "Add mappings for block 3-4, then call `Check` again."
+    )
+
+
 def test_check_reports_batch_advance_as_progress_not_failure():
     class BatchStage:
         name = "generate_random_test_cases"

@@ -5,12 +5,13 @@ description: 功能规格分析与测试点定义阶段及其子阶段专属技�
 
 # 功能规格分析与测试点定义
 
-本技能服务于 `functional_specification_analysis` 阶段以及其下的 3 个子阶段：
+本技能服务于 `functional_specification_analysis` 阶段以及其下的 4 个子阶段：
 - `dut_function_grouping`
 - `function_point_definition`
 - `check_point_design`
+- `functional_line_mapping_gap_analysis`
 
-本阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`。首次创建完整文档使用`EditTextFile(path, content)`；后续按当前子阶段局部加入或修正FG/FC/CK时使用`ReplaceStringInFile(path, old_string, new_string)`。`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
+前三个子阶段直接维护`{OUT}/{DUT}_functions_and_checks.md`；逐行查漏补缺子阶段还会维护当前行块返回的`map_file`，并且只在规格证明CK需要修正时更新功能检查点文档。首次创建完整文档使用`EditTextFile(path, content)`；后续按当前子阶段局部加入或修正FG/FC/CK时使用`ReplaceStringInFile(path, old_string, new_string)`。`scripts/update.py`只是可选的批量助手，不是完成任务的前置条件。两种写入方式必须产生相同的规范层级。
 
 ## 分析原则
 
@@ -115,6 +116,16 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 
 ### 步骤3
 有`RunSkillScript`时可以执行`update.py`批量插入；没有时直接使用文本编辑工具在唯一父节点下插入同样内容。修改后必须重新读取目标段，确认父子层级、标签唯一性和正式描述均正确。
+
+### 步骤4：逐行查漏补缺
+
+在 `functional_line_mapping_gap_analysis` 子阶段，按 `Check`/`Complete` 返回的当前行块逐条判断语义，并严格使用返回的 `map_file`。完整格式和执行契约见 `Guide_Doc/dut_line_func_map.md`。
+
+- 功能内容映射到语义准确且已声明的 `FG/FC/CK`；非功能内容才使用带具体理由的 `IGNORE`；空白行不映射；不得使用 `MISSMT`。
+- Checker 只能证明语法、CK 存在性、范围、IGNORE 理由和逐行覆盖，不能证明 CK 选择或 IGNORE 理由在语义上正确。
+- 只有规格上下文证明 CK 确实缺失、含糊或粒度错误时才修改功能检查点文档；映射语法、路径或理由错误只按 `failure_summary.next_action` 修复对应映射项。
+- CK 标签发生变化时，同步迁移已有行映射以及工作区中已存在的覆盖率、测试用例和 Bug 证据引用。
+- 每批写完后调用 `Check`；失败时先按 `error_code`、`artifact/location`、`expected` 和 `next_action` 修复，不能在文件未变化时重复检查。
 
 ## 可选脚本调用规范
 
