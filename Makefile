@@ -116,6 +116,7 @@ clean_%:
 
 clean:
 	rm -rf .pytest_cache
+	rm -rf log
 	rm -rf UCAgent.egg-info
 	rm -rf build
 	rm -rf dist
