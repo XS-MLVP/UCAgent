@@ -344,7 +344,7 @@ class VerifyAgent:
             "conversation_summary.max_tokens", 20 * 1024
         )
         self.max_summary_tokens = self.cfg.get_value(
-            "conversation_summary.max_summary_tokens", 1 * 1024
+            "conversation_summary.max_summary_tokens", 8 * 1024
         )
         self.context_management_strategy = self.cfg.get_value(
             "conversation_summary.context_management_strategy",
@@ -473,19 +473,50 @@ class VerifyAgent:
         success = {}
         if self.message_manage_node is None:
             return success
-        for k, v in cfg.items():
-            if hasattr(self.message_manage_node, k):
-                setattr(self.message_manage_node, k, v)
-                success[k] = v
+        aliases = {"max_token": "max_tokens"}
+        for requested_key, value in cfg.items():
+            key = aliases.get(requested_key, requested_key)
+            if not hasattr(self.message_manage_node, key):
+                continue
+            if key in {
+                "max_tokens",
+                "max_summary_tokens",
+                "max_keep_msgs",
+                "tail_keep_msgs",
+            }:
+                try:
+                    value = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if value < 0 or (key == "max_summary_tokens" and value == 0):
+                    continue
+                candidate_max_keep = (
+                    value
+                    if key == "max_keep_msgs"
+                    else self.message_manage_node.max_keep_msgs
+                )
+                candidate_tail_keep = (
+                    value
+                    if key == "tail_keep_msgs"
+                    else self.message_manage_node.tail_keep_msgs
+                )
+                if (
+                    candidate_max_keep > 0
+                    and candidate_tail_keep > candidate_max_keep
+                ):
+                    continue
+            setattr(self.message_manage_node, key, value)
+            if hasattr(self, key):
+                setattr(self, key, value)
+            if key == "max_tokens":
+                self.max_token = value
+            success[requested_key] = value
         return success
 
     def summary_mode(self):
         if self.message_manage_node is None:
             return "None"
-        name = self.message_manage_node.__class__.__name__
-        if self.context_management_strategy == "TrimAndSummaryMiddleware":
-            return f"{name}({self.max_keep_msgs})"
-        return f"{name}({self.max_token})"
+        return self.message_manage_node.__class__.__name__
 
     def summary_max_tokens(self):
         return self.max_summary_tokens
@@ -973,7 +1004,7 @@ class VerifyAgent:
         return OrderedDict(
             {
                 "count": len(messages),
-                "size": sum([len(m.content) for m in messages]),
+                "size": sum(len(m.text) for m in messages),
                 "last_20type": ">".join([m.type for m in messages[-20:]]),
                 "to_llm": self.backend.get_statistics(),
             }
@@ -995,6 +1026,47 @@ class VerifyAgent:
         msg_info = self.message_info()
         msg_c, msg_s = msg_info.get("count", "-"), msg_info.get("size", "-")
         msg_stat = self.backend.get_statistics()
+        provider_usage_by_source = msg_stat.get("provider_usage", {})
+        provider_usage = provider_usage_by_source.get("all", {})
+        provider_usage_available = provider_usage.get("responses_with_usage", 0) > 0
+        if provider_usage_available:
+            usage_status = (
+                "partial"
+                if provider_usage.get("responses_without_usage", 0) > 0
+                else "complete"
+            )
+            provider_tokens = (
+                f"{usage_status} "
+                f"{provider_usage.get('input_tokens', 0)}/"
+                f"{provider_usage.get('output_tokens', 0)}/"
+                f"{provider_usage.get('total_tokens', 0)}"
+            )
+        else:
+            provider_tokens = "unavailable"
+
+        context_status = "unavailable"
+        compression_status = "none"
+        message_node = self.message_manage_node
+        if message_node is not None and hasattr(message_node, "get_context_metrics"):
+            context_metrics = message_node.get_context_metrics(
+                self.messages_get_raw()
+            )
+            context_status = (
+                f"tok={context_metrics['context_tokens_estimated']}/"
+                f"{context_metrics['max_tokens']},"
+                f"msg={context_metrics['context_message_count']}/"
+                f"{context_metrics['max_keep_msgs']}"
+            )
+            last_compression = context_metrics.get("last_compression")
+            if last_compression:
+                compression_status = (
+                    f"{last_compression.get('reason', 'unknown')} "
+                    f"tok={last_compression.get('before_tokens_estimated', '-')}>"
+                    f"{last_compression.get('after_tokens_estimated', '-')},"
+                    f"msg={last_compression.get('before_messages', '-')}>"
+                    f"{last_compression.get('after_messages', '-')}"
+                )
+
         stats = OrderedDict(
             {
                 "UCAgent": self.__version__,
@@ -1010,11 +1082,11 @@ class VerifyAgent:
                 "AI-Message": self.backend._stat_msg_count_ai,
                 "Tool-Message": self.backend._stat_msg_count_tool,
                 "Sys-Message": self.backend._stat_msg_count_system,
-                "MsgIn(bytes)": msg_stat["message_in"],
-                "MsgOut(bytes)": msg_stat["message_out"],
+                "ProviderTokens": provider_tokens,
+                "Context": context_status,
+                "Compression": compression_status,
                 "Start Time": fmt_time_stamp(self._time_start),
                 "Run Time": fmt_time_deta(self.stage_manager.get_time_cost()),
-                f"Token Reception({self.backend.token_total()})/TPS": self.backend.token_speed(),
             }
         )
         return stats

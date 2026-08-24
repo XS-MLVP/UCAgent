@@ -84,19 +84,23 @@ UCAgent 自带基于 Textual 构建的终端界面（TUI），用于在本地交
 - 直接执行系统/危险命令：以 ! 前缀执行（例如 !loop），该模式执行后优先滚动到最新输出。
 - 列出后台命令：list_demo_cmds 显示正在运行的 demo 命令列表与开始时间。
 
-#### 消息配置（message_config）
+#### 消息配置（messages_config）
 
-- 作用：在运行中查看/调整消息裁剪策略，控制历史保留与 LLM 输入 token 上限。
+- 作用：在运行中查看或调整消息压缩策略。token 上限与消息数上限是两个独立触发条件，任意一个超限都会压缩。
 - 命令：
-  - message_config 查看当前配置
-  - message_config <key> <value> 设置配置项
+  - messages_config 查看当前配置
+  - messages_config <key> <value> 设置配置项
 - 可配置项：
-  - max_keep_msgs：保留的历史消息条数（影响会话记忆窗口）
-  - max_token：进入模型前的消息裁剪 token 上限（影响开销/截断）
+  - max_tokens：触发压缩的预估上下文 token 上限；设为 `0` 可禁用该条件
+  - max_keep_msgs：触发压缩的上下文消息数上限；设为 `0` 可禁用该条件
+  - max_summary_tokens：摘要模型的输出 token 上限，必须大于 `0`
+  - tail_keep_msgs：每次压缩后原样保留的最近消息数
 - 示例：
-  - message_config
-  - message_config max_keep_msgs 8
-  - message_config max_token 4096
+  - messages_config
+  - messages_config max_keep_msgs 200
+  - messages_config max_tokens 131072
+
+`status` 只用三个紧凑字段显示消息压缩状态：`ProviderTokens` 按 `input/output/total` 显示服务端累计 token，`Context` 按 `当前值/阈值` 显示预估 token 和消息数，`Compression` 显示最近一次压缩的原因和前后规模。服务端未返回 usage 时，`ProviderTokens` 显示 `unavailable`；详细配置使用 `messages_config` 查看。
 
 其他说明
 

@@ -392,10 +392,12 @@ UCAgent 支持通过环境变量配置各类参数，环境变量优先级高于
 
 | 环境变量名 | 说明 | 默认值 |
 | :-------- | :--- | :----- |
-| `SUMMARY_MAX_CTX_TOKEN` | 会话上下文最大 token 数 | `51200` |
-| `SUMMARY_MAX_SUM_TOKEN` | 生成摘要的最大 token 数 | `1024` |
-| `SUMMARY_MAX_KEEP_MSG` | 内存中保留的最大消息数 | `100` |
+| `SUMMARY_MAX_CTX_TOKEN` | 触发压缩的预估上下文 token 上限；`0` 表示禁用该触发条件 | `102400` |
+| `SUMMARY_MAX_SUM_TOKEN` | 每次生成摘要的输出 token 上限，必须大于 `0` | `8192` |
+| `SUMMARY_MAX_KEEP_MSG` | 独立触发压缩的上下文消息数上限；`0` 表示禁用该触发条件 | `100` |
 | `SUMMARY_TAIL_KEEP_MSG` | 传递给 LLM 的最近消息保留数 | `10` |
+
+`SUMMARY_MAX_CTX_TOKEN` 和 `SUMMARY_MAX_KEEP_MSG` 是两个独立触发条件，任意一个超限都会压缩。上下文 token 在模型调用前属于预估值；运行过程中若模型服务返回 usage，LangChain 后端会使用最近一次实际输入 token 校准后续估算。`status` 中的 `ProviderTokens` 以 `input/output/total` 显示服务端累计 token，`Context` 显示当前预估值与阈值，`Compression` 显示最近一次压缩的原因和前后规模。
 
 ### LLM 限流配置
 

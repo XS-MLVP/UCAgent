@@ -23,9 +23,10 @@
 
 ### 运行中如何调整消息窗口与 token 上限？
 
-- 在 TUI 输入：`message_config` 查看当前配置；
-- 设置：`message_config max_keep_msgs 8` 或 `message_config max_token 4096`；
-- 作用范围：影响会话历史裁剪与送入 LLM 的最大 token 上限（通过 Summarization/Trim 节点生效）。
+- 在 TUI 输入 `messages_config` 查看当前配置；
+- 使用 `messages_config max_tokens 131072` 调整预估 token 触发值；
+- 使用 `messages_config max_keep_msgs 200` 调整独立的消息数触发值；
+- 两项中的任意一项超限都会压缩。只提高 `max_tokens` 不会关闭消息数限制；可将对应限制设为 `0` 来禁用该触发条件。
 
 ### 文档中的 “CK bug” 要改吗？
 

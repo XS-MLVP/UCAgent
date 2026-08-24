@@ -18,9 +18,18 @@ class UCAgentLangChainBackend(AgentBackendBase):
     def __init__(self, vagent, config, **kwargs):
         super().__init__(vagent, config, **kwargs)
         self.message_statistic = MessageStatistic()
-        self.cb_token_speed = TokenSpeedCallbackHandler()
-        self.model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
-        self.sumary_model = get_chat_model(self.config, [self.cb_token_speed] if vagent.stream_output else None)
+        self.cb_stream_output = TokenSpeedCallbackHandler()
+        self.cb_summary_stream_output = TokenSpeedCallbackHandler()
+        # Retain the old attribute for callers that inspect the backend directly.
+        self.cb_token_speed = self.cb_stream_output
+        self.model = get_chat_model(
+            self.config,
+            [self.cb_stream_output] if vagent.stream_output else None,
+        )
+        self.sumary_model = get_chat_model(
+            self.config,
+            [self.cb_summary_stream_output] if vagent.stream_output else None,
+        )
 
         if vagent.context_management_strategy == "TrimAndSummaryMiddleware":
             message_manage_node = TrimAndSummaryMiddleware(
@@ -29,7 +38,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
                 max_keep_msgs=vagent.max_keep_msgs,
                 max_tokens=vagent.max_token,
                 tail_keep_msgs=vagent.tail_keep_msgs,
-                model=self.sumary_model
+                model=self.sumary_model,
             )
         else:
             raise ValueError(f"Unsupported context_management_strategy: {vagent.context_management_strategy}")
@@ -41,6 +50,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
         set_debug(debug)
 
     def init(self):
+        self.message_manage_node.set_tools(self.vagent.test_tools)
         self.agent = create_agent(
             model=self.model,
             tools=self.vagent.test_tools,
@@ -69,7 +79,7 @@ class UCAgentLangChainBackend(AgentBackendBase):
             self._stat_msg_count_tool += 1
         elif isinstance(msg, SystemMessage):
             self._stat_msg_count_system += 1
-        self.message_statistic.update_message(msg)
+        self.message_statistic.update_message(msg, usage_source="main")
 
     def get_message_manage_node(self):
         return self.message_manage_node
@@ -239,7 +249,19 @@ class UCAgentLangChainBackend(AgentBackendBase):
         return self.message_statistic.get_statistics()
 
     def token_speed(self):
-        return self.cb_token_speed.get_speed()
+        return -1.0
 
     def token_total(self):
-        return self.cb_token_speed.total()
+        usage = self.get_statistics()["provider_usage"]["all"]
+        if usage["responses_with_usage"] < 1:
+            return -1
+        return usage["total_tokens"]
+
+    def stream_character_speed(self):
+        return self.cb_stream_output.get_speed()
+
+    def stream_character_total(self):
+        return self.cb_stream_output.total()
+
+    def summary_stream_character_total(self):
+        return self.cb_summary_stream_output.total()

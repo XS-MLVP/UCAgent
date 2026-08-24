@@ -30,10 +30,18 @@ def get_chat_model_openai(cfg: Config, callbacks, rate_limiter) -> Any:
     model_name = kw.pop("model_name")
     if model_name:
         kw["model"] = model_name
+    model_kwargs = kw.get("model_kwargs")
+    if isinstance(model_kwargs, dict) and "stop" in model_kwargs:
+        kw.setdefault("stop", model_kwargs.pop("stop"))
+        if not model_kwargs:
+            kw.pop("model_kwargs")
     if "seed" not in kw:
         kw["seed"] = cfg.seed
     if callbacks:
         kw.update({"callbacks": callbacks, "streaming": True})
+        # Request usage in the final streaming chunk when the provider supports
+        # the OpenAI stream-options contract.
+        kw.setdefault("stream_usage", True)
     if rate_limiter:
         kw.update({"rate_limiter": rate_limiter})
     return ChatOpenAI(**kw)

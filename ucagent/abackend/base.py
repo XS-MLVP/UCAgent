@@ -121,6 +121,18 @@ class AgentBackendBase(object):
         """
         return -1.0
 
+    def stream_character_total(self) -> int:
+        """Get the number of streamed output characters observed by the backend."""
+        return -1
+
+    def stream_character_speed(self) -> float:
+        """Get the current streamed output character rate."""
+        return -1.0
+
+    def summary_stream_character_total(self) -> int:
+        """Get streamed characters produced by the summary model."""
+        return -1
+
     def get_statistics(self) -> dict:
         """
         Get statistics related to the backend.

@@ -249,13 +249,13 @@ skill:
   general_skill_list: [] # skills that are general to use for all stage
 
 # This is the setting for conversation summary
-# Adjust the max_tokens and max_summary_tokens according to your needs and model capabilities
+# Automatic compression starts when either enabled limit is exceeded.
 # Reference doc: https://langchain-ai.lang.chat/langmem/reference/short_term/#langmem.short_term.SummarizationNode
 conversation_summary:
   context_management_strategy: TrimAndSummaryMiddleware    # default use TrimAndSummaryMiddleware strategy to manage conversation history
-  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 102400)    # default 100k tokens for 200k context model
-  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 1024)  # suggested 10% of the model's context length
-  max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # max messages to keep in memory, older messages will be removed (not the messages to LLM)
+  max_tokens: $(SUMMARY_MAX_CTX_TOKEN: 102400)    # estimated input-token trigger; 0 disables this trigger
+  max_summary_tokens: $(SUMMARY_MAX_SUM_TOKEN: 8192)  # positive output-token budget for each generated summary
+  max_keep_msgs: $(SUMMARY_MAX_KEEP_MSG: 100)    # independent message-count trigger; 0 disables this trigger
   tail_keep_msgs: $(SUMMARY_TAIL_KEEP_MSG: 10)   # keep the last N messages to the LLM no matter what
 
 rate_limiter:
