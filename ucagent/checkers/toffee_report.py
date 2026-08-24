@@ -38,6 +38,7 @@ from ucagent.checkers.base import Checker
 import copy
 from datetime import datetime
 import os
+import posixpath
 import re
 import textwrap
 import traceback
@@ -45,7 +46,12 @@ import yaml
 
 
 _HDL_SOURCE_LOCATION = re.compile(
-    r"[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala):L\d+-L\d+",
+    r"[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala):\d+-\d+",
+    re.IGNORECASE,
+)
+_MALFORMED_HDL_SOURCE_LOCATION = re.compile(
+    r"(?P<path>[\w./\\-]+\.(?:sv|svh|v|vh|vhd|vhdl|scala)):"
+    r"L?(?P<start>\d+)(?:-L?(?P<end>\d+))?",
     re.IGNORECASE,
 )
 _HDL_FENCED_BLOCK = re.compile(
@@ -53,6 +59,52 @@ _HDL_FENCED_BLOCK = re.compile(
     r"(?P<body>.*?)^[ \t]*```[ \t]*$",
     re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
+
+
+def _missing_hdl_location_issue(source_content: str) -> dict:
+    """Return a deterministic repair for a missing canonical HDL location."""
+
+    malformed = _MALFORMED_HDL_SOURCE_LOCATION.search(source_content)
+    if malformed is None:
+        return {
+            "code": "HDL_SOURCE_LOCATION_MISSING",
+            "problem": (
+                "source analysis must include a real HDL location in exact "
+                "`path:start-end` format"
+            ),
+            "required": "path/to/source.sv:10-12",
+            "next_action": (
+                "Add the real source path and inclusive line range using the exact "
+                "`path:start-end` format; repeat the number for one line, for example "
+                "`path/to/source.sv:10-10`. Do not rerun WaveInfo or reclassify the Bug."
+            ),
+        }
+
+    start = int(malformed.group("start"))
+    end_text = malformed.group("end")
+    end = int(end_text) if end_text is not None else start
+    fenced_line_numbers = [
+        int(match.group(1))
+        for block in _HDL_FENCED_BLOCK.finditer(source_content)
+        for match in re.finditer(r"(?m)^[ \t]*(\d+):", block.group("body"))
+    ]
+    if fenced_line_numbers:
+        start = min(start, min(fenced_line_numbers))
+        end = max(end, max(fenced_line_numbers))
+    observed = malformed.group(0)
+    replacement = f"{malformed.group('path')}:{start}-{end}"
+    return {
+        "code": "HDL_SOURCE_LOCATION_FORMAT",
+        "problem": f"replace `{observed}` with `{replacement}`",
+        "observed": observed,
+        "required": "path:start-end (use start=end for one line)",
+        "replacement": replacement,
+        "next_action": (
+            f"Replace `{observed}` with `{replacement}` in this BG path. "
+            "The existing assertion, WaveInfo evidence, classification, and analysis fields "
+            "do not need to be regenerated."
+        ),
+    }
 
 
 def _extract_waveform_yaml_payload(
@@ -107,8 +159,43 @@ def parse_bug_label(label: str) -> tuple[str, float]:
 
 
 def _find_matching_test_case(parts: list[str], name_list) -> tuple[bool, str]:
+    """Match one documented pytest node to a report node without substring aliases."""
+
+    if len(parts) not in (2, 3):
+        return False, ""
+    documented_file = posixpath.normpath(parts[0].replace("\\", "/"))
+    documented_nodes = tuple(part.strip() for part in parts[1:])
     for name in name_list:
-        if all(part in name for part in parts):
+        report_parts = str(name).split("::")
+        if len(report_parts) != len(parts):
+            continue
+        report_file = re.sub(
+            r":\d+(?:-\d+)?$", "", report_parts[0].replace("\\", "/")
+        )
+        report_file = posixpath.normpath(report_file)
+        if not (
+            report_file == documented_file
+            or report_file.endswith("/" + documented_file)
+            or documented_file.endswith("/" + report_file)
+        ):
+            continue
+        report_nodes = tuple(part.strip() for part in report_parts[1:])
+        nodes_match = True
+        for index, (documented_node, report_node) in enumerate(
+            zip(documented_nodes, report_nodes)
+        ):
+            if documented_node == report_node:
+                continue
+            is_final_node = index == len(documented_nodes) - 1
+            if (
+                is_final_node
+                and "[" not in documented_node
+                and report_node.startswith(documented_node + "[")
+            ):
+                continue
+            nodes_match = False
+            break
+        if nodes_match:
             return True, name
     return False, ""
 
@@ -653,6 +740,7 @@ def _required_waveform_pairs(
         return True, [], ""
 
     required = {}
+    report_associations = {}
     unmatched = []
     for record in records:
         for test in record["tests"]:
@@ -686,6 +774,53 @@ def _required_waveform_pairs(
                         }
                     )
                 continue
+            report_association = (
+                record["bug"],
+                record["checkpoint"],
+                report_name,
+            )
+            existing = report_associations.get(report_association)
+            if existing is not None and existing["test_label"] != test["test_label"]:
+                candidates = [existing, test]
+                preferred = min(
+                    candidates,
+                    key=lambda item: (
+                        item["test_case"].split("::", 1)[0].count("/"),
+                        len(item["test_case"]),
+                    ),
+                )
+                duplicate = test if preferred is existing else existing
+                return False, [], {
+                    "error": (
+                        "[Equivalent Waveform Association Duplicate] The same pytest node "
+                        f"'{report_name}' is documented twice under "
+                        f"{record['checkpoint']}/{record['bug']}: "
+                        f"<{existing['test_label']}> at line {existing['line']} and "
+                        f"<{test['test_label']}> at line {test['line']}. Keep exactly one "
+                        "BG/TC association and one central waveform record for this pytest "
+                        "node."
+                    ),
+                    "details": {
+                        "code": "EQUIVALENT_TC_ASSOCIATION_DUPLICATE",
+                        "bug": record["bug"],
+                        "checkpoint": record["checkpoint"],
+                        "report_test_case": report_name,
+                        "keep_test_label": preferred["test_label"],
+                        "duplicate_test_label": duplicate["test_label"],
+                        "duplicate_line": duplicate["line"],
+                        "next_action": (
+                            f"Remove only <{duplicate['test_label']}> at line "
+                            f"{duplicate['line']}, its immediately following WAVEFORM-REF, "
+                            "and that label's duplicate central waveform record. Preserve "
+                            f"<{preferred['test_label']}> and its evidence, then call "
+                            "Check/Complete again."
+                        ),
+                        "rerun_test": False,
+                        "rerun_waveinfo": False,
+                        "apply_evidence": False,
+                    },
+                }
+            report_associations[report_association] = test
             pair = (record["bug"], test["test_label"])
             required[pair] = {
                 "bug": record["bug"],
@@ -696,22 +831,21 @@ def _required_waveform_pairs(
                 "line": test["line"],
             }
     if unmatched:
-        summaries = [
-            f"- {item['bug']}/TC-{item['test_case']} (line {item['line']}): "
-            f"{item['reason']}; checkpoint={item['checkpoint'] or '<missing>'}"
-            for item in unmatched[:20]
-        ]
-        if len(unmatched) > len(summaries):
-            summaries.append(f"- ... and {len(unmatched) - len(summaries)} more pair(s)")
+        item = unmatched[0]
+        remaining_pair_count = len(unmatched) - 1
         return False, [], {
             "error": (
-                f"[Waveform Analysis Association Incomplete] {len(unmatched)} documented "
-                "dynamic Bug/test pair(s) could not be mapped for validation:\n"
-                + "\n".join(summaries)
-                + "\nEvery non-zero dynamic Bug/TC pair must map to its exact failing "
-                "test and checkpoint before Check/Complete can pass."
+                "[Waveform Analysis Association Incomplete] First blocking documented "
+                f"pair: {item['bug']}/TC-{item['test_case']} (line {item['line']}): "
+                f"{item['reason']}; checkpoint={item['checkpoint'] or '<missing>'}. "
+                f"{remaining_pair_count} later pair(s) are intentionally suppressed. "
+                "Repair this exact test/checkpoint association, then call Check/Complete "
+                "again."
             ),
-            "details": {"unmatched_pairs": unmatched},
+            "details": {
+                "unmatched_pairs": [item],
+                "remaining_pair_count": remaining_pair_count,
+            },
         }
     return True, list(required.values()), ""
 
@@ -965,10 +1099,25 @@ def check_dynamic_bug_analysis_content(
             else:
                 missing_source_evidence = []
                 if _HDL_SOURCE_LOCATION.search(source_content) is None:
-                    missing_source_evidence.append("real HDL path and line range")
+                    missing_source_evidence.append(
+                        _missing_hdl_location_issue(source_content)
+                    )
                 hdl_blocks = list(_HDL_FENCED_BLOCK.finditer(source_content))
                 if not hdl_blocks:
-                    missing_source_evidence.append("complete HDL fenced code block")
+                    missing_source_evidence.append(
+                        {
+                            "code": "HDL_FENCE_MISSING",
+                            "problem": "complete HDL fenced code block is missing",
+                            "required": (
+                                "A fenced systemverilog/verilog/vhdl/scala/chisel block "
+                                "containing the cited source lines"
+                            ),
+                            "next_action": (
+                                "Add one complete HDL fenced block containing the real cited "
+                                "source lines and all three BUG-SOURCE markers."
+                            ),
+                        }
+                    )
                 fenced_source = "\n".join(
                     match.group("body") for match in hdl_blocks
                 )
@@ -976,46 +1125,92 @@ def check_dynamic_bug_analysis_content(
                     marker_count = source_content.count(marker)
                     if marker_count != 1:
                         missing_source_evidence.append(
-                            f"marker {marker!r} exactly once (found {marker_count})"
+                            {
+                                "code": "HDL_SOURCE_MARKER_COUNT",
+                                "problem": (
+                                    f"marker {marker!r} must occur exactly once "
+                                    f"(found {marker_count})"
+                                ),
+                                "required": f"Exactly one {marker} marker",
+                                "next_action": (
+                                    f"Put exactly one {marker} in a language-native comment "
+                                    "on the corresponding HDL source line."
+                                ),
+                            }
                         )
                     elif fenced_source.count(marker) != 1:
                         missing_source_evidence.append(
-                            f"marker {marker!r} inside an HDL fenced code block"
+                            {
+                                "code": "HDL_SOURCE_MARKER_OUTSIDE_FENCE",
+                                "problem": (
+                                    f"marker {marker!r} must be inside an HDL fenced code block"
+                                ),
+                                "required": f"{marker} inside the cited HDL fence",
+                                "next_action": (
+                                    f"Move {marker} into a language-native comment on the "
+                                    "corresponding line inside the HDL fenced block."
+                                ),
+                            }
                         )
                 if missing_source_evidence:
-                    issues.append(
-                        {
+                    for source_problem in missing_source_evidence:
+                        issues.append({
                             "bug": block["bug"],
                             "path": block["path"],
                             "line": source_line,
-                            "problem": (
-                                "source analysis lacks "
-                                + ", ".join(missing_source_evidence)
-                            ),
-                        }
-                    )
+                            **source_problem,
+                        })
 
     if issues:
-        summaries = [
-            f"- {issue['path']} (line {issue['line']}): {issue['problem']}"
-            for issue in issues[:20]
-        ]
-        if len(issues) > len(summaries):
-            summaries.append(f"- ... and {len(issues) - len(summaries)} more issue(s)")
+        issue = issues[0]
+        remaining_issue_count = len(issues) - 1
+        if issue.get("code") in {
+            "HDL_SOURCE_LOCATION_FORMAT",
+            "HDL_SOURCE_LOCATION_MISSING",
+        }:
+            next_action = [issue["next_action"]]
+            remediation = (
+                "\nThis is a deterministic source-location format repair. Apply the "
+                "listed replacement, then call Check/Complete again. Do not recreate the "
+                "BG/TC scaffold, rerun WaveInfo, or redo Bug classification."
+            )
+        else:
+            next_action = [
+                issue.get("next_action")
+                or (
+                    "Repair this one blocking issue in the owning full FG/FC/CK/BG path "
+                    "using the complete canonical example in "
+                    "Guide_Doc/dut_bug_analysis.md section 5.1. Every occurrence of a BG "
+                    "under a different checkpoint is an independently complete path entry."
+                )
+            ]
+            remediation = (
+                "\nRepair only this reported blocker, then call Check/Complete for the next "
+                "validation result. "
+                "Use record_dynamic_bug.py only when the path scaffold itself is absent; "
+                "otherwise follow the complete canonical example in "
+                "Guide_Doc/dut_bug_analysis.md section 5.1. Do not restart evidence "
+                "collection for a field-format error."
+            )
+        suppressed = (
+            f" {remaining_issue_count} later issue(s) are intentionally suppressed until "
+            "this blocker is repaired."
+            if remaining_issue_count
+            else ""
+        )
         return False, {
             "error": (
-                f"[Dynamic Bug Analysis Incomplete] {len(issues)} content issue(s) in "
-                f"'{bug_file}':\n"
-                + "\n".join(summaries)
-                + "\nCreate the BG/TC scaffold with a text-editing tool using "
-                "the complete canonical example in Guide_Doc/dut_bug_analysis.md "
-                "section 5.1, or use the optional "
-                "record_dynamic_bug.py helper when available. Then read the failing assertion, "
-                "confirmed WaveInfo timeline, and RTL/HDL source; replace "
-                "every scaffold field with evidence-backed analysis inside that BG before "
-                "calling Check/Complete."
+                f"[Dynamic Bug Analysis Incomplete] First blocking content issue in "
+                f"'{bug_file}':\n- {issue['path']} (line {issue['line']}): "
+                f"{issue['problem']}."
+                + suppressed
+                + remediation
             ),
-            "details": {"issues": issues},
+            "details": {
+                "issues": [issue],
+                "remaining_issue_count": remaining_issue_count,
+            },
+            "next_action": next_action,
         }
     return True, f"Validated completed analysis for {len(blocks)} dynamic Bug entry(s)."
 
@@ -1150,48 +1345,51 @@ def _validate_receipt_identity(
 
 
 def _waveform_issue_result(issues: list[dict]) -> tuple[bool, object]:
-    """Return one concise error for one or many invalid waveform blocks."""
+    """Return only the first blocking waveform error with later issues suppressed."""
     if not issues:
         return True, ""
-    deletion_guard = (
-        " Do not delete a TC, BG, or enclosing FG/FC/CK branch merely to remove this "
-        "validation error while the correctly implemented test still fails. Rerun the "
-        "test and WaveInfo, then replace the central evidence record. Remove a dynamic record only "
-        "after a correct test passes or other evidence proves it is not a DUT Bug."
-    )
-    if len(issues) == 1:
-        issue = issues[0]
+    issue = issues[0]
+    remaining_issue_count = len(issues) - 1
+    details = copy.deepcopy(issue.get("details", {}))
+    details["remaining_issue_count"] = remaining_issue_count
+    if issue.get("repair_kind") == "semantic_field":
+        next_action = details["next_action"]
+        later_note = (
+            f" {remaining_issue_count} other waveform blocker(s) are not part of the "
+            "current action and must not be edited yet."
+            if remaining_issue_count
+            else ""
+        )
         return _waveform_error(
-            issue["message"] + deletion_guard,
-            **issue.get("details", {}),
+            issue["message"]
+            + " "
+            + next_action
+            + " Do not rerun pytest or WaveInfo, do not call ApplyWaveInfoEvidence, "
+            "and do not edit any other field or waveform record."
+            + later_note
+            + " Then call Check/Complete again.",
+            **details,
         )
 
-    summaries = []
-    for issue in issues:
-        details = issue.get("details", {})
-        location = (
-            f"{details.get('bug', '?')}/{details.get('test_case', '?')}"
-            f" (line {details.get('line', '?')})"
-        )
-        summaries.append(f"- {location}: {issue['message']}")
+    deletion_guard = (
+        " Do not delete a TC, BG, or enclosing FG/FC/CK branch merely to remove this "
+        "validation error while the correctly implemented test still fails. Follow the "
+        "blocker-specific action above. Rerun the test or WaveInfo only when that action "
+        "explicitly says the receipt or waveform evidence is missing, stale, or unusable. "
+        "Remove a dynamic record only after a correct test passes or other evidence proves "
+        "it is not a DUT Bug."
+    )
     return _waveform_error(
-        f"[Waveform Analysis Batch Validation] {len(issues)} waveform block(s) "
-        "failed validation in one pass:\n"
-        + "\n".join(summaries)
-        + "\nFix every listed block before calling Check/Complete again. Follow each "
-        "block's stated action. In particular, an exploratory receipt requires a new "
-        "WaveInfo call with the recommended explicit window; copying effective window "
-        "values into the document cannot change that receipt's original arguments. For "
-        "ordinary field mismatches, copy exact values from the referenced final-evidence "
-        "receipt. Do not invent receipt fields."
+        issue["message"]
+        + (
+            f" {remaining_issue_count} later waveform issue(s) are intentionally "
+            "suppressed until this blocker is repaired."
+            if remaining_issue_count
+            else ""
+        )
+        + " Repair only this waveform blocker, then call Check/Complete again."
         + deletion_guard,
-        issues=[
-            {
-                "message": issue["message"],
-                **issue.get("details", {}),
-            }
-            for issue in issues
-        ],
+        **details,
     )
 
 
@@ -1268,31 +1466,31 @@ def check_waveform_bug_analysis(
         if item["test_label"] not in blocks
     ]
     if missing_items:
-        missing = [
-            f"{item['bug']}/{item['test_label']}" for item in missing_items
-        ]
-        recovery_calls = [
-            {
-                "tool": "ApplyWaveInfoEvidence",
-                "arguments": {
-                    "target_file": bug_file,
-                    "bug_tag": item["bug"],
-                    "test_case_tag": item["test_label"],
-                    "receipt_id": "",
-                },
-            }
-            for item in missing_items
-        ]
+        item = missing_items[0]
+        missing = f"{item['bug']}/{item['test_label']}"
+        recovery_call = {
+            "tool": "ApplyWaveInfoEvidence",
+            "arguments": {
+                "target_file": bug_file,
+                "bug_tag": item["bug"],
+                "test_case_tag": item["test_label"],
+                "checkpoint_path": item["checkpoint"],
+                "receipt_id": "",
+            },
+        }
+        remaining_item_count = len(missing_items) - 1
         return _waveform_error(
-            f"[Waveform Analysis Missing] {len(missing)} dynamic Bug/test association(s) "
-            f"lack a central '{_WAVEFORM_BLOCK_KEY}' record: {fc.list_str_abbr(missing)}. "
-            "Call final WaveInfo for each failing test, then invoke the corresponding "
+            f"[Waveform Analysis Missing] First blocking dynamic Bug/test association "
+            f"lacks a central '{_WAVEFORM_BLOCK_KEY}' record: {missing}. "
+            f"{remaining_item_count} later association(s) are intentionally suppressed. "
+            "Call final WaveInfo for this failing test, then invoke the exact "
             "ApplyWaveInfoEvidence recovery call below. The tool creates the WAVEFORM-REF "
             "and the TC's unique central WAVEFORM-TC record. "
             "Static-only findings belong in the separate static Bug document and cannot "
             "be represented here with a <BG-STATIC-*> tag.",
-            missing=missing,
-            recovery_calls=recovery_calls,
+            missing=[missing],
+            recovery_calls=[recovery_call],
+            remaining_item_count=remaining_item_count,
         )
 
     validation_items = []
@@ -1467,7 +1665,17 @@ def check_waveform_bug_analysis(
             continue
 
         field_differences = {}
-        errors = _validate_receipt_identity(data, receipt, field_differences)
+        errors = []
+        if receipt_result.get("success") is not True:
+            errors.append("the referenced WaveInfo call did not succeed")
+        if (receipt_result.get("event_summary") or {}).get("timeline_truncated") is True:
+            errors.append("the referenced WaveInfo timeline was truncated")
+        if receipt_result.get("evidence_usable") is not True:
+            errors.append("the referenced WaveInfo result was not usable as final evidence")
+        errors.extend(
+            _validate_receipt_identity(data, receipt, field_differences)
+        )
+        semantic_field_repairs = {}
         receipt_viewer = receipt_result.get("waveform_viewer")
         documented_viewer = {
             "payload": block.get("viewer_payload"),
@@ -1537,10 +1745,6 @@ def check_waveform_bug_analysis(
                 f"{message} (documented={data.get(key)!r}; receipt={expected!r})"
             )
 
-        if receipt_result.get("success") is not True:
-            errors.append("the referenced WaveInfo call did not succeed")
-        if receipt_result.get("evidence_usable") is not True:
-            errors.append("the referenced WaveInfo result was not usable as final evidence")
         receipt_signal_groups = receipt_args.get("signal_groups")
         documented_signal_groups = data.get("signal_groups")
         result_signal_groups = receipt_result.get("signal_groups")
@@ -1600,12 +1804,19 @@ def check_waveform_bug_analysis(
                 errors.append("pattern does not match the referenced WaveInfo call")
         if data.get("timeline_truncated") is not False:
             errors.append("timeline_truncated must be false")
-        if (receipt_result.get("event_summary") or {}).get("timeline_truncated") is not False:
-            errors.append("the referenced WaveInfo timeline was truncated")
         for key in _WAVEFORM_LLM_ANALYSIS_FIELDS:
             value = data.get(key)
             if not _is_nonempty_string(value) or _BUG_TODO_MARKER in value:
-                errors.append(f"'{key}' must be a completed non-empty string")
+                error = f"'{key}' must be a completed non-empty string"
+                errors.append(error)
+                semantic_field_repairs[error] = {
+                    "field": key,
+                    "observed": value,
+                    "required": (
+                        "A completed conclusion grounded in this record's signed receipt "
+                        "and timeline, the associated failing test, and the specification."
+                    ),
+                }
 
         signal_group_mapping = (
             documented_signal_groups
@@ -1654,10 +1865,18 @@ def check_waveform_bug_analysis(
             for field_name in _WAVEFORM_BUG_ANALYSIS_FIELDS[1:]:
                 value = fields.get(field_name)
                 if not _is_nonempty_string(value) or _BUG_TODO_MARKER in value:
-                    errors.append(
-                        f"bug_evidence.{associated_bug}.{field_name} must be a completed "
-                        "non-empty string"
-                    )
+                    field = f"bug_evidence.{associated_bug}.{field_name}"
+                    error = f"{field} must be a completed non-empty string"
+                    errors.append(error)
+                    semantic_field_repairs[error] = {
+                        "field": field,
+                        "observed": value,
+                        "required": (
+                            "A completed Bug-specific conclusion grounded in this record's "
+                            "signed receipt and timeline, the associated failing test, the "
+                            "specification, and the relevant source when available."
+                        ),
+                    }
 
         mode = data.get("analysis_mode")
         if mode == "clock_aligned":
@@ -1737,20 +1956,44 @@ def check_waveform_bug_analysis(
             errors.append("analysis_mode must be clock_aligned or explicit_window")
 
         if errors:
-            issues.append(
-                {
-                    "message": (
-                        f"[Waveform Analysis Evidence Invalid] Block at line {line}: "
-                        + "; ".join(errors)
-                    ),
-                    "details": {
-                        "bugs": item["bugs"],
-                        "test_case": item["test_case"],
-                        "line": line,
-                        "field_differences": field_differences,
-                    },
-                }
-            )
+            current_error = errors[0]
+            current_field_differences = {
+                key: value
+                for key, value in field_differences.items()
+                if key in current_error
+            }
+            details = {
+                "bugs": item["bugs"],
+                "test_case": item["test_case"],
+                "line": line,
+                "field_differences": current_field_differences,
+            }
+            issue = {
+                "message": (
+                    f"[Waveform Analysis Evidence Invalid] Block at line {line}: "
+                    + current_error
+                ),
+                "details": details,
+            }
+            semantic_repair = semantic_field_repairs.get(current_error)
+            if semantic_repair is not None:
+                field = semantic_repair["field"]
+                details.update(
+                    {
+                        "code": "WAVEFORM_SEMANTIC_FIELD_INCOMPLETE",
+                        **semantic_repair,
+                        "next_action": (
+                            f"Edit only '{field}' in the central YAML record at line "
+                            f"{line}, using that record's existing signed receipt/timeline "
+                            "and the corresponding test, specification, and source evidence."
+                        ),
+                        "rerun_test": False,
+                        "rerun_waveinfo": False,
+                        "apply_evidence": False,
+                    }
+                )
+                issue["repair_kind"] = "semantic_field"
+            issues.append(issue)
             continue
 
         if not require_current_replay:
@@ -2027,12 +2270,10 @@ def get_bug_ck_list_from_doc(workspace: str, bug_analysis_file: str, target_ck_p
     except Exception as e:
         warning(traceback.format_exc())
         return False, [f"[Parse Error] Bug analysis document '{bug_analysis_file}' failed to parse: {str(e)}",
-                        "[Possible Causes]",
-                        "1. Malformed tags (e.g., missing angle brackets, unclosed tags, nesting errors)",
+                        "[Required] Use the canonical FG/FC/CK/BG hierarchy, non-zero BG confidence, and closed dynamic/waveform containers.",
+                        "[Next action] Repair the first malformed or missing tag reported above, then rerun Check. Use Guide_Doc/dut_bug_analysis.md section 5.1 as the exact reference.",
                         *fc.description_bug_doc(),
-                        "2. Invalid confidence format (should be <BG-NAME-XX>, XX is integer 0-100)",
-                        "3. File encoding or special character issues",
-                        "[Solution] Please check and fix the document format according to Guide_Doc/dut_bug_analysis.md."]
+                        ]
     marked_bug_checks = []
     # bugs: FG/FC/CK/BG
     for c in marked_bugs:
@@ -2060,13 +2301,75 @@ def get_doc_ck_list_from_doc(workspace: str, doc_file: str, target_ck_prefix:str
         marked_checks = fc.get_unity_chip_doc_marks(os.path.join(workspace, doc_file), leaf_node="CK")
     except Exception as e:
         return False, [f"[Parse Error] Functions document '{doc_file}' failed to parse: {str(e)}",
-                        "[Possible Causes]",
-                        "1. Malformed tags (should be <FG-*>, <FC-*>, <CK-*>, tags must be on separate lines)",
+                        "[Required] Use one canonical <FG-*> -> <FC-*> -> <CK-*> hierarchy with each tag on its own semantic heading line.",
+                        "[Next action] Repair the first malformed hierarchy or tag reported above, then rerun Check. Use Guide_Doc/dut_functions_and_checks.md as the exact reference.",
                         *fc.description_func_doc(),
-                        "2. File encoding or special character issues",
-                        "3. Invalid document structure",
-                        "[Solution] Please check and fix the document format according to Guide_Doc/dut_functions_and_checks.md."]
+                        ]
     return True, [v for v in marked_checks if v.startswith(target_ck_prefix)]
+
+
+def check_failed_checkpoint_reproducers(
+    failed_checks: list,
+    failed_tc_and_cks: dict,
+    test_case_with_cks: dict,
+    test_cases: dict,
+    bug_file: str,
+):
+    """Require every failed checkpoint to be associated with a failed test."""
+
+    failed_tc_and_cks = failed_tc_and_cks if isinstance(failed_tc_and_cks, dict) else {}
+    test_case_with_cks = test_case_with_cks if isinstance(test_case_with_cks, dict) else {}
+    test_cases = test_cases if isinstance(test_cases, dict) else {}
+    reproduced_checkpoints = {
+        checkpoint
+        for test_case, checkpoints in failed_tc_and_cks.items()
+        if test_cases.get(test_case) == "FAILED"
+        if isinstance(checkpoints, list)
+        for checkpoint in checkpoints
+    }
+    missing = list(dict.fromkeys(
+        checkpoint
+        for checkpoint in failed_checks
+        if checkpoint not in reproduced_checkpoints
+    ))
+    if not missing:
+        return True, ""
+
+    association_details = []
+    for checkpoint in missing:
+        associated_tests = []
+        for test_case, checkpoints in test_case_with_cks.items():
+            if not isinstance(checkpoints, list) or checkpoint not in checkpoints:
+                continue
+            associated_tests.append({
+                "test_case": test_case,
+                "status": test_cases.get(test_case, "UNKNOWN"),
+            })
+        association_details.append({
+            "checkpoint": checkpoint,
+            "associated_tests": associated_tests,
+        })
+
+    return False, {
+        "error": (
+            f"[Failed Checkpoint Reproducer Missing] {len(missing)} failed checkpoint(s) "
+            "have no FAILED test associated with the same exact checkpoint: "
+            f"{fc.list_str_abbr(missing)}."
+        ),
+        "details": {
+            "failed_checkpoints_without_failed_test": association_details,
+        },
+        "required": (
+            "Every remaining failed checkpoint must have at least one correctly implemented "
+            "FAILED test that the current report associates with that exact FG/FC/CK path. "
+            f"That same CK/BG/TC relation must be recorded in '{bug_file}'."
+        ),
+        "next_action": [
+            "For a targeted test, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Compare exact input, specification expected, test expected, and DUT actual. If the expected values differ, fix the test and rerun; do not record a Bug.",
+            "If expected values agree, validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then this checkpoint's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun. If the checkpoint was merely uncovered, add correct targeted stimulus; do not add an unrelated test or manufacture a failure.",
+            "Only if all verification is correct and DUT actual still violates the specification, keep the strong reproducer assertion naturally failing, rerun until the report associates that FAILED test with this exact checkpoint, then obtain confirmed WaveInfo evidence and add the non-zero BG/TC record.",
+        ],
+    }
 
 
 def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target_ck_prefix:str, failed_tc_and_cks: dict, passed_tc_list: list, only_marked_ckp_in_tc: bool):
@@ -2078,12 +2381,10 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     except Exception as e:
         warning(traceback.format_exc())
         return False, [f"[Parse Error] Bug analysis document '{bug_file}' failed to parse: {str(e)}",
-                        "[Possible Causes]",
-                        "1. Malformed tags (e.g., missing angle brackets, unclosed tags, nesting errors)",
+                        "[Required] Use the canonical FG/FC/CK/BG/TC hierarchy, exact test node IDs, and valid BG confidence.",
+                        "[Next action] Repair the first malformed or missing tag reported above, then rerun Check. Use Guide_Doc/dut_bug_analysis.md section 5.1 as the exact reference.",
                         *fc.description_bug_doc(),
-                        "2. Invalid confidence format (should be <BG-NAME-XX>, XX is integer 0-100)",
-                        "3. File encoding or special character issues",
-                        "[Solution] Please check and fix the document format according to Guide_Doc/dut_bug_analysis.md."]
+                        ]
     failed_tc_names = failed_tc_and_cks.keys()
     failed_tc_maps = {k:False for k in failed_tc_names}
     for tc in all_tc_list:
@@ -2147,26 +2448,18 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
     if len(tc_found_in_ptc_list) > 0:
         ptc_msg = fc.list_str_abbr([f"{x[0]}(actual: {x[1]})" for x in tc_found_in_ptc_list])
         return False, [f"[Test Case Status Mismatch] Bug analysis document '{bug_file}' contains {len(tc_found_in_ptc_list)} test case(s) ({ptc_msg}) expected to be FAILED but actually PASSED.",
-                       "[Cause] Test cases marked in bug analysis must be FAILED (failure proves the bug exists).",
-                       "[Solution]",
-                        "1. Verify the <TC-*> tags in the bug analysis document reference the correct test cases",
-                        "2. If the test still reproduces a confirmed DUT Bug, restore only the correct strong assertion so the DUT behavior—not an artificial failure—causes Fail",
-                        "3. If the test case is unrelated to the bug, remove the corresponding <TC-*> tag from the bug analysis document",
-                        "4. Do not create an artificial Fail or use a zero-confidence placeholder to preserve a non-Bug failure",
-                       "Note: Test cases marked as bug-triggering must have FAILED status (see Guide_Doc/dut_bug_analysis.md)"
+                       "[Observed] The current report classifies the listed tests as PASSED, so they cannot serve as dynamic DUT Bug reproducers.",
+                       "[Required] Every <TC-*> under a non-zero BG must be a correctly implemented current FAILED test associated with the same checkpoint.",
+                       "[Next action] Remove the stale BG/TC association if the test no longer reproduces the Bug. If the tag names the wrong test, replace it with the exact current failing pytest node ID. If a confirmed DUT defect should still reproduce, restore only the correct strong assertion and rerun; never manufacture a Fail or use BG-*-0."
                        ]
     # tc not found in fail tcs
     tc_not_found_in_ftc_list = list(set(tc_not_found_in_ftc_list))
     if len(tc_not_found_in_ftc_list) > 0 and not only_marked_ckp_in_tc:
         ftc_msg = fc.list_str_abbr([f"{x[0]}(documented under {x[1]})" for x in tc_not_found_in_ftc_list])
         return False, [f"[Test Case Not Found] Bug analysis document '{bug_file}' contains {len(tc_not_found_in_ftc_list)} test case(s) ({ftc_msg}) not found in the failed test list.",
-                       "[Possible Causes & Solutions]",
-                          "1. Test case name in <TC-*> does not match the actual Python test file name (case-sensitive)",
-                          "2. If the test case is class-based, include the class name, e.g.: <TC-test_example.py::TestClassName::test_func>",
-                          "3. If the test case is unrelated to the bug, remove the corresponding <TC-*> tag from the bug analysis document",
-                          "4. The test filename in <TC-*> must exactly match the actual filename",
-                          "5. Do not create an artificial Fail or use a zero-confidence placeholder to preserve a non-Bug failure",
-                       "Note: Bug-triggering test cases must have FAILED status (see Guide_Doc/dut_bug_analysis.md)"
+                       "[Observed] None of the listed document node IDs matches a current FAILED test in the validation report.",
+                       "[Required] A non-zero BG must reference an exact current failing node ID: <TC-test_file.py::[ClassName::]test_case_name>.",
+                       "[Next action] Run the documented node ID. If the report uses a different file/class/function node ID, replace <TC-*> with that exact value. If the test is absent or no longer fails, restore collection/reproduction or remove the stale BG/TC association; never manufacture a Fail or use BG-*-0."
                        ]
     # tc not mark their checkpoints
     tc_not_mark_the_cks_list = list(set(tc_not_mark_the_cks_list))
@@ -2176,31 +2469,27 @@ def check_bug_tc_analysis(workspace:str, checks_in_tc:list, bug_file:str, target
             for test_case, checkpoint in tc_not_mark_the_cks_list
         ])
         return False, [f"[Bug Checkpoint Association Missing] Bug analysis document '{bug_file}' contains {len(tc_not_mark_the_cks_list)} test case(s) ({ftc_msg}) that the Toffee report does not associate with the documented checkpoint.",
-                       "[Cause] The report relation is missing. This does not by itself prove that the source lacks a mark_function call.",
-                       "[Solution]",
-                          "1. Ensure the test case is placed under the correct checkpoint in the bug analysis document",
-                          "2. Before adding another call, inspect any existing mark_function call and verify its FG/FC/CK names, current-test-function argument, execution path, and non-empty checkpoint list",
-                          "3. Verify that the fixture reports the same coverage-group objects after yield so Toffee can retain the association",
-                          "4. If no call exists, add mark_function at the beginning of the test, e.g.: env.dut.fc_cover['FG-XXX'].mark_function('FC-YYY', test_func, ['CK-ZZZ'])",
-                          "5. If the test case is unrelated to this checkpoint, remove the corresponding <TC-*> tag from the bug analysis document",
-                        "Note: Failed test cases must mark the checkpoints related to the bugs they trigger (see Guide_Doc/dut_bug_analysis.md and Guide_Doc/dut_test_case.md)"
+                       "[Observed] The report relation is missing. This does not by itself prove that the source lacks a mark_function call.",
+                       "[Required] The failed-test report and Bug document must associate the TC with the same exact FG/FC/CK path.",
+                       "[Next action] Move the TC under its actual report checkpoint if the document path is wrong. Otherwise inspect the existing mark_function arguments, execution path, non-empty CK list, and fixture coverage objects; add a mark_function call only when none exists, then rerun Check. Remove the BG/TC association if the test is unrelated to this checkpoint."
                        ]
     # fail tc not in bug doc
     failed_tc = [k for k, v in failed_tc_maps.items() if not v]
     if failed_tc:
         return False, [f"[Unresolved Failed Cases] Found {len(failed_tc)} failed test case(s) without a non-zero-confidence confirmed DUT Bug record: {fc.list_str_abbr(failed_tc)}",
                        *fc.description_bug_doc(),
-                       "[Solution]",
-                       "1. First validate the expected behavior, assertion, stimulus, fixture/API, reference model, reset/timing, and environment",
-                       "2. If a test or infrastructure problem caused the failure, fix that problem and rerun until the case passes; do not record it as a DUT Bug",
-                       "3. If correct testing stably reproduces a DUT design defect, keep the strong assertion failing and add a non-zero-confidence dynamic Bug with CK relation, source root cause, and confirmed WaveInfo evidence",
-                       "4. A <BG-*-0> placeholder does not explain a failed test and cannot make this check pass",
+                       "[Observed] The listed tests are current FAILED tests with checkpoint associations, but no matching non-zero BG/TC relation explains them.",
+                       "[Required] Every remaining FAILED DUT test must be recorded under at least one of its report-associated checkpoints in a non-zero dynamic Bug.",
+                       "[Next action 1] For each listed TC, derive an independent expected value from the specification, an independent reference model, or a verifiable formula. Compare exact input, specification expected, test expected, and DUT actual. If the expected values differ, fix the test and rerun until Pass.",
+                       "[Next action 2] If expected values agree, validate stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then each associated checkpoint's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun until Pass.",
+                       "[Next action 3] Only if all verification is correct and DUT actual still violates the specification, keep the strong assertion failing, obtain confirmed WaveInfo evidence, and add the exact CK/BG/TC relation and source root cause. A <BG-*-0> placeholder does not explain a failed test.",
                        f"Completion invariant: every non-DUT-Bug case passes, and every remaining failed case is a fully analyzed DUT Bug reproducer in '{bug_file}'."
                        ]
     return True, ""
 
 def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: list,
-                          check_fail_ck_in_bug=True, target_ck_prefix:str =""):
+                          check_fail_ck_in_bug=True, target_ck_prefix:str ="",
+                          failed_tc_and_cks=None):
     """Check failed checkpoint in bug analysis documentation."""
 
     ret, marked_bug_checks = get_bug_ck_list_from_doc(workspace, bug_analysis_file, target_ck_prefix)
@@ -2208,24 +2497,82 @@ def check_bug_ck_analysis(workspace:str, bug_analysis_file:str, failed_check: li
         return False, marked_bug_checks, -1
 
     if check_fail_ck_in_bug:
-        un_related_tc_marks = []
-        for ck in failed_check:
-            if ck not in marked_bug_checks:
-                un_related_tc_marks.append(ck)
+        un_related_tc_marks = [
+            ck for ck in failed_check if ck not in marked_bug_checks
+        ]
         # failed checkpoints must be analyzed in bug doc
-        if len(un_related_tc_marks) > 0:
-                return False, [f"[Unanalyzed Failed Checkpoints] {len(un_related_tc_marks)} failed checkpoint(s) are not associated with a non-zero-confidence DUT Bug: {fc.list_str_abbr(un_related_tc_marks)}. " + \
-                               f"The failed checkpoints must be properly analyzed and documented in file '{bug_analysis_file}'. Options:",
-                                "1. Make sure you have called CovGroup.sample() to sample the failed check points in your test function or in StepRis/StepFal callback, otherwise the coverage cannot be collected correctly.",
-                                "2. Make sure the check function of these checkpoints to ensure they are correctly implemented and returning the expected results.",
-                                "3. If a test, expected-value, coverage-check, fixture/API, reference-model, timing, or environment issue caused the failure, fix it and rerun until the checkpoint passes.",
-                                "4. If correct testing confirms an actual DUT design Bug, keep the strict check failing and document it with '<FG-*>, <FC-*>, <CK-*>, <BG-*>, <TC-*>' in '{}', using non-zero confidence and complete dynamic evidence.".format(bug_analysis_file),
-                                *fc.description_bug_doc(),
-                                "5. Never use 'lambda x: True', assert False, a weakened check, or <BG-*-0> to force a classification result.",
-                                "6. Review the related checkpoint's check function, the test implementation and the DUT behavior to determine root cause.",
-                                "Note: Checkpoint is always referenced like `FG-*/FC-*/CK-*` by the `Check` and `Complete` tools, eg: `FG-LOGIC/FC-ADD/CK-BASIC`, but in the `*.md` file you should use the format: '<FG-*>, <FC-*>, <CK-*>"
-                                "Important: If it is determined to be a sampling or checking logic issue, you MUST fix it to ensure correct coverage collection and checking."
-                                ], -1
+        if un_related_tc_marks:
+            return False, [
+                f"[Unanalyzed Failed Checkpoints] {len(un_related_tc_marks)} failed checkpoint(s) have no non-zero-confidence DUT Bug record in '{bug_analysis_file}': {fc.list_str_abbr(un_related_tc_marks)}.",
+                "[Observed] The current report marks these checkpoints as failed, but the Bug document has no non-zero BG under the exact checkpoint paths.",
+                "[Required] Every remaining failed checkpoint must be documented under its exact FG/FC/CK path and must retain at least one report-associated FAILED TC.",
+                "[Next action 1] Use a targeted test to derive an independent expected value from the specification, an independent reference model, or a verifiable formula; compare exact input, specification expected, test expected, and DUT actual. Correct an inconsistent test expected and rerun.",
+                "[Next action 2] Validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then the CK coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error or add correct stimulus for an uncovered CK, then rerun.",
+                "[Next action 3] Only if all verification is correct and DUT actual still violates the specification, keep the strict check and reproducer naturally failing, obtain confirmed WaveInfo evidence, and add the exact FG/FC/CK/BG/TC relation.",
+                *fc.description_bug_doc(),
+                "Never use 'lambda x: True', assert False, a weakened check, an unrelated TC, or <BG-*-0> to force a classification result.",
+            ], -1
+
+        if failed_tc_and_cks is not None:
+            failed_tc_and_cks = (
+                failed_tc_and_cks
+                if isinstance(failed_tc_and_cks, dict)
+                else {}
+            )
+            documented_reproducers = set()
+            failed_test_names = failed_tc_and_cks.keys()
+            parsed, records, parse_error = _parse_documented_dynamic_bug_records(
+                workspace, bug_analysis_file
+            )
+            if not parsed:
+                return False, parse_error, -1
+            for record in records:
+                checkpoint = record["checkpoint"]
+                for documented_test in record["tests"]:
+                    test_name_parts = documented_test["test_case"].split("::")
+                    is_failed, failed_test = _find_matching_test_case(
+                        test_name_parts, failed_test_names
+                    )
+                    if is_failed and checkpoint in failed_tc_and_cks[failed_test]:
+                        documented_reproducers.add(checkpoint)
+
+            missing_documented_reproducers = [
+                checkpoint
+                for checkpoint in failed_check
+                if checkpoint not in documented_reproducers
+            ]
+            if missing_documented_reproducers:
+                details = [
+                    {
+                        "checkpoint": checkpoint,
+                        "report_failed_tests": [
+                            test_case
+                            for test_case, checkpoints in failed_tc_and_cks.items()
+                            if isinstance(checkpoints, list) and checkpoint in checkpoints
+                        ],
+                    }
+                    for checkpoint in missing_documented_reproducers
+                ]
+                return False, {
+                    "error": (
+                        f"[Failed Checkpoint Bug Relation Missing] "
+                        f"{len(missing_documented_reproducers)} failed checkpoint(s) "
+                        "have no non-zero BG/FAILED TC relation under the same exact "
+                        f"checkpoint in '{bug_analysis_file}': "
+                        f"{fc.list_str_abbr(missing_documented_reproducers)}."
+                    ),
+                    "details": {"missing_checkpoint_relations": details},
+                    "required": (
+                        "For every remaining failed checkpoint, the Bug document must place "
+                        "at least one current report-associated FAILED TC under a non-zero BG "
+                        "within that exact FG/FC/CK branch."
+                    ),
+                    "next_action": [
+                        "CK failure alone does not prove a DUT Bug. For a targeted listed test, derive an independent expected value from the specification, an independent reference model, or a verifiable formula; compare exact input, specification expected, test expected, and DUT actual. Fix an inconsistent test expected and rerun.",
+                        "If expected values agree, validate the stimulus/driver, API callbacks and Step ordering, valid sampling condition and latency, fixture/reference model/reset/environment, then this CK's coverage/check predicate, CovGroup.sample call, and sample timing. Fix the identified verification error and rerun.",
+                        "Only if all verification is correct and DUT actual still violates the specification, place the naturally failing report-associated TC under the non-zero BG in this exact CK branch and complete confirmed WaveInfo evidence; do not add an unrelated or artificial failure.",
+                    ],
+                }, -1
 
     return True, f"Bug analysis documentation '{bug_analysis_file}' is consistent with test results.", len(marked_bug_checks)
 
@@ -2312,22 +2659,99 @@ def check_report(workspace, report, doc_file, bug_file, target_ck_prefix="",
 
     failed_funcs_bins = report.get("failed_test_case_with_check_point_list", {})
     test_cases = report.get("tests", {}).get("test_cases", None)
-    if test_cases is None:
-        return False, "[Test Report Structure Error] No test cases found in the report. Please ensure the test report was generated correctly. " +\
-                      "Possible causes: test files not prefixed with test_, import errors, or test execution timeout.", -1
+    if not isinstance(test_cases, dict):
+        return False, [
+            "[Test Report Structure Error] The current report has no valid tests.test_cases mapping.",
+            f"[Observed] tests.test_cases has type {type(test_cases).__name__}; Check/Complete cannot classify test status or validate CK/BG/TC relations.",
+            "[Required] The test run must collect the intended test_*.py modules and return a tests.test_cases status mapping.",
+            "[Next action] Read the current pytest STDOUT/STDERR, fix the first collection/import/timeout error or test naming problem, rerun the intended tests, then call Check/Complete again.",
+        ], -1
+    if not isinstance(failed_funcs_bins, dict):
+        return False, {
+            "error": (
+                "[Test Report Structure Error] "
+                "failed_test_case_with_check_point_list must be a mapping."
+            ),
+            "observed": type(failed_funcs_bins).__name__,
+            "required": (
+                "The report must map each FAILED pytest node ID to the exact FG/FC/CK "
+                "paths associated with that test."
+            ),
+            "next_action": (
+                "Rerun the intended tests to regenerate the Toffee report, then call "
+                "Check/Complete again."
+            ),
+        }, -1
+
+    failed_status_tests = {
+        test_case for test_case, status in test_cases.items() if status == "FAILED"
+    }
+    relation_status_mismatches = [
+        {
+            "test_case": test_case,
+            "status": test_cases.get(test_case, "UNKNOWN"),
+            "checkpoints": checkpoints,
+        }
+        for test_case, checkpoints in failed_funcs_bins.items()
+        if test_case not in failed_status_tests
+    ]
+    failed_tests_without_relations = [
+        test_case
+        for test_case in failed_status_tests
+        if not isinstance(failed_funcs_bins.get(test_case), list)
+        or not failed_funcs_bins[test_case]
+    ]
+    if relation_status_mismatches or failed_tests_without_relations:
+        return False, {
+            "error": (
+                "[Test Report Relation Inconsistent] tests.test_cases statuses and "
+                "failed-test checkpoint relations disagree."
+            ),
+            "details": {
+                "non_failed_tests_in_failed_relations": relation_status_mismatches,
+                "failed_tests_without_checkpoint_relations": (
+                    failed_tests_without_relations
+                ),
+            },
+            "required": (
+                "Every tests.test_cases entry with status FAILED must have a non-empty "
+                "failed_test_case_with_check_point_list relation, and every key in that "
+                "relation mapping must have status FAILED."
+            ),
+            "next_action": (
+                "Treat this as stale or invalid test-report evidence. Rerun the intended "
+                "tests and regenerate functional coverage before editing the Bug document."
+            ),
+        }, -1
     passed_tc_list = [k for k,v in test_cases.items() if v == "PASSED"]
 
     bug_ck_list_size = -1
     if len(failed_checks_in_tc) > 0 or os.path.exists(os.path.join(workspace, bug_file)) or failed_funcs_bins:
+        if check_fail_ck_in_bug:
+            ret, msg = check_failed_checkpoint_reproducers(
+                failed_checks_in_tc,
+                failed_funcs_bins,
+                report.get("test_case_with_check_point_list", {}),
+                test_cases,
+                bug_file,
+            )
+            if not ret:
+                return ret, msg, -1
 
-        ret, msg = check_bug_tc_analysis(
-            workspace, checks_in_tc, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
+        ret, msg, bug_ck_list_size = check_bug_ck_analysis(
+            workspace,
+            bug_file,
+            failed_checks_in_tc,
+            check_fail_ck_in_bug=check_fail_ck_in_bug,
+            target_ck_prefix=target_ck_prefix,
+            failed_tc_and_cks=failed_funcs_bins,
         )
         if not ret:
             return ret, msg, -1
 
-        ret, msg, bug_ck_list_size = check_bug_ck_analysis(workspace, bug_file, failed_checks_in_tc,
-                                                           check_fail_ck_in_bug=check_fail_ck_in_bug, target_ck_prefix=target_ck_prefix)
+        ret, msg = check_bug_tc_analysis(
+            workspace, checks_in_tc, bug_file, target_ck_prefix, failed_funcs_bins, passed_tc_list, only_marked_ckp_in_tc
+        )
         if not ret:
             return ret, msg, -1
 

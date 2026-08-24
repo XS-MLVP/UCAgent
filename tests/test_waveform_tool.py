@@ -241,16 +241,18 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
         "target_file",
         "bug_tag",
         "test_case_tag",
+        "checkpoint_path",
         "receipt_id",
         "replace_existing",
     }
     assert schema["properties"]["receipt_id"]["default"] == ""
+    assert schema["properties"]["checkpoint_path"]["default"] == ""
     assert "receipt_id" not in schema.get("required", [])
     assert schema["properties"]["replace_existing"]["default"] is False
-    assert "multiple failing test cases" in schema["properties"]["bug_tag"][
+    assert "different CK branches" in schema["properties"]["bug_tag"][
         "description"
     ]
-    assert "never copy the BG" in schema["properties"]["bug_tag"]["description"]
+    assert "checkpoint_path" in schema["properties"]["bug_tag"]["description"]
     assert "tool creates it" in schema["properties"]["test_case_tag"][
         "description"
     ]
@@ -269,10 +271,10 @@ def test_apply_waveinfo_evidence_schema_is_mcp_compatible(tmp_path):
     assert "every signal required by all associated Bugs" in schema["properties"][
         "replace_existing"
     ]["description"]
-    assert "one exact dynamic BG/TC" in tool.description
+    assert "one exact FG/FC/CK/BG/TC" in tool.description
     assert "once for each distinct bug_tag" in tool.description
     assert "same receipt preserves completed analysis fields" in tool.description
-    assert "The BG must already exist" in tool.description
+    assert "The BG path entry must already exist" in tool.description
     assert mcp_tool.name == "ApplyWaveInfoEvidence"
     assert mcp_tool.parameters == schema
 
@@ -1630,7 +1632,29 @@ def test_apply_waveinfo_evidence_rejects_missing_tc_when_bug_is_ambiguous(tmp_pa
     assert rejected["success"] is False
     assert rejected["status"] == "document_update_failed"
     assert "occurs 2 times" in rejected["error"]
+    assert "pass checkpoint_path" in rejected["error"]
     assert target.read_bytes() == before
+
+    (test_dir / "test_apply_secondary.py").write_text(
+        'def test_apply_secondary(env):\n    """Secondary result mismatch"""\n    pass\n',
+        encoding="utf-8",
+    )
+    applied = yaml.safe_load(
+        tool._run(
+            target_file="out/Demo_bug_analysis.md",
+            bug_tag="BG-DYNAMIC-80",
+            test_case_tag="TC-tests/test_apply_secondary.py::test_apply_secondary",
+            checkpoint_path="FG-A/FC-A/CK-B",
+            receipt_id=receipt_id,
+        )
+    )
+
+    assert applied["success"] is True
+    assert applied["checkpoint_path"] == "FG-A/FC-A/CK-B"
+    updated = target.read_text(encoding="utf-8")
+    ck_a, ck_b = updated.split("##### Alternate output <CK-B>", 1)
+    assert "<TC-tests/test_apply_secondary.py::test_apply_secondary>" not in ck_a
+    assert "<TC-tests/test_apply_secondary.py::test_apply_secondary>" in ck_b
 
 
 def test_apply_waveinfo_evidence_updates_unique_pair_when_bug_spans_two_cks(tmp_path):

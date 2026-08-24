@@ -573,12 +573,21 @@ class ArgApplyWaveInfoEvidence(BaseModel):
         min_length=1,
         description=(
             "Exact non-static, non-zero-confidence dynamic Bug tag, for example "
-            "BG-ADD-OVERFLOW-95. Angle brackets are optional. The BG must already exist. "
-            "If the target TC is absent, the BG must occur exactly once so insertion is "
-            "unambiguous. Reuse this value in separate calls when one Bug has multiple "
-            "failing test cases; never copy the BG for another TC. When one failing test "
-            "exposes multiple independent Bugs, call the tool separately with each distinct "
-            "bug_tag instead of merging those Bugs into one BG."
+            "BG-ADD-OVERFLOW-95. Angle brackets are optional. The BG path entry must already "
+            "exist. The same Bug tag may repeat under different CK branches when one root "
+            "cause affects tests associated with those CKs; pass checkpoint_path to select "
+            "the exact occurrence. Within one CK branch, add sibling TCs to the existing BG "
+            "occurrence. When one failing test exposes multiple independent Bugs, call the "
+            "tool separately with each distinct bug_tag."
+        ),
+    )
+    checkpoint_path: str = Field(
+        default="",
+        description=(
+            "Exact FG/FC/CK path owning the target BG occurrence, for example "
+            "FG-ARITHMETIC/FC-ADD/CK-OVERFLOW. Required when the same bug_tag/test_case_tag "
+            "pair is ambiguous or when a missing TC must be inserted into a bug_tag that "
+            "appears under multiple CK branches; otherwise it may be blank."
         ),
     )
     test_case_tag: str = Field(
@@ -617,6 +626,7 @@ class ArgApplyWaveInfoEvidence(BaseModel):
                 raise ValueError(f"{field_name} must not be blank")
             setattr(self, field_name, value)
         self.receipt_id = self.receipt_id.strip()
+        self.checkpoint_path = self.checkpoint_path.strip()
         return self
 
 
@@ -2895,7 +2905,7 @@ class ApplyWaveInfoEvidence(UCTool):
 
     name: str = "ApplyWaveInfoEvidence"
     description: str = (
-        "Associate one exact dynamic BG/TC with one signed final WaveInfo receipt. The tool "
+        "Associate one exact FG/FC/CK/BG/TC path with one signed final WaveInfo receipt. The tool "
         "atomically creates or repairs the BG-side WAVEFORM-REF link and the TC's single "
         "central WAVEFORM-TC record. Reusing the TC for another Bug adds that Bug to bug_tags "
         "and bug_evidence instead of duplicating waveform data; call once for each distinct "
@@ -2904,7 +2914,8 @@ class ApplyWaveInfoEvidence(UCTool):
         "same receipt preserves completed analysis fields. Replacing a different receipt "
         "requires replace_existing=true, preserves required_signals, and resets semantic "
         "conclusions to BUG-TODO. receipt_id may be blank to select the newest matching final "
-        "receipt. The BG must already exist; a missing TC is created under its unique BG. "
+        "receipt. The BG path entry must already exist; a missing TC is created under the "
+        "selected occurrence. Use checkpoint_path when the same BG tag repeats across CKs. "
         "Creating a missing TC reads its visible title from the target test's docstring, so "
         "the test source and a non-empty docstring must exist. "
         "The target must be an existing workspace-relative Markdown file inside the configured "
@@ -3006,6 +3017,20 @@ class ApplyWaveInfoEvidence(UCTool):
                 "bug_tag must end with a non-zero confidence integer from 1 to 100"
             )
         return bug, test
+
+    @classmethod
+    def _normalize_checkpoint_path(cls, checkpoint_path: str) -> str:
+        if not checkpoint_path.strip():
+            return ""
+        parts = [part.strip().strip("<>") for part in checkpoint_path.split("/")]
+        if len(parts) != 3:
+            raise ValueError(
+                "checkpoint_path must contain exactly FG-.../FC-.../CK-..."
+            )
+        return "/".join(
+            cls._normalize_tag(part, kind)
+            for part, kind in zip(parts, ("FG", "FC", "CK"))
+        )
 
     @staticmethod
     def _plain_data(value: Any) -> Any:
@@ -3125,8 +3150,9 @@ class ApplyWaveInfoEvidence(UCTool):
         bug_tag: str,
         test_case_tag: str,
         target_file: str,
+        checkpoint_path: str = "",
     ) -> _DocumentEvidenceTarget:
-        """Locate one BG reference and the TC's single central evidence record."""
+        """Locate one checkpoint-scoped BG/TC and the TC's central evidence record."""
 
         stripped_lines = [line.strip() for line in lines]
         marker_indexes = {
@@ -3158,11 +3184,15 @@ class ApplyWaveInfoEvidence(UCTool):
 
         current_bug = None
         current_bug_index = None
+        hierarchy: dict[str, str | None] = {"FG": None, "FC": None, "CK": None}
+        current_checkpoint = ""
         available_bugs: list[str] = []
-        bug_locations: list[tuple[str, int]] = []
+        bug_locations: list[tuple[str, int, str]] = []
         structure_boundaries = [dynamic_end]
         section_locations: list[tuple[int, int]] = []
-        test_locations: list[tuple[str | None, str, int, int | None, str]] = []
+        test_locations: list[
+            tuple[str | None, str, int, int | None, str, str]
+        ] = []
         target_tests: list[tuple[int, int | None]] = []
         section_markers = {marker for _name, marker in BUG_ANALYSIS_SECTION_MARKERS}
         section_titles = {title for _name, title in BUG_ANALYSIS_SECTION_TITLES}
@@ -3205,14 +3235,32 @@ class ApplyWaveInfoEvidence(UCTool):
                     raise ValueError(
                         f"invalid {kind} heading at line {index + 1}: {error}"
                     ) from error
-                if kind in {"FG", "FC", "CK"}:
+                if kind == "FG":
+                    hierarchy.update({"FG": label, "FC": None, "CK": None})
+                    current_checkpoint = ""
+                    current_bug = None
+                    current_bug_index = None
+                    structure_boundaries.append(index)
+                elif kind == "FC":
+                    hierarchy.update({"FC": label, "CK": None})
+                    current_checkpoint = ""
+                    current_bug = None
+                    current_bug_index = None
+                    structure_boundaries.append(index)
+                elif kind == "CK":
+                    hierarchy["CK"] = label
+                    current_checkpoint = "/".join(
+                        part
+                        for part in (hierarchy["FG"], hierarchy["FC"], hierarchy["CK"])
+                        if part is not None
+                    )
                     current_bug = None
                     current_bug_index = None
                     structure_boundaries.append(index)
                 elif kind == "BG":
                     current_bug = label
                     current_bug_index = index
-                    bug_locations.append((label, index))
+                    bug_locations.append((label, index, current_checkpoint))
                     structure_boundaries.append(index)
                     if label not in available_bugs:
                         available_bugs.append(label)
@@ -3230,9 +3278,20 @@ class ApplyWaveInfoEvidence(UCTool):
                             f"invalid TC heading at line {index + 1}: {error}"
                         ) from error
                     test_locations.append(
-                        (current_bug, label, index, current_bug_index, display_title)
+                        (
+                            current_bug,
+                            label,
+                            index,
+                            current_bug_index,
+                            display_title,
+                            current_checkpoint,
+                        )
                     )
-                    if current_bug == bug_tag and label == test_case_tag:
+                    if (
+                        current_bug == bug_tag
+                        and label == test_case_tag
+                        and (not checkpoint_path or current_checkpoint == checkpoint_path)
+                    ):
                         target_tests.append((index, current_bug_index))
         if in_fence:
             raise ValueError(f"'{target_file}' contains an unclosed Markdown fence")
@@ -3241,11 +3300,25 @@ class ApplyWaveInfoEvidence(UCTool):
             raise ValueError(
                 f"bug_tag '{bug_tag}' was not found in '{target_file}'; available BG tags: {shown}"
             )
+        matching_bug_locations = [
+            (index, checkpoint)
+            for label, index, checkpoint in bug_locations
+            if label == bug_tag and (not checkpoint_path or checkpoint == checkpoint_path)
+        ]
+        if checkpoint_path and not matching_bug_locations:
+            available_paths = [
+                checkpoint for label, _index, checkpoint in bug_locations if label == bug_tag
+            ]
+            raise ValueError(
+                f"bug_tag '{bug_tag}' does not occur under checkpoint_path "
+                f"'{checkpoint_path}' in '{target_file}'; available checkpoint paths: "
+                f"{', '.join(available_paths[:10]) or '<none>'}"
+            )
         if len(target_tests) > 1:
             locations = ", ".join(str(index + 1) for index, _owner in target_tests)
             raise ValueError(
                 f"'{bug_tag}/{test_case_tag}' is ambiguous in '{target_file}' at lines "
-                f"{locations}; exactly one association is required"
+                f"{locations}; pass checkpoint_path to select one exact FG/FC/CK/BG/TC path"
             )
 
         def bug_end_index(bug_index: int) -> int:
@@ -3263,7 +3336,8 @@ class ApplyWaveInfoEvidence(UCTool):
             pair_end = bug_end_index(bug_index)
             sibling_indexes = sorted(
                 index
-                for owner_bug, _label, index, owner_index, _title in test_locations
+                for owner_bug, _label, index, owner_index, _title, _checkpoint
+                in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index and index > test_index
             )
             if sibling_indexes:
@@ -3279,12 +3353,13 @@ class ApplyWaveInfoEvidence(UCTool):
                 )
             reference_index = refs[0] if refs else None
         else:
-            matching_bugs = [index for label, index in bug_locations if label == bug_tag]
+            matching_bugs = [index for index, _checkpoint in matching_bug_locations]
             if len(matching_bugs) != 1:
                 locations = ", ".join(str(index + 1) for index in matching_bugs)
                 raise ValueError(
                     f"test_case_tag '{test_case_tag}' is absent and bug_tag '{bug_tag}' "
-                    f"occurs {len(matching_bugs)} times at lines {locations}"
+                    f"occurs {len(matching_bugs)} times at matching lines {locations}; "
+                    "pass checkpoint_path to select one exact FG/FC/CK/BG path"
                 )
             bug_index = matching_bugs[0]
             bug_end = bug_end_index(bug_index)
@@ -3298,7 +3373,8 @@ class ApplyWaveInfoEvidence(UCTool):
             )
             siblings = [
                 index
-                for owner_bug, _label, index, owner_index, _title in test_locations
+                for owner_bug, _label, index, owner_index, _title, _checkpoint
+                in test_locations
                 if owner_bug == bug_tag and owner_index == bug_index
             ]
             if siblings:
@@ -3340,7 +3416,8 @@ class ApplyWaveInfoEvidence(UCTool):
             sorted(
                 {
                     owner_bug
-                    for owner_bug, label, _index, _owner_index, _title in test_locations
+                    for owner_bug, label, _index, _owner_index, _title, _checkpoint
+                    in test_locations
                     if owner_bug is not None and label == test_case_tag
                 }
                 | {bug_tag}
@@ -3356,7 +3433,8 @@ class ApplyWaveInfoEvidence(UCTool):
         if not matching_records:
             matching_test_titles = {
                 title
-                for _owner, label, _index, _owner_index, title in test_locations
+                for _owner, label, _index, _owner_index, title, _checkpoint
+                in test_locations
                 if label == test_case_tag
             }
             if not matching_test_titles and test_index is None:
@@ -3380,7 +3458,8 @@ class ApplyWaveInfoEvidence(UCTool):
         _canonical, record_title, heading_index = matching_records[0]
         matching_test_titles = {
             title
-            for _owner, label, _index, _owner_index, title in test_locations
+            for _owner, label, _index, _owner_index, title, _checkpoint
+            in test_locations
             if label == test_case_tag
         }
         if matching_test_titles != {record_title}:
@@ -3593,6 +3672,7 @@ class ApplyWaveInfoEvidence(UCTool):
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
+        checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
     ) -> OrderedDict:
@@ -3606,6 +3686,7 @@ class ApplyWaveInfoEvidence(UCTool):
             bug_tag, test_case_tag = self._normalize_target_tags(
                 bug_tag, test_case_tag
             )
+            checkpoint_path = self._normalize_checkpoint_path(checkpoint_path)
         except ValueError as error:
             return self.waveinfo._error("invalid_document_target", str(error))
 
@@ -3656,6 +3737,7 @@ class ApplyWaveInfoEvidence(UCTool):
                     bug_tag,
                     test_case_tag,
                     target_file,
+                    checkpoint_path,
                 )
                 existing = (
                     self._read_existing_analysis(
@@ -3859,6 +3941,7 @@ class ApplyWaveInfoEvidence(UCTool):
                             ("target_file", relative_target),
                             ("bug_tag", bug_tag),
                             ("test_case_tag", test_case_tag),
+                            ("checkpoint_path", checkpoint_path or None),
                             ("receipt_id", receipt_id),
                             ("receipt_selection", receipt_selection),
                             ("created_test_case", False),
@@ -3874,8 +3957,11 @@ class ApplyWaveInfoEvidence(UCTool):
                 "document_update_failed",
                 f"Could not apply WaveInfo evidence to '{target_file}': {error}",
                 suggestions=[
-                    "Keep one unambiguous target BG inside the closed DYNAMIC-BUGS container "
-                    "and one closed central WAVEFORM-EVIDENCE container.",
+                    "Keep one unambiguous target FG/FC/CK/BG/TC path inside the closed "
+                    "DYNAMIC-BUGS container. If the BG tag repeats across checkpoints, pass "
+                    "the exact checkpoint_path.",
+                    "Keep one closed central WAVEFORM-EVIDENCE container and one central "
+                    "record per TC.",
                     "Resolve duplicate tags, unclosed Markdown fences, permission "
                     "restrictions, or concurrent edits, then retry.",
                 ],
@@ -3888,6 +3974,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("target_file", relative_target),
                 ("bug_tag", bug_tag),
                 ("test_case_tag", test_case_tag),
+                ("checkpoint_path", checkpoint_path or None),
                 ("receipt_id", receipt_id),
                 ("receipt_selection", receipt_selection),
                 ("created_test_case", created_test_case),
@@ -3898,14 +3985,17 @@ class ApplyWaveInfoEvidence(UCTool):
                 ("completion_required", reset_fields),
                 (
                     "next_action",
-                    "Apply evidence directly to each remaining exact BG/TC pair. For another "
-                    "failing TC under this BG, the tool creates a missing sibling TC, so do "
-                    "not copy the BG. For another independent Bug exposed by this TC, apply "
+                    "Apply evidence directly to each remaining exact FG/FC/CK/BG/TC path. "
+                    "Within the same CK/BG path, add sibling TCs instead of duplicating the "
+                    "BG occurrence. When the same Bug root affects a different CK, create and "
+                    "complete that CK-scoped BG path and pass checkpoint_path. For another "
+                    "independent Bug exposed by this TC, apply "
                     "the same central record to that Bug's distinct BG and expand final "
                     "WaveInfo signal_groups to the union required by all associated Bugs. "
                     "Then replace each remaining <BUG-TODO> field after reviewing the "
                     "specification, test-driver/API ordering, WaveInfo timeline, and RTL. "
-                    "Complete the shared Bug analysis sections once before Check/Complete.",
+                    "Complete all eight Bug analysis sections once in every CK-scoped BG path "
+                    "before Check/Complete.",
                 ),
             ]
         )
@@ -3915,6 +4005,7 @@ class ApplyWaveInfoEvidence(UCTool):
         target_file: str,
         bug_tag: str,
         test_case_tag: str,
+        checkpoint_path: str = "",
         receipt_id: str = "",
         replace_existing: bool = False,
         run_manager: Optional[CallbackManagerForToolRun] = None,
@@ -3927,6 +4018,7 @@ class ApplyWaveInfoEvidence(UCTool):
                 target_file=target_file,
                 bug_tag=bug_tag,
                 test_case_tag=test_case_tag,
+                checkpoint_path=checkpoint_path,
                 receipt_id=receipt_id,
                 replace_existing=replace_existing,
             )

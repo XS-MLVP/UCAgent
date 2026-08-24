@@ -311,6 +311,7 @@ def test_unitytest_skills_document_fixture_boundaries():
     assert "当前批次已经生成的测试模板签名为准" in implementation_skill
     assert "def test_xxx(env, ref_model)" in implementation_skill
     assert "def test_api_{DUT}_mock_xxx(mock_dut)" in implementation_skill
+    assert "第一个阻塞项" in implementation_skill
     assert "参考当前工作区已有的普通DUT测试模板" in static_skill
     assert "def test_static_{DUT}_xxx(env, ref_model)" in static_skill
     assert "Mock组件独立单元测试" in static_skill

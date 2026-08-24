@@ -122,7 +122,7 @@ def _dynamic_test_heading(
 
 SOURCE_EVIDENCE_BLOCK = """
 ```systemverilog
-// Adder/Adder.v:L10-L14
+// Adder/Adder.v:10-14
 12: logic [4:0] intermediate; // <BUG-SOURCE-FIRST-ERROR> width is too narrow for the full result
 13: assign intermediate = data + 1; // <BUG-SOURCE-PROPAGATION> truncation enters the result path
 14: assign result = intermediate[3:0]; // <BUG-SOURCE-OBSERVABLE> output exposes the truncated value
@@ -752,10 +752,11 @@ def test_missing_or_invented_receipt_cannot_pass(tmp_path):
         {
             "tool": "ApplyWaveInfoEvidence",
             "arguments": {
-                "target_file": "bugs.md",
-                "bug_tag": "BG-DYNAMIC-80",
-                "test_case_tag": f"TC-{DOCUMENT_TEST}",
-                "receipt_id": "",
+                    "target_file": "bugs.md",
+                    "bug_tag": "BG-DYNAMIC-80",
+                    "test_case_tag": f"TC-{DOCUMENT_TEST}",
+                    "checkpoint_path": CHECKPOINT,
+                    "receipt_id": "",
             },
         }
     ]
@@ -842,7 +843,11 @@ def test_batch_checker_compacts_validation_report():
         },
         "failed_checkpoints": [CHECKPOINT],
         "failed_test_case_checkpoints": {REPORT_TEST: [CHECKPOINT]},
-        "unmarked_checkpoints": [],
+        "unmarked_checkpoints": {
+            "count": 0,
+            "items": [],
+            "truncated": False,
+        },
     }
     assert "coverages" not in compact
     assert "test_case_details" not in compact["tests"]
@@ -887,6 +892,8 @@ def test_receipt_waveform_identity_cannot_be_forged(tmp_path):
         clock_signal="TOP.dut.clk",
     )
     block = _confirmed_block(result, pattern)
+    receipt_freshness_identity = block["freshness_identity"]
+    receipt_modified_time_ns = block["modified_time_ns"]
     block["modified_time_ns"] += 1
     block["freshness_identity"] = "invented:1:2"
     _write_bug_doc(tmp_path, block)
@@ -895,8 +902,79 @@ def test_receipt_waveform_identity_cannot_be_forged(tmp_path):
 
     assert passed is False
     assert "[Waveform Analysis Evidence Invalid]" in str(message)
-    assert "modified_time_ns" in str(message)
     assert "freshness_identity" in str(message)
+    assert "modified_time_ns" not in str(message)
+
+    block["freshness_identity"] = receipt_freshness_identity
+    _write_bug_doc(tmp_path, block)
+
+    passed, message, _ = _check(tmp_path, tool)
+
+    assert passed is False
+    assert "modified_time_ns" in str(message)
+
+    block["modified_time_ns"] = receipt_modified_time_ns
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is True, message
+
+
+def test_waveform_semantic_fields_are_repaired_one_at_a_time(tmp_path):
+    _write_functions(tmp_path)
+    test_dir = tmp_path / "tests"
+    _write_waveform(test_dir)
+    tool = WaveInfo(workspace=str(tmp_path), test_dir="tests", dut_name="Demo")
+    pattern = [{"signal": "TOP.dut.valid", "event": "rising"}]
+    result = _call_waveinfo(
+        tool,
+        test_case_name=DOCUMENT_TEST,
+        pattern=pattern,
+        logged_cycle=0,
+        cycle_tolerance=2,
+        clock_signal="TOP.dut.clk",
+    )
+    block = _confirmed_block(result, pattern)
+    block.update(
+        {
+            "alignment_evidence": "<BUG-TODO>",
+            "observed_behavior": "<BUG-TODO>",
+            "source_correlation": "<BUG-TODO>",
+        }
+    )
+
+    expected_fields = (
+        "alignment_evidence",
+        "bug_evidence.BG-DYNAMIC-80.observed_behavior",
+        "bug_evidence.BG-DYNAMIC-80.source_correlation",
+    )
+    replacement_values = (
+        "The signed event aligns with the failing accepted transaction.",
+        "The signed output differs from the specification for that transaction.",
+        "The observed mismatch follows the documented source result path.",
+    )
+    block_keys = ("alignment_evidence", "observed_behavior", "source_correlation")
+
+    for field, block_key, replacement in zip(
+        expected_fields, block_keys, replacement_values
+    ):
+        _write_bug_doc(tmp_path, block)
+        passed, message, _ = _check(tmp_path, tool)
+
+        assert passed is False
+        assert message["details"]["code"] == "WAVEFORM_SEMANTIC_FIELD_INCOMPLETE"
+        assert message["details"]["field"] == field
+        assert message["details"]["observed"] == "<BUG-TODO>"
+        assert message["details"]["rerun_test"] is False
+        assert message["details"]["rerun_waveinfo"] is False
+        assert message["details"]["apply_evidence"] is False
+        assert "Do not rerun pytest or WaveInfo" in message["error"]
+        for later_field in expected_fields[expected_fields.index(field) + 1 :]:
+            assert later_field not in message["error"]
+        block[block_key] = replacement
+
+    _write_bug_doc(tmp_path, block)
+    passed, message, _ = _check(tmp_path, tool)
+    assert passed is True, message
 
 
 def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
@@ -954,19 +1032,16 @@ def test_multiple_invalid_waveform_blocks_are_reported_in_one_pass(tmp_path):
     )
 
     assert passed is False
-    assert "[Waveform Analysis Batch Validation]" in message["error"]
+    assert "[Waveform Analysis Evidence Invalid]" in message["error"]
+    assert "later waveform issue(s) are intentionally suppressed" in message["error"]
     assert "Do not delete a TC, BG, or enclosing FG/FC/CK branch" in message["error"]
-    issues = message["details"]["issues"]
-    assert len(issues) == 2
-    issues_by_test = {issue["test_case"]: issue for issue in issues}
-    assert issues_by_test[DOCUMENT_TEST]["field_differences"]["modified_time_ns"] == {
+    assert message["details"]["remaining_issue_count"] == 1
+    assert message["details"]["test_case"] == DOCUMENT_TEST
+    assert message["details"]["field_differences"]["modified_time_ns"] == {
         "documented": first_block["modified_time_ns"],
         "receipt": first_block["modified_time_ns"] - 1,
     }
-    assert issues_by_test["test_b.py::test_b"]["field_differences"]["logged_cycle"] == {
-        "documented": 1,
-        "receipt": 0,
-    }
+    assert "test_b.py::test_b" not in str(message)
 
 
 def test_current_replay_must_keep_the_documented_clock_candidate(
@@ -1326,6 +1401,63 @@ def test_waveform_bug_test_association_must_not_be_duplicated(tmp_path):
 
     assert passed is False
     assert "[Duplicate Waveform Association]" in str(error)
+
+
+def test_equivalent_test_paths_must_not_duplicate_one_ck_bug_association(tmp_path):
+    block = {"status": "confirmed", "receipt_id": "receipt-1"}
+    _write_central_waveform_document(
+        tmp_path,
+        [
+            ("BG-DYNAMIC-80", DOCUMENT_TEST),
+            ("BG-DYNAMIC-80", WORKSPACE_RELATIVE_DOCUMENT_TEST),
+        ],
+        {
+            DOCUMENT_TEST: block,
+            WORKSPACE_RELATIVE_DOCUMENT_TEST: block,
+        },
+    )
+
+    passed, message = check_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        "",
+        {REPORT_TEST: [CHECKPOINT]},
+        waveform_tool=None,
+        waveform_test_dir="tests",
+        require_all_documented=True,
+    )
+
+    assert passed is False
+    assert "[Equivalent Waveform Association Duplicate]" in message["error"]
+    details = message["details"]
+    assert details["code"] == "EQUIVALENT_TC_ASSOCIATION_DUPLICATE"
+    assert details["keep_test_label"] == f"TC-{DOCUMENT_TEST}"
+    assert details["duplicate_test_label"] == f"TC-{WORKSPACE_RELATIVE_DOCUMENT_TEST}"
+    assert details["rerun_test"] is False
+    assert details["rerun_waveinfo"] is False
+    assert details["apply_evidence"] is False
+
+
+def test_test_case_matching_does_not_use_function_name_substrings(tmp_path):
+    _write_central_waveform_document(
+        tmp_path,
+        [("BG-DYNAMIC-80", DOCUMENT_TEST)],
+        {DOCUMENT_TEST: {"status": "confirmed", "receipt_id": "receipt-1"}},
+    )
+
+    passed, message = check_waveform_bug_analysis(
+        str(tmp_path),
+        "bugs.md",
+        "",
+        {"tests/test_a.py:1-20::test_a_extended": [CHECKPOINT]},
+        waveform_tool=None,
+        waveform_test_dir="tests",
+        require_all_documented=True,
+    )
+
+    assert passed is False
+    assert "[Waveform Analysis Association Incomplete]" in message["error"]
+    assert "test case is absent from the validation set" in message["error"]
 
 
 def test_each_of_multiple_tests_requires_its_own_reference(tmp_path):
@@ -1698,8 +1830,11 @@ def test_dynamic_bug_content_requires_all_analysis_sections(tmp_path):
 
     assert passed is False
     assert "marker '<BUG-OVERVIEW>' occurs 0 time(s)" in message["error"]
-    assert "marker '<BUG-SOURCE-EVIDENCE>' occurs 0 time(s)" in message["error"]
-    assert "marker '<BUG-RETEST>' occurs 0 time(s)" in message["error"]
+    assert "marker '<BUG-SOURCE-EVIDENCE>' occurs 0 time(s)" not in message["error"]
+    assert "marker '<BUG-RETEST>' occurs 0 time(s)" not in message["error"]
+    assert len(message["details"]["issues"]) == 1
+    assert message["details"]["remaining_issue_count"] > 0
+    assert "later issue(s) are intentionally suppressed" in message["error"]
 
 
 def test_dynamic_bug_content_rejects_noncanonical_display_heading(tmp_path):
@@ -1752,7 +1887,7 @@ def test_dynamic_bug_content_rejects_marker_before_display_heading(tmp_path):
 
 def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
     invalid_location = COMPLETE_BUG_ANALYSIS.replace(
-        "Adder/Adder.v:L10-L14", "Adder/Adder.v:10-14"
+        "Adder/Adder.v:10-14", "Adder/Adder.v:10"
     )
     (tmp_path / "bugs.md").write_text(
         f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
@@ -1765,7 +1900,59 @@ def test_dynamic_bug_content_requires_canonical_source_line_range(tmp_path):
     )
 
     assert passed is False
-    assert "source analysis lacks real HDL path and line range" in message["error"]
+    assert "replace `Adder/Adder.v:10` with `Adder/Adder.v:10-14`" in message[
+        "error"
+    ]
+    assert "Do not recreate the BG/TC scaffold, rerun WaveInfo" in message["error"]
+    issue = message["details"]["issues"][0]
+    assert issue["code"] == "HDL_SOURCE_LOCATION_FORMAT"
+    assert issue["observed"] == "Adder/Adder.v:10"
+    assert issue["replacement"] == "Adder/Adder.v:10-14"
+    assert "do not need to be regenerated" in issue["next_action"]
+
+
+def test_dynamic_bug_content_rejects_l_prefixed_source_line_range(tmp_path):
+    invalid_location = COMPLETE_BUG_ANALYSIS.replace(
+        "Adder/Adder.v:10-14", "Adder/Adder.v:L10-L14"
+    )
+    (tmp_path / "bugs.md").write_text(
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{invalid_location}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is False
+    issue = message["details"]["issues"][0]
+    assert issue["code"] == "HDL_SOURCE_LOCATION_FORMAT"
+    assert issue["observed"] == "Adder/Adder.v:L10-L14"
+    assert issue["replacement"] == "Adder/Adder.v:10-14"
+
+
+def test_dynamic_bug_content_accepts_single_line_as_explicit_range(tmp_path):
+    single_line_source = """
+```systemverilog
+// Adder/Adder.v:10-10
+10: assign result = data + 1; // <BUG-SOURCE-FIRST-ERROR> wrong expression; <BUG-SOURCE-PROPAGATION> drives result; <BUG-SOURCE-OBSERVABLE> visible at output
+```
+""".strip()
+    single_line = COMPLETE_BUG_ANALYSIS.replace(
+        SOURCE_EVIDENCE_BLOCK, single_line_source
+    )
+    (tmp_path / "bugs.md").write_text(
+        f"<DYNAMIC-BUGS>\n{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{single_line}\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(
+        str(tmp_path), "bugs.md"
+    )
+
+    assert passed is True, message
 
 
 def test_dynamic_bug_content_requires_source_markers_inside_hdl_fence(tmp_path):
@@ -1876,6 +2063,49 @@ def test_dynamic_bug_content_accepts_source_backed_analysis(tmp_path):
     assert "Validated completed analysis for 1 dynamic Bug entry" in message
 
 
+def test_dynamic_bug_content_accepts_same_bug_tag_in_complete_ck_scoped_entries(
+    tmp_path,
+):
+    second_test = _dynamic_test_heading(
+        "TC-test_b.py::test_b", "Alternate result mismatch"
+    )
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n"
+        f"{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
+        "##### Alternate output <CK-B>\n"
+        f"{_dynamic_bug_heading()}{second_test}{COMPLETE_BUG_ANALYSIS}\n"
+        "</DYNAMIC-BUGS>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is True, message
+    assert "2 dynamic Bug entry" in message
+
+
+def test_dynamic_bug_content_requires_fields_in_every_ck_scoped_bg_path(tmp_path):
+    (tmp_path / "bugs.md").write_text(
+        "<DYNAMIC-BUGS>\n"
+        f"{_dynamic_checkpoint_headings()}"
+        f"{_dynamic_bug_heading()}{_dynamic_test_heading()}{COMPLETE_BUG_ANALYSIS}\n"
+        "##### Alternate output <CK-B>\n"
+        f"{_dynamic_bug_heading()}"
+        f"{_dynamic_test_heading('TC-test_b.py::test_b', 'Alternate result mismatch')}"
+        "</DYNAMIC-BUGS>\n",
+        encoding="utf-8",
+    )
+
+    passed, message = check_dynamic_bug_analysis_content(str(tmp_path), "bugs.md")
+
+    assert passed is False
+    assert "FG-A/FC-A/CK-B/BG-DYNAMIC-80" in message["error"]
+    assert "Every occurrence of a BG under a different checkpoint" in "\n".join(
+        message["next_action"]
+    )
+
+
 def test_dynamic_bug_content_accepts_explicit_black_box_analysis(tmp_path):
     black_box = COMPLETE_BUG_ANALYSIS.replace(
         SOURCE_EVIDENCE_BLOCK,
@@ -1939,8 +2169,9 @@ def test_dynamic_bug_content_rejects_noncanonical_source_annotation_text(tmp_pat
 
     assert passed is False
     assert "<BUG-SOURCE-FIRST-ERROR>" in message["error"]
-    assert "<BUG-SOURCE-PROPAGATION>" in message["error"]
-    assert "<BUG-SOURCE-OBSERVABLE>" in message["error"]
+    assert "<BUG-SOURCE-PROPAGATION>" not in message["error"]
+    assert "<BUG-SOURCE-OBSERVABLE>" not in message["error"]
+    assert message["details"]["remaining_issue_count"] == 2
 
 
 @pytest.mark.parametrize(

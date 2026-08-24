@@ -4,12 +4,26 @@
 
 ## 1. 先分类
 
-- 正确测试稳定 Fail 且规格、采样和预期均正确：保留严格断言，记录动态 DUT Bug。
+- 每个 Fail TC 都不预设责任方。正确测试稳定 Fail 且规格、采样和预期均正确：保留严格断言，记录动态 DUT Bug。
 - 测试、参考模型、fixture、API、Mock、复位、时序、依赖或环境错误：修复到 Pass，不记录 DUT Bug。
 - 仅由源码审查发现、尚未动态复现：只写入`{DUT}_static_bug_analysis.md`，使用`BG-STATIC-*`。
 - 静态候选经测试确认：动态文档新建独立`BG-NAME-XX`，静态文档用`LINK-BUG`关联。
 
 动态 Bug 的 Fail 测试必须有真实 WaveInfo 证据。不能弱化断言、伪造 receipt、复制 viewer token，或删除仍能稳定复现 Bug 的 TC/BG 来绕过验收。
+
+进入 WaveInfo、创建或更新非零 BG、引用静态候选之前，对每个 Fail TC 必须完成以下门禁：
+
+1. 从功能规格、独立参考模型或可验证公式独立计算`specification_expected`。不得直接相信模板注释、已有断言、静态候选或可疑 RTL；静态候选不能覆盖 TC 级反证。
+2. 明确对照`input | specification_expected | test_expected | actual | classification`。`specification_expected`与`test_expected`不一致时，修正测试并重跑到 Pass，禁止调用 WaveInfo 或记录 Bug。
+3. expected 一致后，核对测试激励、API/driver、callback、`Step`、采样边沿、有效条件、响应延迟、fixture、参考模型、复位和环境。
+4. 核对该 TC 关联 CK 的 coverage/check function 是否真实表达规格、`CovGroup.sample()`是否执行以及采样时机是否正确。CK predicate 或 sample 错误属于验证问题，必须修复并重跑。
+5. 只有上述项目全部正确、DUT `actual`仍违反规格时，才能将`classification`写为 DUT Bug，随后调用 WaveInfo 并创建或更新非零 BG。其他分类必须修复到 Pass。
+
+批量实现阶段只分析当前批次 TC 及当前报告为这些 TC 关联的 CK。属于未来未实现批次、且未与当前 TC 关联的失败 CK，不得在当前批次创建无关 TC/BG；留到所属批次驱动和分类。最终综合与 Bug 记录阶段仍必须满足全部失败 CK 的单向门禁。
+
+Check/Complete 的最终分类必须同时满足三个方向：每个非零动态 BG 至少关联一个由当前报告确认、且映射到同一 CK 的正确 Fail TC；每个阶段结束时仍为 Fail 的 DUT 测试必须在其报告关联的至少一个 CK 下进入非零动态 BG；每个阶段结束时仍失败的 CK 必须至少有一个由当前报告关联到该精确 FG/FC/CK 路径的正确 Fail TC，并在相同 CK/BG/TC 关系下完成记录。前两个条件不要求 Fail TC 所关联的 CK 也失败：TC 可以因断言发现 DUT Bug 而 Fail，同时成功触发并覆盖该 CK，因此 CK 可以已经 Pass。TC 状态与 CK 覆盖状态相互独立，不能由 TC Fail 反推 CK Fail。失败 CK 的要求是另一个单向条件。整体关系是多对多而不是一一对应：一个 BG 可以有多个 Fail TC，一个 Fail TC也可以揭示多个独立 BG。测试、断言、预期值、fixture、API、参考模型、覆盖检查或采样、复位、时序、依赖和环境问题必须修复到 Pass，不得为了满足关系检查制造 Fail、关联无关 TC 或写入动态 DUT Bug。
+
+CK 失败本身不证明 DUT 存在 Bug。必须先检查该 CK 的 coverage/check function 是否真实表达规格、`CovGroup.sample()`调用和采样时机是否正确、测试激励或 driver 是否真正触发目标场景、独立规格 expected 与测试 expected 是否一致，以及结果是否在有效边沿、响应条件和延迟后采样。上述任一项错误都属于验证问题，必须修复并重跑。只有这些条件都正确后，DUT 错误行为仍使正确复现 TC 自然 Fail，才能创建非零动态 BG 并取证；该 TC 关联的 CK 可以已经 Pass。若 CK 自身仍 Fail，则独立应用“失败 CK 必须有同 CK Fail TC”的单向门禁。
 
 ## 2. 文档分区
 
@@ -207,7 +221,7 @@ ApplyWaveInfoEvidence(
 
 ###### 源码证据
 <BUG-SOURCE-EVIDENCE>
-首个错误位于 `rtl/Adder.sv:L24-L26`：
+首个错误位于 `rtl/Adder.sv:24-26`：
 
 ```systemverilog
 24: logic [WIDTH-1:0] sum_full; // <BUG-SOURCE-FIRST-ERROR> 中间量少一位，无法保存进位。
@@ -287,7 +301,7 @@ waveform_analysis:
         - TOP.dut.sum[7:0]
         - TOP.dut.cout
       observed_behavior: 完整输入和应为 9'h100，但中间量与输出均为 0，最高进位没有到达 cout。
-      source_correlation: rtl/Adder.sv:L24-L26 的 sum_full 宽度截断与波形中丢失的最高位一致。
+      source_correlation: rtl/Adder.sv:24-26 的 sum_full 宽度截断与波形中丢失的最高位一致。
 ```
 <WAVEFORM-VIEWER> [Open waveform](/surfer/?wave=TOOL_GENERATED_TOKEN)
 
@@ -431,8 +445,10 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 
 八个字段必须唯一、有序、内容非空。每个字段先写固定六级标题，下一非空行写对应标签，再写正文；八组标题与标签依次为`###### Bug 概述`/`<BUG-OVERVIEW>`、`###### 现象与严重度`/`<BUG-SYMPTOMS>`、`###### 触发条件与影响`/`<BUG-TRIGGER>`、`###### 根因分析`/`<BUG-ROOT-CAUSE>`、`###### 源码证据`/`<BUG-SOURCE-EVIDENCE>`、`###### 动态因果链`/`<BUG-CAUSAL-CHAIN>`、`###### 修复建议`/`<BUG-FIX>`、`###### 风险与复验`/`<BUG-RETEST>`。不得翻译、改写、改成粗体、更换标题级别或交换标题与标签。`<BUG-SOURCE-EVIDENCE>`有两种互斥模式：
 
-- 有源码：包含真实`path:L1-L2`与完整 HDL fenced 代码，并在语言原生注释中各放一次`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`。
+- 有源码：包含不带`L`的真实`path:起始行-结束行`与完整 HDL fenced 代码；单行也重复行号，例如`path:10-10`。在语言原生注释中各放一次`<BUG-SOURCE-FIRST-ERROR>`、`<BUG-SOURCE-PROPAGATION>`、`<BUG-SOURCE-OBSERVABLE>`。
 - 无可访问源码：单独写`<BUG-SOURCE-UNAVAILABLE>`，用规格、接口、日志和波形完成黑盒因果链，不虚构源码位置。
+
+有源码位置必须逐字使用不带`L`的`path:起始行-结束行`。例如`Adder/Adder.v:10-14`有效；单行必须重复行号写成`Adder/Adder.v:10-10`，不能写成`Adder/Adder.v:10`；`Adder/Adder.v:L10-L14`也无效，必须改成`Adder/Adder.v:10-14`。这类纯格式修复不需要重新运行测试、WaveInfo或Bug分类。
 
 无源码分支必须完整写成以下形态，不能只留下标记：
 
@@ -443,12 +459,12 @@ FG、FC、CK、BG、TC 都是一对多层次，不是一条固定单链。以下
 当前工作区未提供可访问的 RTL/HDL。接口规格规定请求在 `valid && ready` 时接受，失败日志和已确认波形共同显示响应有效周期的 `result` 比期望值少 1；因此根因范围限定在接受后到结果输出之间的状态更新或算术路径，不能虚构具体文件与行号。
 ```
 
-一个 BG 的概述、症状、触发条件、根因、源码因果链、修复建议和复验计划只写一次；多个 TC 只增加引用与各自中央波形，不复制整段根因。
+验收单位是完整`FG/FC/CK/BG`路径。同一CK分支内，同一个BG只出现一次：该路径下的多个TC及引用连续排列，随后只写一套八字段。若同一RTL根因影响分别关联到不同CK的Fail TC，可以在这些CK分支下复用同一个`BG-*`标签；每个不同CK下的`FG/FC/CK/BG`都是独立路径条目，必须分别放入该CK关联的TC、引用和完整八字段，不能把最后一个路径的八字段作为其他路径共享内容。重复的是CK作用域内的BG分析条目，不是波形数据；每个TC仍只有一份中央波形记录。
 
 有源码时，根因分析必须包含源码代码块，例如：
 
 ```systemverilog
-// path/to/file.sv:L10-L12
+// path/to/file.sv:10-12
 assign accepted = valid && ready; // <BUG-SOURCE-FIRST-ERROR> Wrong acceptance condition.
 assign state_n = accepted ? NEXT : state; // <BUG-SOURCE-PROPAGATION> Error enters state.
 assign result = state; // <BUG-SOURCE-OBSERVABLE> Error reaches the checked output.
@@ -458,7 +474,7 @@ assign result = state; // <BUG-SOURCE-OBSERVABLE> Error reaches the checked outp
 
 ## 8. 静态 Bug 标签
 
-静态候选只写在`{DUT}_static_bug_analysis.md`，使用`<BG-STATIC-NNN-NAME>`。文件必须依次包含`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`和`<STATIC-BUG-PROGRESS>`。每个候选使用`<FILE-path/to/file.v:L1-L2>`定位，并在汇总和详情中保持同一链接：待验证为`<LINK-BUG-[BG-TBD]>`，动态证实后为`<LINK-BUG-[BG-NAME-XX]>`，误报为`<LINK-BUG-[BG-NA]>`。
+静态候选只写在`{DUT}_static_bug_analysis.md`，使用`<BG-STATIC-NNN-NAME>`。文件必须依次包含`<STATIC-BUG-SUMMARY>`、`<STATIC-BUG-DETAILS>`和`<STATIC-BUG-PROGRESS>`。每个候选使用不带`L`的`<FILE-path/to/file.v:起始行-结束行>`定位（单行重复行号），并在汇总和详情中保持同一链接：待验证为`<LINK-BUG-[BG-TBD]>`，动态证实后为`<LINK-BUG-[BG-NAME-XX]>`，误报为`<LINK-BUG-[BG-NA]>`。
 
 若没有任何可分析文件，使用`<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>`；输入文件标签写作`<file>path/to/file.v</file>`。静态候选动态证实后，必须创建独立非静态 BG，并遵循本文的中央波形格式；不能把`BG-STATIC-*`写进动态文档。
 
@@ -468,13 +484,18 @@ Skill 只是辅助，不能成为任务前置条件。`unitytest/dynamic-bug-rec
 
 ## 10. 完成检查
 
+- Check/Complete 失败时，只处理反馈中的第一个阻塞项和明确`next_action`；同一记录的其他字段和其他记录不属于本次动作，不得顺带修改或全局替换。修复后再次检查以取得下一项。若反馈中的`rerun_test`、`rerun_waveinfo`或`apply_evidence`为`false`，禁止对应重跑或Apply；纯格式或语义字段修复不得重建BG/TC或重新分类Bug。
+- `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python或文档维护脚本执行器。禁止创建临时脚本或伪pytest用例来修改、迁移或批量填充本文档。使用文本工具修改文档；相同文本出现多次时，给`ReplaceStringInFile`传只覆盖当前阻塞位置的`line_blocks=[[start, end]]`，每次只填写当前记录、当前字段的真实结论。已声明的Skill脚本只能通过`RunSkillScript`执行。
 - 两个容器各出现一次、均正确关闭、顺序正确。
 - 文档标题、分区标题、FG/FC/CK/BG/TC 层级和八个字段标题与Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例一致；每个标签行都有具体可见标题，不含类型名或方括号占位。
 - 每个中央波形标题逐字复用关联 TC 的可见标题并追加“波形”。
 - 每个非零 BG 至少有一个真实 Fail TC和完整八字段分析。
+- 每个阶段结束时仍为 Fail 的 DUT 测试都在其报告关联的至少一个 CK 下具有非零 BG/TC 记录；不存在未分类 Fail。该 CK 可以已经被 TC 成功触发并通过覆盖，不要求每个 Fail TC 关联失败 CK。
+- 每个阶段结束时仍失败的 CK 都有至少一个由当前报告关联到同一精确 CK 的正确 Fail TC，并在该 CK 下具有非零 BG/TC 记录。
 - 每个 BG 的全部 TC/引用连续位于 BG 标题后，八个`<BUG-*>`字段位于最后一个 TC/引用后，字段开始后不再出现 TC。
 - 每个 BG/TC 紧随精确`<WAVEFORM-REF>`，链接到该 TC 的稳定锚点。
 - 每个关联 TC 在中央分区恰有一份记录，无重复、无孤儿。
+- 同一真实pytest节点即使使用测试目录相对路径或工作区相对路径等不同前缀，也仍是同一个TC；同一CK/BG下只能保留一个TC/引用和一个中央记录。出现`EQUIVALENT_TC_ASSOCIATION_DUPLICATE`时按Checker给出的`keep_test_label`保留证据，仅删除`duplicate_test_label`对应的重复关联和中央记录，不重跑测试、WaveInfo或Apply。
 - `bug_tags`、BG/TC 引用和`bug_evidence`三者完全一致。
 - 所有逐 Bug `required_signals`都在顶层签名信号并集中，viewer显示同一信号集合。
 - receipt、fingerprint、窗口、pattern、signal_groups、viewer与真实工具结果一致。

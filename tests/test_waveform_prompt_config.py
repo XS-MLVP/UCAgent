@@ -34,6 +34,11 @@ def test_api_test_prompt_and_guide_require_api_checkpoint_association():
     assert "不能只mark其他功能分组CK" in task
     assert "额外功能CK不能替代" in task
     assert "不能为通过Checker而批量标记无关API CK" in task
+    assert "API CK失败时先核对coverage/check function" in task
+    assert "CK Fail本身不证明DUT Bug" in task
+    assert "报告关联到同一精确CK的正确Fail TC" in task
+    assert "该CK可以已被TC成功触发并通过覆盖" in task
+    assert "不要求Fail TC关联失败CK" in task
     assert checker["args"]["api_ck_prefix"] == "FG-API/"
 
     assert "API 检查点关联（必需）" in guide
@@ -85,6 +90,24 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     )
     template_task = "\n".join(str(item) for item in template_stage["task"])
 
+    assert "优先怀疑是芯片设计问题" not in system_prompt
+    assert "不要急于修改测试" not in parent_task
+    assert "每个Fail TC都不预设责任方" in system_prompt
+    assert "progress_summary.status: batch_advanced" in system_prompt
+    assert "不是Checker失败" in system_prompt
+    assert "不得把`check_pass: false`单独解释为验证失败" in system_prompt
+    assert "specification_expected" in system_prompt
+    assert "精确input、specification_expected、测试代码中的test_expected、DUT actual和classification" in system_prompt
+    assert "禁止调用WaveInfo或记录Bug" in system_prompt
+    assert "每个Fail TC都不预设责任方" in parent_task
+    assert "input、specification_expected、test_expected、DUT actual和classification" in parent_task
+    assert "分类完成前禁止调用WaveInfo" in parent_task
+    assert "如果Fail，不预设责任方" in batch_task
+    assert "input、specification_expected、test_expected、DUT actual和classification" in batch_task
+    assert "禁止调用WaveInfo或记录Bug" in batch_task
+    assert "当前批次只分析{LIST_CURRENT_CASES}及当前报告为这些TC关联的CK" in batch_task
+    assert "Fail TC与CK覆盖状态彼此独立" in batch_task
+    assert "不要求每个Fail TC关联失败CK" in batch_task
     assert "`WaveInfo`是必须调用的诊断工具" in system_prompt
     assert "不得豁免动态Bug的`WaveInfo`取证" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
@@ -102,23 +125,42 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "最终显式窗口调用必须同时传非负start_step和end_step" in system_prompt
     assert "ApplyWaveInfoEvidence(target_file=..., bug_tag=..., test_case_tag=..., receipt_id=...)" in system_prompt
     assert "一个BG有多个Fail TC时分别调用" in system_prompt
-    assert "目标TC不存在且BG位置唯一时由工具创建" in system_prompt
-    assert "不得手工复制BG/TC" in system_prompt
-    assert "工具保留其他BG、兄弟TC和中央记录" in system_prompt
+    assert "同名BG跨CK或目标关联有歧义时传`checkpoint_path=" in system_prompt
+    assert "每个CK-scoped BG路径必须分别包含" in system_prompt
+    assert "不得手工复制receipt字段、中央波形或viewer token" in system_prompt
+    assert "工具保留其他BG路径、兄弟TC和中央记录" in system_prompt
     assert "一个Fail TC揭示多个独立Bug时保留不同BG" in system_prompt
     assert "相同test_case_tag和不同bug_tag分别调用" in system_prompt
     assert "新增关联不需要replace_existing" in system_prompt
     assert "LLM不得复制或修改receipt字段" in system_prompt
     assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in system_prompt
-    assert "必须集中在对应<BG-*>条目内" in system_prompt
+    assert "以完整FG/FC/CK/BG路径为验收单位" in system_prompt
     assert "不得在文档末尾另建与标签分离的全局根因分析章节" in system_prompt
-    assert "只为新Bug生成首个BG/TC" in system_prompt
+    assert "为每个新的CK-scoped BG/TC路径生成" in system_prompt
     assert "清除全部`<BUG-TODO>`" in system_prompt
     assert "<WAVEFORM-REF>" in system_prompt
     assert "<WAVEFORM-EVIDENCE>" in system_prompt
     assert "一个Fail TC无论关联多少BG都只有一份波形数据" in system_prompt
+    assert "同一真实pytest节点不能因路径前缀写法不同而成为两个TC" in system_prompt
+    assert "EQUIVALENT_TC_ASSOCIATION_DUPLICATE" in system_prompt
+    assert "keep_test_label" in system_prompt
+    assert "duplicate_test_label" in system_prompt
     assert "`bug_tags`与`bug_evidence`必须覆盖全部关联BG" in system_prompt
     assert "`required_signals`并集" in system_prompt
+    assert "CK失败本身不证明DUT存在Bug" in system_prompt
+    assert "测试激励/driver是否真正触发目标场景" in system_prompt
+    assert "该TC关联的CK可以已经Pass" in system_prompt
+    assert "独立的失败CK单向门禁" in system_prompt
+    assert "每个保留的失败CK必须至少有一个" in system_prompt
+    assert "不是严格一一对应" in system_prompt
+    assert "这个CK可以已经被该TC成功触发并通过覆盖" in system_prompt
+    assert "不要求每个Fail TC关联失败CK" in system_prompt
+    assert "完整FG/FC/CK/BG路径为验收单位" in system_prompt
+    assert "不能跨CK共享最后一套字段" in system_prompt
+    assert "`Adder/Adder.v:10`和`Adder/Adder.v:L10-L14`均无效" in system_prompt
+    assert "`Adder/Adder.v:10-14`" in system_prompt
+    assert "`Adder/Adder.v:10-10`" in system_prompt
+    assert "`Adder/Adder.v:L10-L14`均无效" in system_prompt
     assert "<BUG-SOURCE-FIRST-ERROR>" in system_prompt
     assert "<BUG-SOURCE-PROPAGATION>" in system_prompt
     assert "<BUG-SOURCE-OBSERVABLE>" in system_prompt
@@ -126,11 +168,20 @@ def test_default_prompt_requires_waveinfo_for_dynamic_bugs():
     assert "真实WaveInfo confirmed证据" in parent_task
     assert "除已确认DUT Bug复现用例外，其他用例必须全部Pass" in parent_task
     assert "不是要求已确认Bug用例也Pass" in parent_task
+    assert "每个剩余失败CK必须有报告关联到同一CK的正确Fail TC" in parent_task
+    assert "该CK可以已经通过覆盖" in parent_task
+    assert "不能由TC Fail反推CK Fail" in parent_task
     assert "不得以测试Bug或BG-*-0占位保留Fail" in batch_task
     assert "任何未分类Fail" in batch_task
     assert "record_dynamic_bug.py仅为可选骨架辅助" in batch_task
     assert "不可用时按Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in batch_task
     assert "完成共享alignment_evidence、逐Bug证据和八个分析字段" in batch_task
+    assert "只处理当前反馈中的第一个阻塞项" in batch_task
+    assert "同一记录的其他字段以及其他记录都不属于本次动作" in batch_task
+    assert "RunTestCases只能运行当前批次已有的真实pytest验证用例" in batch_task
+    assert "伪测试" in batch_task
+    assert "ReplaceStringInFile传只覆盖当前Checker阻塞位置的line_blocks" in batch_task
+    assert "rerun_test、rerun_waveinfo或apply_evidence为false" in batch_task
     assert "逐个审查{OUT}/{DUT}_bug_analysis.md中的每个非零置信度<BG-*>" in review_task
     assert "独立核对<BUG-SOURCE-FIRST-ERROR>是否为首个错误决策" in review_task
     assert "不得因record_dynamic_bug.py成功或字段形式完整" in review_task
@@ -287,6 +338,19 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
     assert "API 内部是否已经调用 `Step`、等待握手或采样结果" in guide
     assert "一次单点 data mismatch 只能作为继续调查的线索" in guide
     assert "不能根据特定信号名猜测" in guide
+    assert "CK 失败本身不证明 DUT 存在 Bug" in guide
+    assert "coverage/check function 是否真实表达规格" in guide
+    assert "测试激励或 driver 是否真正触发目标场景" in guide
+    assert "每个 Fail TC 都不预设责任方" in guide
+    assert "`input | specification_expected | test_expected | actual | classification`" in guide
+    assert "禁止调用 WaveInfo 或记录 Bug" in guide
+    assert "只分析当前批次 TC 及当前报告为这些 TC 关联的 CK" in guide
+    assert "CK predicate 或 sample 错误属于验证问题" in guide
+    assert "每个阶段结束时仍失败的 CK" in guide
+    assert "多对多而不是一一对应" in guide
+    assert "CK 可以已经 Pass" in guide
+    assert "不要求每个 Fail TC 关联失败 CK" in guide
+    assert "失败 CK 必须有同 CK Fail TC" in guide
     assert "`signal_groups` 的固定子字段为" in guide
     assert "clocks -> inputs -> outputs -> protocol -> key_signals" in guide
     assert "最终调用若缺少完整角色" in guide
@@ -300,10 +364,30 @@ def test_bug_analysis_guide_distinguishes_mcp_sentinels_and_evidence_windows():
         Path(__file__).parents[1]
         / "ucagent/lang/zh/skills/unitytest/static-bug-validation/SKILL.md"
     ).read_text(encoding="utf-8")
+    dynamic_bug_skill = (
+        Path(__file__).parents[1]
+        / "ucagent/lang/zh/skills/unitytest/dynamic-bug-recording/SKILL.md"
+    ).read_text(encoding="utf-8")
     for skill in (implementation_skill, static_skill):
         assert "完整`signal_groups`" in skill
         assert "输入" in skill and "输出" in skill and "协议" in skill
         assert "viewer" in skill
+    assert "CK失败时必须先核对coverage/check function" in dynamic_bug_skill
+    assert "测试激励/driver" in dynamic_bug_skill
+    assert "CK Fail本身不能作为DUT Bug结论" in dynamic_bug_skill
+    assert "不要求每个Fail TC关联失败CK" in dynamic_bug_skill
+    assert "验收单位是完整`FG/FC/CK/BG`路径" in dynamic_bug_skill
+    assert "每个CK作用域的BG路径都必须有" in dynamic_bug_skill
+    assert "`ApplyWaveInfoEvidence(..., checkpoint_path=" in dynamic_bug_skill
+    assert "每个Fail TC都不预设责任方" in dynamic_bug_skill
+    assert "`input | specification_expected | test_expected | actual | classification`" in dynamic_bug_skill
+    assert "静态候选不能覆盖TC级反证" in dynamic_bug_skill
+    assert "调用本技能、WaveInfo或创建/更新非零BG之前" in dynamic_bug_skill
+    assert "只分析当前批次待实现TC及当前报告为这些TC关联的CK" in implementation_skill
+    assert "`input | specification_expected | test_expected | actual | classification`" in implementation_skill
+    assert "禁止调用`WaveInfo`、创建/更新非零BG或引用静态候选" in implementation_skill
+    assert "`FAILED` TC关联的CK可以是`PASSED`" in implementation_skill
+    assert "不要求每个Fail TC关联失败CK" in implementation_skill
 
 
 def test_bug_document_error_help_uses_current_machine_contract():
@@ -355,6 +439,23 @@ def test_bug_document_error_help_uses_current_machine_contract():
     assert "Angle-bracket tags may be hidden by Markdown" in help_text
     assert "every visible title must describe the actual item" in help_text
     assert "visible heading reuses the TC title" in help_text
+    assert "Every remaining FAILED DUT test" in help_text
+    assert "Every remaining failed checkpoint" in help_text
+    assert "A failed checkpoint does not by itself prove a DUT Bug" in help_text
+    assert "test stimulus/driver" in help_text
+    assert "checkpoint that is itself PASSED" in help_text
+    assert "derive an independent expected value" in help_text
+    assert "specification expected, test expected, DUT actual, and classification" in help_text
+    assert "coverage/check function, predicate, CovGroup.sample call" in help_text
+    assert "Validation is scoped to the full FG/FC/CK/BG path" in help_text
+    assert "fields in one path never satisfy another path" in help_text
+    assert "`Adder/Adder.v:10`" in help_text
+    assert "`Adder/Adder.v:10-14` is valid" in help_text
+    assert "`Adder/Adder.v:10-10`" in help_text
+    assert "`Adder/Adder.v:L10-L14` must be repaired" in help_text
+    assert help_text.index("derive an independent expected value") < help_text.index(
+        "Only after the preceding checks are correct"
+    )
     assert "receipt_id: <real WaveInfo receipt_id>" not in help_text
     assert "Adder.v line 10" not in help_text
 
@@ -397,7 +498,7 @@ def test_bug_analysis_guide_documents_all_checker_markers_and_colocates_analysis
         "<LINK-BUG-[BG-TBD]>",
         "<LINK-BUG-[BG-NAME-XX]>",
         "<LINK-BUG-[BG-NA]>",
-        "<FILE-path/to/file.v:L1-L2>",
+        "<FILE-path/to/file.v:起始行-结束行>",
         "<FG-NULL>/<FC-NULL>/<CK-NULL>/<BG-STATIC-NULL>",
         "<file>path/to/file.v</file>",
         "<BUG-OVERVIEW>",
@@ -473,7 +574,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "##### 进位输出 <CK-CARRY-OUT>" in guide
     assert "###### 完整和进位丢失（95%） <BG-SUM-CARRY-DROPPED-95>" in guide
     assert "- 进位输入产生进位 <TC-tests/test_adder.py::test_cin_carry>" in guide
-    assert "rtl/Adder.sv:L24-L26" in guide
+    assert "rtl/Adder.sv:24-26" in guide
     assert (
         "### 进位输入产生进位波形 "
         "<WAVEFORM-TC-tests/test_adder.py::test_cin_carry>"
@@ -484,6 +585,7 @@ def test_bug_analysis_guide_requires_scaffold_completion_with_or_without_skill()
     assert "建立骨架并分阶段写入" in guide
     assert "脚本不可用时也不阻塞整个流程" in guide
     assert "参照Guide_Doc/dut_bug_analysis.md中的第 5.1 节完整标准案例和第 5.2 节骨架" in guide
+    assert "只处理反馈中的第一个阻塞项" in guide
     assert "调用 `ApplyWaveInfoEvidence`" in guide
     assert "不要为同一 BG 的后续 Fail TC 复制该结构" in guide
     assert "只接收`BG/TC/BD`" in guide

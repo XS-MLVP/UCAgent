@@ -224,4 +224,7 @@ def test_random_test_stage_documents_unified_stage_args_fallback():
     assert "stage_args" in task_text
     assert "字符串fallback示例" in task_text
     assert "完整合法JSON对象" in task_text
+    assert "文档结构/语言/代码风格等非DUT激励属性" in task_text
+    assert "应跳过该CK并在stage_args.generated中说明确定的跳过原因" in task_text
+    assert "不要为了制造随机用例而搜索或修改无关覆盖定义" in task_text
     assert "Check(generated=" not in task_text
