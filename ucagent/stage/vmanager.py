@@ -314,9 +314,14 @@ class ToolRunTestCases(ManagerTool):
     """Run test cases in current workspace."""
     name: str = "RunTestCases"
     description: str = (
-        "This tool is used to execute the test cases in the workspace. "
-        "Returns the result of the test execution. You should call this tool after you have implemented or modified the DUT or test cases. "
-        "Current test directory is set to the '{TEST_DIR}',  the file path you passed should be relative to this directory."
+        "Run real pytest verification tests in the workspace and return their test and "
+        "coverage report. Use this only for pytest test targets after implementing or "
+        "modifying verification tests. It is not a Python script runner: never create or "
+        "run a temporary pytest test, maintenance script, or document-migration script to "
+        "edit workspace artifacts. Use the available file-editing tools for document and "
+        "source changes, and RunSkillScript only for an existing declared skill script. "
+        "The current pytest directory is '{TEST_DIR}'; every target path is relative to "
+        "that directory."
     )
     args_schema: Optional[ArgsSchema] = ArgCheck
 
@@ -592,6 +597,8 @@ class StageManager(object):
         stage = self.get_current_stage()
         if stage is None:
             return error_msg
+        if self.stage_need_llm_fail_suggestion(stage) is False:
+            return self._compact_check_result(error_msg)
         try:
             fail_suggestion = self.gen_llm_suggestion(
                 error_msg,
@@ -908,19 +915,27 @@ class StageManager(object):
                 "check_pass": False,
                 "check_info": f"Stage index{self.stage_index} out of range. (Mission maybe completed, you can use the `GoToStage` tool to go back to a previous stage if needed)",
             })
-        ck_pass, ck_info = self.stages[self.stage_index].do_check(
+        stage = self.stages[self.stage_index]
+        ck_pass, ck_info = stage.do_check(
             timeout=timeout,
             stage_args=_prepare_stage_args(stage_args),
         )
         ret_data = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
         if not ck_pass:
-            action = (
-                "Apply the remediation stated in 'failure_summary.error', then call `Check` "
-                "again. This is a validation failure to resolve, not an internal Checker failure."
-            )
-            ret_data["failure_summary"] = self._build_failure_summary(
-                self.stages[self.stage_index], ck_info, action, self.stage_index
-            )
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                ret_data["progress_summary"] = self._build_batch_progress_summary(
+                    stage, ck_info, action, self.stage_index
+                )
+            else:
+                action = (
+                    "Apply the remediation stated in 'failure_summary.error', then call `Check` "
+                    "again. This is a validation failure to resolve, not an internal Checker failure."
+                )
+                ret_data["failure_summary"] = self._build_failure_summary(
+                    stage, ck_info, action, self.stage_index
+                )
         ret_data["check_pass"] = ck_pass
         if not ck_pass:
             ret_data["action"] = action
@@ -928,6 +943,8 @@ class StageManager(object):
         self.last_check_info = copy.deepcopy(ret_data)
         if ck_pass:
             ret_data["message"] = f"Congratulations! Stage {self.stage_index} checks passed successfully, you can use tool 'Complete' to finish this stage."
+        elif batch_advanced:
+            return self._compact_check_result(ret_data)
         else:
             return self.gen_fail_suggestion(ret_data)
         return ret_data
@@ -1007,8 +1024,62 @@ class StageManager(object):
             "next_action": next_action,
             "remaining_checkers_not_run": remaining_checkers,
             "diagnostic_note": (
-                "Cumulative count_fail is historical. Use last_check_pass and this failure_summary "
-                "to diagnose the current Check/Complete call. Detailed diagnostics follow in check_info."
+                "This summary contains the current actionable failure. Historical checker "
+                "counters and duplicate check_info diagnostics are intentionally omitted from "
+                "the tool response."
+            ),
+        })
+
+    @staticmethod
+    def _batch_progress_action(tool_name):
+        return (
+            "The current batch passed and the next batch is ready. Work only on the next "
+            "batch shown in 'progress_summary.progress', follow the current stage task and "
+            f"checker-provided argument contract, then call `{tool_name}` again. Do not redo "
+            "the completed batch or diagnose this progress result as a Checker failure."
+        )
+
+    @classmethod
+    def _build_batch_progress_summary(
+        cls, stage, check_info, next_action, stage_index=None
+    ):
+        checker_entries = check_info if isinstance(check_info, list) else [check_info]
+        progress_index = None
+        progress_entry = None
+        for index, entry in enumerate(checker_entries):
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("checked_in_last_run") and entry.get("last_check_pass") is False:
+                progress_index = index
+                progress_entry = entry
+                break
+        if progress_entry is None:
+            progress_entry = {"last_msg": check_info}
+
+        checker_class = (
+            progress_entry.get("checker_class")
+            or progress_entry.get("name")
+            or "UnknownChecker"
+        )
+        checker_name = progress_entry.get("checker_name") or checker_class
+        remaining_checkers = (
+            max(0, len(checker_entries) - (progress_index + 1))
+            if progress_index is not None
+            else 0
+        )
+        return OrderedDict({
+            "status": "batch_advanced",
+            "stage_index": stage_index,
+            "stage_name": getattr(stage, "name", ""),
+            "checker_index": progress_index,
+            "checker_name": checker_name,
+            "checker_class": checker_class,
+            "progress": copy.deepcopy(progress_entry.get("last_msg")),
+            "next_action": next_action,
+            "remaining_checkers_not_run": remaining_checkers,
+            "diagnostic_note": (
+                "This is successful batch progress, not a validation failure. Only the next "
+                "batch in the progress payload is currently actionable."
             ),
         })
 
@@ -1016,10 +1087,17 @@ class StageManager(object):
     def _compact_check_result(check_result):
         if not isinstance(check_result, dict):
             return check_result
-        if not check_result.get("failure_summary"):
+        if not check_result.get("failure_summary") and not check_result.get("progress_summary"):
             return check_result
         compact_result = OrderedDict()
-        for key in ("failure_summary", "check_pass", "complete", "action", "message"):
+        for key in (
+            "failure_summary",
+            "progress_summary",
+            "check_pass",
+            "complete",
+            "action",
+            "message",
+        ):
             if key in check_result:
                 compact_result[key] = copy.deepcopy(check_result[key])
         return compact_result or check_result
@@ -1138,14 +1216,23 @@ class StageManager(object):
                 info("Human check approved for stage " + stage.name)
 
         self.last_check_info = OrderedDict()
+        batch_advanced = not ck_pass and bool(getattr(stage, "is_batch_success", False))
         if not ck_pass:
-            action = (
-                "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
-                "again. This is a validation failure to resolve, not an internal Checker failure."
-            )
-            self.last_check_info["failure_summary"] = self._build_failure_summary(
-                stage, ck_info, action, self.stage_index
-            )
+            if batch_advanced:
+                action = self._batch_progress_action("Check")
+                self.last_check_info["progress_summary"] = (
+                    self._build_batch_progress_summary(
+                        stage, ck_info, action, self.stage_index
+                    )
+                )
+            else:
+                action = (
+                    "Apply the remediation stated in 'failure_summary.error', then call `Complete` "
+                    "again. This is a validation failure to resolve, not an internal Checker failure."
+                )
+                self.last_check_info["failure_summary"] = self._build_failure_summary(
+                    stage, ck_info, action, self.stage_index
+                )
         self.last_check_info["check_pass"] = ck_pass
         if not ck_pass:
             self.last_check_info["action"] = action
@@ -1170,6 +1257,12 @@ class StageManager(object):
             "message": message,
             "last_check_result": self.last_check_info,
         })
+        if batch_advanced:
+            return self._compact_check_result(OrderedDict({
+                "complete": False,
+                "message": "The current batch passed. Continue with the next batch.",
+                **self.last_check_info,
+            }))
         if not ck_pass:
             return self.gen_fail_suggestion(self.last_check_info)
         return ret

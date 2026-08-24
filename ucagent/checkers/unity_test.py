@@ -1721,6 +1721,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             # (test_case_name, is_completed: boolean)
         ]
         self.pre_report_file = self.extra_kwargs.get("pre_report_file", None)
+        self._last_batch_progress = None
         info(f"{self.__class__.__name__} Batch size: {self.batch_size}")
         assert self.test_dir is not None, f"Need set test directory '{self.test_dir}'."
 
@@ -1733,6 +1734,7 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "TOTAL_CASES":        total if is_valid else "-",
             "LIST_CURRENT_CASES": self.current_test_cases,
             "TEST_BATCH_RUN_ARGS": self.get_run_args(self.test_dir)[0] if is_valid else "-",
+            "BATCH_PROGRESS": self._format_batch_progress(),
         }
 
     def get_run_args(self, test_dir=None):
@@ -1754,6 +1756,9 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
     @staticmethod
     def _compact_validation_report(report, return_tests):
         tests = report.get("tests", {})
+        unmarked_checkpoints = report.get("unmarked_check_point_list", [])
+        if not isinstance(unmarked_checkpoints, list):
+            unmarked_checkpoints = []
         return {
             "run_test_success": report.get("run_test_success", False),
             "tests": {
@@ -1768,8 +1773,59 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
             "failed_test_case_checkpoints": report.get(
                 "failed_test_case_with_check_point_list", {}
             ),
-            "unmarked_checkpoints": report.get("unmarked_check_point_list", []),
+            "unmarked_checkpoints": {
+                "count": len(unmarked_checkpoints),
+                "items": unmarked_checkpoints[:10],
+                "truncated": len(unmarked_checkpoints) > 10,
+            },
         }
+
+    def _format_batch_progress(self):
+        if self._last_batch_progress is None:
+            return "not run"
+        progress = self._last_batch_progress
+        return (
+            f"committed {progress['committed']}/{progress['total']}; "
+            f"current batch executed {progress['executed']}/{progress['batch_total']}; "
+            f"passed {progress['passed']}; failed {progress['failed']}; "
+            f"validation {progress['validation']}; test run {progress['test_run']}"
+        )
+
+    def _set_batch_progress(
+        self,
+        return_tests,
+        *,
+        validation,
+        test_run,
+    ):
+        self._last_batch_progress = {
+            "committed": sum(completed for _test, completed in self.total_test_cases),
+            "total": len(self.total_test_cases),
+            "batch_total": len(self.current_test_cases),
+            "executed": len(return_tests),
+            "passed": sum(status == "PASSED" for status in return_tests.values()),
+            "failed": sum(status != "PASSED" for status in return_tests.values()),
+            "validation": validation,
+            "test_run": test_run,
+        }
+        return copy.deepcopy(self._last_batch_progress)
+
+    @staticmethod
+    def _with_batch_context(
+        message,
+        *,
+        validation_mode,
+        batch_progress,
+        batch_report,
+    ):
+        if isinstance(message, dict):
+            contextual = copy.deepcopy(message)
+        else:
+            contextual = {"error": message}
+        contextual["validation_mode"] = validation_mode
+        contextual["batch_progress"] = copy.deepcopy(batch_progress)
+        contextual["batch_report"] = copy.deepcopy(batch_report)
+        return contextual
 
     def on_init(self):
         self.check_data()
@@ -1856,17 +1912,47 @@ class UnityChipCheckerBatchTestsImplementation(BaseUnityChipCheckerTestCase):
         )
         error_msgs["REPORT"] = self._compact_validation_report(report, return_tests)
         if not ret:
-            error_msgs["error"] = msg
+            batch_progress = self._set_batch_progress(
+                return_tests,
+                validation="document_failed",
+                test_run="executed",
+            )
+            error_msgs["error"] = self._with_batch_context(
+                msg,
+                validation_mode="fresh_test_run",
+                batch_progress=batch_progress,
+                batch_report=error_msgs["REPORT"],
+            )
             return ret, error_msgs
         ret, msg = fc.check_has_assert_in_tc(self.workspace, report)
         if not ret:
-            error_msgs["error"] = msg["error"]
+            batch_progress = self._set_batch_progress(
+                return_tests,
+                validation="assertion_failed",
+                test_run="executed",
+            )
+            error_msgs["error"] = self._with_batch_context(
+                msg["error"],
+                validation_mode="fresh_test_run",
+                batch_progress=batch_progress,
+                batch_report=error_msgs["REPORT"],
+            )
             return ret, error_msgs
         # update total test cases status
         for i, (tc, _) in enumerate(self.total_test_cases):
             if tc in return_tests:
                 self.total_test_cases[i] = (tc, True)
         self.current_test_cases = [t[0] for t in self.total_test_cases if not t[1]][:self.batch_size]
+        self._last_batch_progress = {
+            "committed": sum(completed for _test, completed in self.total_test_cases),
+            "total": len(self.total_test_cases),
+            "batch_total": len(self.current_test_cases),
+            "executed": 0,
+            "passed": 0,
+            "failed": 0,
+            "validation": "pending" if self.current_test_cases else "passed",
+            "test_run": "not_run" if self.current_test_cases else "executed",
+        }
         if len(self.current_test_cases) == 0:
             return True, {"success": "Congratulations! All test cases have been implemented! Use tool `Complete to` finish this stage."}
         if is_complete:
@@ -1929,22 +2015,39 @@ class UnityChipCheckerTestCase(BaseUnityChipCheckerTestCase):
 
         # Basic validation: Check if tests exist
         if report.get("tests") is None:
-            info_runtest["error"] = ["[Test Execution Failed] No test cases found in the report.",
-                                     "[Possible Causes]",
-                                     "1. Test files are not named with 'test_' prefix",
-                                     "2. Test functions do not start with 'test_' or are missing the 'env' parameter",
-                                     "3. Import errors exist in test files",
-                                     "[Solution] Check STDOUT/STDERR output to locate the specific error. Ensure test cases are correctly defined (see Guide_Doc/dut_test_case.md)."]
+            info_runtest["error"] = {
+                "error": "[Test Report Missing] The test run produced no tests mapping.",
+                "observed": "report.tests is missing",
+                "required": (
+                    "The run must collect the intended test_*.py files and return a tests "
+                    "mapping with exact pytest node IDs and statuses."
+                ),
+                "next_action": (
+                    "Read the first concrete collection/import error in STDOUT/STDERR and "
+                    "fix that exact file and line. If no such error exists, rename the "
+                    "intended file/function to test_*, preserve its required fixture "
+                    "signature from Guide_Doc/dut_test_case.md, then rerun Check."
+                ),
+            }
             return False, info_runtest
         
         # Validate minimum test count requirement
         if report["tests"]["total"] < self.min_tests:
-            info_runtest["error"] = [f"[Insufficient Test Cases] Currently only {report['tests']['total']} test case(s), " +\
-                                     f"minimum requirement is {self.min_tests}.",
-                                       "[Solution]",
-                                       "1. Ensure all necessary test scenarios have been implemented",
-                                       "2. Test functions must be named with 'test_' prefix",
-                                       "3. Ensure each function group has adequate test coverage (see Guide_Doc/dut_test_case.md)"]
+            current_total = report["tests"]["total"]
+            info_runtest["error"] = {
+                "error": (
+                    f"[Insufficient Test Cases] Collected {current_total} test case(s); "
+                    f"the required minimum is {self.min_tests}."
+                ),
+                "observed": current_total,
+                "required": self.min_tests,
+                "next_action": (
+                    f"Add or restore at least {self.min_tests - current_total} meaningful "
+                    "test case(s) for the uncovered specification scenarios, ensure each "
+                    "file/function uses the test_* naming contract, then rerun Check. See "
+                    "Guide_Doc/dut_test_case.md."
+                ),
+            }
             return False, info_runtest
         
         # Parse documentation marks for validation

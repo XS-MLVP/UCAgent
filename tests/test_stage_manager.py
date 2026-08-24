@@ -22,9 +22,26 @@ if loaded_ucagent is not None and not loaded_ucagent_path.startswith(repo_packag
 
 import ucagent.stage.vmanager as vmanager
 from ucagent.stage.vstage import VerifyStage
-from ucagent.stage.vmanager import ArgsDoCheck, StageManager, ToolDoCheck, ToolDoComplete
+from ucagent.stage.vmanager import (
+    ArgsDoCheck,
+    StageManager,
+    ToolDoCheck,
+    ToolDoComplete,
+    ToolRunTestCases,
+)
 from ucagent.tools.uctool import to_fastmcp
 from ucagent.util import functions as fc
+
+
+def test_run_test_cases_contract_rejects_non_test_scripts():
+    description = ToolRunTestCases().description
+
+    assert "real pytest verification tests" in description
+    assert "not a Python script runner" in description
+    assert "temporary pytest test" in description
+    assert "maintenance script" in description
+    assert "file-editing tools" in description
+    assert "RunSkillScript" in description
 
 
 class _FakeStage:
@@ -580,7 +597,7 @@ def test_check_failure_summary_precedes_verbose_diagnostics():
                     "STDOUT": "verbose pytest output" * 5000,
                     "error": (
                         "[Test Association Missing] Toffee recorded 8 executed tests without "
-                        "checkpoint associations: test_ALU754_env_fixture.py::test_env_input."
+                        "checkpoint associations: test_Demo_env_fixture.py::test_env_input."
                     ),
                 },
             }]
@@ -599,8 +616,89 @@ def test_check_failure_summary_precedes_verbose_diagnostics():
     assert result["failure_summary"]["failed_checker_name"] == "test_check"
     assert result["failure_summary"]["failed_checker_class"] == "UnityChipCheckerTestCase"
     assert result["failure_summary"]["error_code"] == "TEST_ASSOCIATION_MISSING"
-    assert "test_ALU754_env_fixture.py::test_env_input" in result["failure_summary"]["error"]
+    assert "test_Demo_env_fixture.py::test_env_input" in result["failure_summary"]["error"]
     assert rendered.index("failure_summary:") < rendered.index("verbose pytest output")
+
+
+def test_check_reports_batch_advance_as_progress_not_failure():
+    class BatchStage:
+        name = "generate_random_test_cases"
+        is_batch_success = True
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "RandomTestCasesChecker",
+                "checker_name": "random_test_check",
+                "checker_class": "RandomTestCasesChecker",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": {
+                    "success": "The current batch completed.",
+                    "current_batch": [{"CK": "FG-A/FC-A/CK-NEXT"}],
+                },
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 3
+    manager.stages = [None] * 3 + [BatchStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda _data: pytest.fail(
+        "batch progress must not invoke failure suggestions"
+    )
+
+    result = manager.check(30)
+
+    assert result["check_pass"] is False
+    assert "failure_summary" not in result
+    assert result["progress_summary"]["status"] == "batch_advanced"
+    assert result["progress_summary"]["checker_name"] == "random_test_check"
+    assert result["progress_summary"]["progress"]["current_batch"] == [
+        {"CK": "FG-A/FC-A/CK-NEXT"}
+    ]
+    assert "not a validation failure" in result["progress_summary"]["diagnostic_note"]
+    assert "Do not redo the completed batch" in result["action"]
+    assert "check_info" not in result
+
+
+def test_complete_reports_batch_advance_as_progress_not_failure():
+    class BatchStage:
+        name = "batch_stage"
+        is_batch_success = True
+
+        @staticmethod
+        def do_check(**_kwargs):
+            return False, [{
+                "name": "BatchChecker",
+                "checker_name": "batch_check",
+                "checker_class": "BatchChecker",
+                "checked_in_last_run": True,
+                "last_check_pass": False,
+                "last_msg": {
+                    "success": "The current batch completed.",
+                    "current_batch": ["next-item"],
+                },
+            }]
+
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 1
+    manager.stages = [None, BatchStage()]
+    manager.last_check_info = None
+    manager.gen_fail_suggestion = lambda _data: pytest.fail(
+        "batch progress must not invoke failure suggestions"
+    )
+
+    result = manager.complete(30)
+
+    assert result["complete"] is False
+    assert result["check_pass"] is False
+    assert result["message"] == "The current batch passed. Continue with the next batch."
+    assert result["progress_summary"]["status"] == "batch_advanced"
+    assert result["progress_summary"]["progress"]["current_batch"] == [
+        "next-item"
+    ]
+    assert "failure_summary" not in result
+    assert "check_info" not in result
 
 
 def test_failure_summary_uses_current_run_not_historical_count_fail():
@@ -641,6 +739,40 @@ def test_compact_check_result_keeps_legacy_diagnostics():
     }
 
     assert StageManager._compact_check_result(legacy_result) is legacy_result
+
+
+def test_disabled_fail_suggestion_omits_duplicate_check_info():
+    manager = StageManager.__new__(StageManager)
+    manager.stage_index = 0
+    manager.stages = [
+        SimpleNamespace(
+            name="test_case_implementation_in_batch",
+            need_fail_llm_suggestion=False,
+        )
+    ]
+    manager.llm_fail_suggestion = None
+    raw_result = {
+        "failure_summary": {"error": "[Current Failure] repair this"},
+        "check_pass": False,
+        "action": "repair this",
+        "check_info": [
+            {
+                "last_msg": {
+                    "error": "[Current Failure] repair this",
+                    "STDOUT": "duplicate verbose output" * 100,
+                }
+            }
+        ],
+    }
+
+    compact = manager.gen_fail_suggestion(raw_result)
+
+    assert compact == {
+        "failure_summary": {"error": "[Current Failure] repair this"},
+        "check_pass": False,
+        "action": "repair this",
+    }
+    assert "check_info" not in compact
 
 
 def test_verify_stage_marks_only_current_checker_as_run():
