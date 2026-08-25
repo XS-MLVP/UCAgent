@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from ucagent.util.config import (
     save_runtime_config,
 )
 from ucagent.stage.vstage import VerifyStage
-from ucagent.tools.skill import _scan_skills
+from ucagent.tools.skill import RunSkillScript, _get_skill_script_env, _scan_skills
 from ucagent.util.functions import copytree_incremental
 
 
@@ -68,6 +69,7 @@ def test_agent_runtime_config_persists_resolved_values_from_cfg(tmp_path):
         "DUT": "Adder",
         "OUT": "unity_test",
         "test_output_dir": "custom_tests",
+        "ucagent_python_path": str(REPO_ROOT),
         "runtime_options": {
             "need_ref_model": True,
             "mock_components_enabled": False,
@@ -105,6 +107,7 @@ def test_template_script_reads_cfg_snapshot_instead_of_environment(
                 "DUT": "Adder",
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -133,6 +136,7 @@ def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
                 "schema_version": 1,
                 "DUT": "Adder",
                 "OUT": "unity_test",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": True,
@@ -143,6 +147,84 @@ def test_runtime_config_requires_resolved_test_output_dir(tmp_path):
     )
 
     with pytest.raises(ValueError, match="test_output_dir.*non-empty string"):
+        load_runtime_config(str(tmp_path))
+
+
+def test_runtime_config_requires_ucagent_python_path(tmp_path):
+    runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ucagent_python_path.*non-empty string"):
+        load_runtime_config(str(tmp_path))
+
+
+@pytest.mark.parametrize("invalid_path", ("relative/path", "/path/without/ucagent"))
+def test_runtime_config_rejects_invalid_ucagent_python_path(
+    tmp_path, invalid_path
+):
+    runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": invalid_path,
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ucagent_python_path"):
+        load_runtime_config(str(tmp_path))
+
+
+def test_runtime_config_rejects_different_ucagent_installation(tmp_path):
+    other_root = tmp_path / "other_install"
+    other_package = other_root / "ucagent"
+    other_package.mkdir(parents=True)
+    (other_package / "__init__.py").write_text("", encoding="utf-8")
+    runtime_path = tmp_path / ".ucagent" / "runtime_config.json"
+    runtime_path.parent.mkdir()
+    runtime_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "DUT": "Adder",
+                "OUT": "unity_test",
+                "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": str(other_root),
+                "runtime_options": {
+                    "need_ref_model": False,
+                    "mock_components_enabled": True,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not match the currently running"):
         load_runtime_config(str(tmp_path))
 
 
@@ -181,6 +263,75 @@ def test_runtime_config_excludes_unrelated_cfg_and_secrets(tmp_path):
     assert "must-not-be-exported" not in runtime_path.read_text(encoding="utf-8")
 
 
+def test_skill_script_environment_uses_runtime_ucagent_path(
+    tmp_path, monkeypatch
+):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+    save_runtime_config(str(tmp_path), cfg)
+    monkeypatch.setenv(
+        "PYTHONPATH",
+        os.pathsep.join(["/other/import/root", str(REPO_ROOT)]),
+    )
+    monkeypatch.setenv("DUT", "WrongDut")
+    monkeypatch.setenv("OUT", "wrong_output")
+
+    env = _get_skill_script_env(str(tmp_path))
+
+    assert env["PYTHONPATH"].split(os.pathsep) == [
+        str(REPO_ROOT),
+        "/other/import/root",
+    ]
+    assert env["DUT"] == "Adder"
+    assert env["OUT"] == "unity_test"
+
+
+def test_run_skill_script_imports_source_ucagent_without_external_pythonpath(
+    tmp_path, monkeypatch
+):
+    cfg = Config(
+        {
+            "runtime_options": {
+                "need_ref_model": False,
+                "mock_components_enabled": False,
+            },
+            "tools": {"RunTestCases": {"test_dir": "unity_test/tests"}},
+        }
+    )
+    cfg._temp_cfg = {"DUT": "Adder", "OUT": "unity_test"}
+    save_runtime_config(str(tmp_path), cfg)
+    copytree_incremental(
+        str(REPO_ROOT / "ucagent/lang/zh/skills"),
+        str(tmp_path / ".ucagent/skills"),
+        enable_skill_list=["unitytest/functions-and-checks"],
+    )
+    output_dir = tmp_path / "unity_test"
+    output_dir.mkdir()
+    target_doc = output_dir / "Adder_functions_and_checks.md"
+    target_doc.write_text(
+        "# Adder Functions and Checks\n\n## 功能点与检测点\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    result = RunSkillScript(workspace=str(tmp_path))._run([[
+        "unitytest/functions-and-checks",
+        "update.py",
+        "-MODE FG -ITEMS '[{\"fg\":\"FG-API\",\"desc\":\"API behavior.\"}]'",
+    ]])
+
+    assert result == "Inserted 1 FG item(s).\n"
+    assert "<FG-API>" in target_doc.read_text(encoding="utf-8")
+
+
 def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatch):
     module = _load_create_script()
     module.project_root = str(tmp_path)
@@ -193,6 +344,7 @@ def test_template_script_main_uses_workspace_runtime_config(tmp_path, monkeypatc
                 "DUT": "Adder",
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": True,
                     "mock_components_enabled": False,
@@ -508,6 +660,11 @@ def test_all_default_workflow_skills_keep_scripts_optional():
 
     assert "record_dynamic_bug.py" in skill_docs["dynamic-bug-recording"]
     assert "record_static_bug.py" in skill_docs["static-bug-analysis"]
+    assert "ucagent_python_path" in skill_docs["functions-and-checks"]
+    assert "python3 script" not in skill_docs["functions-and-checks"]
+    assert '["unitytest/functions-and-checks", "update.py"' in skill_docs[
+        "functions-and-checks"
+    ]
     assert "unitytest/dynamic-bug-recording" in skill_docs[
         "test-case-implementation-in-batch"
     ]

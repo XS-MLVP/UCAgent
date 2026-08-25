@@ -286,6 +286,7 @@ def test_dynamic_bug_record_script_main_writes_chinese_titles_from_runtime_sourc
                 "DUT": "Adder",
                 "OUT": "unity_test",
                 "test_output_dir": "custom_tc",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -582,6 +583,7 @@ def test_static_bug_record_script_uses_resolved_runtime_config(
                 "DUT": "Demo",
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,
@@ -669,6 +671,7 @@ def test_skill_path_loaders_use_resolved_runtime_config(
                 "DUT": "Demo",
                 "OUT": "unity_test",
                 "test_output_dir": "unity_test/tests",
+                "ucagent_python_path": str(REPO_ROOT),
                 "runtime_options": {
                     "need_ref_model": False,
                     "mock_components_enabled": False,

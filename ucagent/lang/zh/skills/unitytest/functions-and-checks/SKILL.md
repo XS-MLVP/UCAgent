@@ -135,8 +135,8 @@ CK 需要按“可验证场景”细分，通常可从以下维度拆：
 
 适用子阶段：`dut_function_grouping`
 
-```bash
-python3 script -MODE FG -ITEMS '[{"fg":"FG-API","title":"DUT测试API","desc":"提供DUT对外测试时需要使用的标准操作接口。"},{"fg":"FG-ARITHMETIC","title":"算术运算功能分组","desc":"包含加法、乘法、除法等核心算术运算能力。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE FG -ITEMS '[{\"fg\":\"FG-API\",\"title\":\"DUT测试API\",\"desc\":\"提供DUT对外测试时需要使用的标准操作接口。\"},{\"fg\":\"FG-ARITHMETIC\",\"title\":\"算术运算功能分组\",\"desc\":\"包含加法、乘法、除法等核心算术运算能力。\"}]'"]
 ```
 
 要求：
@@ -149,8 +149,8 @@ python3 script -MODE FG -ITEMS '[{"fg":"FG-API","title":"DUT测试API","desc":"�
 
 适用子阶段：`function_point_definition`
 
-```bash
-python3 script -MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{"fc":"FC-ADD","title":"加法运算","desc":"实现 IEEE 754 单精度浮点加法，覆盖正常值、特殊值以及异常边界。"},{"fc":"FC-MUL","title":"乘法运算","desc":"实现 IEEE 754 单精度浮点乘法，并检测溢出与下溢。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{\"fc\":\"FC-ADD\",\"title\":\"加法运算\",\"desc\":\"实现 IEEE 754 单精度浮点加法，覆盖正常值、特殊值以及异常边界。\"},{\"fc\":\"FC-MUL\",\"title\":\"乘法运算\",\"desc\":\"实现 IEEE 754 单精度浮点乘法，并检测溢出与下溢。\"}]'"]
 ```
 
 要求：
@@ -163,8 +163,8 @@ python3 script -MODE FC -FG 'FG-ARITHMETIC' -ITEMS '[{"fc":"FC-ADD","title":"加
 
 适用子阶段：`check_point_design`
 
-```bash
-python3 script -MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{"ck":"CK-ADD-NORMAL","desc":"规格化数加法：验证正数、负数以及异号数相加的结果正确性。"},{"ck":"CK-ADD-OVERFLOW","desc":"加法溢出：验证结果超出最大规格化数范围时 overflow 标志正确。"}]'
+```json
+["unitytest/functions-and-checks", "update.py", "-MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{\"ck\":\"CK-ADD-NORMAL\",\"desc\":\"规格化数加法：验证正数、负数以及异号数相加的结果正确性。\"},{\"ck\":\"CK-ADD-OVERFLOW\",\"desc\":\"加法溢出：验证结果超出最大规格化数范围时 overflow 标志正确。\"}]'"]
 ```
 
 要求：
@@ -185,7 +185,8 @@ python3 script -MODE CK -FG 'FG-ARITHMETIC' -FC 'FC-ADD' -ITEMS '[{"ck":"CK-ADD-
 
 ## 可选RunSkillScript使用说明
 
-- `script` 替换为 `update.py` 的路径
+- 把上面的三元组作为`RunSkillScript.commands`中的一项；脚本名固定为`update.py`，不要直接用shell或`python3`运行Skill脚本
+- `RunSkillScript`会读取`.ucagent/runtime_config.json`中的`ucagent_python_path`加载当前正在运行的UCAgent；源码方式启动时不要求额外安装`ucagent`
 - `-ITEMS` 参数值必须整体使用单引号包裹
 - 若一次批量调用中前几项成功、后续失败，应根据报错修正后重新执行失败那一批，不需要重复已经成功的工作
 - 完成当前子阶段写入后，继续执行阶段检查或推进下一子阶段

@@ -16,6 +16,7 @@ from pydantic import Field, BaseModel
 
 import subprocess
 from .uctool import UCTool, ArgsSchema, EmptyArgs
+from ucagent.util.config import load_runtime_config
 from ucagent.util.log import warning
 import ucagent.util.functions as fc
 
@@ -73,6 +74,22 @@ def _get_script_runner(workspace: str, script_path: str) -> str:
     if shutil.which(runner) is None:
         raise ValueError(f"Invalid runner for script '{script_file.name}': executable not found: {runner}")
     return runner
+
+
+def _get_skill_script_env(workspace: str) -> dict[str, str]:
+    """Build a subprocess environment from the resolved workspace snapshot."""
+    runtime_config = load_runtime_config(workspace)
+    import_root = runtime_config["ucagent_python_path"]
+    env = os.environ.copy()
+    existing_paths = env.get("PYTHONPATH", "").split(os.pathsep)
+    python_paths = [import_root]
+    python_paths.extend(
+        path for path in existing_paths if path and path != import_root
+    )
+    env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    env["DUT"] = runtime_config["DUT"]
+    env["OUT"] = runtime_config["OUT"]
+    return env
 
 
 def _validate_skill_name(name: str, directory_name: str) -> tuple[bool, str]:
@@ -433,9 +450,14 @@ class RunSkillScript(UCTool):
         skills = _list_skills(self.workspace)
         skill_by_path_name = {skill["name"]: skill for skill in skills}
 
-        env= os.environ.copy()
-        env["DUT"] = str(self.agent.cfg._temp_cfg["DUT"])
-        env["OUT"] = str(self.agent.cfg._temp_cfg["OUT"])
+        try:
+            env = _get_skill_script_env(self.workspace)
+        except (FileNotFoundError, TypeError, ValueError) as e:
+            return (
+                f"Cannot prepare the Skill script runtime: {e} "
+                "Restart UCAgent for this workspace to regenerate "
+                ".ucagent/runtime_config.json, then call `RunSkillScript` again."
+            )
         run_result=""
         for index, command in enumerate(commands, start=1):
             if len(command) != 3:

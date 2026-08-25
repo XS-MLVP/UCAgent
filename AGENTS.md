@@ -88,6 +88,12 @@ Important rules:
 - After template resolution, `VerifyAgent` writes the non-secret shared snapshot
   `<workspace>/.ucagent/runtime_config.json`. External scripts and other runtime
   consumers should use `load_runtime_config(workspace)`.
+- The runtime snapshot must include `ucagent_python_path`: an absolute Python
+  import root containing the exact running `ucagent` package. Derive it from the
+  loaded package location, not the current directory, repository name, an
+  environment variable, or an assumed installation layout. Validate that the
+  path contains `ucagent/__init__.py`; an absent, relative, or stale path must
+  fail with an instruction to restart UCAgent and regenerate the snapshot.
 - Keep secrets out of runtime snapshots, prompts, logs, checker results, and test
   fixtures. Never dump the full config because it can contain API keys/tokens.
 - When adding a runtime option, define a positive, unambiguous field under
@@ -288,6 +294,13 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Skill scripts execute with the DUT workspace as the current directory. Read
   resolved runtime configuration from `.ucagent/runtime_config.json`; do not
   reinterpret feature environment variables.
+- Python Skill scripts that import `ucagent` must run through `RunSkillScript`.
+  Before starting the child process, `RunSkillScript` must load
+  `ucagent_python_path` from `.ucagent/runtime_config.json`, place it first in
+  the child `PYTHONPATH` without duplicating it, and preserve other import paths.
+  This contract must work both for an installed package and direct source-tree
+  execution; do not require a separate UCAgent installation or infer the source
+  root from the copied Skill script's location.
 - A nonempty `scripts/__init__.py` can install `setup_vstage` hooks. Avoid hidden
   import-time side effects and make hooks idempotent.
 - Skills are copied into a workspace at agent initialization. Source changes do

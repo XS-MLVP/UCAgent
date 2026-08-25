@@ -433,6 +433,30 @@ hmcheck_set 24 true   # 10.1 分批测试用例实现与对应bug分析
 - 重要：列表类型（如 `stage` 列表）在合并时是“整体替换”，不是元素级合并；因此要“增删改”阶段，需要把默认的 `stage` 列表复制到你的项目 `config.yaml`，在此基础上编辑。
 - 临时不执行某阶段：优先使用 CLI `--skip` 跳过该索引；持久跳过可在你的 `config.yaml` 中把该阶段条目的 `skip: true` 写上（同样需要提供完整的 stage 列表）。
 
+### 运行时配置快照
+
+完成配置加载和模板解析后，UCAgent 会在 DUT 工作区写入
+`.ucagent/runtime_config.json`。这是提供给 Skill 脚本和其他工作区运行时消费者的
+非敏感、已解析配置快照；运行时消费者应通过
+`ucagent.util.config.load_runtime_config(workspace)`读取，不应重新解释原始环境变量。
+
+当前快照的必要字段包括：
+
+| 字段 | 类型 | 含义 |
+| ---- | ---- | ---- |
+| `schema_version` | integer | 快照格式版本 |
+| `DUT` | string | 已解析的 DUT 名称 |
+| `OUT` | string | 已解析的输出目录 |
+| `test_output_dir` | string | `RunTestCases`实际使用的 TC 输出目录 |
+| `ucagent_python_path` | string | 包含当前正在运行的`ucagent`包的绝对 Python import root |
+| `runtime_options` | object | 已解析且允许共享的非敏感运行选项 |
+
+`ucagent_python_path`由当前已加载的 UCAgent 包位置生成。源码目录直接运行时，它指向
+源码仓库的 import root；安装包运行时，它指向包含该包的安装目录。`RunSkillScript`
+启动 Skill 子进程前会读取该字段并放到子进程`PYTHONPATH`首位，因此 Skill 无需另外
+安装 UCAgent，也不得从 Skill 文件所在目录反推源码位置。路径缺失、不是绝对路径或
+不再包含`ucagent/__init__.py`时，应重启当前工作区的 UCAgent 以重新生成快照。
+
 ### 增加阶段
 
 - 需求：在“全面验证执行”之后新增一个“静态检查与 Lint 报告”阶段，要求生成 `<OUT>/{DUT}_lint_report.md` 并做格式检查。

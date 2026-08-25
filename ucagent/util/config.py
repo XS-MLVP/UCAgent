@@ -30,6 +30,11 @@ REQUIRED_RUNTIME_BOOL_OPTIONS = (
 )
 
 
+def _current_ucagent_python_path() -> Path:
+    """Return the import root containing this loaded UCAgent package."""
+    return Path(__file__).resolve().parents[2]
+
+
 class UCAgentConfigLoader(yaml.SafeLoader):
     """Safe YAML loader with support for negated boolean scalars."""
 
@@ -549,12 +554,18 @@ def build_runtime_config(cfg: Config) -> Dict[str, Any]:
             "Resolved configuration value 'tools.RunTestCases.test_dir' must be a "
             "non-empty string."
         )
+    ucagent_python_path = str(_current_ucagent_python_path())
+    if not (Path(ucagent_python_path) / "ucagent" / "__init__.py").is_file():
+        raise ValueError(
+            "Cannot resolve the current UCAgent Python import path."
+        )
 
     return {
         "schema_version": 1,
         "DUT": dut,
         "OUT": output,
         "test_output_dir": test_output_dir,
+        "ucagent_python_path": ucagent_python_path,
         "runtime_options": runtime_options,
     }
 
@@ -575,6 +586,30 @@ def validate_runtime_config(data: Any) -> Dict[str, Any]:
     ].strip():
         raise ValueError(
             "Resolved runtime config value 'test_output_dir' must be a non-empty string."
+        )
+    ucagent_python_path = data.get("ucagent_python_path")
+    if not isinstance(ucagent_python_path, str) or not ucagent_python_path.strip():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' must be a "
+            "non-empty string."
+        )
+    import_root = Path(ucagent_python_path)
+    if not import_root.is_absolute():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' must be an "
+            "absolute path."
+        )
+    if not (import_root / "ucagent" / "__init__.py").is_file():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' does not contain "
+            "an importable ucagent package. Restart UCAgent for this workspace to "
+            "regenerate .ucagent/runtime_config.json."
+        )
+    if import_root.resolve() != _current_ucagent_python_path():
+        raise ValueError(
+            "Resolved runtime config value 'ucagent_python_path' does not match the "
+            "currently running UCAgent package. Restart UCAgent for this workspace "
+            "to regenerate .ucagent/runtime_config.json."
         )
 
     runtime_options = data.get("runtime_options")
