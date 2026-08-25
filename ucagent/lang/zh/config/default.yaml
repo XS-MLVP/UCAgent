@@ -66,7 +66,7 @@ mission:
       - 按步骤有序进行，每步完成后用`Complete`工具进入下一个阶段
       - 你会根据`CurrentTips`的要求完成该阶段的所有任务，不会提前进行后续阶段的工作，例如编写测试用例
       - 各stage相互独立；进入当前stage后，必须逐一用`ReadTextFile`读取其`reference_files`。即使已有文件内容也要重新调用，可用`count=1`轻量复核，或用`count=0`仅登记已读而不返回正文
-      - Skill与其中的脚本只是可选的批量辅助。当前环境未提供Skill或不能执行脚本时，必须继续按当前stage的task和reference_files，使用内置文件工具直接完成产物：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因缺少Skill暂停、跳过或降低任务标准
+      - Skill启用时，当前stage的`skill_list`默认是必须遵循的方法：先用`ListSkill`列出、用`ReadTextFile`读取对应`SKILL.md`，按其中方法完成任务，并在`Complete`前用`SetSkillUsage`记录；只有该stage显式设置`force_use_skill: false`时才可选。`general_skill_list`中的通用Skill始终可选。Skill脚本是否必须以对应`SKILL.md`为准，不能把“脚本可选”误解为整个Skill可跳过。Skill整体禁用（此时工作区可以没有`.ucagent/skills`）或stage显式设为可选时，仍须按当前stage的task和reference_files，使用内置文件工具完成同一产物与验收标准：创建或覆盖完整文件只调用`EditTextFile(path, content)`，追加时才传`append=true`；已有文件的少量局部修改只调用`ReplaceStringInFile(path, old_string, new_string)`，需要限定搜索范围时加`line_blocks=[[start, end], ...]`，默认搜索全文。只有需要删除大量完整文本行时，才先用`ReadTextFile`确认当前行号和SHA-256，再调用一次`DeleteTextLines(path, line_blocks, expected_sha256)`删除全部旧行块，重新读取缩短后的文件后用`ReplaceStringInFile`完成精确编辑或插入；不得用它处理少量修改。不要混用参数，也不要改用Python或shell绕过文件工具。完成后以Check/Complete反馈校验；不得因Skill整体禁用而暂停、跳过或降低任务标准
       - `RunTestCases`只运行已有的真实pytest验证用例，不是任意Python执行器，也不是文档编辑工具。禁止为了修改、迁移或批量填充产物而创建临时Python脚本或伪pytest用例并交给`RunTestCases`；文档重复文本必须用`ReplaceStringInFile`配合只覆盖当前阻塞位置的`line_blocks=[[start, end]]`逐处精确修改，已声明的Skill脚本只能用`RunSkillScript`执行
       - 每个Fail TC都不预设责任方。进入WaveInfo、创建或更新非零BG、引用静态候选之前，必须先完成验证正确性分类；静态候选、已有断言、模板注释和可疑RTL都不能代替该分类
       - 测试结果的完成判定不是“所有真实DUT测试必须Pass”，而是：除已确认DUT Bug的复现用例外，其他用例全部Pass；所有保留的Fail都必须由正确测试稳定触发DUT设计缺陷，并完成非零置信度动态Bug记录、CK关联、源码根因分析和真实WaveInfo波形确认
@@ -159,9 +159,9 @@ mission:
     skill_system: |
 
       **技能系统:**
-      - 有以下通用技能供全阶段使用,当任务描述与技能description相匹配时,优先阅读并使用技能来完成任务:
+      - 有以下通用技能供全阶段按需使用；它们始终可选，不属于当前stage的强制`skill_list`。当任务描述与技能description相匹配时，优先阅读并使用:
       {general_skill_list}
-      - 若本阶段使用了任意技能,则在计划通过Complete工具推进到下一个阶段前,使用工具`SetSkillUsage`检查并记录技能的使用情况,`SetSkillUsage`要早于`SetCurrentStageJournal`，因为技能的使用将影响阶段的完成情况。
+      - `CurrentTips`列出的当前stage专用Skill默认必须使用，除非该stage显式设置`force_use_skill: false`。先`ListSkill`、再读取每个专用Skill的`SKILL.md`并遵循其方法；在通过Complete推进前使用`SetSkillUsage`记录全部专用Skill的list/read/use状态。`SetSkillUsage`要早于`SetCurrentStageJournal`。
 
 
 mcp_server:
@@ -234,8 +234,8 @@ stage:
       - "参考Guide_Doc/dut_functions_and_checks.md了解标准格式"
     skill_list:
       - "unitytest/functions-and-checks"
-    # set `force_use_skill` to True to force UCAgent to use the skill in skill_list
-    # force_use_skill: True
+    # skill_list is required by default when Skill support is enabled.
+    # Set `force_use_skill: false` only when this stage's Skills should be optional.
     reference_files:
       - "Guide_Doc/dut_functions_and_checks.md"
       - "{DUT}/*.md"
@@ -993,6 +993,8 @@ stage:
           bug_file: "{OUT}/{DUT}_bug_analysis.md"
           test_dir: "{OUT}/tests"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    skill_list:
+      - "unitytest/dynamic-bug-recording"
     reference_files:
       - "Guide_Doc/dut_api_instruction.md"
       - "Guide_Doc/dut_bug_analysis.md"
@@ -1229,6 +1231,8 @@ stage:
       - "{OUT}/{DUT}_functions_and_checks.md"
       - "Guide_Doc/dut_test_case.md"
       - "Guide_Doc/dut_bug_analysis.md"
+    skill_list:
+      - "unitytest/dynamic-bug-recording"
     checker:
       - name: no_conftest_file
         clss: FilesMustNotExist
@@ -1442,6 +1446,8 @@ stage:
           args_test_func_prefix: "test_random_"
           args_error_msg: "第一个参数必须为env，第二个参数必须ref_model"
     need_human_check: false # 验证复杂DUT时建议开启该人工检查
+    skill_list:
+      - "unitytest/dynamic-bug-recording"
     output_files:
       - "{OUT}/tests/test_{DUT}_random*.py"
     reference_files:
@@ -1475,6 +1481,8 @@ stage:
       - "Guide_Doc/dut_bug_analysis.md"
       - "Guide_Doc/dut_test_summary.md"
       - "{OUT}/{DUT}_static_bug_analysis.md"
+    skill_list:
+      - "unitytest/dynamic-bug-recording"
     output_files:
       - "{OUT}/{DUT}_test_summary.md"
     checker:

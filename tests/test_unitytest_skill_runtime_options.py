@@ -19,7 +19,7 @@ from ucagent.util.config import (
     load_yaml_with_env_vars,
     save_runtime_config,
 )
-from ucagent.stage.vstage import VerifyStage
+from ucagent.stage.vstage import VerifyStage, parse_vstage
 from ucagent.tools.skill import RunSkillScript, _get_skill_script_env, _scan_skills
 from ucagent.util.functions import copytree_incremental
 
@@ -540,7 +540,7 @@ def test_unitytest_skills_document_fixture_boundaries():
     assert "CMD API" not in static_skill
 
 
-def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
+def test_default_workflow_requires_stage_skills_by_default(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("NEED_REF_MODEL", "false")
     monkeypatch.setenv("IGNORE_MOCK_COMPONENT", "true")
@@ -550,7 +550,9 @@ def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
 
     assert cfg.skill.use_skill is True
     assert cfg.launch.default_args.use_skill is True
-    assert "Skill与其中的脚本只是可选的批量辅助" in config["mission"]["prompt"]["system"]
+    assert "当前stage的`skill_list`默认是必须遵循的方法" in config["mission"]["prompt"]["system"]
+    assert "`general_skill_list`中的通用Skill始终可选" in config["mission"]["prompt"]["system"]
+    assert "不能把“脚本可选”误解为整个Skill可跳过" in config["mission"]["prompt"]["system"]
     assert "只有需要删除大量完整文本行时" in config["mission"]["prompt"]["system"]
     assert (
         "DeleteTextLines(path, line_blocks, expected_sha256)"
@@ -561,7 +563,7 @@ def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
         in config["mission"]["prompt"]["system"]
     )
     assert all(
-        stage.get("force_use_skill") is not True
+        "force_use_skill" not in stage
         for stage in _iter_stages(config["stage"])
     )
 
@@ -597,6 +599,107 @@ def test_default_workflow_enables_optional_skills(tmp_path, monkeypatch):
     assert stages["static_bug_validation"]["skill_list"] == [
         "unitytest/static-bug-validation"
     ]
+    for stage_name in (
+        "basic_api_functional_test",
+        "refine_test_cases_based_on_functional_points",
+        "generate_random_test_cases",
+        "verification_review_and_summary",
+    ):
+        assert stages[stage_name]["skill_list"] == [
+            "unitytest/dynamic-bug-recording"
+        ]
+
+
+def test_stage_force_use_skill_defaults_true_and_allows_explicit_opt_out(tmp_path):
+    cfg = Config({
+        "skill": {"use_skill": False},
+        "hist_ignore_pattern": [],
+        "stage": [
+            {
+                "name": "required_by_default",
+                "desc": "required",
+                "task": [],
+                "skill_list": ["unitytest/not-copied"],
+            },
+            {
+                "name": "explicitly_optional",
+                "desc": "optional",
+                "task": [],
+                "skill_list": ["unitytest/not-copied"],
+                "force_use_skill": False,
+            },
+        ],
+    })
+    cfg._temp_cfg = {"OUT": "unity_test"}
+
+    stages = parse_vstage(cfg, cfg.stage, str(tmp_path), None)
+
+    assert [(stage.name, stage.force_use_skill) for stage in stages] == [
+        ("required_by_default", True),
+        ("explicitly_optional", False),
+    ]
+    assert all(stage.skill_list == {} for stage in stages)
+
+
+@pytest.mark.parametrize("invalid_value", (None, "false", 0))
+def test_stage_force_use_skill_rejects_non_boolean_values(tmp_path, invalid_value):
+    cfg = Config({
+        "skill": {"use_skill": False},
+        "hist_ignore_pattern": [],
+        "stage": [{
+            "name": "invalid_force_value",
+            "desc": "invalid",
+            "task": [],
+            "force_use_skill": invalid_value,
+        }],
+    })
+    cfg._temp_cfg = {"OUT": "unity_test"}
+
+    with pytest.raises(ValueError, match="force_use_skill must be a boolean"):
+        parse_vstage(cfg, cfg.stage, str(tmp_path), None)
+
+
+def test_enabled_stage_skill_default_blocks_complete_but_explicit_opt_out_does_not(
+    tmp_path,
+):
+    skill_dir = tmp_path / ".ucagent" / "skills" / "unitytest" / "example"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: example\ndescription: example method\n---\n\n# Example\n",
+        encoding="utf-8",
+    )
+    cfg = Config({
+        "skill": {"use_skill": True},
+        "hist_ignore_pattern": [],
+        "stage": [
+            {
+                "name": "required_by_default",
+                "desc": "required",
+                "task": [],
+                "skill_list": ["unitytest/example"],
+            },
+            {
+                "name": "explicitly_optional",
+                "desc": "optional",
+                "task": [],
+                "skill_list": ["unitytest/example"],
+                "force_use_skill": False,
+            },
+        ],
+    })
+    cfg._temp_cfg = {"OUT": "unity_test"}
+    required_stage, optional_stage = parse_vstage(
+        cfg, cfg.stage, str(tmp_path), None
+    )
+
+    required_passed, required_info = required_stage._do_check(is_complete=True)
+    optional_passed, _optional_info = optional_stage._do_check(is_complete=True)
+
+    assert required_passed is False
+    assert required_info[0]["last_msg"]["diagnostic"]["error_code"] == (
+        "SKILL_USAGE_INCOMPLETE"
+    )
+    assert optional_passed is True
 
 
 def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
@@ -619,6 +722,9 @@ def test_disabled_skills_do_not_require_copied_skill_files(tmp_path):
     )
 
     assert stage.skill_list == {}
+    assert stage.force_use_skill is True
+    passed, _check_info = stage._do_check(is_complete=True)
+    assert passed is True
 
 
 def test_all_default_workflow_skills_keep_scripts_optional():

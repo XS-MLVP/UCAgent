@@ -31,14 +31,15 @@ UCAgent 中的技能由以下几部分组成：
 
 - `SKILL.md` 不会在启动时全部自动加载进上下文
 - UCAgent 通常先通过 `ListSkill` 了解当前可用技能，再通过 `ReadTextFile` 读取某个技能的 `SKILL.md`
-- 阶段中的 `skill_list` 默认只提供可选技能；只有同时设置 `force_use_skill: true`，才会强制要求使用其中的技能
+- 技能启用时，阶段 `skill_list` 中的专用技能默认必须使用；只有该阶段显式设置 `force_use_skill: false` 时才可选
+- `general_skill_list` 中的通用技能始终可选，不会进入阶段的强制使用校验
 
 ## 为什么使用技能
 
 - 稳定性更高：相比于工作流,技能能够对阶段行为进行更为详细的描述,以及通过定制化脚本,稳定执行流程较为固定的复杂操作,提高文档编辑相关操作的正确性
 - 上下文更省：通过`渐进式加载`机制,只有在需要时才加载完整的技能信息
 - 复用性更强：同一个技能目录可以在多个任务中重复使用
-- 可约束执行：对于必须遵循固定步骤的任务，可以通过阶段配置强制使用技能
+- 可约束执行：阶段专用技能默认要求遵循；仅在确实适合可选使用时通过阶段配置显式关闭强制校验
 
 ## 技能目录结构
 
@@ -222,7 +223,7 @@ skill:
 
 ## 阶段级技能配置
 
-可在工作流阶段配置 `skill_list` 和 `force_use_skill` 参数。`skill_list` 声明本阶段可用的技能，默认不强制使用；只有 `force_use_skill: true` 才声明本阶段必须使用这些技能。
+可在工作流阶段配置 `skill_list` 和 `force_use_skill` 参数。技能启用时，`skill_list` 声明本阶段专用且默认必须使用的技能；只有显式设置 `force_use_skill: false`，才把该阶段的专用技能改为可选。`general_skill_list` 是独立的全阶段通用技能集合，始终可选。
 
 示例：
 
@@ -231,16 +232,16 @@ stages:
   - name: example-stage
     skill_list:
       - "unitytest/static-bug-analysis"
-    force_use_skill: True
 ```
 
 含义：
 
-- 当前阶段可使用 `unitytest/static-bug-analysis` 技能
-- `force_use_skill: true` 表示必须使用该技能，并在 `Complete` 前通过技能使用记录校验
-- `force_use_skill` 默认为 `false`；此时未读取或未使用 `skill_list` 中的技能不会阻断 `Check` 或 `Complete`
+- 当前阶段必须使用 `unitytest/static-bug-analysis` 技能，并在 `Complete` 前通过技能使用记录校验
+- `force_use_skill` 默认为 `true`，通常无需显式填写
+- 若要让当前阶段的 `skill_list` 可选，显式设置 `force_use_skill: false`；此时未读取或未使用这些技能不会阻断 `Check` 或 `Complete`
+- `general_skill_list` 不受 `force_use_skill` 影响，始终不会阻断阶段
 
-如果阶段配置了 `skill_list`，且 `force_use_skill` 参数为 True，但通过 `--no-use-skill` 或配置关闭了技能，则会报错。
+通过 `--no-use-skill` 或配置关闭技能时，所有阶段 Skill 使用门禁均不生效，工作流不会因 `skill_list` 或其默认值而报错。阶段仍须通过 task、Guide_Doc、内置工具和 Checker 完成同一任务与验收标准。
 
 ## 技能使用流程
 
@@ -251,7 +252,7 @@ stages:
 3. 使用 `ReadTextFile` 读取目标技能的 `SKILL.md`
 4. 按 `SKILL.md` 中的方法完成任务
 5. 如技能要求脚本，使用 `RunSkillScript` 执行对应命令
-6. 若实际使用了可选技能，可用 `SetSkillUsage` 记录使用情况；若阶段设置了 `force_use_skill: true`，则必须在 `Complete` 前用 `SetSkillUsage` 记录全部必需技能的完整使用情况
+6. 对默认强制的阶段专用技能，必须在 `Complete` 前用 `SetSkillUsage` 记录全部必需技能的完整使用情况；显式设为可选的阶段技能可在实际使用后记录，通用技能不进入强制校验
 
 对于强制技能，通常至少要满足三件事：
 
@@ -307,11 +308,11 @@ stages:
 
 用途：
 
-- 记录本阶段的技能使用情况；对于 `force_use_skill: true` 的阶段，在 `Complete` 前校验全部必需技能
+- 记录本阶段专用技能的使用情况；除非阶段显式设置 `force_use_skill: false`，否则在 `Complete` 前校验全部专用技能
 
 适用场景：
 
-- 当前阶段配置了 `skill_list`，并且实际使用了可选技能或需要满足强制技能要求
+- 当前阶段配置了 `skill_list`，需要满足默认强制要求，或实际使用了显式设为可选的阶段技能
 
 需要提交的三个维度：
 
@@ -334,7 +335,7 @@ stages:
 }
 ```
 
-普通 `skill_list` 中的技能未使用时不会阻断阶段。只有 `force_use_skill: true` 时，其中任一技能未满足这三项要求才会阻断 `Complete`；中间的 `Check` 仍可正常推进批次和校验工作。
+技能启用时，`skill_list` 中任一技能未满足这三项要求都会阻断 `Complete`，除非该阶段显式设置 `force_use_skill: false`。中间的 `Check` 仍可正常推进批次和校验工作。`general_skill_list` 始终可选；技能整体禁用时，阶段 Skill 门禁不生效。
 
 ## 常见注意事项
 

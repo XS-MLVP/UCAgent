@@ -246,7 +246,7 @@ skill:
   max_skill_list_count: 15  # max number of skills to list
   enable_skill_list: [] # skills can be used, if empty, all skills are enabled
   disable_skill_list: [] # skills that are not able to use, if empty, all skills are enabled
-  general_skill_list: [] # skills that are general to use for all stage
+  general_skill_list: [] # optional general skills available to every stage; never forced
 
 # This is the setting for conversation summary
 # Automatic compression starts when either enabled limit is exceeded.

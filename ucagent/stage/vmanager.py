@@ -149,7 +149,7 @@ class ToolSetSkillUsage(ManagerTool):
     description: str = (
         "Record usage of Skills available to the current stage. \n"
         "Analyze the conversation history and check usage of the skills specified in skill_list (if skills beyond the specified list were also used, analyze them as well).\n"
-        "Skills are optional unless the current stage explicitly marks them as required. For a required Skill, all three fields must be true before Complete; optional Skill non-use does not block Check or Complete.\n"
+        "Skills in the current stage's skill_list are required by default unless that stage explicitly sets force_use_skill=false. General Skills remain optional and are never part of this required set. For a required Skill, all three fields must be true before Complete; optional Skill non-use does not block Check or Complete.\n"
         "For each skill, analyze the following aspects:\n"
         "1. **list**: Whether the name and description of skill was listed in histoty context\n"
         "2. **read**: Whether the SKILL.md of skill was read by using tool `ReadTextFile`\n"
@@ -876,7 +876,7 @@ class StageManager(object):
         if not current_stage.skill_list:
             return "No stage-specific Skill usage needs to be recorded."
 
-        force_use_skill = bool(getattr(current_stage, "force_use_skill", False))
+        force_use_skill = bool(getattr(current_stage, "force_use_skill", True))
         for skill_name in current_stage.skill_list:
             skill_info = skill_usage.get(skill_name)
             if skill_info is None:

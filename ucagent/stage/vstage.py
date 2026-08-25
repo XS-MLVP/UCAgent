@@ -44,7 +44,7 @@ class VerifyStage(object):
                  reference_files,
                  skill_list,
                  output_files,
-                 force_use_skill=False,
+                 force_use_skill=True,
                  prefix = "",
                  skip=False,
                  tool_read_text=None,
@@ -60,6 +60,10 @@ class VerifyStage(object):
         """
         self.cfg = cfg
         self.name = name
+        if not isinstance(force_use_skill, bool):
+            raise ValueError(
+                f"Stage '{self.name}' force_use_skill must be a boolean."
+            )
         self.prefix = prefix
         self.skip = skip
         self.need_fail_llm_suggestion = need_fail_llm_suggestion
@@ -123,9 +127,6 @@ class VerifyStage(object):
         self.hist_tgt_dir = os.path.join(self.hist_sav_dir, self.hist_src_dir)
         self.hist_ign_list = cfg.hist_ignore_pattern
         self.append_on_complete_callback(self._sync_workspace_back_on_complete)
-
-        if not self.cfg.skill.use_skill and skill_list and force_use_skill:
-            raise ValueError(f"Enable the arg(--use-skill) to use skill, or remove the skill_list and force_use_skill specified in stage '{self.name}'.")
 
     def meta_set_journal(self, journal):
         self.meta_data['journal'] = copy.deepcopy(journal)
@@ -754,7 +755,7 @@ class VerifyStage(object):
         if not (
             is_complete
             and self.cfg.skill.use_skill
-            and getattr(self, "force_use_skill", False)
+            and getattr(self, "force_use_skill", True)
             and self.skill_list
         ):
             return None
@@ -1114,7 +1115,7 @@ def parse_vstage(root_cfg, cfg, workspace, tool_read_text, prefix=""):
         output_files = stage.get_value('output_files', [])
         reference_files = stage.get_value('reference_files', [])
         skill_list = stage.get_value('skill_list', [])
-        force_use_skill = stage.get_value('force_use_skill', False)
+        force_use_skill = stage.get_value('force_use_skill', True)
         skip = stage.get_value('skip', False)
         ignore = stage.get_value('ignore', False)
         need_fail_llm_suggestion=stage.get_value('need_fail_llm_suggestion', None)

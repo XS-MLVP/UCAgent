@@ -133,6 +133,21 @@ Follow these rules when implementing checkers:
   change behavior. It may be called repeatedly while rendering descriptions.
 - `do_check(is_complete=False, **kwargs)` performs live validation and returns
   `(bool, str|dict|list)`. Prefer structured, concise, actionable diagnostics.
+- A Checker owns failure diagnosis. When a failure can be repaired
+  deterministically, return an explicit diagnostic mapping containing at least
+  `error_code`, `error`, and `next_action`, plus bounded `observed`, `expected`,
+  artifact, and location fields where useful. The bounded Checker result may be
+  the diagnostic itself; when the result also carries raw output, put the
+  bounded mapping under `diagnostic`. Stage management may project this contract
+  into `failure_summary` and add stage/Checker identity metadata, but must
+  preserve all Checker-authored diagnostic fields and must not infer or
+  synthesize a summary from ordinary `error`, `details`, `STDOUT`, or `STDERR`
+  fields.
+- When a Checker does not provide a complete explicit diagnostic, Check and
+  Complete must preserve its entire original result. The reserved boolean
+  `stage_args.full_output` requests the original result even when an explicit
+  diagnostic normally permits compact output; consume this field before
+  dispatching the remaining stage arguments to Checkers.
 - Every overridden `do_check` must have a meaningful docstring. `Checker.__str__`
   asserts that this description exists during stage-info generation.
 - A failed checker must explain the exact failing artifact, the relevant current
@@ -288,10 +303,13 @@ results, runtime `Guide_Doc`, templates, and skill instructions.
 - Any requirement to invoke a skill or validate skill-use evidence must be
   conditional on the resolved skill setting. It must not block Check or Complete
   when skills are disabled.
-- A stage-level `skill_list` advertises optional guidance by default. Only an
-  explicit `force_use_skill: true` may require complete Skill usage evidence,
-  and that evidence gate applies to `Complete`, not intermediate `Check` calls.
-  A forced gate failure must identify each Skill and its current
+- When Skill support is enabled, a stage-level `skill_list` requires complete
+  Skill usage evidence by default. An explicit `force_use_skill: false` makes
+  that stage's Skills optional. `general_skill_list` entries are always optional
+  and never enter the stage requirement. The evidence gate applies to
+  `Complete`, not intermediate `Check` calls. When Skill support is disabled,
+  the gate is inactive even if a stage declares `skill_list`. A forced gate
+  failure must identify each Skill and its current
   `listed`/`read`/`used` state, plus the exact `SetSkillUsage` call to make after
   performing any missing actions.
 - Skill directories require `SKILL.md` with valid `name` and `description`
